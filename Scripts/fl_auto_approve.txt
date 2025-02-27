@@ -1,0 +1,41 @@
+Set #handle FindWindow (Last War-Survival Game)
+set windowpos -1900 0 1796 1154 #handle
+set workwindow #handle
+set $timeout1 0
+set $timeout2 0
+set #waitqueue 3 * 60 * 1000
+:start
+
+
+call close_profile
+call close_like
+
+call open_ministry_if_request
+
+if 678, 124 5608025
+
+  repeat 3
+  //call checkmin 638, 440 // FL
+    call checkmin 825 440  // STRATEGY
+    call checkmin 1011 440 // DEFENCE
+
+    if $timeout1 = 0 or timer1 > #waitqueue
+      call checkmin 638 680 // CONSTRUCTION
+      set $timeout1 $checkmin
+      set timer1
+    end_if
+
+
+    if $timeout2 = 0 or timer2 > #waitqueue
+      call checkmin 825 680 // SIENCY
+      set $timeout2 $checkmin
+      set timer2
+    end_if
+
+
+    call checkmin 1011 680 //
+  end_repeat
+
+end_if
+
+goto start
