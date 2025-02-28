@@ -1,19 +1,25 @@
 proc pull
-  set linedelay 20
-  set #offsetx random (50)
-  set #offsety random (50)
-  set #x 779 + #offsetx
-  set #y 257 + #offsety
-  move_smooth #x, #y
-  kleft_down #x, #y
-  move_smooth  863, 932
-  kleft_up 863, 932
-  kleft_up 863, 932
-  set linedelay 100
+  if 621, 170 16054013 and 1151, 176 16054013
+    set linedelay 20
+    set #offsetx random (50)
+    set #offsety random (50)
+    set #x 779 + #offsetx
+    set #y 257 + #offsety
+    move_smooth #x, #y
+    kleft_down #x, #y
+    move_smooth  863, 932
+    kleft_up 863, 932
+    kleft_up 863, 932
+    set linedelay 100
+  end_if
 end_proc
 
 proc pull_list
+  set timer
   while_not 1012, 232 8617353 and 1049, 279 12894420
+    if timer > 30000
+      break
+    end_if
     kleft_up 676, 180
     repeat 2
       call pull
@@ -22,23 +28,31 @@ proc pull_list
   end_while
 end_proc
 
+proc open_request_list
+  if_not 1134, 922 16777215
+    kleft 1138, 924
+    wait 300
+  end_if
+end_proc
+
+proc click_approve_button
+  kleft 1031, 239
+  wait 200
+end_proc
+
 proc approve
   set $result 0
   if_not 1046, 489 3286570 and 1043, 495 14408931
 
-    if_not 1134, 922 16777215
-      kleft 1138, 924
-      wait 300
-    end_if
-
+    call open_request_list
     call pull_list
-    if 1149, 235 14144488
+
+     if 1149, 235 14144488
       repeat 10
         if_not 1149, 235 14144488
           break
         end_if
-        kleft 1031, 239
-        wait 200
+        call click_approve_button
       end_repeat
     end_if
 
@@ -48,16 +62,15 @@ proc approve
   else
       set $result 1
   end_if
-  call close
+  call close_list_popup
 end_proc
 
-proc close
+proc close_list_popup
   while 1154, 114 16777215
     kleft 1154, 114
     wait 100
   end_while
 end_proc
-
 
 proc checkmin #x #y
   set linedelay 0
@@ -87,11 +100,7 @@ proc closemin
       wait 100
     end_if
 
-// Убрать сообщение лайка
-    if 947, 832 16765462
-      kleft 947, 832
-      wait 100
-    end_if
+  call close_like
 
     if 1161, 111 16777215
       kleft 1161, 111
@@ -126,9 +135,47 @@ proc click_server_in_prifile
 end_proc
 
 proc open_ministry_if_request
-  if 30, 18 3745271 3745274
+  if 30, 18 3745271 3745783
     call click_profile
     call close_like
     call click_server_in_prifile
+  end_if
+end_proc
+
+proc check_vice_president
+  call checkmin 638, 440
+end_proc
+
+proc check_strategy
+  call checkmin 825 440
+end_proc
+
+proc check_security
+  call checkmin 1011 440
+end_proc
+
+proc check_development
+  call checkmin 638 680
+  set $result $checkmin
+end_proc
+
+proc check_science
+  call checkmin 825 680
+  set $result $checkmin
+end_proc
+
+proc check_interior
+  call checkmin 1011 680
+end_proc
+
+proc close_ministry
+  if 611, 1058 16777215
+    kleft 611, 1058
+  end_if
+end_proc
+
+proc remove_building_focus
+  if_not 1769, 1046 13739817
+    kleft 1633, 28
   end_if
 end_proc
