@@ -1,17 +1,59 @@
-proc pull
-  if 621, 170 16054013 and 1151, 176 16054013
-    set linedelay 20
-    set #offsetx random (50)
-    set #offsety random (50)
-    set #x 779 + #offsetx
-    set #y 257 + #offsety
-    move_smooth #x, #y
-    kleft_down #x, #y
-    move_smooth  863, 932
-    kleft_up 863, 932
-    kleft_up 863, 932
-    set linedelay 100
+proc load_config
+  set $config Scripts\config.txt
+  set #a fileexists ($config)
+  if #a = 0
+    FileCopy (Scripts\config.bak $config)
   end_if
+  load_script 1 $config
+  start_script 1
+end_proc
+
+proc kdrag #x1 #y1 #x2 #y2 #random
+    set linedelay 0
+
+    set #offsetx random (#random)
+    set #offsety random (#random)
+    set #x1 #x1 + #offsetx
+    set #y1 #y1 + #offsety
+
+    get mouse_pos #oldx #oldy
+    set linedelay 25
+    move_smooth #x1 #y1
+    kleft_down #x1 #y1
+    move_smooth #x2 #y2
+    kleft_up #x2 #y2
+    kleft_up #x2 #y2
+    move_smooth #oldx #oldy
+    set linedelay 100
+end_proc
+
+proc kfindcolor #x #y #margin #color
+  set linedelay 0
+  set #x1 #x - #margin
+  set #y1 #y - #margin
+  set #x2 #x + #margin
+  set #y2 #y + #margin
+
+  set $result FindColor (#x1 #y1 #x2 #y2 1 1 #color ResultArray 2 1 5)
+  set linedelay 100
+end_proc
+
+proc pull_request_list
+  if 621, 170 16054013 and 1151, 176 16054013
+    call kdrag 863 223 863 932 50
+  end_if
+end_proc
+
+proc pull_captured_ministry
+  set linedelay 0
+  call kfindcolor 958, 182 5 7039339
+  if $kfindcolor = 1
+    call kdrag 655, 579 655, 159
+    set $result 1
+  else
+    set $result 0
+  end_if
+  set linedelay 100
 end_proc
 
 proc pull_list
@@ -22,7 +64,7 @@ proc pull_list
     end_if
     kleft_up 676, 180
     repeat 2
-      call pull
+      call pull_request_list
     end_repeat
     wait 1s
   end_while
@@ -72,10 +114,30 @@ proc close_list_popup
   end_while
 end_proc
 
+proc check_captured_capitol
+  set linedelay 0
+  call kfindcolor 1084, 925 5 2119560
+  if $kfindcolor = 0
+    set $result 1
+  else
+    set $result 0
+  end_if
+  set linedelay 100
+end_proc
+
 proc checkmin #x #y
   set linedelay 0
+
+  call check_captured_capitol
+  if $check_captured_capitol = 1
+    call pull_captured_ministry
+    set #y #y + 90
+  end_if
+
   set $result 0
-  if #x, #y 15790320 16053492
+  call kfindcolor #x #y 25 2502143
+
+  if $kfindcolor = 1
     kleft #x, #y
     wait 100
     call approve
@@ -129,16 +191,25 @@ proc click_profile
   wait 400
 end_proc
 
-proc click_server_in_prifile
+proc click_server_in_profile
   kleft 945, 372
   wait 400
+end_proc
+
+proc check_overtime_and_dismiss #x #y
+  set linedelay 0
+  call check_overtime #x #y
+  if $check_overtime = 1
+    call dismiss #x #y
+  end_if
+  set linedelay 100
 end_proc
 
 proc open_ministry_if_request
   if 30, 18 3745271 3745783
     call click_profile
     call close_like
-    call click_server_in_prifile
+    call click_server_in_profile
   end_if
 end_proc
 
@@ -148,10 +219,12 @@ end_proc
 
 proc check_strategy
   call checkmin 825 440
+  call check_overtime_and_dismiss 825 440
 end_proc
 
 proc check_security
   call checkmin 1011 440
+  call check_overtime_and_dismiss 1011 440
 end_proc
 
 proc check_development
@@ -177,5 +250,80 @@ end_proc
 proc remove_building_focus
   if_not 1769, 1046 13739817
     kleft 1633, 28
+    wait 500
+  end_if
+end_proc
+
+proc check_overtime #x #y
+  set linedelay 0
+  call check_captured_capitol
+  if $check_captured_capitol = 1
+    call pull_captured_ministry
+    set #y #y + 88
+  end_if
+
+  set #x1 #x + 25
+  set #y1 #y + 170
+  set #x2 #x + 130
+  set #y2 #y + 195
+  set $response FindImage (#x1, #y1 #x2, #y2 (img\time.bmp) %ResultArray 2 90 1 80
+
+  set #a findcolor (#x1, #y1 #x2, #y2 16777215 %ResultArray 2 1 3)
+
+  if $response > 0 or #a = 0
+    set $result 0
+  else
+    set $result 1
+  end_if
+  set linedelay 100
+end_proc
+
+proc click_dismiss
+  if 817, 929 6513405
+    kleft 817, 929
+    wait 300
+  end_if
+end_proc
+
+proc click_confirm_dismiss
+  if 809, 599 16765462
+    kleft 809, 599
+    wait 300
+  end_if
+end_proc
+
+proc dismiss #x #y
+  set linedelay 0
+
+  call check_captured_capitol
+  if $check_captured_capitol = 1
+    call pull_captured_ministry
+    set #y #y + 90
+  end_if
+
+  if_not 1098, 115 10257017
+    kleft #x #y
+    wait 300
+  end_if
+
+  call kfindcolor 963, 529 5 16054013
+  set $empty_list $kfindcolor
+  call kfindcolor 1139, 924 5 3741951
+  set $has_list_request $kfindcolor
+
+  if $empty_list = 1 and $has_list_request = 0
+    //msg dismissed
+    call click_dismiss
+    call click_confirm_dismiss
+    kleft 1152, 113
+    wait 300
+  end_if
+  set linedelay 100
+end_proc
+
+proc reset_map_zoom
+  if_not 1699, 37 7436790 and 1767, 1035 14069289
+    kleft 1701, 1051
+    wait 400
   end_if
 end_proc

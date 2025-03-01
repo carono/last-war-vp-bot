@@ -1,0 +1,14 @@
+set $game_path.0 C:\Users\admin\AppData\Local\TheLastWar\Launch.exe
+set #logout_timeout.0 30 * 60 * 1000
+set #check_queue_timeout.0 3 * 60 * 1000
+set #dalay_after_check.0 2 * 60 * 1000
+
+//
+
+set #a fileexists ($game_path.0)
+if #a = 0
+  msg Game not found, check config file please Scripts\config.txt
+  stop_script all
+end_if
+
+stop_script

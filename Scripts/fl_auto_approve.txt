@@ -1,43 +1,54 @@
 set linedelay 0
-Set #handle FindWindow (Last War-Survival Game)
-set windowpos -1900 0 1796 1154 #handle
-set workwindow #handle
 set $timeout1 0
 set $timeout2 0
-set #waitqueue 3 * 60 * 1000
+call load_config
+
 :start
 
+Set #handle FindWindow (Last War-Survival Game)
 
-call close_profile
-call close_like
-call remove_building_focus
+if #handle <> 0
+  set windowpos -1900 0 1796 1154 #handle
+  set workwindow #handle
 
-call open_ministry_if_request
+  if 893, 638 4143607
+    kleft 893, 638
+    wait 10s
+  end_if
 
-if 678, 124 5608025
+  call close_profile
+  call close_like
+  call open_ministry_if_request
 
-  repeat 3
-  //call check_vice_president
-    call check_strategy
-    call check_security
+  if 678, 124 5608025
+    repeat 2
+    //call check_vice_president
+      call check_strategy
+      call check_security
 
-    if $timeout1 = 0 or timer1 > #waitqueue
-      call check_development
-      set $timeout1 $check_development
-      set timer1
-    end_if
+      if $timeout1 = 0 or timer1 > #check_queue_timeout
+        call check_development
+        set $timeout1 $check_development
+        set timer1
+      end_if
 
+      if $timeout2 = 0 or timer2 > #check_queue_timeout
+        call check_science
+        set $timeout2 $check_science
+        set timer2
+      end_if
 
-    if $timeout2 = 0 or timer2 > #waitqueue
-      call check_science
-      set $timeout2 $check_science
-      set timer2
-    end_if
+      call check_interior
+    end_repeat
 
-    call check_interior
-  end_repeat
+    call close_ministry
+  end_if
 
-  call close_ministry
+  call remove_building_focus
+  call reset_map_zoom
+  wait #dalay_after_check
+else
+  exec $game_path
+  wait #logout_timeout
 end_if
-
 goto start
