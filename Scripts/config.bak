@@ -13,4 +13,5 @@ if #a = 0
   stop_script all
 end_if
 
+resume_script 0
 stop_script

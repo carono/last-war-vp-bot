@@ -5,6 +5,7 @@ proc load_config
     FileCopy (Scripts\config.bak $config)
   end_if
   load_script 1 $config
+  pause_script 0
   start_script 1
 end_proc
 

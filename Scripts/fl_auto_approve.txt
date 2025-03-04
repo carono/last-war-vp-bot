@@ -1,7 +1,7 @@
 set linedelay 0
+call load_config
 set $timeout1 0
 set $timeout2 0
-call load_config
 
 :start
 
