@@ -19,6 +19,7 @@ The script:
 5. Set variable  $game_path.0 to game path in config.txt
 
 ## Run
+![UOPilot](https://github.com/carono/last-war-vp-bot/blob/f20acd34993135de2ea5cdc4b19c9dcd3be0f2fd/img/uopilot.png)
 1. Run uopilot242.exe
 2. Click tab number 0
 3. Click run button
