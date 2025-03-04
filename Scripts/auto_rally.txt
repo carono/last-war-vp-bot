@@ -1,3 +1,5 @@
+// Auto rally
+
 call kfindcolor 1750, 682 3 16777215
 
 if $kfindcolor = 1

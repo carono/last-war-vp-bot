@@ -8,17 +8,15 @@ call load_config
 Set #handle FindWindow (Last War-Survival Game)
 
 if #handle <> 0
-  set windowpos -1900 0 1796 1154 #handle
+  set windowpos #win_pos_x #win_pos_y 1796 1154 #handle
   set workwindow #handle
 
   if 893, 638 4143607
     kleft 893, 638
-    wait 10s
+    wait #logout_timeout
+  else
+    call open_ministry_if_request
   end_if
-
-  call close_profile
-  call close_like
-  call open_ministry_if_request
 
   if 678, 124 5608025
     repeat 2
@@ -41,14 +39,19 @@ if #handle <> 0
       call check_interior
     end_repeat
 
-    call close_ministry
+    if $timeout1 = 0 and $timeout2 = 0
+      call close_ministry
+    end_if
+  else
+    call remove_building_focus
+    call reset_map_zoom
+    call close_profile
+    call close_like
   end_if
 
-  call remove_building_focus
-  call reset_map_zoom
   wait #dalay_after_check
 else
   exec $game_path
-  wait #logout_timeout
+  wait 30s
 end_if
 goto start
