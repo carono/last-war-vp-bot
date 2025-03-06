@@ -358,3 +358,23 @@ proc accept_rally
     kleft 1636, 786
   end_if
 end_proc
+
+proc modify_cord_x #xReference
+  set linedelay 0
+  set #handle FindWindow (Last War-Survival Game)
+  get windowpos #handle #x #y #WidthReference #HeightReference
+  set #WidthCurrent 1796
+  set #xCurrent ( #xReference * #WidthReference ) / #WidthCurrent
+  set $result #xCurrent
+  set linedelay 100
+end_proc
+
+proc modify_cord_y #yReference
+  set linedelay 0
+  set #handle FindWindow (Last War-Survival Game)
+  get windowpos #handle #x #y #WidthReference #HeightReference
+  set #HeightCurrent 1154
+  set #yCurrent ( #yReference * #HeightReference ) / #HeightCurrent
+  set $result #yCurrent
+  set linedelay 100
+end_proc
