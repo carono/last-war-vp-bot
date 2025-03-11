@@ -1,3 +1,5 @@
 .idea
 autosaved*
 config.txt
+node_modules
+*.tmp

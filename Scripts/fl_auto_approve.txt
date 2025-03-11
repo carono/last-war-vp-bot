@@ -1,8 +1,9 @@
 set linedelay 0
+load_script 99 Scripts/proc.txt
 call load_config
 set $timeout1 0
 set $timeout2 0
-
+set $is_captured_capitol -1
 :start
 
 Set #handle FindWindow (Last War-Survival Game)
@@ -40,7 +41,7 @@ if #handle <> 0
     end_repeat
 
     if $timeout1 = 0 and $timeout2 = 0
-      call close_ministry
+     // call close_ministry
     end_if
   else
     call remove_building_focus
