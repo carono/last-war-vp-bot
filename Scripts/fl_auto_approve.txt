@@ -10,7 +10,7 @@ set $is_captured_capitol -1
 :start
 
 Set #handle FindWindow (Last War-Survival Game)
-
+ShowWindow #handle TOP
 if #handle <> 0
   set windowpos #win_pos_x #win_pos_y 1796 1154 #handle
   set workwindow #handle
