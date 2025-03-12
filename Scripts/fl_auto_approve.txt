@@ -1,5 +1,8 @@
 set linedelay 0
-load_script 99 Scripts/proc.txt
+set %arr [1] Homepath
+set %arr [2] "Scripts\proc.txt"
+set $path %arr [1]%arr [2]
+load_script 99 $path
 call load_config
 set $timeout1 0
 set $timeout2 0
@@ -18,6 +21,8 @@ if #handle <> 0
   else
     call open_ministry_if_request
   end_if
+
+  call close_connection_error
 
   if 678, 124 5608025
     repeat 2
@@ -40,9 +45,9 @@ if #handle <> 0
       call check_interior
     end_repeat
 
-    if $timeout1 = 0 and $timeout2 = 0
-     // call close_ministry
-    end_if
+    //if $timeout1 = 0 and $timeout2 = 0
+      call close_ministry
+    //end_if
   else
     call remove_building_focus
     call reset_map_zoom

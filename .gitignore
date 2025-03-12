@@ -3,3 +3,5 @@ autosaved*
 config.txt
 node_modules
 *.tmp
+*tmp.*
+develop.ini

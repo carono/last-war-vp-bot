@@ -2,7 +2,9 @@ const gulp = require('gulp');
 const concat = require('gulp-concat');
 const log = require('fancy-log');
 const colors = require('ansi-colors');
+const through = require('through2');
 const fs = require('fs');
+const path = require('path');
 const { execSync } = require('child_process');
 
 const paths = {
@@ -10,11 +12,24 @@ const paths = {
 };
 
 gulp.task('proc', function (cb) {
+    let firstFile = true;
     gulp.src(paths.controllers)
+        .pipe(through.obj(function(file, _, cb) {
+            if (file.isBuffer()) {
+                const filename = path.basename(file.path);
+                let header = `-- ${filename}\n`;
+                if (firstFile) {
+                    header = `--lua\n` + header;
+                    firstFile = false;
+                }
+                const contents = header + file.contents.toString();
+                file.contents = Buffer.from(contents);
+            }
+            cb(null, file);
+        }))
         .pipe(concat('init.lua', { newLine: '\n\n' }))
         .pipe(gulp.dest('./lua'))
         .on('end', () => {
-            fs.writeFileSync('./Scripts/reload.tmp', '1');
             cb();
         });
 });

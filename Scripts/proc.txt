@@ -385,3 +385,12 @@ proc modify_cord_y #yReference
   set $result #yCurrent
   set linedelay 100
 end_proc
+
+proc close_connection_error
+   if 913, 573 2546431
+     kleft 913, 573
+   end_if
+   if 862, 593 16765462
+     kleft 862, 593
+   end_if
+end_proc
