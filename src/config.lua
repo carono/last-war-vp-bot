@@ -8,9 +8,9 @@ dalay_after_check = 3 * 60 * 1000
 win_pos_x = 0
 win_pos_y = 0
 
-local storage = require [[storage]]
+storage = require [[storage]]
 
-local config = {
+config = {
     game_path = game_path,
     logout_timeout = logout_timeout,
     check_queue_timeout = check_queue_timeout,
@@ -19,6 +19,8 @@ local config = {
     win_pos_y = win_pos_y,
 }
 
-storage.save("config.env", config)
+if (fileexists([["config.env"]]) == "0") then
+    storage.save("config.env", config)
+end
 
-arr2 = storage.load("config.env")
+config = storage.load("config.env")

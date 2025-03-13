@@ -5,42 +5,57 @@ const colors = require('ansi-colors');
 const through = require('through2');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const {execSync} = require('child_process');
 
 const paths = {
-    controllers: ['./Scripts/proc/*.lua']
+    proc: ['./Scripts/proc/*.lua'],
+    classes: ['./Scripts/classes/*.lua'],
 };
 
-gulp.task('proc', function (cb) {
-    let firstFile = true;
-    gulp.src(paths.controllers)
-        .pipe(through.obj(function(file, _, cb) {
-            if (file.isBuffer()) {
-                const filename = path.basename(file.path);
-                let header = `-- ${filename}\n`;
-                if (firstFile) {
-                    header = `--lua\n` + header;
-                    firstFile = false;
-                }
-                const contents = header + file.contents.toString();
-                file.contents = Buffer.from(contents);
-            }
-            cb(null, file);
-        }))
-        .pipe(concat('init.lua', { newLine: '\n\n' }))
-        .pipe(gulp.dest('./lua'))
-        .on('end', () => {
-            cb();
+function procTask(options = {}) {
+    return (cb) => {
+        const {inputPaths = {}, outputDir = './lua'} = options;
+
+        const tasks = Object.entries(inputPaths).map(([key, paths]) => {
+            return new Promise((resolve) => {
+                gulp.src(paths)
+                    .pipe(through.obj((file, _, cb) => {
+                        if (file.isBuffer()) {
+                            const header = `-- lua ${path.basename(file.path)}\n`;
+                            file.contents = Buffer.concat([Buffer.from(header), file.contents]);
+                        }
+                        cb(null, file);
+                    }))
+                    .pipe(concat(options.file, {newLine: '\n\n'}))
+                    .pipe(gulp.dest(outputDir))
+                    .on('end', resolve);
+            });
         });
-});
+
+        Promise.all(tasks).then(() => cb());
+    };
+}
+
+gulp.task('proc', procTask());
 
 gulp.task('watch', function () {
-    gulp.watch(paths.controllers, gulp.series('proc'));
+    gulp.watch(paths.proc, procTask({
+        inputPaths: {controllers: paths.proc},
+        file: 'functions.lua',
+        outputDir: './dist'
+    }));
+
+    gulp.watch(paths.classes, procTask({
+        inputPaths: {controllers: paths.classes},
+        file: 'classes.lua',
+        outputDir: './dist'
+    }));
 });
+
 
 gulp.task('git-check', function (done) {
     try {
-        execSync('git --version', { stdio: 'ignore' });
+        execSync('git --version', {stdio: 'ignore'});
         done();
     } catch (err) {
         console.log(
