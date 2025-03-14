@@ -32,6 +32,7 @@ function wait_color(x, y, color, timeout)
         end
         timer1 = timer1 + 100
         wait(100)
+        log('Wait', x, ',', y, color)
     end
     log('Timeout wait color', x, ',', y, color)
     return 0
@@ -98,6 +99,8 @@ function close_simple_modal(count)
         wait(300)
     end
 end
+
+
 
 -- lua override.lua
 function kdrag(x1, y1, x2, y2, r)
@@ -174,14 +177,20 @@ function click_if_color(x, y, color, colorX, colorY)
     end
 end
 
+function escape(timeout)
+    timeout = timeout or 100
+    send('Escape')
+    wait(timeout)
+end
+
 -- lua daily.lua
 function service_alliance()
-    if (AllianceButton:open()) then
-        AllianceButton:applyHelp()
-        AllianceButton:checkTech()
-        AllianceButton:getPresent()
-        AllianceButton:openSeason2buildings()
+    if (Alliance:open()) then
+        Alliance:applyHelp()
+        Alliance:checkTech()
+        Alliance:getPresent()
+        Alliance:openSeason2buildings()
 
-        AllianceButton:clickBack()
+        Alliance:clickBack()
     end
 end

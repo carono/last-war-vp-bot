@@ -45,3 +45,4 @@ function close_simple_modal(count)
         wait(300)
     end
 end
+

@@ -71,3 +71,9 @@ function click_if_color(x, y, color, colorX, colorY)
         wait(300)
     end
 end
+
+function escape(timeout)
+    timeout = timeout or 100
+    send('Escape')
+    wait(timeout)
+end

@@ -31,6 +31,7 @@ function wait_color(x, y, color, timeout)
         end
         timer1 = timer1 + 100
         wait(100)
+        log('Wait', x, ',', y, color)
     end
     log('Timeout wait color', x, ',', y, color)
     return 0

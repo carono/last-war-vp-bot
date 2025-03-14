@@ -1,12 +1,12 @@
--- lua allianceButton.lua
-AllianceButton = {}
+-- lua Alliance.lua
+Alliance = {}
 AllianceModal = { startX = 605, startY = 388, endX = 1175, endY = 966 }
 
-function AllianceButton:isMarked()
+function Alliance:isMarked()
     return kfindcolor(1760, 767, 3741951)
 end
 
-function AllianceButton:open()
+function Alliance:open()
     if (kfindcolor(1696, 783, 12688166)) then
         left(1725, 792, 100)
         return 1
@@ -14,12 +14,12 @@ function AllianceButton:open()
     return 0
 end
 
-function AllianceButton:openPresentsTab()
+function Alliance:openPresentsTab()
     log('Open present tab')
     click_and_wait_color(829, 537, 560895, 848, 274)
 end
 
-function AllianceButton:getPresent()
+function Alliance:getPresent()
     if (kfindcolor(873, 500, 3741951)) then
         self:openPresentsTab()
     end
@@ -32,10 +32,10 @@ function AllianceButton:getPresent()
         click_while_color(1114, 468, 4187738)
     end
 
-    AllianceButton:clickBack()
+    Alliance:clickBack()
 end
 
-function AllianceButton:clickBack(count)
+function Alliance:clickBack(count)
     count = count or 1
     for i = 1, count do
         click_if_color(644, 1031, 16765462)
@@ -43,7 +43,7 @@ function AllianceButton:clickBack(count)
     end
 end
 
-function AllianceButton:haveMark()
+function Alliance:haveMark()
     x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x > 0) then
         return 1
@@ -51,14 +51,14 @@ function AllianceButton:haveMark()
     return 0
 end
 
-function AllianceButton:clickMark()
+function Alliance:clickMark()
     x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x ~= nil) then
         left(x, y)
     end
 end
 
-function AllianceButton:clickBigGreenButton()
+function Alliance:clickBigGreenButton()
     if (kfindcolor(909, 1014, 4187738) == 1) then
         log('Click green button')
         click_and_wait_not_color(909, 1014, 4187738, 909, 1014)
@@ -66,13 +66,13 @@ function AllianceButton:clickBigGreenButton()
     end
 end
 
-function AllianceButton:applyHelp()
+function Alliance:applyHelp()
     if (kfindcolor(1648, 763, 4962287) == 1) then
         left(1648, 763)
     end
 end
 
-function AllianceButton:checkTech()
+function Alliance:checkTech()
     if (kfindcolor(1165, 597, 3741951) == 1) then
         click_and_wait_color(1110, 641, 7756114, 660, 202)
         x, y = find_red_mark(612, 212, 1161, 757, 3940594)
@@ -85,7 +85,7 @@ function AllianceButton:checkTech()
     end
 end
 
-function AllianceButton:openSeason2buildings()
+function Alliance:openSeason2buildings()
     if (kfindcolor(1165, 890, 3741951) == 1) then
         left(1111, 928)
         click_and_wait_not_color(892, 1031, 16765462)
@@ -94,7 +94,101 @@ function AllianceButton:openSeason2buildings()
     end
 end
 
--- lua rally.lua
+-- lua Map.lua
+Map = {}
+
+function Map:isBase()
+    return kfindcolor(42, 317, 16766290)
+end
+
+function Map:isWorld()
+    return kfindcolor(1724, 1033, 14052657) or Map:isScrollOut()
+end
+
+function Map:mapState()
+    if (Map:isBase() == 1) then
+        return 1
+    end
+    if (Map:isWorld() == 1) then
+        return 2
+    end
+    return 0
+end
+
+function Map:isHideInterface()
+    if (kfindcolor(14, 99, 50431)) then
+        return 0
+    end
+    return 1
+end
+
+function Map:isScrollOut()
+    if (Map:isHideInterface() == 1 and kfindcolor(1767, 1036, 14069289) == 1) then
+        return 1
+    end
+    return 0
+end
+
+function Map:resetScrollOut()
+    if (self:isScrollOut() == 1) then
+        return Map:clickBaseButton()
+    end
+    return 0
+end
+
+function Map:clickBaseButton()
+    log('state', Map:mapState())
+    if (Map:mapState() ~= 0) then
+        left(1723, 1044, 500)
+        return 1
+    end
+    return 0
+end
+
+function Map:showInterface()
+    if (Map:isHideInterface()) then
+        send('Escape')
+    end
+end
+
+-- lua Profile.lua
+Profile = {}
+
+function Profile:open()
+    left(47, 44, 500)
+    self:closeLike()
+    wait_color(976, 109, 11896387)
+end
+
+function Profile:closeLike()
+    if (kfindcolor(947, 832, 16765462) == 1) then
+        escape()
+        return 1
+    end
+    return 0
+end
+
+function Profile:openMinistry()
+    if (self:isOpen() ~= 1) then
+        self:open()
+    end
+    click_and_wait_color(945, 372, 7225143, 881, 34)
+end
+
+function Profile:isOpen()
+    self:closeLike()
+    return kfindcolor(1173, 125, 16765462)
+end
+
+function Profile:close()
+    if (self:isOpen() == 1) then
+        escape()
+        return 1
+    end
+    return 0
+end
+
+-- lua Rally.lua
 Rally = {}
 
 function Rally:joinIfExist()
@@ -105,7 +199,7 @@ function Rally:joinIfExist()
     else
         if (Rally:listIsOpen()) then
             log('Out rally list')
-            AllianceButton:clickBack()
+            Alliance:clickBack()
         end
     end
 end
@@ -144,7 +238,7 @@ end
 --kleft 1636, 786
 --end_if
 
--- lua window.lua
+-- lua Window.lua
 Window = {}
 
 function Window:resizeCanonical()

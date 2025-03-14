@@ -8,7 +8,7 @@ function Rally:joinIfExist()
     else
         if (Rally:listIsOpen()) then
             log('Out rally list')
-            AllianceButton:clickBack()
+            Alliance:clickBack()
         end
     end
 end

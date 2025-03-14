@@ -1,10 +1,10 @@
 function service_alliance()
-    if (AllianceButton:open()) then
-        AllianceButton:applyHelp()
-        AllianceButton:checkTech()
-        AllianceButton:getPresent()
-        AllianceButton:openSeason2buildings()
+    if (Alliance:open()) then
+        Alliance:applyHelp()
+        Alliance:checkTech()
+        Alliance:getPresent()
+        Alliance:openSeason2buildings()
 
-        AllianceButton:clickBack()
+        Alliance:clickBack()
     end
 end
