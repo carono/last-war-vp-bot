@@ -8,17 +8,19 @@ end
 function AllianceButton:open()
     if (kfindcolor(1696, 783, 12688166)) then
         left(1725, 792, 100)
+        return 1
     end
+    return 0
 end
 
-function AllianceButton:openPresents()
+function AllianceButton:openPresentsTab()
     log('Open present tab')
     click_and_wait_color(829, 537, 560895, 848, 274)
 end
 
 function AllianceButton:getPresent()
     if (kfindcolor(873, 500, 3741951)) then
-        self:openPresents()
+        self:openPresentsTab()
     end
 
     self:clickBigGreenButton()
@@ -30,11 +32,14 @@ function AllianceButton:getPresent()
     end
 
     AllianceButton:clickBack()
-    AllianceButton:clickBack()
 end
 
-function AllianceButton:clickBack()
-    click_if_color(644, 1031, 16765462)
+function AllianceButton:clickBack(count)
+    count = count or 1
+    for i = 1, count do
+        click_if_color(644, 1031, 16765462)
+        wait(300)
+    end
 end
 
 function AllianceButton:haveMark()
@@ -76,5 +81,14 @@ function AllianceButton:checkTech()
             click_while_not_color(1078, 855, 11447982)
             close_simple_modal(2)
         end
+    end
+end
+
+function AllianceButton:openSeason2buildings()
+    if (kfindcolor(1165, 890, 3741951) == 1) then
+        left(1111, 928)
+        click_and_wait_not_color(892, 1031, 16765462)
+        close_gift_modal()
+        self:clickBack()
     end
 end

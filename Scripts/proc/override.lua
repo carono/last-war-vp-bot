@@ -24,41 +24,43 @@ function click_and_wait_color(x, y, color, colorX, colorY)
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    wait_color(colorX, colorY, color)
+    return wait_color(colorX, colorY, color)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    wait_not_color(colorX, colorY, color)
+    return wait_not_color(colorX, colorY, color)
 end
 
 function click_while_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
     local timer = 0
-    while (timer < 10000) do
+    while (timer < 5000) do
         if (kfindcolor(colorX, colorY, color) == 1) then
             left(x, y)
             wait(150)
         else
-            break
+            return 1
         end
     end
+    return 0
 end
 
 function click_while_not_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
     local timer = 0
-    while (timer < 10000) do
+    while (timer < 5000) do
         if (kfindcolor(colorX, colorY, color) ~= 1) then
             left(x, y)
         else
-            break
+            return 1
         end
     end
+    return 0
 end
 
 function click_if_color(x, y, color, colorX, colorY)
@@ -66,5 +68,6 @@ function click_if_color(x, y, color, colorX, colorY)
     colorY = colorY or y
     if (kfindcolor(colorX, colorY, color)) then
         left(x, y)
+        wait(300)
     end
 end

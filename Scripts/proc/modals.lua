@@ -26,7 +26,7 @@ function pull_list()
 end
 
 function close_gift_modal()
-    wait_color(1068, 342, 7059183)
+    wait_color(1068, 342, 7059183, 2000)
     click_and_wait_not_color(1464, 167, 7059183, 1068, 342)
 end
 

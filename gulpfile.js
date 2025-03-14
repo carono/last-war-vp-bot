@@ -8,7 +8,7 @@ const path = require('path');
 const {execSync} = require('child_process');
 
 const paths = {
-    proc: ['./Scripts/proc/*.lua'],
+    proc: ['./Scripts/proc/*.lua', './Scripts/daily/*.lua'],
     classes: ['./Scripts/classes/*.lua'],
 };
 

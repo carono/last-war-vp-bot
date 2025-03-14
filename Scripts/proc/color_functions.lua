@@ -23,13 +23,16 @@ end
 
 function wait_color(x, y, color, timeout)
     timeout = timeout or 5000
-    local timer = 0
-    while timer < timeout do
+    timer1 = 0
+    while timer1 < timeout do
         if (kfindcolor(x, y, color) == 1) then
             wait(200)
             return 1
         end
+        timer1 = timer1 + 100
+        wait(100)
     end
+    log('Timeout wait color', x, ',', y, color)
     return 0
 end
 

@@ -24,13 +24,16 @@ end
 
 function wait_color(x, y, color, timeout)
     timeout = timeout or 5000
-    local timer = 0
-    while timer < timeout do
+    timer1 = 0
+    while timer1 < timeout do
         if (kfindcolor(x, y, color) == 1) then
             wait(200)
             return 1
         end
+        timer1 = timer1 + 100
+        wait(100)
     end
+    log('Timeout wait color', x, ',', y, color)
     return 0
 end
 
@@ -76,7 +79,7 @@ function pull_list()
 end
 
 function close_gift_modal()
-    wait_color(1068, 342, 7059183)
+    wait_color(1068, 342, 7059183, 2000)
     click_and_wait_not_color(1464, 167, 7059183, 1068, 342)
 end
 
@@ -123,41 +126,43 @@ function click_and_wait_color(x, y, color, colorX, colorY)
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    wait_color(colorX, colorY, color)
+    return wait_color(colorX, colorY, color)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    wait_not_color(colorX, colorY, color)
+    return wait_not_color(colorX, colorY, color)
 end
 
 function click_while_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
     local timer = 0
-    while (timer < 10000) do
+    while (timer < 5000) do
         if (kfindcolor(colorX, colorY, color) == 1) then
             left(x, y)
             wait(150)
         else
-            break
+            return 1
         end
     end
+    return 0
 end
 
 function click_while_not_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
     local timer = 0
-    while (timer < 10000) do
+    while (timer < 5000) do
         if (kfindcolor(colorX, colorY, color) ~= 1) then
             left(x, y)
         else
-            break
+            return 1
         end
     end
+    return 0
 end
 
 function click_if_color(x, y, color, colorX, colorY)
@@ -165,5 +170,18 @@ function click_if_color(x, y, color, colorX, colorY)
     colorY = colorY or y
     if (kfindcolor(colorX, colorY, color)) then
         left(x, y)
+        wait(300)
+    end
+end
+
+-- lua daily.lua
+function service_alliance()
+    if (AllianceButton:open()) then
+        AllianceButton:applyHelp()
+        AllianceButton:checkTech()
+        AllianceButton:getPresent()
+        AllianceButton:openSeason2buildings()
+
+        AllianceButton:clickBack()
     end
 end
