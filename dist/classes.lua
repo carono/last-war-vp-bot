@@ -105,7 +105,7 @@ function Map:isWorld()
     return kfindcolor(1724, 1033, 14052657) or Map:isScrollOut()
 end
 
-function Map:mapState()
+function Map:state()
     if (Map:isBase() == 1) then
         return 1
     end
@@ -137,8 +137,8 @@ function Map:resetScrollOut()
 end
 
 function Map:clickBaseButton()
-    log('state', Map:mapState())
-    if (Map:mapState() ~= 0) then
+    log('state', Map:state())
+    if (Map:state() ~= 0) then
         left(1723, 1044, 500)
         return 1
     end
@@ -149,6 +149,17 @@ function Map:showInterface()
     if (Map:isHideInterface()) then
         send('Escape')
     end
+end
+
+function Map:normalize()
+    if (self:state() == 0 and Map:isHideInterface() == 1) then
+        escape(500)
+        return self:normalize()
+    end
+    if (Map:state() == 2) then
+        self:clickBaseButton()
+    end
+    return 1
 end
 
 -- lua Profile.lua
