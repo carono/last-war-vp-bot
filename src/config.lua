@@ -8,7 +8,7 @@ dalay_after_check = 3 * 60 * 1000
 win_pos_x = 0
 win_pos_y = 0
 
-storage = require [[storage]]
+storage = require [[lib/storage]]
 
 config = {
     game_path = game_path,
