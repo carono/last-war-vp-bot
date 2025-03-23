@@ -21,16 +21,15 @@ function find_red_mark(startX, startY, endX, endY, color)
     return nil
 end
 
-function wait_color(x, y, color, timeout)
+function wait_color(x, y, color, timeout, cd)
+    cd = cd or 200
     timeout = timeout or 5000
-    timer1 = 0
+    local timer1 = 0
     while timer1 < timeout do
         if (kfindcolor(x, y, color) == 1) then
-            wait(200)
+            wait(cd)
             return 1
         end
-        timer1 = timer1 + 100
-        wait(100)
         log('Wait', x, ',', y, color)
     end
     log('Timeout wait color', x, ',', y, color)
