@@ -7,7 +7,7 @@ function Alliance:isMarked()
 end
 
 function Alliance:open()
-    if (kfindcolor(1696, 783, 12688166)) then
+    if (kfindcolor(1696, 783, 12688166) == 1) then
         left(1725, 792, 100)
         return 1
     end
@@ -67,9 +67,11 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-    if (kfindcolor(1648, 763, 4962287) == 1) then
+    if (kfindcolor(1647, 797, 2765610) == 1) then
         left(1648, 763)
+        return 1
     end
+    return 0
 end
 
 function Alliance:checkTech()
@@ -238,14 +240,20 @@ function Map:showInterface()
     end
 end
 
-function Map:normalize()
-    if (self:state() == 0 and Map:isHideInterface() == 1) then
-        escape(500)
-        return self:normalize()
-    end
+function Map:openBase()
+    Map:normalize()
     if (Map:state() == 2) then
         self:clickBaseButton()
     end
+end
+
+function Map:normalize()
+    if (self:state() == 0 and Map:isHideInterface() == 1) then
+        escape(500)
+        log('Normalize map')
+        return self:normalize()
+    end
+
     return 1
 end
 
@@ -362,7 +370,7 @@ function Rally:joinIfExist()
         log('Start join rally')
         Rally:applyJoin()
     else
-        if (Rally:listIsOpen()) then
+        if (Rally:listIsOpen() == 1) then
             log('Out rally list')
             Alliance:clickBack()
         end
@@ -370,7 +378,15 @@ function Rally:joinIfExist()
 end
 
 function Rally:listIsOpen()
-    return kfindcolor(606, 118, 560895)
+    local back_button = kfindcolor(606, 118, 560895)
+    local big_blue_button = kfindcolor(865, 1017, 16765462)
+    local daily_yellow_line = kfindcolor(616, 172, 6535924)
+    local store = kfindcolor(792, 1055, 5625855)
+    local first_place_rating = kfindcolor(633, 226, 4146908)
+    if back_button == 1 and big_blue_button ~= 1 and daily_yellow_line ~= 1 and store ~= 1 and first_place_rating ~= 1 then
+        return 1
+    end
+    return 0
 end
 
 function Rally:join()

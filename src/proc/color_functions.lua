@@ -24,22 +24,22 @@ end
 function wait_color(x, y, color, timeout, cd)
     cd = cd or 200
     timeout = timeout or 5000
-    local timer1 = 0
-    while timer1 < timeout do
+    local timer = ktimer(timeout)
+    while os.clock() < timer do
         if (kfindcolor(x, y, color) == 1) then
             wait(cd)
             return 1
         end
-        log('Wait', x, ',', y, color)
+        log('Wait', x, ',', y, color, os.clock(), timer)
     end
-    log('Timeout wait color', x, ',', y, color)
+    log('Timeout wait color', x, ',', y, color, timer)
     return 0
 end
 
 function wait_not_color(x, y, color, timeout)
     timeout = timeout or 5000
-    local timer = 0
-    while timer < timeout do
+    local timer = ktimer(timeout)
+    while os.clock() < timer do
         if (kfindcolor(x, y, color) ~= 1) then
             wait(200)
             return 1

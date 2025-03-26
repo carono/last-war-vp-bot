@@ -37,8 +37,8 @@ end
 function click_while_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
-    local timer = 0
-    while (timer < 5000) do
+    local timer = ktimer(5000)
+    while os.clock() < timer do
         if (kfindcolor(colorX, colorY, color) == 1) then
             left(x, y)
             wait(150)
@@ -52,8 +52,8 @@ end
 function click_while_not_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
-    local timer = 0
-    while (timer < 5000) do
+    local timer = ktimer(5000)
+    while os.clock() < timer do
         if (kfindcolor(colorX, colorY, color) ~= 1) then
             left(x, y)
         else
@@ -76,4 +76,8 @@ function escape(timeout)
     timeout = timeout or 100
     send('Escape')
     wait(timeout)
+end
+
+function ktimer(timeout)
+    return os.clock() + (timeout / 1000)
 end

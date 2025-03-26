@@ -6,7 +6,7 @@ function Rally:joinIfExist()
         log('Start join rally')
         Rally:applyJoin()
     else
-        if (Rally:listIsOpen()) then
+        if (Rally:listIsOpen() == 1) then
             log('Out rally list')
             Alliance:clickBack()
         end
@@ -14,7 +14,15 @@ function Rally:joinIfExist()
 end
 
 function Rally:listIsOpen()
-    return kfindcolor(606, 118, 560895)
+    local back_button = kfindcolor(606, 118, 560895)
+    local big_blue_button = kfindcolor(865, 1017, 16765462)
+    local daily_yellow_line = kfindcolor(616, 172, 6535924)
+    local store = kfindcolor(792, 1055, 5625855)
+    local first_place_rating = kfindcolor(633, 226, 4146908)
+    if back_button == 1 and big_blue_button ~= 1 and daily_yellow_line ~= 1 and store ~= 1 and first_place_rating ~= 1 then
+        return 1
+    end
+    return 0
 end
 
 function Rally:join()

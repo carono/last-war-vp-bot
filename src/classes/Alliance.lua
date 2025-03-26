@@ -6,7 +6,7 @@ function Alliance:isMarked()
 end
 
 function Alliance:open()
-    if (kfindcolor(1696, 783, 12688166)) then
+    if (kfindcolor(1696, 783, 12688166) == 1) then
         left(1725, 792, 100)
         return 1
     end
@@ -66,9 +66,11 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-    if (kfindcolor(1648, 763, 4962287) == 1) then
+    if (kfindcolor(1647, 797, 2765610) == 1) then
         left(1648, 763)
+        return 1
     end
+    return 0
 end
 
 function Alliance:checkTech()

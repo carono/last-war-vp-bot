@@ -1,5 +1,6 @@
 function service_alliance()
-    if (Alliance:open()) then
+    Alliance:applyHelp()
+    if (Alliance:isMarked() and Alliance:open()) then
         Alliance:applyHelp()
         Alliance:checkTech()
         Alliance:getPresent()

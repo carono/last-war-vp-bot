@@ -54,13 +54,19 @@ function Map:showInterface()
     end
 end
 
-function Map:normalize()
-    if (self:state() == 0 and Map:isHideInterface() == 1) then
-        escape(500)
-        return self:normalize()
-    end
+function Map:openBase()
+    Map:normalize()
     if (Map:state() == 2) then
         self:clickBaseButton()
     end
+end
+
+function Map:normalize()
+    if (self:state() == 0 and Map:isHideInterface() == 1) then
+        escape(500)
+        log('Normalize map')
+        return self:normalize()
+    end
+
     return 1
 end
