@@ -12,6 +12,6 @@ if  (os.clock() > allianceTimer) then
   allianceTimer = ktimer(300000)
 end
 Rally:joinIfExist()
-
+Alliance:applyHelp()
 
 goto start
