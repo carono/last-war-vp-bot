@@ -305,7 +305,7 @@ proc check_overtime #x #y
 
     call overtime_exception #x #y
     if $overtime_exception == 1
-      set $result 0
+      //set $result 0
     end_if
 
     set linedelay 100

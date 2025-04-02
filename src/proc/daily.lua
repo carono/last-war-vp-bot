@@ -1,7 +1,7 @@
 function service_alliance()
     Alliance:applyHelp()
     if (Alliance:isMarked() and Alliance:open()) then
-        Alliance:applyHelp()
+        wait(500)
         Alliance:checkTech()
         Alliance:getPresent()
         Alliance:openSeason2buildings()

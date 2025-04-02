@@ -3,13 +3,15 @@
 require('dist/init')
 require('dist/init-develop')
 require('src/develop')
-local allianceTimer = ktimer(300000)
+local allianceServiceTimeOut = 60 * 1000
+local allianceTimer = ktimer(0)
 ::start::
 
 Map:normalize()
+
 if  (os.clock() > allianceTimer) then
   service_alliance()
-  allianceTimer = ktimer(300000)
+  allianceTimer = ktimer(allianceServiceTimeOut)
 end
 Rally:joinIfExist()
 Alliance:applyHelp()

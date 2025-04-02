@@ -102,7 +102,6 @@ Hero = {}
 function Hero:clickAttack()
     if (kfindcolor(757, 574, 4354047) == 1) then
         click_and_wait_color(757, 574, 16756752, 958, 856, 1)
-
         return
     end
 end
@@ -110,15 +109,16 @@ end
 function Hero:openAttackMenu()
     if (not Hero:attackMenuIsOpen() and kfindcolor(786, 600, 4354047)) then
         click_and_wait_color(786, 600, 16756752, 958, 856, 1)
-        log('Open attack')
+        log('Open attack menu')
         return
     end
     require("lib/color")
     local path = [["img/attack_button.bmp"]]
-    local handle = Window:getGameHandle()
-    x, y, WidthReference, HeightReference = windowpos(handle)
-    attackButton = findimage(100, 100, WidthReference, HeightReference, { path }, 2, 95, 1, 3)
-    log(attackButton, 100, 100, WidthReference, HeightReference)
+
+    x, y = Window:modifyCord(716, 620)
+    x2, y2 = Window:modifyCord(1093, 856)
+    attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
+    log("Attack button img", attackButton)
     if (attackButton) then
         click_and_wait_color(attackButton[1][1], attackButton[1][2], 16756752, 958, 856, 1)
     end
@@ -142,13 +142,11 @@ end
 
 function Hero:attackIfCan()
     if (Hero:attackMenuIsOpen()) then
-
+        log('Menu is opened, try attack...')
         if (kfindcolor(650, 974, 16579836, 1) == 1 and kfindcolor(659, 982, 15592425) == 1) then
             --Hero already attacking
             log('In process..')
-            stop_script()
         end
-
         if (kfindcolor(658, 983, 14069823)) then
             --Hero is sleap
             Hero:clickAttack()
@@ -161,27 +159,12 @@ function Hero:attackIfCan()
             --Hero harvesting
             Hero:clickAttack()
         end
+        if (kfindcolor(649, 977, 6475577)) then
+            --Hero on tile
+            Hero:clickAttack()
+        end
     end
 end
-
---[[
-if (kfindcolor(958, 856, 16756752) == 1) then
-    log('Open selecting')
-
-
-
-
-
-    if (kfindcolor(658, 971, 6473532)) then
-        log('Attack 2')
-        left(955, 826)
-    end
-
-
-
-
-end
-]]--
 
 -- lua Map.lua
 Map = {}
