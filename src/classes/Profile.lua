@@ -14,7 +14,7 @@ function Profile:closeLike()
     return 0
 end
 
-function Profile:openMinistry()
+function Profile:clickMinistry()
     if (self:isOpen() ~= 1) then
         self:open()
     end

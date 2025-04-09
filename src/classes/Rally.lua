@@ -1,14 +1,20 @@
 Rally = {}
 
-function Rally:joinIfExist()
-    Rally:openList()
-    if (Rally:join()) then
-        log('Start join rally')
-        Rally:applyJoin()
-    else
-        if (Rally:listIsOpen() == 1) then
-            log('Out rally list')
-            Alliance:clickBack()
+function Rally:joinIfExist(to_last_place)
+    to_last_place = to_last_place or 0
+    if (Rally:openList() == 1) then
+        if (to_last_place == 1) then
+            log('wait last place')
+            wait_not_color(819, 318, 5438656, 30000)
+        end
+        if (Rally:join()) then
+            log('Start join rally')
+            Rally:applyJoin()
+        else
+            if (Rally:listIsOpen() == 1) then
+                log('Out rally list')
+                Alliance:clickBack()
+            end
         end
     end
 end
@@ -26,19 +32,32 @@ function Rally:listIsOpen()
 end
 
 function Rally:join()
-    if (kfindcolor(897, 311, 5438667)) then
-        return click_and_wait_color(898, 322, 16777215, 725, 857)
+    if (kfindcolor(897, 311, 5438667) == 1) then
+        if click_and_wait_color(898, 322, 16777215, 725, 857, 2000) == 0 then
+            escape(800)
+            return 0
+        end
+        return 1
     end
 end
 
+function Rally:hasActiveRallies()
+    return kfindcolor(1695, 700, 5066239)
+end
+
+function Rally:hasAvailableRally()
+    return kfindcolor(1751, 672, 3741951, 3)
+end
+
 function Rally:openList()
-    if (kfindcolor(1696, 783, 12688166) and kfindcolor(1751, 672, 3741951, 3)) then
+    if (Rally:hasActiveRallies() == 1 and Rally:hasAvailableRally() == 1) then
+        log('open rally list')
         return click_and_wait_color(1721, 701, 16765462, 648, 1033)
     end
 end
 
 function Rally:applyJoin()
-    if (kfindcolor(954, 850, 16756752)) then
+    if (kfindcolor(954, 850, 16756752) == 1) then
         return click_and_wait_not_color(954, 850, 16756752)
     end
 end

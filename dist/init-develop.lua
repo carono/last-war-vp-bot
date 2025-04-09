@@ -1,3 +1,2 @@
-require('dist/functions')
-require('dist/classes')
+require('dist/init')
 require('src/develop')

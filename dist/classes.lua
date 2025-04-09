@@ -20,16 +20,20 @@ function Alliance:openPresentsTab()
 end
 
 function Alliance:getPresent()
-    if (kfindcolor(873, 500, 3741951)) then
+    if (kfindcolor(873, 500, 3741951) == 1) then
         self:openPresentsTab()
     end
 
     self:clickBigGreenButton()
 
-    if (kfindcolor(1182, 247, 1586415)) then
+    if (kfindcolor(1182, 247, 1586415) == 1) then
         log('click premium tab')
-        click_and_wait_color(1140, 277, 560895)
-        click_while_color(1114, 468, 4187738)
+        if (kfindcolor(1109, 1016, 4187738) == 1) then
+            left(1109, 1016)
+        else
+            click_and_wait_color(1140, 277, 560895)
+            click_while_color(1114, 468, 4187738)
+        end
     end
 
     Alliance:clickBack()
@@ -68,7 +72,11 @@ end
 
 function Alliance:applyHelp()
     if (kfindcolor(1647, 797, 2765610) == 1) then
-        left(1648, 763)
+        left(1648, 763, 300)
+        return 1
+    end
+    if (kfindcolor(120, 872, 13038591) == 1) then
+        left(120, 872, 300)
         return 1
     end
     return 0
@@ -96,6 +104,48 @@ function Alliance:openSeason2buildings()
     end
 end
 
+function Alliance:clickHealTroops()
+    if (kfindcolor(122, 865, 646802) == 1) then
+        click_and_wait_color(127, 864, 10257016, 1057, 237)
+        left(1033, 874)
+    end
+    if (kfindcolor(151, 865, 6868209) == 1) then
+        left(119, 855)
+    end
+end
+
+-- lua Game.lua
+Game = {}
+
+function Game:checkMinistryRequests(cooldown)
+    cooldown = cooldown or 60
+    Ministry:openMinistryIfRequest()
+    Ministry:checkAndApproveMinisterRequest('strategy')
+    Ministry:checkAndApproveMinisterRequest('security')
+    Ministry:checkAndApproveMinisterRequest('development')
+    Ministry:checkAndApproveMinisterRequest('science')
+    Ministry:checkAndApproveMinisterRequest('interior')
+end
+
+function Game:checkAlliance()
+    Alliance:applyHelp()
+
+    if (Rally:hasActiveRallies() == 0 and Alliance:isMarked() == 1 and Alliance:open() == 1) then
+        wait(500)
+        Alliance:checkTech()
+        Alliance:getPresent()
+        Alliance:openSeason2buildings()
+
+        Alliance:clickBack()
+    end
+end
+
+function Game:start()
+    exec(config.game_path)
+    wait(30000)
+    Window:repos()
+end
+
 -- lua Hero.lua
 Hero = {}
 
@@ -107,7 +157,7 @@ function Hero:clickAttack()
 end
 
 function Hero:openAttackMenu()
-    if (not Hero:attackMenuIsOpen() and kfindcolor(786, 600, 4354047)) then
+    if (not Hero:attackMenuIsOpen() and kfindcolor(786, 600, 4354047) == 1) then
         click_and_wait_color(786, 600, 16756752, 958, 856, 1)
         log('Open attack menu')
         return
@@ -147,19 +197,19 @@ function Hero:attackIfCan()
             --Hero already attacking
             log('In process..')
         end
-        if (kfindcolor(658, 983, 14069823)) then
-            --Hero is sleap
+        if (kfindcolor(658, 983, 14069823) == 1) then
+            --Hero is sleep
             Hero:clickAttack()
         end
-        if (kfindcolor(658, 973, 5197303, 11) and kfindcolor(650, 977, 16579836, 1)) then
+        if (kfindcolor(658, 973, 5197303, 11) == 1 and kfindcolor(650, 977, 16579836, 1) == 1) then
             --Hero returning
             Hero:clickAttack()
         end
-        if (kfindcolor(658, 983, 14069823)) then
+        if (kfindcolor(658, 983, 14069823) == 1) then
             --Hero harvesting
             Hero:clickAttack()
         end
-        if (kfindcolor(649, 977, 6475577)) then
+        if (kfindcolor(649, 977, 6475577) == 1) then
             --Hero on tile
             Hero:clickAttack()
         end
@@ -188,9 +238,10 @@ function Map:state()
 end
 
 function Map:isHideInterface()
-    if (kfindcolor(14, 99, 50431)) then
+    if (kfindcolor(14, 99, 50431) == 1) then
         return 0
     end
+
     return 1
 end
 
@@ -209,7 +260,6 @@ function Map:resetScrollOut()
 end
 
 function Map:clickBaseButton()
-    log('state', Map:state())
     if (Map:state() ~= 0) then
         left(1723, 1044, 500)
         return 1
@@ -244,6 +294,18 @@ end
 Ministry = {}
 MinistryPos = { vp = { 638, 440 }, strategy = { 825, 440 }, security = { 1011, 440 }, development = { 638, 680 }, science = { 825, 680 }, interior = { 1011, 680 } }
 
+function Ministry:getMinisterCords(minister)
+    local x = MinistryPos[minister][1]
+    local y = MinistryPos[minister][2]
+
+    if (Ministry:checkCapturedCapitol() == 1) then
+        Ministry:pull_captured_ministry()
+        y = y + 90
+    end
+
+    return Window:modifyCord(x, y)
+end
+
 function Ministry:checkOvertime(minister)
     require("lib/color")
     --  storage = require [[lib/storage]]
@@ -277,35 +339,164 @@ function Ministry:checkOvertime(minister)
     return 0
 end
 
+function Ministry:clickDismiss()
+    if kfindcolor(817, 929, 6513405) == 1 then
+        left(817, 929, 300)
+    end
+end
 
---[[
-proc check_overtime #x #y
-  set linedelay 0
+function Ministry:clickConfirmDismiss()
+    if kfindcolor(809, 599, 16765462) == 1 then
+        left(809, 599, 300)
+    end
+end
 
-    call check_captured_capitol
-    if $check_captured_capitol = 1
-      call pull_captured_ministry
-      set #y #y + 88
-    end_if
+function Ministry:checkCapturedCapitol()
+    if (kfindcolor(1084, 925, 2119560) == 0) then
+        return 1
+    end
+    return 0
+end
 
-    set #x1 #x + 25
-    set #y1 #y + 170
-    set #x2 #x + 130
-    set #y2 #y + 195
-    set $response FindImage (#x1, #y1 #x2, #y2 (img\time.bmp) %ResultArray 2 90 1 80
+function Ministry:pull_captured_ministry()
+    if (kfindcolor(958, 182, 7039339) == 1) then
+        kdrag(655, 579, 655, 159)
+        return 1
+    end
+    return 0
+end
 
-    set #a findcolor (#x1, #y1 #x2, #y2 16777215 %ResultArray 2 1 3)
+function Ministry:dismiss(x, y)
+    if (Ministry:checkCapturedCapitol() == 1) then
+        Ministry:pull_captured_ministry()
+        y = y + 90
+    end
 
-    if $response > 0 or #a = 0
-      set $result 0
+    if (kfindcolor(1098, 115, 10257017) ~= 1) then
+        left(x, y, 300)
+    end
+
+    local empty_list = kfindcolor(963, 529, 16054013)
+    local has_list_request = kfindcolor(1139, 924, 3741951)
+
+    if (empty_list == 1 and has_list_request == 0) then
+        Ministry:clickDismiss()
+        Ministry:clickConfirmDismiss()
+        left(1152, 113, 300)
+    end
+end
+
+function Ministry:hasRequest()
+    return kfindcolor(30, 18, 3745271);
+end
+
+function Ministry:openMinistryIfRequest()
+    if (Ministry:hasRequest() == 1) then
+        Profile:open()
+        Profile:closeLike()
+        Profile:clickMinistry()
+    end
+end
+
+function Ministry:hasMinisterRequest(minister)
+    x, y = Ministry:getMinisterCords(minister)
+    return kfindcolor(x, y, 2502143, 25)
+end
+
+function Ministry:clickMinister(minister)
+    x, y = Ministry:getMinisterCords(minister)
+    click_and_wait_color(x, y, 10257017, 628, 122)
+end
+
+function Ministry:checkAndApproveMinisterRequest(minister, check_overtime)
+    check_overtime = check_overtime or 0
+    x, y = Ministry:getMinisterCords(minister)
+    if (Ministry:hasMinisterRequest(minister) == 1) then
+        Ministry:clickMinister(minister)
+
+        if (Ministry:requestListHasMark() ~= 0) then
+            Ministry:openRequestList()
+            Ministry:approve()
+            while (kfindcolor(896, 33, 7225143) == 0) do
+                escape(1000)
+            end
+        end
+    end
+end
+
+function Ministry:closemin()
+    while (Map:state() == 0) do
+        escape(800)
+    end
+end
+
+function Ministry:clickApproveButton()
+    left(1028, 256, 200)
+end
+
+function Ministry:requestListHasMark()
+    return find_red_mark(1137, 924)
+end
+
+function Ministry:openRequestList()
+    if (kfindcolor(1108, 955, 16777215) == 1) then
+        left(1138, 924, 300)
+    end
+end
+
+function Ministry:hasRequestsInList()
+    if (find_red_mark(1006, 214, 1054, 951, 4253017) ~= 0) then
+        return 1
+    end
+    return 0
+end
+
+function Ministry:approve()
+    if (Ministry:hasRequestsInList() == 1) then
+
+        if (find_red_mark(829, 642, 980, 945, 14144488) ~= 0) then
+            Ministry:pullList()
+        end
+
+        local ar1 = {}
+        while stored_colors_not_changed(ar1) == 0 do
+            Ministry:clickApproveButton()
+            Ministry:clickApproveButton()
+            Ministry:clickApproveButton()
+            log('click approve')
+            wait(500)
+            ar1 = store_colors_in_range(655, 245)
+        end
+    end
+end
+
+function Ministry:pullList()
+    local ar1 = {}
+    ar1 = store_colors_in_range(655, 245)
+    pull_request_list()
+    wait(1500)
+    if (stored_colors_not_changed(ar1) == 1) then
+        log('Checking list...')
+        pull_request_list()
+        wait(3000)
+        ar1 = store_colors_in_range(655, 245)
+        if (stored_colors_not_changed(ar1) == 1) then
+            log('Finish pull list')
+            return 1
+        else
+            log('Something change, restart pulling list')
+            return self:pullList()
+        end
     else
-      set $result 1
-    end_if
-    set linedelay 100
-end_proc
-]]--
+        log('Continue pull')
+        return self:pullList()
+    end
+    return 0
+end
 
+function Ministry:iAmIsVP()
 
+end
 
 -- lua Profile.lua
 Profile = {}
@@ -324,7 +515,7 @@ function Profile:closeLike()
     return 0
 end
 
-function Profile:openMinistry()
+function Profile:clickMinistry()
     if (self:isOpen() ~= 1) then
         self:open()
     end
@@ -347,15 +538,21 @@ end
 -- lua Rally.lua
 Rally = {}
 
-function Rally:joinIfExist()
-    Rally:openList()
-    if (Rally:join()) then
-        log('Start join rally')
-        Rally:applyJoin()
-    else
-        if (Rally:listIsOpen() == 1) then
-            log('Out rally list')
-            Alliance:clickBack()
+function Rally:joinIfExist(to_last_place)
+    to_last_place = to_last_place or 0
+    if (Rally:openList() == 1) then
+        if (to_last_place == 1) then
+            log('wait last place')
+            wait_not_color(819, 318, 5438656, 30000)
+        end
+        if (Rally:join()) then
+            log('Start join rally')
+            Rally:applyJoin()
+        else
+            if (Rally:listIsOpen() == 1) then
+                log('Out rally list')
+                Alliance:clickBack()
+            end
         end
     end
 end
@@ -373,19 +570,32 @@ function Rally:listIsOpen()
 end
 
 function Rally:join()
-    if (kfindcolor(897, 311, 5438667)) then
-        return click_and_wait_color(898, 322, 16777215, 725, 857)
+    if (kfindcolor(897, 311, 5438667) == 1) then
+        if click_and_wait_color(898, 322, 16777215, 725, 857, 2000) == 0 then
+            escape(800)
+            return 0
+        end
+        return 1
     end
 end
 
+function Rally:hasActiveRallies()
+    return kfindcolor(1695, 700, 5066239)
+end
+
+function Rally:hasAvailableRally()
+    return kfindcolor(1751, 672, 3741951, 3)
+end
+
 function Rally:openList()
-    if (kfindcolor(1696, 783, 12688166) and kfindcolor(1751, 672, 3741951, 3)) then
+    if (Rally:hasActiveRallies() == 1 and Rally:hasAvailableRally() == 1) then
+        log('open rally list')
         return click_and_wait_color(1721, 701, 16765462, 648, 1033)
     end
 end
 
 function Rally:applyJoin()
-    if (kfindcolor(954, 850, 16756752)) then
+    if (kfindcolor(954, 850, 16756752) == 1) then
         return click_and_wait_not_color(954, 850, 16756752)
     end
 end
@@ -416,6 +626,16 @@ function Window:getCanonicalSize()
     return 1796, 1154
 end
 
+function Window:repos()
+    local handle = self:attachHandle()
+    if (handle ~= 0) then
+        x, y, width, height = windowpos(handle)
+        x = config.win_pos_x
+        y = config.win_pos_y
+        windowpos(x, y, width, height, handle)
+    end
+end
+
 function Window:attachHandle()
     local handle = self:getGameHandle()
     workwindow(handle)
@@ -425,6 +645,9 @@ end
 
 function Window:getGameHandle()
     local handle = findwindow("Last War-Survival Game")
+    if (handle == nil) then
+        return 0
+    end
     return handle[1][1]
 end
 

@@ -8,7 +8,7 @@ function Hero:clickAttack()
 end
 
 function Hero:openAttackMenu()
-    if (not Hero:attackMenuIsOpen() and kfindcolor(786, 600, 4354047)) then
+    if (not Hero:attackMenuIsOpen() and kfindcolor(786, 600, 4354047) == 1) then
         click_and_wait_color(786, 600, 16756752, 958, 856, 1)
         log('Open attack menu')
         return
@@ -48,19 +48,19 @@ function Hero:attackIfCan()
             --Hero already attacking
             log('In process..')
         end
-        if (kfindcolor(658, 983, 14069823)) then
-            --Hero is sleap
+        if (kfindcolor(658, 983, 14069823) == 1) then
+            --Hero is sleep
             Hero:clickAttack()
         end
-        if (kfindcolor(658, 973, 5197303, 11) and kfindcolor(650, 977, 16579836, 1)) then
+        if (kfindcolor(658, 973, 5197303, 11) == 1 and kfindcolor(650, 977, 16579836, 1) == 1) then
             --Hero returning
             Hero:clickAttack()
         end
-        if (kfindcolor(658, 983, 14069823)) then
+        if (kfindcolor(658, 983, 14069823) == 1) then
             --Hero harvesting
             Hero:clickAttack()
         end
-        if (kfindcolor(649, 977, 6475577)) then
+        if (kfindcolor(649, 977, 6475577) == 1) then
             --Hero on tile
             Hero:clickAttack()
         end

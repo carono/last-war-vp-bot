@@ -19,16 +19,20 @@ function Alliance:openPresentsTab()
 end
 
 function Alliance:getPresent()
-    if (kfindcolor(873, 500, 3741951)) then
+    if (kfindcolor(873, 500, 3741951) == 1) then
         self:openPresentsTab()
     end
 
     self:clickBigGreenButton()
 
-    if (kfindcolor(1182, 247, 1586415)) then
+    if (kfindcolor(1182, 247, 1586415) == 1) then
         log('click premium tab')
-        click_and_wait_color(1140, 277, 560895)
-        click_while_color(1114, 468, 4187738)
+        if (kfindcolor(1109, 1016, 4187738) == 1) then
+            left(1109, 1016)
+        else
+            click_and_wait_color(1140, 277, 560895)
+            click_while_color(1114, 468, 4187738)
+        end
     end
 
     Alliance:clickBack()
@@ -67,7 +71,11 @@ end
 
 function Alliance:applyHelp()
     if (kfindcolor(1647, 797, 2765610) == 1) then
-        left(1648, 763)
+        left(1648, 763, 300)
+        return 1
+    end
+    if (kfindcolor(120, 872, 13038591) == 1) then
+        left(120, 872, 300)
         return 1
     end
     return 0
@@ -92,5 +100,15 @@ function Alliance:openSeason2buildings()
         click_and_wait_not_color(892, 1031, 16765462)
         close_gift_modal()
         self:clickBack()
+    end
+end
+
+function Alliance:clickHealTroops()
+    if (kfindcolor(122, 865, 646802) == 1) then
+        click_and_wait_color(127, 864, 10257016, 1057, 237)
+        left(1033, 874)
+    end
+    if (kfindcolor(151, 865, 6868209) == 1) then
+        left(119, 855)
     end
 end

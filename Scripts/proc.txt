@@ -51,13 +51,15 @@ end_proc
 
 proc pull_captured_ministry
   set linedelay 0
-  call kfindcolor 958, 182 5 7039339
+  call kdrag 655, 579 655, 159
+  call kfindcolor 841, 354 3 3096913
   if $kfindcolor = 1
     call kdrag 655, 579 655, 159
     set $result 1
   else
     set $result 0
   end_if
+  wait 1000
   set linedelay 100
 end_proc
 
@@ -119,8 +121,27 @@ proc close_list_popup
   end_while
 end_proc
 
-proc check_captured_capitol
+proc check_conquered_capitol
   set linedelay 0
+  if $is_conquered_capitol.0 <> -1 and $is_conquered_capitol.0 <> ''
+     set $result $is_conquered_capitol.0
+  else
+    call kfindcolor 1084, 925 5 2119560
+    if $kfindcolor = 0
+      set $result 1
+    else
+      set $result 0
+    end_if
+    set $is_captured_capitol.0 $result
+  end_if
+  set linedelay 100
+end_proc
+
+proc check_captured_capitol
+   set $result 1
+
+  set linedelay 0
+
   if $is_captured_capitol.0 <> -1 and $is_captured_capitol.0 <> ''
      set $result $is_captured_capitol.0
   else
@@ -252,6 +273,14 @@ end_proc
 
 proc check_interior
   call checkmin 1011 680
+end_proc
+
+proc check_mil_commander
+  call checkmin 691, 184
+end_proc
+
+proc check_adm_commander
+  call checkmin 922, 184
 end_proc
 
 proc close_ministry

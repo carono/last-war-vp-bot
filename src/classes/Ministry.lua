@@ -1,6 +1,18 @@
 Ministry = {}
 MinistryPos = { vp = { 638, 440 }, strategy = { 825, 440 }, security = { 1011, 440 }, development = { 638, 680 }, science = { 825, 680 }, interior = { 1011, 680 } }
 
+function Ministry:getMinisterCords(minister)
+    local x = MinistryPos[minister][1]
+    local y = MinistryPos[minister][2]
+
+    if (Ministry:checkCapturedCapitol() == 1) then
+        Ministry:pull_captured_ministry()
+        y = y + 90
+    end
+
+    return Window:modifyCord(x, y)
+end
+
 function Ministry:checkOvertime(minister)
     require("lib/color")
     --  storage = require [[lib/storage]]
@@ -34,31 +46,161 @@ function Ministry:checkOvertime(minister)
     return 0
 end
 
+function Ministry:clickDismiss()
+    if kfindcolor(817, 929, 6513405) == 1 then
+        left(817, 929, 300)
+    end
+end
 
---[[
-proc check_overtime #x #y
-  set linedelay 0
+function Ministry:clickConfirmDismiss()
+    if kfindcolor(809, 599, 16765462) == 1 then
+        left(809, 599, 300)
+    end
+end
 
-    call check_captured_capitol
-    if $check_captured_capitol = 1
-      call pull_captured_ministry
-      set #y #y + 88
-    end_if
+function Ministry:checkCapturedCapitol()
+    if (kfindcolor(1084, 925, 2119560) == 0) then
+        return 1
+    end
+    return 0
+end
 
-    set #x1 #x + 25
-    set #y1 #y + 170
-    set #x2 #x + 130
-    set #y2 #y + 195
-    set $response FindImage (#x1, #y1 #x2, #y2 (img\time.bmp) %ResultArray 2 90 1 80
+function Ministry:pull_captured_ministry()
+    if (kfindcolor(958, 182, 7039339) == 1) then
+        kdrag(655, 579, 655, 159)
+        return 1
+    end
+    return 0
+end
 
-    set #a findcolor (#x1, #y1 #x2, #y2 16777215 %ResultArray 2 1 3)
+function Ministry:dismiss(x, y)
+    if (Ministry:checkCapturedCapitol() == 1) then
+        Ministry:pull_captured_ministry()
+        y = y + 90
+    end
 
-    if $response > 0 or #a = 0
-      set $result 0
+    if (kfindcolor(1098, 115, 10257017) ~= 1) then
+        left(x, y, 300)
+    end
+
+    local empty_list = kfindcolor(963, 529, 16054013)
+    local has_list_request = kfindcolor(1139, 924, 3741951)
+
+    if (empty_list == 1 and has_list_request == 0) then
+        Ministry:clickDismiss()
+        Ministry:clickConfirmDismiss()
+        left(1152, 113, 300)
+    end
+end
+
+function Ministry:hasRequest()
+    return kfindcolor(30, 18, 3745271);
+end
+
+function Ministry:openMinistryIfRequest()
+    if (Ministry:hasRequest() == 1) then
+        Profile:open()
+        Profile:closeLike()
+        Profile:clickMinistry()
+    end
+end
+
+function Ministry:hasMinisterRequest(minister)
+    x, y = Ministry:getMinisterCords(minister)
+    return kfindcolor(x, y, 2502143, 25)
+end
+
+function Ministry:clickMinister(minister)
+    x, y = Ministry:getMinisterCords(minister)
+    click_and_wait_color(x, y, 10257017, 628, 122)
+end
+
+function Ministry:checkAndApproveMinisterRequest(minister, check_overtime)
+    check_overtime = check_overtime or 0
+    x, y = Ministry:getMinisterCords(minister)
+    if (Ministry:hasMinisterRequest(minister) == 1) then
+        Ministry:clickMinister(minister)
+
+        if (Ministry:requestListHasMark() ~= 0) then
+            Ministry:openRequestList()
+            Ministry:approve()
+            while (kfindcolor(896, 33, 7225143) == 0) do
+                escape(1000)
+            end
+        end
+    end
+end
+
+function Ministry:closemin()
+    while (Map:state() == 0) do
+        escape(800)
+    end
+end
+
+function Ministry:clickApproveButton()
+    left(1028, 256, 200)
+end
+
+function Ministry:requestListHasMark()
+    return find_red_mark(1137, 924)
+end
+
+function Ministry:openRequestList()
+    if (kfindcolor(1108, 955, 16777215) == 1) then
+        left(1138, 924, 300)
+    end
+end
+
+function Ministry:hasRequestsInList()
+    if (find_red_mark(1006, 214, 1054, 951, 4253017) ~= 0) then
+        return 1
+    end
+    return 0
+end
+
+function Ministry:approve()
+    if (Ministry:hasRequestsInList() == 1) then
+
+        if (find_red_mark(829, 642, 980, 945, 14144488) ~= 0) then
+            Ministry:pullList()
+        end
+
+        local ar1 = {}
+        while stored_colors_not_changed(ar1) == 0 do
+            Ministry:clickApproveButton()
+            Ministry:clickApproveButton()
+            Ministry:clickApproveButton()
+            log('click approve')
+            wait(500)
+            ar1 = store_colors_in_range(655, 245)
+        end
+    end
+end
+
+function Ministry:pullList()
+    local ar1 = {}
+    ar1 = store_colors_in_range(655, 245)
+    pull_request_list()
+    wait(1500)
+    if (stored_colors_not_changed(ar1) == 1) then
+        log('Checking list...')
+        pull_request_list()
+        wait(3000)
+        ar1 = store_colors_in_range(655, 245)
+        if (stored_colors_not_changed(ar1) == 1) then
+            log('Finish pull list')
+            return 1
+        else
+            log('Something change, restart pulling list')
+            return self:pullList()
+        end
     else
-      set $result 1
-    end_if
-    set linedelay 100
-end_proc
-]]--
+        log('Continue pull')
+        return self:pullList()
+    end
+    return 0
+end
 
+function Ministry:iAmIsVP()
+
+end

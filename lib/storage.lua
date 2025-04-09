@@ -1,6 +1,33 @@
 --lua
 local write, writeIndent, writers, refCount;
 
+Storage = {}
+
+function Storage:get(var, default, path)
+    path = path or "global.env"
+    if (fileexists(path) == "0") then
+        storageLib.save(path, {})
+    end
+    data = storageLib.load(path)
+    if (data[var] == nil) then
+        data[var] = default;
+        storageLib.save(path, data)
+        return default
+    end
+    return data[var]
+end
+
+function Storage:set(var, value, path)
+    path = path or "global.env"
+    if (fileexists(path) == "0") then
+        data = {}
+    else
+        data = storageLib.load(path)
+    end
+    data[var] = value
+    storageLib.save(path, data)
+end
+
 local persistence = {
     save = function(path, ...)
         local file, e = io.open(path, "w");
@@ -72,6 +99,8 @@ local persistence = {
         end ;
     end;
 }
+
+
 
 -- Private methods
 

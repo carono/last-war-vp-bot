@@ -8,7 +8,7 @@ dalay_after_check = 3 * 60 * 1000
 win_pos_x = 0
 win_pos_y = 0
 
-storage = require [[lib/storage]]
+storageLib = require [[lib/storage]]
 
 config = {
     game_path = game_path,
@@ -20,7 +20,7 @@ config = {
 }
 
 if (fileexists([["config.env"]]) == "0") then
-    storage.save("config.env", config)
+    storageLib.save("config.env", config)
 end
 
-config = storage.load("config.env")
+config = storageLib.load("config.env")

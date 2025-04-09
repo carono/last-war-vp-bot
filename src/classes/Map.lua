@@ -19,9 +19,10 @@ function Map:state()
 end
 
 function Map:isHideInterface()
-    if (kfindcolor(14, 99, 50431)) then
+    if (kfindcolor(14, 99, 50431) == 1) then
         return 0
     end
+
     return 1
 end
 
@@ -40,7 +41,6 @@ function Map:resetScrollOut()
 end
 
 function Map:clickBaseButton()
-    log('state', Map:state())
     if (Map:state() ~= 0) then
         left(1723, 1044, 500)
         return 1

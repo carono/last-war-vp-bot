@@ -1,4 +1,6 @@
 function kdrag(x1, y1, x2, y2, r)
+    x1, y1 = Window:modifyCord(x1, y1)
+    x2, y2 = Window:modifyCord(x2, y2)
     r = r or 20
     local oldX, oldY = mouse_pos()
     move(x1, y1, r, r, r, r)
@@ -20,11 +22,11 @@ function left(x, y, timeout, return_pos)
     end
 end
 
-function click_and_wait_color(x, y, color, colorX, colorY)
+function click_and_wait_color(x, y, color, colorX, colorY, timeout)
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    return wait_color(colorX, colorY, color)
+    return wait_color(colorX, colorY, color, timeout)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)
@@ -66,7 +68,7 @@ end
 function click_if_color(x, y, color, colorX, colorY)
     colorX = colorX or x
     colorY = colorY or y
-    if (kfindcolor(colorX, colorY, color)) then
+    if (kfindcolor(colorX, colorY, color) == 1) then
         left(x, y)
         wait(300)
     end
@@ -80,4 +82,20 @@ end
 
 function ktimer(timeout)
     return os.clock() + (timeout / 1000)
+end
+
+function cooldown(slug, time)
+    time = time or 30000
+    local key = "cooldown" .. "." .. slug
+    local timer = Storage:get(key, ktimer(time))
+    --log(key .. ': ' .. timer - os.clock() .. 's')
+    if (os.clock() > timer) then
+        return 1
+    end
+    return 0
+end
+
+function reset_cooldown(slug)
+    local key = "cooldown" .. "." .. slug
+    Storage:set(key, nil)
 end

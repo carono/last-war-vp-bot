@@ -1,6 +1,6 @@
 function pull_request_list()
     if (kfindcolor(621, 170, 16054013) == 1 and kfindcolor(1151, 176, 16054013) == 1) then
-        kdrag(863, 223, 863, 932)
+        kdrag(863, 255, 863, 932)
     end
 end
 
@@ -46,3 +46,11 @@ function close_simple_modal(count)
     end
 end
 
+function close_connection_error()
+    if kfindcolor(913, 573, 2546431) == 1 then
+        left(913, 573, 400)
+    end
+    if kfindcolor(862, 593, 16765462) == 1 then
+        left(862, 593, 400)
+    end
+end

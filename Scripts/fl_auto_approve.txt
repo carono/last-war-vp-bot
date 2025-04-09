@@ -41,8 +41,12 @@ if #handle <> 0
     end_if
     repeat 2
     //call check_vice_president
+          call check_adm_commander
+      call check_mil_commander
+
       call check_strategy
       call check_security
+
 
       if $timeout1 = 0 or timer1 > #check_queue_timeout
         call check_development
