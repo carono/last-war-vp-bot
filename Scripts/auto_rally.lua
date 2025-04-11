@@ -4,6 +4,7 @@ require('dist/init')
 reset_cooldown('checkMinistryRequests')
 
 :: start ::
+Game:waitIfUserIsActive()
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()

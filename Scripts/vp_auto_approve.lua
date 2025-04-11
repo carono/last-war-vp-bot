@@ -4,6 +4,8 @@ require('dist/init')
 
 :: start ::
 
+Game:waitIfUserIsActive()
+
 if (cooldown('checkHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
 end

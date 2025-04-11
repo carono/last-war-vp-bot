@@ -160,6 +160,20 @@ function Game:clickLogout()
     wait(config.logout_timeout)
 end
 
+function Game:waitIfUserIsActive()
+    local x, y = mouse_pos()
+    local oldX = Storage:get('lastMousePosX')
+    local oldY = Storage:get('lastMousePosY')
+    if (oldY ~= y or oldX ~= x) then
+        Storage:set('lastMousePosX', x)
+        Storage:set('lastMousePosY', y)
+        log('Waiting, while user working')
+        wait(10000)
+        return Game:waitIfUserIsActive()
+    end
+    return 0
+end
+
 -- lua Hero.lua
 Hero = {}
 
