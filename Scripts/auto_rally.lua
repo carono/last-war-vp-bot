@@ -1,8 +1,10 @@
 --lua
 
-require('dist/init-develop')
+require('dist/init')
 
 :: start ::
+
+Game:checkMinistryRequests()
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()

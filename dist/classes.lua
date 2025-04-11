@@ -119,6 +119,8 @@ Game = {}
 
 function Game:checkMinistryRequests()
     Ministry:openMinistryIfRequest()
+    Ministry:checkAndApproveMinisterRequest('mil_commander')
+    Ministry:checkAndApproveMinisterRequest('adm_commander')
     Ministry:checkAndApproveMinisterRequest('strategy')
     Ministry:checkAndApproveMinisterRequest('security')
     Ministry:checkAndApproveMinisterRequest('development')
@@ -140,6 +142,7 @@ function Game:checkAlliance()
 end
 
 function Game:start()
+    log('Try launch the game: ' .. config.game_path)
     exec(config.game_path)
     wait(30000)
     Window:repos()
@@ -302,17 +305,23 @@ end
 
 -- lua Ministry.lua
 Ministry = {}
-MinistryPos = { vp = { 638, 440 }, strategy = { 825, 440 }, security = { 1011, 440 }, development = { 638, 680 }, science = { 825, 680 }, interior = { 1011, 680 } }
+MinistryPos = {
+    vp = { 638, 440 },
+    strategy = { 825, 440 },
+    security = { 1011, 440 },
+    development = { 638, 680 },
+    science = { 825, 680 },
+    interior = { 1011, 680 },
+    mil_commander = { 691, 420 },
+    adm_commander = { 925, 420 }
+}
 
 function Ministry:getMinisterCords(minister)
     local x = MinistryPos[minister][1]
     local y = MinistryPos[minister][2]
-
-    if (Ministry:checkCapturedCapitol() == 1) then
-        Ministry:pull_captured_ministry()
-        y = y + 90
+    if (Ministry:capitolIsCapturedOrConquered() and (minister ~= "mil_commander" and minister ~= "adm_commander")) then
+        y = y + 220
     end
-
     return Window:modifyCord(x, y)
 end
 
@@ -361,27 +370,14 @@ function Ministry:clickConfirmDismiss()
     end
 end
 
-function Ministry:checkCapturedCapitol()
+function Ministry:capitolIsCapturedOrConquered()
     if (kfindcolor(1084, 925, 2119560) == 0) then
         return 1
     end
     return 0
 end
 
-function Ministry:pull_captured_ministry()
-    if (kfindcolor(958, 182, 7039339) == 1) then
-        kdrag(655, 579, 655, 159)
-        return 1
-    end
-    return 0
-end
-
 function Ministry:dismiss(x, y)
-    if (Ministry:checkCapturedCapitol() == 1) then
-        Ministry:pull_captured_ministry()
-        y = y + 90
-    end
-
     if (kfindcolor(1098, 115, 10257017) ~= 1) then
         left(x, y, 300)
     end
@@ -420,7 +416,6 @@ end
 
 function Ministry:checkAndApproveMinisterRequest(minister, check_overtime)
     check_overtime = check_overtime or 0
-    x, y = Ministry:getMinisterCords(minister)
     if (Ministry:hasMinisterRequest(minister) == 1) then
         Ministry:clickMinister(minister)
 
@@ -463,7 +458,6 @@ end
 
 function Ministry:approve()
     if (Ministry:hasRequestsInList() == 1) then
-
         if (find_red_mark(829, 642, 980, 945, 14144488) ~= 0) then
             Ministry:pullList()
         end

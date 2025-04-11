@@ -2,6 +2,8 @@ Game = {}
 
 function Game:checkMinistryRequests()
     Ministry:openMinistryIfRequest()
+    Ministry:checkAndApproveMinisterRequest('mil_commander')
+    Ministry:checkAndApproveMinisterRequest('adm_commander')
     Ministry:checkAndApproveMinisterRequest('strategy')
     Ministry:checkAndApproveMinisterRequest('security')
     Ministry:checkAndApproveMinisterRequest('development')
@@ -23,6 +25,7 @@ function Game:checkAlliance()
 end
 
 function Game:start()
+    log('Try launch the game: ' .. config.game_path)
     exec(config.game_path)
     wait(30000)
     Window:repos()
