@@ -15,7 +15,7 @@ if (cooldown('MapNormalize') == 1) then
 end
 
 if (cooldown('checkMinistryRequests') == 1) then
-  Game:checkMinistryRequests()
+    Game:checkMinistryRequests()
 end
 
 if (Game:isLogout() == 1) then

@@ -11,7 +11,7 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
 end
 
 if (cooldown('checkMinistryRequests') == 1) then
-  Game:checkMinistryRequests()
+    Game:checkMinistryRequests()
 end
 
 if (cooldown('checkAllianceMapNormalize') == 1) then
