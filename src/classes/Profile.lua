@@ -18,12 +18,18 @@ function Profile:clickMinistry()
     if (self:isOpen() ~= 1) then
         self:open()
     end
-    click_and_wait_color(945, 372, 7225143, 881, 34)
+    if (kfindcolor(1096, 313, 11897418) == 1) then
+        return click_and_wait_color(903, 550, 7225143, 881, 34)
+    end
+    return click_and_wait_color(945, 372, 7225143, 881, 34)
 end
 
 function Profile:isOpen()
     self:closeLike()
-    return kfindcolor(1173, 125, 16765462)
+    if (kfindcolor(1173, 125, 16765462) == 1 or kfindcolor(1096, 313, 11897418)) then
+        return 1
+    end
+    return 0
 end
 
 function Profile:close()
