@@ -1,7 +1,6 @@
 Game = {}
 
-function Game:checkMinistryRequests(cooldown)
-    cooldown = cooldown or 60
+function Game:checkMinistryRequests()
     Ministry:openMinistryIfRequest()
     Ministry:checkAndApproveMinisterRequest('strategy')
     Ministry:checkAndApproveMinisterRequest('security')
@@ -27,4 +26,15 @@ function Game:start()
     exec(config.game_path)
     wait(30000)
     Window:repos()
+end
+
+function Game:isLogout()
+    return kfindcolor(893, 638, 4143607)
+end
+
+function Game:clickLogout()
+    left(893, 638)
+    Window:detach();
+    exec("taskkill /f /im lastwar.exe")
+    wait(config.logout_timeout)
 end

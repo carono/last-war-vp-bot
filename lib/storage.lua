@@ -4,7 +4,7 @@ local write, writeIndent, writers, refCount;
 Storage = {}
 
 function Storage:get(var, default, path)
-    path = path or "global.env"
+    path = path or os.getenv('username') .. ".global.env"
     if (fileexists(path) == "0") then
         storageLib.save(path, {})
     end
@@ -18,7 +18,7 @@ function Storage:get(var, default, path)
 end
 
 function Storage:set(var, value, path)
-    path = path or "global.env"
+    path = path or os.getenv('username') .. ".global.env"
     if (fileexists(path) == "0") then
         data = {}
     else

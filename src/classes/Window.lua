@@ -21,10 +21,17 @@ function Window:repos()
     end
 end
 
+function Window:detach()
+    workwindow(nil)
+    wait(1000)
+end
+
 function Window:attachHandle()
     local handle = self:getGameHandle()
-    workwindow(handle)
-    showwindow(handle, "TOP")
+    if (handle ~= 0) then
+        workwindow(handle)
+        showwindow(handle, "TOP")
+    end
     return handle
 end
 
