@@ -139,7 +139,7 @@ end
 
 function Ministry:openRequestList()
     if (kfindcolor(1108, 955, 16777215) == 1) then
-        left(1138, 924, 300)
+        return click_and_wait_color(1138, 924, 10257017, 1091, 117)
     end
 end
 
@@ -151,6 +151,7 @@ function Ministry:hasRequestsInList()
 end
 
 function Ministry:approve()
+    wait(500)
     if (Ministry:hasRequestsInList() == 1) then
         if (find_red_mark(829, 642, 980, 945, 14144488) ~= 0) then
             Ministry:pullList()
