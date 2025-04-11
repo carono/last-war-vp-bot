@@ -1,5 +1,8 @@
 -- lua color_functions.lua
 function kfindcolor (x, y, color, margin, deviation)
+    if (Window:getGameHandle() == 0) then
+        return 0
+    end
     deviation = deviation or 5
     margin = margin or 5
     x, y = Window:modifyCord(x, y)
@@ -237,7 +240,7 @@ function cooldown(slug, time)
     local key = "cooldown" .. "." .. slug
     local timer = Storage:get(key, ktimer(time))
     --log(key .. ': ' .. timer - os.clock() .. 's')
-    if (os.clock() > timer) then
+    if (os.clock() > timer or timer - os.clock() > ktimer(time) - os.clock()) then
         Storage:set(key, nil)
         return 1
     end

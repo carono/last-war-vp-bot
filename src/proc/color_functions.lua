@@ -1,4 +1,7 @@
 function kfindcolor (x, y, color, margin, deviation)
+    if (Window:getGameHandle() == 0) then
+        return 0
+    end
     deviation = deviation or 5
     margin = margin or 5
     x, y = Window:modifyCord(x, y)

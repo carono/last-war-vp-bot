@@ -9,6 +9,7 @@ function Game:checkMinistryRequests()
     Ministry:checkAndApproveMinisterRequest('development')
     Ministry:checkAndApproveMinisterRequest('science')
     Ministry:checkAndApproveMinisterRequest('interior')
+    Map:normalize()
 end
 
 function Game:checkAlliance()
