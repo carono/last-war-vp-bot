@@ -31,3 +31,5 @@ Server #972 Carono
 
 ## Known issues
 * If you log in to your account frequently from another device, the game on the PC may freeze without obvious signs, thus, the scripts will stop working.
+* The game does not recover after the update.
+* VP script does not work with captured capitals

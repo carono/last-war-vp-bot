@@ -11,7 +11,7 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
 end
 
-if (cooldown('checkMinistryRequests', 5000) == 1) then
+if (cooldown('checkMinistryRequests', 15000) == 1) then
     Game:checkMinistryRequests()
 end
 
