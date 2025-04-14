@@ -1,6 +1,9 @@
 --lua
 
 require('dist/init')
+reset_cooldown('checkMinistryRequests')
+reset_cooldown('checkHandle')
+Map:normalize()
 
 :: start ::
 

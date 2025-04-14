@@ -3,7 +3,11 @@ Profile = {}
 function Profile:open()
     left(47, 44, 500)
     self:closeLike()
-    wait_color(976, 109, 11896387)
+    if (kfindcolor(1096, 313, 11897418) == 1) then
+        wait_color(1093, 308, 11897160)
+    else
+        wait_color(976, 109, 11896387)
+    end
 end
 
 function Profile:closeLike()

@@ -62,6 +62,9 @@ function Map:openBase()
 end
 
 function Map:normalize()
+    if (Window:getGameHandle() == 0) then
+        return -1
+    end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         escape(500)
         log('Normalize map')

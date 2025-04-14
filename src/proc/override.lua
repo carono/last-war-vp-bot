@@ -87,10 +87,10 @@ end
 function cooldown(slug, time)
     time = time or 30000
     local key = "cooldown" .. "." .. slug
-    local timer = Storage:get(key, ktimer(time))
-    log(key .. ': ' .. timer - os.clock() .. 's')
-    if (os.clock() > timer or timer - os.clock() > time / 1000) then
-        Storage:set(key, nil)
+    local timer = Storage:get(key, nil)
+    log(key .. ': ' .. (timer or os.clock()) - os.clock() .. 's')
+    if (timer == nil or os.clock() > timer or timer - os.clock() > time / 1000) then
+        Storage:set(key, ktimer(time))
         return 1
     end
     return 0

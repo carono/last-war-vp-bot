@@ -309,6 +309,9 @@ function Map:openBase()
 end
 
 function Map:normalize()
+    if (Window:getGameHandle() == 0) then
+        return -1
+    end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         escape(500)
         log('Normalize map')
@@ -322,11 +325,13 @@ end
 Ministry = {}
 MinistryPos = {
     vp = { 638, 440 },
-    strategy = { 825, 440 },
-    security = { 1011, 440 },
+    strategy = { 817, 427 },
+    security = { 1002, 427 },
+
     development = { 638, 680 },
     science = { 825, 680 },
     interior = { 1011, 680 },
+
     mil_commander = { 691, 420 },
     adm_commander = { 925, 420 }
 }
@@ -334,7 +339,7 @@ MinistryPos = {
 function Ministry:getMinisterCords(minister)
     local x = MinistryPos[minister][1]
     local y = MinistryPos[minister][2]
-    if (Ministry:capitolIsCapturedOrConquered() and (minister ~= "mil_commander" and minister ~= "adm_commander")) then
+    if (Ministry:capitolIsCapturedOrConquered() == 1 and (minister ~= "mil_commander" and minister ~= "adm_commander")) then
         y = y + 220
     end
     return Window:modifyCord(x, y)
@@ -387,7 +392,7 @@ end
 
 function Ministry:capitolIsCapturedOrConquered()
     if (kfindcolor(1084, 925, 2119560) == 0) then
-        return 1
+        --        return 1
     end
     return 0
 end
@@ -432,6 +437,7 @@ end
 function Ministry:checkAndApproveMinisterRequest(minister, check_overtime)
     check_overtime = check_overtime or 0
     if (Ministry:hasMinisterRequest(minister) == 1) then
+        log(minister .. ' has request')
         Ministry:clickMinister(minister)
 
         if (Ministry:requestListHasMark() ~= 0) then
@@ -524,7 +530,11 @@ Profile = {}
 function Profile:open()
     left(47, 44, 500)
     self:closeLike()
-    wait_color(976, 109, 11896387)
+    if (kfindcolor(1096, 313, 11897418) == 1) then
+        wait_color(1093, 308, 11897160)
+    else
+        wait_color(976, 109, 11896387)
+    end
 end
 
 function Profile:closeLike()

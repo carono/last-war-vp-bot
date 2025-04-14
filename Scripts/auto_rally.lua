@@ -1,17 +1,18 @@
 --lua
 
-require('dist/init')
+require('dist/init-develop')
 reset_cooldown('checkMinistryRequests')
+Map:normalize()
 
 :: start ::
-Game:waitIfUserIsActive()
+--Game:waitIfUserIsActive()
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
 end
 
-if (cooldown('checkMinistryRequests') == 1) then
-    Game:checkMinistryRequests()
+if (cooldown('checkMinistryRequests', 5000) == 1) then
+  Game:checkMinistryRequests()
 end
 
 if (cooldown('checkAllianceMapNormalize') == 1) then
