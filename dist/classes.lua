@@ -154,8 +154,10 @@ function Game:isLogout()
 end
 
 function Game:clickLogout()
-    left(893, 638)
+    wait(1000)
+    left(893, 638, 1000)
     Window:detach();
+    wait(1000)
     exec("taskkill /f /im lastwar.exe")
     wait(config.logout_timeout)
 end
@@ -300,7 +302,7 @@ function Map:showInterface()
         send('Escape')
     end
 end
-
+  
 function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
@@ -311,6 +313,9 @@ end
 function Map:normalize()
     if (Window:getGameHandle() == 0) then
         return -1
+    end
+    if (Game:isLogout() == 1) then
+        return -2
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         escape(500)

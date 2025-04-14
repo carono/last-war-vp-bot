@@ -53,7 +53,7 @@ function Map:showInterface()
         send('Escape')
     end
 end
-
+  
 function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
@@ -64,6 +64,9 @@ end
 function Map:normalize()
     if (Window:getGameHandle() == 0) then
         return -1
+    end
+    if (Game:isLogout() == 1) then
+        return -2
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         escape(500)

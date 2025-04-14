@@ -16,6 +16,9 @@ function kfindcolor (x, y, color, margin, deviation)
 end
 
 function store_colors_in_range(startX, startY, margin)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     margin = margin or 2
     local arr = {}
     table.insert(arr, startX)
@@ -31,6 +34,9 @@ function store_colors_in_range(startX, startY, margin)
 end
 
 function stored_colors_not_changed(arr)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     if (arr == nil or arr[1] == nil) then
         arr = { 1, 1, 2 }
     end
@@ -43,6 +49,9 @@ function stored_colors_not_changed(arr)
 end
 
 function find_red_mark(startX, startY, endX, endY, color)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     color = color or 3741951
     endX = endX or startX;
     endY = endY or startY;
@@ -56,6 +65,9 @@ function find_red_mark(startX, startY, endX, endY, color)
 end
 
 function wait_color(x, y, findcolor, timeout, cd)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     cd = cd or 200
     timeout = timeout or 5000
     local timer = ktimer(timeout)
@@ -72,6 +84,9 @@ function wait_color(x, y, findcolor, timeout, cd)
 end
 
 function wait_not_color(x, y, color, timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     timeout = timeout or 5000
     local timer = ktimer(timeout)
     while os.clock() < timer do

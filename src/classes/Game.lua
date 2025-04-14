@@ -37,8 +37,10 @@ function Game:isLogout()
 end
 
 function Game:clickLogout()
-    left(893, 638)
+    wait(1000)
+    left(893, 638, 1000)
     Window:detach();
+    wait(1000)
     exec("taskkill /f /im lastwar.exe")
     wait(config.logout_timeout)
 end

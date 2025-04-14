@@ -11,6 +11,9 @@ function kdrag(x1, y1, x2, y2, r)
 end
 
 function left(x, y, timeout, return_pos)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     local oldX, oldY = mouse_pos()
     x, y = Window:modifyCord(x, y)
     return_pos = return_pos or 1
@@ -23,6 +26,9 @@ function left(x, y, timeout, return_pos)
 end
 
 function click_and_wait_color(x, y, color, colorX, colorY, timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
@@ -30,6 +36,9 @@ function click_and_wait_color(x, y, color, colorX, colorY, timeout)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
@@ -37,6 +46,9 @@ function click_and_wait_not_color(x, y, color, colorX, colorY)
 end
 
 function click_while_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     local timer = ktimer(5000)
@@ -52,6 +64,9 @@ function click_while_color(x, y, color, colorX, colorY)
 end
 
 function click_while_not_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     local timer = ktimer(5000)
@@ -66,6 +81,9 @@ function click_while_not_color(x, y, color, colorX, colorY)
 end
 
 function click_if_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     if (kfindcolor(colorX, colorY, color) == 1) then
@@ -75,6 +93,9 @@ function click_if_color(x, y, color, colorX, colorY)
 end
 
 function escape(timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     timeout = timeout or 100
     send('Escape')
     wait(timeout)
