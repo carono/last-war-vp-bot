@@ -12,7 +12,7 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
 end
 
 if (cooldown('checkMinistryRequests', 5000) == 1) then
-  Game:checkMinistryRequests()
+    Game:checkMinistryRequests()
 end
 
 if (cooldown('checkAllianceMapNormalize') == 1) then
@@ -23,7 +23,7 @@ if (cooldown('checkAlliance') == 1) then
     Game:checkAlliance()
 end
 
-if (cooldown('autoRally', 5000) == 1) then
+if (cooldown('autoRally', 15000) == 1) then
     Rally:joinIfExist()
 end
 

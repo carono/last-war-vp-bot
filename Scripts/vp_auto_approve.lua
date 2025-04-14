@@ -17,7 +17,7 @@ if (cooldown('MapNormalize') == 1) then
     Map:normalize()
 end
 
-if (cooldown('checkMinistryRequests') == 1) then
+if (cooldown('checkMinistryRequests', 15000) == 1) then
     Game:checkMinistryRequests()
 end
 
