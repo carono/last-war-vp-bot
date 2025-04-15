@@ -52,6 +52,12 @@ function Game:clickLogout()
     wait(config.logout_timeout)
 end
 
+function Game:resetUserActivity()
+    local x, y = mouse_pos()
+    Storage:set('lastMousePosX', x)
+    Storage:set('lastMousePosY', y)
+end
+
 function Game:waitIfUserIsActive()
     local x, y = mouse_pos()
     local oldX = Storage:get('lastMousePosX')
@@ -75,4 +81,20 @@ function Game:getRallyPresents()
         return 1
     end
     return 0
+end
+
+function Game:readAllMail()
+    if (is_red(1760, 855) == 1) then
+        log('Have email, read it')
+        click_and_wait_color(1731, 874, 6179651, 1040, 35)
+        repeat
+            local x, y = find_red_mark(1151, 83, 1188, 920, 245)
+            log(x, y)
+            if (x ~= 0) then
+                click_and_wait_color(x, y, 16765462, 1075, 1031)
+                left(1075, 1031, 800)
+                escape(500)
+            end
+        until x > 0
+    end
 end

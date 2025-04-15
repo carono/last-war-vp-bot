@@ -49,6 +49,11 @@ function stored_colors_not_changed(arr)
     return 0
 end
 
+function is_red(x, y, color)
+    color = color or 3741951
+    return kfindcolor(x, y, color)
+end
+
 function find_red_mark(startX, startY, endX, endY, color)
     if (Window:getGameHandle() == 0) then
         return 0;
@@ -280,7 +285,7 @@ function cooldown(slug, time)
     time = time or 30000
     local key = "cooldown" .. "." .. slug
     local timer = Storage:get(key, nil)
-    log(key .. ': ' .. (timer or os.clock()) - os.clock() .. 's')
+    log(key .. ': ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
     if (timer == nil or os.clock() > timer or timer - os.clock() > time / 1000) then
         Storage:set(key, ktimer(time))
         return 1

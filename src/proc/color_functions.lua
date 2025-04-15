@@ -48,6 +48,11 @@ function stored_colors_not_changed(arr)
     return 0
 end
 
+function is_red(x, y, color)
+    color = color or 3741951
+    return kfindcolor(x, y, color)
+end
+
 function find_red_mark(startX, startY, endX, endY, color)
     if (Window:getGameHandle() == 0) then
         return 0;

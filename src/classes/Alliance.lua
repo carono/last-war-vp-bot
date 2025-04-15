@@ -105,10 +105,13 @@ end
 
 function Alliance:clickHealTroops()
     if (kfindcolor(122, 865, 646802) == 1) then
+        log('Healing troops')
         click_and_wait_color(127, 864, 10257016, 1057, 237)
         left(1033, 874)
     end
-    if (kfindcolor(151, 865, 6868209) == 1) then
+
+    if (kfindcolor(153, 871, 6867952) == 1) then
+        log('Return troops from hospital')
         left(119, 855)
     end
 end
