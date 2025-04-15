@@ -36,7 +36,7 @@ end
 Alliance:applyHelp()
 Alliance:clickHealTroops()
 Game:getRallyPresents()
-Game:readAllMail()
+--Game:readAllMail()
 
 close_connection_error()
 
