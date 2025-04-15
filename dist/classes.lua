@@ -559,28 +559,35 @@ function Ministry:approve()
     end
 end
 
-function Ministry:pullList()
-    local ar1 = {}
-    ar1 = store_colors_in_range(655, 245)
-    pull_request_list()
-    wait(1500)
-    if (stored_colors_not_changed(ar1) == 1) then
-        log('Checking list...')
-        pull_request_list()
-        wait(3000)
-        ar1 = store_colors_in_range(655, 245)
-        if (stored_colors_not_changed(ar1) == 1) then
-            log('Finish pull list')
-            return 1
-        else
-            log('Something change, restart pulling list')
-            return self:pullList()
-        end
-    else
-        log('Continue pull')
-        return self:pullList()
+function Ministry:pullList(try)
+    if (try == 20) then
+        Map:normalize()
+        return 0
     end
-    return 0
+    try = try or 1
+    local res = findcolor(923, 218, 975, 315, 1, 1, 14144488, '%arr', 2, 1, 5)
+    local is_last = 0;
+    local oldX, oldY = mouse_pos()
+    if (res == 1) then
+        x, y = Window:canonizeCord(arr[1][1], arr[1][2])
+        move(x, y)
+        kleft_down(x, y)
+        move_smooth(x, y + 600)
+        wait(100)
+        if (kfindcolor(648, 308, 16054013) == 1 and kfindcolor(648, 220, 16054013) == 1) then
+            log('is last')
+            is_last = 1
+        end
+        kleft_up(x, y + 600)
+        wait(100)
+        left(x, y + 600)
+        wait(200)
+        if (is_last == 0) then
+            move(oldX, oldY)
+            return self:pullList(try + 1)
+        end
+    end
+    move(oldX, oldY)
 end
 
 function Ministry:iAmIsVP()
