@@ -8,6 +8,7 @@ else
     require('dist/functions')
     require('dist/classes')
     Window:attachHandle()
+    Window:repos()
 
     function log()
 

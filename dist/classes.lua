@@ -221,6 +221,44 @@ function Game:readAllMail()
     end
 end
 
+function Game:collectDailyPresents()
+    if (is_red(61, 924) == 1) then
+        click_and_wait_color(36, 961, 6179651, 863, 30)
+        if (kfindcolor(1087, 433, 4187738) == 1) then
+            left(1087, 433, 500)
+            Map:normalize()
+            return 1
+        end
+    end
+    return 0
+end
+
+function Game:openCard()
+    left(740, 884, 3000)
+    left(905, 470, 3000)
+    left(905, 470, 3000)
+    escape(2000)
+end
+
+-- development in process
+function Game:checkFreeTavernHero()
+    Map:normalize()
+    click_and_wait_color(84, 1055, 16765462, 897, 995);
+    click_and_wait_color(897, 995, 4187738, 820, 840);
+    wait(200)
+    if (kfindcolor(738, 885, 6344247) == 1) then
+        log('Open hero')
+        msg(1)
+        --Game:openCard()
+    end
+    left(1057, 1016, 200)
+    if (kfindcolor(731, 886, 5233404) == 1) then
+        log('Open survival')
+        msg(2)
+        --Game:openCard()
+    end
+end
+
 -- lua Hero.lua
 Hero = {}
 
