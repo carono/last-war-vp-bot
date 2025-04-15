@@ -17,6 +17,9 @@ function kfindcolor (x, y, color, margin, deviation)
 end
 
 function store_colors_in_range(startX, startY, margin)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     margin = margin or 2
     local arr = {}
     table.insert(arr, startX)
@@ -32,6 +35,9 @@ function store_colors_in_range(startX, startY, margin)
 end
 
 function stored_colors_not_changed(arr)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     if (arr == nil or arr[1] == nil) then
         arr = { 1, 1, 2 }
     end
@@ -44,6 +50,9 @@ function stored_colors_not_changed(arr)
 end
 
 function find_red_mark(startX, startY, endX, endY, color)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     color = color or 3741951
     endX = endX or startX;
     endY = endY or startY;
@@ -57,6 +66,9 @@ function find_red_mark(startX, startY, endX, endY, color)
 end
 
 function wait_color(x, y, findcolor, timeout, cd)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     cd = cd or 200
     timeout = timeout or 5000
     local timer = ktimer(timeout)
@@ -73,6 +85,9 @@ function wait_color(x, y, findcolor, timeout, cd)
 end
 
 function wait_not_color(x, y, color, timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     timeout = timeout or 5000
     local timer = ktimer(timeout)
     while os.clock() < timer do
@@ -146,6 +161,11 @@ function close_connection_error()
     if kfindcolor(862, 593, 16765462) == 1 then
         left(862, 593, 400)
     end
+    if (Game:hasUpdateFinishedModal() == 1) then
+        --Confirm update finished
+        log('Updates is finished, click OK')
+        left(910, 597, 5000)
+    end
 end
 
 -- lua override.lua
@@ -161,19 +181,22 @@ function kdrag(x1, y1, x2, y2, r)
     move(oldX, oldY)
 end
 
-function left(x, y, timeout, return_pos)
+function left(x, y, timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     local oldX, oldY = mouse_pos()
     x, y = Window:modifyCord(x, y)
-    return_pos = return_pos or 1
     kleft(x, y)
     timeout = timeout or 100
     wait(timeout)
-    if return_pos == 1 then
-        move(oldX, oldY)
-    end
+    move(oldX, oldY)
 end
 
 function click_and_wait_color(x, y, color, colorX, colorY, timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
@@ -181,6 +204,9 @@ function click_and_wait_color(x, y, color, colorX, colorY, timeout)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     left(x, y)
     colorX = colorX or x
     colorY = colorY or y
@@ -188,6 +214,9 @@ function click_and_wait_not_color(x, y, color, colorX, colorY)
 end
 
 function click_while_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     local timer = ktimer(5000)
@@ -203,6 +232,9 @@ function click_while_color(x, y, color, colorX, colorY)
 end
 
 function click_while_not_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     local timer = ktimer(5000)
@@ -217,6 +249,9 @@ function click_while_not_color(x, y, color, colorX, colorY)
 end
 
 function click_if_color(x, y, color, colorX, colorY)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
     colorX = colorX or x
     colorY = colorY or y
     if (kfindcolor(colorX, colorY, color) == 1) then
@@ -226,6 +261,12 @@ function click_if_color(x, y, color, colorX, colorY)
 end
 
 function escape(timeout)
+    if (Window:getGameHandle() == 0) then
+        return 0;
+    end
+    if (Game:isLogout() == 1) then
+        return 0
+    end
     timeout = timeout or 100
     send('Escape')
     wait(timeout)
@@ -248,6 +289,10 @@ function cooldown(slug, time)
 end
 
 function reset_cooldown(slug)
+    if (slug == nil) then
+        Storage:set('cooldown', {})
+        return
+    end
     local key = "cooldown" .. "." .. slug
     Storage:set(key, nil)
 end

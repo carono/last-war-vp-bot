@@ -53,4 +53,9 @@ function close_connection_error()
     if kfindcolor(862, 593, 16765462) == 1 then
         left(862, 593, 400)
     end
+    if (Game:hasUpdateFinishedModal() == 1) then
+        --Confirm update finished
+        log('Updates is finished, click OK')
+        left(910, 597, 5000)
+    end
 end

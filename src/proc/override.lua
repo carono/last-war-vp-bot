@@ -10,19 +10,16 @@ function kdrag(x1, y1, x2, y2, r)
     move(oldX, oldY)
 end
 
-function left(x, y, timeout, return_pos)
+function left(x, y, timeout)
     if (Window:getGameHandle() == 0) then
         return 0;
     end
     local oldX, oldY = mouse_pos()
     x, y = Window:modifyCord(x, y)
-    return_pos = return_pos or 1
     kleft(x, y)
     timeout = timeout or 100
     wait(timeout)
-    if return_pos == 1 then
-        move(oldX, oldY)
-    end
+    move(oldX, oldY)
 end
 
 function click_and_wait_color(x, y, color, colorX, colorY, timeout)
@@ -96,6 +93,9 @@ function escape(timeout)
     if (Window:getGameHandle() == 0) then
         return 0;
     end
+    if (Game:isLogout() == 1) then
+        return 0
+    end
     timeout = timeout or 100
     send('Escape')
     wait(timeout)
@@ -118,6 +118,10 @@ function cooldown(slug, time)
 end
 
 function reset_cooldown(slug)
+    if (slug == nil) then
+        Storage:set('cooldown', {})
+        return
+    end
     local key = "cooldown" .. "." .. slug
     Storage:set(key, nil)
 end

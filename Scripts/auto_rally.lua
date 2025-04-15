@@ -1,11 +1,12 @@
 --lua
 
 require('dist/init')
-reset_cooldown('checkMinistryRequests')
+reset_cooldown()
+
 Map:normalize()
 
 :: start ::
---Game:waitIfUserIsActive()
+
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
@@ -15,7 +16,7 @@ if (cooldown('checkMinistryRequests', 15000) == 1) then
     Game:checkMinistryRequests()
 end
 
-if (cooldown('checkAllianceMapNormalize') == 1) then
+if (cooldown('MapNormalize') == 1) then
     Map:normalize()
 end
 
@@ -35,5 +36,7 @@ Alliance:applyHelp()
 Alliance:clickHealTroops()
 
 close_connection_error()
+
+Game:waitIfUserIsActive()
 
 goto start

@@ -9,6 +9,23 @@ function Storage:get(var, default, path)
         storageLib.save(path, {})
     end
     data = storageLib.load(path)
+
+    local T = split(var, '.')
+    if (table.length(T) >= 2) then
+        local section = table.remove(T, 1)
+        var = table.concat(T, '.')
+        if (data[section] == nil) then
+            data[section] = {}
+        end
+
+        if (data[section][var] == nil) then
+            data[section][var] = default;
+            storageLib.save(path, data)
+            return default
+        end
+        return data[section][var]
+    end
+
     if (data[var] == nil) then
         data[var] = default;
         storageLib.save(path, data)
@@ -24,7 +41,16 @@ function Storage:set(var, value, path)
     else
         data = storageLib.load(path)
     end
-    data[var] = value
+    local T = split(var, '.')
+    if (table.length(T) >= 2) then
+        local section = table.remove(T, 1)
+        if (data[section] == nil) then
+            data[section] = {}
+        end
+        data[section][table.concat(T, '.')] = value
+    else
+        data[var] = value
+    end
     storageLib.save(path, data)
 end
 

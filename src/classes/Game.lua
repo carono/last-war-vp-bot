@@ -36,6 +36,13 @@ function Game:isLogout()
     return kfindcolor(893, 638, 4143607)
 end
 
+function Game:hasUpdateFinishedModal()
+    if (kfindcolor(884, 597, 16765462) == 1 and kfindcolor(48, 302, 16777215) == 1) then
+        return 1
+    end
+    return 0
+end
+
 function Game:clickLogout()
     wait(1000)
     left(893, 638, 1000)
@@ -52,8 +59,9 @@ function Game:waitIfUserIsActive()
     if (oldY ~= y or oldX ~= x) then
         Storage:set('lastMousePosX', x)
         Storage:set('lastMousePosY', y)
-        log('Waiting, while user working')
-        wait(10000)
+        local timeout = 30000
+        log('Waiting ' .. (timeout / 1000) .. 's, while user working')
+        wait(30000)
         return Game:waitIfUserIsActive()
     end
     return 0

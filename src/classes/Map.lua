@@ -53,7 +53,7 @@ function Map:showInterface()
         send('Escape')
     end
 end
-  
+
 function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
@@ -68,9 +68,12 @@ function Map:normalize()
     if (Game:isLogout() == 1) then
         return -2
     end
+    if (Game:hasUpdateFinishedModal() == 1) then
+        return -3
+    end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
+        log('Try normalize map, send escape b')
         escape(500)
-        log('Normalize map')
         return self:normalize()
     end
 

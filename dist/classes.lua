@@ -153,6 +153,13 @@ function Game:isLogout()
     return kfindcolor(893, 638, 4143607)
 end
 
+function Game:hasUpdateFinishedModal()
+    if (kfindcolor(884, 597, 16765462) == 1 and kfindcolor(48, 302, 16777215) == 1) then
+        return 1
+    end
+    return 0
+end
+
 function Game:clickLogout()
     wait(1000)
     left(893, 638, 1000)
@@ -169,8 +176,9 @@ function Game:waitIfUserIsActive()
     if (oldY ~= y or oldX ~= x) then
         Storage:set('lastMousePosX', x)
         Storage:set('lastMousePosY', y)
-        log('Waiting, while user working')
-        wait(10000)
+        local timeout = 30000
+        log('Waiting ' .. (timeout / 1000) .. 's, while user working')
+        wait(30000)
         return Game:waitIfUserIsActive()
     end
     return 0
@@ -302,7 +310,7 @@ function Map:showInterface()
         send('Escape')
     end
 end
-  
+
 function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
@@ -317,9 +325,12 @@ function Map:normalize()
     if (Game:isLogout() == 1) then
         return -2
     end
+    if (Game:hasUpdateFinishedModal() == 1) then
+        return -3
+    end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
+        log('Try normalize map, send escape b')
         escape(500)
-        log('Normalize map')
         return self:normalize()
     end
 
