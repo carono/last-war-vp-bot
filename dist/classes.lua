@@ -387,13 +387,13 @@ end
 -- lua Ministry.lua
 Ministry = {}
 MinistryPos = {
-    vp = { 638, 440 },
+    vp = { 627, 440 },
     strategy = { 817, 427 },
     security = { 1002, 427 },
 
-    development = { 638, 680 },
-    science = { 825, 680 },
-    interior = { 1011, 680 },
+    development = { 627, 673 },
+    science = { 817, 673 },
+    interior = { 1002, 673 },
 
     mil_commander = { 691, 420 },
     adm_commander = { 925, 420 }
@@ -405,41 +405,41 @@ function Ministry:getMinisterCords(minister)
     if (Ministry:capitolIsCapturedOrConquered() == 1 and (minister ~= "mil_commander" and minister ~= "adm_commander")) then
         y = y + 220
     end
-    return Window:modifyCord(x, y)
+    return x, y
 end
 
-function Ministry:checkOvertime(minister)
-    require("lib/color")
-    --  storage = require [[lib/storage]]
-
-    local x = MinistryPos[minister][1]
-    local y = MinistryPos[minister][2]
-    x, y = Window:modifyCord(x, y)
-
-    local x1 = x + 25
-    local y1 = y + 170
-    local x2 = x + 130
-    local y2 = y + 195
-    --local y2 = y + 250
-    local path = [["img/time.bmp"]]
-    --lessFiveMinutes = findimage(x1, y1, x2, y2, { path }, 2, 95, 1, 80)
-
-    local a = findcolor(x1, y1, x2, y2, 16777215, '%ResultArray', 2, 1, 3)
-
-    -- storage.save("colors.tmp", ResultArray)
-
-    saveimage_from_screen(x1, y1, x2, y2, "img/" .. minister .. '_tmp.bmp')
-
-    if (a == nil) then
-        return 2
-    end
-
-    if (lessFiveMinutes == nil) then
-        return 1
-    end
-
-    return 0
-end
+--function Ministry:checkOvertime(minister)
+--    require("lib/color")
+--    --  storage = require [[lib/storage]]
+--
+--    local x = MinistryPos[minister][1]
+--    local y = MinistryPos[minister][2]
+--    x, y = Window:modifyCord(x, y)
+--
+--    local x1 = x + 25
+--    local y1 = y + 170
+--    local x2 = x + 130
+--    local y2 = y + 195
+--    --local y2 = y + 250
+--    local path = [["img/time.bmp"]]
+--    --lessFiveMinutes = findimage(x1, y1, x2, y2, { path }, 2, 95, 1, 80)
+--
+--    local a = findcolor(x1, y1, x2, y2, 16777215, '%ResultArray', 2, 1, 3)
+--
+--    -- storage.save("colors.tmp", ResultArray)
+--
+--    saveimage_from_screen(x1, y1, x2, y2, "img/" .. minister .. '_tmp.bmp')
+--
+--    if (a == nil) then
+--        return 2
+--    end
+--
+--    if (lessFiveMinutes == nil) then
+--        return 1
+--    end
+--
+--    return 0
+--end
 
 function Ministry:clickDismiss()
     if kfindcolor(817, 929, 6513405) == 1 then
@@ -560,16 +560,20 @@ function Ministry:approve()
 end
 
 function Ministry:pullList(try)
-    if (try == 20) then
+    try = try or 1
+    if (try >= 20) then
         Map:normalize()
         return 0
     end
-    try = try or 1
-    local res = findcolor(923, 218, 975, 315, 1, 1, 14144488, '%arr', 2, 1, 5)
+    wait(400)
+    local x, y = Window:modifyCord(923, 218)
+    local x2, y2 = Window:modifyCord(975, 315)
+    local res = findcolor(x, y, x2, y2, 1, 1, 14144488, '%arr', 2, 1, 5)
     local is_last = 0;
     local oldX, oldY = mouse_pos()
     if (res == 1) then
-        x, y = Window:canonizeCord(arr[1][1], arr[1][2])
+        x = arr[1][1]
+        y = arr[1][2]
         move(x, y)
         kleft_down(x, y)
         move_smooth(x, y + 600)
