@@ -1,3 +1,5 @@
+red_color = '(3741951, 3740927, 240, 214, 227, 237)'
+
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
         return 0
@@ -49,20 +51,23 @@ function stored_colors_not_changed(arr)
 end
 
 function is_red(x, y, color)
-    color = color or 3741951
-    return kfindcolor(x, y, color)
+    color = color or red_color
+    if kfindcolor(x, y, color) == 1 then
+        return 1
+    end
+    return 0
 end
 
 function find_red_mark(startX, startY, endX, endY, color)
     if (Window:getGameHandle() == 0) then
         return 0;
     end
-    color = color or 3741951
+    color = color or red_color
     endX = endX or startX;
     endY = endY or startY;
     startX, startY = Window:modifyCord(startX, startY)
     endX, endY = Window:modifyCord(endX, endY)
-    local res = findcolor(startX, startY, endX, endY, 1, 1, color, '%arr', 2, 1, 5)
+    local res = findcolor(startX, startY, endX, endY, 1, 1, color, '%arr', 2, 1, 50)
     if (res == 1) then
         return Window:canonizeCord(arr[1][1], arr[1][2])
     end

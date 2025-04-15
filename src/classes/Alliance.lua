@@ -2,7 +2,7 @@ Alliance = {}
 AllianceModal = { startX = 605, startY = 388, endX = 1175, endY = 966 }
 
 function Alliance:isMarked()
-    return kfindcolor(1760, 767, 3741951)
+    return is_red(1760, 767)
 end
 
 function Alliance:open()
