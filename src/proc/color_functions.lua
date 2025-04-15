@@ -67,7 +67,7 @@ function find_red_mark(startX, startY, endX, endY, color)
     endY = endY or startY;
     startX, startY = Window:modifyCord(startX, startY)
     endX, endY = Window:modifyCord(endX, endY)
-    local res = findcolor(startX, startY, endX, endY, 1, 1, color, '%arr', 2, 1, 50)
+    local res = findcolor(startX, startY, endX, endY, 1, 1, color, '%arr', 2, 1, 5)
     if (res == 1) then
         return Window:canonizeCord(arr[1][1], arr[1][2])
     end

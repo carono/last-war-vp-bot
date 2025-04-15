@@ -89,15 +89,14 @@ function Game:readAllMail()
         click_and_wait_color(1731, 874, 6179651, 1040, 35)
         repeat
             local x, y = find_red_mark(1148, 98, 1190, 917)
-            log(x, y)
             if (x ~= 0) then
                 click_and_wait_color(x, y, 16765462, 1075, 1031)
                 left(1075, 1031, 800)
                 close_gift_modal()
+                wait(3000)
                 escape(500)
-            else
-                break
             end
-        until x > 0
+        until x == 0
+        Map:normalize()
     end
 end

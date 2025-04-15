@@ -110,7 +110,7 @@ function Alliance:clickHealTroops()
         left(1033, 874)
     end
 
-    if (kfindcolor(153, 871, 6867952) == 1) then
+    if (kfindcolor(153, 871, '(6867952, 7849964)') == 1) then
         log('Return troops from hospital')
         left(119, 855)
     end
