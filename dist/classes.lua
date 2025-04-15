@@ -184,6 +184,16 @@ function Game:waitIfUserIsActive()
     return 0
 end
 
+function Game:getRallyPresents()
+    if kfindcolor(256, 211, 3741951) == 1 then
+        click_and_wait_color(256, 211, 16765462, 934, 821)
+        left(934, 821, 500)
+        log('Get rally presents')
+        return 1
+    end
+    return 0
+end
+
 -- lua Hero.lua
 Hero = {}
 
@@ -318,6 +328,13 @@ function Map:openBase()
     end
 end
 
+function Map:isCrossServer()
+    if (kfindcolor(407, 133, 13016716) == 1) then
+        return 1
+    end
+    return 0
+end
+
 function Map:normalize()
     if (Window:getGameHandle() == 0) then
         return -1
@@ -328,8 +345,11 @@ function Map:normalize()
     if (Game:hasUpdateFinishedModal() == 1) then
         return -3
     end
+    if (Map:isCrossServer() == 1) then
+        left(416, 137, 5000)
+    end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
-        log('Try normalize map, send escape b')
+        log('Try normalize map, send escape button')
         escape(500)
         return self:normalize()
     end

@@ -1,9 +1,15 @@
-require('dist/common')
-require('dist/config')
-require('dist/functions')
-require('dist/classes')
-Window:attachHandle()
+local path = "./config/" .. os.getenv('username') .. "_init"
 
-function log()
+if (fileexists(path .. ".lua") == "1") then
+    require(path)
+else
+    require('dist/common')
+    require('dist/config')
+    require('dist/functions')
+    require('dist/classes')
+    Window:attachHandle()
 
+    function log()
+
+    end
 end

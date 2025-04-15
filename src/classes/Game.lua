@@ -66,3 +66,13 @@ function Game:waitIfUserIsActive()
     end
     return 0
 end
+
+function Game:getRallyPresents()
+    if kfindcolor(256, 211, 3741951) == 1 then
+        click_and_wait_color(256, 211, 16765462, 934, 821)
+        left(934, 821, 500)
+        log('Get rally presents')
+        return 1
+    end
+    return 0
+end
