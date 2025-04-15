@@ -4,9 +4,10 @@ require('dist/init')
 reset_cooldown()
 
 Map:normalize()
+Game:resetUserActivity()
 
 :: start ::
-
+log('clear')
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
@@ -34,9 +35,12 @@ end
 
 Alliance:applyHelp()
 Alliance:clickHealTroops()
+Game:getRallyPresents()
+Game:readAllMail()
 
 close_connection_error()
 
 Game:waitIfUserIsActive()
+
 
 goto start
