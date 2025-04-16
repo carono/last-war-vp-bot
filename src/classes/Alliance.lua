@@ -84,16 +84,17 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-
-    --if (kfindcolor(1647, 797, 3419167) == 1) then
-    --    left(1648, 763, 300)
-    --    return 1
-    --end
-    --if (kfindcolor(120, 872, 13038591) == 1) then
-    --    left(120, 872, 300)
-    --    return 1
-    --end
-    --return 0
+    if (kfindcolor(1646, 791, 3103061) == 1) then
+        log('Apply alliance help request')
+        left(1648, 763, 300)
+        return 1
+    end
+    if (kfindcolor(120, 872, 13038591) == 1) then
+        log('Send help request alliance for healing troops')
+        left(120, 872, 300)
+        return 1
+    end
+    return 0
 end
 
 function Alliance:checkTech(force)

@@ -12,7 +12,7 @@ function close_connection_error()
     end
     if (Game:hasUpdateFinishedModal() == 1) then
         --Confirm update finished
-        log('Updates is finished, click OK')
-        left(910, 597, 5000)
+        log('Updates is finished, click OK and wait 30s')
+        left(910, 597, 30000)
     end
 end

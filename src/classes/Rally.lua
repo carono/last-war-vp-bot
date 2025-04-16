@@ -42,7 +42,7 @@ function Rally:join()
 end
 
 function Rally:hasActiveRallies()
-    return kfindcolor(1695, 700, 5066239)
+    return is_red(1695, 700)
 end
 
 function Rally:hasAvailableRally()
@@ -57,7 +57,7 @@ function Rally:openList()
 end
 
 function Rally:applyJoin()
-    if (kfindcolor(954, 850, 16756752) == 1) then
+    if (kfindcolor(955, 835, 16765462) == 1) then
         return click_and_wait_not_color(954, 850, 16756752)
     end
 end

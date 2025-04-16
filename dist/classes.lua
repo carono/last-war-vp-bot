@@ -85,16 +85,17 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-
-    --if (kfindcolor(1647, 797, 3419167) == 1) then
-    --    left(1648, 763, 300)
-    --    return 1
-    --end
-    --if (kfindcolor(120, 872, 13038591) == 1) then
-    --    left(120, 872, 300)
-    --    return 1
-    --end
-    --return 0
+    if (kfindcolor(1646, 791, 3103061) == 1) then
+        log('Apply alliance help request')
+        left(1648, 763, 300)
+        return 1
+    end
+    if (kfindcolor(120, 872, 13038591) == 1) then
+        log('Send help request alliance for healing troops')
+        left(120, 872, 300)
+        return 1
+    end
+    return 0
 end
 
 function Alliance:checkTech(force)
@@ -757,7 +758,7 @@ function Rally:join()
 end
 
 function Rally:hasActiveRallies()
-    return kfindcolor(1695, 700, 5066239)
+    return is_red(1695, 700)
 end
 
 function Rally:hasAvailableRally()
@@ -772,7 +773,7 @@ function Rally:openList()
 end
 
 function Rally:applyJoin()
-    if (kfindcolor(954, 850, 16756752) == 1) then
+    if (kfindcolor(955, 835, 16765462) == 1) then
         return click_and_wait_not_color(954, 850, 16756752)
     end
 end

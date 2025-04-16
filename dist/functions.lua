@@ -1,5 +1,5 @@
 -- lua color_functions.lua
-red_color = '(3741951, 3740927, 3740911, 240, 214, 227, 237)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -130,8 +130,8 @@ function close_connection_error()
     end
     if (Game:hasUpdateFinishedModal() == 1) then
         --Confirm update finished
-        log('Updates is finished, click OK')
-        left(910, 597, 5000)
+        log('Updates is finished, click OK and wait 30s')
+        left(910, 597, 30000)
     end
 end
 
