@@ -9,6 +9,7 @@ else
     require('dist/classes')
     Window:attachHandle()
     Window:repos()
+    Window:resizeCanonical()
 
     function log()
 

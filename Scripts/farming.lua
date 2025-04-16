@@ -13,7 +13,7 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
 end
 
-if (cooldown('checkMinistryRequests', 15000) == 1) then
+if (cooldown('checkMinistryRequests', 15) == 1) then
     Game:checkMinistryRequests()
 end
 
@@ -22,14 +22,18 @@ if (cooldown('MapNormalize') == 1) then
 end
 
 if (cooldown('checkAlliance') == 1) then
-  Alliance:open()
-  Alliance:checkTech()
-  Alliance:getPresent()
-  Map:normalize()
+    Alliance:open()
+    Alliance:checkTech()
+    Alliance:getPresent()
+    Map:normalize()
 end
 
-if (cooldown('autoRally', 15000) == 1) then
+if (cooldown('autoRally', 15) == 1) then
     Rally:joinIfExist()
+end
+
+if (cooldown('collectSimpleResources', 180) == 1) then
+    Game:collectSimpleResources()
 end
 
 if (Game:isLogout() == 1) then
@@ -45,6 +49,5 @@ Game:collectDailyPresents()
 close_connection_error()
 
 Game:waitIfUserIsActive()
-
 
 goto start

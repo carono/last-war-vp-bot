@@ -111,7 +111,9 @@ function Alliance:checkTech(force)
     x, y = find_red_mark(612, 212, 1161, 757)
     if (x > 0) then
         log('Successful find recommended tech')
-        click_and_wait_not_color(x, y, 3940594)
+        click_and_wait_not_color(x + 50, y + 50, 3940594)
+        wait(1000)
+        log('Clicking tech')
         click_while_not_color(1078, 855, 11447982)
         wait(3000)
         escape(1500)
@@ -251,9 +253,14 @@ function Game:collectDailyPresents()
         click_and_wait_color(36, 961, 6179651, 863, 30)
         if (kfindcolor(1087, 433, 4187738) == 1) then
             left(1087, 433, 500)
-            Map:normalize()
-            return 1
         end
+        left(743, 252, 1000)
+        left(847, 257, 1000)
+        left(948, 254, 1000)
+        left(1044, 255, 1000)
+        left(1145, 253, 1000)
+        Map:normalize()
+        return 1
     end
     return 0
 end
@@ -282,6 +289,23 @@ function Game:checkFreeTavernHero()
         msg(2)
         --Game:openCard()
     end
+end
+
+function Game:collectSimpleResources()
+    log('Collect food')
+    click_and_wait_color(117, 21, 10257016, 1049, 174)
+    left(1090, 555, 1500)
+    escape(1500)
+
+    log('Collect steel')
+    click_and_wait_color(247, 27, 10257016, 1049, 174)
+    left(1090, 555, 1500)
+    escape(1500)
+
+    log('Collect gold')
+    click_and_wait_color(376, 23, 10257016, 1049, 174)
+    left(1090, 555, 1500)
+    escape(1500)
 end
 
 -- lua Hero.lua
