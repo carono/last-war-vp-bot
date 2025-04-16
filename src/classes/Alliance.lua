@@ -5,8 +5,15 @@ function Alliance:isMarked()
     return is_red(1760, 767)
 end
 
+function Alliance:isOpen()
+    if (kfindcolor(784, 130, 16054013) == 1 and kfindcolor(1145, 227, 7319026) == 1) then
+        return 1
+    end
+    return 0
+end
+
 function Alliance:open()
-    if (kfindcolor(1696, 783, 12688166) == 1) then
+    if (kfindcolor(1725, 855, 16777215) == 1) then
         left(1725, 792, 100)
         return 1
     end
@@ -18,23 +25,30 @@ function Alliance:openPresentsTab()
     click_and_wait_color(829, 537, 560895, 848, 274)
 end
 
-function Alliance:getPresent()
-    if (kfindcolor(873, 500, 3741951) == 1) then
-        self:openPresentsTab()
+function Alliance:getPresent(force)
+    force = force or 0
+    if (force == 1) then
+        self:open()
+    end
+    if (self:isOpen() == 0) then
+        log('Alliance modal not opened, cannot check presents')
+        return 0
     end
 
+    self:openPresentsTab()
     self:clickBigGreenButton()
 
-    if (kfindcolor(1182, 247, 1586415) == 1) then
-        log('click premium tab')
-        if (kfindcolor(1109, 1016, 4187738) == 1) then
-            left(1109, 1016)
-        else
-            click_and_wait_color(1140, 277, 560895)
-            click_while_color(1114, 468, 4187738)
-        end
+    click_and_wait_color(1130, 277, 560895)
+    log('click premium tab')
+
+    if (kfindcolor(1109, 1016, 4187738) == 1) then
+        Alliance:clickBigGreenButton()
+    else
+        click_and_wait_color(1140, 277, 560895)
+        click_while_color(1114, 468, 4187738)
     end
 
+    close_gift_modal()
     Alliance:clickBack()
 end
 
@@ -70,27 +84,39 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-    if (kfindcolor(1647, 797, 2765610) == 1) then
-        left(1648, 763, 300)
-        return 1
-    end
-    if (kfindcolor(120, 872, 13038591) == 1) then
-        left(120, 872, 300)
-        return 1
-    end
-    return 0
+
+    --if (kfindcolor(1647, 797, 3419167) == 1) then
+    --    left(1648, 763, 300)
+    --    return 1
+    --end
+    --if (kfindcolor(120, 872, 13038591) == 1) then
+    --    left(120, 872, 300)
+    --    return 1
+    --end
+    --return 0
 end
 
-function Alliance:checkTech()
-    if (kfindcolor(1165, 597, 3741951) == 1) then
-        click_and_wait_color(1110, 641, 7756114, 660, 202)
-        x, y = find_red_mark(612, 212, 1161, 757, 3940594)
-        if (x > 0) then
-            log('Successful find recommended tech')
-            click_and_wait_not_color(x, y, 3940594)
-            click_while_not_color(1078, 855, 11447982)
-            close_simple_modal(2)
-        end
+function Alliance:checkTech(force)
+    force = force or 0
+    if (force == 1) then
+        self:open()
+    end
+    if (self:isOpen() == 0) then
+        log('Alliance modal not opened, cannot check tech')
+        return 0
+    end
+    click_and_wait_color(1110, 641, 7756114, 660, 202)
+    x, y = find_red_mark(612, 212, 1161, 757)
+    if (x > 0) then
+        log('Successful find recommended tech')
+        click_and_wait_not_color(x, y, 3940594)
+        click_while_not_color(1078, 855, 11447982)
+        wait(3000)
+        escape(1500)
+        escape(1500)
+    else
+        log('Recommended tech not found')
+        escape(500)
     end
 end
 

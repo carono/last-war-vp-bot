@@ -22,7 +22,10 @@ if (cooldown('MapNormalize') == 1) then
 end
 
 if (cooldown('checkAlliance') == 1) then
-    Game:checkAlliance()
+  Alliance:open()
+  Alliance:checkTech()
+  Alliance:getPresent()
+  Map:normalize()
 end
 
 if (cooldown('autoRally', 15000) == 1) then
@@ -37,6 +40,7 @@ Alliance:applyHelp()
 Alliance:clickHealTroops()
 Game:getRallyPresents()
 --Game:readAllMail()
+Game:collectDailyPresents()
 
 close_connection_error()
 

@@ -1,8 +1,8 @@
 --lua
 
 require('dist/init')
-reset_cooldown('checkMinistryRequests')
-reset_cooldown('checkHandle')
+reset_cooldown()
+Game:resetUserActivity()
 Map:normalize()
 
 :: start ::

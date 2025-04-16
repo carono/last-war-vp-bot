@@ -19,8 +19,6 @@ function Game:checkAlliance()
         wait(500)
         Alliance:checkTech()
         Alliance:getPresent()
-        Alliance:openSeason2buildings()
-
         Alliance:clickBack()
     end
 end

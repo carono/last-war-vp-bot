@@ -98,6 +98,7 @@ function escape(timeout)
     end
     timeout = timeout or 100
     send('Escape')
+    log('Send escape button and wait ' .. (timeout / 1000) .. 's')
     wait(timeout)
 end
 

@@ -119,8 +119,13 @@ function Ministry:checkAndApproveMinisterRequest(minister, check_overtime)
         if (Ministry:requestListHasMark() ~= 0) then
             Ministry:openRequestList()
             Ministry:approve()
+            local x = 0
             while (kfindcolor(896, 33, 7225143) == 0) do
                 escape(1000)
+                x = x + 1
+                if (x >= 4) then
+                    break
+                end
             end
         end
     end

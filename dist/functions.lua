@@ -1,5 +1,5 @@
 -- lua color_functions.lua
-red_color = '(3741951, 3740927, 240, 214, 227, 237)'
+red_color = '(3741951, 3740927, 3740911, 240, 214, 227, 237)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -121,22 +121,6 @@ function close_gift_modal()
     click_and_wait_not_color(1464, 167, 7059183, 1068, 342)
 end
 
-function close_simple_modal(count)
-    require("lib/color")
-    local path = [["img/close_modal_button.bmp"]]
-    count = count or 1
-    for i = 1, count do
-        local result, errorCode = findimage(1128, 71, 1192, 295, { path }, 2, 30, 1)
-        if (result and (kfindcolor(result[1][1] - 25, result[1][2], 10257016) == 1 or kfindcolor(result[1][1] - 25, result[1][2], 10257017) == 1)) then
-            log('Successful find close modal button', errorCode)
-            click_and_wait_not_color(result[1][1], result[1][2], 16777215)
-        else
-            break
-        end
-        wait(300)
-    end
-end
-
 function close_connection_error()
     if kfindcolor(913, 573, 2546431) == 1 then
         left(913, 573, 400)
@@ -252,6 +236,7 @@ function escape(timeout)
     end
     timeout = timeout or 100
     send('Escape')
+    log('Send escape button and wait ' .. (timeout / 1000) .. 's')
     wait(timeout)
 end
 
