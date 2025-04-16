@@ -58,11 +58,10 @@ function is_red(x, y, color)
     return 0
 end
 
-function find_red_mark(startX, startY, endX, endY, color)
+function find_color(startX, startY, endX, endY, color)
     if (Window:getGameHandle() == 0) then
         return 0;
     end
-    color = color or red_color
     endX = endX or startX;
     endY = endY or startY;
     startX, startY = Window:modifyCord(startX, startY)
@@ -72,6 +71,11 @@ function find_red_mark(startX, startY, endX, endY, color)
         return Window:canonizeCord(arr[1][1], arr[1][2])
     end
     return 0, 0
+end
+
+function find_red_mark(startX, startY, endX, endY, color)
+    color = color or red_color
+    return find_color(startX, startY, endX, endY, color)
 end
 
 function wait_color(x, y, findcolor, timeout, cd)

@@ -106,9 +106,17 @@ function Game:collectDailyPresents()
             left(1087, 433, 500)
         end
         left(743, 252, 1000)
+        escape(500)
+
         left(847, 257, 1000)
+        escape(500)
+
         left(948, 254, 1000)
+        escape(500)
+
         left(1044, 255, 1000)
+        escape(500)
+
         left(1145, 253, 1000)
         Map:normalize()
         return 1
@@ -142,19 +150,27 @@ function Game:checkFreeTavernHero()
     end
 end
 
+function Game:searchResourceButtonAndClick()
+    x, y = find_color(1060, 510, 1095, 622, 16765462)
+    log(x, y)
+    if (x > 0) then
+        left(x, y, 1500)
+    end
+end
+
 function Game:collectSimpleResources()
     log('Collect food')
     click_and_wait_color(117, 21, 10257016, 1049, 174)
-    left(1090, 555, 1500)
+    Game:searchResourceButtonAndClick()
     escape(1500)
 
     log('Collect steel')
     click_and_wait_color(247, 27, 10257016, 1049, 174)
-    left(1090, 555, 1500)
+    Game:searchResourceButtonAndClick()
     escape(1500)
 
     log('Collect gold')
     click_and_wait_color(376, 23, 10257016, 1049, 174)
-    left(1090, 555, 1500)
+    Game:searchResourceButtonAndClick()
     escape(1500)
 end
