@@ -1,20 +1,26 @@
-Язык интерфейса ([ENG](https://github.com/carono/last-war-vp-bot/README.md) | [RU](https://github.com/carono/last-war-vp-bot/docs/en/README.md))
+Язык интерфейса ([ENG](https://github.com/carono/last-war-vp-bot) | [RU](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/README.md))
 
 # Документация
-- [Скрипт Обслуживания VP](https://github.com/carono/last-war-vp-bot/docs/en/vp_auto_approve.md)
-- [Скрипт Фарминга](https://github.com/carono/last-war-vp-bot/docs/en/farming.md)
-- [Скрипт Помощь в атаке](https://github.com/carono/last-war-vp-bot/docs/en/attack.md)
-- [Разработка](https://github.com/carono/last-war-vp-bot/docs/en/develop.md)
+- [Скрипт поддержки вице-президента](https://github.com/carono/last-war-vp-bot/docs/en/vp_auto_approve.md )
+- [Скрипт ведения хозяйства](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/farming.md )
+- [Скрипт помощи при атаке](https://github.com/carono/last-war-vp-bot/docs/en/attack.md )
+- [Разработка](https://github.com/carono/last-war-vp-bot/docs/en/develop.md )
 
-## Подготовьтесь
+## Отказ от ответственности
+Скрипт основан на древней программе-кликере для игры Ultima Online. Возможно, есть более удобные программы-кликеры, но я ими не пользовался.
+
+Скрипт предоставляется как есть, есть 90% вероятность, что он не запустится на вашем ПК без танцев с бубном, поэтому автор кода не несет ответственности за его работоспособность.
+
+
+## Подготовьтесь к запуску
 1. Скачайте игру и установите ее https://www.lastwar.com/Download/Setup.exe
-2. Скачайте и распакуйте этот скрипт https://github.com/carono/last-war-vp-bot/archive/refs/heads/master.zip
+2. Скачайте и распакуйте этот скрипт https://github.com/carono/last-war-vp-bot/archive/refs/heads/master .zip
 
-## Запустите
+## Запуск
 ![UOPilot](https://github.com/carono/last-war-vp-bot/blob/f20acd34993135de2ea5cdc4b19c9dcd3be0f2fd/img/uopilot.png)
 1. Запустите uopilot242.exe
-2. Откройте скрипт в приложении (Script > Open) vp_auto_approve.lua
-3. Нажмите кнопку выполнить
+2. Откройте скрипт в приложении (Скрипт > Открыть) vp_auto_approve.lua
+3. Нажмите выполнить
 
 Если все в порядке, скрипт запустит игру и сам проверит приложения, если таковые имеются.
 
@@ -24,6 +30,6 @@
 Сервер #972 Carono
 
 ## Известные проблемы
-* Если вы часто заходите в свою учетную запись с другого устройства, игра на ПК может зависнуть без видимых признаков, в результате чего скрипты перестанут работать.
+* Если вы часто заходите в свой аккаунт с другого устройства, игра на ПК может зависнуть без каких-либо видимых признаков, в результате чего скрипты перестанут работать.
 * Игра не восстанавливается после обновления.
-* Обслуживание VP не работает с захваченными и покоренными капитолиями
+* VP service не работает с захваченными и завоеванными столицами

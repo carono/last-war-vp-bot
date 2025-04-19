@@ -1,8 +1,11 @@
 ## Farming Script (farming.lua)
 
-The script is designed for a farm account, which will solve all the routine work, it works according to the principle: enabled and forgotten
+The script is designed for a farm account, which will solve all the routine work, it works according to the principle: enabled and forgotten. The script includes a script vp_auto_approve.md for the service of the Ministry.
 
-Status: under development
+## Launch
+- Launch uopilot242.exe
+- Open the **scripts\farming.lua** script in the application (Script > Open)
+- Press the "play" button
 
 ### Work in the Ministry
 - ✅ VP Queue Service
@@ -43,6 +46,11 @@ Status: under development
 - ❌ Construction of new buildings
 - ❌ Leveling up survivors
 - ❌ Jewelry upgrade
+- ✅ Collecting simple resources (iron, food, gold)
+- ❌ Collecting additional resources (drone components, seasonal, ore, etc.)
+- ❌ Accepting gifts from survivors
+- ❌ Accepting new survivors
+- ❌ Collecting resources from the truck
 
 ### Store
 - ❌ Collecting daily diamond bonuses (daily discount, weekly card)
@@ -70,3 +78,8 @@ Status: under development
 - ❌ Leveling up heroes
 - ❌ Leveling up the rank of heroes
 - ❌ Leveling up heroes ' skills
+
+### System
+- ✅ Automatic game launch
+- Restart the game if you logged in from another device while waiting
+- Temporary suspension of the script if the user moved the mouse
