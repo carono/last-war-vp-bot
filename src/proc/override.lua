@@ -90,13 +90,13 @@ function click_if_color(x, y, color, colorX, colorY)
 end
 
 function escape(timeout)
+    timeout = timeout or 100
     if (Window:getGameHandle() == 0) then
         return 0;
     end
     if (Game:isLogout() == 1) then
         return 0
     end
-    timeout = timeout or 100
     send('Escape')
     log('Send escape button and wait ' .. (timeout / 1000) .. 's')
     wait(timeout)

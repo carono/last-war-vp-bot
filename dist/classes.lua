@@ -15,8 +15,8 @@ end
 
 function Alliance:open()
     if (kfindcolor(1725, 855, 16777215) == 1) then
-        left(1725, 792, 100)
-        return 1
+        click_and_wait_color(1725, 792, 16054013, 784, 130)
+        return Alliance:isOpen()
     end
     return 0
 end
@@ -111,6 +111,7 @@ function Alliance:checkTech(force)
     x, y = find_red_mark(612, 212, 1161, 757)
     if (x > 0) then
         log('Successful find recommended tech')
+        wait(1000)
         click_and_wait_not_color(x + 50, y + 50, 3940594)
         wait(1000)
         log('Clicking tech')
