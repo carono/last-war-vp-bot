@@ -1,10 +1,10 @@
 Interface language ([ENG](https://github.com/carono/last-war-vp-bot) | [RU](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/README.md))
 
 # Documentation
-- [VP Maintenance Script](https://github.com/carono/last-war-vp-bot/docs/en/vp_auto_approve.md )
+- [VP Maintenance Script](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/vp_auto_approve.md )
 - [Farming Script](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/farming.md )
 - [Script Help in attack](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/attack.md )
-- [Development](https://github.com/carono/last-war-vp-bot/docs/en/develop.md )
+- [Development](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/develop.md )
 
 ## Disclaimer
 The script is based on the ancient autoclicker program for the Ultima Online game. There are probably more convenient clicker programs, but I haven't used them.
