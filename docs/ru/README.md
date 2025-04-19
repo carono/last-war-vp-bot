@@ -1,10 +1,10 @@
 Язык интерфейса ([ENG](https://github.com/carono/last-war-vp-bot) | [RU](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/README.md))
 
 # Документация
-- [Скрипт поддержки вице-президента](https://github.com/carono/last-war-vp-bot/docs/en/vp_auto_approve.md )
-- [Скрипт ведения хозяйства](https://github.com/carono/last-war-vp-bot/blob/master/docs/en/farming.md )
-- [Скрипт помощи при атаке](https://github.com/carono/last-war-vp-bot/docs/en/attack.md )
-- [Разработка](https://github.com/carono/last-war-vp-bot/docs/en/develop.md )
+- [Скрипт поддержки вице-президента](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/vp_auto_approve.md )
+- [Скрипт ведения хозяйства](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/farming.md )
+- [Скрипт помощи при атаке](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/attack.md )
+- [Разработка](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/develop.md )
 
 ## Отказ от ответственности
 Скрипт основан на древней программе-кликере для игры Ultima Online. Возможно, есть более удобные программы-кликеры, но я ими не пользовался.
