@@ -21,6 +21,9 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Request for help to treat units
 - Automatic entry into the rally
 - ❌ Creating a rally
+- Treasure notification
+- ❌ Treasure trove
+- ❌ Collecting a treasure gift
 
 ### Radar assignments
 - ❌ Collecting completed tasks
@@ -51,14 +54,16 @@ The script is designed for a farm account, which will solve all the routine work
 - ❌ Accepting gifts from survivors
 - ❌ Accepting new survivors
 - ❌ Collecting resources from the truck
+- Installation of the exchange of pieces of cards
+- ❌ Collecting a treasure trove of secret missions from map pieces
 
 ### Store
 - ❌ Collecting daily diamond bonuses (daily discount, weekly card)
 - ❌ Collecting monthly card rewards
 
 ### Promotions
-- ❌ Collecting Battle of Arsenals Awards
-- ❌ Collecting Battle Pass awards
+- ✅ Collecting Battle of Arsenals Awards
+- ✅ Collecting Battle Pass awards
 - ❌ Completing daily combat pass missions
 
 ### Other

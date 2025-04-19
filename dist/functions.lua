@@ -1,5 +1,5 @@
 -- lua color_functions.lua
-red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237, 2171052)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -164,6 +164,10 @@ function left(x, y, timeout)
     move(oldX, oldY)
 end
 
+function click(x, y, time)
+    left(x, y, time)
+end
+
 function click_and_wait_color(x, y, color, colorX, colorY, timeout)
     if (Window:getGameHandle() == 0) then
         return 0;
@@ -232,13 +236,13 @@ function click_if_color(x, y, color, colorX, colorY)
 end
 
 function escape(timeout)
+    timeout = timeout or 100
     if (Window:getGameHandle() == 0) then
         return 0;
     end
     if (Game:isLogout() == 1) then
         return 0
     end
-    timeout = timeout or 100
     send('Escape')
     log('Send escape button and wait ' .. (timeout / 1000) .. 's')
     wait(timeout)

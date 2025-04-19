@@ -22,6 +22,10 @@ function left(x, y, timeout)
     move(oldX, oldY)
 end
 
+function click(x, y, time)
+    left(x, y, time)
+end
+
 function click_and_wait_color(x, y, color, colorX, colorY, timeout)
     if (Window:getGameHandle() == 0) then
         return 0;

@@ -36,6 +36,10 @@ if (cooldown('collectSimpleResources', 180) == 1) then
     Game:collectSimpleResources()
 end
 
+if (cooldown('collectPromoGifts', 180) == 1) then
+    Promo:collectGifts()
+end
+
 if (Game:isLogout() == 1) then
     Game:clickLogout()
 end

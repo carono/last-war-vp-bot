@@ -1,4 +1,4 @@
-red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237, 2171052)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
