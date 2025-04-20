@@ -60,7 +60,7 @@ end
 
 function find_color(startX, startY, endX, endY, color)
     if (Window:getGameHandle() == 0) then
-        return 0;
+        return 0, 0;
     end
     endX = endX or startX;
     endY = endY or startY;

@@ -770,6 +770,7 @@ function Promo:isOpen()
 end
 
 function Promo:open()
+    log('Try promo modal opening')
     click_and_wait_color(Promo.cords[1], Promo.cords[2], 6114370, 926, 31)
     return self:isOpen()
 end
@@ -780,7 +781,11 @@ end
 
 function Promo:clickMarkedTab()
     local x, y = self:getMark()
-    click(x - 50, y + 50, 1000)
+    if (x > 0) then
+        click(x - 50, y + 50, 1000)
+        return 1
+    end
+    return 0
 end
 
 function Promo:isArsenalBattle()
@@ -811,13 +816,15 @@ function Promo:clickGetAllButton()
     return 0
 end
 
-function Promo:collectGifts()
-    if (self:isMarked()) then
+function Promo:collectGifts(force)
+    force = force or 0
+    if (self:isMarked() == 1 or force == 1) then
         self:open();
-        Promo:clickMarkedTab()
-        Promo:clickGetAllButton()
-        Promo:clickGetButtonInArsenalBattle()
-        Map:normalize()
+        if (Promo:clickMarkedTab() == 1) then
+            Promo:clickGetAllButton()
+            Promo:clickGetButtonInArsenalBattle()
+            Map:normalize()
+        end
         return 1
     end
     return 0
