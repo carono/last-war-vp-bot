@@ -25,7 +25,7 @@ if (cooldown('MapNormalize') == 1) then
     Map:normalize()
 end
 
-if (cooldown('checkAlliance', 300) == 1) then
+if (cooldown('checkAlliance', 600) == 1) then
     Alliance:open()
     Alliance:checkTech()
     Alliance:getPresent()
@@ -36,15 +36,15 @@ if (cooldown('autoRally', 5) == 1) then
     Rally:joinIfExist()
 end
 
-if (cooldown('collectSimpleResources', 180) == 1) then
+if (cooldown('collectSimpleResources', 600) == 1) then
     Game:collectSimpleResources()
 end
 
-if (cooldown('collectPromoGifts', 180) == 1) then
+if (cooldown('collectPromoGifts', 600) == 1) then
     Promo:collectGifts()
 end
 
-if (cooldown('checkSurvival', 180) == 1) then
+if (cooldown('checkSurvival', 600) == 1) then
     Map:openBase()
     Base:greetingSurvivals()
     Base:getVipPresents()
