@@ -57,8 +57,12 @@ The script is designed for a farm account, which will solve all the routine work
 - Installation of the exchange of pieces of cards
 - ❌ Collecting a treasure trove of secret missions from map pieces
 - ✅ Opening of daily VIP gift and points
+- ❌ Sending trucks
+- ❌ Installation of secret missions
+- ❌ Robbery of secret missions
+- ❌ Truck Robbery
 
-### Store
+### Shop
 - ❌ Collecting daily diamond bonuses (daily discount, weekly card)
 - ❌ Collecting monthly card rewards
 
@@ -66,13 +70,6 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Collecting Battle of Arsenals Awards
 - ✅ Collecting Battle Pass awards
 - ❌ Completing daily combat pass missions
-
-### Other
-- ❌ Collecting VIP points and a gift
-- ❌ Sending trucks
-- ❌ Installation of secret missions
-- ❌ Robbery of secret missions
-- ❌ Truck robbery
 
 ### Arena
 - ❌ Participation in the Apex arena
