@@ -1,8 +1,8 @@
 function close_gift_modal()
     log('Waiting modal with gifts')
-    wait_color(1068, 342, 7059183, 2000)
-    escape(1000)
-    --click_and_wait_not_color(1464, 167, 7059183, 1068, 342)
+    if (wait_color(1068, 342, 7059183, 2000) == 1) then
+        escape(1000, 'Close gift modal')
+    end
 end
 
 function close_connection_error()

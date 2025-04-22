@@ -1,4 +1,4 @@
-red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237, 2171052)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-1521647,1066991, 13526, 10902, 3741951)'
 green_color = '(4187738, 6540855, 6148674, 6344247)'
 inactive_tab_color = '(5390650)'
 modal_header_color = '(6179651)'
@@ -84,7 +84,7 @@ function find_colors(startX, startY, endX, endY, colors)
 
     local firstTargetColor = table.remove(colors, 1)
     local res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, -1, 5)
-
+    local startTime = os.clock()
     if (res ~= nil) then
         for _, findFirstColor in pairs(arr) do
             local findFirstColorX, findFirstColorY = Window:canonizeCord(findFirstColor[1], findFirstColor[2])
@@ -100,7 +100,7 @@ function find_colors(startX, startY, endX, endY, colors)
                 end
             end
             if (result == 1) then
-                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY)
+                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY .. ' in ' .. (os.clock() - startTime))
                 return findFirstColorX, findFirstColorY
             end
         end

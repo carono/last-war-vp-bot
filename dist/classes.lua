@@ -204,7 +204,7 @@ function Base:getVipPresents()
                 wait(2000)
                 escape(2000)
             end
-            if (click_if_green(1143, 710) == 1) then
+            if (click_green_button(1143, 710) == 1) then
                 log('Get vip gifts')
                 close_gift_modal()
             end
@@ -213,6 +213,59 @@ function Base:getVipPresents()
     end
 end
 
+function Base:isShopModal()
+    if kfindcolor(802, 43, 5018864) == 1 and kfindcolor(895, 32, 12048886) == 1 then
+        return 1
+    end
+    return 0
+end
+
+function Base:openShop()
+    log('Opening shop')
+    click(1722, 31, 1000)
+    return 1
+end
+
+function Base:getShopGifts(force)
+    force = force or 0
+    log(force)
+    log(Base:isShopModal())
+    if (force == 1 and Base:isShopModal() == 0) then
+        Base:openShop()
+    end
+    if (Base:isShopModal() == 0) then
+        log('Shop modal is not opening,')
+    end
+    local x, y = find_red_mark(701, 48, 1184, 61)
+    if (x > 0) then
+        log('Has new shop gifts, try collect')
+        click(x - 50, y + 50, 1000)
+        if (click_red_mark(689, 388) == 1) then
+            log('Get daily promo diamonds')
+            close_gift_modal()
+        end
+        if (click_green_button(873, 1035) == 1) then
+            log('Get super monthly card gift')
+            close_gift_modal()
+        end
+        if (click_red_mark(684, 315) == 1) then
+            log('Get daily card diamonds')
+            close_gift_modal()
+        end
+        return 1
+    else
+        log('No shop gifts')
+    end
+    if (is_red(1181, 83) == 1) then
+        log('Pull tabs')
+        drag_tabs()
+        return Base:getShopGifts(force)
+    end
+    if (Base:isShopModal() == 1) then
+        escape(1000, 'Close shop modal')
+    end
+    return 0
+end
 
 -- lua Game.lua
 Game = {}
@@ -896,6 +949,32 @@ function Promo:collectGifts(force)
         return 1
     end
     return 0
+end
+
+-- lua Radar.lua
+--lua
+Radar = {}
+
+function Radar:hasTreasureExcavatorNotification()
+    if (kfindcolor(1047, 965, 686838) == 1 or kfindcolor(1055, 975, 2964595) == 1) then
+        return 1
+    end
+    return 0
+end
+
+function Radar:hasEasterEggNotification()
+    if (kfindcolor(1045, 970, 52223) == 1 or kfindcolor(1014, 970, 5425394) == 1) then
+        return 1
+    end
+    return 0
+end
+
+function Radar:searchEasterEggInChat()
+    return find_colors(686, 263, 811, 975, { { 780, 733, 3782911 }, { 761, 749, 4367359 } })
+end
+
+function Radar:clickEasterEggModal()
+    click(885, 712, 1000)
 end
 
 -- lua Rally.lua

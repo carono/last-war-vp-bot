@@ -48,6 +48,7 @@ if (cooldown('checkSurvival', 180) == 1) then
     Map:openBase()
     Base:greetingSurvivals()
     Base:getVipPresents()
+    Base:getShopGifts(1)
 end
 
 Alliance:applyHelp()
@@ -62,4 +63,5 @@ end
 close_connection_error()
 Game:waitIfUserIsActive()
 
+wait(30000)
 goto start

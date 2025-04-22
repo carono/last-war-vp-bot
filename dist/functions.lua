@@ -1,5 +1,5 @@
 -- lua color_functions.lua
-red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237, 2171052)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-1521647,1066991, 13526, 10902, 3741951)'
 green_color = '(4187738, 6540855, 6148674, 6344247)'
 inactive_tab_color = '(5390650)'
 modal_header_color = '(6179651)'
@@ -85,7 +85,7 @@ function find_colors(startX, startY, endX, endY, colors)
 
     local firstTargetColor = table.remove(colors, 1)
     local res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, -1, 5)
-
+    local startTime = os.clock()
     if (res ~= nil) then
         for _, findFirstColor in pairs(arr) do
             local findFirstColorX, findFirstColorY = Window:canonizeCord(findFirstColor[1], findFirstColor[2])
@@ -101,7 +101,7 @@ function find_colors(startX, startY, endX, endY, colors)
                 end
             end
             if (result == 1) then
-                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY)
+                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY .. ' in ' .. (os.clock() - startTime))
                 return findFirstColorX, findFirstColorY
             end
         end
@@ -158,9 +158,9 @@ end
 -- lua modals.lua
 function close_gift_modal()
     log('Waiting modal with gifts')
-    wait_color(1068, 342, 7059183, 2000)
-    escape(1000)
-    --click_and_wait_not_color(1464, 167, 7059183, 1068, 342)
+    if (wait_color(1068, 342, 7059183, 2000) == 1) then
+        escape(1000, 'Close gift modal')
+    end
 end
 
 function close_connection_error()
@@ -264,10 +264,18 @@ function click_while_not_color(x, y, color, colorX, colorY, timeout)
 end
 
 function click_if_red(x, y, colorX, colorY, timeout)
+    colorX = colorX
+    colorY = colorY
     return click_if_color(x, y, red_color, colorX, colorY, timeout)
 end
 
-function click_if_green(x, y, colorX, colorY, timeout)
+function click_red_mark(colorX, colorY, x, y, timeout)
+    x = x or colorX - 25
+    y = y or colorY + 25
+    return click_if_color(x, y, red_color, colorX, colorY, timeout)
+end
+
+function click_green_button(x, y, colorX, colorY, timeout)
     return click_if_color(x, y, green_color, colorX, colorY, timeout)
 end
 
@@ -287,8 +295,9 @@ function click_if_color(x, y, color, colorX, colorY, timeout, wait_color_timeout
     return 0
 end
 
-function escape(timeout)
+function escape(timeout, comment)
     timeout = timeout or 100
+    comment = comment or ''
     if (Window:getGameHandle() == 0) then
         return 0;
     end
@@ -296,7 +305,7 @@ function escape(timeout)
         return 0
     end
     send('Escape')
-    log('Send escape button and wait ' .. (timeout / 1000) .. 's')
+    log('Send escape button and wait ' .. (timeout / 1000) .. 's ' .. comment)
     wait(timeout)
 end
 
@@ -323,4 +332,16 @@ function reset_cooldown(slug)
     end
     local key = "cooldown" .. "." .. slug
     Storage:set(key, nil)
+end
+
+function drag_tabs()
+    local x, y = Window:modifyCord(1110, 110)
+    log('Drag tabs...')
+    move(x, y)
+    kleft_down(x, y)
+    move_smooth(x - 470, y)
+    wait(300)
+    kleft_up(x - 470, y)
+    wait(3000)
+    log('Finish drag tabs')
 end
