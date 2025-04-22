@@ -51,11 +51,12 @@ The script is designed for a farm account, which will solve all the routine work
 - ❌ Jewelry upgrade
 - ✅ Collecting simple resources (iron, food, gold)
 - ❌ Collecting additional resources (drone components, seasonal, ore, etc.)
-- ❌ Accepting gifts from survivors
-- ❌ Accepting new survivors
+- ✅ Accepting gifts from survivors
+- ✅ Accepting new survivors
 - ❌ Collecting resources from the truck
 - Installation of the exchange of pieces of cards
 - ❌ Collecting a treasure trove of secret missions from map pieces
+- ✅ Opening of daily VIP gift and points
 
 ### Store
 - ❌ Collecting daily diamond bonuses (daily discount, weekly card)
