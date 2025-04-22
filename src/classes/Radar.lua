@@ -16,9 +16,11 @@ function Radar:hasEasterEggNotification()
 end
 
 function Radar:searchEasterEggInChat()
-    return find_colors(686, 263, 811, 975, { { 780, 733, 3782911 }, { 761, 749, 4367359 } })
+    return find_color(694, 214, 792, 968, 4177663)
 end
 
 function Radar:clickEasterEggModal()
-    click(885, 712, 1000)
+    click(935, 706, 100)
+    click(935, 706, 100)
+    click(935, 706, 100)
 end
