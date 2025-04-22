@@ -13,6 +13,10 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     Game:start()
 end
 
+if (Game:isLogout() == 1) then
+    Game:clickLogout()
+end
+
 if (cooldown('checkMinistryRequests', 30) == 1) then
     Game:checkMinistryRequests()
 end
@@ -40,18 +44,22 @@ if (cooldown('collectPromoGifts', 180) == 1) then
     Promo:collectGifts()
 end
 
-if (Game:isLogout() == 1) then
-    Game:clickLogout()
+if (cooldown('checkSurvival', 180) == 1) then
+    Map:openBase()
+    Base:greetingSurvivals()
+    Base:getVipPresents()
 end
 
 Alliance:applyHelp()
 Alliance:clickHealTroops()
-
 Game:getRallyPresents()
 Game:collectDailyPresents()
 
-close_connection_error()
+if (Game:isLogout() == 1) then
+    Game:clickLogout()
+end
 
+close_connection_error()
 Game:waitIfUserIsActive()
 
 goto start

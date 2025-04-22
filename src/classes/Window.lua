@@ -2,8 +2,8 @@ Window = {}
 
 function Window:resizeCanonical()
     local handle = self:attachHandle()
-    width, height = self:getCanonicalSize()
-    x, y = windowpos(handle)
+    local width, height = self:getCanonicalSize()
+    local x, y = windowpos(handle)
     windowpos(x, y, width, height, handle)
 end
 
@@ -14,7 +14,7 @@ end
 function Window:repos()
     local handle = self:attachHandle()
     if (handle ~= 0) then
-        x, y, width, height = windowpos(handle)
+        local x, y, width, height = windowpos(handle)
         x = config.win_pos_x
         y = config.win_pos_y
         windowpos(x, y, width, height, handle)
@@ -45,8 +45,8 @@ end
 
 function Window:modifyCord (xReference, yReference)
     local handle = self:getGameHandle()
-    WidthCurrent, HeightCurrent = self:getCanonicalSize()
-    x, y, WidthReference, HeightReference = windowpos(handle)
+    local WidthCurrent, HeightCurrent = self:getCanonicalSize()
+    local x, y, WidthReference, HeightReference = windowpos(handle)
     local xCurrent = (xReference * WidthReference) / WidthCurrent
     local yCurrent = (yReference * HeightReference) / HeightCurrent
     return math.ceil(xCurrent), math.ceil(yCurrent)
@@ -54,8 +54,8 @@ end
 
 function Window:canonizeCord (xReference, yReference)
     local handle = self:getGameHandle()
-    WidthReference, HeightReference = self:getCanonicalSize()
-    x, y, WidthCurrent, HeightCurrent = windowpos(handle)
+    local WidthReference, HeightReference = self:getCanonicalSize()
+    local x, y, WidthCurrent, HeightCurrent = windowpos(handle)
     local xCurrent = (xReference * WidthReference) / WidthCurrent
     local yCurrent = (yReference * HeightReference) / HeightCurrent
     return math.ceil(xCurrent), math.ceil(yCurrent)

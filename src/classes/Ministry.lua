@@ -56,13 +56,13 @@ end
 
 function Ministry:clickDismiss()
     if kfindcolor(817, 929, 6513405) == 1 then
-        left(817, 929, 300)
+        click(817, 929, 300)
     end
 end
 
 function Ministry:clickConfirmDismiss()
     if kfindcolor(809, 599, 16765462) == 1 then
-        left(809, 599, 300)
+        click(809, 599, 300)
     end
 end
 
@@ -75,7 +75,7 @@ end
 
 function Ministry:dismiss(x, y)
     if (kfindcolor(1098, 115, 10257017) ~= 1) then
-        left(x, y, 300)
+        click(x, y, 300)
     end
 
     local empty_list = kfindcolor(963, 529, 16054013)
@@ -84,7 +84,7 @@ function Ministry:dismiss(x, y)
     if (empty_list == 1 and has_list_request == 0) then
         Ministry:clickDismiss()
         Ministry:clickConfirmDismiss()
-        left(1152, 113, 300)
+        click(1152, 113, 300)
     end
 end
 
@@ -101,12 +101,12 @@ function Ministry:openMinistryIfRequest()
 end
 
 function Ministry:hasMinisterRequest(minister)
-    x, y = Ministry:getMinisterCords(minister)
+    local x, y = Ministry:getMinisterCords(minister)
     return kfindcolor(x, y, 2502143, 25)
 end
 
 function Ministry:clickMinister(minister)
-    x, y = Ministry:getMinisterCords(minister)
+    local x, y = Ministry:getMinisterCords(minister)
     click_and_wait_color(x, y, 10257017, 628, 122)
 end
 
@@ -138,7 +138,7 @@ function Ministry:closemin()
 end
 
 function Ministry:clickApproveButton()
-    left(1028, 256, 200)
+    click(1028, 256, 200)
 end
 
 function Ministry:requestListHasMark()
@@ -202,7 +202,7 @@ function Ministry:pullList(try)
         end
         kleft_up(x, y + 600)
         wait(100)
-        left(x, y + 600)
+        click(x, y + 600)
         wait(200)
         if (is_last == 0) then
             move(oldX, oldY)

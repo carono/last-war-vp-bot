@@ -74,7 +74,7 @@ end
 function Game:getRallyPresents()
     if kfindcolor(256, 211, 3741951) == 1 then
         click_and_wait_color(256, 211, 16765462, 934, 821)
-        left(934, 821, 500)
+        click(934, 821, 500)
         log('Get rally presents')
         return 1
     end
@@ -89,7 +89,7 @@ function Game:readAllMail()
             local x, y = find_red_mark(1148, 98, 1190, 917)
             if (x ~= 0) then
                 click_and_wait_color(x, y, 16765462, 1075, 1031)
-                left(1075, 1031, 800)
+                click(1075, 1031, 800)
                 close_gift_modal()
                 wait(3000)
                 escape(500)
@@ -103,21 +103,21 @@ function Game:collectDailyPresents()
     if (is_red(61, 924) == 1) then
         click_and_wait_color(36, 961, 6179651, 863, 30)
         if (kfindcolor(1087, 433, 4187738) == 1) then
-            left(1087, 433, 500)
+            click(1087, 433, 500)
         end
-        left(743, 252, 1000)
+        click(743, 252, 1000)
         escape(500)
 
-        left(847, 257, 1000)
+        click(847, 257, 1000)
         escape(500)
 
-        left(948, 254, 1000)
+        click(948, 254, 1000)
         escape(500)
 
-        left(1044, 255, 1000)
+        click(1044, 255, 1000)
         escape(500)
 
-        left(1145, 253, 1000)
+        click(1145, 253, 1000)
         Map:normalize()
         return 1
     end
@@ -125,9 +125,9 @@ function Game:collectDailyPresents()
 end
 
 function Game:openCard()
-    left(740, 884, 3000)
-    left(905, 470, 3000)
-    left(905, 470, 3000)
+    click(740, 884, 3000)
+    click(905, 470, 3000)
+    click(905, 470, 3000)
     escape(2000)
 end
 
@@ -142,7 +142,7 @@ function Game:checkFreeTavernHero()
         msg(1)
         --Game:openCard()
     end
-    left(1057, 1016, 200)
+    click(1057, 1016, 200)
     if (kfindcolor(731, 886, 5233404) == 1) then
         log('Open survival')
         msg(2)
@@ -151,10 +151,9 @@ function Game:checkFreeTavernHero()
 end
 
 function Game:searchResourceButtonAndClick()
-    x, y = find_color(1060, 510, 1095, 622, 16765462)
-    log(x, y)
+    local x, y = find_color(1060, 510, 1095, 622, 16765462)
     if (x > 0) then
-        left(x, y, 1500)
+        click(x, y, 1500)
     end
 end
 

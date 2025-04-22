@@ -16,9 +16,9 @@ function Hero:openAttackMenu()
     require("lib/color")
     local path = [["img/attack_button.bmp"]]
 
-    x, y = Window:modifyCord(716, 620)
-    x2, y2 = Window:modifyCord(1093, 856)
-    attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
+    local x, y = Window:modifyCord(716, 620)
+    local x2, y2 = Window:modifyCord(1093, 856)
+    local attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
     log("Attack button img", attackButton)
     if (attackButton) then
         click_and_wait_color(attackButton[1][1], attackButton[1][2], 16756752, 958, 856, 1)
@@ -37,7 +37,7 @@ function Hero:select()
 end
 
 function Hero:clickAttack()
-    left(955, 826)
+    click(955, 826)
     log('Click attack')
 end
 

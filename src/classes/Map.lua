@@ -1,7 +1,8 @@
 Map = {}
 
 function Map:isBase()
-    return kfindcolor(42, 317, 16766290)
+    --science button is exists
+    return kfindcolor(45, 313, 16756763)
 end
 
 function Map:isWorld()
@@ -42,7 +43,7 @@ end
 
 function Map:clickBaseButton()
     if (Map:state() ~= 0) then
-        left(1723, 1044, 500)
+        click(1723, 1044, 500)
         return 1
     end
     return 0
@@ -58,6 +59,7 @@ function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
         self:clickBaseButton()
+        wait(10000)
     end
 end
 
@@ -79,7 +81,7 @@ function Map:normalize()
         return -3
     end
     if (Map:isCrossServer() == 1) then
-        left(416, 137, 5000)
+        click(416, 137, 5000)
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         log('Try normalize map, send escape button')

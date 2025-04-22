@@ -38,17 +38,15 @@ function Alliance:getPresent(force)
     self:openPresentsTab()
     self:clickBigGreenButton()
 
-    click_and_wait_color(1130, 277, 560895)
-    log('click premium tab')
+    log('Click premium tab')
+    click_and_wait_color(1130, 277, active_tab_color)
 
-    if (kfindcolor(1109, 1016, 4187738) == 1) then
-        Alliance:clickBigGreenButton()
-    else
-        click_and_wait_color(1140, 277, 560895)
-        click_while_color(1114, 468, 4187738)
-    end
-
+    log('Try click get all premium presents')
+    click_if_color(1084, 1017, green_color, nil, nil, 1000)
     close_gift_modal()
+
+    click_while_color(1114, 468, green_color)
+
     Alliance:clickBack()
 end
 
@@ -61,7 +59,7 @@ function Alliance:clickBack(count)
 end
 
 function Alliance:haveMark()
-    x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
+    local x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x > 0) then
         return 1
     end
@@ -69,9 +67,9 @@ function Alliance:haveMark()
 end
 
 function Alliance:clickMark()
-    x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
+    local x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x ~= nil) then
-        left(x, y)
+        click(x, y)
     end
 end
 
@@ -86,12 +84,12 @@ end
 function Alliance:applyHelp()
     if (kfindcolor(1646, 791, 3103061) == 1) then
         log('Apply alliance help request')
-        left(1648, 763, 300)
+        click(1648, 763, 300)
         return 1
     end
     if (kfindcolor(120, 872, 13038591) == 1) then
         log('Send help request alliance for healing troops')
-        left(120, 872, 300)
+        click(120, 872, 300)
         return 1
     end
     return 0
@@ -107,14 +105,16 @@ function Alliance:checkTech(force)
         return 0
     end
     click_and_wait_color(1110, 641, 7756114, 660, 202)
-    x, y = find_red_mark(612, 212, 1161, 757)
+    --local x, y = find_red_mark(612, 212, 1161, 757)
+    local x, y = find_colors(612, 212, 1161, 757, { { 802, 582, red_color }, { 816, 591, 16777215 } })
     if (x > 0) then
         log('Successful find recommended tech')
         wait(1000)
         click_and_wait_not_color(x + 50, y + 50, 3940594)
         wait(1000)
         log('Clicking tech')
-        click_while_not_color(1078, 855, 11447982)
+
+        click_while_not_color(1078, 855, 11447982, 954, 856, 400)
         wait(3000)
         escape(1500)
         escape(1500)
@@ -126,7 +126,7 @@ end
 
 function Alliance:openSeason2buildings()
     if (kfindcolor(1165, 890, 3741951) == 1) then
-        left(1111, 928)
+        click(1111, 928)
         click_and_wait_not_color(892, 1031, 16765462)
         close_gift_modal()
         self:clickBack()
@@ -137,11 +137,11 @@ function Alliance:clickHealTroops()
     if (kfindcolor(122, 865, 646802) == 1) then
         log('Healing troops')
         click_and_wait_color(127, 864, 10257016, 1057, 237)
-        left(1033, 874)
+        click(1033, 874)
     end
 
     if (kfindcolor(153, 871, '(6867952, 7849964)') == 1) then
         log('Return troops from hospital')
-        left(119, 855)
+        click(119, 855)
     end
 end

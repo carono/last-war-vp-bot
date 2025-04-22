@@ -39,17 +39,15 @@ function Alliance:getPresent(force)
     self:openPresentsTab()
     self:clickBigGreenButton()
 
-    click_and_wait_color(1130, 277, 560895)
-    log('click premium tab')
+    log('Click premium tab')
+    click_and_wait_color(1130, 277, active_tab_color)
 
-    if (kfindcolor(1109, 1016, 4187738) == 1) then
-        Alliance:clickBigGreenButton()
-    else
-        click_and_wait_color(1140, 277, 560895)
-        click_while_color(1114, 468, 4187738)
-    end
-
+    log('Try click get all premium presents')
+    click_if_color(1084, 1017, green_color, nil, nil, 1000)
     close_gift_modal()
+
+    click_while_color(1114, 468, green_color)
+
     Alliance:clickBack()
 end
 
@@ -62,7 +60,7 @@ function Alliance:clickBack(count)
 end
 
 function Alliance:haveMark()
-    x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
+    local x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x > 0) then
         return 1
     end
@@ -70,9 +68,9 @@ function Alliance:haveMark()
 end
 
 function Alliance:clickMark()
-    x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
+    local x, y = find_red_mark(AllianceModal.startX, AllianceModal.startY, AllianceModal.endX, AllianceModal.endY)
     if (x ~= nil) then
-        left(x, y)
+        click(x, y)
     end
 end
 
@@ -87,12 +85,12 @@ end
 function Alliance:applyHelp()
     if (kfindcolor(1646, 791, 3103061) == 1) then
         log('Apply alliance help request')
-        left(1648, 763, 300)
+        click(1648, 763, 300)
         return 1
     end
     if (kfindcolor(120, 872, 13038591) == 1) then
         log('Send help request alliance for healing troops')
-        left(120, 872, 300)
+        click(120, 872, 300)
         return 1
     end
     return 0
@@ -108,14 +106,16 @@ function Alliance:checkTech(force)
         return 0
     end
     click_and_wait_color(1110, 641, 7756114, 660, 202)
-    x, y = find_red_mark(612, 212, 1161, 757)
+    --local x, y = find_red_mark(612, 212, 1161, 757)
+    local x, y = find_colors(612, 212, 1161, 757, { { 802, 582, red_color }, { 816, 591, 16777215 } })
     if (x > 0) then
         log('Successful find recommended tech')
         wait(1000)
         click_and_wait_not_color(x + 50, y + 50, 3940594)
         wait(1000)
         log('Clicking tech')
-        click_while_not_color(1078, 855, 11447982)
+
+        click_while_not_color(1078, 855, 11447982, 954, 856, 400)
         wait(3000)
         escape(1500)
         escape(1500)
@@ -127,7 +127,7 @@ end
 
 function Alliance:openSeason2buildings()
     if (kfindcolor(1165, 890, 3741951) == 1) then
-        left(1111, 928)
+        click(1111, 928)
         click_and_wait_not_color(892, 1031, 16765462)
         close_gift_modal()
         self:clickBack()
@@ -138,14 +138,81 @@ function Alliance:clickHealTroops()
     if (kfindcolor(122, 865, 646802) == 1) then
         log('Healing troops')
         click_and_wait_color(127, 864, 10257016, 1057, 237)
-        left(1033, 874)
+        click(1033, 874)
     end
 
     if (kfindcolor(153, 871, '(6867952, 7849964)') == 1) then
         log('Return troops from hospital')
-        left(119, 855)
+        click(119, 855)
     end
 end
+
+-- lua Base.lua
+--lua
+Base = {}
+
+function Base:openBase()
+    Map:openBase()
+end
+
+function Base:clickHireSurvival()
+    if (kfindcolor(843, 801, 16765462) == 1) then
+        log('Hire new survival')
+        click(843, 801, 1500)
+        return self:clickHireSurvival()
+    end
+    return 0
+end
+
+function Base:getSurvival()
+    return find_color(867, 471, 955, 566, 2039583)
+end
+
+function Base:clickSurvival()
+    local x, y = Base:getSurvival()
+    if (x > 0) then
+        log('Find survival with gift or new, clicking')
+        click(x, y, 500)
+        click(x, y, 500)
+        Base:clickHireSurvival()
+        return Base:clickSurvival()
+    end
+    return 0
+end
+
+function Base:clickSurvivalButton()
+    if (Map:isBase() == 1) then
+        local x, y = find_colors(11, 506, 83, 913, { { 22, 553, 16777207 }, { 59, 549, 16777208 }, { 32, 537, 16776699 } })
+        if (x > 0) then
+            click(x, y, 200)
+            wait(200)
+        end
+    end
+end
+
+function Base:greetingSurvivals()
+    Base:clickSurvivalButton()
+    Base:clickSurvival()
+end
+
+function Base:getVipPresents()
+    if (Map:isBase() == 1) then
+        if click_if_red(42, 158, 64, 130) == 1 then
+            wait_color(885, 34, modal_header_color)
+            if (click_if_red(1127, 207, 1152, 183) == 1) then
+                log('Get vip points')
+                wait(2000)
+                escape(2000)
+            end
+            if (click_if_green(1143, 710) == 1) then
+                log('Get vip gifts')
+                close_gift_modal()
+            end
+            escape(2000)
+        end
+    end
+end
+
 
 -- lua Game.lua
 Game = {}
@@ -224,7 +291,7 @@ end
 function Game:getRallyPresents()
     if kfindcolor(256, 211, 3741951) == 1 then
         click_and_wait_color(256, 211, 16765462, 934, 821)
-        left(934, 821, 500)
+        click(934, 821, 500)
         log('Get rally presents')
         return 1
     end
@@ -239,7 +306,7 @@ function Game:readAllMail()
             local x, y = find_red_mark(1148, 98, 1190, 917)
             if (x ~= 0) then
                 click_and_wait_color(x, y, 16765462, 1075, 1031)
-                left(1075, 1031, 800)
+                click(1075, 1031, 800)
                 close_gift_modal()
                 wait(3000)
                 escape(500)
@@ -253,21 +320,21 @@ function Game:collectDailyPresents()
     if (is_red(61, 924) == 1) then
         click_and_wait_color(36, 961, 6179651, 863, 30)
         if (kfindcolor(1087, 433, 4187738) == 1) then
-            left(1087, 433, 500)
+            click(1087, 433, 500)
         end
-        left(743, 252, 1000)
+        click(743, 252, 1000)
         escape(500)
 
-        left(847, 257, 1000)
+        click(847, 257, 1000)
         escape(500)
 
-        left(948, 254, 1000)
+        click(948, 254, 1000)
         escape(500)
 
-        left(1044, 255, 1000)
+        click(1044, 255, 1000)
         escape(500)
 
-        left(1145, 253, 1000)
+        click(1145, 253, 1000)
         Map:normalize()
         return 1
     end
@@ -275,9 +342,9 @@ function Game:collectDailyPresents()
 end
 
 function Game:openCard()
-    left(740, 884, 3000)
-    left(905, 470, 3000)
-    left(905, 470, 3000)
+    click(740, 884, 3000)
+    click(905, 470, 3000)
+    click(905, 470, 3000)
     escape(2000)
 end
 
@@ -292,7 +359,7 @@ function Game:checkFreeTavernHero()
         msg(1)
         --Game:openCard()
     end
-    left(1057, 1016, 200)
+    click(1057, 1016, 200)
     if (kfindcolor(731, 886, 5233404) == 1) then
         log('Open survival')
         msg(2)
@@ -301,10 +368,9 @@ function Game:checkFreeTavernHero()
 end
 
 function Game:searchResourceButtonAndClick()
-    x, y = find_color(1060, 510, 1095, 622, 16765462)
-    log(x, y)
+    local x, y = find_color(1060, 510, 1095, 622, 16765462)
     if (x > 0) then
-        left(x, y, 1500)
+        click(x, y, 1500)
     end
 end
 
@@ -344,9 +410,9 @@ function Hero:openAttackMenu()
     require("lib/color")
     local path = [["img/attack_button.bmp"]]
 
-    x, y = Window:modifyCord(716, 620)
-    x2, y2 = Window:modifyCord(1093, 856)
-    attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
+    local x, y = Window:modifyCord(716, 620)
+    local x2, y2 = Window:modifyCord(1093, 856)
+    local attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
     log("Attack button img", attackButton)
     if (attackButton) then
         click_and_wait_color(attackButton[1][1], attackButton[1][2], 16756752, 958, 856, 1)
@@ -365,7 +431,7 @@ function Hero:select()
 end
 
 function Hero:clickAttack()
-    left(955, 826)
+    click(955, 826)
     log('Click attack')
 end
 
@@ -399,7 +465,8 @@ end
 Map = {}
 
 function Map:isBase()
-    return kfindcolor(42, 317, 16766290)
+    --science button is exists
+    return kfindcolor(45, 313, 16756763)
 end
 
 function Map:isWorld()
@@ -440,7 +507,7 @@ end
 
 function Map:clickBaseButton()
     if (Map:state() ~= 0) then
-        left(1723, 1044, 500)
+        click(1723, 1044, 500)
         return 1
     end
     return 0
@@ -456,6 +523,7 @@ function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
         self:clickBaseButton()
+        wait(10000)
     end
 end
 
@@ -477,7 +545,7 @@ function Map:normalize()
         return -3
     end
     if (Map:isCrossServer() == 1) then
-        left(416, 137, 5000)
+        click(416, 137, 5000)
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         log('Try normalize map, send escape button')
@@ -547,13 +615,13 @@ end
 
 function Ministry:clickDismiss()
     if kfindcolor(817, 929, 6513405) == 1 then
-        left(817, 929, 300)
+        click(817, 929, 300)
     end
 end
 
 function Ministry:clickConfirmDismiss()
     if kfindcolor(809, 599, 16765462) == 1 then
-        left(809, 599, 300)
+        click(809, 599, 300)
     end
 end
 
@@ -566,7 +634,7 @@ end
 
 function Ministry:dismiss(x, y)
     if (kfindcolor(1098, 115, 10257017) ~= 1) then
-        left(x, y, 300)
+        click(x, y, 300)
     end
 
     local empty_list = kfindcolor(963, 529, 16054013)
@@ -575,7 +643,7 @@ function Ministry:dismiss(x, y)
     if (empty_list == 1 and has_list_request == 0) then
         Ministry:clickDismiss()
         Ministry:clickConfirmDismiss()
-        left(1152, 113, 300)
+        click(1152, 113, 300)
     end
 end
 
@@ -592,12 +660,12 @@ function Ministry:openMinistryIfRequest()
 end
 
 function Ministry:hasMinisterRequest(minister)
-    x, y = Ministry:getMinisterCords(minister)
+    local x, y = Ministry:getMinisterCords(minister)
     return kfindcolor(x, y, 2502143, 25)
 end
 
 function Ministry:clickMinister(minister)
-    x, y = Ministry:getMinisterCords(minister)
+    local x, y = Ministry:getMinisterCords(minister)
     click_and_wait_color(x, y, 10257017, 628, 122)
 end
 
@@ -629,7 +697,7 @@ function Ministry:closemin()
 end
 
 function Ministry:clickApproveButton()
-    left(1028, 256, 200)
+    click(1028, 256, 200)
 end
 
 function Ministry:requestListHasMark()
@@ -693,7 +761,7 @@ function Ministry:pullList(try)
         end
         kleft_up(x, y + 600)
         wait(100)
-        left(x, y + 600)
+        click(x, y + 600)
         wait(200)
         if (is_last == 0) then
             move(oldX, oldY)
@@ -711,7 +779,7 @@ end
 Profile = {}
 
 function Profile:open()
-    left(47, 44, 500)
+    click(47, 44, 500)
     self:closeLike()
     if (kfindcolor(1096, 313, 11897418) == 1) then
         wait_color(1093, 308, 11897160)
@@ -912,8 +980,8 @@ Window = {}
 
 function Window:resizeCanonical()
     local handle = self:attachHandle()
-    width, height = self:getCanonicalSize()
-    x, y = windowpos(handle)
+    local width, height = self:getCanonicalSize()
+    local x, y = windowpos(handle)
     windowpos(x, y, width, height, handle)
 end
 
@@ -924,7 +992,7 @@ end
 function Window:repos()
     local handle = self:attachHandle()
     if (handle ~= 0) then
-        x, y, width, height = windowpos(handle)
+        local x, y, width, height = windowpos(handle)
         x = config.win_pos_x
         y = config.win_pos_y
         windowpos(x, y, width, height, handle)
@@ -955,8 +1023,8 @@ end
 
 function Window:modifyCord (xReference, yReference)
     local handle = self:getGameHandle()
-    WidthCurrent, HeightCurrent = self:getCanonicalSize()
-    x, y, WidthReference, HeightReference = windowpos(handle)
+    local WidthCurrent, HeightCurrent = self:getCanonicalSize()
+    local x, y, WidthReference, HeightReference = windowpos(handle)
     local xCurrent = (xReference * WidthReference) / WidthCurrent
     local yCurrent = (yReference * HeightReference) / HeightCurrent
     return math.ceil(xCurrent), math.ceil(yCurrent)
@@ -964,8 +1032,8 @@ end
 
 function Window:canonizeCord (xReference, yReference)
     local handle = self:getGameHandle()
-    WidthReference, HeightReference = self:getCanonicalSize()
-    x, y, WidthCurrent, HeightCurrent = windowpos(handle)
+    local WidthReference, HeightReference = self:getCanonicalSize()
+    local x, y, WidthCurrent, HeightCurrent = windowpos(handle)
     local xCurrent = (xReference * WidthReference) / WidthCurrent
     local yCurrent = (yReference * HeightReference) / HeightCurrent
     return math.ceil(xCurrent), math.ceil(yCurrent)

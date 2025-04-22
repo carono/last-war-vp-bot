@@ -4,6 +4,5 @@ config.txt
 node_modules
 *.tmp
 *tmp.*
-develop*.ini
+*.ini
 *.env
-uopilot.ini

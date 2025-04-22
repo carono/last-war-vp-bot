@@ -1,4 +1,9 @@
 red_color = '(3741951, 3740927, 3740911, 4869631, 240, 214, 227, 237, 2171052)'
+green_color = '(4187738, 6540855, 6148674, 6344247)'
+inactive_tab_color = '(5390650)'
+modal_header_color = '(6179651)'
+blue_color = '(16765462, 16231954-16758336)'
+active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -73,6 +78,37 @@ function find_color(startX, startY, endX, endY, color)
     return 0, 0
 end
 
+function find_colors(startX, startY, endX, endY, colors)
+    startX, startY = Window:modifyCord(startX, startY)
+    endX, endY = Window:modifyCord(endX, endY)
+
+    local firstTargetColor = table.remove(colors, 1)
+    local res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, -1, 5)
+
+    if (res ~= nil) then
+        for _, findFirstColor in pairs(arr) do
+            local findFirstColorX, findFirstColorY = Window:canonizeCord(findFirstColor[1], findFirstColor[2])
+            local result = 1
+            for _, nextTargetColor in pairs(colors) do
+                local dX = nextTargetColor[1] - firstTargetColor[1]
+                local dY = nextTargetColor[2] - firstTargetColor[2]
+                local nextColorX = findFirstColorX + dX
+                local nextColorY = findFirstColorY + dY
+                if (findcolor(nextColorX, nextColorY, nextColorX, nextColorY, 1, 1, nextTargetColor[3], '%arr', 2, 1, 5) == nil) then
+                    result = 0
+                    break
+                end
+            end
+            if (result == 1) then
+                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY)
+                return findFirstColorX, findFirstColorY
+            end
+        end
+    end
+
+    return 0, 0
+end
+
 function find_red_mark(startX, startY, endX, endY, color)
     color = color or red_color
     return find_color(startX, startY, endX, endY, color)
@@ -91,7 +127,7 @@ function wait_color(x, y, findcolor, timeout, cd)
             log('Color', findcolor, 'is successful find')
             return 1
         end
-        log('Wait color', findcolor, 'in', x .. ',' .. y, 'current color:', color(x, y), math.ceil(timer - os.clock()) .. 's')
+        log('Wait color', findcolor, 'in', x .. ', ' .. y, 'current color:', color(x, y), math.ceil(timer - os.clock()) .. 's')
     end
     log('Timeout wait color', x, ',', y, findcolor, timer)
     return 0
