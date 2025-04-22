@@ -1,6 +1,6 @@
 --lua
 
-require('dist/init-develop')
+require('dist/init')
 
 :: start ::
 
