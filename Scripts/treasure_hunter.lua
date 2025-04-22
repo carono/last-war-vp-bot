@@ -27,5 +27,5 @@ if (Radar:hasTreasureExcavatorNotification() == 1) then
         click(1045, 970, 1000)
     end
 end
-stop_script()
+
 goto start
