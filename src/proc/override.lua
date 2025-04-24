@@ -99,6 +99,10 @@ function click_green_button(x, y, colorX, colorY, timeout)
     return click_if_color(x, y, green_color, colorX, colorY, timeout)
 end
 
+function click_blue_button(x, y, colorX, colorY, timeout)
+    return click_if_color(x, y, blue_color, colorX, colorY, timeout)
+end
+
 function click_if_color(x, y, color, colorX, colorY, timeout, wait_color_timeout)
     if (Window:getGameHandle() == 0) then
         return 0;

@@ -19,7 +19,6 @@ function Hero:openAttackMenu()
     local x, y = Window:modifyCord(716, 620)
     local x2, y2 = Window:modifyCord(1093, 856)
     local attackButton = findimage(x, y, x2, y2, { path }, 2, 80, 1, 10)
-    log("Attack button img", attackButton)
     if (attackButton) then
         click_and_wait_color(attackButton[1][1], attackButton[1][2], 16756752, 958, 856, 1)
     end
@@ -42,27 +41,36 @@ function Hero:clickAttack()
 end
 
 function Hero:attackIfCan()
+    local startX = 641
+    local startY = 970
+    local endX = 666
+    local endY = 998
+
     if (Hero:attackMenuIsOpen()) then
-        log('Menu is opened, try attack...')
-        if (kfindcolor(650, 974, 16579836, 1) == 1 and kfindcolor(659, 982, 15592425) == 1) then
+        log('Menu is opened, try attack..1.')
+        if (is_red(662, 985) and is_white(650, 981)) then
             --Hero already attacking
             log('In process..')
         end
-        if (kfindcolor(658, 983, 14069823) == 1) then
+        if (is_blue(649, 980) == 1) then
             --Hero is sleep
+            log('Attack from sleep')
             Hero:clickAttack()
         end
-        if (kfindcolor(658, 973, 5197303, 11) == 1 and kfindcolor(650, 977, 16579836, 1) == 1) then
-            --Hero returning
-            Hero:clickAttack()
-        end
-        if (kfindcolor(658, 983, 14069823) == 1) then
-            --Hero harvesting
-            Hero:clickAttack()
-        end
-        if (kfindcolor(649, 977, 6475577) == 1) then
-            --Hero on tile
-            Hero:clickAttack()
-        end
+        --if (find_colors()) then
+        --    --Hero return
+        --    log('Attack from running')
+        --    Hero:clickAttack()
+        --end
+        --if (kfindcolor(658, 983, 14069823) == 1) then
+        --    --Hero harvesting
+        --    log('Attack from harvesting')
+        --    Hero:clickAttack()
+        --end
+        --if (kfindcolor(649, 977, 6475577) == 1) then
+        --    --Hero on tile
+        --    log('Attack from tile')
+        --    Hero:clickAttack()
+        --end
     end
 end

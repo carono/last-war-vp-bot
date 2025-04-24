@@ -56,19 +56,26 @@ function Game:resetUserActivity()
     Storage:set('lastMousePosY', y)
 end
 
-function Game:waitIfUserIsActive()
+function Game:userIsActive()
     local x, y = mouse_pos()
     local oldX = Storage:get('lastMousePosX')
     local oldY = Storage:get('lastMousePosY')
     if (oldY ~= y or oldX ~= x) then
-        Storage:set('lastMousePosX', x)
-        Storage:set('lastMousePosY', y)
-        local timeout = 30000
-        log('Waiting ' .. (timeout / 1000) .. 's, while user working')
-        wait(30000)
-        return Game:waitIfUserIsActive()
+        return 1
     end
     return 0
+end
+
+function Game:waitIfUserIsActive()
+    if (self:userIsActive() == 1) then
+        Storage:set('lastMousePosX', x)
+        Storage:set('lastMousePosY', y)
+        local timeout = Storage:get('timeout_if_user_active', 30)
+        log('Waiting ' .. timeout .. 's, while user working')
+        wait(timeout * 1000)
+        return Game:waitIfUserIsActive()
+    end
+    return 1
 end
 
 function Game:getRallyPresents()
@@ -154,22 +161,29 @@ function Game:searchResourceButtonAndClick()
     local x, y = find_color(1060, 510, 1095, 622, 16765462)
     if (x > 0) then
         click(x, y, 1500)
+        return 1
     end
+    return 0
+end
+
+function Game:collectResources(x, y)
+    if (Game:userIsActive() == 0 and Map:state() ~= 0) then
+        click_and_wait_color(x, y, 10257016, 1049, 174)
+        if (Game:searchResourceButtonAndClick() == 1) then
+            escape(1500, 'Close resource modal')
+        end
+        return 1
+    end
+    return 0
 end
 
 function Game:collectSimpleResources()
     log('Collect food')
-    click_and_wait_color(117, 21, 10257016, 1049, 174)
-    Game:searchResourceButtonAndClick()
-    escape(1500)
+    Game:collectResources(117, 21)
 
     log('Collect steel')
-    click_and_wait_color(247, 27, 10257016, 1049, 174)
-    Game:searchResourceButtonAndClick()
-    escape(1500)
+    Game:collectResources(247, 27)
 
     log('Collect gold')
-    click_and_wait_color(376, 23, 10257016, 1049, 174)
-    Game:searchResourceButtonAndClick()
-    escape(1500)
+    Game:collectResources(376, 23)
 end

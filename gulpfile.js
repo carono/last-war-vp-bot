@@ -7,14 +7,16 @@ const fs = require('fs');
 const path = require('path');
 const {execSync} = require('child_process');
 
+// Пути
 const paths = {
     proc: ['./src/proc/*.lua'],
     classes: ['./src/classes/*.lua'],
 };
 
+// Задача для обработки файлов proc — создаёт functions.lua с комментариями
 function procTask(options = {}) {
     return (cb) => {
-        const {inputPaths = {}, outputDir = './lua'} = options;
+        const {inputPaths = {}, outputDir = './dist'} = options;
 
         const tasks = Object.entries(inputPaths).map(([key, paths]) => {
             return new Promise((resolve) => {
@@ -36,23 +38,46 @@ function procTask(options = {}) {
     };
 }
 
-gulp.task('proc', procTask());
+// Задача генерации Classes.lua через require
+function generateClassesTask() {
+    const classesDir = './src/classes';
+    const outputFile = './dist/Classes.lua';
 
+    return gulp.src(path.join(classesDir, '*.lua'))
+        .pipe(through.obj(function (file, _, cb) {
+            this.files = this.files || [];
+            this.files.push(file);
+            cb();
+        }, function (cb) {
+            const lines = this.files.map(file => {
+                const filename = path.basename(file.path, '.lua');
+                return `require("src.classes.${filename}")`;
+            });
+
+            const outputContent = '--lua\n' + lines.join('\n') + '\n';
+            fs.mkdirSync(path.dirname(outputFile), {recursive: true});
+            fs.writeFileSync(outputFile, outputContent);
+
+            cb();
+        }));
+}
+
+// Отдельные gulp-задачи
+gulp.task('proc', procTask({
+    inputPaths: {controllers: paths.proc},
+    file: 'functions.lua',
+    outputDir: './dist'
+}));
+
+gulp.task('classes', generateClassesTask);
+
+// Наблюдение за изменениями
 gulp.task('watch', function () {
-    gulp.watch(paths.proc, procTask({
-        inputPaths: {controllers: paths.proc},
-        file: 'functions.lua',
-        outputDir: './dist'
-    }));
-
-    gulp.watch(paths.classes, procTask({
-        inputPaths: {controllers: paths.classes},
-        file: 'classes.lua',
-        outputDir: './dist'
-    }));
+    gulp.watch(paths.proc, gulp.series('proc'));
+    gulp.watch(paths.classes, gulp.series('classes'));
 });
 
-
+// Проверка наличия git
 gulp.task('git-check', function (done) {
     try {
         execSync('git --version', {stdio: 'ignore'});
@@ -68,4 +93,5 @@ gulp.task('git-check', function (done) {
     }
 });
 
-gulp.task('default', gulp.series('proc'));
+// Задача по умолчанию
+gulp.task('default', gulp.series('proc', 'classes'));

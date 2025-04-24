@@ -105,19 +105,34 @@ function Alliance:checkTech(force)
         return 0
     end
     click_and_wait_color(1110, 641, 7756114, 660, 202)
-    --local x, y = find_red_mark(612, 212, 1161, 757)
     local x, y = find_colors(612, 212, 1161, 757, { { 802, 582, red_color }, { 816, 591, 16777215 } })
     if (x > 0) then
         log('Successful find recommended tech')
         wait(1000)
+
         click_and_wait_not_color(x + 50, y + 50, 3940594)
         wait(1000)
-        log('Clicking tech')
 
-        click_while_not_color(1078, 855, 11447982, 954, 856, 400)
+        if (is_green(1072, 851) == 1) then
+            log('Clicking tech')
+            click_while_not_color(1078, 855, 11447982, 954, 856, 400)
+        else
+            log('Tech already helped')
+        end
+
         wait(3000)
-        escape(1500)
-        escape(1500)
+
+        log(2)
+        if (kfindcolor(645, 174, modal_header_color) == 1) then
+            escape(1500, 'Close recommended tech modal')
+        end
+        log(3)
+        if (kfindcolor(1105, 133, modal_header_color) == 1) then
+            escape(1500, 'Close tech modal')
+        end
+        if (kfindcolor(1105, 20, modal_header_color) == 1) then
+            escape(1500, 'Close alliance tab')
+        end
     else
         log('Recommended tech not found')
         escape(500)

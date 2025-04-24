@@ -1,8 +1,9 @@
 red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-1521647,1066991, 13526, 10902, 3741951)'
 green_color = '(4187738, 6540855, 6148674, 6344247)'
 inactive_tab_color = '(5390650)'
-modal_header_color = '(6179651)'
+modal_header_color = '(6179651, 10257016-10257017)'
 blue_color = '(16765462, 16231954-16758336)'
+white_color = '(16777215)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 
 function kfindcolor (x, y, color, margin, deviation)
@@ -55,8 +56,32 @@ function stored_colors_not_changed(arr)
     return 0
 end
 
+function is_white(x, y, color)
+    color = color or white_color
+    if kfindcolor(x, y, color) == 1 then
+        return 1
+    end
+    return 0
+end
+
 function is_red(x, y, color)
     color = color or red_color
+    if kfindcolor(x, y, color) == 1 then
+        return 1
+    end
+    return 0
+end
+
+function is_blue(x, y, color)
+    color = color or blue_color
+    if kfindcolor(x, y, color) == 1 then
+        return 1
+    end
+    return 0
+end
+
+function is_green(x, y, color)
+    color = color or green_color
     if kfindcolor(x, y, color) == 1 then
         return 1
     end

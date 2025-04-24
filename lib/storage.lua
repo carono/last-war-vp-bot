@@ -52,6 +52,7 @@ function Storage:set(var, value, path)
         data[var] = value
     end
     storageLib.save(path, data)
+    return value
 end
 
 local persistence = {

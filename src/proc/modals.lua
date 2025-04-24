@@ -17,4 +17,8 @@ function close_connection_error()
         log('Updates is finished, click OK and wait 30s')
         click(910, 597, 30000)
     end
+
+    if (is_blue(1044, 664) == 1) then
+        click(1044, 664)
+    end
 end
