@@ -2,6 +2,9 @@
 Base = {}
 
 function Base:openBase()
+    if (Map:isBase() == 1) then
+        Map:openMap()
+    end
     Map:openBase()
 end
 
@@ -30,23 +33,48 @@ function Base:clickSurvival()
     return 0
 end
 
+function Base:findRadarButton()
+    if (Map:isBase() == 1) then
+        return find_colors(11, 506, 83, 913, { { 26, 805, 14067020 }, { 37, 770, 11371842 } })
+    end
+    return 0, 0
+end
+
+function Base:findMissionButton()
+    if (Map:isBase() == 1) then
+        return find_colors(11, 506, 83, 913, { { 48, 701, 14261531 }, { 51, 727, 14064152 } })
+    end
+    return 0, 0
+end
+
+function Base:findSurvivalButton()
+    if (Map:isBase() == 1) then
+        return find_colors(11, 506, 83, 913, { { 33, 563, 14262085 }, { 61, 545, 10319159 } })
+    end
+    return 0, 0
+end
+
 function Base:clickSurvivalButton()
     if (Map:isBase() == 1) then
-        local x, y = find_colors(11, 506, 83, 913, { { 22, 553, 16777207 }, { 59, 549, 16777208 }, { 32, 537, 16776699 } })
+        local x, y = Base:findSurvivalButton()
         if (x > 0) then
-            click(x, y, 200)
-            wait(200)
+            click(x, y, 400)
+            return 1
         end
     end
+    return 0
 end
 
 function Base:greetingSurvivals()
-    Base:clickSurvivalButton()
-    Base:clickSurvival()
+    if (Base:clickSurvivalButton() == 1) then
+        wait(2000)
+        Base:clickSurvival()
+    end
 end
 
 function Base:getVipPresents()
     if (Map:isBase() == 1) then
+        log('Check vip if marked')
         if click_if_red(42, 158, 64, 130) == 1 then
             wait_color(885, 34, modal_header_color)
             if (click_if_red(1127, 207, 1152, 183) == 1) then
@@ -78,8 +106,6 @@ end
 
 function Base:getShopGifts(force)
     force = force or 0
-    log(force)
-    log(Base:isShopModal())
     if (force == 1 and Base:isShopModal() == 0) then
         Base:openShop()
     end
@@ -115,4 +141,28 @@ function Base:getShopGifts(force)
         escape(1000, 'Close shop modal')
     end
     return 0
+end
+
+function Base:findOreMine()
+    return find_color(139, 129, 1666, 986, 12581626)
+end
+
+function Base:collectAdvancedResourcesByOneClick()
+    local x, y = Base:findOreMine();
+    if (x > 0 and kfindcolor(x, y - 39, '(15848601-16043111)') == 1) then
+        log('Collect resources')
+        click(x, y - 45, 2000)
+        return 1
+    end
+    return 0
+end
+
+function Base:collectMilitaryTrack()
+    log('Check military track')
+    if (kfindcolor(440, 842, '(13138464-15704617)') == 1) then
+        if (click_and_wait_color(440, 847, green_color, 964, 739) == 1) then
+            click_green_button(964, 739)
+            close_gift_modal()
+        end
+    end
 end

@@ -63,6 +63,14 @@ function Map:openBase()
     end
 end
 
+function Map:openMap()
+    Map:normalize()
+    if (Map:state() == 1) then
+        self:clickBaseButton()
+        wait(10000)
+    end
+end
+
 function Map:isCrossServer()
     if (kfindcolor(407, 133, 13016716) == 1) then
         return 1

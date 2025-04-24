@@ -32,27 +32,27 @@ if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0) then
     Rally:joinIfExist()
 end
 
-if (cooldown('collectSimpleResources', 600) == 1 and Game:userIsActive() == 0) then
-    Game:collectSimpleResources()
-end
-
 if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
     Promo:collectGifts()
 end
 
-if (cooldown('checkSurvival', 600) == 1 and Game:userIsActive() == 0) then
+if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
     Map:openBase()
-    Base:greetingSurvivals()
     Base:getVipPresents()
     Base:getShopGifts(1)
+    Base:collectMilitaryTrack()
+    Base:collectAdvancedResourcesByOneClick()
+    Base:greetingSurvivals()
 end
 
-if (Game:userIsActive() == 0) then
-    Alliance:applyHelp()
-    Alliance:clickHealTroops()
-    Game:getRallyPresents()
-    Game:collectDailyPresents()
+if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0) then
+    Game:readAllMail(1)
 end
+
+Alliance:applyHelp()
+Alliance:clickHealTroops()
+Game:getRallyPresents()
+Game:collectDailyPresents()
 
 if (Game:isLogout() == 1) then
     Game:clickLogout()
@@ -61,5 +61,6 @@ end
 close_connection_error()
 Game:waitIfUserIsActive()
 
-wait(30000)
+log('Waiting farming iteration ' .. Storage:get('farming_timeout', 30) .. 's')
+wait(Storage:get('farming_timeout', 30) * 1000)
 goto start

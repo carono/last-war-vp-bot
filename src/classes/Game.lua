@@ -88,17 +88,18 @@ function Game:getRallyPresents()
     return 0
 end
 
-function Game:readAllMail()
-    if (is_red(1760, 855) == 1) then
+function Game:readAllMail(force)
+    force = force or 0
+    if (is_red(1760, 855) == 1 or force == 1) then
         log('Have email, read it')
-        click_and_wait_color(1731, 874, 6179651, 1040, 35)
+        click_and_wait_color(1731, 874, modal_header_color, 1008, 22)
         repeat
             local x, y = find_red_mark(1148, 98, 1190, 917)
-            if (x ~= 0) then
-                click_and_wait_color(x, y, 16765462, 1075, 1031)
+            if (x ~= 0 and click_and_wait_color(x - 200, y + 50, blue_color, 1075, 1031) == 1) then
                 click(1075, 1031, 800)
-                close_gift_modal()
-                wait(3000)
+                if (close_gift_modal() == 1) then
+                    wait(1000)
+                end
                 escape(500)
             end
         until x == 0

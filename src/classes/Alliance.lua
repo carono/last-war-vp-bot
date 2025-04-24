@@ -82,12 +82,12 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
-    if (kfindcolor(1646, 791, 3103061) == 1) then
+    if (kfindcolor(1646, 791, '(3103061,6177331,1455406,13038591)') == 1) then
         log('Apply alliance help request')
         click(1648, 763, 300)
         return 1
     end
-    if (kfindcolor(120, 872, 13038591) == 1) then
+    if (kfindcolor(120, 872, '(3103061,6177331,1455406,13038591)') == 1) then
         log('Send help request alliance for healing troops')
         click(120, 872, 300)
         return 1
@@ -122,11 +122,9 @@ function Alliance:checkTech(force)
 
         wait(3000)
 
-        log(2)
         if (kfindcolor(645, 174, modal_header_color) == 1) then
             escape(1500, 'Close recommended tech modal')
         end
-        log(3)
         if (kfindcolor(1105, 133, modal_header_color) == 1) then
             escape(1500, 'Close tech modal')
         end

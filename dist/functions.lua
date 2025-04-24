@@ -175,11 +175,6 @@ function wait_not_color(x, y, color, timeout)
 end
 
 
--- lua daily.lua
-function service_alliance()
-
-end
-
 -- lua modals.lua
 function close_gift_modal()
     log('Waiting modal with gifts')
