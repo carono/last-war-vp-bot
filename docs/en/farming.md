@@ -7,15 +7,9 @@ The script is designed for a farm account, which will solve all the routine work
 - Open the **scripts\farming.lua** script in the application (Script > Open)
 - Press the "play" button
 
-### Work in the Ministry
-- ✅ VP Queue Service
-- ✅ Donation to Alliance Technologies
-- ❌ Dismissal from office
-- ❌ Time control in the position
-
 ### Alliance support
 - ✅ Collecting alliance gifts, regular and premium
-- ✅ Help for Alaska
+- ✅ Help to the alliance
 - ✅ Unit Treatment
 - ✅ Collecting units from the hospital
 - ✅ Request for help to treat units
@@ -26,7 +20,7 @@ The script is designed for a farm account, which will solve all the routine work
 - ❌ Collecting a treasure gift
 
 ### Radar assignments
-- ❌ Collecting completed tasks
+- ✅ Collecting completed tasks
 - ❌ Completing missions
 - ❌ Accumulation of tasks for VS
 
@@ -49,22 +43,32 @@ The script is designed for a farm account, which will solve all the routine work
 - ❌ Construction of new buildings
 - ❌ Leveling up survivors
 - ❌ Jewelry upgrade
-- ✅ Collecting simple resources (iron, food, gold)
-- ❌ Collecting additional resources (drone components, seasonal, ore, etc.)
-- ✅ Accepting gifts from survivors
+- Accepting gifts from survivors
 - ✅ Accepting new survivors
-- ❌ Collecting resources from the truck
-- Installation of the exchange of pieces of cards
 - ❌ Collecting a treasure trove of secret missions from map pieces
 - ✅ Opening of daily VIP gift and points
-- ❌ Sending trucks
+- ✅ Collecting gifts in the mail
+
+### Resources
+- ✅ Collecting resources from the truck
+- ✅ Collecting simple resources (iron, food, gold)
+- ✅ Collecting additional resources (drone components, seasonal, ore, etc.)
+
+### Secret missions
 - ❌ Installation of secret missions
 - ❌ Robbery of secret missions
-- ❌ Truck Robbery
+- Collecting secret alliance missions
+- ✅ Collect your secret missions
+- Installation of the exchange of pieces of cards
 
-### Shop
-- ❌ Collecting daily diamond bonuses (daily discount, weekly card)
-- ❌ Collecting monthly card rewards
+### Trucks
+- ❌ Collect rewards from trucks
+- ❌ Sending trucks
+- ❌ Truck robbery
+
+### Store
+- ✅ Collecting daily diamond bonuses (daily discount, weekly card)
+- ✅ Collecting monthly card rewards
 
 ### Promotions
 - ✅ Collecting Battle of Arsenals Awards
