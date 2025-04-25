@@ -204,12 +204,10 @@ function Game:collectSimpleResources()
 end
 
 function Game:collectSecretMissions()
-    if (Base:clickMissionButton() == 1) then
-        if (click_green_button(1146, 512) == 1) then
-            wait(2000)
-            escape(2000, 'Close mission gifts modal')
-            return 1
-        end
+    if (click_green_button(1146, 512) == 1) then
+        wait(2000)
+        escape(2000, 'Close mission gifts modal')
+        return 1
     end
     return 0
 end

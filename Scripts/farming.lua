@@ -48,8 +48,11 @@ end
 
 if (cooldown('secretMissions', 600)) then
     log('Start checking secret missions')
-    Game:collectSecretMissions()
-    Game:collectAllianceSecretMissions()
+    if (Base:clickMissionButton() == 1) then
+        Game:collectSecretMissions()
+        Game:collectAllianceSecretMissions()
+        Map:normalize()
+    end
 end
 
 if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
