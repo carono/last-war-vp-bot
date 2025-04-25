@@ -34,12 +34,14 @@ function Game:start()
         Game:clickLogout()
         return Game:start()
     end
-
-    Window:repos()
 end
 
 function Game:isLogout()
-    return is_red(893, 638)
+    if (is_red(893, 638) == 1) then
+        log('Logout detected')
+        return 1
+    end
+    return 0
 end
 
 function Game:hasUpdateFinishedModal()
@@ -79,6 +81,7 @@ end
 
 function Game:waitIfUserIsActive()
     if (self:userIsActive() == 1) then
+        local x, y = mouse_pos()
         Storage:set('lastMousePosX', x)
         Storage:set('lastMousePosY', y)
         local timeout = Storage:get('timeout_if_user_active', 30)

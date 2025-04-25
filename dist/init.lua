@@ -7,9 +7,11 @@ else
     require('dist/functions')
     require('lib/storage')
     require('dist/classes')
-    Window:attachHandle()
-    Window:repos()
-    Window:resizeCanonical()
+
+    if (Window:attachHandle() ~= 0) then
+        Window:repos()
+        Window:resizeCanonical()
+    end
 
     function log()
 

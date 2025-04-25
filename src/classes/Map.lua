@@ -58,7 +58,7 @@ end
 function Map:openBase()
     Map:normalize()
     if (Map:state() == 2) then
-        log('Waiting opening base at 10s')
+        log('Waiting opening base at 5s')
         self:clickBaseButton()
         wait(5000)
     end
@@ -68,7 +68,7 @@ function Map:openMap()
     Map:normalize()
     if (Map:state() == 1) then
         self:clickBaseButton()
-        log('Waiting opening map at 10s')
+        log('Waiting opening map at 5s')
         wait(5000)
     end
 end

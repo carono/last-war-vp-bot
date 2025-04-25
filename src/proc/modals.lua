@@ -19,8 +19,8 @@ function close_connection_error()
         click(910, 597, 30000)
     end
 
-    if (is_blue(1044, 664) == 1) then
-        log('Connection error, click blue button')
-        click(1044, 664)
+    if (is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1) then
+        log('Connection error, click confirm and wait 30s')
+        click(1061, 597, 30000)
     end
 end

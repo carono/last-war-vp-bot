@@ -1,8 +1,9 @@
 --lua
 Base = {}
 
-function Base:openBase()
-    if (Map:isBase() == 1) then
+function Base:openBase(force)
+    force = force or 0
+    if (Map:isBase() == 1 or force == 0) then
         Map:openMap()
     end
     Map:openBase()

@@ -18,7 +18,9 @@ function Window:repos()
         x = Storage:get('win_pos_x', 0)
         y = Storage:get('win_pos_y', 0)
         windowpos(x, y, width, height, handle)
+        return 1
     end
+    return 0
 end
 
 function Window:detach()

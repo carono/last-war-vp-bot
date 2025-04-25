@@ -3,6 +3,7 @@ green_color = '(4187738, 6540855, 6148674, 6344247)'
 inactive_tab_color = '(5390650)'
 modal_header_color = '(6179651, 10257016-10257017)'
 blue_color = '(16765462, 16231954-16758336)'
+yellow_color = '(2415103-2546431, 571647-639999)'
 white_color = '(16777215)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 stamina_color = '(48383-183295)'
@@ -75,6 +76,14 @@ end
 
 function is_blue(x, y, color)
     color = color or blue_color
+    if kfindcolor(x, y, color) == 1 then
+        return 1
+    end
+    return 0
+end
+
+function is_yellow(x, y, color)
+    color = color or yellow_color
     if kfindcolor(x, y, color) == 1 then
         return 1
     end
