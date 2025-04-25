@@ -215,18 +215,20 @@ function Game:collectSecretMissions()
 end
 
 function Game:collectAllianceSecretMissions()
-    if (Base:clickMissionButton() == 1) then
-        log('Open alliance tab missions')
-        click(1138, 419)
-        if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then
-            log('Try collect alliance mission')
-            click(1154, 537)
-            if (close_help_modal() == 1) then
-                log('Successful collect alliance mission, change tab and retry')
-                click(817, 417)
-                return self:collectAllianceSecretMissions()
-            end
+
+    log('Open alliance tab missions')
+    click(1138, 419)
+    log(kfindcolor(1073, 499, 3642098))
+    log(is_blue(1154, 537))
+    if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then
+        log('Try collect alliance mission')
+        click(1154, 537)
+        if (close_help_modal() == 1) then
+            log('Successful collect alliance mission, change tab and retry')
+            click(767, 424)
+            return self:collectAllianceSecretMissions()
         end
     end
+
     return 0
 end

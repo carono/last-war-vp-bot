@@ -10,12 +10,12 @@ Game:resetUserActivity()
 log('clear')
 
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
+    log('Start the game')
     Game:start()
     Window:repos()
 end
 
 if (Game:isLogout() == 1 and Game:userIsActive() == 0) then
-    log('Account is logout')
     Game:clickLogout()
 end
 
@@ -24,10 +24,12 @@ if (cooldown('MapNormalize') == 1 and Game:userIsActive() == 0) then
 end
 
 if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0) then
+    log('Try join to rally')
     Rally:joinIfExist()
 end
 
 if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
+    log('Start checking tasks on base')
     Base:openBase(1)
     Base:getVipPresents()
     Base:getShopGifts(1)
@@ -37,6 +39,7 @@ if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
 end
 
 if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
+    log('Start checking alliance tasks')
     Alliance:open()
     Alliance:checkTech()
     Alliance:getPresent()
@@ -44,15 +47,18 @@ if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
 end
 
 if (cooldown('secretMissions', 600)) then
+    log('Start checking secret missions')
     Game:collectSecretMissions()
     Game:collectAllianceSecretMissions()
 end
 
 if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
+    log('Start checking gifts')
     Promo:collectGifts()
 end
 
 if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0) then
+    log('Start checking gifts')
     Game:readAllMail(1)
 end
 
