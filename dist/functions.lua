@@ -193,6 +193,13 @@ function close_gift_modal()
     end
 end
 
+function close_help_modal()
+    log('Waiting modal with gifts')
+    if (wait_color(1084, 327, 2669297, 2000) == 1) then
+        escape(1000, 'Close help modal')
+    end
+end
+
 function close_connection_error()
     if kfindcolor(913, 573, 2546431) == 1 then
         log('Connection error, click something 1')
@@ -379,12 +386,15 @@ end
 
 function drag_tabs()
     local x, y = Window:modifyCord(1110, 110)
+    local oldX, oldY = mouse_pos()
     log('Drag tabs...')
     move(x, y)
     kleft_down(x, y)
     move_smooth(x - 470, y)
     wait(300)
+    move_smooth(x - 475, y)
     kleft_up(x - 470, y)
     wait(3000)
     log('Finish drag tabs')
+    move(oldX, oldY)
 end

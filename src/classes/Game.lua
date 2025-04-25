@@ -202,3 +202,31 @@ function Game:collectSimpleResources()
     log('Collect gold')
     Game:collectResources(376, 23)
 end
+
+function Game:collectSecretMissions()
+    if (Base:clickMissionButton() == 1) then
+        if (click_green_button(1146, 512) == 1) then
+            wait(2000)
+            escape(2000, 'Close mission gifts modal')
+            return 1
+        end
+    end
+    return 0
+end
+
+function Game:collectAllianceSecretMissions()
+    if (Base:clickMissionButton() == 1) then
+        log('Open alliance tab missions')
+        click(1138, 419)
+        if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then
+            log('Try collect alliance mission')
+            click(1154, 537)
+            if (close_help_modal() == 1) then
+                log('Successful collect alliance mission, change tab and retry')
+                click(817, 417)
+                return self:collectAllianceSecretMissions()
+            end
+        end
+    end
+    return 0
+end

@@ -43,6 +43,11 @@ if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
     Map:normalize()
 end
 
+if (cooldown('secretMissions', 600)) then
+    Game:collectSecretMissions()
+    Game:collectAllianceSecretMissions()
+end
+
 if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
     Promo:collectGifts()
 end

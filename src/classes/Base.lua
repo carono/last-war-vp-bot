@@ -39,10 +39,7 @@ function Base:findRadarButton()
 end
 
 function Base:findMissionButton()
-    if (Map:isBase() == 1) then
-        return find_colors(11, 506, 83, 913, { { 48, 701, 14261531 }, { 51, 727, 14064152 } })
-    end
-    return 0, 0
+    return find_colors(11, 506, 83, 913, { { 48, 701, 14261531 }, { 51, 727, 14064152 } })
 end
 
 function Base:findSurvivalButton()
@@ -65,9 +62,18 @@ end
 
 function Base:clickRadarButton()
     local x, y = Base:findRadarButton()
-    log(x, y)
     if (x > 0) then
         click_and_wait_color(x, y, stamina_color, 1071, 28)
+        wait(500)
+        return 1
+    end
+    return 0
+end
+
+function Base:clickMissionButton()
+    local x, y = Base:findMissionButton()
+    if (x > 0) then
+        click_and_wait_color(x, y, modal_header_color, 1176, 15)
         wait(500)
         return 1
     end
@@ -146,9 +152,7 @@ function Base:getShopGifts(force)
         drag_tabs()
         return Base:getShopGifts(force)
     end
-    if (Base:isShopModal() == 1) then
-        escape(1000, 'Close shop modal')
-    end
+    Map:normalize()
     return 0
 end
 

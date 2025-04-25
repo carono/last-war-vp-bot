@@ -163,12 +163,15 @@ end
 
 function drag_tabs()
     local x, y = Window:modifyCord(1110, 110)
+    local oldX, oldY = mouse_pos()
     log('Drag tabs...')
     move(x, y)
     kleft_down(x, y)
     move_smooth(x - 470, y)
     wait(300)
+    move_smooth(x - 475, y)
     kleft_up(x - 470, y)
     wait(3000)
     log('Finish drag tabs')
+    move(oldX, oldY)
 end
