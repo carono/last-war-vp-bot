@@ -213,11 +213,8 @@ function Game:collectSecretMissions()
 end
 
 function Game:collectAllianceSecretMissions()
-
     log('Open alliance tab missions')
-    click(1138, 419)
-    log(kfindcolor(1073, 499, 3642098))
-    log(is_blue(1154, 537))
+    click(1138, 419, 400)
     if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then
         log('Try collect alliance mission')
         click(1154, 537)
@@ -227,6 +224,5 @@ function Game:collectAllianceSecretMissions()
             return self:collectAllianceSecretMissions()
         end
     end
-
     return 0
 end
