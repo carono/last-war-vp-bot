@@ -31,10 +31,12 @@ function Game:start()
     wait(startup_timeout)
     if (Game:isLogout() == 1) then
         log('User instance login, waiting')
-        Game:clickLogout()
+        local logout_timeout = Storage:get('logout_timeout', 7 * 60)
+        Game:clickLogout(logout_timeout * 2)
         return Game:start()
     end
 end
+
 
 function Game:isLogout()
     if (is_red(893, 638) == 1) then
@@ -51,14 +53,14 @@ function Game:hasUpdateFinishedModal()
     return 0
 end
 
-function Game:clickLogout()
+function Game:clickLogout(logout_timeout)
+    logout_timeout = Storage:get('logout_timeout', 7 * 60)
     log('Click logout button')
     wait(1000)
     left(893, 638)
     Window:detach();
     log('Try killing a game')
     exec("taskkill /f /im lastwar.exe")
-    local logout_timeout = Storage:get('logout_timeout', 7 * 60)
     log('Waiting logout timeout at ' .. (logout_timeout) .. 's')
     wait(logout_timeout * 1000)
 end

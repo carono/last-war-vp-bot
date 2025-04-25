@@ -2,7 +2,7 @@
 Notify = {}
 
 function Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
-    local query = { chat_id = telegram_chat_id, text = message }
+    local query = { chat_id = telegram_chat_id, text = AnsiToUtf8(message) }
     local url = build_url('https://api.telegram.org/bot' .. telegram_bot_id .. '/sendMessage', query)
     exec('curl --ssl-no-revoke "' .. url .. '"')
 end
