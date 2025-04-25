@@ -1,0 +1,28 @@
+--lua
+Notify = {}
+
+function Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
+    local query = { chat_id = telegram_chat_id, text = message }
+    local url = build_url('https://api.telegram.org/bot' .. telegram_bot_id .. '/sendMessage', query)
+    exec('curl --ssl-no-revoke "' .. url .. '"')
+end
+
+function Notify:sendTelegramMessage(message, telegram_chat_id)
+    telegram_chat_id = telegram_chat_id or Storage:get('telegram_chat_id')
+    local telegram_bot_id = Storage:get('telegram_bot_id')
+    if (telegram_bot_id == nil) then
+        log('Telegram bot token is not defined, please set variable "telegram_bot_id" in ' .. Storage:getConfig())
+        return 0
+    end
+    if (telegram_chat_id == nil) then
+        log('Telegram chat ID is not defined, please set variable "telegram_chat_id" in ' .. Storage:getConfig())
+        return 0
+    end
+
+    Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
+end
+
+function Notify:accountIsLogout()
+    local message = "Account " .. os.getenv('username') .. " is logout"
+    Notify:sendTelegramMessage(message)
+end

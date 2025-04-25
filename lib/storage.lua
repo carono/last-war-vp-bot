@@ -174,7 +174,7 @@ writers = {
 }
 
 function Storage:get(var, default, path)
-    path = path or "config/" .. os.getenv('username') .. ".config.env"
+    path = path or Storage:getConfig()
     if (fileexists(path) == "0") then
         persistence.save(path, {})
     end
@@ -204,8 +204,12 @@ function Storage:get(var, default, path)
     return data[var]
 end
 
+function Storage:getConfig()
+    return "config/" .. os.getenv('username') .. ".config.env"
+end
+
 function Storage:set(var, value, path)
-    path = path or "config/" .. os.getenv('username') .. ".config.env"
+    path = path or Storage:getConfig()
     local data = {}
     if (fileexists(path) == "0") then
         data = {}

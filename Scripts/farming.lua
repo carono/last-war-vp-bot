@@ -16,6 +16,7 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
 end
 
 if (Game:isLogout() == 1 and Game:userIsActive() == 0) then
+    Notify:accountIsLogout()
     Game:clickLogout()
 end
 
