@@ -82,6 +82,9 @@ function Alliance:clickBigGreenButton()
 end
 
 function Alliance:applyHelp()
+    if (Map:state() == 0) then
+        return 0
+    end
     if (kfindcolor(1646, 791, '(3103061,6177331,1455406,13038591)') == 1) then
         log('Apply alliance help request')
         click(1648, 763, 300)

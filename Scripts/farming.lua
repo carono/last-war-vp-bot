@@ -46,7 +46,7 @@ if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
     Map:normalize()
 end
 
-if (cooldown('secretMissions', 600)) then
+if (cooldown('secretMissions', 600) == 1) then
     log('Start checking secret missions')
     if (Base:clickMissionButton() == 1) then
         Game:collectSecretMissions()
