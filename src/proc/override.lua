@@ -23,6 +23,9 @@ function left(x, y, timeout)
 end
 
 function click(x, y, time)
+    if (Game:isLogout() == 1) then
+        return 0
+    end
     left(x, y, time)
 end
 

@@ -128,9 +128,9 @@ function Alliance:checkTech(force)
         if (kfindcolor(1105, 133, modal_header_color) == 1) then
             escape(1500, 'Close tech modal')
         end
-        if (kfindcolor(1105, 20, modal_header_color) == 1) then
-            escape(1500, 'Close alliance tab')
-        end
+        --if (kfindcolor(1105, 20, modal_header_color) == 1) then
+        --    escape(1500, 'Close alliance tab')
+        --end
     else
         log('Recommended tech not found')
         escape(500)

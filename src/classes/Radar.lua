@@ -24,3 +24,24 @@ function Radar:clickEasterEggModal()
     click(935, 706, 100)
     click(935, 706, 100)
 end
+
+function Base:radarIsOpen()
+    return kfindcolor(1071, 28, stamina_color)
+end
+
+function Radar:open()
+    Base:clickRadarButton()
+    return Base:radarIsOpen()
+end
+
+function Radar:collectFinishedTasks()
+    if (self:open() == 1) then
+        local x, y = find_red_mark(630, 176, 1186, 818)
+        if (x > 0) then
+            click(x, y, 1000)
+            close_gift_modal()
+            return self:collectFinishedTasks()
+        end
+    end
+end
+

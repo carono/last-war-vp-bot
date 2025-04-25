@@ -34,10 +34,7 @@ function Base:clickSurvival()
 end
 
 function Base:findRadarButton()
-    if (Map:isBase() == 1) then
-        return find_colors(11, 506, 83, 913, { { 26, 805, 14067020 }, { 37, 770, 11371842 } })
-    end
-    return 0, 0
+    return find_colors(11, 506, 83, 913, { { 26, 805, 14067020 }, { 37, 770, 11371842 } })
 end
 
 function Base:findMissionButton()
@@ -61,6 +58,17 @@ function Base:clickSurvivalButton()
             click(x, y, 400)
             return 1
         end
+    end
+    return 0
+end
+
+function Base:clickRadarButton()
+    local x, y = Base:findRadarButton()
+    log(x, y)
+    if (x > 0) then
+        click_and_wait_color(x, y, stamina_color, 1071, 28)
+        wait(500)
+        return 1
     end
     return 0
 end

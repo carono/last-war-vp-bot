@@ -1,59 +1,8 @@
 --lua
+require("os")
 local write, writeIndent, writers, refCount;
 
 Storage = {}
-
-function Storage:get(var, default, path)
-    path = path or "config/" .. os.getenv('username') .. ".config.env"
-    if (fileexists(path) == "0") then
-        storageLib.save(path, {})
-    end
-    data = storageLib.load(path)
-
-    local T = split(var, '.')
-    if (table.length(T) >= 2) then
-        local section = table.remove(T, 1)
-        var = table.concat(T, '.')
-        if (data[section] == nil) then
-            data[section] = {}
-        end
-
-        if (data[section][var] == nil) then
-            data[section][var] = default;
-            storageLib.save(path, data)
-            return default
-        end
-        return data[section][var]
-    end
-
-    if (data[var] == nil) then
-        data[var] = default;
-        storageLib.save(path, data)
-        return default
-    end
-    return data[var]
-end
-
-function Storage:set(var, value, path)
-    path = path or "config/" .. os.getenv('username') .. ".config.env"
-    if (fileexists(path) == "0") then
-        data = {}
-    else
-        data = storageLib.load(path)
-    end
-    local T = split(var, '.')
-    if (table.length(T) >= 2) then
-        local section = table.remove(T, 1)
-        if (data[section] == nil) then
-            data[section] = {}
-        end
-        data[section][table.concat(T, '.')] = value
-    else
-        data[var] = value
-    end
-    storageLib.save(path, data)
-    return value
-end
 
 local persistence = {
     save = function(path, ...)
@@ -224,4 +173,55 @@ writers = {
     end;
 }
 
-return persistence
+function Storage:get(var, default, path)
+    path = path or "config/" .. os.getenv('username') .. ".config.env"
+    if (fileexists(path) == "0") then
+        persistence.save(path, {})
+    end
+    local data = persistence.load(path)
+
+    local T = split(var, '.')
+    if (table.length(T) >= 2) then
+        local section = table.remove(T, 1)
+        var = table.concat(T, '.')
+        if (data[section] == nil) then
+            data[section] = {}
+        end
+
+        if (data[section][var] == nil) then
+            data[section][var] = default;
+            persistence.save(path, data)
+            return default
+        end
+        return data[section][var]
+    end
+
+    if (data[var] == nil) then
+        data[var] = default;
+        persistence.save(path, data)
+        return default
+    end
+    return data[var]
+end
+
+function Storage:set(var, value, path)
+    path = path or "config/" .. os.getenv('username') .. ".config.env"
+    local data = {}
+    if (fileexists(path) == "0") then
+        data = {}
+    else
+        data = persistence.load(path)
+    end
+    local T = split(var, '.')
+    if (table.length(T) >= 2) then
+        local section = table.remove(T, 1)
+        if (data[section] == nil) then
+            data[section] = {}
+        end
+        data[section][table.concat(T, '.')] = value
+    else
+        data[var] = value
+    end
+    persistence.save(path, data)
+    return value
+end

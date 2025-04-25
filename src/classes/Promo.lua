@@ -66,8 +66,8 @@ function Promo:collectGifts(force)
         if (Promo:clickMarkedTab() == 1) then
             Promo:clickGetAllButton()
             Promo:clickGetButtonInArsenalBattle()
-            Map:normalize()
         end
+        Map:normalize()
         return 1
     end
     return 0

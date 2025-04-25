@@ -15,13 +15,14 @@ function Window:repos()
     local handle = self:attachHandle()
     if (handle ~= 0) then
         local x, y, width, height = windowpos(handle)
-        x = config.win_pos_x
-        y = config.win_pos_y
+        x = Storage:get('win_pos_x', 0)
+        y = Storage:get('win_pos_y', 0)
         windowpos(x, y, width, height, handle)
     end
 end
 
 function Window:detach()
+    log('Detach a window handle')
     workwindow(nil)
     wait(1000)
 end

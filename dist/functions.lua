@@ -1,11 +1,12 @@
 -- lua color_functions.lua
-red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-1521647,1066991, 13526, 10902, 3741951)'
+red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-1521647,1066991, 13526, 10902, 3741951, 6513405,4144119)'
 green_color = '(4187738, 6540855, 6148674, 6344247)'
 inactive_tab_color = '(5390650)'
 modal_header_color = '(6179651, 10257016-10257017)'
 blue_color = '(16765462, 16231954-16758336)'
 white_color = '(16777215)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
+stamina_color = '(48383-183295)'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -185,18 +186,20 @@ end
 
 function close_connection_error()
     if kfindcolor(913, 573, 2546431) == 1 then
+        log('Connection error, click something 1')
         click(913, 573, 400)
     end
     if kfindcolor(862, 593, 16765462) == 1 then
+        log('Connection error, click something 2')
         click(862, 593, 400)
     end
     if (Game:hasUpdateFinishedModal() == 1) then
-        --Confirm update finished
         log('Updates is finished, click OK and wait 30s')
         click(910, 597, 30000)
     end
 
     if (is_blue(1044, 664) == 1) then
+        log('Connection error, click blue button')
         click(1044, 664)
     end
 end
@@ -227,6 +230,9 @@ function left(x, y, timeout)
 end
 
 function click(x, y, time)
+    if (Game:isLogout() == 1) then
+        return 0
+    end
     left(x, y, time)
 end
 

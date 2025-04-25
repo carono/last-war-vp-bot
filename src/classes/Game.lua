@@ -24,14 +24,22 @@ function Game:checkAlliance()
 end
 
 function Game:start()
-    log('Try launch the game: ' .. config.game_path)
-    exec(config.game_path)
-    wait(30000)
+    local game_path = Storage:get('game_path', os.getenv('LOCALAPPDATA') .. "\\TheLastWar\\Launch.exe")
+    local startup_timeout = 30000
+    log('Try launch the game: ' .. game_path .. ' and wait ' .. (startup_timeout / 1000) .. 's')
+    exec(game_path)
+    wait(startup_timeout)
+    if (Game:isLogout() == 1) then
+        log('User instance login, waiting')
+        Game:clickLogout()
+        return Game:start()
+    end
+
     Window:repos()
 end
 
 function Game:isLogout()
-    return kfindcolor(893, 638, 4143607)
+    return is_red(893, 638)
 end
 
 function Game:hasUpdateFinishedModal()
@@ -42,12 +50,15 @@ function Game:hasUpdateFinishedModal()
 end
 
 function Game:clickLogout()
+    log('Click logout button')
     wait(1000)
-    left(893, 638, 1000)
+    left(893, 638)
     Window:detach();
-    wait(1000)
+    log('Try killing a game')
     exec("taskkill /f /im lastwar.exe")
-    wait(config.logout_timeout)
+    local logout_timeout = Storage:get('logout_timeout', 7 * 60)
+    log('Waiting logout timeout at ' .. (logout_timeout) .. 's')
+    wait(logout_timeout * 1000)
 end
 
 function Game:resetUserActivity()

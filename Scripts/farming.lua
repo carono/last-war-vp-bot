@@ -14,11 +14,25 @@ if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
 end
 
 if (Game:isLogout() == 1 and Game:userIsActive() == 0) then
+    log('Account is logout')
     Game:clickLogout()
 end
 
 if (cooldown('MapNormalize') == 1 and Game:userIsActive() == 0) then
     Map:normalize()
+end
+
+if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0) then
+    Rally:joinIfExist()
+end
+
+if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
+    Base:openBase()
+    Base:getVipPresents()
+    Base:getShopGifts(1)
+    Base:collectMilitaryTrack()
+    Base:collectAdvancedResourcesByOneClick()
+    Base:greetingSurvivals()
 end
 
 if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
@@ -28,21 +42,8 @@ if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
     Map:normalize()
 end
 
-if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0) then
-    Rally:joinIfExist()
-end
-
 if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
     Promo:collectGifts()
-end
-
-if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
-    Map:openBase()
-    Base:getVipPresents()
-    Base:getShopGifts(1)
-    Base:collectMilitaryTrack()
-    Base:collectAdvancedResourcesByOneClick()
-    Base:greetingSurvivals()
 end
 
 if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0) then
@@ -61,6 +62,10 @@ end
 close_connection_error()
 Game:waitIfUserIsActive()
 
-log('Waiting farming iteration ' .. Storage:get('farming_timeout', 30) .. 's')
-wait(Storage:get('farming_timeout', 30) * 1000)
+local farming_timeout = Storage:get('farming_timeout', 0)
+if farming_timeout > 0 then
+    log('Waiting farming iteration ' .. farming_timeout .. 's')
+    --   wait(Storage:get('farming_timeout', 0) * 1000)
+end
+
 goto start
