@@ -9,6 +9,17 @@ Game:resetUserActivity()
 :: start ::
 log('clear')
 
+if (Radar:hasTreasureExcavatorNotification() == 1) then
+    local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
+    local telegram_bot_id = Storage:get('telegram_bot_id')
+    local treasure_message = Storage:get('treasure_message', 'Digging treasure')
+    if (telegram_bot_id ~= nil) then
+        Notify:sendTelegramMessage(treasure_message, telegram_chat_id, telegram_bot_id)
+        log('Click treasure notify and wait 10s')
+        click(1045, 970, 10000)
+    end
+end
+
 if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
     log('Start the game')
     Game:start()

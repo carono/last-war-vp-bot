@@ -4,12 +4,13 @@ Notify = {}
 function Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
     local query = { chat_id = telegram_chat_id, text = AnsiToUtf8(message) }
     local url = build_url('https://api.telegram.org/bot' .. telegram_bot_id .. '/sendMessage', query)
+    log('Send telegram message "' .. message .. '" to ' .. telegram_chat_id)
     exec('curl --ssl-no-revoke "' .. url .. '"')
 end
 
-function Notify:sendTelegramMessage(message, telegram_chat_id)
+function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id)
     telegram_chat_id = telegram_chat_id or Storage:get('telegram_chat_id')
-    local telegram_bot_id = Storage:get('telegram_bot_id')
+    telegram_bot_id = telegram_bot_id or Storage:get('telegram_bot_id')
     if (telegram_bot_id == nil) then
         log('Telegram bot token is not defined, please set variable "telegram_bot_id" in ' .. Storage:getConfig())
         return 0
