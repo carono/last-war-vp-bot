@@ -37,9 +37,8 @@ function Game:start()
     end
 end
 
-
 function Game:isLogout()
-    if (is_red(893, 638) == 1) then
+    if (is_red(827, 595) == 1 and is_red(960, 637) and kfindcolor(1024, 376, modal_header_color)) then
         log('Logout detected')
         return 1
     end
