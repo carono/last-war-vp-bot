@@ -1,113 +1,223 @@
 local ffi = require("ffi")
+local C = ffi.C
 
-ffi.cdef[[
-    typedef void* HBITMAP;
-    typedef void* HDC;
-    typedef void* HWND;
+ffi.cdef [[
     typedef unsigned char BYTE;
+    typedef unsigned short WORD;
     typedef unsigned int DWORD;
+    typedef int BOOL;
+    typedef long LONG;
+    typedef unsigned long ULONG_PTR;
+    typedef ULONG_PTR SIZE_T;
+    typedef const void* LPCVOID;
+    typedef void* HWND;
+    typedef void* HDC;
+    typedef void* HBITMAP;
 
     HDC GetDC(HWND hWnd);
+    int ReleaseDC(HWND hWnd, HDC hDC);
     HDC CreateCompatibleDC(HDC hdc);
+    int DeleteDC(HDC hdc);
     HBITMAP CreateCompatibleBitmap(HDC hdc, int width, int height);
-    int GetDIBits(HDC hdc, HBITMAP hBitmap, uint32_t startY, uint32_t cLines, void* lpvBits, void* lpbi, uint32_t usage);
+    void* SelectObject(HDC hdc, void* h);
     int DeleteObject(void* hObject);
-    int SelectObject(HDC hdc, void* hObject);
-    int BitBlt(HDC hdcDest, int xDest, int yDest, int width, int height, HDC hdcSrc, int xSrc, int ySrc, int rop);
-]]
-
-ffi.cdef[[
-    typedef struct {
-        uint16_t bfType;
-        uint32_t bfSize;
-        uint16_t bfReserved1;
-        uint16_t bfReserved2;
-        uint32_t bfOffBits;
-    } BITMAPFILEHEADER;
+    BOOL BitBlt(HDC hdcDest, int xDest, int yDest, int width, int height, HDC hdcSrc, int xSrc, int ySrc, DWORD rop);
+    int GetDIBits(HDC hdc, HBITMAP hbm, DWORD start, DWORD cLines, void* lpvBits, void* lpbi, DWORD usage);
+    void* malloc(SIZE_T size);
+    void free(void* ptr);
 
     typedef struct {
-        uint32_t biSize;
-        int32_t biWidth;
-        int32_t biHeight;
-        uint16_t biPlanes;
-        uint16_t biBitCount;
-        uint32_t biCompression;
-        uint32_t biSizeImage;
-        int32_t biXPelsPerMeter;
-        int32_t biYPelsPerMeter;
-        uint32_t biClrUsed;
-        uint32_t biClrImportant;
+        DWORD  biSize;
+        LONG   biWidth;
+        LONG   biHeight;
+        WORD   biPlanes;
+        WORD   biBitCount;
+        DWORD  biCompression;
+        DWORD  biSizeImage;
+        LONG   biXPelsPerMeter;
+        LONG   biYPelsPerMeter;
+        DWORD  biClrUsed;
+        DWORD  biClrImportant;
     } BITMAPINFOHEADER;
 
     typedef struct {
         BITMAPINFOHEADER bmiHeader;
         BYTE bmiColors[1];
     } BITMAPINFO;
+
+    typedef struct {
+        WORD bfType;
+        DWORD bfSize;
+        WORD bfReserved1;
+        WORD bfReserved2;
+        DWORD bfOffBits;
+    } BITMAPFILEHEADER;
+
+    HWND FindWindowA(LPCVOID lpClassName, LPCVOID lpWindowName);
 ]]
 
-function saveBitmapPart(hBitmap, x, y, width, height, outputFilePath)
-    -- РџРѕР»СѓС‡Р°РµРј РєРѕРЅС‚РµРєСЃС‚ СѓСЃС‚СЂРѕР№СЃС‚РІР°
-    local hdcScreen = ffi.C.GetDC(0)
-    local hdcMem = ffi.C.CreateCompatibleDC(hdcScreen)
+local SRCCOPY = 0x00CC0020
+local BI_RGB = 0
+local DIB_RGB_COLORS = 0
 
-    -- РЎРѕР·РґР°РµРј РЅРѕРІС‹Р№ HBITMAP РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРЅРѕР№ С‡Р°СЃС‚Рё
-    local hBitmapPart = ffi.C.CreateCompatibleBitmap(hdcScreen, width, height)
-    ffi.C.SelectObject(hdcMem, hBitmapPart)
+local images = {}
 
-    -- РљРѕРїРёСЂСѓРµРј С‡Р°СЃС‚СЊ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РёР· hBitmap РІ hBitmapPart
-    ffi.C.BitBlt(hdcMem, 0, 0, width, height, hdcScreen, x, y, 0x00CC0020)
-
-    -- РЎС‚СЂСѓРєС‚СѓСЂР° РґР»СЏ С…СЂР°РЅРµРЅРёСЏ РёРЅС„РѕСЂРјР°С†РёРё Рѕ РєР°СЂС‚РёРЅРєРµ
-    local dibHeader = ffi.new("BITMAPINFO")
-    dibHeader.bmiHeader.biSize = ffi.sizeof("BITMAPINFOHEADER")
-    dibHeader.bmiHeader.biWidth = width
-    dibHeader.bmiHeader.biHeight = height
-    dibHeader.bmiHeader.biPlanes = 1
-    dibHeader.bmiHeader.biBitCount = 24 -- 24 Р±РёС‚Р° РЅР° РїРёРєСЃРµР»СЊ
-    dibHeader.bmiHeader.biCompression = 0 -- BI_RGB (Р±РµР· СЃР¶Р°С‚РёСЏ)
-    dibHeader.bmiHeader.biSizeImage = width * height * 3 -- Р Р°Р·РјРµСЂ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
-    dibHeader.bmiHeader.biXPelsPerMeter = 0
-    dibHeader.bmiHeader.biYPelsPerMeter = 0
-    dibHeader.bmiHeader.biClrUsed = 0
-    dibHeader.bmiHeader.biClrImportant = 0
-
-    -- Р‘СѓС„РµСЂ РґР»СЏ С…СЂР°РЅРµРЅРёСЏ РґР°РЅРЅС‹С… РїРёРєСЃРµР»РµР№
-    local buffer = ffi.new("BYTE[?]", dibHeader.bmiHeader.biSizeImage)
-
-    -- РџРѕР»СѓС‡Р°РµРј РґР°РЅРЅС‹Рµ РїРёРєСЃРµР»РµР№
-    ffi.C.GetDIBits(hdcMem, hBitmapPart, 0, height, buffer, dibHeader, 0)
-
-    -- РћС‚РєСЂС‹РІР°РµРј С„Р°Р№Р» РґР»СЏ Р·Р°РїРёСЃРё
-    local file = io.open(outputFilePath, "wb")
-
-    -- Р—Р°РїРёСЃС‹РІР°РµРј Р·Р°РіРѕР»РѕРІРѕРє BMP
-    local bmpFileHeader = ffi.new("BITMAPFILEHEADER")
-    bmpFileHeader.bfType = 0x4D42 -- "BM"
-    bmpFileHeader.bfSize = ffi.sizeof("BITMAPFILEHEADER") + ffi.sizeof("BITMAPINFOHEADER") + dibHeader.bmiHeader.biSizeImage
-    bmpFileHeader.bfOffBits = ffi.sizeof("BITMAPFILEHEADER") + ffi.sizeof("BITMAPINFOHEADER")
-
-    -- Р—Р°РіРѕР»РѕРІРѕРє С„Р°Р№Р»Р°
-    file:write(ffi.string(bmpFileHeader, ffi.sizeof("BITMAPFILEHEADER")))
-    -- Р—Р°РіРѕР»РѕРІРѕРє РёРЅС„РѕСЂРјР°С†РёРё Рѕ РєР°СЂС‚РёРЅРєРµ
-    file:write(ffi.string(dibHeader, ffi.sizeof("BITMAPINFOHEADER")))
-
-    -- РџР°РґРґРёРЅРі СЃС‚СЂРѕРє
-    local rowSize = math.ceil(width * 3 / 4) * 4 -- Р Р°Р·РјРµСЂ СЃС‚СЂРѕРєРё СЃ РїР°РґРґРёРЅРіРѕРј (РІС‹СЂР°РІРЅРёРІР°РЅРёРµ)
-    local paddedBuffer = ffi.new("BYTE[?]", rowSize * height)
-
-    -- РљРѕРїРёСЂСѓРµРј РґР°РЅРЅС‹Рµ РїРёРєСЃРµР»РµР№ РІ РІС‹СЂРѕРІРЅРµРЅРЅС‹Р№ Р±СѓС„РµСЂ
-    for row = 0, height - 1 do
-        ffi.copy(paddedBuffer + row * rowSize, buffer + row * width * 3, width * 3)
+function save_bmp(filename, bitmap_address, width, height, rowSize)
+    -- Проверим на корректность ширину и высоту
+    if not width or not height then
+        log("Ошибка: Невозможно сохранить изображение, поскольку не задана ширина или высота.")
+        return false
     end
 
-    -- Р—Р°РїРёСЃС‹РІР°РµРј РІС‹СЂРѕРІРЅРµРЅРЅС‹Рµ РґР°РЅРЅС‹Рµ РїРёРєСЃРµР»РµР№ РІ С„Р°Р№Р»
-    file:write(ffi.string(paddedBuffer, rowSize * height))
+    if width <= 0 or height <= 0 then
+        log("Ошибка: Неверные значения ширины или высоты изображения.")
+        return false
+    end
 
-    -- Р—Р°РєСЂС‹РІР°РµРј С„Р°Р№Р»
+    local file = io.open(filename, "wb")
+    if not file then
+        log("Ошибка: Не удалось открыть файл для записи.")
+        return false
+    end
+
+    local fileHeader = ffi.new("BITMAPFILEHEADER")
+    local infoHeader = ffi.new("BITMAPINFOHEADER")
+
+    -- Заполнение заголовков
+    fileHeader.bfType = 0x4D42  -- 'BM'
+    fileHeader.bfOffBits = ffi.sizeof("BITMAPFILEHEADER") + ffi.sizeof("BITMAPINFOHEADER")
+    fileHeader.bfSize = fileHeader.bfOffBits + height * rowSize
+    infoHeader.biSize = ffi.sizeof("BITMAPINFOHEADER")
+    infoHeader.biWidth = width
+    infoHeader.biHeight = height
+    infoHeader.biPlanes = 1
+    infoHeader.biBitCount = 24  -- 24-битный цвет
+    infoHeader.biCompression = BI_RGB
+    infoHeader.biSizeImage = height * rowSize
+    infoHeader.biXPelsPerMeter = 0
+    infoHeader.biYPelsPerMeter = 0
+    infoHeader.biClrUsed = 0
+    infoHeader.biClrImportant = 0
+
+    -- Запись заголовков в файл
+    file:write(ffi.string(fileHeader, ffi.sizeof("BITMAPFILEHEADER")))
+    file:write(ffi.string(infoHeader, ffi.sizeof("BITMAPINFOHEADER")))
+
+    -- Запись пикселей снизу вверх (BMP формат требует такой порядок)
+    local pixelData = ffi.cast("char*", bitmap_address)
+    for y = height - 1, 0, -1 do  -- BMP формат записывает строки снизу вверх
+        file:write(ffi.string(pixelData + y * rowSize, rowSize))
+    end
+
     file:close()
+    log("Изображение сохранено в файл:", filename)
+    return true
+end
 
-    -- РћСЃРІРѕР±РѕР¶РґР°РµРј СЂРµСЃСѓСЂСЃС‹
-    ffi.C.DeleteObject(hBitmapPart)
-    ffi.C.DeleteObject(hdcMem)
-    ffi.C.DeleteObject(hdcScreen)
+function capture_window_region(hWndInt, x1, y1, x2, y2)
+    local hWnd = ffi.cast("HWND", hWndInt)
+    log("Захват изображения из окна с hWnd:", hWnd)
+
+    if not hWnd or hWnd == ffi.NULL then
+        log("Ошибка: Не удалось получить hwnd окна!")
+        return nil
+    end
+
+    local w = x2 - x1 + 1
+    local h = y2 - y1 + 1
+    if w <= 0 or h <= 0 then
+        log("Ошибка: Неверные параметры ширины или высоты!")
+        return nil
+    end
+
+    log("Ширина:", w, "Высота:", h)
+
+    local hdcWindow = C.GetDC(hWnd)
+    if not hdcWindow or hdcWindow == ffi.NULL then
+        log("Ошибка: Не удалось получить DC окна!")
+        return nil
+    end
+
+    local hdcMemDC = C.CreateCompatibleDC(hdcWindow)
+    if not hdcMemDC or hdcMemDC == ffi.NULL then
+        C.ReleaseDC(hWnd, hdcWindow)
+        log("Ошибка: Не удалось создать совместимый DC!")
+        return nil
+    end
+
+    local hBitmap = C.CreateCompatibleBitmap(hdcWindow, w, h)
+    if not hBitmap or hBitmap == ffi.NULL then
+        C.DeleteDC(hdcMemDC)
+        C.ReleaseDC(hWnd, hdcWindow)
+        log("Ошибка: Не удалось создать битмап!")
+        return nil
+    end
+
+    local old = C.SelectObject(hdcMemDC, hBitmap)
+    local res = C.BitBlt(hdcMemDC, 0, 0, w, h, hdcWindow, x1, y1, SRCCOPY)
+    if res == 0 then
+        log("Ошибка при выполнении BitBlt.")
+        C.SelectObject(hdcMemDC, old)
+        C.DeleteObject(hBitmap)
+        C.DeleteDC(hdcMemDC)
+        C.ReleaseDC(hWnd, hdcWindow)
+        return nil
+    end
+
+    local info = ffi.new("BITMAPINFO")
+    info.bmiHeader.biSize = ffi.sizeof("BITMAPINFOHEADER")
+    info.bmiHeader.biWidth = w
+    info.bmiHeader.biHeight = -h
+    info.bmiHeader.biPlanes = 1
+    info.bmiHeader.biBitCount = 24
+    info.bmiHeader.biCompression = BI_RGB
+    info.bmiHeader.biSizeImage = 0
+
+    local rowSize = math.floor((24 * w + 31) / 32) * 4
+    local imageSize = rowSize * h
+    local buffer = ffi.cast("uint8_t*", C.malloc(imageSize))
+
+    if not buffer or buffer == ffi.NULL then
+        C.SelectObject(hdcMemDC, old)
+        C.DeleteObject(hBitmap)
+        C.DeleteDC(hdcMemDC)
+        C.ReleaseDC(hWnd, hdcWindow)
+        log("Ошибка: Не удалось выделить память для изображения.")
+        return nil
+    end
+
+    local ok = C.GetDIBits(hdcMemDC, hBitmap, 0, h, buffer, info, DIB_RGB_COLORS)
+    if ok == 0 then
+        log("Ошибка: Не удалось получить данные DIB.")
+        C.free(buffer)
+        C.SelectObject(hdcMemDC, old)
+        C.DeleteObject(hBitmap)
+        C.DeleteDC(hdcMemDC)
+        C.ReleaseDC(hWnd, hdcWindow)
+        return nil
+    end
+
+    C.SelectObject(hdcMemDC, old)
+    C.DeleteObject(hBitmap)
+    C.DeleteDC(hdcMemDC)
+    C.ReleaseDC(hWnd, hdcWindow)
+
+    local id = tonumber(ffi.cast("intptr_t", buffer))
+    images[id] = {
+        data = buffer,
+        width = w,
+        height = h,
+        rowSize = rowSize,
+        size = imageSize
+    }
+
+    -- Сохранение в BMP
+    local filename = "screenshot.bmp"
+    if save_bmp(filename, buffer, w, h, rowSize) then
+        log("Изображение успешно сохранено в файл", filename)
+    else
+        log("Не удалось сохранить изображение в файл.")
+    end
+
+    return id, w, h, rowSize
 end

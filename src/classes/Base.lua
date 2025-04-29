@@ -160,12 +160,26 @@ function Base:findOreMine()
     return find_color(139, 129, 1666, 986, 12581626)
 end
 
+function Base:findBreadResource()
+    return find_color(139, 129, 1666, 986, 2054105)
+end
+
+function Base:findOreResource()
+    return find_color(139, 129, 1666, 986, 14062113)
+end
+
 function Base:collectAdvancedResourcesByOneClick()
-    local x, y = Base:findOreMine();
-    if (x > 0 and kfindcolor(x, y - 39, '(15848601-16043111)') == 1) then
+    local x, y = Base:findOreResource()
+    if (x > 0) then
         log('Collect resources')
-        click(x, y - 45, 2000)
+        click(x, y, 2000)
         return 1
+    end
+
+    x, y = Base:findBreadResource();
+    if (x > 0) then
+        log('Collect resources')
+        click(x, y, 2000)
     end
     return 0
 end

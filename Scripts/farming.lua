@@ -9,7 +9,7 @@ Game:resetUserActivity()
 :: start ::
 log('clear')
 
-if (Radar:hasTreasureExcavatorNotification() == 1) then
+if (Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1) then
     local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
     local telegram_bot_id = Storage:get('telegram_bot_id')
     local treasure_message = Storage:get('treasure_message', 'Digging treasure')

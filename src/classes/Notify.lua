@@ -24,6 +24,6 @@ function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id)
 end
 
 function Notify:accountIsLogout()
-    local message = "Account " .. os.getenv('username') .. " is logout"
+    local message = Storage:get('logout_notify_message', "Account " .. os.getenv('username') .. " is logout")
     Notify:sendTelegramMessage(message)
 end
