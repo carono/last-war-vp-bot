@@ -49,7 +49,8 @@ function Game:isLogout()
         wait(500);
         if (Game:hasLogoutModal() == 1) then
             log('Logout detected')
-            --stop_script()
+            Notify:accountIsLogout()
+            stop_script()
             return 1
         end
     end

@@ -10,6 +10,24 @@ function kdrag(x1, y1, x2, y2, r)
     move(oldX, oldY)
 end
 
+function wheel_down(x, y, count)
+    local oldX, oldY = mouse_pos()
+    for i = 1, count do
+        kwheel_down(x, y, 1)
+        wait(50)
+    end
+    move(oldX, oldY)
+end
+
+function wheel_up(x, y, count)
+    local oldX, oldY = mouse_pos()
+    for i = 1, count do
+        kwheel_up(x, y, 1)
+        wait(50)
+    end
+    move(oldX, oldY)
+end
+
 function left(x, y, timeout)
     if (Window:getGameHandle() == 0) then
         return 0;

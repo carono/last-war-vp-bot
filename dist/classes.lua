@@ -1,8 +1,10 @@
 --lua
 require("src.classes.Alliance")
 require("src.classes.Base")
+require("src.classes.Event")
 require("src.classes.Game")
 require("src.classes.Hero")
+require("src.classes.Hud")
 require("src.classes.Map")
 require("src.classes.Ministry")
 require("src.classes.Notify")

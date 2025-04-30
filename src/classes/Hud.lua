@@ -1,0 +1,32 @@
+--lua
+
+Hud = {
+    wait_colors = {
+        events = { modal_header_color, 952, 11 }
+    }
+}
+
+function Hud:findButton(name)
+    if name == 'events' then
+        return find_color(1697, 76, 1765, 346, 16737536)
+    end
+    return 0, 0
+end
+
+function Hud:clickButton(name)
+    local x, y = self:findButton(name)
+    if (x > 0) then
+        return click_and_wait_color(x, y, self.wait_colors[name][1], self.wait_colors[name][2], self.wait_colors[name][3])
+    end
+    return 0
+end
+
+function Hud:leftScrollModalTabs(count)
+    count = count or 1
+    wheel_down(915, 115, count * 10)
+end
+
+function Hud:rightScrollModalTabs(count)
+    count = count or 1
+    wheel_up(915, 115, count * 10)
+end
