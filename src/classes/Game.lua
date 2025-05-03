@@ -251,8 +251,7 @@ end
 
 function Game:checkConnection()
     Map:normalize()
-    Profile:open();
-    Profile:clickMinistry()
+    Ministry:open()
     Ministry:clickMinister('vp')
     wait(1000)
     local result = kfindcolor(1118, 956, 16777215)

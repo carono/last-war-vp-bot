@@ -92,11 +92,15 @@ function Ministry:hasRequest()
     return kfindcolor(30, 18, 3745271);
 end
 
+function Ministry:open()
+    Profile:open()
+    Profile:closeLike()
+    Profile:clickMinistry()
+end
+
 function Ministry:openMinistryIfRequest()
     if (Ministry:hasRequest() == 1) then
-        Profile:open()
-        Profile:closeLike()
-        Profile:clickMinistry()
+        Ministry:open()
     end
 end
 
