@@ -21,15 +21,15 @@ check_secret_missions()
 collect_promo_gifts()
 check_events()
 read_mail()
+check_connection()
 
 Alliance:applyHelp()
 Alliance:clickHealTroops()
 Game:getRallyPresents()
 Game:collectDailyPresents()
-
-close_connection_error()
 Game:waitIfUserIsActive()
 
+wait(1000)
 farming_timeout()
 
 goto start

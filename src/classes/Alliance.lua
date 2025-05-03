@@ -90,7 +90,7 @@ function Alliance:applyHelp()
         click(1648, 763, 300)
         return 1
     end
-    if (kfindcolor(120, 872, '(3103061,6177331,1455406,13038591)') == 1) then
+    if (kfindcolor(120, 872, '(3103061,6177331,1455406,13038591)') == 1 and kfindcolor(124, 865, 3096537) == 0) then
         log('Send help request alliance for healing troops')
         click(120, 872, 300)
         return 1

@@ -8,6 +8,7 @@ yellow_color = '(2415103-2546431, 571647-639999)'
 white_color = '(16777215)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 stamina_color = '(48383-183295)'
+tab_body_color = '14080996'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
@@ -190,7 +191,7 @@ end
 
 
 function notify_treasure()
-    if (Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1) then
+    if (Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) then
         local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
         local telegram_bot_id = Storage:get('telegram_bot_id')
         local treasure_message = Storage:get('treasure_message', 'Digging treasure')
@@ -218,20 +219,20 @@ function check_logout()
 end
 
 function normalize_map()
-    if (cooldown('MapNormalize') == 1 and Game:userIsActive() == 0) then
+    if (cooldown('MapNormalize') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         Map:normalize()
     end
 end
 
 function auto_rally()
-    if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0) then
+    if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Try join to rally')
         Rally:joinIfExist()
     end
 end
 
 function check_base()
-    if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0) then
+    if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking tasks on base')
         Base:openBase(1)
         Base:getVipPresents()
@@ -243,7 +244,7 @@ function check_base()
 end
 
 function check_alliance()
-    if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0) then
+    if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking alliance tasks')
         Alliance:open()
         Alliance:checkTech()
@@ -264,24 +265,27 @@ function check_secret_missions()
 end
 
 function collect_promo_gifts()
-    if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0) then
+    if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking gifts')
         Promo:collectGifts()
+
     end
 end
 
 function read_mail()
-    if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0) then
+    if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking gifts')
         Game:readAllMail(1)
     end
 end
 
 function check_events()
-    if (cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0) then
-        Event:open()
-        Event:openGWTab()
-        Event:collectGW()
+    if (cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+        if (Event:open() == 1) then
+            Event:openGWTab()
+            Event:collectGW()
+            Map:normalize()
+        end
     end
 end
 
@@ -293,29 +297,7 @@ function farming_timeout()
     end
 end
 
--- lua modals.lua
-function close_gift_modal()
-    log('Waiting modal with gifts')
-    if (wait_color(1068, 342, 7059183, 2000) == 1) then
-        escape(1000, 'Close gift modal')
-        if (kfindcolor(1068, 342, 7059183)) then
-            escape(1000, 'Close gift modal try 2')
-        end
-        return 1
-    end
-    return 0
-end
-
-function close_help_modal()
-    log('Waiting modal with gifts')
-    if (wait_color(1084, 327, 2669297, 2000) == 1) then
-        escape(1000, 'Close help modal')
-        return 1
-    end
-    return 0
-end
-
-function close_connection_error()
+function check_connection()
     if kfindcolor(913, 573, 2546431) == 1 then
         log('Connection error, click something 1')
         click(913, 573, 400)
@@ -329,10 +311,35 @@ function close_connection_error()
         click(910, 597, 30000)
     end
 
-    if (is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1) then
+    if (is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1 and Game:isPreloadMenu() == 1) then
         log('Connection error, click confirm and wait 30s')
         click(1061, 597, 30000)
     end
+
+    if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+        if (Game:checkConnection() == 0) then
+            Game:restart()
+        end
+    end
+end
+
+-- lua modals.lua
+function close_gift_modal()
+    log('Waiting modal with gifts')
+    if (wait_color(1068, 342, 7059183, 2000) == 1) then
+        escape(1000, 'Close gift modal')
+        return 1
+    end
+    return 0
+end
+
+function close_help_modal()
+    log('Waiting modal with gifts')
+    if (wait_color(1084, 327, 2669297, 2000) == 1) then
+        escape(1000, 'Close help modal')
+        return 1
+    end
+    return 0
 end
 
 -- lua override.lua
@@ -385,14 +392,17 @@ function click(x, y, time)
     left(x, y, time)
 end
 
-function click_and_wait_color(x, y, color, colorX, colorY, timeout)
+function click_and_wait_color(x, y, color, colorX, colorY, timeout, cd, comment)
     if (Window:getGameHandle() == 0) then
         return 0;
+    end
+    if (comment ~= nil) then
+        log(comment)
     end
     click(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    return wait_color(colorX, colorY, color, timeout)
+    return wait_color(colorX, colorY, color, timeout, cd)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)

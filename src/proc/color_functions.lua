@@ -7,6 +7,7 @@ yellow_color = '(2415103-2546431, 571647-639999)'
 white_color = '(16777215)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 stamina_color = '(48383-183295)'
+tab_body_color = '14080996'
 
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then

@@ -49,6 +49,21 @@ function Promo:clickGetButtonInArsenalBattle()
     return 0
 end
 
+function Promo:clickGetButtonSupply()
+    if (click_green_button(783, 1067) == 1) then
+        wait(2000)
+        close_gift_modal()
+    end
+
+    if (is_red(752, 267) == 1 and is_blue(726, 291) == 1) then
+        log('Get free keys')
+        if (click_blue_button(728, 291) == 1 and click_green_button(1111, 302) == 1) then
+            close_gift_modal()
+            escape(300, 'Close modal with free keys')
+        end
+    end
+end
+
 function Promo:clickGetAllButton()
     if (kfindcolor(889, 1037, 4187738) == 1) then
         log('Click get-all button in promo')
@@ -62,10 +77,11 @@ end
 function Promo:collectGifts(force)
     force = force or 0
     if (self:isMarked() == 1 or force == 1) then
-        self:open();
+        self:open()
         if (Promo:clickMarkedTab() == 1) then
             Promo:clickGetAllButton()
             Promo:clickGetButtonInArsenalBattle()
+            Promo:clickGetButtonSupply()
         end
         Map:normalize()
         return 1

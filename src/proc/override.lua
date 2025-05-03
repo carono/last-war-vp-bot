@@ -47,14 +47,17 @@ function click(x, y, time)
     left(x, y, time)
 end
 
-function click_and_wait_color(x, y, color, colorX, colorY, timeout)
+function click_and_wait_color(x, y, color, colorX, colorY, timeout, cd, comment)
     if (Window:getGameHandle() == 0) then
         return 0;
+    end
+    if (comment ~= nil) then
+        log(comment)
     end
     click(x, y)
     colorX = colorX or x
     colorY = colorY or y
-    return wait_color(colorX, colorY, color, timeout)
+    return wait_color(colorX, colorY, color, timeout, cd)
 end
 
 function click_and_wait_not_color(x, y, color, colorX, colorY)

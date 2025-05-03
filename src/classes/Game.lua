@@ -38,7 +38,10 @@ function Game:start()
 end
 
 function Game:hasLogoutModal()
-    if (is_red(827, 595) == 1 and is_red(960, 637) and kfindcolor(1024, 376, modal_header_color)) then
+    if (Map:state() == 0 and is_red(810, 636) == 1 and is_red(968, 629) == 1 and kfindcolor(1029, 371, modal_header_color) == 1) then
+        return 1
+    end
+    if (Map:state() == 0 and is_blue(810, 636) == 1 and is_blue(968, 629) == 1 and kfindcolor(1029, 371, modal_header_color) == 1) then
         return 1
     end
     return 0
@@ -49,31 +52,28 @@ function Game:isLogout()
         wait(500);
         if (Game:hasLogoutModal() == 1) then
             log('Logout detected')
-            Notify:accountIsLogout()
-            stop_script()
             return 1
         end
     end
     return 0
 end
 
+function Game:isPreloadMenu()
+    return kfindcolor(48, 302, 16777215)
+end
+
 function Game:hasUpdateFinishedModal()
-    if (kfindcolor(884, 597, 16765462) == 1 and kfindcolor(48, 302, 16777215) == 1) then
+    if (kfindcolor(884, 597, 16765462) == 1 and Game:isPreloadMenu() == 1) then
         return 1
     end
     return 0
 end
 
 function Game:clickLogout(logout_timeout)
-    logout_timeout = Storage:get('logout_timeout', 7 * 60)
     log('Click logout button')
     wait(1000)
     left(893, 638)
-    Window:detach();
-    log('Try killing a game')
-    exec("taskkill /f /im lastwar.exe")
-    log('Waiting logout timeout at ' .. (logout_timeout) .. 's')
-    wait(logout_timeout * 1000)
+    Game:restart(logout_timeout)
 end
 
 function Game:resetUserActivity()
@@ -97,7 +97,7 @@ function Game:waitIfUserIsActive()
         local x, y = mouse_pos()
         Storage:set('lastMousePosX', x)
         Storage:set('lastMousePosY', y)
-        local timeout = Storage:get('timeout_if_user_active', 30)
+        local timeout = Storage:get('timeout_if_user_active', 90)
         log('Waiting ' .. timeout .. 's, while user working')
         wait(timeout * 1000)
         return Game:waitIfUserIsActive()
@@ -119,40 +119,41 @@ function Game:readAllMail(force)
     force = force or 0
     if (is_red(1760, 855) == 1 or force == 1) then
         log('Have email, read it')
-        click_and_wait_color(1731, 874, modal_header_color, 1008, 22)
-        repeat
-            local x, y = find_red_mark(1148, 98, 1190, 917)
-            if (x ~= 0 and click_and_wait_color(x - 200, y + 50, blue_color, 1075, 1031) == 1) then
-                click(1075, 1031, 800)
-                if (close_gift_modal() == 1) then
-                    wait(1000)
+        if click_and_wait_color(1731, 874, modal_header_color, 1008, 22) == 1 then
+            local count = 0
+            repeat
+                local x, y = find_red_mark(1148, 98, 1190, 917)
+                if (x ~= 0 and click_and_wait_color(x - 200, y + 50, blue_color, 1075, 1031) == 1) then
+                    click(1075, 1031, 800)
+                    if (close_gift_modal() == 1) then
+                        wait(1000)
+                    end
+                    escape(500)
                 end
-                escape(500)
-            end
-        until x == 0
-        Map:normalize()
+                count = count + 1
+            until x == 0 or count > 10
+            Map:normalize()
+        end
     end
 end
 
 function Game:collectDailyPresents()
     if (is_red(61, 924) == 1) then
         click_and_wait_color(36, 961, 6179651, 863, 30)
+    end
+    if (kfindcolor(35, 978, 6354839) == 1) then
+        click(230, 957)
+        close_gift_modal()
+    end
+    if (kfindcolor(1139, 18, modal_header_color) == 1) then
         if (kfindcolor(1087, 433, 4187738) == 1) then
             click(1087, 433, 500)
         end
-        click(743, 252, 1000)
-        escape(500)
-
-        click(847, 257, 1000)
-        escape(500)
-
-        click(948, 254, 1000)
-        escape(500)
-
-        click(1044, 255, 1000)
-        escape(500)
-
-        click(1145, 253, 1000)
+        local x, y = find_color(694, 233, 1185, 263, '(15204351)')
+        if (x > 0) then
+            click(x, y, 1000)
+            close_gift_modal()
+        end
         Map:normalize()
         return 1
     end
@@ -160,29 +161,28 @@ function Game:collectDailyPresents()
 end
 
 function Game:openCard()
-    click(740, 884, 3000)
-    click(905, 470, 3000)
-    click(905, 470, 3000)
-    escape(2000)
+    click_and_wait_color(740, 884, 10837327, 925, 446)
+    wait(1000)
+    click_and_wait_not_color(925, 446, 10837327)
+    click_if_color(628, 1054, 16777215)
+    escape(500)
 end
 
--- development in process
 function Game:checkFreeTavernHero()
     Map:normalize()
     click_and_wait_color(84, 1055, 16765462, 897, 995);
     click_and_wait_color(897, 995, 4187738, 820, 840);
     wait(200)
-    if (kfindcolor(738, 885, 6344247) == 1) then
+    if (find_color(654, 833, 847, 909, 54783) == 0) then
         log('Open hero')
-        msg(1)
-        --Game:openCard()
+        Game:openCard()
     end
-    click(1057, 1016, 200)
-    if (kfindcolor(731, 886, 5233404) == 1) then
+    click_and_wait_color(1080, 1022, 11891208, nil, nil, nil, 500, 'Click survival tab')
+    if (find_color(654, 833, 847, 909, 4444407) == 0) then
         log('Open survival')
-        msg(2)
-        --Game:openCard()
+        Game:openCard()
     end
+    Map:normalize()
 end
 
 function Game:searchResourceButtonAndClick()
@@ -225,6 +225,15 @@ function Game:collectSecretMissions()
     return 0
 end
 
+function Game:restart(logout_timeout)
+    logout_timeout = Storage:get('logout_timeout', 7 * 60)
+    Window:detach();
+    log('Try killing a game')
+    exec("taskkill /f /im lastwar.exe")
+    log('Waiting logout timeout at ' .. (logout_timeout) .. 's')
+    wait(logout_timeout * 1000)
+end
+
 function Game:collectAllianceSecretMissions()
     log('Open alliance tab missions')
     click(1138, 419, 400)
@@ -238,4 +247,14 @@ function Game:collectAllianceSecretMissions()
         end
     end
     return 0
+end
+
+function Game:checkConnection()
+    Profile:open();
+    Profile:clickMinistry()
+    Ministry:clickMinister('vp')
+    wait(1000)
+    local result = kfindcolor(1118, 956, 16777215)
+    Map:normalize()
+    return result
 end

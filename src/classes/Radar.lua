@@ -36,12 +36,19 @@ end
 
 function Radar:collectFinishedTasks()
     if (self:open() == 1) then
-        local x, y = find_red_mark(630, 176, 1186, 818)
+        local x, y = find_color(630, 176, 1186, 818, '(1196783,1584111)')
         if (x > 0) then
             click(x, y, 1000)
             close_gift_modal()
             return self:collectFinishedTasks()
         end
+        Map:normalize()
     end
 end
 
+function Radar:autoFinishTasks()
+    if (self:open() == 1 and click_blue_button(959, 1043)) then
+        log('Finish tasks')
+        wait(3000)
+    end
+end
