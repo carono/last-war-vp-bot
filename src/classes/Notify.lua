@@ -27,3 +27,8 @@ function Notify:accountIsLogout()
     local message = Storage:get('logout_notify_message', "Account " .. os.getenv('username') .. " is logout")
     Notify:sendTelegramMessage(message)
 end
+
+function Notify:accountStartGame()
+    local message = Storage:get('login_notify_message', "Account " .. os.getenv('username') .. " login")
+    Notify:sendTelegramMessage(message)
+end

@@ -52,3 +52,18 @@ function Radar:autoFinishTasks()
         wait(3000)
     end
 end
+
+function Radar:collectFinishedTrucks()
+    if Hud:clickButton('trucks') == 1 then
+        for i = 1, 4 do
+            local x, y = find_color(727, 317, 1066, 420, '(14062642,15702825,13272105)')
+            if (x > 0) then
+                click(x, y, 1000)
+                close_gift_modal()
+                wait(5000)
+                escape(1000, 'Close truck info')
+            end
+        end
+    end
+    Map:normalize()
+end

@@ -2,7 +2,8 @@
 
 Hud = {
     wait_colors = {
-        events = { modal_header_color, 952, 11 }
+        events = { 952, 11, modal_header_color },
+        trucks = { 892, 146, 4567463 }
     }
 }
 
@@ -10,13 +11,16 @@ function Hud:findButton(name)
     if name == 'events' then
         return find_color(1697, 76, 1765, 346, 16737536)
     end
+    if name == 'trucks' then
+        return find_colors(11, 506, 83, 913, { { 34, 636, 14065176 }, { 52, 632, 14065183 } })
+    end
     return 0, 0
 end
 
 function Hud:clickButton(name)
     local x, y = self:findButton(name)
     if (x > 0) then
-        return click_and_wait_color(x, y, self.wait_colors[name][1], self.wait_colors[name][2], self.wait_colors[name][3])
+        return click_and_wait_color(x, y, self.wait_colors[name][3], self.wait_colors[name][1], self.wait_colors[name][2])
     end
     return 0
 end

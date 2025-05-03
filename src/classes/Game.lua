@@ -29,6 +29,7 @@ function Game:start()
     log('Try launch the game: ' .. game_path .. ' and wait ' .. (startup_timeout / 1000) .. 's')
     exec(game_path)
     wait(startup_timeout)
+    Notify:accountStartGame()
     if (Game:isLogout() == 1) then
         log('User instance login, waiting')
         local logout_timeout = Storage:get('logout_timeout', 7 * 60)

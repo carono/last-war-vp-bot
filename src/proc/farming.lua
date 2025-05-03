@@ -107,6 +107,7 @@ function check_radar()
             Radar:collectFinishedTasks()
         end
         Radar:autoFinishTasks()
+        Radar:collectFinishedTrucks()
     end
 end
 
