@@ -1,8 +1,6 @@
 --lua
 MilitaryRaceEvent = {}
 
-
-
 function MilitaryRaceEvent:scrollDownDayInCalendar(count)
     count = count or 1
     wheel_down(912, 623, count * 18)
@@ -44,6 +42,13 @@ function get_event_start_day(today_wday, event_number_today)
     return start_day
 end
 
+function MilitaryRaceEvent:openCodeName()
+    Hud:clickButton('events')
+    Hud:scrollLeftEnd()
+    Hud:clickFirstTab()
+    Hud:clickNextTab()
+end
+
 function MilitaryRaceEvent:getCurrentRaceDay()
     local start_day
     start_day = Storage:get('first_race_day_number')
@@ -58,3 +63,4 @@ function MilitaryRaceEvent:getCurrentRaceDay()
 
     return (os.date("*t").wday - start_day) % 7 + 1
 end
+

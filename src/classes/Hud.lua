@@ -38,3 +38,8 @@ function Hud:rightScrollModalTabs(count)
     count = count or 1
     wheel_up(915, 115, count * 10)
 end
+
+function Hud:clickFirstTab()
+    click(681, 107)
+end
+

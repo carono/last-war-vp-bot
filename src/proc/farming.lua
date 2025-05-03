@@ -92,10 +92,12 @@ end
 function check_events()
     if (cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (Event:open() == 1) then
-            Event:openGWTab()
-            Event:collectGW()
+            Event:openMilitaryRaceTab()
+            Event:collectMilitaryRaceGifts()
             Map:normalize()
         end
+
+        CodeNameEvent:execute()
     end
 end
 
@@ -103,8 +105,8 @@ function check_radar()
     if (cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (VS:isRadarDay() == 1) then
             Radar:collectFinishedTasks()
-            Radar:autoFinishTasks()
         end
+        Radar:autoFinishTasks()
     end
 end
 
