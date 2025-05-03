@@ -268,7 +268,6 @@ function collect_promo_gifts()
     if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking gifts')
         Promo:collectGifts()
-
     end
 end
 
@@ -289,6 +288,15 @@ function check_events()
     end
 end
 
+function check_radar()
+    if (cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+        if (VS:isRadarDay() == 1) then
+            Radar:collectFinishedTasks()
+            Radar:autoFinishTasks()
+        end
+    end
+end
+
 function farming_timeout()
     local farming_timeout = Storage:get('farming_timeout', 0)
     if farming_timeout > 0 then
@@ -298,6 +306,7 @@ function farming_timeout()
 end
 
 function check_connection()
+
     if kfindcolor(913, 573, 2546431) == 1 then
         log('Connection error, click something 1')
         click(913, 573, 400)

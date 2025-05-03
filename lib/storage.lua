@@ -229,3 +229,11 @@ function Storage:set(var, value, path)
     persistence.save(path, data)
     return value
 end
+
+function Storage:getDay(var, value, path)
+
+end
+
+function Storage:getServer(var, value, path)
+
+end

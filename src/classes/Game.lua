@@ -250,6 +250,7 @@ function Game:collectAllianceSecretMissions()
 end
 
 function Game:checkConnection()
+    Map:normalize()
     Profile:open();
     Profile:clickMinistry()
     Ministry:clickMinister('vp')

@@ -21,6 +21,14 @@ function Hud:clickButton(name)
     return 0
 end
 
+function Hud:scrollLeftEnd()
+    Hud:leftScrollModalTabs(10)
+end
+
+function Hud:scrollRightEnd()
+    Hud:rightScrollModalTabs(10)
+end
+
 function Hud:leftScrollModalTabs(count)
     count = count or 1
     wheel_down(915, 115, count * 10)

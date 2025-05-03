@@ -21,6 +21,7 @@ check_secret_missions()
 collect_promo_gifts()
 check_events()
 read_mail()
+check_radar()
 check_connection()
 
 Alliance:applyHelp()
