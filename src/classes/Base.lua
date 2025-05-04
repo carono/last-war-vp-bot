@@ -26,10 +26,10 @@ function Base:clickSurvival()
     local x, y = Base:getSurvival()
     if (x > 0) then
         log('Find survival with gift or new, clicking')
-        click(x, y, 500)
-        click(x, y, 500)
+        click(x, y, 1500)
+        click(x, y, 1500)
         Base:clickHireSurvival()
-        return Base:clickSurvival()
+        return 1
     end
     return 0
 end
