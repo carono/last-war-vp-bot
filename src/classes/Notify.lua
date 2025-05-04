@@ -32,3 +32,7 @@ function Notify:accountStartGame()
     local message = Storage:get('login_notify_message', "Account " .. os.getenv('username') .. " login")
     Notify:sendTelegramMessage(message)
 end
+
+function Notify:hasLabel()
+    return kfindcolor(1006, 24, 16250612)
+end

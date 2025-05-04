@@ -219,3 +219,13 @@ end
 function Ministry:iAmIsVP()
 
 end
+
+function Ministry:hasMinistryHat()
+    if (find_colors(96, 121, 348, 160, { { 125, 151, 8898541 }, { 111, 133, 15726583 } }) > 0) then
+        return 'development'
+    end
+    if (find_colors(96, 121, 348, 160, { { 115, 140,1056718 }, {126, 144, 14871791  } }) > 0) then
+        return 'security'
+    end
+    return 'none'
+end
