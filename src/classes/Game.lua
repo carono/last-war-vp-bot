@@ -238,7 +238,7 @@ function Game:collectSecretMissions()
 end
 
 local function current_mission_is_ur()
-    return is_blue(1150, 515) == 1 and (kfindcolor(692, 493, '(3637996-3976954)') == 1 or kfindcolor(625, 473, 4879615) == 1)
+    return kfindcolor(692, 493, '(3637996-3976954)') == 1 or kfindcolor(625, 473, 4879615) == 1
 end
 
 function Game:rotateSecretMissionsToUR()
