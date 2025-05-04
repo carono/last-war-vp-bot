@@ -257,6 +257,12 @@ end
 function check_secret_missions()
     if (cooldown('secretMissions', 600) == 1) then
         log('Start checking secret missions')
+
+        if (Base:clickMissionButton() == 1) then
+            Game:rotateSecretMissionsToUR()
+            Game:setSecretMissions()
+        end
+
         if (Base:clickMissionButton() == 1) then
             Game:collectSecretMissions()
             Game:collectAllianceSecretMissions()

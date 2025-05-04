@@ -226,6 +226,53 @@ function Game:collectSecretMissions()
     return 0
 end
 
+local function current_mission_is_ur()
+    return is_blue(1150, 515) == 1 and (kfindcolor(692, 493, 3311087) == 1 or kfindcolor(625, 473, 4879615) == 1)
+end
+
+function Game:rotateSecretMissionsToUR()
+    if (current_mission_is_ur()) then
+        log(1)
+    end
+    if (not current_mission_is_ur()) then
+        if (kfindcolor(860, 1055, 3754730) == 1) then
+            log('Tickets is end')
+            return 0
+        end
+        if (is_blue(937, 1046) ~= 1) then
+            log('Switch MEGA')
+            click(1145, 1032, 1000)
+        end
+
+        if (click_blue_button(955, 1040) == 1) then
+            wait(1000)
+            if (not current_mission_is_ur()) then
+                return Game:rotateSecretMissionsToUR()
+            end
+            return 1
+        end
+    end
+    return 0
+end
+
+function Game:setSecretMissions()
+    if (current_mission_is_ur()) then
+        if (click_blue_button(1147, 514) == 1 and wait_color(618, 1042, 4140846) == 1) then
+            if (kfindcolor(829, 1041, 2546431) == 1) then
+                log('Click auto assign heroes to mission')
+                click(829, 1041, 1000)
+                if (click_blue_button(1023, 1039)) then
+                    log('Send heroes to mission')
+                    return 1
+                else
+                    escape(1000, 'Fail send heroes to mission')
+                end
+            end
+        end
+    end
+    return 0
+end
+
 function Game:restart(logout_timeout)
     logout_timeout = Storage:get('logout_timeout', 7 * 60)
     Window:detach();
