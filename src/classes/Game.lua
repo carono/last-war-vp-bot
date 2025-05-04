@@ -231,9 +231,6 @@ local function current_mission_is_ur()
 end
 
 function Game:rotateSecretMissionsToUR()
-    if (current_mission_is_ur()) then
-        log(1)
-    end
     if (not current_mission_is_ur()) then
         if (kfindcolor(860, 1055, 3754730) == 1) then
             log('Tickets is end')
