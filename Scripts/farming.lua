@@ -4,6 +4,7 @@ require('dist/init')
 
 reset_cooldown()
 Map:normalize()
+wait(10000)
 Game:resetUserActivity()
 
 :: start ::

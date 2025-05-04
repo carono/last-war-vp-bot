@@ -2,6 +2,10 @@
 CodeNameEvent = {}
 
 function CodeNameEvent:execute()
+    if (os.date("*t").wday == 1) then
+        return 0
+    end
+
     if (Event:openEventTab('code_name') == 1 and click_blue_button(969, 1009) == 1) then
         wait(2000)
         CodeNameEvent:attackBoss()

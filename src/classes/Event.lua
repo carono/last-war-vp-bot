@@ -1,6 +1,18 @@
 --lua
 
-Event = {}
+Event = {
+    names = {
+        military_race = {},
+        winter_storm = {},
+        desert_storm = {},
+        zombie_siege = {},
+        marshal = {},
+        code_name = {},
+        social = {},
+        judgment_day = {},
+        defense_breakthrough = {}
+    }
+}
 
 function Event:open()
     return Hud:clickButton('events')
@@ -10,18 +22,22 @@ function Event:collectMilitaryRaceGifts()
     if (kfindcolor(770, 538, 50943) == 1) then
         click(686, 456, 500)
         close_gift_modal()
+        wait(1000)
     end
     if (kfindcolor(961, 542, 50943) == 1) then
         click(907, 458, 500)
         close_gift_modal()
+        wait(1000)
     end
     if (kfindcolor(1159, 537, 50943) == 1) then
         click(1078, 458, 500)
         close_gift_modal()
+        wait(1000)
     end
     if (kfindcolor(710, 330, 1689938) == 1) then
         click(660, 288, 500)
         close_gift_modal()
+        wait(1000)
     end
 end
 
@@ -57,6 +73,12 @@ function Event:getEventTabName()
     if kfindcolor(721, 855, 16737800) == 1 then
         return 'social'
     end
+    if kfindcolor(1087, 657, 8777688) == 1 then
+        return 'judgment_day'
+    end
+    if kfindcolor(726, 795, 1723853) == 1 then
+        return 'defense_breakthrough'
+    end
     return 0
 end
 
@@ -80,13 +102,24 @@ function Event:openEventTab(name)
     Hud:leftScrollModalTabs(10)
     Hud:clickFirstTab()
 
+    log('Try find ' .. name .. ' event')
     for i = 1, 10 do
-        if (Event:clickNextTab() == 0) then
-            Hud:rightScrollModalTabs(2)
-        end
+        log('Tab ' .. i .. 'is ' .. Event:getEventTabName())
         if (Event:getEventTabName() == name) then
             return 1
         end
+        if (Event:clickNextTab() == 0) then
+            Hud:rightScrollModalTabs(2)
+        end
     end
     return 0
+end
+
+function Event:collectJudgmentDayGifts()
+    if click_if_red(1164, 285) == 1 then
+        wait(1000)
+        click_green_button(879, 938)
+        close_gift_modal()
+        escape(1000)
+    end
 end

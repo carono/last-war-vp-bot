@@ -282,12 +282,15 @@ end
 function check_events()
     if (cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (Event:open() == 1) then
-            Event:openMilitaryRaceTab()
-            Event:collectMilitaryRaceGifts()
-            Map:normalize()
+            if (Event:openEventTab('military_race') == 1) then
+                Event:collectMilitaryRaceGifts()
+            end
+            if (Event:openEventTab('judgment_day') == 1) then
+                Event:collectJudgmentDayGifts()
+            end
         end
-
         CodeNameEvent:execute()
+        Map:normalize()
     end
 end
 

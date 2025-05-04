@@ -16,8 +16,10 @@ end
 function MilitaryRaceEvent:openEvent()
     if (Hud:clickButton('events') == 1) then
         Hud:scrollLeftEnd()
-        click(680, 113, 300)
+        click(680, 113, 2000)
+        return 1
     end
+    return 0
 end
 
 function MilitaryRaceEvent:determineCurrentRaceDayNumber()
