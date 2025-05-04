@@ -154,10 +154,12 @@ function Game:collectDailyPresents()
     if (kfindcolor(35, 978, 6354839) == 1) then
         click(230, 957)
         close_gift_modal()
+        wait(2000)
     end
     if (kfindcolor(1139, 18, modal_header_color) == 1) then
         if (kfindcolor(1087, 433, 4187738) == 1) then
             click(1087, 433, 500)
+            wait(2000)
         end
         local x, y = find_color(694, 233, 1185, 263, '(15204351)')
         if (x > 0) then
@@ -236,7 +238,7 @@ function Game:collectSecretMissions()
 end
 
 local function current_mission_is_ur()
-    return is_blue(1150, 515) == 1 and (kfindcolor(692, 493, 3311087) == 1 or kfindcolor(625, 473, 4879615) == 1)
+    return is_blue(1150, 515) == 1 and (kfindcolor(692, 493, '(3637996-3976954)') == 1 or kfindcolor(625, 473, 4879615) == 1)
 end
 
 function Game:rotateSecretMissionsToUR()
@@ -245,6 +247,7 @@ function Game:rotateSecretMissionsToUR()
             log('Tickets is end')
             return 0
         end
+
         if (is_blue(937, 1046) ~= 1) then
             log('Switch MEGA')
             click(1145, 1032, 1000)
@@ -271,7 +274,8 @@ function Game:setSecretMissions()
                     log('Send heroes to mission')
                     return 1
                 else
-                    escape(1000, 'Fail send heroes to mission')
+                    log('Fail send heroes to mission')
+                    Map:normalize()
                 end
             end
         end

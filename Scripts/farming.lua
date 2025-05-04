@@ -1,6 +1,7 @@
 --lua
 
 require('dist/init')
+debug = 0
 
 reset_cooldown()
 Map:normalize()

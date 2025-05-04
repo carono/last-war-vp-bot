@@ -51,7 +51,7 @@ function Event:openMilitaryRaceTab()
 end
 
 function Event:getEventTabName()
-    if kfindcolor(769, 438, 16030309) == 1 then
+    if kfindcolor(1135, 184, 16777215) == 1 then
         return 'military_race'
     end
     if kfindcolor(661, 221, 15191056) == 1 then

@@ -12,8 +12,12 @@ else
         Window:repos()
         Window:resizeCanonical()
     end
+end
 
-    function log()
+originalLog = log
 
+function log(data)
+    if (debug == 1) then
+        originalLog(data)
     end
 end

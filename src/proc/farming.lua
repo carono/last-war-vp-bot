@@ -51,6 +51,7 @@ function check_base()
         Base:collectMilitaryTrack()
         Base:collectAdvancedResourcesByOneClick()
         Base:greetingSurvivals()
+        Game:checkFreeTavernHero()
     end
 end
 

@@ -15,18 +15,18 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Request for help to treat units
 - Automatic entry into the rally
 - ❌ Creating a rally
-- Treasure notification
-- ❌ Treasure trove
+- ✅ Treasure notification (telegram)
+- ❌ Treasure digging
 - ❌ Collecting a treasure gift
 
 ### Radar assignments
 - ✅ Collecting completed tasks
-- ❌ Completing missions
-- ❌ Accumulation of tasks for VS
+- ✅ Completing missions
+- ✅ Accumulation of tasks for VS
 
 ### Events
 - 🟡 Alliance exercises (can be used by car rally, but without settings)
-- ❌ Code name
+- ✅ Code name
 - ❌ Desert Storm
 - ❌ Snow storm
 - ❌ The arms race
@@ -55,14 +55,17 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Collecting additional resources (drone components, seasonal, ore, etc.)
 
 ### Secret missions
-- ❌ Installation of secret missions
+- ✅ Upgrade missions to UR for tickets
+- ❌ Upgrade missions to UR for diamonds
+- ❌ Upgrade missions to UR via MEGA
+- ✅ Installation of secret missions
 - ❌ Robbery of secret missions
 - Collecting secret alliance missions
 - ✅ Collect your secret missions
 - Installation of the exchange of pieces of cards
 
 ### Trucks
-- ❌ Collect rewards from trucks
+- ✅ Collect rewards from trucks
 - ❌ Sending trucks
 - ❌ Truck robbery
 
@@ -81,7 +84,7 @@ The script is designed for a farm account, which will solve all the routine work
 - ❌ Collect free diamonds
 
 ### Heroes
-- ❌ Collect free survivor and hero tickets
+- ✅ Collect free survivor and hero tickets
 - ❌ Leveling up heroes
 - ❌ Leveling up the rank of heroes
 - ❌ Leveling up heroes ' skills

@@ -20,7 +20,9 @@ end
 function Hud:clickButton(name)
     local x, y = self:findButton(name)
     if (x > 0) then
-        return click_and_wait_color(x, y, self.wait_colors[name][3], self.wait_colors[name][1], self.wait_colors[name][2])
+        local result = click_and_wait_color(x, y, self.wait_colors[name][3], self.wait_colors[name][1], self.wait_colors[name][2])
+        wait(1000)
+        return result
     end
     return 0
 end
@@ -44,6 +46,6 @@ function Hud:rightScrollModalTabs(count)
 end
 
 function Hud:clickFirstTab()
-    click(681, 107)
+    click(681, 107, 1000)
 end
 
