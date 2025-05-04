@@ -27,15 +27,9 @@ function Game:start()
     local game_path = Storage:get('game_path', os.getenv('LOCALAPPDATA') .. "\\TheLastWar\\Launch.exe")
     local startup_timeout = 30000
     log('Try launch the game: ' .. game_path .. ' and wait ' .. (startup_timeout / 1000) .. 's')
+    Notify:accountStartGame()
     exec(game_path)
     wait(startup_timeout)
-    Notify:accountStartGame()
-    if (Game:isLogout() == 1) then
-        log('User instance login, waiting')
-        local logout_timeout = Storage:get('logout_timeout', 7 * 60)
-        Game:clickLogout(logout_timeout * 2)
-        return Game:start()
-    end
 end
 
 function Game:hasLogoutModal()
@@ -70,14 +64,28 @@ function Game:hasUpdateFinishedModal()
     return 0
 end
 
-function Game:clickLogout(logout_timeout)
+function Game:clickLogout()
     log('Click logout button')
     wait(1000)
     left(893, 638)
+    local logout_timeout = Storage:get('logout_timeout', 7 * 60)
+    local logout_timeout_inc = Storage:get('logout_timeout_inc', logout_timeout)
+
+    if (os.clock() < Storage:get('logout_timer', os.clock())) then
+        log('Instance re-login, increase timeout')
+        logout_timeout = logout_timeout_inc + (logout_timeout_inc * 70 / 100)
+    else
+        Storage:set('logout_timer', nil)
+        Storage:get('logout_timeout_inc', Storage:get('logout_timeout'))
+    end
+
     Game:restart(logout_timeout)
+    Storage:set('logout_timer', ktimer(3 * 60 * 1000))
+    Storage:set('logout_timeout_inc', logout_timeout)
 end
 
 function Game:resetUserActivity()
+    log('Reset user mouse pos')
     local x, y = mouse_pos()
     Storage:set('lastMousePosX', x)
     Storage:set('lastMousePosY', y)
@@ -88,6 +96,7 @@ function Game:userIsActive()
     local oldX = Storage:get('lastMousePosX')
     local oldY = Storage:get('lastMousePosY')
     if (oldY ~= y or oldX ~= x) then
+        log('Old mouse cords is ' .. oldX .. ',' .. oldY .. ' current is ' .. x .. ',' .. y)
         return 1
     end
     return 0
@@ -271,7 +280,7 @@ function Game:setSecretMissions()
 end
 
 function Game:restart(logout_timeout)
-    logout_timeout = Storage:get('logout_timeout', 7 * 60)
+    logout_timeout = logout_timeout or Storage:get('logout_timeout', 7 * 60)
     Window:detach();
     log('Try killing a game')
     exec("taskkill /f /im lastwar.exe")

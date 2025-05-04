@@ -541,6 +541,7 @@ function cooldown(slug, time)
 end
 
 function reset_cooldown(slug)
+    log('Reset cooldown: ' .. (slug or 'all'))
     if (slug == nil) then
         Storage:set('cooldown', {})
         return
