@@ -7,6 +7,11 @@ The script is designed for a farm account, which will solve all the routine work
 - Open the **scripts\farming.lua** script in the application (Script > Open)
 - Press the "play" button
 
+### Ministry
+- ❌ Application submission
+- ❌ Appointment Notification (telegram)
+- ❌ Application submission under VS
+
 ### Alliance support
 - ✅ Collecting alliance gifts, regular and premium
 - ✅ Help to the alliance
@@ -14,7 +19,7 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Collecting units from the hospital
 - ✅ Request for help to treat units
 - Automatic entry into the rally
-- ❌ Creating a rally
+- ✅ Creating a rally
 - ✅ Treasure notification (telegram)
 - ❌ Treasure digging
 - ❌ Collecting a treasure gift
@@ -29,7 +34,13 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Code name
 - ❌ Desert Storm
 - ❌ Snow storm
-- ❌ The arms race
+
+### Arms Race (Event)
+- ✅ Drone execution, rally creation, stamina gathering
+- ❌ City execution
+- ❌ Hero Execution
+- ❌ Technology execution
+- ❌ Execution of units
 
 ### Base
 - ❌ Technology study
@@ -58,7 +69,7 @@ The script is designed for a farm account, which will solve all the routine work
 - ✅ Upgrade missions to UR for tickets
 - ❌ Upgrade missions to UR for diamonds
 - ❌ Upgrade missions to UR via MEGA
-- ✅ Installation of secret missions
+- ✅ Install secret missions
 - ❌ Robbery of secret missions
 - Collecting secret alliance missions
 - ✅ Collect your secret missions
