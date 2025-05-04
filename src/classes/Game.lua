@@ -86,13 +86,13 @@ end
 
 function Game:resetUserActivity()
     log('Reset user mouse pos')
-    local x, y = mouse_pos()
+    local x, y = mouse_pos("abs")
     Storage:set('lastMousePosX', x)
     Storage:set('lastMousePosY', y)
 end
 
 function Game:userIsActive()
-    local x, y = mouse_pos()
+    local x, y = mouse_pos("abs")
     local oldX = Storage:get('lastMousePosX')
     local oldY = Storage:get('lastMousePosY')
     if (oldY ~= y or oldX ~= x) then
@@ -104,7 +104,7 @@ end
 
 function Game:waitIfUserIsActive()
     if (self:userIsActive() == 1) then
-        local x, y = mouse_pos()
+        local x, y = mouse_pos("abs")
         Storage:set('lastMousePosX', x)
         Storage:set('lastMousePosY', y)
         local timeout = Storage:get('timeout_if_user_active', 90)

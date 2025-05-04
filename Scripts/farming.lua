@@ -16,14 +16,18 @@ check_logout()
 
 normalize_map()
 notify_treasure()
-auto_rally()
-check_base()
-check_alliance()
 check_secret_missions()
-collect_promo_gifts()
 check_events()
-read_mail()
+military_race()
+check_base()
+
+check_alliance()
 check_radar()
+
+collect_promo_gifts()
+auto_rally()
+read_mail()
+
 check_connection()
 
 Alliance:applyHelp()

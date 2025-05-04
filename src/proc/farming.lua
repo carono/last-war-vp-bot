@@ -70,11 +70,14 @@ function check_secret_missions()
         log('Start checking secret missions')
 
         if (Base:clickMissionButton() == 1) then
+            log('Setting missions')
             Game:rotateSecretMissionsToUR()
             Game:setSecretMissions()
+            Map:normalize()
         end
 
         if (Base:clickMissionButton() == 1) then
+            log('Collect missions')
             Game:collectSecretMissions()
             Game:collectAllianceSecretMissions()
             Map:normalize()
@@ -93,6 +96,21 @@ function read_mail()
     if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking gifts')
         Game:readAllMail(1)
+    end
+end
+
+function military_race()
+    if (cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+        log('Start checking military race')
+        if (MilitaryRaceEvent:getEventName() == 'science') then
+            DroneRace:getStamina()
+        end
+        if (MilitaryRaceEvent:getEventName() == 'drone') then
+            DroneRace:getStamina()
+            if (Rally:createDoomElite() == 1) then
+                reset_cooldown('militaryRace')
+            end
+        end
     end
 end
 

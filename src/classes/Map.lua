@@ -1,12 +1,14 @@
 Map = {}
 
 function Map:isBase()
-    --science button is exists
     return kfindcolor(45, 313, 16756763)
 end
 
 function Map:isWorld()
-    return kfindcolor(1724, 1033, 14052657) or Map:isScrollOut()
+    if (kfindcolor(1724, 1033, 14052657) == 1) then
+        return 1
+    end
+    return 0
 end
 
 function Map:state()
@@ -61,7 +63,9 @@ function Map:openBase()
         log('Waiting opening base at 5s')
         self:clickBaseButton()
         wait(5000)
+        return 1
     end
+    return 0
 end
 
 function Map:openMap()
@@ -70,7 +74,9 @@ function Map:openMap()
         self:clickBaseButton()
         log('Waiting opening map at 5s')
         wait(5000)
+        return 1
     end
+    return Map:isWorld()
 end
 
 function Map:isCrossServer()

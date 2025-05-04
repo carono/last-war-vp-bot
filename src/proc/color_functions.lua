@@ -164,9 +164,9 @@ function wait_color(x, y, findcolor, timeout, cd)
             log('Color', findcolor, 'is successful find')
             return 1
         end
-        log('Wait color', findcolor, 'in', x .. ', ' .. y, 'current color:', color(x, y), math.ceil(timer - os.clock()) .. 's')
+        log('Wait color' .. findcolor .. 'in' .. x .. ',' .. y .. 'current color: ' .. color(x, y) .. ' ' .. math.ceil(timer - os.clock()) .. 's')
     end
-    log('Timeout wait color', x, ',', y, findcolor, timer)
+    log('Timeout wait color' .. x, ',' .. y .. findcolor, timer)
     return 0
 end
 

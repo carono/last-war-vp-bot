@@ -62,14 +62,20 @@ function Rally:applyJoin()
     end
 end
 
-
---
-
---
---if 660, 1070 50431
---kleft 1341, 154
---end_if
---
---if 1636, 786 13562365
---kleft 1636, 786
---end_if
+function Rally:createDoomElite()
+    if (Map:openMap() == 1) then
+        if (Hud:clickButton('search') == 1) then
+            click(1085, 548, 1000)
+            if (click_blue_button(898, 1013) == 1) then
+                wait(2000)
+                click_and_wait_color(897, 827, blue_color, 918, 831, 2000, 1000, 'Try create rally')
+                click_blue_button(907, 832)
+                wait(5000)
+                if (kfindcolor(638, 118, 10257016) ~= 1) then
+                    return 1
+                end
+            end
+        end
+    end
+    return 0
+end

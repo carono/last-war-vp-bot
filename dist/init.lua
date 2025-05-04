@@ -16,8 +16,9 @@ end
 
 originalLog = log
 
-function log(data)
+function log(...)
+    local args = { ... }
     if (debug == 1) then
-        originalLog(data)
+        originalLog(unpack(args))
     end
 end
