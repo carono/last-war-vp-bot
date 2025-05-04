@@ -107,7 +107,8 @@ function military_race()
         end
         if (MilitaryRaceEvent:getEventName() == 'drone') then
             DroneRace:getStamina()
-            if (Rally:createDoomElite() == 1) then
+            local rally = Rally:createDoomElite()
+            if (rally >= 1 and rally < 5) then
                 reset_cooldown('militaryRace')
             end
         end

@@ -80,6 +80,7 @@ function Game:clickLogout()
     end
 
     Game:restart(logout_timeout)
+    reset_cooldown()
     Storage:set('logout_timer', ktimer(3 * 60 * 1000))
     Storage:set('logout_timeout_inc', logout_timeout)
 end

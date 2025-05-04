@@ -71,23 +71,23 @@ function Rally:createDoomElite()
                 if (click_and_wait_color(897, 827, blue_color, 918, 831, 2000, 1000, 'Try create rally') == 0) then
                     log('Cant create rally')
                     Map:normalize()
-                    return 0
+                    return 2
                 end
                 if (click_blue_button(907, 832) == 0) then
                     log('Heroes is busy')
                     Map:normalize()
-                    return 1
+                    return 3
                 end
                 wait(5000)
                 if (kfindcolor(648, 117, 10257016) == 1) then
                     log('Need troops for rally')
                     Map:normalize()
-                    return 1
+                    return 4
                 end
                 if (kfindcolor(638, 118, 10257016) == 1) then
                     log('Need stamina for rally')
                     Map:normalize()
-                    return 0
+                    return 5
                 end
                 return 1
             end
