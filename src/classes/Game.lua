@@ -183,18 +183,32 @@ end
 
 function Game:checkFreeTavernHero()
     Map:normalize()
-    click_and_wait_color(84, 1055, 16765462, 897, 995);
-    click_and_wait_color(897, 995, 4187738, 820, 840);
+    click_and_wait_color(84, 1055, 16765462, 897, 995, nil, nil, 'Open heroes menu');
+    click_and_wait_color(897, 995, 4187738, 820, 840, nil, nil, 'Open hiring heroes');
     wait(200)
-    if (find_color(654, 833, 847, 909, 54783) == 0) then
-        log('Open hero')
-        Game:openCard()
+
+    if (kfindcolor(1160, 201, 16777215) == 1) then
+        if (find_color(654, 833, 847, 909, 4898535) == 0) then
+            log('Open season hero card')
+            Game:openCard()
+        end
     end
+
+    if (kfindcolor(1161, 335, 16777215) == 1) then
+        if (find_color(654, 833, 847, 909, 54783) == 0) then
+            log('Open hero card')
+            Game:openCard()
+        end
+    end
+
     click_and_wait_color(1080, 1022, 11891208, nil, nil, nil, 500, 'Click survival tab')
-    if (find_color(654, 833, 847, 909, 4444407) == 0) then
-        log('Open survival')
-        Game:openCard()
+    if (kfindcolor(1173, 262, 16777215) == 1) then
+        if (find_color(654, 833, 847, 909, 4444407) == 0) then
+            log('Open survival card')
+            Game:openCard()
+        end
     end
+
     Map:normalize()
 end
 

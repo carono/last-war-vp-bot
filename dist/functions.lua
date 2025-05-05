@@ -260,16 +260,16 @@ function check_secret_missions()
         log('Start checking secret missions')
 
         if (Base:clickMissionButton() == 1) then
-            log('Setting missions')
-            Game:rotateSecretMissionsToUR()
-            Game:setSecretMissions()
+            log('Collect missions')
+            Game:collectSecretMissions()
+            Game:collectAllianceSecretMissions()
             Map:normalize()
         end
 
         if (Base:clickMissionButton() == 1) then
-            log('Collect missions')
-            Game:collectSecretMissions()
-            Game:collectAllianceSecretMissions()
+            log('Setting missions')
+            Game:rotateSecretMissionsToUR()
+            Game:setSecretMissions()
             Map:normalize()
         end
     end

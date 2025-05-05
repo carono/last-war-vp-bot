@@ -9,16 +9,9 @@ local function time_to_minutes(time_string)
     return tonumber(hours) * 60 + tonumber(minutes)
 end
 
-local function get_server_time()
-    local utc = os.date("!*t")
-    utc.hour = utc.hour - 2
-    local pacific_time = os.time(utc)
-    return os.date("%H:%M", pacific_time)
-end
-
 function MilitaryRaceEvent:getEventName()
     local day_number = self:getCurrentRaceDay()
-    local time_string = get_server_time()
+    local time_string = Server:getTime()
     local minutes_today = time_to_minutes(time_string)
     local total_minutes = (day_number - 1) * 1440 + minutes_today
     local index = math.floor(total_minutes / event_duration) % #events + 1
