@@ -30,7 +30,7 @@ function Base:radarIsOpen()
 end
 
 function Radar:open()
-    if (Hud:clickButton('radar') == 1 and Base:radarIsOpen() == 1) then
+    if (Base:radarIsOpen() == 1 or Hud:clickButton('radar')) then
         wait(1000)
         return 1
     end

@@ -1,8 +1,8 @@
 --lua
 
 
-function notify_treasure()
-    if (Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) then
+function notify_treasure(force)
+    if ((Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) or force == 1) then
         local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
         local telegram_bot_id = Storage:get('telegram_bot_id')
         local treasure_message = Storage:get('treasure_message', 'Digging treasure')
@@ -22,28 +22,28 @@ function check_handle()
     end
 end
 
-function check_logout()
-    if (Game:isLogout() == 1 and Game:userIsActive() == 0) then
+function check_logout(force)
+    if ((Game:isLogout() == 1 and Game:userIsActive() == 0) or force == 1) then
         Notify:accountIsLogout()
         Game:clickLogout()
     end
 end
 
-function normalize_map()
-    if (cooldown('MapNormalize') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function normalize_map(force)
+    if ((cooldown('MapNormalize') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         Map:normalize()
     end
 end
 
-function auto_rally()
-    if (cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function auto_rally(force)
+    if ((cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Try join to rally')
         Rally:joinIfExist()
     end
 end
 
-function check_base()
-    if (cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function check_base(force)
+    if ((cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking tasks on base')
         Base:openBase(1)
         Base:getVipPresents()
@@ -55,8 +55,8 @@ function check_base()
     end
 end
 
-function check_alliance()
-    if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function check_alliance(force)
+    if ((cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking alliance tasks')
         if (Alliance:open() == 1) then
             Alliance:checkTech()
@@ -84,22 +84,22 @@ function check_secret_missions(force)
     end
 end
 
-function collect_promo_gifts()
-    if (cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function collect_promo_gifts(force)
+    if ((cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking gifts')
         Promo:collectGifts()
     end
 end
 
-function read_mail()
-    if (cooldown('readMail', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function read_mail(force)
+    if ((cooldown('readMail', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking gifts')
         Game:readAllMail(1)
     end
 end
 
-function military_race()
-    if (cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function military_race(force)
+    if ((cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking military race')
         if (MilitaryRaceEvent:getEventNumber() >= 3) then
             DroneRace:getStamina()
@@ -113,9 +113,12 @@ function military_race()
     end
 end
 
-function vs()
-    if (cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function vs(force)
+    if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        VS:collectDroneComponents()
+
         VS:collectGifts()
+        Map:normalize()
     end
 end
 
@@ -149,16 +152,16 @@ function check_events(force)
     end
 end
 
-function check_radar()
-    if (cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function check_radar(force)
+    if ((cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         if (VS:isRadarDay() == 1) then
-
             Radar:collectFinishedTasks()
         end
-
+        log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
         if (MilitaryRaceEvent:getEventNumber() >= 4) then
             Radar:autoFinishTasks()
         end
+        Map:normalize()
 
         Radar:collectFinishedTrucks()
     end
@@ -173,23 +176,14 @@ function farming_timeout()
 end
 
 function check_connection()
-
-    if kfindcolor(913, 573, 2546431) == 1 then
-        log('Connection error, click something 1')
-        click(913, 573, 400)
-    end
-    if kfindcolor(862, 593, 16765462) == 1 then
-        log('Connection error, click something 2')
-        click(862, 593, 400)
-    end
     if (Game:hasUpdateFinishedModal() == 1) then
-        log('Updates is finished, click OK and wait 30s')
-        click(910, 597, 30000)
+        log('Updates is finished')
+        Game:restart(30)
     end
 
-    if (is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1 and Game:isPreloadMenu() == 1) then
+    if ((is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1) or Game:isPreloadMenu() == 1) then
         log('Connection error, click confirm and wait 30s')
-        click(1061, 597, 30000)
+        Game:restart(120)
     end
 
     if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then

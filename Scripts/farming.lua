@@ -40,12 +40,12 @@ Game:getRallyPresents()
 Game:collectDailyPresents()
 Game:waitIfUserIsActive()
 
-wait(1000)
-farming_timeout()
-
 if (cooldown('restart', 60 * 60) == 1) then
     Game:restart(60)
     goto init
 end
+
+wait(1000)
+farming_timeout()
 
 goto start

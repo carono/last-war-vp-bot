@@ -6,7 +6,8 @@ Hud = {
         events = { 952, 11, modal_header_color },
         trucks = { 892, 146, 4567463 },
         search = { 803, 498, modal_header_color },
-        radar = { 1071, 28, stamina_color }
+        radar = { 1071, 28, stamina_color },
+        inventory = { 838, 26, modal_header_color }
     }
 }
 
@@ -31,6 +32,10 @@ function Hud:findButton(name)
     end
     if name == 'vs' then
         return find_colors(1684, 164, 1771, 419, { { 1703, 285, 3229666 }, { 1737, 289, 16755819 } })
+    end
+
+    if name == 'inventory' then
+        return find_colors(1688, 920, 1767, 996, { { 1706, 967, 6500368 }, { 1745, 944, 6699289 } })
     end
     return 0, 0
 end
