@@ -9,12 +9,16 @@ local function time_to_minutes(time_string)
     return tonumber(hours) * 60 + tonumber(minutes)
 end
 
-function MilitaryRaceEvent:getEventName()
+function MilitaryRaceEvent:getEventNumber()
     local day_number = self:getCurrentRaceDay()
     local time_string = Server:getTime()
     local minutes_today = time_to_minutes(time_string)
     local total_minutes = (day_number - 1) * 1440 + minutes_today
-    local index = math.floor(total_minutes / event_duration) % #events + 1
+    return math.floor(total_minutes / event_duration) % #events + 1
+end
+
+function MilitaryRaceEvent:getEventName()
+    local index = MilitaryRaceEvent:getEventNumber()
     return events[index]
 end
 

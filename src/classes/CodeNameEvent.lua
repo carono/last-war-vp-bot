@@ -5,17 +5,23 @@ function CodeNameEvent:execute()
     if (os.date("*t").wday == 1) then
         return 0
     end
-
-    if (Event:openEventTab('code_name') == 1 and click_blue_button(969, 1009) == 1) then
-        wait(2000)
-        CodeNameEvent:attackBoss()
-        return 1
+    log('Execute code_name event')
+    if (Event:openEventTab('code_name') == 1) then
+        if (click_blue_button(969, 1009) == 1) then
+            wait(2000)
+            CodeNameEvent:attackBoss()
+            return 1
+        end
+        if (click_if_red(1154, 429) == 1 and click_if_green(1116, 303) == 1) then
+            close_gift_modal()
+            wait(1000)
+        end
     end
-    Map:normalize()
     return 0
 end
 
 function CodeNameEvent:attackBoss(attack_number)
+    log('Try attack boss')
     attack_number = attack_number or 1
     click(903, 529, 1000)
     if (Hero:openAttackMenu() == 1) then

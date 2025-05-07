@@ -1,9 +1,12 @@
 --lua
-
-require('dist/init')
 debug = 0
+require('dist/init')
+
+:: init ::
 
 reset_cooldown()
+cooldown('restart', 60 * 60)
+
 Map:normalize()
 wait(10000)
 Game:resetUserActivity()
@@ -19,6 +22,7 @@ notify_treasure()
 check_secret_missions()
 check_events()
 military_race()
+vs()
 check_base()
 
 check_alliance()
@@ -38,5 +42,10 @@ Game:waitIfUserIsActive()
 
 wait(1000)
 farming_timeout()
+
+if (cooldown('restart', 60 * 60) == 1) then
+    Game:restart(60)
+    goto init
+end
 
 goto start

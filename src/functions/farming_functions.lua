@@ -51,32 +51,31 @@ function check_base()
         Base:collectMilitaryTrack()
         Base:collectAdvancedResourcesByOneClick()
         Base:greetingSurvivals()
-        Game:checkFreeTavernHero()
+        --Game:checkFreeTavernHero()
     end
 end
 
 function check_alliance()
     if (cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking alliance tasks')
-        Alliance:open()
-        Alliance:checkTech()
-        Alliance:getPresent()
-        Map:normalize()
+        if (Alliance:open() == 1) then
+            Alliance:checkTech()
+            Alliance:getPresent()
+            Map:normalize()
+        end
     end
 end
 
-function check_secret_missions()
-    if (cooldown('secretMissions', 600) == 1) then
+function check_secret_missions(force)
+    if ((cooldown('secretMissions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking secret missions')
 
-        if (Base:clickMissionButton() == 1) then
+        if (Hud:clickButton('missions') == 1) then
             log('Collect missions')
             Game:collectSecretMissions()
             Game:collectAllianceSecretMissions()
-            Map:normalize()
-        end
+            click(772, 419, 400)
 
-        if (Base:clickMissionButton() == 1) then
             log('Setting missions')
             Game:rotateSecretMissionsToUR()
             Game:setSecretMissions()
@@ -102,30 +101,50 @@ end
 function military_race()
     if (cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         log('Start checking military race')
-        if (MilitaryRaceEvent:getEventName() == 'science') then
+        if (MilitaryRaceEvent:getEventNumber() >= 3) then
             DroneRace:getStamina()
         end
-        if (MilitaryRaceEvent:getEventName() == 'drone') then
-            DroneRace:getStamina()
+        if (MilitaryRaceEvent:getEventNumber() >= 4) then
             local rally = Rally:createDoomElite()
-            if (rally >= 1 and rally < 5) then
+            if (rally >= 1 and rally < 4) then
                 reset_cooldown('militaryRace')
             end
         end
     end
 end
 
-function check_events()
-    if (cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+function vs()
+    if (cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+        VS:collectGifts()
+    end
+end
+
+function check_events(force)
+    if ((cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         if (Event:open() == 1) then
-            if (Event:openEventTab('military_race') == 1) then
-                Event:collectMilitaryRaceGifts()
-            end
-            if (Event:openEventTab('judgment_day') == 1) then
-                Event:collectJudgmentDayGifts()
-            end
+            Hud:leftScrollModalTabs(10)
+            Hud:clickFirstTab()
+            local i = 0
+            repeat
+                local tab = Event:getEventTabName()
+                log('See ' .. tab .. ' event')
+                if (tab ~= 0) then
+                    if (tab == 'military_race') then
+                        Event:collectMilitaryRaceGifts()
+                    end
+                    if (tab == 'judgment_day' == 1) then
+                        Event:collectJudgmentDayGifts()
+                    end
+                    if (tab == 'code_name') then
+                        CodeNameEvent:execute()
+                    end
+                end
+                if (Event:clickNextTab() == 0) then
+                    Hud:rightScrollModalTabs(2)
+                end
+                i = i + 1
+            until (tab == 'social' or i >= 10)
         end
-        CodeNameEvent:execute()
         Map:normalize()
     end
 end
@@ -133,9 +152,14 @@ end
 function check_radar()
     if (cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (VS:isRadarDay() == 1) then
+
             Radar:collectFinishedTasks()
         end
-        Radar:autoFinishTasks()
+
+        if (MilitaryRaceEvent:getEventNumber() >= 4) then
+            Radar:autoFinishTasks()
+        end
+
         Radar:collectFinishedTrucks()
     end
 end

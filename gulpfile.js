@@ -9,37 +9,36 @@ const {execSync} = require('child_process');
 
 // Пути
 const paths = {
-    proc: ['./src/proc/*.lua'],
+    functions: ['./src/functions/*.lua'],
     classes: ['./src/classes/*.lua'],
 };
 
 // Задача для обработки файлов proc — создаёт functions.lua с комментариями
-function procTask(options = {}) {
-    return (cb) => {
-        const {inputPaths = {}, outputDir = './dist'} = options;
+function functionsTask(options = {}) {
+    const folder = './src/functions';
+    const outputFile = './dist/functions.lua';
 
-        const tasks = Object.entries(inputPaths).map(([key, paths]) => {
-            return new Promise((resolve) => {
-                gulp.src(paths)
-                    .pipe(through.obj((file, _, cb) => {
-                        if (file.isBuffer()) {
-                            const header = `-- lua ${path.basename(file.path)}\n`;
-                            file.contents = Buffer.concat([Buffer.from(header), file.contents]);
-                        }
-                        cb(null, file);
-                    }))
-                    .pipe(concat(options.file, {newLine: '\n\n'}))
-                    .pipe(gulp.dest(outputDir))
-                    .on('end', resolve);
+    return gulp.src(path.join(folder, '*.lua'))
+        .pipe(through.obj(function (file, _, cb) {
+            this.files = this.files || [];
+            this.files.push(file);
+            cb();
+        }, function (cb) {
+            const lines = this.files.map(file => {
+                const filename = path.basename(file.path, '.lua');
+                return `require("src.functions.${filename}")`;
             });
-        });
 
-        Promise.all(tasks).then(() => cb());
-    };
+            const outputContent = '--lua\n' + lines.join('\n') + '\n';
+            fs.mkdirSync(path.dirname(outputFile), {recursive: true});
+            fs.writeFileSync(outputFile, outputContent);
+
+            cb();
+        }));
 }
 
 // Задача генерации Classes.lua через require
-function generateClassesTask() {
+function classesTask() {
     const classesDir = './src/classes';
     const outputFile = './dist/Classes.lua';
 
@@ -62,18 +61,12 @@ function generateClassesTask() {
         }));
 }
 
-// Отдельные gulp-задачи
-gulp.task('proc', procTask({
-    inputPaths: {controllers: paths.proc},
-    file: 'functions.lua',
-    outputDir: './dist'
-}));
-
-gulp.task('classes', generateClassesTask);
+gulp.task('functions', functionsTask);
+gulp.task('classes', classesTask);
 
 // Наблюдение за изменениями
 gulp.task('watch', function () {
-    gulp.watch(paths.proc, gulp.series('proc'));
+    gulp.watch(paths.functions, gulp.series('functions'));
     gulp.watch(paths.classes, gulp.series('classes'));
 });
 
@@ -94,4 +87,4 @@ gulp.task('git-check', function (done) {
 });
 
 // Задача по умолчанию
-gulp.task('default', gulp.series('proc', 'classes'));
+gulp.task('default', gulp.series('functions', 'classes'));

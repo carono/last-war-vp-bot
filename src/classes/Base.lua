@@ -169,12 +169,13 @@ function Base:findOreResource()
 end
 
 function Base:collectAdvancedResourcesByOneClick()
-    local x, y = Base:findOreResource()
-    if (x > 0) then
-        log('Collect resources')
-        click(x, y, 2000)
-        return 1
-    end
+    local x, y
+    --x, y = Base:findOreResource()
+    --if (x > 0) then
+    --    log('Collect resources')
+    --    click(x, y, 2000)
+    --    return 1
+    --end
 
     x, y = Base:findBreadResource();
     if (x > 0) then

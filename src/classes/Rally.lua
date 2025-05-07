@@ -79,15 +79,15 @@ function Rally:createDoomElite()
                     return 3
                 end
                 wait(5000)
-                if (kfindcolor(648, 117, 10257016) == 1) then
-                    log('Need troops for rally')
-                    Map:normalize()
-                    return 4
-                end
-                if (kfindcolor(638, 118, 10257016) == 1) then
+                if (kfindcolor(1135, 438, yellow_color) == 1) then
                     log('Need stamina for rally')
                     Map:normalize()
                     return 5
+                end
+                if (kfindcolor(676, 356, 8476991) == 1) then
+                    log('Need troops for rally')
+                    Map:normalize()
+                    return 4
                 end
                 return 1
             end

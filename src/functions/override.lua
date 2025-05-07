@@ -44,6 +44,8 @@ function click(x, y, time)
     if (Game:isLogout() == 1) then
         return 0
     end
+    local w = time or 0
+    log('Click ' .. x .. ', ' .. y .. ' and wait ' .. (w / 1000) .. 's')
     left(x, y, time)
 end
 
@@ -105,6 +107,18 @@ function click_while_not_color(x, y, color, colorX, colorY, timeout)
         end
     end
     return 0
+end
+
+function click_if_green(x, y, colorX, colorY, timeout)
+    colorX = colorX
+    colorY = colorY
+    return click_if_color(x, y, green_color, colorX, colorY, timeout)
+end
+
+function click_if_yellow(x, y, colorX, colorY, timeout)
+    colorX = colorX
+    colorY = colorY
+    return click_if_color(x, y, yellow_color, colorX, colorY, timeout)
 end
 
 function click_if_red(x, y, colorX, colorY, timeout)

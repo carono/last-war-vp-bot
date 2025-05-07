@@ -19,22 +19,23 @@ function Event:open()
 end
 
 function Event:collectMilitaryRaceGifts()
+    log('Collect military race gifts')
     if (kfindcolor(770, 538, 50943) == 1) then
         click(686, 456, 500)
         close_gift_modal()
-        wait(1000)
+        wait(2000)
     end
     if (kfindcolor(961, 542, 50943) == 1) then
         click(907, 458, 500)
         close_gift_modal()
-        wait(1000)
+        wait(2000)
     end
     if (kfindcolor(1159, 537, 50943) == 1) then
         click(1078, 458, 500)
         close_gift_modal()
-        wait(1000)
+        wait(2000)
     end
-    if (kfindcolor(710, 330, 1689938) == 1) then
+    if (kfindcolor(696, 344, 1886538) == 1) then
         click(660, 288, 500)
         close_gift_modal()
         wait(1000)
@@ -93,11 +94,12 @@ function Event:clickNextTab()
 end
 
 function Event:openEventTab(name)
-    Hud:clickButton('events')
-
     if (Event:getEventTabName() == name) then
         return 1
     end
+
+    Map:normalize()
+    Hud:clickButton('events')
 
     Hud:leftScrollModalTabs(10)
     Hud:clickFirstTab()
@@ -116,6 +118,7 @@ function Event:openEventTab(name)
 end
 
 function Event:collectJudgmentDayGifts()
+    log('Collect judgment day gifts')
     if click_if_red(1164, 285) == 1 then
         wait(1000)
         click_green_button(879, 938)

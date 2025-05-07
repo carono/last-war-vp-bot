@@ -2,14 +2,14 @@ red_color = '(3741951, 3740927, 3740911, 4869631, 214-240, 2171052,1845489-15216
 green_color = '(4187738, 6540855, 6148674, 6344247)'
 modal_header_color = '(6179651, 10257016-10257017)'
 blue_color = '(16765462, 16231954-16758336)'
-yellow_color = '(2415103-2546431, 571647-639999)'
+yellow_color = '(2415103-2546431, 571647-639999,10675967)'
 white_color = '(16777215)'
 stamina_color = '(48383-183295)'
 
 inactive_tab_color = '(5390650,5390649)'
 active_tab_color = '(560895, 16768189, 16770006, 16772335)'
 tab_body_color = '14080996'
-
+  
 function kfindcolor (x, y, color, margin, deviation)
     if (Window:getGameHandle() == 0) then
         return 0

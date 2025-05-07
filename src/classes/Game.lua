@@ -149,13 +149,14 @@ function Game:readAllMail(force)
 end
 
 function Game:collectDailyPresents()
-    if (is_red(61, 924) == 1) then
-        click_and_wait_color(36, 961, 6179651, 863, 30)
-    end
-    if (kfindcolor(35, 978, 6354839) == 1) then
+    if (kfindcolor(47, 970, 6158242) == 1) then
         click(230, 957)
         close_gift_modal()
         wait(2000)
+        return Game:collectDailyPresents()
+    end
+    if (is_red(61, 924) == 1) then
+        click_and_wait_color(36, 961, 6179651, 863, 30)
     end
     if (kfindcolor(1139, 18, modal_header_color) == 1) then
         if (kfindcolor(1087, 433, 4187738) == 1) then
