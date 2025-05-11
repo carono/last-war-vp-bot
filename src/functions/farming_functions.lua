@@ -20,6 +20,7 @@ function farming()
     auto_rally()
     read_mail()
     collect_daily_presents()
+    ministry_notify()
 
     check_connection()
 
@@ -31,12 +32,26 @@ function farming()
     if (cooldown('restart', preventive_restart) == 1) then
         Game:restart(30, 'Preventive restart')
         reset_cooldown()
-        cooldown('restart', preventive_restart)
+        cooldown('restart', preventive_restart, true)
     end
 
     wait(1000)
     farming_timeout()
     farming()
+end
+
+function ministry_notify()
+    if (Storage:get('ministry_hat_notify', 0) == 1) then
+        local hat = Ministry:hasMinistryHat()
+        if (hat ~= nil and cooldown_is_expire('ministry_hat') == 1) then
+            Notify:sendTelegramMessage('Has ministry hat: ' .. hat)
+            cooldown('ministry_hat', 6 * 60, true)
+        end
+        if (Notify:hasLabel() == 1 and cooldown_is_expire('label') == 1) then
+            Notify:sendTelegramMessage('Has info label')
+            cooldown('label', 4 * 60, true)
+        end
+    end
 end
 
 function collect_daily_presents(force)

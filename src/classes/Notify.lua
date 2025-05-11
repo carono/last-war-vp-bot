@@ -35,5 +35,11 @@ function Notify:accountStartGame()
 end
 
 function Notify:hasLabel()
-    return kfindcolor(1006, 24, 16250612)
+    if (kfindcolor(1006, 24, 16250612) == 1) then
+        if (kfindcolor(716, 40, 7520751) == 1) then
+            return 2
+        end
+        return 1
+    end
+    return 0
 end

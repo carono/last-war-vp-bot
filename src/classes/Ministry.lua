@@ -230,5 +230,5 @@ function Ministry:hasMinistryHat()
     if (find_colors(96, 121, 348, 160, { { 115, 140, 1056718 }, { 126, 144, 14871791 } }) > 0) then
         return 'security'
     end
-    return 'none'
+    return nil
 end

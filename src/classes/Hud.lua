@@ -26,7 +26,7 @@ function Hud:findButton(name)
         end
     end
     if name == 'search' then
-        return find_colors(11, 506, 83, 913, { { 48, 880, 16116175 }, { 46, 851, 15321748 } })
+        return find_colors(11, 506, 83, 913, { { 36, 890, 15387558 }, { 59, 867, 16775653 } })
     end
     if name == 'radar' then
         return find_colors(11, 506, 83, 913, { { 30, 808, 15189130 }, { 63, 791, 16314589 } })

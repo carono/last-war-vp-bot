@@ -175,10 +175,24 @@ function ktimer(timeout)
     return os.clock() + (timeout / 1000)
 end
 
-function cooldown(slug, time)
-    time = time or 30
+function cooldown_is_expire(slug)
     local key = "cooldown" .. "." .. slug
     local timer = Storage:get(key, nil)
+    log(key .. ' timeout: ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
+    if (timer == nil or os.clock() > timer or timer - os.clock() < 0) then
+        return 1
+    end
+    return 0
+end
+
+function cooldown(slug, time, reset)
+    time = time or 30
+    reset = reset or false
+    local key = "cooldown" .. "." .. slug
+    local timer = Storage:get(key, nil)
+    if (timer == nil) then
+        Storage:set(key, ktimer(time * 1000))
+    end
     log(key .. ': ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
     if (timer == nil or os.clock() > timer or timer - os.clock() > time) then
         Storage:set(key, ktimer(time * 1000))

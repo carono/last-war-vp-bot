@@ -188,7 +188,7 @@ function Base:collectAdvancedResourcesByOneClick()
         log('Collect resources')
         click(x, y, 2000)
         return 1
-    end
+     end
 
     x, y = Base:findOreMine();
     if (x > 0) then
