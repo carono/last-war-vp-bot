@@ -195,11 +195,15 @@ function wait_not_color(x, y, color, timeout)
 end
 
 function log_color_range(x, y)
-    local colors
-    colors = color(x, y)
-    colors = colors .. ',' .. color(x + 1, y)
-    colors = colors .. ',' .. color(x - 1, y)
-    colors = colors .. ',' .. color(x, y + 1)
-    colors = colors .. ',' .. color(x, y - 1)
-    log(colors)
+    local colors = {}
+    table.insert(colors, color(x, y))
+    table.insert(colors, color(x + 1, y))
+    table.insert(colors, color(x - 1, y))
+    table.insert(colors, color(x, y + 1))
+    table.insert(colors, color(x, y - 1))
+
+    log(table.concat(colors, ', '))
+
+    local max, min = table.maxmin(colors)
+    log('Range: ' .. min .. '-' .. max)
 end

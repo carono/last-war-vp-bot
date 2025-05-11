@@ -1,5 +1,44 @@
 --lua
+function farming()
+    log('clear')
 
+    check_handle()
+    check_logout()
+
+    normalize_map()
+    notify_treasure()
+    check_secret_missions()
+    check_events()
+    military_race()
+    vs()
+    check_base()
+
+    check_alliance()
+    check_radar()
+
+    collect_promo_gifts()
+    auto_rally()
+    read_mail()
+    collect_daily_presents()
+
+    check_connection()
+
+    Alliance:applyHelp()
+    --Alliance:clickHealTroops()
+
+    Game:waitIfUserIsActive()
+
+    wait(1000)
+    farming_timeout()
+    farming()
+end
+
+function collect_daily_presents(force)
+    if ((cooldown('collect_daily_presents') == 1 and Game:isLogout() == 0) or force == 1) then
+        Game:getRallyPresents()
+        Game:collectDailyPresents()
+    end
+end
 
 function notify_treasure(force)
     if ((Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) or force == 1) then
@@ -10,6 +49,7 @@ function notify_treasure(force)
             Notify:sendTelegramMessage(treasure_message, telegram_chat_id, telegram_bot_id)
             log('Click treasure notify and wait 10s')
             click(1045, 970, 10000)
+            Map:normalize()
         end
     end
 end
@@ -23,7 +63,7 @@ function check_handle()
 end
 
 function check_logout(force)
-    if ((Game:isLogout() == 1 and Game:userIsActive() == 0) or force == 1) then
+    if (Game:isLogout() == 1 or force == 1) then
         Notify:accountIsLogout()
         Game:clickLogout()
     end
@@ -32,11 +72,12 @@ end
 function normalize_map(force)
     if ((cooldown('MapNormalize') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         Map:normalize()
+        wait(1000)
     end
 end
 
 function auto_rally(force)
-    if ((cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((use_auto_rally == 1 and cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Try join to rally')
         Rally:joinIfExist()
     end
@@ -48,7 +89,7 @@ function check_base(force)
         Base:openBase(1)
         Base:getVipPresents()
         Base:getShopGifts(1)
-        Base:collectMilitaryTrack()
+        --Base:collectMilitaryTrack()
         Base:collectAdvancedResourcesByOneClick()
         Base:greetingSurvivals()
         --Game:checkFreeTavernHero()
@@ -67,7 +108,7 @@ function check_alliance(force)
 end
 
 function check_secret_missions(force)
-    if ((cooldown('secretMissions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('check_secret_missions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking secret missions')
 
         if (Hud:clickButton('missions') == 1) then
@@ -78,7 +119,9 @@ function check_secret_missions(force)
 
             log('Setting missions')
             Game:rotateSecretMissionsToUR()
-            Game:setSecretMissions()
+            if (Game:setSecretMissions() == 1) then
+                reset_cooldown('check_secret_missions')
+            end
             Map:normalize()
         end
     end
@@ -88,6 +131,7 @@ function collect_promo_gifts(force)
     if ((cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking gifts')
         Promo:collectGifts()
+        Map:normalize()
     end
 end
 
@@ -114,6 +158,9 @@ function military_race(force)
 end
 
 function vs(force)
+    if (Server:getDay(1) == 'Sunday') then
+        return 0
+    end
     if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         VS:collectDroneComponents()
 
@@ -140,6 +187,12 @@ function check_events(force)
                     end
                     if (tab == 'code_name') then
                         CodeNameEvent:execute()
+                    end
+                    if (tab == 'marshal') then
+                        if (click_if_red(1145, 340, 1171, 313) == 1 and click_blue_button(957, 823) == 1) then
+                            click_blue_button(1121, 792)
+                            escape(1000, 'Close marshal modal')
+                        end
                     end
                 end
                 if (Event:clickNextTab() == 0) then
@@ -177,18 +230,16 @@ end
 
 function check_connection()
     if (Game:hasUpdateFinishedModal() == 1) then
-        log('Updates is finished')
-        Game:restart(30)
+        Game:restart(30, 'Updates is finished')
     end
 
     if ((is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1) or Game:isPreloadMenu() == 1) then
-        log('Connection error, click confirm and wait 30s')
-        Game:restart(120)
+        Game:restart(120, 'Connection error')
     end
 
     if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (Game:checkConnection() == 0) then
-            Game:restart()
+            Game:restart(30, 'Game is zombie')
         end
     end
 end

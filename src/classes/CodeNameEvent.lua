@@ -9,7 +9,7 @@ function CodeNameEvent:execute()
     if (Event:openEventTab('code_name') == 1) then
         if (click_blue_button(969, 1009) == 1) then
             wait(2000)
-            CodeNameEvent:attackBoss()
+            CodeNameEvent:attackBoss(5)
             return 1
         end
         if (click_if_red(1154, 429) == 1 and click_if_green(1116, 303) == 1) then
@@ -20,8 +20,9 @@ function CodeNameEvent:execute()
     return 0
 end
 
-function CodeNameEvent:attackBoss(attack_number)
+function CodeNameEvent:attackBoss(max_attack, attack_number)
     log('Try attack boss')
+    max_attack = max_attack or 5
     attack_number = attack_number or 1
     click(903, 529, 1000)
     if (Hero:openAttackMenu() == 1) then
@@ -29,7 +30,7 @@ function CodeNameEvent:attackBoss(attack_number)
         Hero:clickAttack()
         wait(62000)
         click_blue_button(924, 672)
-        if (attack_number < 5) then
+        if (attack_number < max_attack) then
             return CodeNameEvent:attackBoss(attack_number + 1)
         end
         return 1

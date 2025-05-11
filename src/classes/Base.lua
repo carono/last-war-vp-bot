@@ -3,7 +3,7 @@ Base = {}
 
 function Base:openBase(force)
     force = force or 0
-    if (Map:isBase() == 1 or force == 0) then
+    if (Map:isWorld() == 1 or force == 1) then
         Map:openMap()
     end
     Map:openBase()
@@ -19,7 +19,18 @@ function Base:clickHireSurvival()
 end
 
 function Base:getSurvival()
-    return find_color(867, 471, 955, 566, 2039583)
+    local x, y
+    x, y = find_color(867, 471, 955, 566, 2039583)
+    if (x > 0) then
+        log('Find default survival')
+        return x, y
+    end
+    x, y = find_color(867, 471, 955, 566, 6676611)
+    if (x > 0) then
+        log('Find season 2 survival')
+        return x, y
+    end
+    return 0, 0
 end
 
 function Base:clickSurvival()
@@ -28,6 +39,7 @@ function Base:clickSurvival()
         log('Find survival with gift or new, clicking')
         click(x, y, 1500)
         click(x, y, 1500)
+        Hud:closeNpcDialogs()
         Base:clickHireSurvival()
         return 1
     end
@@ -81,7 +93,7 @@ function Base:clickMissionButton()
 end
 
 function Base:greetingSurvivals()
-    if (Base:clickSurvivalButton() == 1) then
+    if (Hud:clickButton('survivals') == 1) then
         wait(2000)
         Base:clickSurvival()
     end
@@ -103,6 +115,7 @@ function Base:getVipPresents()
             end
             escape(2000)
         end
+        Map:normalize()
     end
 end
 
@@ -143,6 +156,7 @@ function Base:getShopGifts(force)
             log('Get daily card diamonds')
             close_gift_modal()
         end
+        Map:normalize()
         return 1
     else
         log('No shop gifts')
@@ -164,24 +178,22 @@ function Base:findBreadResource()
     return find_color(139, 129, 1666, 986, 2054105)
 end
 
+function Base:findProgress()
+    return find_color(139, 129, 1666, 986, '(6532682, 6336583)')
+end
+
 function Base:findOreResource()
     return find_color(139, 129, 1666, 986, 14062113)
 end
 
 function Base:collectAdvancedResourcesByOneClick()
-    local x, y
-    --x, y = Base:findOreResource()
-    --if (x > 0) then
-    --    log('Collect resources')
-    --    click(x, y, 2000)
-    --    return 1
-    --end
-
-    x, y = Base:findBreadResource();
+    local x, y = Base:findProgress();
     if (x > 0) then
         log('Collect resources')
-        click(x, y, 2000)
+        click(x, y, 4000)
+        return 1
     end
+    log('Resources not found')
     return 0
 end
 
@@ -191,6 +203,7 @@ function Base:collectMilitaryTrack()
         if (click_and_wait_color(440, 847, green_color, 964, 739) == 1) then
             click_green_button(964, 739)
             close_gift_modal()
+            Map:normalize()
         end
     end
 end

@@ -79,7 +79,7 @@ function Game:clickLogout()
         Storage:get('logout_timeout_inc', Storage:get('logout_timeout'))
     end
 
-    Game:restart(logout_timeout)
+    Game:restart(logout_timeout, 'Logout')
     reset_cooldown()
     Storage:set('logout_timer', ktimer(3 * 60 * 1000))
     Storage:set('logout_timeout_inc', logout_timeout)
@@ -149,6 +149,8 @@ function Game:readAllMail(force)
 end
 
 function Game:collectDailyPresents()
+    Map:openMap()
+
     if (kfindcolor(47, 970, 6158242) == 1) then
         click(230, 957)
         close_gift_modal()
@@ -245,6 +247,8 @@ function Game:collectSimpleResources()
 end
 
 function Game:collectSecretMissions()
+    Hud:clickButton('missions')
+
     if (click_green_button(1146, 512) == 1) then
         wait(2000)
         escape(2000, 'Close mission gifts modal')
@@ -258,6 +262,8 @@ local function current_mission_is_ur()
 end
 
 function Game:rotateSecretMissionsToUR()
+    Hud:clickButton('missions')
+
     if (not current_mission_is_ur()) then
         if (kfindcolor(860, 1055, 3754730) == 1) then
             log('Tickets is end')
@@ -281,6 +287,8 @@ function Game:rotateSecretMissionsToUR()
 end
 
 function Game:setSecretMissions()
+    Hud:clickButton('missions')
+
     if (current_mission_is_ur()) then
         if (click_blue_button(1147, 514) == 1 and wait_color(618, 1042, 4140846) == 1) then
             if (kfindcolor(829, 1041, 2546431) == 1) then
@@ -299,16 +307,22 @@ function Game:setSecretMissions()
     return 0
 end
 
-function Game:restart(logout_timeout)
+function Game:restart(logout_timeout, comment)
+    comment = comment or ''
     logout_timeout = logout_timeout or Storage:get('logout_timeout', 7 * 60)
     Window:detach();
+    if (comment ~= '') then
+        Notify:sendTelegramMessage('Game is restart, ' .. comment .. ' wait ' .. logout_timeout .. 's')
+    end
     log('Try killing a game')
     exec("taskkill /f /im lastwar.exe")
-    log('Waiting logout timeout at ' .. (logout_timeout) .. 's')
+    log('Waiting logout timeout at ' .. (logout_timeout) .. 's after ' .. comment)
     wait(logout_timeout * 1000)
+    Game:start()
 end
 
 function Game:collectAllianceSecretMissions()
+    Hud:clickButton('missions')
     log('Open alliance tab missions')
     click(1138, 419, 400)
     if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then

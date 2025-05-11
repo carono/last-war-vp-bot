@@ -80,6 +80,9 @@ function Event:getEventTabName()
     if kfindcolor(726, 795, 1723853) == 1 then
         return 'defense_breakthrough'
     end
+    if kfindcolor(1127, 256, 15518662) == 1 then
+        return 'rage_boss'
+    end
     return 0
 end
 

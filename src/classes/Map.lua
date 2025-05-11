@@ -1,7 +1,7 @@
 Map = {}
 
 function Map:isBase()
-    return kfindcolor(45, 313, 16756763)
+    return kfindcolor(45, 313, '(16760361-16755736)')
 end
 
 function Map:isWorld()
@@ -100,10 +100,10 @@ function Map:normalize()
         click(416, 137, 5000)
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
-        log('Try normalize map, send escape button')
-        escape(500)
+        escape(500, 'Try normalize map')
         return self:normalize()
     end
 
+    wait(1000)
     return 1
 end

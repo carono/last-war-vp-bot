@@ -118,12 +118,10 @@ function Alliance:checkTech(force)
 
         if (is_green(1072, 851) == 1) then
             log('Clicking tech')
-            click_while_not_color(1078, 855, 11447982, 954, 856, 400)
+            press(1072, 851, 5000)
         else
             log('Tech already helped')
         end
-
-        wait(3000)
 
         if (kfindcolor(645, 174, modal_header_color) == 1) then
             escape(1500, 'Close recommended tech modal')

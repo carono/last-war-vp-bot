@@ -145,13 +145,13 @@ function click_if_color(x, y, color, colorX, colorY, timeout, wait_color_timeout
     if (Window:getGameHandle() == 0) then
         return 0;
     end
-    timeout = timeout or 300
+    timeout = timeout or 700
     wait_color_timeout = wait_color_timeout or 0
     colorX = colorX or x
     colorY = colorY or y
     wait(wait_color_timeout)
     if (kfindcolor(colorX, colorY, color) == 1) then
-        click(x, y, 300)
+        click(x, y, timeout)
         return 1
     end
     return 0
@@ -210,4 +210,12 @@ function drag_tabs()
     wait(3000)
     log('Finish drag tabs')
     move(oldX, oldY)
+end
+
+function press(x, y, timeout)
+    timeout = timeout or 1000
+    log('Press mouse button')
+    kleft_down(x, y)
+    wait(timeout)
+    kleft_up(x, y)
 end

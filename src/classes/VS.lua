@@ -44,6 +44,7 @@ function VS:collectDroneComponents()
                     end
                 end
             until x == 0
+            Map:normalize()
         end
     end
 end

@@ -20,16 +20,17 @@ function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id)
         return 0
     end
 
+    message = Storage:get('username') .. ':' .. message
     Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
 end
 
 function Notify:accountIsLogout()
-    local message = Storage:get('logout_notify_message', "Bip-Bup " .. Storage:get('username', os.getenv('username')) .. " in work 🤖")
+    local message = Storage:get('logout_notify_message', "Bip-Bup")
     Notify:sendTelegramMessage(message)
 end
 
 function Notify:accountStartGame()
-    local message = Storage:get('login_notify_message', "Account " .. Storage:get('username', os.getenv('username')) .. " login")
+    local message = Storage:get('login_notify_message', "Login")
     Notify:sendTelegramMessage(message)
 end
 
