@@ -166,12 +166,12 @@ function Base:getShopGifts(force)
 end
 
 function Base:findOreMine()
-    return find_color(139, 129, 1666, 986, 12581626)
+    return find_color(99, 177, 1653, 949, 12581626)
 end
 
-function Base:findBreadResource()
-    return find_color(139, 129, 1666, 986, 2054105)
-end
+--function Base:findBreadResource()
+--    return find_color(99, 177, 1653, 949, '(2054105, 4815280)')
+--end
 
 function Base:findProgress()
     return find_color(139, 129, 1666, 986, '(6532682, 6336583)')
@@ -190,7 +190,7 @@ function Base:collectAdvancedResourcesByOneClick()
         return 1
     end
 
-    x, y = Base:findBreadResource();
+    x, y = Base:findOreMine();
     if (x > 0) then
         log('Collect resources')
         click(x, y, 2000)

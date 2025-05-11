@@ -219,6 +219,7 @@ function check_radar(force)
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
         Radar:autoFinishTasks()
         Radar:collectFinishedTrucks()
+        Map:normalize()
     end
 end
 
@@ -244,7 +245,7 @@ function check_connection()
     end
 
     if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
-        if (Game:checkConnection() == 0) then
+        if (Game:checkConnection() == 0 and Game:checkConnection() == 0) then
             Game:restart(30, 'Game is zombie')
         end
     end
