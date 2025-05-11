@@ -4,7 +4,7 @@ Hud = {
     wait_colors = {
         default = { 1048, 19, modal_header_color },
         events = { 952, 11, modal_header_color },
-        trucks = { 892, 146, 4567463 },
+        trucks = { 629, 1068, 16777215 },
         search = { 803, 498, modal_header_color },
         radar = { 1071, 28, stamina_color },
         inventory = { 838, 26, modal_header_color },
@@ -16,7 +16,14 @@ function Hud:findButton(name)
     log('Searching "' .. name .. '" button on hud')
     local x, y
     if name == 'trucks' then
-        return find_colors(11, 506, 83, 913, { { 34, 636, 14065176 }, { 52, 632, 14065183 } })
+        x, y = find_colors(11, 506, 83, 913, { { 34, 636, 14065176 }, { 52, 632, 14065183 } })
+        if (x > 0) then
+            return x, y
+        end
+        x, y = find_colors(11, 506, 83, 913, { { 49, 647, 14601654 }, { 29, 612, 16777204 } })
+        if (x > 0) then
+            return x, y
+        end
     end
     if name == 'search' then
         return find_colors(11, 506, 83, 913, { { 48, 880, 16116175 }, { 46, 851, 15321748 } })

@@ -28,6 +28,12 @@ function farming()
 
     Game:waitIfUserIsActive()
 
+    if (cooldown('restart', preventive_restart) == 1) then
+        Game:restart(30, 'Preventive restart')
+        reset_cooldown()
+        cooldown('restart', preventive_restart)
+    end
+
     wait(1000)
     farming_timeout()
     farming()
@@ -211,11 +217,7 @@ function check_radar(force)
             Radar:collectFinishedTasks()
         end
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
-        if (MilitaryRaceEvent:getEventNumber() >= 4) then
-            Radar:autoFinishTasks()
-        end
-        Map:normalize()
-
+        Radar:autoFinishTasks()
         Radar:collectFinishedTrucks()
     end
 end
@@ -233,8 +235,12 @@ function check_connection()
         Game:restart(30, 'Updates is finished')
     end
 
-    if ((is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1) or Game:isPreloadMenu() == 1) then
+    if ((is_blue(1061, 597) == 1 and is_yellow(856, 593) == 1)) then
         Game:restart(120, 'Connection error')
+    end
+
+    if (Game:isPreloadMenu() == 1) then
+        Game:restart(120, 'Some thing wrong, detect preloader menu')
     end
 
     if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then

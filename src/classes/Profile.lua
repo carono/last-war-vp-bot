@@ -11,8 +11,8 @@ function Profile:open()
 end
 
 function Profile:closeLike()
-    if (kfindcolor(947, 832, 16765462) == 1) then
-        escape()
+    if (is_blue(947, 832) == 1) then
+        escape(1000, 'Close like modal')
         return 1
     end
     return 0

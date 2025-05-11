@@ -100,7 +100,7 @@ function Map:normalize()
         click(416, 137, 5000)
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
-        escape(500, 'Try normalize map')
+        escape(1000, 'Try normalize map')
         return self:normalize()
     end
 

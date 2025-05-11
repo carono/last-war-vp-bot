@@ -54,7 +54,10 @@ function Game:isLogout()
 end
 
 function Game:isPreloadMenu()
-    return kfindcolor(48, 302, 16777215)
+    if kfindcolor(48, 302, 16777215) == 1 and kfindcolor(11, 1050, '(7096837,16760096)') == 1 then
+        return 1
+    end
+    return 0
 end
 
 function Game:hasUpdateFinishedModal()

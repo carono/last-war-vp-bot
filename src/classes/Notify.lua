@@ -20,7 +20,7 @@ function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id)
         return 0
     end
 
-    message = Storage:get('username') .. ':' .. message
+    message = Storage:get('username') .. ': ' .. message
     Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
 end
 

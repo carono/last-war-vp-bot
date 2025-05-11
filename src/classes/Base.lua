@@ -19,15 +19,9 @@ function Base:clickHireSurvival()
 end
 
 function Base:getSurvival()
-    local x, y
-    x, y = find_color(867, 471, 955, 566, 2039583)
+    local x, y = find_color(867, 471, 955, 566, '(6676611,16549736,2744831,2039583)')
     if (x > 0) then
-        log('Find default survival')
-        return x, y
-    end
-    x, y = find_color(867, 471, 955, 566, 6676611)
-    if (x > 0) then
-        log('Find season 2 survival')
+        log('Find survival')
         return x, y
     end
     return 0, 0
@@ -41,6 +35,7 @@ function Base:clickSurvival()
         click(x, y, 1500)
         Hud:closeNpcDialogs()
         Base:clickHireSurvival()
+        click_blue_button(960, 820)
         return 1
     end
     return 0
@@ -187,12 +182,21 @@ function Base:findOreResource()
 end
 
 function Base:collectAdvancedResourcesByOneClick()
-    local x, y = Base:findProgress();
+    local x, y
+    x, y = Base:findProgress();
     if (x > 0) then
         log('Collect resources')
-        click(x, y, 4000)
+        click(x, y, 2000)
         return 1
     end
+
+    x, y = Base:findBreadResource();
+    if (x > 0) then
+        log('Collect resources')
+        click(x, y, 2000)
+        return 1
+    end
+
     log('Resources not found')
     return 0
 end

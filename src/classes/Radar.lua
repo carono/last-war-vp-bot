@@ -54,11 +54,15 @@ function Radar:autoFinishTasks()
     if (self:open() == 1 and click_blue_button(959, 1043)) then
         log('Finish tasks')
         wait(3000)
+        Map:normalize()
+        return 1
     end
+    return 0
 end
 
 function Radar:collectFinishedTrucks()
     if Hud:clickButton('trucks') == 1 then
+        click(1096, 1055)
         for i = 1, 4 do
             local x, y = find_color(727, 317, 1066, 420, '(14062642,15702825,13272105)')
             if (x > 0) then
