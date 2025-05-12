@@ -37,14 +37,19 @@ function Radar:open()
     return 0
 end
 
-function Radar:collectFinishedTasks()
+function Radar:collectFinishedTasks(count)
+    count = count or 0
+    if (count > 20) then
+        Map:normalize()
+        return 0
+    end
     if (self:open() == 1) then
         log('Collecting tasks')
         local x, y = find_color(630, 176, 1186, 818, '(1196783,1584111)')
         if (x > 0) then
             click(x, y, 1000)
             close_gift_modal()
-            --      return self:collectFinishedTasks()
+            return self:collectFinishedTasks(count + 1)
         end
         Map:normalize()
     end

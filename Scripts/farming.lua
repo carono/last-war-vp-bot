@@ -8,6 +8,6 @@ cooldown('restart', preventive_restart)
 wait(10000)
 Game:resetUserActivity()
 
-use_auto_rally = 0
+use_auto_rally = 1
 
 farming()
