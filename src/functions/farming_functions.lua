@@ -61,17 +61,45 @@ function collect_daily_presents(force)
     end
 end
 
+function dig_treasure()
+    local x, y = find_color(1029, 848, 1042, 923, '(14476276,15187370)')
+    if (x > 0) then
+        click(x, y, 500)
+        if (click_and_wait_color(884, 531, 6211909, 889, 646) == 1 and click_if_green(889, 646) == 1) then
+            click_blue_button(958, 832)
+        end
+    end
+end
+
+function wait_treasure()
+    local x, y = find_color(852, 445, 937, 551, 193445)
+    x, y = Window:modifyCord(x, y)
+    local timer
+    if (x > 0) then
+        log('Waiting treasure....')
+        repeat
+            x1, y1 = find_color(852, 445, 937, 551, 193445)
+        until x1 == 0
+        timer = ktimer(5000)
+        while os.clock() < timer do
+            kleft(x, y + 10)
+        end
+    end
+end
+
 function notify_treasure(force)
-    if ((Storage:get('treasure_notify', 0) == 1 and Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) or force == 1) then
+    if ((Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) or force == 1) then
         local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
         local telegram_bot_id = Storage:get('telegram_bot_id')
         local treasure_message = Storage:get('treasure_message', 'Digging treasure')
-        if (telegram_bot_id ~= nil) then
-            Notify:sendTelegramMessage(treasure_message, telegram_chat_id, telegram_bot_id)
-            log('Click treasure notify and wait 10s')
-            click(1045, 970, 10000)
-            Map:normalize()
+        if (telegram_bot_id ~= nil and Storage:get('treasure_notify', 0) == 1) then
+            Notify:sendTelegramMessage(treasure_message, telegram_chat_id, telegram_bot_id, false)
         end
+        log('Click treasure notify and wait 10s')
+        click_and_wait_color(1045, 970, blue_color, 1162, 1020)
+        wait(1000)
+        dig_treasure()
+
     end
 end
 
