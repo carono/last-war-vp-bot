@@ -57,7 +57,13 @@ function Rally:openList()
 end
 
 function Rally:applyJoin()
-    if (kfindcolor(955, 835, 16765462) == 1) then
+    if (kfindcolor(1075, 695, 8882570) == 1) then
+        log('Low troops for rally')
+        Map:normalize()
+        return 0
+    end
+
+    if (kfindcolor(955, 835, blue_color) == 1) then
         return click_and_wait_not_color(954, 850, 16756752)
     end
 end
@@ -68,15 +74,15 @@ function Rally:createDoomElite()
             click(1085, 548, 1000)
             if (click_blue_button(898, 1013) == 1) then
                 wait(2000)
-                if (kfindcolor(1076, 475, 8947851)) then
-                    log('Low troops for rally')
-                    Map:normalize()
-                    return 5
-                end
                 if (click_and_wait_color(897, 827, blue_color, 918, 831, 2000, 1000, 'Try create rally') == 0) then
                     log('Cant create rally')
                     Map:normalize()
                     return 2
+                end
+                if (kfindcolor(1076, 475, 8947851) == 1) then
+                    log('Low troops for rally')
+                    Map:normalize()
+                    return 5
                 end
                 if (click_blue_button(907, 832) == 0) then
                     log('Heroes is busy')
