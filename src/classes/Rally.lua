@@ -68,6 +68,11 @@ function Rally:createDoomElite()
             click(1085, 548, 1000)
             if (click_blue_button(898, 1013) == 1) then
                 wait(2000)
+                if (kfindcolor(1076, 475, 8947851)) then
+                    log('Low troops for rally')
+                    Map:normalize()
+                    return 5
+                end
                 if (click_and_wait_color(897, 827, blue_color, 918, 831, 2000, 1000, 'Try create rally') == 0) then
                     log('Cant create rally')
                     Map:normalize()

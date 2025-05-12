@@ -8,7 +8,8 @@ Hud = {
         search = { 803, 498, modal_header_color },
         radar = { 1071, 28, stamina_color },
         inventory = { 838, 26, modal_header_color },
-        survivals = { 830, 628, 7570073 }
+        survivals = { 830, 628, 7570073 },
+        development = { 1077, 401, blue_color }
     }
 }
 
@@ -36,6 +37,10 @@ function Hud:findButton(name)
     end
     if name == 'survivals' then
         return find_colors(11, 506, 83, 913, { { 26, 559, 16315083 }, { 60, 550, 15853256 } })
+    end
+
+    if name == 'development' then
+        return find_colors(12, 201, 83, 366, { { 32, 233, 16776441 }, { 60, 242, 5159164 } })
     end
 
     if name == 'events' then
@@ -100,6 +105,7 @@ end
 function Hud:rightScrollModalTabs(count)
     count = count or 1
     wheel_up(915, 115, count * 10)
+    wait(500)
 end
 
 function Hud:clickFirstTab()
@@ -108,4 +114,11 @@ end
 
 function Hud:closeNpcDialogs()
     click_while_color(1163, 957, 15330287)
+end
+
+function Hud:scrollDown(count, x, y)
+    count = count or 1
+    x = x or 892
+    y = y or 502
+    wheel_down(x, y, count * 10)
 end

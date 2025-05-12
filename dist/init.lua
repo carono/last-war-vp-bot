@@ -9,11 +9,6 @@ if (fileexists(path .. ".lua") == "1") then
     require(path)
 end
 
-if (Window:attachHandle() ~= 0) then
-    Window:repos()
-    Window:resizeCanonical()
-end
-
 originalLog = log
 
 if (debug == 1) then

@@ -76,10 +76,13 @@ function notify_treasure(force)
 end
 
 function check_handle()
-    if (cooldown('attachHandle') == 1 and Window:attachHandle() == 0) then
-        log('Start the game')
-        Game:start()
-        Window:repos()
+    if (cooldown('attachHandle') == 1 or Window:attachHandle() == 0) then
+        if (Window:attachHandle() == 0) then
+            Game:start()
+        else
+            Window:repos()
+            Window:resizeCanonical()
+        end
     end
 end
 
@@ -87,6 +90,7 @@ function check_logout(force)
     if (Game:isLogout() == 1 or force == 1) then
         Notify:accountIsLogout()
         Game:clickLogout()
+
     end
 end
 
@@ -106,12 +110,12 @@ end
 
 function check_base(force)
     if ((cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
-        log('Start checking tasks on base')
+        log('###### Start checking tasks on base')
         Base:openBase(1)
         Base:getVipPresents()
         Base:getShopGifts(1)
-        --Base:collectMilitaryTrack()
         Base:collectAdvancedResourcesByOneClick()
+        Base:collectMilitaryTrack()
         Base:greetingSurvivals()
         --Game:checkFreeTavernHero()
     end
@@ -184,6 +188,7 @@ function vs(force)
     end
     if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         VS:collectDroneComponents()
+        VS:upgradeDrone()
 
         VS:collectGifts()
         Map:normalize()

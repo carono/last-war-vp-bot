@@ -30,6 +30,10 @@ function Game:start()
     Notify:accountStartGame()
     exec(game_path)
     wait(startup_timeout)
+
+    Window:attachHandle()
+    Window:repos()
+    Window:resizeCanonical()
 end
 
 function Game:hasLogoutModal()
@@ -83,9 +87,11 @@ function Game:clickLogout()
     end
 
     Game:restart(logout_timeout, 'Logout')
-    reset_cooldown()
     Storage:set('logout_timer', ktimer(3 * 60 * 1000))
     Storage:set('logout_timeout_inc', logout_timeout)
+
+    reset_cooldown()
+    cooldown('restart', preventive_restart, true)
 end
 
 function Game:resetUserActivity()

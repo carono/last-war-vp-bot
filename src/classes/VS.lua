@@ -48,3 +48,16 @@ function VS:collectDroneComponents()
         end
     end
 end
+
+function VS:upgradeDrone()
+    if (Server:getDay(1) == 'Monday' and MilitaryRaceEvent:getEventName() == 'drone') then
+        Base:openBase()
+        if Building:findStructure('drone') == 1 then
+            if (click_and_wait_color(742, 560, 5486847, 727, 593) == 1 and click_and_wait_color(727, 593, 16777215, 625, 1065) == 1) then
+                wait(1000)
+                click_while_color(890, 943, red_color, 984, 910, 30000, 500)
+            end
+            Map:normalize()
+        end
+    end
+end

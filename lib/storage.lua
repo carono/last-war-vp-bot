@@ -214,7 +214,7 @@ function Storage:set(var, value, path)
     if (fileexists(path) == "0") then
         data = {}
     else
-        data = persistence.load(path)
+        data = persistence.load(path) or {}
     end
     local T = split(var, '.')
     if (table.length(T) >= 2) then

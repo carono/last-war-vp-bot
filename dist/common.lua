@@ -24,6 +24,14 @@ function table.length(T)
     return count
 end
 
+function table.shallow_copy(t)
+    local t2 = {}
+    for k, v in pairs(t) do
+        t2[k] = v
+    end
+    return t2
+end
+
 function table.maxmin(T)
     if #T == 0 then
         return nil, nil  -- Если массив пустой, возвращаем nil

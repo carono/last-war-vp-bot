@@ -72,18 +72,18 @@ function click_and_wait_not_color(x, y, color, colorX, colorY)
     return wait_not_color(colorX, colorY, color)
 end
 
-function click_while_color(x, y, color, colorX, colorY, timeout)
+function click_while_color(x, y, color, colorX, colorY, timeout, cd)
     if (Window:getGameHandle() == 0) then
         return 0;
     end
+    timeout = timeout or 5000
     colorX = colorX or x
     colorY = colorY or y
-    timeout = timeout or 150
-    local timer = ktimer(5000)
+    cd = cd or 150
+    local timer = ktimer(timeout)
     while os.clock() < timer do
         if (kfindcolor(colorX, colorY, color) == 1) then
-            click(x, y)
-            wait(timeout)
+            click(x, y, cd)
         else
             return 1
         end

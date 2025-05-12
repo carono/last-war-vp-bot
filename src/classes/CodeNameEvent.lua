@@ -31,7 +31,7 @@ function CodeNameEvent:attackBoss(max_attack, attack_number)
         wait(62000)
         click_blue_button(924, 672)
         if (attack_number < max_attack) then
-            return CodeNameEvent:attackBoss(attack_number + 1)
+            return CodeNameEvent:attackBoss(max_attack, attack_number + 1)
         end
         return 1
     end

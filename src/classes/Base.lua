@@ -27,7 +27,11 @@ function Base:getSurvival()
     return 0, 0
 end
 
-function Base:clickSurvival()
+function Base:clickSurvival(count)
+    count = count or 0
+    if (count > 10) then
+        return 0
+    end
     local x, y = Base:getSurvival()
     if (x > 0) then
         log('Find survival with gift or new, clicking')
@@ -36,8 +40,10 @@ function Base:clickSurvival()
         Hud:closeNpcDialogs()
         Base:clickHireSurvival()
         click_blue_button(960, 820)
-        return 1
+        wait(1000)
+        return Base:clickSurvival(count + 1)
     end
+    Map:normalize()
     return 0
 end
 
@@ -174,7 +180,7 @@ end
 --end
 
 function Base:findProgress()
-    return find_color(139, 129, 1666, 986, '(6532682, 6336583)')
+    return find_color(139, 129, 1666, 986, '(6336583)')
 end
 
 function Base:findOreResource()
@@ -183,17 +189,20 @@ end
 
 function Base:collectAdvancedResourcesByOneClick()
     local x, y
-    x, y = Base:findProgress();
-    if (x > 0) then
-        log('Collect resources')
-        click(x, y, 2000)
-        return 1
-     end
 
     x, y = Base:findOreMine();
     if (x > 0) then
         log('Collect resources')
+        click(x, y - 31, 2000)
+        Map:normalize()
+        return 1
+    end
+
+    x, y = Base:findProgress();
+    if (x > 0) then
+        log('Collect resources by progress')
         click(x, y, 2000)
+        Map:normalize()
         return 1
     end
 

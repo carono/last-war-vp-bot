@@ -115,42 +115,59 @@ function find_color(startX, startY, endX, endY, color)
     return 0, 0
 end
 
-function find_colors(startX, startY, endX, endY, colors, get_all_chains)
+function find_colors(startX, startY, endX, endY, colors)
+    -- Модифицируем координаты один раз в начале
     startX, startY = Window:modifyCord(startX, startY)
     endX, endY = Window:modifyCord(endX, endY)
-    get_all_chains = get_all_chains or 0
-    local firstTargetColor = table.remove(colors, 1)
-    local res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, -1, 5)
+
+    -- Создаем копию таблицы цветов и извлекаем первый цвет
+    local firstTargetColor = colors[1]
+    local otherColors = {}
+
+    -- Подготавливаем таблицу относительных координат заранее
+    for i = 2, #colors do
+        otherColors[i - 1] = {
+            dx = colors[i][1] - firstTargetColor[1],
+            dy = colors[i][2] - firstTargetColor[2],
+            color = colors[i][3]
+        }
+    end
+
+    -- Ищем первый цвет
+    local res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, 1, 5)
     local startTime = os.clock()
-    local cords = {}
-    if (res ~= nil) then
-        log('Start search color chain in ' .. startX .. ', ' .. startY, ' to ', endX .. ', ' .. endY)
-        for _, findFirstColor in pairs(arr) do
-            local findFirstColorX, findFirstColorY = Window:canonizeCord(findFirstColor[1], findFirstColor[2])
-            local result = 1
-            for _, nextTargetColor in pairs(colors) do
-                local dX = nextTargetColor[1] - firstTargetColor[1]
-                local dY = nextTargetColor[2] - firstTargetColor[2]
-                local nextColorX = findFirstColorX + dX
-                local nextColorY = findFirstColorY + dY
-                if (findcolor(nextColorX, nextColorY, nextColorX, nextColorY, 1, 1, nextTargetColor[3], '%arr', 2, 1, 5) == nil) then
-                    result = 0
-                    break
-                end
-            end
-            if (result == 1) then
-                log('Successful find color in chain cords', findFirstColorX .. ', ' .. findFirstColorY .. ' in ' .. (os.clock() - startTime))
-                if (get_all_chains == 1) then
-                    table.insert(cords, { findFirstColorX, findFirstColorY })
-                else
-                    return findFirstColorX, findFirstColorY
-                end
+
+    if res ~= 1 then
+        log('First chain color not found')
+        return 0, 0
+    end
+
+    res = findcolor(startX, startY, endX, endY, 1, 1, firstTargetColor[3], '%arr', 2, -1, 5)
+
+    log('Start search color chain in ' .. startX .. ', ' .. startY .. ' to ' .. endX .. ', ' .. endY)
+
+    -- Оптимизация: используем ipairs вместо pairs для массивов
+    for _, findFirstColor in ipairs(arr) do
+        local findFirstColorX, findFirstColorY = Window:canonizeCord(findFirstColor[1], findFirstColor[2])
+        local allMatch = true
+
+        -- Проверяем все остальные цвета
+        for _, nextTarget in ipairs(otherColors) do
+            local nextColorX = findFirstColorX + nextTarget.dx
+            local nextColorY = findFirstColorY + nextTarget.dy
+
+            if findcolor(nextColorX, nextColorY, nextColorX, nextColorY, 1, 1, nextTarget.color, '%arr', 2, 1, 5) ~= 1 then
+                allMatch = false
+                break
             end
         end
+
+        if allMatch then
+            log('Successful find color in chain cords ' .. findFirstColorX .. ', ' .. findFirstColorY .. ' in ' .. (os.clock() - startTime))
+            return findFirstColorX, findFirstColorY
+        end
     end
-    if (get_all_chains == 1) then
-        return cords
-    end
+
     log('Chain color not found')
     return 0, 0
 end
@@ -194,7 +211,7 @@ function wait_not_color(x, y, color, timeout)
     return 0
 end
 
-function log_color_range(x, y)
+function log_color(x, y)
     local colors = {}
     table.insert(colors, color(x, y))
     table.insert(colors, color(x + 1, y))
@@ -202,6 +219,7 @@ function log_color_range(x, y)
     table.insert(colors, color(x, y + 1))
     table.insert(colors, color(x, y - 1))
 
+    log('Cords:' .. x .. ', ' .. y)
     log(table.concat(colors, ', '))
 
     local max, min = table.maxmin(colors)
