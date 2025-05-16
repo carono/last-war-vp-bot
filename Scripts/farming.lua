@@ -1,7 +1,7 @@
 --lua
 debug = 0
 require('dist/init')
-preventive_restart = 60 * 60
+preventive_restart = 8 * 60 * 60
 
 reset_cooldown()
 cooldown('restart', preventive_restart)

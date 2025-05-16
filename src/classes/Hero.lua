@@ -1,6 +1,7 @@
 Hero = {}
 
 function Hero:march()
+-- 42, 271 14540255 dead
     if (is_blue(963, 823) == 0) then
         log('No march button')
         return 0

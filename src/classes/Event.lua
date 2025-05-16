@@ -107,6 +107,10 @@ function Event:openEventTab(name)
     Map:normalize()
     Hud:clickButton('events')
 
+    if (Event:getEventTabName() == name) then
+        return 1
+    end
+
     Hud:leftScrollModalTabs(10)
     Hud:clickFirstTab()
 

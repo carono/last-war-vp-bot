@@ -1,6 +1,6 @@
 --lua
 CodeNameEvent = {}
-
+local bossAttackCount = 0
 function CodeNameEvent:execute()
     if (os.date("*t").wday == 1) then
         return 0
@@ -20,18 +20,19 @@ function CodeNameEvent:execute()
     return 0
 end
 
-function CodeNameEvent:attackBoss(max_attack, attack_number)
+function CodeNameEvent:attackBoss(max_attack)
     log('Try attack boss')
     max_attack = max_attack or 5
-    attack_number = attack_number or 1
+
     click(903, 529, 1000)
     if (Hero:openAttackMenu() == 1) then
         wait(1000)
-        Hero:clickAttack()
+        Hero:march()
         wait(62000)
         click_blue_button(924, 672)
-        if (attack_number < max_attack) then
-            return CodeNameEvent:attackBoss(max_attack, attack_number + 1)
+        if (bossAttackCount < max_attack) then
+            bossAttackCount = bossAttackCount + 1
+            return CodeNameEvent:attackBoss(max_attack)
         end
         return 1
     end
