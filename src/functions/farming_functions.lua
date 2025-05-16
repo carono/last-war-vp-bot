@@ -12,6 +12,7 @@ function farming()
     military_race()
     vs()
     check_base()
+    weekly_events()
 
     check_alliance()
     check_radar()
@@ -25,7 +26,7 @@ function farming()
     check_connection()
 
     Alliance:applyHelp()
-    --Alliance:clickHealTroops()
+    Alliance:clickHealTroops()
 
     Game:waitIfUserIsActive()
 
@@ -38,6 +39,12 @@ function farming()
     wait(1000)
     farming_timeout()
     farming()
+end
+
+function weekly_events(force)
+    if ((cooldown('weekly_events') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        Event:executeGenerals()
+    end
 end
 
 function ministry_notify()
@@ -172,9 +179,7 @@ function check_secret_missions(force)
 
             log('Setting missions')
             Game:rotateSecretMissionsToUR()
-            if (Game:setSecretMissions() == 1) then
-                reset_cooldown('check_secret_missions')
-            end
+            Game:setSecretMissions()
             Map:normalize()
         end
     end
@@ -242,6 +247,9 @@ function check_events(force)
                     if (tab == 'code_name') then
                         CodeNameEvent:execute()
                     end
+                    if (tab == 'generals') then
+                        Event:collectGeneralsGifts()
+                    end
                     if (tab == 'marshal') then
                         if (click_if_red(1145, 340, 1171, 313) == 1 and click_blue_button(957, 823) == 1) then
                             click_blue_button(1121, 792)
@@ -261,11 +269,19 @@ end
 
 function check_radar(force)
     if ((cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
-        if (VS:isRadarDay() == 1) then
-            Radar:collectFinishedTasks()
-        end
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
-        Radar:autoFinishTasks()
+
+        if (VS:isRadarDay() == 1) then
+            if (Radar:collectFinishedTasks() == 0) then
+                log('No radar tasks')
+            else
+                log('Radar tasks was collected')
+            end
+        end
+
+        if (Radar:autoFinishTasks() == 1) then
+            reset_cooldown('checkRadar')
+        end
         Radar:collectFinishedTrucks()
         Map:normalize()
     end

@@ -83,6 +83,9 @@ function Event:getEventTabName()
     if kfindcolor(1127, 256, 15518662) == 1 then
         return 'rage_boss'
     end
+    if (kfindcolor(869, 302, '(2694646-2432236)') == 1) then
+        return 'generals'
+    end
     return 0
 end
 
@@ -128,4 +131,44 @@ function Event:collectJudgmentDayGifts()
         close_gift_modal()
         escape(1000)
     end
+end
+
+function Event:executeGenerals()
+    if (kfindcolor(180, 868, '(4207592-3156440)') == 1) then
+        if (click_and_wait_color(180, 868, 4354047, 940, 793) == 1) then
+            click(940, 793, 1000)
+            if (Hero:march() == 1) then
+                local timer = ktimer(60000)
+                while os.clock() < timer do
+                    wait(1000)
+                    if (is_blue(200, 291) == 0) then
+                        wait(3000)
+                        if (is_blue(200, 291) == 0) then
+                            break
+                        end
+                    end
+
+                end
+                return Event:executeGenerals()
+            end
+        end
+    end
+    return 0
+end
+
+function Event:collectGeneralsGifts()
+    if (click_if_red(1169, 278) == 1) then
+        local result = 0
+        :: click ::
+        if (click_green_button(1128, 435) == 1) then
+            close_gift_modal()
+            result = 1
+            goto click
+        end
+        if (result == 1) then
+            escape(1000, 'Close generals gift modal')
+        end
+        return result
+    end
+    return 0
 end

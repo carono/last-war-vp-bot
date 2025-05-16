@@ -1,4 +1,5 @@
 Map = {}
+local mapNormalizeCount = 0;
 
 function Map:isBase()
     return kfindcolor(45, 313, '(16760361-16755736)')
@@ -87,13 +88,19 @@ function Map:isCrossServer()
 end
 
 function Map:normalize()
+    if (mapNormalizeCount > 10) then
+        Game:restart(30, 'Fail normalize map')
+    end
     if (Window:getGameHandle() == 0) then
+        mapNormalizeCount = 0
         return -1
     end
     if (Game:isLogout() == 1) then
+        mapNormalizeCount = 0
         return -2
     end
     if (Game:hasUpdateFinishedModal() == 1) then
+        mapNormalizeCount = 0
         return -3
     end
     if (Map:isCrossServer() == 1) then
@@ -101,9 +108,10 @@ function Map:normalize()
     end
     if (self:state() == 0 and Map:isHideInterface() == 1) then
         escape(1000, 'Try normalize map')
+        mapNormalizeCount = mapNormalizeCount + 1
         return self:normalize()
     end
-
+    mapNormalizeCount = 0
     wait(1000)
     return 1
 end

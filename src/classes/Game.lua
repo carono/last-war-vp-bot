@@ -305,7 +305,8 @@ function Game:setSecretMissions()
                 click(829, 1041, 1000)
                 if (click_blue_button(1023, 1039)) then
                     log('Send heroes to mission')
-                    return 1
+                    wait(3000)
+                    return Game:setSecretMissions()
                 else
                     log('Fail send heroes to mission')
                     Map:normalize()
@@ -334,7 +335,7 @@ function Game:collectAllianceSecretMissions()
     Hud:clickButton('missions')
     log('Open alliance tab missions')
     click(1138, 419, 400)
-    if (kfindcolor(1073, 499, 3642098) == 1 and is_blue(1154, 537)) then
+    if (kfindcolor(1073, 499, ur_color) == 1 and is_blue(1154, 537) == 1) then
         log('Try collect alliance mission')
         click(1154, 537)
         if (close_help_modal() == 1) then

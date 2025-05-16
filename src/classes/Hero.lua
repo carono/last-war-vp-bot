@@ -1,5 +1,26 @@
 Hero = {}
 
+function Hero:march()
+    if (is_blue(963, 823) == 0) then
+        log('No march button')
+        return 0
+    end
+    if (kfindcolor(1076, 694, 8882570) == 1 or kfindcolor(1076, 475, 8947851) == 1) then
+        log('Low troops for rally')
+        return 0
+    end
+    if (is_green(717, 1074) == 0 and kfindcolor(921, 791, 13224910) == 0) then
+        log('Low stamina for march')
+        return 0
+    end
+    if (is_green(748, 1074) == 0 and kfindcolor(921, 791, 13224910) == 1) then
+        log('Low stamina for rally')
+        return 0
+    end
+    click(963, 823, 2000)
+    return 1
+end
+
 function Hero:clickAttack()
     if (kfindcolor(757, 574, 4354047) == 1) then
         click_and_wait_color(757, 574, 16756752, 958, 856, 1)
@@ -32,11 +53,6 @@ function Hero:select()
         log('Select hero')
         click_and_wait_color(748, 977, 6552575, nil, nil, 1)
     end
-end
-
-function Hero:clickAttack()
-    click(955, 826)
-    log('Click attack')
 end
 
 function Hero:attackIfCan()

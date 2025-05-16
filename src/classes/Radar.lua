@@ -31,7 +31,7 @@ end
 
 function Radar:open()
     if (Base:radarIsOpen() == 1 or Hud:clickButton('radar')) then
-        wait(1000)
+        wait(2000)
         return 1
     end
     return 0
@@ -45,14 +45,20 @@ function Radar:collectFinishedTasks(count)
     end
     if (self:open() == 1) then
         log('Collecting tasks')
-        local x, y = find_color(630, 176, 1186, 818, '(1196783,1584111)')
+        local x, y = find_color(630, 176, 1186, 818, red_color)
+        log(x, y)
         if (x > 0) then
-            click(x, y, 1000)
+            click(x - 15, y + 15, 500)
+            click(x - 15, y + 15, 1000)
             close_gift_modal()
             return self:collectFinishedTasks(count + 1)
         end
         Map:normalize()
     end
+    if (count > 0) then
+        return 1
+    end
+    return 0
 end
 
 function Radar:autoFinishTasks()
