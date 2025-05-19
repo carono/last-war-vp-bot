@@ -104,7 +104,7 @@ function notify_treasure(force)
         end
         log('Click treasure notify and wait 10s')
         click_and_wait_color(1045, 970, blue_color, 1162, 1020)
-        wait(1000)
+        wait(4000)
         dig_treasure()
 
     end
@@ -137,6 +137,9 @@ function normalize_map(force)
 end
 
 function auto_rally(force)
+    if (MilitaryRaceEvent:getEventNumber() == 5) then
+        return
+    end
     if ((use_auto_rally == 1 and cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Try join to rally')
         Rally:joinIfExist()

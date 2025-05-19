@@ -62,7 +62,7 @@ function Radar:collectFinishedTasks(count)
 end
 
 function Radar:autoFinishTasks()
-    if (self:open() == 1 and click_blue_button(959, 1043)) then
+    if (self:open() == 1 and click_blue_button(959, 1043) == 1) then
         log('Finish tasks')
         wait(3000)
         Map:normalize()

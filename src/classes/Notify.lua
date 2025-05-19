@@ -9,6 +9,9 @@ function Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
 end
 
 function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id, add_prefix_username)
+    if message == nil then
+        return 0
+    end
     telegram_chat_id = telegram_chat_id or Storage:get('telegram_chat_id')
     telegram_bot_id = telegram_bot_id or Storage:get('telegram_bot_id')
     add_prefix_username = add_prefix_username or true
@@ -22,7 +25,7 @@ function Notify:sendTelegramMessage(message, telegram_chat_id, telegram_bot_id, 
     end
 
     if (add_prefix_username) then
-        message = Storage:get('username') .. ': ' .. message
+        message = Storage:get('username', os.getenv('username')) .. ': ' .. message
     end
     Notify:execTelegramRequest(telegram_bot_id, telegram_chat_id, message)
 end

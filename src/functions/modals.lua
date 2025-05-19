@@ -4,7 +4,7 @@ function close_gift_modal()
     if (wait_color(1068, 342, gift_color, 2000) == 1) then
         escape(1000, 'Close gift modal')
         if (kfindcolor(1068, 342, gift_color) == 1) then
-            escape(1000, 'Close gift modal second try')
+            return close_gift_modal()
         end
         return 1
     end
