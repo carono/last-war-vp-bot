@@ -63,13 +63,13 @@ end
 
 function collect_daily_presents(force)
     if ((cooldown('collect_daily_presents') == 1 and Game:isLogout() == 0) or force == 1) then
-        Game:getRallyPresents()
         Game:collectDailyPresents()
     end
 end
 
 function dig_treasure()
     local x, y = find_color(1029, 848, 1042, 923, '(14476276,15187370)')
+
     if (x > 0) then
         click(x, y, 500)
         if (click_and_wait_color(884, 531, 6211909, 889, 646) == 1 and click_if_green(889, 646) == 1) then
@@ -142,6 +142,7 @@ function auto_rally(force)
     end
     if ((use_auto_rally == 1 and cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Try join to rally')
+        Game:getRallyPresents()
         Rally:joinIfExist()
     end
 end
@@ -211,7 +212,7 @@ function military_race(force)
         end
         if (MilitaryRaceEvent:getEventNumber() >= 4) then
             local rally = Rally:createDoomElite()
-            if (rally >= 1 and rally < 4) then
+            if (rally >= 1) then
                 reset_cooldown('militaryRace')
             end
         end

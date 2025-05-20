@@ -29,6 +29,12 @@ function Window:detach()
     wait(1000)
 end
 
+function Window:getCenterCords()
+    local handle = self:getGameHandle()
+    local _, _, WidthReference, HeightReference = windowpos(handle)
+    return WidthReference / 2, HeightReference / 2
+end
+
 function Window:attachHandle()
     local handle = self:getGameHandle()
     if (handle ~= 0) then

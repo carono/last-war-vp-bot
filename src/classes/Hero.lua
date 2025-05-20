@@ -1,22 +1,42 @@
 Hero = {}
 
+function Hero:inBase()
+    if (kfindcolor(36, 311, 16777215) == 1 and kfindcolor(52, 312, 16777215) == 1) then
+        return 1
+    end
+    if (kfindcolor(15, 257, 16777215) == 0) then
+        return 1
+    end
+    return 0
+end
+
+function Hero:isOutBase()
+    if (kfindcolor(36, 311, 16777215) == 1 and kfindcolor(52, 312, 16777215) == 1) then
+        return 0
+    end
+    return 1
+end
+
 function Hero:march()
--- 42, 271 14540255 dead
+    -- 42, 271 14540255 dead
     if (is_blue(963, 823) == 0) then
         log('No march button')
         return 0
     end
-    if (kfindcolor(1076, 694, 8882570) == 1 or kfindcolor(1076, 475, 8947851) == 1) then
+
+    local _, y = find_color(677, 221, 1090, 809, 3791871)
+    if (find_color(1048, y - 5, 1077, y + 25, 5131768) > 1) then
         log('Low troops for rally')
-        return 0
+        return -1
     end
+
     if (is_green(717, 1074) == 0 and kfindcolor(921, 791, 13224910) == 0) then
         log('Low stamina for march')
-        return 0
+        return -21
     end
     if (is_green(748, 1074) == 0 and kfindcolor(921, 791, 13224910) == 1) then
         log('Low stamina for rally')
-        return 0
+        return -22
     end
     click(963, 823, 2000)
     return 1

@@ -9,7 +9,8 @@ Hud = {
         radar = { 1071, 28, stamina_color },
         inventory = { 838, 26, modal_header_color },
         survivals = { 830, 628, 7570073 },
-        development = { 1077, 401, blue_color }
+        development = { 1077, 401, blue_color },
+        rally_present = { 927, 826, blue_color }
     }
 }
 
@@ -41,6 +42,10 @@ function Hud:findButton(name)
 
     if name == 'development' then
         return find_colors(12, 201, 83, 366, { { 32, 233, 16776441 }, { 60, 242, 5159164 } })
+    end
+
+    if name == 'rally_present' then
+        return find_colors(224, 171, 271, 294, { { 240, 247, 16777215 }, { 252, 270, 16777215 } })
     end
 
     if name == 'events' then

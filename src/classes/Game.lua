@@ -125,9 +125,35 @@ function Game:waitIfUserIsActive()
     return 1
 end
 
+function Game:sendSquadToResourceSpot()
+    local centerX, centerY = Window:getCenterCords()
+    if (click_and_wait_color(centerX, centerY, green_color, 870, 664) == 1) then
+        click(870, 664, 2000)
+        return 1
+    end
+    return 0
+end
+
+function Game:hasResourceSpot()
+    return is_red(1147, 279)
+end
+
+function Game:clickResourceSpotCords()
+    if click_and_wait_not_color(1039, 359, red_color, 1147, 269) == 1 then
+        return 1
+    end
+    return 0
+end
+
+function Game:openRallyPresents()
+    return Hud:clickButton('rally_present')
+end
+
 function Game:getRallyPresents()
-    if kfindcolor(256, 211, 3741951) == 1 then
-        click_and_wait_color(256, 211, 16765462, 934, 821)
+    if (Game:openRallyPresents() == 1) then
+        if (Game:hasResourceSpot() == 1 and Game:clickResourceSpotCords() == 1) then
+            Game:sendSquadToResourceSpot()
+        end
         click(934, 821, 500)
         log('Get rally presents')
         return 1
@@ -158,15 +184,13 @@ function Game:readAllMail(force)
 end
 
 function Game:collectDailyPresents()
-    Map:openMap()
-
     if (kfindcolor(47, 970, 6158242) == 1) then
         click(230, 957)
         close_gift_modal()
         wait(2000)
         return Game:collectDailyPresents()
     end
-    if (is_red(61, 924) == 1) then
+    if (is_red(61, 924) == 1 or is_red(15, 257)) then
         click_and_wait_color(36, 961, 6179651, 863, 30)
     end
     if (kfindcolor(1139, 18, modal_header_color) == 1) then

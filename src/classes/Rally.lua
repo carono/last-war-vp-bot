@@ -77,30 +77,35 @@ function Rally:createDoomElite()
                 if (click_and_wait_color(897, 827, blue_color, 918, 831, 2000, 1000, 'Try create rally') == 0) then
                     log('Cant create rally')
                     Map:normalize()
-                    return 2
+                    return -2
                 end
-                if (kfindcolor(1076, 475, 8947851) == 1) then
-                    log('Low troops for rally')
-                    Map:normalize()
-                    return 5
-                end
-                if (click_blue_button(907, 832) == 0) then
-                    log('Heroes is busy')
-                    Map:normalize()
-                    return 3
-                end
-                wait(5000)
-                if (kfindcolor(1135, 438, yellow_color) == 1) then
-                    log('Need stamina for rally')
-                    Map:normalize()
-                    return 5
-                end
-                if (kfindcolor(676, 356, 8476991) == 1) then
-                    log('Need troops for rally')
-                    Map:normalize()
-                    return 4
-                end
-                return 1
+
+                local result = Hero:march()
+                Map:normalize()
+                return result
+
+                --if (kfindcolor(1076, 475, 8947851) == 1) then
+                --    log('Low troops for rally')
+                --    Map:normalize()
+                --    return 5
+                --end
+                --if (click_blue_button(907, 832) == 0) then
+                --    log('Heroes is busy')
+                --    Map:normalize()
+                --    return 3
+                --end
+                --wait(5000)
+                --if (kfindcolor(1135, 438, yellow_color) == 1) then
+                --    log('Need stamina for rally')
+                --    Map:normalize()
+                --    return 5
+                --end
+                --if (kfindcolor(676, 356, 8476991) == 1 or kfindcolor(1077, 576, 8158592) == 1) then
+                --    log('Need troops for rally')
+                --    Map:normalize()
+                --    return 4
+                --end
+                --return 1
             end
         end
     end
