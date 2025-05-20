@@ -88,8 +88,12 @@ function Map:isCrossServer()
 end
 
 function Map:normalize()
+    Window:toTop()
+    if (mapNormalizeCount >= 5) then
+        click(1371, 56, 1000)
+    end
     if (mapNormalizeCount > 10) then
-        Game:restart(30, 'Fail normalize map')
+        Game:restart(120, 'Fail normalize map')
     end
     if (Window:getGameHandle() == 0) then
         mapNormalizeCount = 0

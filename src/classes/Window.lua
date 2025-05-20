@@ -35,12 +35,19 @@ function Window:getCenterCords()
     return WidthReference / 2, HeightReference / 2
 end
 
+function Window:toTop()
+    local handle = self:getGameHandle()
+    if (handle ~= 0) then
+        showwindow(handle, "TOP")
+    end
+end
+
 function Window:attachHandle()
     local handle = self:getGameHandle()
     if (handle ~= 0) then
         workwindow(handle)
-        showwindow(handle, "TOP")
     end
+    Window:toTop()
     return handle
 end
 
