@@ -1,4 +1,10 @@
-Rally = {}
+Rally = {
+    rally_target = {
+        doom_walker = { 1104, 277, '(8821360-8493169)' },
+        doom_elite_s2 = { 1127, 294, '(2985694-2721495)' },
+        cl7 = { 1050, 316, '(14074989-14073708)' }
+    }
+}
 
 function Rally:joinIfExist(to_last_place)
     to_last_place = to_last_place or 0

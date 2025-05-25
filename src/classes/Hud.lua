@@ -127,3 +127,10 @@ function Hud:scrollDown(count, x, y)
     y = y or 502
     wheel_down(x, y, count * 10)
 end
+
+function Hud:scrollUp(count, x, y)
+    count = count or 1
+    x = x or 892
+    y = y or 502
+    wheel_up(x, y, count * 10)
+end

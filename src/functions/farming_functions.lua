@@ -106,7 +106,7 @@ function notify_treasure(force)
         click_and_wait_color(1045, 970, blue_color, 1162, 1020)
         wait(4000)
         dig_treasure()
-
+        wait_treasure()
     end
 end
 
@@ -210,7 +210,7 @@ function military_race(force)
         if (MilitaryRaceEvent:getEventNumber() >= 3) then
             DroneRace:getStamina()
         end
-        if (MilitaryRaceEvent:getEventNumber() >= 4) then
+        if (MilitaryRaceEvent:getEventNumber() ~= 4 and MilitaryRaceEvent:getEventNumber() ~= 3) then
             local rally = Rally:createDoomElite()
             if (rally >= 1) then
                 reset_cooldown('militaryRace')
@@ -226,7 +226,7 @@ function vs(force)
     if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         VS:collectDroneComponents()
         VS:upgradeDrone()
-
+        --VS:openBuildings()
         VS:collectGifts()
         Map:normalize()
     end

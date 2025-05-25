@@ -2,8 +2,8 @@
 Building = {
     structures = {
         drone = { tab = 2, sort = 'desc', colors = { { 938, 231, 8684089 } } },
-        present_economic = { tab = 1, colors = { { 657, 254, 2764287 } } },
-        present_military = { tab = 2, colors = { { 657, 254, 2764287 } } }
+        present_economic = { tab = 1, colors = { { 1085, 454, '(3224831, 2961663)' }, { 1114, 468, '(1607423, 1607422)' } } },
+        present_military = { tab = 2, colors = { { 1085, 454, '(3224831, 2961663)' }, { 1114, 468, '(1607423, 1607422)' } } }
     }
 }
 
@@ -41,6 +41,7 @@ function Building:findStructure(name)
                 click_and_wait_color(1728, 1042, 16054013, 1739, 891)
             end
         end
+        Hud:scrollUp(10)
         for _ = 1, 10 do
             local x, y = Building:searchStructureInList(name)
             if (x > 0) then
@@ -51,7 +52,7 @@ function Building:findStructure(name)
                 while os.clock() < timer do
                     x, y = find_color(centerX - 100, centerY - 200, centerX + 100, centerY + 200, 2029567)
                     if (x > 0) then
-                        y = y + 75
+                        y = y + 95
                         break
                     end
                 end

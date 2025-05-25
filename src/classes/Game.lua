@@ -129,8 +129,10 @@ function Game:sendSquadToResourceSpot()
     local centerX, centerY = Window:getCenterCords()
     if (click_and_wait_color(centerX, centerY, green_color, 870, 664) == 1) then
         click(870, 664, 2000)
+        Hero:march()
         return 1
     end
+    Map:normalize()
     return 0
 end
 
@@ -149,10 +151,12 @@ function Game:openRallyPresents()
     return Hud:clickButton('rally_present')
 end
 
-function Game:getRallyPresents()
+function Game:getRallyPresents(check_spot)
+    check_spot = check_spot or 1
     if (Game:openRallyPresents() == 1) then
-        if (Game:hasResourceSpot() == 1 and Game:clickResourceSpotCords() == 1) then
+        if (check_spot == 1 and Game:hasResourceSpot() == 1 and Game:clickResourceSpotCords() == 1) then
             Game:sendSquadToResourceSpot()
+            return Game:getRallyPresents(0)
         end
         click(934, 821, 500)
         log('Get rally presents')
@@ -190,7 +194,7 @@ function Game:collectDailyPresents()
         wait(2000)
         return Game:collectDailyPresents()
     end
-    if (is_red(61, 924) == 1 or is_red(15, 257)) then
+    if (is_red(61, 924) == 1 or is_red(15, 257) == 1 or is_red(48, 938) == 1) then
         click_and_wait_color(36, 961, 6179651, 863, 30)
     end
     if (kfindcolor(1139, 18, modal_header_color) == 1) then
@@ -291,13 +295,15 @@ function Game:collectSecretMissions()
 end
 
 local function current_mission_is_ur()
-    return kfindcolor(692, 493, '(3637996-3976954)') == 1 or kfindcolor(625, 473, 4879615) == 1
+    if (kfindcolor(692, 493, '(3637996-3976954)') == 1 or kfindcolor(625, 473, '( 4814335, 4682751, 4879871, 4879615)') == 1) then
+        return 1
+    end
+    return 0
 end
 
 function Game:rotateSecretMissionsToUR()
     Hud:clickButton('missions')
-
-    if (not current_mission_is_ur()) then
+    if (current_mission_is_ur() == 0) then
         if (kfindcolor(860, 1055, 3754730) == 1) then
             log('Tickets is end')
             return 0
@@ -310,7 +316,7 @@ function Game:rotateSecretMissionsToUR()
 
         if (click_blue_button(955, 1040) == 1) then
             wait(1000)
-            if (not current_mission_is_ur()) then
+            if (current_mission_is_ur() == 0) then
                 return Game:rotateSecretMissionsToUR()
             end
             return 1
@@ -322,7 +328,7 @@ end
 function Game:setSecretMissions()
     Hud:clickButton('missions')
 
-    if (current_mission_is_ur()) then
+    if (current_mission_is_ur() == 1) then
         if (click_blue_button(1147, 514) == 1 and wait_color(618, 1042, 4140846) == 1) then
             if (kfindcolor(829, 1041, 2546431) == 1) then
                 log('Click auto assign heroes to mission')

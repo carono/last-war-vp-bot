@@ -61,3 +61,22 @@ function VS:upgradeDrone()
         end
     end
 end
+
+function VS:openBuildings(force)
+    force = force or 0
+    if ((Server:getDay(1) == 'Tuesday' and MilitaryRaceEvent:getEventName() == 'development') or force == 1) then
+        local buildings = { 'present_economic', 'present_military', }
+
+        for _, value in pairs(buildings) do
+            :: opening ::
+            local x, y = Building:findStructure(value)
+            if (x > 0) then
+                if (is_green(987, 753) == 1 and click_and_wait_color(x, y, green_color, 987, 753) == 1) then
+                    click(987, 753, 2000)
+                    close_gift_modal()
+                    goto opening
+                end
+            end
+        end
+    end
+end
