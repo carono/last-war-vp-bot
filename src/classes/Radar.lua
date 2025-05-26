@@ -37,6 +37,28 @@ function Radar:open()
     return 0
 end
 
+function Radar:executeTask()
+    if (is_green(833, 640) == 1) then
+        click(833, 640, 2000)
+    end
+    if (is_blue(916, 673) == 1) then
+        click(916, 673, 2000)
+        Hero:march()
+        wait(2000)
+    end
+    if (is_green(897, 692) == 1) then
+        click(897, 692, 2000)
+        Hero:march()
+        wait(2000)
+        Hud:closeNpcDialogs()
+    end
+    if (kfindcolor(836, 635, '(4354047)') == 1) then
+        click(836, 635, 2000)
+        Hero:march()
+        wait(2000)
+    end
+end
+
 function Radar:collectFinishedTasks(count)
     count = count or 0
     if (count > 20) then
@@ -51,6 +73,10 @@ function Radar:collectFinishedTasks(count)
             click(x - 15, y + 15, 500)
             click(x - 15, y + 15, 1000)
             close_gift_modal()
+            if (click_blue_button(857, 1030) == 1) then
+                wait(5000)
+                Radar:executeTask()
+            end
             return self:collectFinishedTasks(count + 1)
         end
         Map:normalize()
