@@ -23,6 +23,7 @@ function farming()
 
     collect_promo_gifts()
     auto_rally()
+    doom_rally()
     read_mail()
     collect_daily_presents()
     ministry_notify()
@@ -47,6 +48,7 @@ end
 
 function weekly_events(force)
     if ((cooldown('weekly_events') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         --Event:executeGenerals()
     end
 end
@@ -67,6 +69,7 @@ end
 
 function collect_daily_presents(force)
     if ((cooldown('collect_daily_presents') == 1 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         Game:collectDailyPresents()
     end
 end
@@ -100,6 +103,7 @@ end
 
 function notify_treasure(force)
     if ((Radar:hasTreasureExcavatorNotification() == 1 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         local telegram_chat_id = Storage:get('treasure_telegram_chat_id', Storage:get('telegram_chat_id'))
         local telegram_bot_id = Storage:get('telegram_bot_id')
         local treasure_message = Storage:get('treasure_message', 'Digging treasure')
@@ -116,6 +120,7 @@ end
 
 function check_handle()
     if (cooldown('attachHandle') == 1 or Window:attachHandle() == 0) then
+        log('clear')
         if (Window:attachHandle() == 0) then
             Game:start()
         else
@@ -127,33 +132,47 @@ end
 
 function check_logout(force)
     if (Game:isLogout() == 1 or force == 1) then
+        log('clear')
         Notify:accountIsLogout()
         Game:clickLogout()
-
     end
 end
 
 function normalize_map(force)
     if ((cooldown('MapNormalize') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         Map:normalize()
         wait(1000)
     end
 end
 
 function auto_rally(force)
-    if (MilitaryRaceEvent:getEventNumber() == 5) then
-        return
-    end
+    --if (MilitaryRaceEvent:getEventNumber() == 5) then
+    --    return
+    --end
+
     if ((use_auto_rally == 1 and cooldown('autoRally', 5) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Try join to rally')
         Game:getRallyPresents()
         Rally:joinIfExist()
     end
 end
 
+function doom_rally(force)
+    if ((cooldown('doom_rally', 30) == 1 and MilitaryRaceEvent:getEventNumber() ~= 4 and MilitaryRaceEvent:getEventNumber() ~= 3 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        local rally = Rally:createDoomElite()
+        log('Rally result ' .. rally)
+        if (rally >= 1) then
+            reset_cooldown('doom_rally')
+        end
+    end
+end
+
 function check_base(force)
     if ((cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
-        log('###### Start checking tasks on base')
+        log('clear')
+        log('Start checking tasks on base')
         Base:openBase(1)
         Base:getVipPresents()
         Base:getShopGifts(1)
@@ -166,6 +185,7 @@ end
 
 function check_alliance(force)
     if ((cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Start checking alliance tasks')
         if (Alliance:open() == 1) then
             Alliance:checkTech()
@@ -178,6 +198,7 @@ end
 
 function check_secret_missions(force)
     if ((cooldown('check_secret_missions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Start checking secret missions')
 
         log('Collect missions')
@@ -193,6 +214,7 @@ end
 
 function collect_promo_gifts(force)
     if ((cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Start checking gifts')
         Promo:collectGifts()
         Map:normalize()
@@ -208,15 +230,10 @@ end
 
 function military_race(force)
     if ((cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Start checking military race')
         if (MilitaryRaceEvent:getEventNumber() >= 3) then
             DroneRace:getStamina()
-        end
-        if (MilitaryRaceEvent:getEventNumber() ~= 4 and MilitaryRaceEvent:getEventNumber() ~= 3) then
-            local rally = Rally:createDoomElite()
-            if (rally >= 1) then
-                reset_cooldown('militaryRace')
-            end
         end
     end
 end
@@ -226,6 +243,7 @@ function vs(force)
         return 0
     end
     if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         VS:collectDroneComponents()
         VS:upgradeDrone()
         --VS:openBuildings()
@@ -236,6 +254,7 @@ end
 
 function check_events(force)
     if ((cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         if (Event:open() == 1) then
             Hud:leftScrollModalTabs(10)
             Hud:clickFirstTab()
@@ -278,6 +297,7 @@ end
 
 function check_radar(force)
     if ((cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+        log('clear')
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
 
         if (VS:isRadarDay() == 1) then

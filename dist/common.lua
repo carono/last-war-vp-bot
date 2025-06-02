@@ -109,3 +109,57 @@ function AnsiToUtf8(s)
     end
     return r
 end
+
+function info(message)
+    writeLog(message, 'INFO')
+end
+
+function warning(message)
+    writeLog(message, 'WARNING')
+end
+
+function error(message)
+    writeLog(message, 'ERROR', 5)
+end
+
+function writeLog(message, category, level, filename)
+    filename = filename or "logs/" .. os.getenv('username') .. ".log"
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    level = level or 1
+    local stacktrace = {}
+    for i = 2, level do
+        local info = debug.getinfo(i, "Snl")
+        if not info then
+            break
+        end
+
+        local func_name = info.name or "(anonymous)"
+        local location = string.format("%s:%d", info.short_src, info.currentline)
+        table.insert(stacktrace, string.format("%s (%s)", func_name, location))
+    end
+
+    -- Форматируем стектрейс в строку
+    local stacktrace_str = #stacktrace > 0 and table.concat(stacktrace, " → ") or ""
+
+    -- Открываем файл с обработкой ошибок
+    local file, err = io.open(filename, "a")
+    if not file then
+        return nil, "Failed to open log file: " .. err
+    end
+
+    -- Формируем строку лога
+    local logEntry = string.format("[%s] [%s] [%s] %s\n",
+            timestamp, category, stacktrace_str, message)
+
+    -- Записываем в файл
+    local success, writeErr = pcall(function()
+        file:write(logEntry)
+        file:close()
+    end)
+
+    if not success then
+        return nil, "Failed to write to log: " .. writeErr
+    end
+
+    return true
+end
