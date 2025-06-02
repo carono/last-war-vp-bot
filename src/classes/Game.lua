@@ -284,13 +284,19 @@ function Game:collectSimpleResources()
 end
 
 function Game:collectSecretMissions()
+    if (Storage:getDay('collectSecretMissions') == 1) then
+        return 1
+    end
     Hud:clickButton('missions')
-
+    if (kfindcolor(964, 1018, '(12763842-10987431)') == 1 and find_color(1066, 497, 1163, 558, '(8908639)') == 0) then
+        Storage:setDay('collectSecretMissions', 1)
+    end
     if (click_green_button(1146, 512) == 1) then
         wait(2000)
         escape(2000, 'Close mission gifts modal')
         return 1
     end
+    Map:normalize();
     return 0
 end
 
@@ -302,7 +308,12 @@ local function current_mission_is_ur()
 end
 
 function Game:rotateSecretMissionsToUR()
-    Hud:clickButton('missions')
+    --if (Storage:getDay('collectSecretMissions') == 1) then
+    --    return 1
+    --end
+    if (Hud:clickButton('missions') == 1) then
+        click(772, 419, 400)
+    end
     if (current_mission_is_ur() == 0) then
         if (kfindcolor(860, 1055, 3754730) == 1) then
             log('Tickets is end')
@@ -326,6 +337,11 @@ function Game:rotateSecretMissionsToUR()
 end
 
 function Game:setSecretMissions()
+    --if (Storage:getDay('setSecretMissions') == 1) then
+    --    log('Skip collect secret missions')
+    --    return 1
+    --end
+
     Hud:clickButton('missions')
 
     if (current_mission_is_ur() == 1) then
@@ -342,6 +358,10 @@ function Game:setSecretMissions()
                     Map:normalize()
                 end
             end
+        end
+    else
+        if (Game:rotateSecretMissionsToUR() == 1) then
+            return Game:setSecretMissions()
         end
     end
     return 0
@@ -362,18 +382,24 @@ function Game:restart(logout_timeout, comment)
 end
 
 function Game:collectAllianceSecretMissions()
+    if (Storage:getDay('collectAllianceSecretMissions') == 1) then
+        return 1
+    end
     Hud:clickButton('missions')
     log('Open alliance tab missions')
     click(1138, 419, 400)
-    if (kfindcolor(1073, 499, ur_color) == 1 and is_blue(1154, 537) == 1) then
+    if (kfindcolor(1066, 486, ur_color) == 1 and is_blue(1154, 537) == 1) then
         log('Try collect alliance mission')
         click(1154, 537)
         if (close_help_modal() == 1) then
             log('Successful collect alliance mission, change tab and retry')
             click(767, 424)
             return self:collectAllianceSecretMissions()
+        else
+            Storage:setDay('collectAllianceSecretMissions', 1)
         end
     end
+    Map:normalize();
     return 0
 end
 

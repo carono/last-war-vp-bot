@@ -15,7 +15,17 @@ end
 function Alliance:open()
     if (kfindcolor(1725, 855, 16777215) == 1) then
         click_and_wait_color(1725, 792, 16054013, 784, 130)
-        return Alliance:isOpen()
+    end
+    return Alliance:isOpen()
+end
+
+function Alliance:fillForge()
+    if (Alliance:open() == 1) then
+        Hud:clickButton('alliance_forge')
+        if (is_blue(1169, 647) == 1) then
+            press(1169, 647, 15000)
+            Map:normalize()
+        end
     end
     return 0
 end

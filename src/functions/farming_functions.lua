@@ -1,18 +1,22 @@
 --lua
 function farming()
     log('clear')
-
     check_handle()
     check_logout()
+    -- ################
 
     normalize_map()
     notify_treasure()
+
+    -- ################
+
     check_secret_missions()
+    weekly_events()
+
     check_events()
     military_race()
     vs()
     check_base()
-    weekly_events()
 
     check_alliance()
     check_radar()
@@ -43,7 +47,7 @@ end
 
 function weekly_events(force)
     if ((cooldown('weekly_events') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
-        Event:executeGenerals()
+        --Event:executeGenerals()
     end
 end
 
@@ -167,6 +171,7 @@ function check_alliance(force)
             Alliance:checkTech()
             Alliance:getPresent()
             Map:normalize()
+            Alliance:fillForge()
         end
     end
 end
@@ -175,17 +180,14 @@ function check_secret_missions(force)
     if ((cooldown('check_secret_missions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking secret missions')
 
-        if (Hud:clickButton('missions') == 1) then
-            log('Collect missions')
-            Game:collectSecretMissions()
-            Game:collectAllianceSecretMissions()
-            click(772, 419, 400)
+        log('Collect missions')
+        Game:collectSecretMissions()
+        Game:collectAllianceSecretMissions()
 
-            log('Setting missions')
-            Game:rotateSecretMissionsToUR()
-            Game:setSecretMissions()
-            Map:normalize()
-        end
+        log('Setting missions')
+
+        Game:setSecretMissions()
+        Map:normalize()
     end
 end
 
@@ -237,18 +239,21 @@ function check_events(force)
         if (Event:open() == 1) then
             Hud:leftScrollModalTabs(10)
             Hud:clickFirstTab()
+            local military_race_gift = Storage:getDay('collectMilitaryRaceGifts-' .. MilitaryRaceEvent:getEventName(), 0)
+            local code_name = Storage:getDay('code_name', 0)
+
             local i = 0
             repeat
                 local tab = Event:getEventTabName()
                 log('See ' .. tab .. ' event')
                 if (tab ~= 0) then
-                    if (tab == 'military_race') then
+                    if (tab == 'military_race' and military_race_gift ~= 1) then
                         Event:collectMilitaryRaceGifts()
                     end
                     if (tab == 'judgment_day' == 1) then
                         Event:collectJudgmentDayGifts()
                     end
-                    if (tab == 'code_name') then
+                    if (tab == 'code_name' and code_name ~= 1) then
                         CodeNameEvent:execute()
                     end
                     if (tab == 'generals') then
@@ -282,11 +287,13 @@ function check_radar(force)
                 log('Radar tasks was collected')
             end
         end
-
+        --
         if (Radar:autoFinishTasks() == 1) then
             reset_cooldown('checkRadar')
         end
+        Map:openBase()
         Radar:collectFinishedTrucks()
+        Radar:setTrucks()
         Map:normalize()
     end
 end

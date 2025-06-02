@@ -230,10 +230,14 @@ function Storage:set(var, value, path)
     return value
 end
 
-function Storage:getDay(var, value, path)
-
+function Storage:getDay(var, default, path)
+    local today = os.date("%Y-%m-%d")
+    path = path or "config/" .. os.getenv('username') .. ".daily.env"
+    return Storage:get(today .. '.' .. var, default, path)
 end
 
-function Storage:getServer(var, value, path)
-
+function Storage:setDay(var, value, path)
+    local today = os.date("%Y-%m-%d")
+    path = path or "config/" .. os.getenv('username') .. ".daily.env"
+    return Storage:set(today .. '.' .. var, value, path)
 end

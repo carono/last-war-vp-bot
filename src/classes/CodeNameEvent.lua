@@ -9,7 +9,9 @@ function CodeNameEvent:execute()
     if (Event:openEventTab('code_name') == 1) then
         if (click_blue_button(969, 1009) == 1) then
             wait(2000)
-            CodeNameEvent:attackBoss(5)
+            if (CodeNameEvent:attackBoss(5) == 1) then
+                Storage:setDay('code_name', 1)
+            end
             return 1
         end
         if (click_if_red(1154, 429) == 1 and click_if_green(1116, 303) == 1) then

@@ -34,10 +34,13 @@ function left(x, y, timeout)
     end
     local oldX, oldY = mouse_pos()
     x, y = Window:modifyCord(x, y)
+    move(x, y)
+    wait(50)
     kleft(x, y)
     timeout = timeout or 100
     wait(timeout)
     move(oldX, oldY)
+    return 1
 end
 
 function click(x, y, time)
@@ -46,7 +49,7 @@ function click(x, y, time)
     end
     local w = time or 0
     log('Click ' .. x .. ', ' .. y .. ' and wait ' .. (w / 1000) .. 's')
-    left(x, y, time)
+    return left(x, y, time)
 end
 
 function click_and_wait_color(x, y, color, colorX, colorY, timeout, cd, comment)
@@ -137,7 +140,7 @@ function click_green_button(x, y, colorX, colorY, timeout)
     return click_if_color(x, y, green_color, colorX, colorY, timeout)
 end
 
-function click_blue_button(x, y, colorX, colorY, timeout)
+function click_blue_button(x, y, timeout, colorX, colorY)
     return click_if_color(x, y, blue_color, colorX, colorY, timeout)
 end
 
@@ -151,9 +154,11 @@ function click_if_color(x, y, color, colorX, colorY, timeout, wait_color_timeout
     colorY = colorY or y
     wait(wait_color_timeout)
     if (kfindcolor(colorX, colorY, color) == 1) then
+        log('Clicking by color ' .. color)
         click(x, y, timeout)
         return 1
     end
+    log('Fail clicking by color ' .. color)
     return 0
 end
 

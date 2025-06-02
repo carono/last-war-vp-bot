@@ -34,6 +34,7 @@ function Event:collectMilitaryRaceGifts()
         click(1078, 458, 500)
         close_gift_modal()
         wait(2000)
+        Storage:setDay('collectMilitaryRaceGifts-' .. MilitaryRaceEvent:getEventName(), 1)
     end
     if (kfindcolor(696, 344, 1886538) == 1) then
         click(660, 288, 500)
@@ -143,15 +144,8 @@ function Event:executeGenerals()
             click(940, 793, 1000)
             if (Hero:march() == 1) then
                 local timer = ktimer(60000)
-                while os.clock() < timer do
+                while os.clock() < timer and Hero:isOutBase() == 1 do
                     wait(1000)
-                    if (is_blue(200, 291) == 0) then
-                        wait(3000)
-                        if (is_blue(200, 291) == 0) then
-                            break
-                        end
-                    end
-
                 end
                 return Event:executeGenerals()
             end

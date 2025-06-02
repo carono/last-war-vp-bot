@@ -19,7 +19,7 @@ function Base:clickHireSurvival()
 end
 
 function Base:getSurvival()
-    local x, y = find_color(867, 471, 955, 566, '(6676611,16549736,2744831,2039583)')
+    local x, y = find_color(550, 689, 684, 814, '(6676611,16549736,2744831,2039583)')
     if (x > 0) then
         log('Find survival')
         return x, y
@@ -35,7 +35,6 @@ function Base:clickSurvival(count)
     local x, y = Base:getSurvival()
     if (x > 0) then
         log('Find survival with gift or new, clicking')
-        click(x, y, 1500)
         click(x, y, 1500)
         Hud:closeNpcDialogs()
         Base:clickHireSurvival()
@@ -94,10 +93,9 @@ function Base:clickMissionButton()
 end
 
 function Base:greetingSurvivals()
-    if (Hud:clickButton('survivals') == 1) then
-        wait(2000)
-        Base:clickSurvival()
-    end
+    log('Greeting survivals')
+    Map:openBase(1)
+    Base:clickSurvival()
 end
 
 function Base:getVipPresents()
@@ -135,11 +133,15 @@ end
 
 function Base:getShopGifts(force)
     force = force or 0
+    if (Storage:getDay('getShopGifts') == 1) then
+        return 1
+    end
     if (force == 1 and Base:isShopModal() == 0) then
         Base:openShop()
     end
     if (Base:isShopModal() == 0) then
-        log('Shop modal is not opening,')
+        log('Shop modal is not opening')
+        return 0
     end
     local x, y = find_red_mark(701, 48, 1184, 61)
     if (x > 0) then
@@ -160,6 +162,7 @@ function Base:getShopGifts(force)
         Map:normalize()
         return 1
     else
+        Storage:setDay('getShopGifts', 1)
         log('No shop gifts')
     end
     if (is_red(1181, 83) == 1) then

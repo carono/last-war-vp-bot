@@ -10,7 +10,8 @@ Hud = {
         inventory = { 838, 26, modal_header_color },
         survivals = { 830, 628, 7570073 },
         development = { 1077, 401, blue_color },
-        rally_present = { 927, 826, blue_color }
+        rally_present = { 927, 826, blue_color },
+        alliance_forge = { 1079, 88, 16772459 }
     }
 }
 
@@ -18,23 +19,17 @@ function Hud:findButton(name)
     log('Searching "' .. name .. '" button on hud')
     local x, y
     if name == 'trucks' then
-        x, y = find_colors(11, 506, 83, 913, { { 34, 636, 14065176 }, { 52, 632, 14065183 } })
-        if (x > 0) then
-            return x, y
-        end
-        x, y = find_colors(11, 506, 83, 913, { { 49, 647, 14601654 }, { 29, 612, 16777204 } })
-        if (x > 0) then
-            return x, y
-        end
+        return 47, 632
     end
     if name == 'search' then
-        return find_colors(11, 506, 83, 913, { { 36, 890, 15387558 }, { 59, 867, 16775653 } })
+        Map:openMap()
+        return 43, 869
     end
     if name == 'radar' then
-        return find_colors(11, 506, 83, 913, { { 30, 808, 15189130 }, { 63, 791, 16314589 } })
+        return 40, 799
     end
     if name == 'missions' then
-        return find_colors(11, 506, 83, 913, { { 28, 726, 15717020 }, { 61, 716, 14070149 } })
+        return 40, 712
     end
     if name == 'survivals' then
         return find_colors(11, 506, 83, 913, { { 26, 559, 16315083 }, { 60, 550, 15853256 } })
@@ -51,6 +46,18 @@ function Hud:findButton(name)
     if name == 'events' then
         return find_color(1697, 76, 1765, 346, 16737536)
     end
+
+    if (name == 'alliance_forge') then
+        if (Alliance:open() == 0) then
+            return 0, 0
+        end
+        Hud:scrollDown()
+        x, y = find_colors(608, 380, 1186, 976, { { 632, 917, 16442590 }, { 767, 890, 6342399 } })
+        if (x > 0) then
+            return x, y
+        end
+    end
+
     if name == 'vs' then
         x, y = find_colors(1684, 75, 1766, 432, { { 1703, 285, 3229666 }, { 1737, 289, 16755819 } })
         if (x > 0) then
@@ -66,6 +73,20 @@ function Hud:findButton(name)
         return find_colors(1688, 920, 1767, 996, { { 1706, 967, 6500368 }, { 1745, 944, 6699289 } })
     end
     return 0, 0
+end
+
+function Hud:afterClickButton(name, x, y)
+    local colorX = self.wait_colors[name][1]
+    local colorY = self.wait_colors[name][2]
+    local color = self.wait_colors[name][3]
+
+    log('Click "' .. name .. '" button')
+    local result = click_and_wait_color(x, y, color, colorX, colorY, nil, 1000)
+    if (name == 'trucks' and result == 0 and kfindcolor(862, 271, '(7505500, 7439708, 7505756, 7308380)') == 1) then
+        result = click_and_wait_color(714, 253, color, colorX, colorY, nil, 1000)
+        log(result)
+    end
+    return result
 end
 
 function Hud:clickButton(name)
@@ -85,10 +106,7 @@ function Hud:clickButton(name)
     end
 
     if (x > 0) then
-        log('Click "' .. name .. '" button')
-        local result = click_and_wait_color(x, y, color, colorX, colorY)
-        wait(1000)
-        return result
+        return Hud:afterClickButton(name, x, y)
     end
     log('Button "' .. name .. '" not found')
     return 0
