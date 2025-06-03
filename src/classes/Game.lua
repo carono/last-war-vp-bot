@@ -284,13 +284,13 @@ function Game:collectSimpleResources()
 end
 
 function Game:collectSecretMissions()
-    if (Storage:getDay('collectSecretMissions') == 1) then
-        return 1
-    end
+    --if (Storage:getDay('collectSecretMissions') == 1) then
+    --    return 1
+    --end
     Hud:clickButton('missions')
-    if (kfindcolor(964, 1018, '(12763842-10987431)') == 1 and find_color(1066, 497, 1163, 558, '(8908639)') == 0) then
-        Storage:setDay('collectSecretMissions', 1)
-    end
+    --if (kfindcolor(964, 1018, '(12763842-10987431)') == 1 and find_color(1066, 497, 1163, 558, '(8908639)') == 0) then
+    --    Storage:setDay('collectSecretMissions', 1)
+    --end
     if (click_green_button(1146, 512) == 1) then
         wait(2000)
         escape(2000, 'Close mission gifts modal')
