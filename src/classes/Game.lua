@@ -172,7 +172,7 @@ function Game:readAllMail(force)
         if click_and_wait_color(1731, 874, modal_header_color, 1008, 22) == 1 then
             local count = 0
             repeat
-                local x, y = find_red_mark(1148, 98, 1190, 917)
+                local x, y = find_color(1055, 101, 1105, 891,'(3456511-3259391,11697507)')
                 if (x ~= 0 and click_and_wait_color(x - 200, y + 50, blue_color, 1075, 1031) == 1) then
                     click(1075, 1031, 800)
                     if (close_gift_modal() == 1) then

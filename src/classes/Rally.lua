@@ -13,9 +13,11 @@ function Rally:joinIfExist(to_last_place)
             log('wait last place')
             wait_not_color(819, 318, 5438656, 30000)
         end
-        if (Rally:join() == 1) then
+        if (Rally:chooseRally() == 1) then
             log('Start join rally')
-            Rally:applyJoin()
+            if (Hero:march() ~= 1) then
+                Map:normalize()
+            end
         else
             if (Rally:listIsOpen() == 1) then
                 log('Out rally list')
@@ -37,7 +39,7 @@ function Rally:listIsOpen()
     return 0
 end
 
-function Rally:join()
+function Rally:chooseRally()
     if (kfindcolor(897, 311, '(5438670-5962650)') == 1) then
         if click_and_wait_color(898, 322, 16777215, 725, 857, 2000) == 0 then
             escape(800)

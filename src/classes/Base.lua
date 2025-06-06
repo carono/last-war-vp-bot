@@ -133,9 +133,9 @@ end
 
 function Base:getShopGifts(force)
     force = force or 0
-    if (Storage:getDay('getShopGifts') == 1) then
-        return 1
-    end
+    --if (Storage:getDay('getShopGifts') == 1) then
+    --    return 1
+    --end
     if (force == 1 and Base:isShopModal() == 0) then
         Base:openShop()
     end
