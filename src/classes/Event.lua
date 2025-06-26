@@ -145,7 +145,7 @@ function Event:executeGenerals()
             if (Hero:march() == 1) then
                 local timer = ktimer(60000)
                 while os.clock() < timer and Hero:isOutBase() == 1 do
-                    wait(1000)
+                    wait(2000)
                 end
                 return Event:executeGenerals()
             end

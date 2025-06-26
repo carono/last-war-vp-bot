@@ -9,5 +9,6 @@ wait(10000)
 Game:resetUserActivity()
 
 use_auto_rally = 1
+debug = 1
 
 farming()

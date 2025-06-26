@@ -77,6 +77,9 @@ function Rally:applyJoin()
 end
 
 function Rally:createDoomElite()
+    if (Hud:hasStaminaForRally() == 0) then
+        return 0
+    end
     if (Map:openMap() == 1) then
         if (Hud:clickButton('search') == 1) then
             click(1085, 548, 1000)

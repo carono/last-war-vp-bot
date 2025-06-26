@@ -49,7 +49,7 @@ end
 function weekly_events(force)
     if ((cooldown('weekly_events') == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
-        --Event:executeGenerals()
+        Event:executeGenerals()
     end
 end
 
@@ -170,7 +170,7 @@ function doom_rally(force)
 end
 
 function check_base(force)
-    if ((cooldown('checkBase', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('checkBase', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Start checking tasks on base')
         Base:openBase(1)
@@ -184,7 +184,7 @@ function check_base(force)
 end
 
 function check_alliance(force)
-    if ((cooldown('checkAlliance', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('checkAlliance', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Start checking alliance tasks')
         if (Alliance:open() == 1) then
@@ -197,13 +197,17 @@ function check_alliance(force)
 end
 
 function check_secret_missions(force)
-    if ((cooldown('check_secret_missions', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('check_secret_missions', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Start checking secret missions')
 
         log('Collect missions')
+
         Game:collectSecretMissions()
-        Game:collectAllianceSecretMissions()
+
+        if (Storage:getDay('allianceSecretMissions') ~= 1) then
+            Game:collectAllianceSecretMissions()
+        end
 
         log('Setting missions')
 
@@ -213,7 +217,7 @@ function check_secret_missions(force)
 end
 
 function collect_promo_gifts(force)
-    if ((cooldown('collectPromoGifts', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('collectPromoGifts', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Start checking gifts')
         Promo:collectGifts()
@@ -222,14 +226,14 @@ function collect_promo_gifts(force)
 end
 
 function read_mail(force)
-    if ((cooldown('readMail', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('readMail', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('Start checking gifts')
         Game:readAllMail(1)
     end
 end
 
 function military_race(force)
-    if ((cooldown('militaryRace', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('militaryRace', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Start checking military race')
         if (MilitaryRaceEvent:getEventNumber() >= 3) then
@@ -242,7 +246,7 @@ function vs(force)
     if (Server:getDay(1) == 'Sunday') then
         return 0
     end
-    if ((cooldown('vs', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('vs', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         VS:collectDroneComponents()
         VS:upgradeDrone()
@@ -253,7 +257,7 @@ function vs(force)
 end
 
 function check_events(force)
-    if ((cooldown('checkEvents', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('checkEvents', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         if (Event:open() == 1) then
             Hud:leftScrollModalTabs(10)
@@ -296,7 +300,7 @@ function check_events(force)
 end
 
 function check_radar(force)
-    if ((cooldown('checkRadar', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
+    if ((cooldown('checkRadar', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
 
@@ -339,7 +343,7 @@ function check_connection()
         Game:restart(120, 'Some thing wrong, detect preloader menu')
     end
 
-    if (cooldown('checkConnections', 600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
+    if (cooldown('checkConnections', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) then
         if (Game:checkConnection() == 0 and Game:checkConnection() == 0) then
             Game:restart(30, 'Game is zombie')
         end

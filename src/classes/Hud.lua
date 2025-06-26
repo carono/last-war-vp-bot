@@ -11,7 +11,8 @@ Hud = {
         survivals = { 830, 628, 7570073 },
         development = { 1077, 401, blue_color },
         rally_present = { 927, 826, blue_color },
-        alliance_forge = { 1079, 88, 16772459 }
+        alliance_forge = { 1079, 88, 16772459 },
+        store = { 966, 42, 5018607 }
     }
 }
 
@@ -45,6 +46,10 @@ function Hud:findButton(name)
 
     if name == 'events' then
         return find_color(1697, 76, 1765, 346, 16737536)
+    end
+
+    if name == 'store' then
+        return 1720, 35
     end
 
     if (name == 'alliance_forge') then
@@ -151,4 +156,8 @@ function Hud:scrollUp(count, x, y)
     x = x or 892
     y = y or 502
     wheel_up(x, y, count * 10)
+end
+
+function Hud:hasStaminaForRally()
+    return is_green(35, 97)
 end
