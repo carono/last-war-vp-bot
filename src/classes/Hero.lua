@@ -24,7 +24,7 @@ function Hero:march()
         return 0
     end
 
-    local _, y = find_color(677, 221, 1090, 809, 3791871)
+    local _, y = find_color(677, 221, 1090, 809, 14659401) -- troop helm
     if (find_color(1048, y - 5, 1077, y + 25, 5131768) > 1) then
         log('Low troops for rally')
         return -1
