@@ -45,7 +45,7 @@ function Hud:findButton(name)
     end
 
     if name == 'events' then
-        return find_color(1697, 76, 1765, 346, 16737536)
+        return find_color(1697, 76, 1765, 346, '(16737536,16636212)')
     end
 
     if name == 'store' then
