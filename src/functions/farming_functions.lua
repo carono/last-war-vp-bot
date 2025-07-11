@@ -61,7 +61,7 @@ function ministry_notify()
             cooldown('ministry_hat', 6 * 60, true)
         end
         if (Notify:hasLabel() == 1 and cooldown_is_expire('label') == 1) then
-            Notify:sendTelegramMessage('Has info label')
+            Notify:sendHasLabel('Has info label')
             cooldown('label', 4 * 60, true)
         end
     end
@@ -76,7 +76,6 @@ end
 
 function dig_treasure()
     local x, y = find_color(1029, 848, 1042, 923, '(14476276,15187370)')
-
     if (x > 0) then
         click(x, y, 500)
         if (click_and_wait_color(884, 531, 6211909, 889, 646) == 1 and click_if_green(889, 646) == 1) then
@@ -133,7 +132,9 @@ end
 function check_logout(force)
     if (Game:isLogout() == 1 or force == 1) then
         log('clear')
-        Notify:accountIsLogout()
+        if (Storage:get('logout_notify', 0) == 1) then
+            Notify:accountIsLogout()
+        end
         Game:clickLogout()
     end
 end

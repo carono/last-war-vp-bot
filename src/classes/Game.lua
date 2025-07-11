@@ -172,7 +172,7 @@ function Game:readAllMail(force)
         if click_and_wait_color(1731, 874, modal_header_color, 1008, 22) == 1 then
             local count = 0
             repeat
-                local x, y = find_color(1055, 101, 1105, 891,'(3456511-3259391,11697507)')
+                local x, y = find_color(1055, 101, 1105, 891, '(3456511-3259391,11697507)')
                 if (x ~= 0 and click_and_wait_color(x - 200, y + 50, blue_color, 1075, 1031) == 1) then
                     click(1075, 1031, 800)
                     if (close_gift_modal() == 1) then
@@ -371,7 +371,7 @@ function Game:restart(logout_timeout, comment)
     comment = comment or ''
     logout_timeout = logout_timeout or Storage:get('logout_timeout', 7 * 60)
     Window:detach();
-    if (comment ~= '') then
+    if (comment ~= '' and Storage:get('restart_notify', 0) == 1) then
         Notify:sendTelegramMessage('Game is restart, ' .. comment .. ' wait ' .. logout_timeout .. 's')
     end
     log('Try killing a game')

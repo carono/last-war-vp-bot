@@ -181,8 +181,9 @@ function ktimer(timeout)
 end
 
 function cooldown_is_expire(slug)
-    local key = "cooldown" .. "." .. slug
-    local timer = Storage:get(key, nil)
+    local key = slug
+    local path = "config/" .. os.getenv('username') .. ".cooldown.env"
+    local timer = Storage:get(key, path)
     log(key .. ' timeout: ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
     if (timer == nil or os.clock() > timer or timer - os.clock() < 0) then
         return 1
@@ -193,14 +194,15 @@ end
 function cooldown(slug, time, reset)
     time = time or 30
     reset = reset or false
-    local key = "cooldown" .. "." .. slug
-    local timer = Storage:get(key, nil)
+    local key = slug
+    local path = "config/" .. os.getenv('username') .. ".cooldown.env"
+    local timer = Storage:get(key, nil, path)
     if (timer == nil) then
-        Storage:set(key, ktimer(time * 1000))
+        Storage:set(key, ktimer(time * 1000), path)
     end
     log(key .. ': ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
     if (timer == nil or os.clock() > timer or timer - os.clock() > time) then
-        Storage:set(key, ktimer(time * 1000))
+        Storage:set(key, ktimer(time * 1000), path)
         return 1
     end
     return 0
@@ -208,12 +210,13 @@ end
 
 function reset_cooldown(slug)
     log('Reset cooldown: ' .. (slug or 'all'))
+    local path = "config/" .. os.getenv('username') .. ".cooldown.env"
     if (slug == nil) then
-        Storage:set('cooldown', {})
+        Storage:reset(path)
         return
     end
-    local key = "cooldown" .. "." .. slug
-    Storage:set(key, nil)
+    local key = slug
+    Storage:set(key, nil, path)
 end
 
 function drag_tabs()

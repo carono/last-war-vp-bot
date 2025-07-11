@@ -230,6 +230,10 @@ function Storage:set(var, value, path)
     return value
 end
 
+function Storage:reset(path)
+    persistence.save(path, {})
+end
+
 function Storage:getDay(var, default, path)
     local today = os.date("%Y-%m-%d")
     path = path or "config/" .. os.getenv('username') .. ".daily.env"
