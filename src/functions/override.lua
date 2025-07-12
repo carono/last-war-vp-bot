@@ -183,7 +183,7 @@ end
 function cooldown_is_expire(slug)
     local key = slug
     local path = "config/" .. os.getenv('username') .. ".cooldown.env"
-    local timer = Storage:get(key, path)
+    local timer = Storage:get(key, nil, path)
     log(key .. ' timeout: ' .. math.ceil((timer or os.clock()) - os.clock()) .. 's')
     if (timer == nil or os.clock() > timer or timer - os.clock() < 0) then
         return 1
