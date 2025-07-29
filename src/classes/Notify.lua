@@ -44,8 +44,10 @@ function Notify:sendHasLabel(message)
 end
 
 function Notify:accountStartGame()
-    local message = Storage:get('login_notify_message', "Login")
-    Notify:sendTelegramMessage(message)
+    if (Storage:get('login_notify', 0) == 1) then
+        local message = Storage:get('login_notify_message', "Login")
+        Notify:sendTelegramMessage(message)
+    end
 end
 
 function Notify:hasLabel()

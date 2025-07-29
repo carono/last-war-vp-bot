@@ -183,6 +183,9 @@ function Storage:get(var, default, path)
     local T = split(var, '.')
     if (table.length(T) >= 2) then
         local section = table.remove(T, 1)
+        if (section == nil) then
+            return default;
+        end
         var = table.concat(T, '.')
         if (data[section] == nil) then
             data[section] = {}

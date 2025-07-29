@@ -9,6 +9,9 @@ function Alliance:isOpen()
     if (kfindcolor(784, 130, 16054013) == 1 and kfindcolor(1145, 227, 7319026) == 1) then
         return 1
     end
+    if (kfindcolor(647, 1076, blue_color) == 1 and kfindcolor(847, 503, 13808809) == 1) then
+        return 1
+    end
     return 0
 end
 
@@ -32,7 +35,7 @@ end
 
 function Alliance:openPresentsTab()
     log('Open present tab')
-    click_and_wait_color(829, 537, 560895, 848, 274)
+    Hud:clickButton('alliance_presents')
 end
 
 function Alliance:getPresent(force)
@@ -117,7 +120,10 @@ function Alliance:checkTech(force)
         log('Alliance modal not opened, cannot check tech')
         return 0
     end
-    click_and_wait_color(1110, 641, 7756114, 660, 202)
+    if (Hud:clickButton('alliance_tech') == 0) then
+        log('Fail open tech tab');
+        return 0;
+    end
     local x, y = find_colors(612, 212, 1161, 757, { { 802, 582, red_color }, { 816, 591, 16777215 } })
     if (x > 0) then
         log('Successful find recommended tech')

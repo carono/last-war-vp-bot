@@ -12,7 +12,9 @@ Hud = {
         development = { 1077, 401, blue_color },
         rally_present = { 927, 826, blue_color },
         alliance_forge = { 1079, 88, 16772459 },
-        store = { 966, 42, 5018607 }
+        store = { 966, 42, 5018607 },
+        alliance_tech = { 1133, 796, yellow_color },
+        alliance_presents = { 741, 100, 15017684 }
     }
 }
 
@@ -44,12 +46,20 @@ function Hud:findButton(name)
         return find_colors(224, 171, 271, 294, { { 240, 247, 16777215 }, { 252, 270, 16777215 } })
     end
 
+    if name == 'alliance_tech' then
+        return find_colors(603, 475, 1186, 959, { { 920, 737, 10851955 }, { 943, 701, 12687775 } })
+    end
+
     if name == 'events' then
         return find_color(1697, 76, 1765, 346, '(16737536,16636212)')
     end
 
     if name == 'store' then
         return 1720, 35
+    end
+
+    if name == 'alliance_presents' then
+        return find_colors(603, 475, 1186, 959, { { 629, 638, 10587497 }, { 646, 606, 16775927 } })
     end
 
     if (name == 'alliance_forge') then
@@ -94,6 +104,14 @@ function Hud:afterClickButton(name, x, y)
     return result
 end
 
+function Hud:checkOpened(name)
+    local colorX = self.wait_colors[name][1]
+    local colorY = self.wait_colors[name][2]
+    local color = self.wait_colors[name][3]
+
+    return kfindcolor(colorX, colorY, color);
+end
+
 function Hud:clickButton(name)
     local x, y = self:findButton(name)
 
@@ -101,11 +119,7 @@ function Hud:clickButton(name)
         name = 'default'
     end
 
-    local colorX = self.wait_colors[name][1]
-    local colorY = self.wait_colors[name][2]
-    local color = self.wait_colors[name][3]
-
-    if (kfindcolor(colorX, colorY, color) == 1) then
+    if (Hud:checkOpened(name) == 1) then
         log('Menu already opened')
         return 1
     end

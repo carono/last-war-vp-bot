@@ -123,7 +123,7 @@ function Radar:setTrucks()
             if (click_and_wait_color(x, y, blue_color, 960, 937) == 1) then
                 wait(1000)
                 :: search_ur ::
-                if (kfindcolor(1064, 360, 4148714) == 1) then
+                if (kfindcolor(1062, 358, 3621342) == 1) then
                     log('Out of tickets')
                     escape(5000)
                     if (click_blue_button(975, 942, 2000) == 1) then
