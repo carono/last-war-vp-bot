@@ -46,9 +46,13 @@ end
 
 function Hero:clickAttack()
     if (kfindcolor(757, 574, 4354047) == 1) then
-        click_and_wait_color(757, 574, 16756752, 958, 856, 1)
-        return
+        return click_and_wait_color(757, 574, 16756752, 958, 856, 1)
     end
+    return 0
+end
+
+function Hero:waitHeroSelectingMenu()
+    return wait_color(958, 856, 16756752, 2000, 500)
 end
 
 function Hero:openAttackMenu()
@@ -67,6 +71,14 @@ function Hero:openAttackMenu()
     return 0
 end
 
+function Hero:getTaleMenuButton()
+    return find_color(121, 87, 1613, 1075, 6211909)
+end
+
+function Hero:getAttackMenuButton()
+    return find_color(703, 575, 1121, 916, 4354047)
+end
+
 function Hero:attackMenuIsOpen()
     return kfindcolor(958, 856, 16756752)
 end
@@ -78,6 +90,28 @@ function Hero:select()
     end
 end
 
+function Hero:getHeroStatusInSelectMenu(squad)
+    --squad = squad or 1
+    local kx, ly = 0
+
+    if (is_red(662, 985, 1) == 1 and is_white(651, 981, 1) == 1 and is_white(658, 983, 1) == 1) then
+        return 'attacking'
+    end
+    if (is_blue(649, 980, 1) == 1) then
+        return 'sleep'
+    end
+    if (is_white(650, 985, 1) == 1 and is_red(656, 990, 1) == 1) then
+        return 'returning'
+    end
+    if (is_white(651, 985, 1) == 1 and is_green(656, 992, 1) == 1) then
+        return 'move_to_tile'
+    end
+    if (is_white(659, 987, 1) == 1 and is_green(662, 981, 1) == 1) then
+        return 'harvesting'
+    end
+    return nil
+end
+
 function Hero:attackIfCan()
     local startX = 641
     local startY = 970
@@ -86,15 +120,15 @@ function Hero:attackIfCan()
 
     if (Hero:attackMenuIsOpen() == 1) then
         log('Menu is opened, try attack..1.')
-        if (is_red(662, 985) and is_white(650, 981)) then
-            --Hero already attacking
-            log('In process..')
-        end
-        if (is_blue(649, 980) == 1) then
-            --Hero is sleep
-            log('Attack from sleep')
-            Hero:clickAttack()
-        end
+        --if (is_red(662, 985) and is_white(650, 981)) then
+        --    --Hero already attacking
+        --    log('In process..')
+        --end
+        --if (is_blue(649, 980) == 1) then
+        --    --Hero is sleep
+        --    log('Attack from sleep')
+        --    Hero:clickAttack()
+        --end
         --if (find_colors()) then
         --    --Hero return
         --    log('Attack from running')

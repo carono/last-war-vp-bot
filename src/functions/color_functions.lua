@@ -61,41 +61,36 @@ function stored_colors_not_changed(arr)
     return 0
 end
 
-function is_white(x, y, color)
-    color = color or white_color
-    if kfindcolor(x, y, color) == 1 then
+function is_white(x, y, margin)
+    if kfindcolor(x, y, white_color, margin) == 1 then
         return 1
     end
     return 0
 end
 
-function is_red(x, y, color)
-    color = color or red_color
-    if kfindcolor(x, y, color) == 1 then
+function is_red(x, y, margin)
+    if kfindcolor(x, y, red_color, margin) == 1 then
         return 1
     end
     return 0
 end
 
-function is_blue(x, y, color)
-    color = color or blue_color
-    if kfindcolor(x, y, color) == 1 then
+function is_blue(x, y, margin)
+    if kfindcolor(x, y, blue_color, margin) == 1 then
         return 1
     end
     return 0
 end
 
-function is_yellow(x, y, color)
-    color = color or yellow_color
-    if kfindcolor(x, y, color) == 1 then
+function is_yellow(x, y, margin)
+    if kfindcolor(x, y, yellow_color, margin) == 1 then
         return 1
     end
     return 0
 end
 
-function is_green(x, y, color)
-    color = color or green_color
-    if kfindcolor(x, y, color) == 1 then
+function is_green(x, y, margin)
+    if kfindcolor(x, y, green_color, margin) == 1 then
         return 1
     end
     return 0
