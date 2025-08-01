@@ -93,7 +93,7 @@ function Game:clickLogout()
     Storage:set('logout_timeout_inc', logout_timeout)
 
     reset_cooldown()
-    cooldown('restart', preventive_restart, true)
+    cooldown('restart', preventive_restart_hour * 60 * 60, true)
 end
 
 function Game:resetUserActivity()

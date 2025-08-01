@@ -35,10 +35,10 @@ function farming()
 
     Game:waitIfUserIsActive()
 
-    if (cooldown('restart', preventive_restart) == 1) then
+    if (cooldown('restart', preventive_restart_hour * 60 * 60) == 1) then
         Game:restart(30, 'Preventive restart')
         reset_cooldown()
-        cooldown('restart', preventive_restart, true)
+        cooldown('restart', preventive_restart_hour * 60 * 60, true)
     end
 
     wait(1000)
