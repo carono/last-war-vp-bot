@@ -75,7 +75,9 @@ function Game:clickLogout()
     log('Click logout button')
     wait(1000)
     left(893, 638)
-    local logout_timeout = Storage:get('logout_timeout', 15) * 60
+    if (logout_timeout == nil) then
+        logout_timeout = Storage:get('logout_timeout', 15) * 60
+    end
     local logout_timeout_inc = Storage:get('logout_timeout_inc', logout_timeout)
 
     if (os.clock() < Storage:get('logout_timer', os.clock())) then

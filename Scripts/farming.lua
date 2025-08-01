@@ -9,7 +9,7 @@ Game:resetUserActivity()
 
 -- GAME CONFIG
 use_auto_rally = 1
-
+open_drone_components = 1
 
 -- SYSTEM CONFIG
 debug = 0

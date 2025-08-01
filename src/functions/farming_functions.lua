@@ -249,7 +249,9 @@ function vs(force)
     end
     if ((cooldown('vs', 3600) == 1 and Game:userIsActive() == 0 and Game:isLogout() == 0) or force == 1) then
         log('clear')
-        VS:collectDroneComponents()
+        if (open_drone_components == 1) then
+            VS:collectDroneComponents()
+        end
         VS:upgradeDrone()
         --VS:openBuildings()
         VS:collectGifts()
