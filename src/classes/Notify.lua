@@ -50,11 +50,17 @@ function Notify:accountStartGame()
     end
 end
 
+function Notify:label()
+    if (kfindcolor(716, 40, 7520751) == 1) then
+        return 2
+    end
+    if (find_colors(679, 16, 757, 44, { { 706, 33, 2147311 }, { 738, 35, 10596246 } }) > 0) then
+        return 'storm'
+    end
+end
+
 function Notify:hasLabel()
     if (kfindcolor(1006, 24, 16250612) == 1) then
-        if (kfindcolor(716, 40, 7520751) == 1) then
-            return 2
-        end
         return 1
     end
     return 0

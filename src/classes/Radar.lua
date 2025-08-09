@@ -1,6 +1,8 @@
 --lua
 Radar = {}
 
+local collectFinishedTasksCount = 0
+
 function Radar:hasTreasureExcavatorNotification()
     if (kfindcolor(1047, 965, 686838) == 1 or kfindcolor(1055, 975, 2964595) == 1) then
         return 1
@@ -25,63 +27,130 @@ function Radar:clickEasterEggModal()
     click(935, 706, 100)
 end
 
-function Base:radarIsOpen()
-    return kfindcolor(1071, 28, stamina_color)
-end
-
 function Radar:open()
-    if (Base:radarIsOpen() == 1 or Hud:clickButton('radar') == 1) then
+    if (Hud:clickButton('radar') == 1) then
         wait(2000)
         return 1
     end
     return 0
 end
 
-function Radar:executeTask()
-    if (is_green(833, 640) == 1) then
-        click(833, 640, 2000)
+function Radar:searchTask()
+    local x, y
+    x, y = find_colors(653, 190, 1186, 861, { { 890, 306, 3773172 }, { 889, 372, 7066879 } })
+    if (x > 0) then
+        return x, y + 50
     end
-    if (is_blue(916, 673) == 1) then
-        click(916, 673, 2000)
-        Hero:march()
-        wait(2000)
+
+    x, y = find_colors(653, 190, 1186, 861, { { 1094, 486, 14535758 }, { 1095, 544, 15652689 } })
+    if (x > 0) then
+        return x, y + 50
     end
-    if (is_green(897, 692) == 1) then
-        click(897, 692, 2000)
-        Hero:march()
-        wait(2000)
-        Hud:closeNpcDialogs()
+
+    x, y = find_colors(653, 190, 1186, 861, { { 1093, 655, 5591122 }, { 1095, 707, 12434365 } })
+    if (x > 0) then
+        return x, y + 50
     end
-    if (kfindcolor(836, 635, '(4354047)') == 1) then
-        click(836, 635, 2000)
-        Hero:march()
-        wait(2000)
+
+    x, y = find_colors(653, 190, 1186, 861, { { 681, 436, 8701987 }, { 682, 496, 9428001 } })
+    if (x > 0) then
+        return x, y + 50
     end
+
+    x, y = find_colors(653, 190, 1186, 861, { { 708, 690, 14601041 }, { 694, 750, 15718483 } })
+    if (x > 0) then
+        return x, y + 50
+    end
+
+    return 0, 0
 end
 
-function Radar:collectFinishedTasks(count)
-    count = count or 0
-    if (count > 20) then
+function Radar:executeTask()
+    local executeTimeout = 3000
+    Radar:clickExecuteTaskButton()
+    local result = 0
+    if (click_green_button(833, 640, 2000) == 1) then
+        result = 1
+    end
+    if (is_blue(916, 673) == 1) then
+        Hero:march()
+        result = 1
+    end
+    if (click_green_button(897, 692, 2000) == 1) then
+        click(897, 692, 2000)
+        Hero:march()
+        result = 1
+    end
+    if (click_if_color(836, 635, '(4354047)', nil, nil, 2000) == 1) then
+        Hero:march()
+        result = 1
+    end
+    if (click_if_color(889, 779, 4354303, nil, nil, 2000) == 1) then
+        -- single zombie
+        Hero:march()
+        result = 1
+    end
+    if (click_if_color(906, 684, '(5547258)', nil, nil, 2000) == 1) then
+        Hero:march()
+        result = 1
+    end
+    if (result == 1) then
+        Hud:closeNpcDialogs()
+        wait(executeTimeout)
+        close_gift_modal()
+        return 1
+    end
+    return 0
+end
+
+function Radar:clickExecuteTaskButton()
+    if (Hud:checkOpened('radar') == 1 and is_blue(898, 1034) == 1) then
+        click(898, 1034, 3000)
+        Hud:closeNpcDialogs()
+        return 1
+    end
+    return 0
+end
+
+function Radar:searchAndExecute()
+    Radar:clickExecuteTaskButton()
+
+    if (Hud:checkOpened('radar') == 1) then
+        local x, y = Radar:searchTask();
+        if (x > 0) then
+            click(x, y, 1300)
+            if (close_gift_modal() == 1) then
+                return 1
+            end
+        end
+    end
+
+    return Radar:executeTask()
+end
+
+function Radar:collectFinishedTasks()
+    if (collectFinishedTasksCount > 5 or Game:userIsActive() == 1) then
+        collectFinishedTasksCount = 0
         Map:normalize()
         return 0
     end
     if (self:open() == 1) then
         log('Collecting tasks')
         local x, y = find_color(630, 176, 1186, 818, red_color)
-        log(x, y)
         if (x > 0) then
-            --click(x - 15, y + 15, 500)
             click(x - 15, y + 15, 1000)
             close_gift_modal()
             if (click_blue_button(857, 1030) == 1) then
                 wait(5000)
                 Radar:executeTask()
             end
-            return self:collectFinishedTasks(count + 1)
+            collectFinishedTasksCount = collectFinishedTasksCount + 1
+            return self:collectFinishedTasks()
         end
         Map:normalize()
     end
-    if (count > 0) then
+    if (collectFinishedTasksCount > 0) then
+        collectFinishedTasksCount = 0
         return 1
     end
     return 0
@@ -93,6 +162,20 @@ function Radar:autoFinishTasks()
         wait(3000)
         Map:normalize()
         return 1
+    end
+    return 0
+end
+
+function Radar:executeAllTasks()
+    Map:normalize();
+    Hud:clickButton('radar')
+    local collectFinished = Radar:collectFinishedTasks()
+
+    Map:normalize();
+    Hud:clickButton('radar')
+    local executeTask = Radar:searchAndExecute()
+    if (collectFinished == 1 or executeTask == 1) then
+        return Radar:executeAllTasks();
     end
     return 0
 end
@@ -139,7 +222,7 @@ function Radar:setTrucks()
 
                 if (click(1100, 447, 2000) == 1) then
                     log('Change change truck')
-                    if (click_green_button(1025, 342, nil, nil, 2000) == 1) then
+                    if (click_green_button(1025, 342, 2000) == 1) then
                         log('Confirm change truck')
                     end
                     goto search_ur

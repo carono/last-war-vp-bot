@@ -307,17 +307,20 @@ function check_radar(force)
         log('clear')
         log('Race event is ' .. MilitaryRaceEvent:getEventName() .. '(' .. MilitaryRaceEvent:getEventNumber() .. ')')
 
-        if (VS:isRadarDay() == 1) then
-            if (Radar:collectFinishedTasks() == 0) then
-                log('No radar tasks')
-            else
-                log('Radar tasks was collected')
-            end
+        if (Storage:get('executeRadarTasks', 1) == 1) then
+            Radar:executeAllTasks()
         end
+        --if (VS:isRadarDay() == 1) then
+        --    if (Radar:collectFinishedTasks() == 0) then
+        --        log('No radar tasks')
+        --    else
+        --        log('Radar tasks was collected')
+        --    end
+        --end
         --
-        if (Radar:autoFinishTasks() == 1) then
-            reset_cooldown('checkRadar')
-        end
+        --if (Radar:autoFinishTasks() == 1) then
+        --    reset_cooldown('checkRadar')
+        --end
         Map:openBase()
         Radar:collectFinishedTrucks()
         Radar:setTrucks()

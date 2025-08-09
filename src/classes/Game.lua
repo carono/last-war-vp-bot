@@ -371,15 +371,15 @@ end
 
 function Game:restart(logout_timeout, comment)
     comment = comment or ''
-    logout_timeout = logout_timeout or Storage:get('logout_timeout', 7 * 60)
+    logout_timeout = logout_timeout or Storage:get('logout_timeout', 7)
     Window:detach();
     if (comment ~= '' and Storage:get('restart_notify', 0) == 1) then
         Notify:sendTelegramMessage('Game is restart, ' .. comment .. ' wait ' .. logout_timeout .. 's')
     end
     log('Try killing a game')
     exec("taskkill /f /im lastwar.exe")
-    log('Waiting logout timeout at ' .. (logout_timeout) .. 's after ' .. comment)
-    wait(logout_timeout * 1000)
+    log('Waiting logout timeout at ' .. (logout_timeout) .. 'm after ' .. comment)
+    wait(logout_timeout * 60 * 1000)
     Game:start()
 end
 

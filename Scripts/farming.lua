@@ -6,6 +6,7 @@ require('dist/init')
 -- GAME CONFIG
 use_auto_rally = 1
 open_drone_components = 1
+executeRadarTasks = 1
 default_farming_timeout = 600
 
 -- SYSTEM CONFIG

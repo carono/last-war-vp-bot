@@ -136,7 +136,7 @@ function click_red_mark(colorX, colorY, x, y, timeout)
     return click_if_color(x, y, red_color, colorX, colorY, timeout)
 end
 
-function click_green_button(x, y, colorX, colorY, timeout)
+function click_green_button(x, y, timeout, colorX, colorY)
     return click_if_color(x, y, green_color, colorX, colorY, timeout)
 end
 
