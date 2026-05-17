@@ -1,34 +1,26 @@
-Interface language ([ENG](https://github.com/carono/last-war-vp-bot ) | [RU](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/README.md))
+# Last War Bot (v2)
 
-# Documentation
-- [Farming script](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/farming.md )
-- [Attack Assistance Script](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/attack.md )
-- [Development](https://github.com/carono/last-war-vp-bot/blob/master/docs/ru/develop.md )
+Автоматизация PC-клиента игры Last War. Гибрид компьютерного зрения и LLM: быстрый CV для рутины (template matching, OCR), VLM/LLM — для классификации экранов, планирования сценариев и распознавания незнакомых ситуаций.
 
-## Disclaimer of liability
-The script is based on an ancient clicker program for the game Ultima Online. There may be more convenient clicker programs, but I haven't used them.
+Поддерживаются как локальные модели (через [Ollama](https://ollama.com)), так и облачные сервисы с OpenAI-совместимым API (OpenAI, Anthropic, Groq, Together, OpenRouter, локальный llama.cpp-server и т.п.). Выбор провайдера — через переменные окружения.
 
-The script is provided as is, there is a 90% chance that it will not run on your PC without dancing with a tambourine, so the author of the code is not responsible for its performance.
+**Статус:** активная переработка. Старая Lua/UOPilot-версия — на ветке `master`, документация перенесена в [`docs/legacy-ru/`](docs/legacy-ru/) и [`docs/legacy-en/`](docs/legacy-en/) как референс по фичам.
 
+## Установка
 
-## Get ready to launch
-1. Download the game and install it https://www.lastwar.com/Download/Setup.exe
-2. Download and unpack this script https://github.com/carono/last-war-vp-bot/archive/refs/heads/master.zip
+См. [`docs/install/`](docs/install/README.md) — пошаговые инструкции для Windows: Python, Ollama, сам бот.
 
-## Launch
-![UOPilot](https://github.com/carono/last-war-vp-bot/blob/f20acd34993135de2ea5cdc4b19c9dcd3be0f2fd/img/uopilot.png)
-1. Launch uopilot242.exe
-2. Open the script in the application (Script > Open)
-3. Click run
+## Архитектура
 
-If everything is in order, the script will launch the game and check the applications itself, if any.
+См. [`docs/architecture.md`](docs/architecture.md).
 
-If nothing happens or an error appears, I'm really sorry, everything is working for me :D
+## Запуск smoke-теста
 
-With respect,
-Server #972 Carono
+После установки (`docs/install/`):
 
-## Known issues
-* If you frequently log into your account from another device, the PC game may freeze without any visible signs, as a result of which the scripts will stop working.
-* The game does not recover after the update.
-* VP service does not work with captured and conquered capitals
+```powershell
+.venv\Scripts\activate
+python -m lastwar_bot
+```
+
+Скрипт проверит соединение с выбранным LLM-провайдером и выведет короткий ответ модели.

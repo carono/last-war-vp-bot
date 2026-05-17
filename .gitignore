@@ -1,8 +1,35 @@
-.idea
-autosaved*
-config.txt
-node_modules
-*.tmp
-*tmp.*
-*.ini
-*.env
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local config & secrets
+.env
+.env.local
+config.local.yaml
+config.local.yml
+
+# Runtime artefacts
+logs/
+screenshots/
+models_cache/
+*.log
