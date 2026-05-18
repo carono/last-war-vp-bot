@@ -33,3 +33,4 @@ logs/
 screenshots/
 models_cache/
 *.log
+profiles/

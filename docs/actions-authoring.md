@@ -76,6 +76,13 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `LOG` | `LOG "msg"` | Trace line. |
 | `STOP` | `STOP "reason"` | Halt the action stack; runner stops on the next check. |
 | `CLOSE_WINDOW` | `CLOSE_WINDOW` | Send `WM_CLOSE` to the game window. |
+| `CLICK (x, y)` | `CLICK (50, 50)` | Click absolute client coords (when FIND isn't usable, e.g. unique-per-player avatar). |
+| `READ_TEXT (...)` | `READ_TEXT (300, 100, 400, 60) INTO profile.name` | OCR a region and save into the active profile. |
+
+Extended conditions:
+- `FIND <tpl>.png` — ad-hoc SIFT find as a condition; updates `LAST`.
+- `profile.<field> == "..."` / `profile.<field> != "..."` — string
+  comparison against the active profile.
 
 Conditions: `screen == base|world|unknown`, `screen != ...`,
 `FOUND`, `NOT FOUND`. Comments start with `#`. Indentation can be any
@@ -251,9 +258,10 @@ then wrap it in DSL.
 
 ## What's still incomplete (good extension points)
 
-- **OCR primitive**: a `READ_NUMBER <region>` statement would unlock
-  resource counters, event timers, currency reads. Pick a backend
-  (RapidOCR or PaddleOCR) and add it under `perception/`.
+- **Numeric OCR primitive**: `READ_TEXT` lands a string in the profile.
+  A `READ_NUMBER (region) INTO profile.<field>` variant that parses
+  the OCR result as an integer would unlock typed comparisons
+  (`profile.level >= "50"` instead of string equality).
 - **Region-anchored find**: today `FIND` searches the whole image.
   A variant `FIND x.png NEAR LAST` (or `WITHIN <bbox>`) would speed
   up follow-up finds and reduce false positives in busy scenes.

@@ -9,7 +9,7 @@
 # To activate, capture the modal as `kicked_modal.png` into
 # `src/lastwar_bot/game/templates/`, then uncomment the FIND block.
 
-# FIND kicked_modal.png
-#     LOG "Another login detected; closing game and halting bot"
-#     CLOSE_WINDOW
-#     STOP "kicked by another login"
+FIND kicked_modal.png
+     LOG "Another login detected; closing game and halting bot"
+     CLOSE_WINDOW
+     STOP "kicked by another login"

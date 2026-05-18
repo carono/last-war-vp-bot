@@ -63,10 +63,38 @@ FIND inventory.png
 If the template doesn't match, the body is skipped (no error). The
 script continues with the next sibling statement.
 
-### `CLICK`
+### `CLICK` / `CLICK (x, y)`
 
-Click the centre of the most recent successful `FIND`. Fails the script
-if there was no prior `FIND` or it didn't match.
+Two forms:
+
+- `CLICK` — click the centre of the most recent successful `FIND`.
+  Fails the script if there was no prior `FIND` or it didn't match.
+- `CLICK (x, y)` — click absolute client coordinates. Useful for UI
+  elements that can't be reliably found by template, e.g. the player
+  avatar whose art changes per account.
+
+```
+CLICK (50, 50)
+FIND inventory.png
+    CLICK
+```
+
+### `READ_TEXT (x, y, w, h) INTO profile.<field>`
+
+OCR the rectangular region `(x, y, w, h)` of the current screen
+(coordinates in client pixels) and write the recognised text into the
+named profile field. The active profile must be loaded — pass
+`--profile <id>` when starting the bot.
+
+```
+READ_TEXT (300, 100, 400, 60) INTO profile.name
+READ_TEXT (300, 180, 200, 50) INTO profile.level
+```
+
+Each assignment writes the field to disk immediately
+(`./profiles/<profile_id>.json`). Empty OCR result is stored as an
+empty string. Values are stored as text; downstream conditions
+compare them as strings (e.g. `profile.level == "50"`).
 
 ### `CALL <action_name>`
 
@@ -132,6 +160,24 @@ Allowed in `IF` and `WAIT`:
 - `screen == unknown` / `screen != unknown`
 - `FOUND` — last `FIND` succeeded
 - `NOT FOUND` — last `FIND` returned nothing
+- `FIND <name>.png` — ad-hoc SIFT search now; true if visible. **Side
+  effect**: on success updates `LAST` so the next `CLICK` lands on the
+  match.
+  ```
+  WAIT FIND profile_modal_marker.png WITHIN 5s
+  IF FIND popup_close.png
+      CLICK
+  ```
+- `profile.<field> == "<text>"` / `profile.<field> != "<text>"` — string
+  comparison against a field of the active profile. Missing field is
+  treated as the empty string.
+  ```
+  IF profile.server == "972"
+      CALL alliance_specific_thing
+  ```
+
+(More predicates are added as new primitives appear — extend
+`Interpreter.eval_condition`.)
 
 ## Watchdog
 
@@ -148,8 +194,31 @@ game cleanly.
 To disable, leave `watchdog.md` empty (only comments) or pass
 `watchdog_action=None` to `BotRunner`.
 
-(More predicates are added as new primitives appear — extend
-`Interpreter.eval_condition`.)
+## Profiles
+
+Each operator of the bot picks a **profile id** on startup:
+
+```
+python -m lastwar_bot.ui --profile alice
+```
+
+The profile is loaded from `./profiles/<id>.json` (created on first
+write). Scripts read fields via `profile.<field>` conditions and write
+fields via `READ_TEXT (...) INTO profile.<field>`. The default profile
+id is `default`.
+
+A typical onboarding action — see `actions/capture_profile.md` — opens
+the in-game profile modal and OCRs the player's name, level, and
+server number into the profile. Other actions can then branch on the
+captured values:
+
+```
+IF profile.server == "972"
+    CALL alliance_972_routine
+```
+
+Profiles are persisted to disk on every write. The `profiles/` folder
+is gitignored.
 
 ## References — what's a template, what's a script?
 
@@ -163,14 +232,19 @@ There's no implicit dispatch — you always say `FIND foo.png` or
 
 ## Implicit state
 
-While a script runs, the interpreter keeps two pieces of state:
+While a script runs, the interpreter keeps a few pieces of state:
 
 - `LAST` — the most recent successful `FIND` result (the match's centre
   point, in client coordinates). Reset to "none" when a `FIND` returns
-  no match. Consumed by `CLICK`.
+  no match. Consumed by bare `CLICK`.
 - `screen` — recomputed live from the current capture each time a
   condition evaluates `screen ==` or `screen !=`. So your script always
   sees the latest screen state, not a stale cache.
+- `profile.<field>` — bound to the active profile loaded from
+  `./profiles/<profile_id>.json`. Selected at launch with
+  `--profile <id>` (defaults to `default`). Reads via the
+  `profile.<field>` condition; writes via `READ_TEXT ... INTO
+  profile.<field>`, which persists to disk immediately.
 
 ## Failure model
 

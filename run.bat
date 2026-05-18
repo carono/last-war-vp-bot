@@ -11,7 +11,7 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 
 call .venv\Scripts\activate.bat
-python -m lastwar_bot.ui
+python -m lastwar_bot.ui %*
 
 if errorlevel 1 (
     echo.

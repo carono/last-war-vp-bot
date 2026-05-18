@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import cv2
 
@@ -37,12 +38,14 @@ class BotRunner:
         tick_interval: float = 5.0,
         screenshot_dir: Path | str = "screenshots",
         watchdog_action: str | None = DEFAULT_WATCHDOG_ACTION,
+        profile: Any = None,
     ) -> None:
         self.window_title = window_title
         self.process_name = process_name
         self.tick_interval = tick_interval
         self.screenshot_dir = Path(screenshot_dir)
         self.watchdog_action = watchdog_action
+        self.profile = profile
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -121,7 +124,7 @@ class BotRunner:
         path = ACTIONS_DIR / f"{self.watchdog_action}.md"
         if not path.exists():
             return False
-        ctx = Context(hwnd=hwnd, on_event=self._emit)
+        ctx = Context(hwnd=hwnd, on_event=self._emit, profile=self.profile)
         Interpreter(ctx).run_action(self.watchdog_action)
         if ctx.halt:
             self._emit(

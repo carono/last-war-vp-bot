@@ -23,6 +23,7 @@ from .perception.capture import (
     find_window,
     grab,
 )
+from .profile import DEFAULT_PROFILE_ID, Profile
 from .runner import BotRunner
 from .script_engine import run_action
 
@@ -33,14 +34,15 @@ PROCESS_NAME = "LastWar.exe"
 class BotWindow(tk.Tk):
     POLL_MS = 100
 
-    def __init__(self) -> None:
+    def __init__(self, profile_id: str = DEFAULT_PROFILE_ID) -> None:
         super().__init__()
-        self.title("Last War Bot")
+        self.title(f"Last War Bot — {profile_id}")
         self.geometry("780x560")
         self.minsize(560, 380)
 
         self._settings = AppSettings()
-        self._runner = BotRunner()
+        self._profile = Profile.load(profile_id)
+        self._runner = BotRunner(profile=self._profile)
         self._messages: queue.Queue[str] = queue.Queue()
 
         self._build_ui()
@@ -59,6 +61,12 @@ class BotWindow(tk.Tk):
         ttk.Label(
             header,
             text=f"LLM: {self._settings.llm_provider}   ·   Vision: {self._settings.vision_provider}",
+            foreground="#888",
+        ).pack(side="left")
+
+        ttk.Label(
+            header,
+            text=f"   ·   Profile: {self._profile.profile_id}",
             foreground="#888",
         ).pack(side="left")
 
@@ -113,6 +121,16 @@ class BotWindow(tk.Tk):
         ).pack(side="left")
         self._fix_size_btn = ttk.Button(row3, text="Fix window size", command=self._on_fix_size)
         self._fix_size_btn.pack(side="left", padx=(8, 0))
+
+        ttk.Separator(f, orient="horizontal").pack(side="top", fill="x", pady=8)
+
+        row4 = ttk.Frame(f)
+        row4.pack(side="top", fill="x")
+        ttk.Label(row4, text="Player profile metadata:").pack(side="left")
+        self._capture_profile_btn = ttk.Button(
+            row4, text="Capture profile", command=self._on_capture_profile,
+        )
+        self._capture_profile_btn.pack(side="left", padx=(8, 0))
 
         return f
 
@@ -206,7 +224,7 @@ class BotWindow(tk.Tk):
             self.after(0, lambda: self._set_debug_buttons(True))
             return
         action_name = "go_to_base" if target == "base" else "go_to_world"
-        ok = run_action(action_name, info.hwnd, on_event=self._enqueue)
+        ok = run_action(action_name, info.hwnd, on_event=self._enqueue, profile=self._profile)
         # Refresh the indicator from the final state.
         try:
             final_screen = navigate.identify_screen(grab(info.hwnd)) or "unknown"
@@ -245,9 +263,30 @@ class BotWindow(tk.Tk):
             )
         self.after(0, lambda: self._set_debug_buttons(True))
 
+    def _on_capture_profile(self) -> None:
+        self._set_debug_buttons(False)
+        threading.Thread(target=self._do_capture_profile, daemon=True).start()
+
+    def _do_capture_profile(self) -> None:
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+        except WindowNotFoundError as exc:
+            self._enqueue(f"Capture profile: window not found — {exc}")
+            self.after(0, lambda: self._set_debug_buttons(True))
+            return
+        ok = run_action("capture_profile", info.hwnd, on_event=self._enqueue, profile=self._profile)
+        self._enqueue(
+            f"Capture profile: {'OK' if ok else 'FAILED'}; "
+            f"profile.data now has: {list(self._profile.data) or '(empty)'}"
+        )
+        self.after(0, lambda: self._set_debug_buttons(True))
+
     def _set_debug_buttons(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
-        for btn in (self._detect_btn, self._goto_base_btn, self._goto_world_btn, self._fix_size_btn):
+        for btn in (
+            self._detect_btn, self._goto_base_btn, self._goto_world_btn,
+            self._fix_size_btn, self._capture_profile_btn,
+        ):
             btn.configure(state=state)
 
     # ----- lifecycle -----
@@ -260,7 +299,16 @@ class BotWindow(tk.Tk):
 
 
 def main() -> int:
-    BotWindow().mainloop()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Last War Bot control UI.")
+    parser.add_argument(
+        "--profile", default=DEFAULT_PROFILE_ID,
+        help="Profile id to load (default: %(default)s). Stored in ./profiles/<id>.json.",
+    )
+    args = parser.parse_args()
+
+    BotWindow(profile_id=args.profile).mainloop()
     return 0
 
 

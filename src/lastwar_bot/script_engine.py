@@ -66,6 +66,10 @@ _IF_RE = re.compile(rf"^IF\s+(.+?)\s*$", re.IGNORECASE)
 _ELSE_RE = re.compile(r"^ELSE\s*$", re.IGNORECASE)
 _FIND_RE = re.compile(rf"^FIND\s+({_IDENT}\.png)\s*$", re.IGNORECASE)
 _CLICK_RE = re.compile(r"^CLICK\s*$", re.IGNORECASE)
+_CLICK_AT_RE = re.compile(
+    r"^CLICK\s+\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*$",
+    re.IGNORECASE,
+)
 _CALL_RE = re.compile(rf"^CALL\s+({_IDENT})\s*$", re.IGNORECASE)
 _WAIT_RE = re.compile(
     rf"^WAIT\s+(.+?)(?:\s+WITHIN\s+(\d+(?:\.\d+)?)\s*s?)?\s*$",
@@ -74,9 +78,20 @@ _WAIT_RE = re.compile(
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
 _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
 _CLOSE_WINDOW_RE = re.compile(r"^CLOSE_WINDOW\s*$", re.IGNORECASE)
+_READ_TEXT_RE = re.compile(
+    rf"^READ_TEXT\s+\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"
+    rf"\s+INTO\s+profile\.({_IDENT})\s*$",
+    re.IGNORECASE,
+)
 
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
+)
+_FIND_COND_RE = re.compile(
+    rf"^FIND\s+({_IDENT}\.png)\s*$", re.IGNORECASE,
+)
+_PROFILE_CHECK_RE = re.compile(
+    rf'^profile\.({_IDENT})\s*(==|!=)\s*"([^"]*)"\s*$', re.IGNORECASE,
 )
 
 
@@ -104,7 +119,15 @@ class FindStmt(_Stmt):
 
 @dataclass(slots=True)
 class ClickStmt(_Stmt):
-    pass
+    # When set, click absolute client coords (x, y). When None, click the
+    # centre of the most recent successful FIND (the LAST register).
+    coords: tuple[int, int] | None = None
+
+
+@dataclass(slots=True)
+class ReadTextStmt(_Stmt):
+    region: tuple[int, int, int, int]
+    target_field: str  # written into Context.profile.data[target_field]
 
 
 @dataclass(slots=True)
@@ -208,8 +231,22 @@ def _parse_one(lines, i, indent):
         body, i = _parse_indented_block(lines, i, indent, ln, required=False)
         return FindStmt(text=text, line_no=ln, template_name=tpl, body=body), i
 
+    m = _CLICK_AT_RE.match(text)
+    if m:
+        return ClickStmt(
+            text=text, line_no=ln, coords=(int(m.group(1)), int(m.group(2)))
+        ), i + 1
     if _CLICK_RE.match(text):
         return ClickStmt(text=text, line_no=ln), i + 1
+
+    m = _READ_TEXT_RE.match(text)
+    if m:
+        x, y, w, h = (int(m.group(i)) for i in range(1, 5))
+        return ReadTextStmt(
+            text=text, line_no=ln,
+            region=(x, y, w, h),
+            target_field=m.group(5),
+        ), i + 1
 
     m = _CALL_RE.match(text)
     if m:
@@ -261,6 +298,7 @@ class Context:
     last_find: Any = None
     halt: bool = False
     halt_reason: str | None = None
+    profile: Any = None  # `lastwar_bot.profile.Profile` instance, or None
 
 
 class _HaltSignal(Exception):
@@ -337,6 +375,8 @@ class Interpreter:
                 raise _HaltSignal()
             case CloseWindowStmt():
                 self._do_close_window(stmt)
+            case ReadTextStmt():
+                self._do_read_text(stmt)
 
     # ---- conditions ----
 
@@ -356,7 +396,46 @@ class Interpreter:
                 return (current or "unknown") == wanted
             return (current or "unknown") != wanted
 
+        m = _FIND_COND_RE.match(cond)
+        if m:
+            return self._find_template_inline(m.group(1))
+
+        m = _PROFILE_CHECK_RE.match(cond)
+        if m:
+            field_name = m.group(1)
+            op = m.group(2)
+            expected = m.group(3)
+            actual = ""
+            if self.ctx.profile is not None:
+                actual = str(self.ctx.profile.get(field_name, ""))
+            return (actual == expected) if op == "==" else (actual != expected)
+
         raise ScriptRuntimeError(f"line {line_no}: unknown condition: {cond!r}")
+
+    def _find_template_inline(self, template_name: str) -> bool:
+        """Run an ad-hoc FIND and update ``ctx.last_find``.
+
+        Used by `FIND x.png` when it appears as a condition (in IF or
+        WAIT) — distinct from the FIND statement, which has a body. A
+        successful inline find leaves the match in LAST so the next
+        statement can CLICK it.
+        """
+        from .game.skills.navigate import TEMPLATES_DIR
+        from .perception import features
+        from .perception.capture import grab
+
+        path = TEMPLATES_DIR / template_name
+        if not path.exists():
+            raise ScriptRuntimeError(f"template not found: {template_name}")
+        scene = features.SceneIndex(grab(self.ctx.hwnd))
+        match = scene.find_sift(path)
+        if match is None or match.inliers < 4:
+            self.ctx.last_find = None
+            self._log(f"(inline FIND {template_name} -> not found)")
+            return False
+        self.ctx.last_find = match
+        self._log(f"(inline FIND {template_name} -> inliers={match.inliers} center={match.center})")
+        return True
 
     def _current_screen(self) -> str | None:
         from .game.skills import navigate
@@ -411,6 +490,12 @@ class Interpreter:
     def _do_click(self, stmt: ClickStmt) -> None:
         from .inputs import click
 
+        if stmt.coords is not None:
+            cx, cy = stmt.coords
+            click(self.ctx.hwnd, cx, cy, mode="foreground")
+            self._log(f"CLICK at ({cx}, {cy})  [absolute]")
+            return
+
         match = self.ctx.last_find
         if match is None:
             raise ScriptRuntimeError(
@@ -419,6 +504,23 @@ class Interpreter:
         cx, cy = match.center
         click(self.ctx.hwnd, cx, cy, mode="foreground")
         self._log(f"CLICK at ({cx}, {cy})")
+
+    def _do_read_text(self, stmt: ReadTextStmt) -> None:
+        if self.ctx.profile is None:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: READ_TEXT INTO profile.* requires "
+                "an active profile (start the bot with --profile <id>)"
+            )
+        from .perception.capture import grab
+        from .perception.ocr import read_text
+
+        img = grab(self.ctx.hwnd)
+        text = read_text(img, stmt.region)
+        self.ctx.profile.set(stmt.target_field, text)
+        x, y, w, h = stmt.region
+        self._log(
+            f"READ_TEXT ({x}, {y}, {w}, {h}) -> profile.{stmt.target_field} = {text!r}"
+        )
 
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")
@@ -462,7 +564,17 @@ class Interpreter:
         )
 
 
-def run_action(name: str, hwnd: int, on_event: EventCallback | None = None) -> bool:
-    """Convenience: parse and execute the named action."""
-    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None))
+def run_action(
+    name: str,
+    hwnd: int,
+    on_event: EventCallback | None = None,
+    profile: Any = None,
+) -> bool:
+    """Convenience: parse and execute the named action.
+
+    `profile` is an optional `lastwar_bot.profile.Profile` instance that
+    becomes available to scripts as the ``profile.<field>`` namespace
+    (read via conditions, write via ``READ_TEXT ... INTO profile.<field>``).
+    """
+    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile)
     return Interpreter(ctx).run_action(name)

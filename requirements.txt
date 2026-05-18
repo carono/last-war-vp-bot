@@ -20,4 +20,5 @@ pydirectinput>=1.0.4
 pywin32>=306; sys_platform == "win32"
 psutil>=5.9
 
-# OCR — choice (RapidOCR vs PaddleOCR) deferred until the first real test
+# OCR backend — RapidOCR runs ONNX models, no system deps, multilingual.
+rapidocr-onnxruntime>=1.3
