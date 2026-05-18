@@ -16,7 +16,9 @@ See [`docs/architecture.md`](docs/architecture.md).
 
 ## Running
 
-Two entry points after installation:
+Easiest: double-click **`run.bat`** in the repository root. It activates the venv and launches the control UI.
+
+Or from a terminal:
 
 ```powershell
 .venv\Scripts\activate
