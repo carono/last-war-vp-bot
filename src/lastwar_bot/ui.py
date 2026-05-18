@@ -77,8 +77,9 @@ class BotWindow(tk.Tk):
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=6)
         log_frame.pack(side="bottom", fill="both", expand=True, padx=10, pady=(0, 10))
-        self._log = scrolledtext.ScrolledText(log_frame, height=12, state="disabled", wrap="word")
+        self._log = scrolledtext.ScrolledText(log_frame, height=12, wrap="word")
         self._log.pack(fill="both", expand=True)
+        self._make_log_readonly()
 
     def _build_main_tab(self, parent: ttk.Notebook) -> tk.Widget:
         f = ttk.Frame(parent, padding=10)
@@ -150,15 +151,57 @@ class BotWindow(tk.Tk):
 
     def _append_log(self, line: str) -> None:
         stamp = time.strftime("%H:%M:%S")
-        self._log.configure(state="normal")
         self._log.insert("end", f"{stamp}  {line}\n")
         self._log.see("end")
-        self._log.configure(state="disabled")
 
     def _clear_log(self) -> None:
-        self._log.configure(state="normal")
         self._log.delete("1.0", "end")
-        self._log.configure(state="disabled")
+
+    def _make_log_readonly(self) -> None:
+        """Allow text selection and Ctrl+C / Ctrl+A but block any editing.
+
+        Tk's ``state='disabled'`` makes the widget completely inert
+        (no selection either). To preserve copy/paste UX while keeping
+        the buffer immutable from the keyboard, we leave state='normal'
+        and short-circuit every keystroke that isn't a navigation or
+        copy hotkey.
+        """
+        navigation_keys = {
+            "Left", "Right", "Up", "Down",
+            "Home", "End", "Prior", "Next",
+            "Shift_L", "Shift_R", "Control_L", "Control_R",
+            "Alt_L", "Alt_R", "Meta_L", "Meta_R",
+        }
+
+        def block_edits(event: tk.Event) -> str | None:  # type: ignore[type-arg]
+            if event.keysym in navigation_keys:
+                return None
+            # event.state & 0x4 is the Control modifier on Tk.
+            if (event.state & 0x4) and event.keysym.lower() in ("c", "a"):
+                return None
+            return "break"
+
+        self._log.bind("<Key>", block_edits)
+
+        menu = tk.Menu(self._log, tearoff=0)
+        menu.add_command(
+            label="Copy",
+            command=lambda: self._log.event_generate("<<Copy>>"),
+        )
+        menu.add_command(
+            label="Select all",
+            command=lambda: (self._log.tag_add("sel", "1.0", "end-1c"), "break"),
+        )
+        menu.add_separator()
+        menu.add_command(label="Clear", command=self._clear_log)
+
+        def popup(event: tk.Event) -> None:  # type: ignore[type-arg]
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        self._log.bind("<Button-3>", popup)
 
     # ----- main tab handlers -----
 
