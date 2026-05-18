@@ -1,3 +1,5 @@
-Если находимся не на базе
-  Клик на картинку базы [click_base_button]
-  Ждем пока база откроется
+# Navigate to the Base screen if we're not already there.
+
+IF screen != base
+    CALL click_base_button
+    WAIT screen == base WITHIN 10s
