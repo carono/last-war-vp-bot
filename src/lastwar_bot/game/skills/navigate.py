@@ -37,10 +37,32 @@ from ...perception.capture import grab
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
-_T_TO_WORLD = TEMPLATES_DIR / "toggle_to_world.png"
-_T_TO_BASE = TEMPLATES_DIR / "toggle_to_base.png"
-_T_ZOOM_RESET = TEMPLATES_DIR / "world_zoom_reset.png"
-_T_INVENTORY = TEMPLATES_DIR / "inventory.png"  # right-column chrome proxy
+# Each logical UI element can have multiple PNG templates captured at
+# different window sizes. The game re-renders icons rather than purely
+# scaling them, so a template only matches well near the window size it
+# was captured at. The detector tries every variant and accepts the best
+# match above MATCH_THRESHOLD. Add more variants as the supported window
+# range expands.
+_T_TO_WORLD: list[Path] = [
+    TEMPLATES_DIR / "toggle_to_world.png",      # captured at 1389x1017
+    TEMPLATES_DIR / "toggle_to_world_fs.png",   # captured at 1776x1112 (fullscreen)
+]
+_T_TO_BASE: list[Path] = [
+    TEMPLATES_DIR / "toggle_to_base.png",       # captured at 1389x1017 (world)
+    TEMPLATES_DIR / "toggle_to_base_fs.png",    # captured at 1776x1112 (world fullscreen)
+]
+_T_ZOOM_RESET: list[Path] = [
+    TEMPLATES_DIR / "world_zoom_reset.png",
+]
+# Background behind the inventory icon differs between base (buildings)
+# and world (desert), even at the same window size — and it weighs into
+# matchTemplate's similarity score. So we keep one variant per
+# (window-size × screen) combo. Add more as the supported range grows.
+_T_INVENTORY: list[Path] = [
+    TEMPLATES_DIR / "inventory.png",            # 1389 base; also passes on 1389 world (0.88)
+    TEMPLATES_DIR / "inventory_fs.png",         # 1776 base (fullscreen)
+    TEMPLATES_DIR / "inventory_world_fs.png",   # 1776 world (fullscreen)
+]
 
 Screen = Literal["base", "world"]
 
@@ -61,8 +83,14 @@ class NavigateResult:
     success: bool = False
 
 
-def _matches(image: np.ndarray, template_path: Path, threshold: float = MATCH_THRESHOLD) -> templates.Match | None:
-    return templates.find(image, templates.cached_template(template_path), threshold)
+def _best_of(image: np.ndarray, paths: Iterable[Path], threshold: float = MATCH_THRESHOLD) -> templates.Match | None:
+    """Try every template path and return the highest-scoring match above threshold."""
+    best: templates.Match | None = None
+    for path in paths:
+        m = templates.find(image, templates.cached_template(path), threshold)
+        if m is not None and (best is None or m.score > best.score):
+            best = m
+    return best
 
 
 def chrome_visible(image: np.ndarray) -> bool:
@@ -73,7 +101,7 @@ def chrome_visible(image: np.ndarray) -> bool:
     other chrome whenever the game pulls UI out of the way (max world
     zoom, full-screen modals, loading screens, intro popups, ...).
     """
-    return _matches(image, _T_INVENTORY) is not None
+    return _best_of(image, _T_INVENTORY) is not None
 
 
 def identify_screen(image: np.ndarray) -> str | None:
@@ -84,13 +112,13 @@ def identify_screen(image: np.ndarray) -> str | None:
     disambiguates base vs. world.
     """
     if chrome_visible(image):
-        if _matches(image, _T_TO_WORLD) is not None:
+        if _best_of(image, _T_TO_WORLD) is not None:
             return "base"
-        if _matches(image, _T_TO_BASE) is not None:
+        if _best_of(image, _T_TO_BASE) is not None:
             return "world"
         return None
     # Chrome absent. The only known chrome-absent regime is max-zoom world.
-    if _matches(image, _T_ZOOM_RESET) is not None:
+    if _best_of(image, _T_ZOOM_RESET) is not None:
         return "world"
     return None
 
@@ -98,13 +126,13 @@ def identify_screen(image: np.ndarray) -> str | None:
 def _pick_next_action(image: np.ndarray, target: Screen) -> templates.Match | None:
     """Pick the highest-priority clickable template that advances toward `target`."""
     if target == "world":
-        return _matches(image, _T_TO_WORLD)
+        return _best_of(image, _T_TO_WORLD)
     # target == "base"
-    direct = _matches(image, _T_TO_BASE)
+    direct = _best_of(image, _T_TO_BASE)
     if direct is not None:
         return direct
     # Preparatory step from max-zoom world: reset zoom first, then retry.
-    return _matches(image, _T_ZOOM_RESET)
+    return _best_of(image, _T_ZOOM_RESET)
 
 
 def _settle(hwnd: int, *, timeout: float, poll: float) -> tuple[str | None, np.ndarray]:
