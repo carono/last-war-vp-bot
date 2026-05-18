@@ -42,9 +42,9 @@ _RED_HIGH2 = np.array([180, 255, 255], dtype=np.uint8)
 def find_red_dots(
     image: np.ndarray,
     *,
-    min_area: float = 30.0,
-    max_area: float = 400.0,
-    min_circularity: float = 0.65,
+    min_area: float = 60.0,
+    max_area: float = 200.0,
+    min_circularity: float = 0.85,
     edge_margin: int | None = None,
 ) -> list[RedDot]:
     """Find red notification dots in `image` (BGR).
@@ -55,6 +55,12 @@ def find_red_dots(
     dot sits on one of its tabs. If `edge_margin` is given, only the
     perimeter strip of that thickness is searched (use with care; only
     valid when we know no modal is on screen).
+
+    Defaults are tuned empirically against a live 1638×1026 capture:
+    real attention dots score area 96–126 px², circularity 0.88–0.94.
+    Tighter than these would drop borderline real dots; looser starts
+    picking up other red UI (X-close buttons, sale badges, build-progress
+    markers, chat/rally count bubbles).
     """
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     mask = cv2.bitwise_or(
@@ -115,9 +121,9 @@ def _main() -> int:
     parser.add_argument("--out", default="screenshots/red_dots.png", help="Annotated output path")
     parser.add_argument("--title", default="Last War-Survival Game")
     parser.add_argument("--process", default="LastWar.exe")
-    parser.add_argument("--min-area", type=float, default=30.0)
-    parser.add_argument("--max-area", type=float, default=400.0)
-    parser.add_argument("--min-circ", type=float, default=0.65)
+    parser.add_argument("--min-area", type=float, default=60.0)
+    parser.add_argument("--max-area", type=float, default=200.0)
+    parser.add_argument("--min-circ", type=float, default=0.85)
     parser.add_argument(
         "--edge-margin", type=int, default=0,
         help="If >0, search only the outer N-pixel strip. Default 0 = whole image, "
