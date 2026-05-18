@@ -88,7 +88,9 @@ The foundation is in place:
 - ✅ Window capture (`perception/capture.py`, GDI `PrintWindow`/`PW_RENDERFULLCONTENT`). CLI: `python -m lastwar_bot.perception.capture`.
 - ✅ Bot runner (`runner.py`) — background-thread loop with thread-safe start/stop/restart. Current tick captures one frame and reports stats; real activities will plug in later.
 - ✅ Tk control UI (`ui.py`) — Start / Stop / Clear log, status indicator, live log. Launch: `python -m lastwar_bot.ui`.
-- ⏳ Input layer (pydirectinput foreground + PostMessage background test).
+- ✅ Input layer (`inputs.py`):
+  - **Foreground** via `pydirectinput` + `SetForegroundWindow` — verified end-to-end against a live Last War window (toggle button at client (1340, 970) → world screen, ~88 % of pixels changed).
+  - **Background** via `PostMessage(WM_LBUTTONDOWN/UP)` — **not** supported by Last War; the game reads input through DirectInput / Raw Input and ignores window messages. Backend is kept in the module so we can probe other apps, but the bot must operate with the game window focused.
 - ⏳ Skill catalogue and executor.
 - ⏳ LLM-backed planner.
 - ⏳ OCR provider (RapidOCR vs PaddleOCR decision after the first real run).
