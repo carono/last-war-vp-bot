@@ -59,7 +59,7 @@ def _click_background(hwnd: int, x: int, y: int) -> None:
 
 
 def _click_foreground(hwnd: int, x: int, y: int) -> None:
-    import pydirectinput
+    import win32api
     import win32con
     import win32gui
 
@@ -74,9 +74,17 @@ def _click_foreground(hwnd: int, x: int, y: int) -> None:
     time.sleep(0.05)
 
     sx, sy = win32gui.ClientToScreen(hwnd, (x, y))
-    pydirectinput.moveTo(sx, sy)
+
+    # Use SetCursorPos + mouse_event instead of pydirectinput.moveTo. The
+    # latter routes through SendInput with normalised 0-65535 coordinates
+    # relative to the primary monitor, which mis-positions clicks on
+    # secondary monitors (especially ones with negative screen-x). The
+    # win32api path uses raw screen pixels and addresses the full virtual
+    # desktop directly.
+    win32api.SetCursorPos((sx, sy))
     time.sleep(0.02)
-    pydirectinput.click()
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+    win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 
 
 def _main() -> int:
