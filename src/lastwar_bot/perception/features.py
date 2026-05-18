@@ -34,7 +34,7 @@ class FeatureMatch:
     inliers: int                       # RANSAC-confirmed pairs (strongest signal)
     good_matches: int                  # Lowe's-ratio survivors
     template_keypoints: int            # raw keypoints found in the template
-    homography: np.ndarray | None = None
+    homography: np.ndarray | None = None  # populated by `find()` (ORB path) only
 
 
 def _orb(nfeatures: int) -> cv2.ORB:
@@ -218,15 +218,25 @@ class SceneIndex:
             m, n = pair
             if m.distance < ratio * n.distance:
                 good.append(m)
-        # findHomography needs at least 4 correspondences; honour that even
-        # when the caller asked for a smaller floor.
-        if len(good) < max(min_inliers, 4):
+        # estimateAffinePartial2D needs at least 2 correspondences; we
+        # require 3 for a healthy RANSAC and let the caller demand more.
+        if len(good) < max(min_inliers, 3):
             return None
 
         src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst = np.float32([self._kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, ransac_threshold)
-        if H is None or mask is None:
+        # Use a partial affine fit (translation + uniform scale + rotation —
+        # 4 parameters) instead of a full homography (8 params, projective).
+        # The game's UI doesn't introduce perspective distortion; a
+        # homography fitted on only a handful of inliers overfits and
+        # produces wildly stretched bounding boxes (observed: a 33x33
+        # template projected to 59x30, shifting the click point by ~50 px).
+        M, mask = cv2.estimateAffinePartial2D(
+            src, dst,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=ransac_threshold,
+        )
+        if M is None or mask is None:
             return None
         inliers = int(mask.sum())
         if inliers < min_inliers:
@@ -234,10 +244,15 @@ class SceneIndex:
 
         h, w = tpl_img.shape[:2]
         corners = np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2)
-        projected = cv2.perspectiveTransform(corners, H).reshape(-1, 2)
+        projected = cv2.transform(corners, M).reshape(-1, 2)
         x1, y1 = projected.min(axis=0).astype(int)
         x2, y2 = projected.max(axis=0).astype(int)
-        cx, cy = (int(x1) + int(x2)) // 2, (int(y1) + int(y2)) // 2
+        # Centre = direct transform of the template midpoint. Identical to
+        # bbox-centre under affine, but spelled out so future tweaks don't
+        # accidentally compute it from a skewed bounding box.
+        mid = np.float32([[[w / 2.0, h / 2.0]]])
+        mid_proj = cv2.transform(mid, M).reshape(2)
+        cx, cy = int(round(mid_proj[0])), int(round(mid_proj[1]))
 
         # Sanity-check the homography. A degenerate fit on too few inliers
         # can project the template's corners to wild locations — reject if:
