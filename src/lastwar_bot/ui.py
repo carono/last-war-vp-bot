@@ -15,7 +15,14 @@ from tkinter import scrolledtext, ttk
 
 from .config import AppSettings
 from .game.skills import navigate
-from .perception.capture import WindowNotFoundError, find_window, grab
+from .perception.capture import (
+    MIN_CLIENT_HEIGHT,
+    MIN_CLIENT_WIDTH,
+    WindowNotFoundError,
+    ensure_client_size,
+    find_window,
+    grab,
+)
 from .runner import BotRunner
 
 WINDOW_TITLE = "Last War-Survival Game"
@@ -94,6 +101,17 @@ class BotWindow(tk.Tk):
         self._goto_base_btn.pack(side="left")
         self._goto_world_btn = ttk.Button(row2, text="Go to World", command=lambda: self._navigate("world"))
         self._goto_world_btn.pack(side="left", padx=(8, 0))
+
+        ttk.Separator(f, orient="horizontal").pack(side="top", fill="x", pady=8)
+
+        row3 = ttk.Frame(f)
+        row3.pack(side="top", fill="x")
+        ttk.Label(
+            row3,
+            text=f"Resize window if smaller than {MIN_CLIENT_WIDTH}x{MIN_CLIENT_HEIGHT}:",
+        ).pack(side="left")
+        self._fix_size_btn = ttk.Button(row3, text="Fix window size", command=self._on_fix_size)
+        self._fix_size_btn.pack(side="left", padx=(8, 0))
 
         return f
 
@@ -190,9 +208,38 @@ class BotWindow(tk.Tk):
         self.after(0, lambda: self._screen_var.set(new))
         self.after(0, lambda: self._set_debug_buttons(True))
 
+    def _on_fix_size(self) -> None:
+        self._set_debug_buttons(False)
+        threading.Thread(target=self._do_fix_size, daemon=True).start()
+
+    def _do_fix_size(self) -> None:
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+        except WindowNotFoundError as exc:
+            self._enqueue(f"Fix size: window not found — {exc}")
+            self.after(0, lambda: self._set_debug_buttons(True))
+            return
+        try:
+            result = ensure_client_size(info.hwnd)
+        except Exception as exc:  # pragma: no cover — defensive
+            self._enqueue(f"Fix size: failed — {exc!r}")
+            self.after(0, lambda: self._set_debug_buttons(True))
+            return
+        if result.resized:
+            self._enqueue(
+                f"Fix size: resized {result.before[0]}x{result.before[1]} -> "
+                f"{result.after[0]}x{result.after[1]} (target {result.target[0]}x{result.target[1]})"
+            )
+        else:
+            self._enqueue(
+                f"Fix size: no action — current {result.before[0]}x{result.before[1]} "
+                f"already >= {MIN_CLIENT_WIDTH}x{MIN_CLIENT_HEIGHT}"
+            )
+        self.after(0, lambda: self._set_debug_buttons(True))
+
     def _set_debug_buttons(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
-        for btn in (self._detect_btn, self._goto_base_btn, self._goto_world_btn):
+        for btn in (self._detect_btn, self._goto_base_btn, self._goto_world_btn, self._fix_size_btn):
             btn.configure(state=state)
 
     # ----- lifecycle -----

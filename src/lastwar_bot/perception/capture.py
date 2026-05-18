@@ -18,6 +18,14 @@ from pathlib import Path
 
 import numpy as np
 
+# Minimum client-area size at which SIFT-based UI detection reliably works.
+# Below this, icons rasterise too small for SIFT to extract enough keypoints.
+MIN_CLIENT_WIDTH = 1638
+MIN_CLIENT_HEIGHT = 1026
+# Comfortable resize target used when the window is below the minimum.
+DEFAULT_CLIENT_WIDTH = 1700
+DEFAULT_CLIENT_HEIGHT = 1080
+
 
 @dataclass(slots=True)
 class WindowInfo:
@@ -82,6 +90,61 @@ def _window_area(hwnd: int) -> int:
 
     left, top, right, bottom = win32gui.GetWindowRect(hwnd)
     return max(0, right - left) * max(0, bottom - top)
+
+
+@dataclass(slots=True)
+class ResizeResult:
+    resized: bool
+    before: tuple[int, int]
+    after: tuple[int, int]
+    target: tuple[int, int] | None  # None when no resize was needed
+
+
+def get_client_size(hwnd: int) -> tuple[int, int]:
+    """Return the (width, height) of the window's client area."""
+    if sys.platform != "win32":
+        raise RuntimeError("Window operations are Windows-only")
+    import win32gui
+
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+    return right - left, bottom - top
+
+
+def ensure_client_size(
+    hwnd: int,
+    *,
+    min_width: int = MIN_CLIENT_WIDTH,
+    min_height: int = MIN_CLIENT_HEIGHT,
+    target_width: int = DEFAULT_CLIENT_WIDTH,
+    target_height: int = DEFAULT_CLIENT_HEIGHT,
+) -> ResizeResult:
+    """Resize the window so its client area is at least (min_width, min_height).
+
+    No-op when already large enough. Otherwise the window keeps its
+    top-left position and is grown to (target_width, target_height)
+    client size. Useful for guaranteeing the SIFT detector has enough
+    pixels to work with before starting a session.
+    """
+    if sys.platform != "win32":
+        raise RuntimeError("Window operations are Windows-only")
+    import win32gui
+
+    before = get_client_size(hwnd)
+    if before[0] >= min_width and before[1] >= min_height:
+        return ResizeResult(resized=False, before=before, after=before, target=None)
+
+    # Compute the non-client (border + title bar) overhead so the new
+    # client area matches our target.
+    win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
+    border_w = (win_right - win_left) - before[0]
+    border_h = (win_bottom - win_top) - before[1]
+
+    new_window_w = target_width + border_w
+    new_window_h = target_height + border_h
+    win32gui.MoveWindow(hwnd, win_left, win_top, new_window_w, new_window_h, True)
+
+    after = get_client_size(hwnd)
+    return ResizeResult(resized=True, before=before, after=after, target=(target_width, target_height))
 
 
 def grab(hwnd: int) -> np.ndarray:
