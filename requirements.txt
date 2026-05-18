@@ -16,4 +16,8 @@ mss>=9.0
 # Input (Windows DirectX-friendly)
 pydirectinput>=1.0.4
 
+# Windows API bindings — для захвата окна (find_window + PrintWindow)
+pywin32>=306; sys_platform == "win32"
+psutil>=5.9
+
 # OCR — выбор после первой пробы (RapidOCR / PaddleOCR), добавим в следующей итерации

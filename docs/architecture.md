@@ -85,7 +85,7 @@ VLM на 2060 8GB — это секунды на запрос. Поэтому г
 - ✅ Абстракции провайдеров (`providers/base.py`).
 - ✅ Реализации: `stub` (dev), Ollama (local), OpenAI-compat (cloud).
 - ✅ Smoke-test (`python -m lastwar_bot`).
-- ⏳ Захват окна Last War (следующий шаг).
+- ✅ Захват окна (`perception/capture.py`, GDI `PrintWindow`/`PW_RENDERFULLCONTENT`). CLI: `python -m lastwar_bot.perception.capture`.
 - ⏳ Скилл-каталог и executor.
 - ⏳ Planner поверх LLM.
 - ⏳ OCR-провайдер (выбор RapidOCR vs PaddleOCR после первой пробы).
