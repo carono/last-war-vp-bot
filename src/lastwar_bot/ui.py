@@ -26,6 +26,7 @@ from .perception.capture import (
 from .profile import DEFAULT_PROFILE_ID, Profile
 from .runner import BotRunner
 from .script_engine import run_action
+from .ui_region import RegionPickerWindow
 
 WINDOW_TITLE = "Last War-Survival Game"
 PROCESS_NAME = "LastWar.exe"
@@ -132,6 +133,16 @@ class BotWindow(tk.Tk):
             row4, text="Capture profile", command=self._on_capture_profile,
         )
         self._capture_profile_btn.pack(side="left", padx=(8, 0))
+
+        ttk.Separator(f, orient="horizontal").pack(side="top", fill="x", pady=8)
+
+        row5 = ttk.Frame(f)
+        row5.pack(side="top", fill="x")
+        ttk.Label(row5, text="Calibration:").pack(side="left")
+        self._pick_region_btn = ttk.Button(
+            row5, text="Pick region...", command=self._on_pick_region,
+        )
+        self._pick_region_btn.pack(side="left", padx=(8, 0))
 
         return f
 
@@ -305,6 +316,21 @@ class BotWindow(tk.Tk):
                 f"already >= {MIN_CLIENT_WIDTH}x{MIN_CLIENT_HEIGHT}"
             )
         self.after(0, lambda: self._set_debug_buttons(True))
+
+    def _on_pick_region(self) -> None:
+        """Grab one frame and open the region-picker window over it."""
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+        except WindowNotFoundError as exc:
+            self._enqueue(f"Pick region: window not found — {exc}")
+            return
+        try:
+            img = grab(info.hwnd)
+        except Exception as exc:
+            self._enqueue(f"Pick region: capture failed — {exc!r}")
+            return
+        self._enqueue(f"Pick region: opened on {img.shape[1]}x{img.shape[0]} frame")
+        RegionPickerWindow(self, img)
 
     def _on_capture_profile(self) -> None:
         self._set_debug_buttons(False)
