@@ -1,25 +1,28 @@
 """Navigate between the Base and World screens via the bottom-right toggle.
 
-The toggle slot can show different icons depending on the current screen
-and the world-map zoom level. Each visual variant is captured as its own
-PNG template; in addition, the *presence* (or absence) of the persistent
-right-column UI chrome is used as a second signal to disambiguate
-maximum-zoom-out world from the regular screens, where the right-column
-buttons (events, inventory, mail, alliance) disappear.
+Detection uses SIFT feature matching (see `perception.features.SceneIndex`)
+rather than per-pixel template matching. SIFT survives the game's UI
+re-rendering at different window sizes, so a single set of templates
+captured at a "minimum supported" window size keeps matching at larger
+windows up to fullscreen. The minimum is currently ~1638x1026; smaller
+windows may still fail because the icons rasterise too small for SIFT
+to extract enough keypoints.
 
-Templates currently recognised:
+Detection strategy (chrome-gated):
 
-- ``toggle_to_world.png``    — visible on Base. Click → World. Indicator: base.
-- ``toggle_to_base.png``     — visible on World (normal zoom). Click → Base. Indicator: world.
-- ``world_zoom_reset.png``   — visible on World (max zoom-out, minimap UI). Click → resets zoom.
-- ``inventory.png``          — chrome marker. Visible whenever the right-column UI is on screen.
+    1. Look for the inventory icon (the right-column UI chrome's proxy).
+       Inliers >= INVENTORY_MIN_INLIERS  =>  chrome present.
+    2. If chrome present:
+         - Try toggle_to_world (visible on Base) and toggle_to_base
+           (visible on World). Whichever scores more inliers >= TOGGLE_MIN
+           identifies the screen.
+    3. If chrome absent:
+         - Try world_zoom_reset. >= ZOOM_RESET_MIN inliers  =>  World (max zoom).
+         - Otherwise the screen is unknown (loading, modal, intro, ...).
 
-Detection rule:
-
-    chrome visible?
-      yes  → look for toggle_to_world (base) / toggle_to_base (world)
-      no   → look for world_zoom_reset (world, far). Otherwise → unknown
-              (loading / modal / intro / other UI-hiding state).
+Multiple template variants per logical button are still supported and
+used (one captured at a baseline window size, plus fullscreen captures).
+SIFT picks the best across variants automatically.
 """
 
 from __future__ import annotations
@@ -32,43 +35,39 @@ from typing import Iterable, Literal
 import numpy as np
 
 from ...inputs import click
-from ...perception import templates
+from ...perception import features
 from ...perception.capture import grab
 
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
-# Each logical UI element can have multiple PNG templates captured at
-# different window sizes. The game re-renders icons rather than purely
-# scaling them, so a template only matches well near the window size it
-# was captured at. The detector tries every variant and accepts the best
-# match above MATCH_THRESHOLD. Add more variants as the supported window
-# range expands.
 _T_TO_WORLD: list[Path] = [
-    TEMPLATES_DIR / "toggle_to_world.png",      # captured at 1389x1017
-    TEMPLATES_DIR / "toggle_to_world_fs.png",   # captured at 1776x1112 (fullscreen)
+    TEMPLATES_DIR / "toggle_to_world.png",
+    TEMPLATES_DIR / "toggle_to_world_fs.png",
 ]
 _T_TO_BASE: list[Path] = [
-    TEMPLATES_DIR / "toggle_to_base.png",       # captured at 1389x1017 (world)
-    TEMPLATES_DIR / "toggle_to_base_fs.png",    # captured at 1776x1112 (world fullscreen)
+    TEMPLATES_DIR / "toggle_to_base.png",
+    TEMPLATES_DIR / "toggle_to_base_fs.png",
 ]
 _T_ZOOM_RESET: list[Path] = [
     TEMPLATES_DIR / "world_zoom_reset.png",
 ]
-# Background behind the inventory icon differs between base (buildings)
-# and world (desert), even at the same window size — and it weighs into
-# matchTemplate's similarity score. So we keep one variant per
-# (window-size × screen) combo. Add more as the supported range grows.
 _T_INVENTORY: list[Path] = [
-    TEMPLATES_DIR / "inventory.png",            # 1389 base; also passes on 1389 world (0.88)
-    TEMPLATES_DIR / "inventory_fs.png",         # 1776 base (fullscreen)
-    TEMPLATES_DIR / "inventory_world_fs.png",   # 1776 world (fullscreen)
+    TEMPLATES_DIR / "inventory.png",
+    TEMPLATES_DIR / "inventory_fs.png",
+    TEMPLATES_DIR / "inventory_world_fs.png",
 ]
 
-Screen = Literal["base", "world"]
+# Inliers thresholds, empirically tuned (see `perception.features.default_sift`):
+# - chrome (inventory): real matches 14..47 across all tested sizes;
+#   world_far drops to ~5. Pick a margin between these two clusters.
+# - toggles / zoom_reset: real matches 6..22; cross-screen false positives
+#   for to_world vs zoom_reset (same map+pin icon) cap at ~14 — chrome-gate
+#   handles them. zoom_reset is only consulted when chrome is absent.
+INVENTORY_MIN_INLIERS = 10
+TOGGLE_MIN_INLIERS = 4
+ZOOM_RESET_MIN_INLIERS = 10
 
-# Per-template match threshold. Empirical: clean UI captures score 0.95+;
-# closest observed cross-scene false positive is 0.78. 0.85 is a safe margin.
-MATCH_THRESHOLD = 0.85
+Screen = Literal["base", "world"]
 
 
 @dataclass(slots=True)
@@ -78,73 +77,76 @@ class NavigateResult:
     after: str | None
     action: Literal["noop", "click", "no_button", "unknown_screen"]
     click_at: tuple[int, int] | None = None
-    match_score: float | None = None
+    match_inliers: int | None = None
     attempts: int = 0
     success: bool = False
 
 
-def _best_of(image: np.ndarray, paths: Iterable[Path], threshold: float = MATCH_THRESHOLD) -> templates.Match | None:
-    """Try every template path and return the highest-scoring match above threshold."""
-    best: templates.Match | None = None
+def _best_of(scene: features.SceneIndex, paths: Iterable[Path]) -> features.SiftMatch | None:
+    """Highest-inliers SIFT match across multiple template variants."""
+    best: features.SiftMatch | None = None
     for path in paths:
-        m = templates.find(image, templates.cached_template(path), threshold)
-        if m is not None and (best is None or m.score > best.score):
+        m = scene.find_sift(path)
+        if m is None:
+            continue
+        if best is None or m.inliers > best.inliers:
             best = m
     return best
 
 
 def chrome_visible(image: np.ndarray) -> bool:
-    """True if the persistent right-column UI is on screen.
-
-    Uses the inventory button as a proxy for the whole right-column UI
-    (events, mail, alliance, inventory). It disappears together with the
-    other chrome whenever the game pulls UI out of the way (max world
-    zoom, full-screen modals, loading screens, intro popups, ...).
-    """
-    return _best_of(image, _T_INVENTORY) is not None
+    """True if the persistent right-column UI is on screen."""
+    scene = features.SceneIndex(image)
+    m = _best_of(scene, _T_INVENTORY)
+    return m is not None and m.inliers >= INVENTORY_MIN_INLIERS
 
 
-def identify_screen(image: np.ndarray) -> str | None:
-    """Return 'base' / 'world' / None for the current screen.
+def _identify(scene: features.SceneIndex) -> str | None:
+    inv = _best_of(scene, _T_INVENTORY)
+    chrome = inv is not None and inv.inliers >= INVENTORY_MIN_INLIERS
 
-    Multi-signal detection: the right-column chrome (presence / absence)
-    gates the two regimes; within each, a specific toggle template
-    disambiguates base vs. world.
-    """
-    if chrome_visible(image):
-        if _best_of(image, _T_TO_WORLD) is not None:
-            return "base"
-        if _best_of(image, _T_TO_BASE) is not None:
-            return "world"
-        return None
-    # Chrome absent. The only known chrome-absent regime is max-zoom world.
-    if _best_of(image, _T_ZOOM_RESET) is not None:
+    if chrome:
+        m_world = _best_of(scene, _T_TO_WORLD)
+        m_base = _best_of(scene, _T_TO_BASE)
+        w_inl = m_world.inliers if m_world else 0
+        b_inl = m_base.inliers if m_base else 0
+        if max(w_inl, b_inl) < TOGGLE_MIN_INLIERS:
+            return None
+        return "base" if w_inl > b_inl else "world"
+    # Chrome absent — only known regime is max-zoom world.
+    zr = _best_of(scene, _T_ZOOM_RESET)
+    if zr is not None and zr.inliers >= ZOOM_RESET_MIN_INLIERS:
         return "world"
     return None
 
 
-def _pick_next_action(image: np.ndarray, target: Screen) -> templates.Match | None:
-    """Pick the highest-priority clickable template that advances toward `target`."""
+def identify_screen(image: np.ndarray) -> str | None:
+    """Return 'base' / 'world' / None for the current screen (SIFT-based)."""
+    return _identify(features.SceneIndex(image))
+
+
+def _pick_next_action(scene: features.SceneIndex, target: Screen) -> features.SiftMatch | None:
+    """Highest-priority clickable element that advances toward `target`."""
     if target == "world":
-        return _best_of(image, _T_TO_WORLD)
+        return _best_of(scene, _T_TO_WORLD)
     # target == "base"
-    direct = _best_of(image, _T_TO_BASE)
-    if direct is not None:
+    direct = _best_of(scene, _T_TO_BASE)
+    if direct is not None and direct.inliers >= TOGGLE_MIN_INLIERS:
         return direct
     # Preparatory step from max-zoom world: reset zoom first, then retry.
-    return _best_of(image, _T_ZOOM_RESET)
+    zr = _best_of(scene, _T_ZOOM_RESET)
+    if zr is not None and zr.inliers >= ZOOM_RESET_MIN_INLIERS:
+        return zr
+    return None
 
 
 def _settle(hwnd: int, *, timeout: float, poll: float) -> tuple[str | None, np.ndarray]:
-    """Poll `identify_screen` until it returns a known screen or `timeout` elapses.
-
-    Used after each click to ride out transition animations where neither
-    template is momentarily visible. Returns (screen, last_image).
-    """
+    """Poll identify_screen until a known screen appears or timeout elapses."""
     deadline = time.monotonic() + timeout
     img = grab(hwnd)
     while True:
-        screen = identify_screen(img)
+        scene = features.SceneIndex(img)
+        screen = _identify(scene)
         if screen is not None or time.monotonic() >= deadline:
             return screen, img
         time.sleep(poll)
@@ -161,15 +163,14 @@ def go_to(
 ) -> NavigateResult:
     """Navigate to the requested screen.
 
-    Each attempt: settle (poll until a known screen is visible) → if we're
-    there, succeed → otherwise click the highest-priority action template
-    (direct toggle or preparatory step) → next attempt. Multi-step paths
-    such as `max-zoom world → zoom reset → toggle_to_base → base` are
-    covered by the retry budget.
+    Multi-step paths (max-zoom world -> zoom reset -> toggle_to_base ->
+    base) are covered by the retry budget. After each click we re-detect
+    the screen via SIFT, polling for up to ``settle_timeout`` seconds to
+    ride out transition animations.
     """
     initial: str | None = None
     last_click: tuple[int, int] | None = None
-    last_score: float | None = None
+    last_inliers: int | None = None
     attempt = 0
 
     for attempt in range(1, max_attempts + 1):
@@ -184,7 +185,7 @@ def go_to(
                 after=current,
                 action="noop" if last_click is None else "click",
                 click_at=last_click,
-                match_score=last_score,
+                match_inliers=last_inliers,
                 attempts=attempt,
                 success=True,
             )
@@ -194,17 +195,18 @@ def go_to(
                 attempts=attempt, success=False,
             )
 
-        match = _pick_next_action(before_img, target)
-        if match is None:
+        scene = features.SceneIndex(before_img)
+        action = _pick_next_action(scene, target)
+        if action is None:
             return NavigateResult(
                 target=target, before=initial, after=current, action="no_button",
                 attempts=attempt, success=False,
             )
 
-        cx, cy = match.center
+        cx, cy = action.center
         click(hwnd, cx, cy, mode="foreground")
         last_click = (cx, cy)
-        last_score = match.score
+        last_inliers = action.inliers
 
     final, _ = _settle(hwnd, timeout=settle_timeout, poll=poll_interval)
     return NavigateResult(
@@ -213,7 +215,7 @@ def go_to(
         after=final,
         action="click",
         click_at=last_click,
-        match_score=last_score,
+        match_inliers=last_inliers,
         attempts=attempt,
         success=(final == target),
     )

@@ -41,6 +41,33 @@ def _orb(nfeatures: int) -> cv2.ORB:
     return cv2.ORB_create(nfeatures=nfeatures)
 
 
+_DEFAULT_SIFT: cv2.SIFT | None = None
+_DEFAULT_FLANN: cv2.FlannBasedMatcher | None = None
+_SIFT_TEMPLATE_CACHE: dict[str, tuple[np.ndarray, tuple, np.ndarray | None]] = {}
+
+
+def default_sift() -> cv2.SIFT:
+    """Lazy-initialised SIFT detector tuned for small UI icons.
+
+    ``contrastThreshold=0.02`` (default 0.04) and ``edgeThreshold=20``
+    (default 10) loosen the keypoint selection enough to find features
+    on flat-shaded buttons rendered at different resolutions. Empirically
+    this is what makes a 60x40 toggle template still match on a
+    1920x1200 fullscreen capture.
+    """
+    global _DEFAULT_SIFT
+    if _DEFAULT_SIFT is None:
+        _DEFAULT_SIFT = cv2.SIFT_create(nfeatures=5000, contrastThreshold=0.02, edgeThreshold=20)
+    return _DEFAULT_SIFT
+
+
+def _default_flann() -> cv2.FlannBasedMatcher:
+    global _DEFAULT_FLANN
+    if _DEFAULT_FLANN is None:
+        _DEFAULT_FLANN = cv2.FlannBasedMatcher(dict(algorithm=1, trees=5), dict(checks=50))
+    return _DEFAULT_FLANN
+
+
 def load_template(path: Path | str) -> np.ndarray:
     img = cv2.imread(str(path), cv2.IMREAD_COLOR)
     if img is None:
@@ -55,6 +82,20 @@ def _cached(path_str: str) -> np.ndarray:
 
 def cached_template(path: Path | str) -> np.ndarray:
     return _cached(str(path))
+
+
+def _sift_template_features(path: Path | str):
+    """Compute (and cache) SIFT keypoints+descriptors for a template path."""
+    key = str(path)
+    cached = _SIFT_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    img = load_template(path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    kp, des = default_sift().detectAndCompute(gray, None)
+    entry = (img, kp, des)
+    _SIFT_TEMPLATE_CACHE[key] = entry
+    return entry
 
 
 def find(
@@ -120,6 +161,89 @@ def find(
         template_keypoints=len(kp1),
         homography=H,
     )
+
+
+@dataclass(slots=True)
+class SiftMatch:
+    """A single SIFT-RANSAC match. `inliers` is the strongest signal."""
+    top_left: tuple[int, int]
+    bottom_right: tuple[int, int]
+    center: tuple[int, int]
+    inliers: int
+    good_matches: int
+    template_keypoints: int
+
+
+class SceneIndex:
+    """Pre-computes SIFT keypoints/descriptors for an image so that
+    repeated template lookups against the same scene share the cost.
+
+    Typical use:
+
+        scene = SceneIndex(captured_frame)
+        if scene.find_sift(inventory_path).inliers >= 10:
+            ...
+    """
+
+    def __init__(self, image: np.ndarray) -> None:
+        self.image = image
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        self._sift = default_sift()
+        self._kp, self._des = self._sift.detectAndCompute(gray, None)
+
+    def find_sift(
+        self,
+        template_path: Path | str,
+        *,
+        ratio: float = 0.8,
+        ransac_threshold: float = 8.0,
+        min_inliers: int = 4,
+    ) -> SiftMatch | None:
+        """Match the cached scene against the template at `template_path`."""
+        if self._des is None or len(self._kp) < 4:
+            return None
+        tpl_img, kp1, des1 = _sift_template_features(template_path)
+        if des1 is None or len(kp1) < 4:
+            return None
+
+        flann = _default_flann()
+        try:
+            pairs = flann.knnMatch(des1, self._des, k=2)
+        except cv2.error:
+            return None
+        good = []
+        for pair in pairs:
+            if len(pair) < 2:
+                continue
+            m, n = pair
+            if m.distance < ratio * n.distance:
+                good.append(m)
+        if len(good) < min_inliers:
+            return None
+
+        src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+        dst = np.float32([self._kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, ransac_threshold)
+        if H is None or mask is None:
+            return None
+        inliers = int(mask.sum())
+        if inliers < min_inliers:
+            return None
+
+        h, w = tpl_img.shape[:2]
+        corners = np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2)
+        projected = cv2.perspectiveTransform(corners, H).reshape(-1, 2)
+        x1, y1 = projected.min(axis=0).astype(int)
+        x2, y2 = projected.max(axis=0).astype(int)
+
+        return SiftMatch(
+            top_left=(int(x1), int(y1)),
+            bottom_right=(int(x2), int(y2)),
+            center=((int(x1) + int(x2)) // 2, (int(y1) + int(y2)) // 2),
+            inliers=inliers,
+            good_matches=len(good),
+            template_keypoints=len(kp1),
+        )
 
 
 def _main() -> int:

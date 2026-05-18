@@ -91,8 +91,12 @@ The foundation is in place:
 - ✅ Input layer (`inputs.py`):
   - **Foreground** via `pydirectinput` + `SetForegroundWindow` — verified end-to-end against a live Last War window (toggle button at client (1340, 970) → world screen, ~88 % of pixels changed).
   - **Background** via `PostMessage(WM_LBUTTONDOWN/UP)` — **not** supported by Last War; the game reads input through DirectInput / Raw Input and ignores window messages. Backend is kept in the module so we can probe other apps, but the bot must operate with the game window focused.
-- ✅ Template matching (`perception/templates.py`): single-best `find()` and multi-instance `find_all()` with NMS deduplication. Used for UI elements (chrome, toggles, button icons).
-- ✅ Feature matching (`perception/features.py`): ORB + Lowe's-ratio + RANSAC homography. Suitable for textured world objects (player bases, monsters, resource nodes). Not suitable for small flat UI icons — they don't expose enough keypoints (empirically 0 on 64×64 button crops). CLI: `python -m lastwar_bot.perception.features template.png image.png`.
+- ✅ Template matching (`perception/templates.py`): single-best `find()` and multi-instance `find_all()` with NMS deduplication. Useful when exact pixel-level templates are available at the current window size.
+- ✅ Feature matching (`perception/features.py`):
+  - **ORB + RANSAC** (`features.find`) for textured world objects (player bases, monsters, resource nodes).
+  - **SIFT + RANSAC** (`features.SceneIndex.find_sift`) tuned for small UI icons (`contrastThreshold=0.02, edgeThreshold=20`). Crucially, **SIFT survives the game's UI re-rendering at different window sizes**, so a single template captured at the minimum supported window scales up to fullscreen. ORB extracts 0 keypoints on the same icons.
+  - `SceneIndex` pre-computes SIFT features for the captured frame once so that probing it against many templates is cheap.
+- ✅ Red attention-dot detector (`perception/red_dots.py`): HSV colour thresholding + contour shape filter. Default thresholds tuned against a live capture (`min_area=60, max_area=200, min_circularity=0.85`).
 - ⏳ Skill catalogue and executor.
 - ⏳ LLM-backed planner.
 - ⏳ OCR provider (RapidOCR vs PaddleOCR decision after the first real run).
