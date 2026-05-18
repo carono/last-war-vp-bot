@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ProviderName = Literal["ollama", "openai_compat"]
+ProviderName = Literal["stub", "ollama", "openai_compat"]
 
 
 class OllamaSettings(BaseSettings):
@@ -37,8 +37,8 @@ class OpenAICompatSettings(BaseSettings):
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    llm_provider: ProviderName = "ollama"
-    vision_provider: ProviderName = "ollama"
+    llm_provider: ProviderName = "stub"
+    vision_provider: ProviderName = "stub"
 
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     openai_compat: OpenAICompatSettings = Field(default_factory=OpenAICompatSettings)

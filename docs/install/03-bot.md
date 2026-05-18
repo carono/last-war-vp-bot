@@ -1,6 +1,6 @@
 # 3. Установка бота
 
-Предполагается, что [Python 3.12](01-python.md) уже установлен. Ollama опционально — если планируешь использовать только облачные модели, пропусти шаги, относящиеся к Ollama.
+Предполагается, что [Python 3.12](01-python.md) уже установлен. **Ollama на этом этапе не обязательна** — бот стартует в dev-режиме с заглушкой (`stub`), которая отдаёт canned-ответы. Реальный провайдер (Ollama / cloud) подключается позже одной правкой в `.env`.
 
 ## Получение исходников
 
@@ -13,7 +13,7 @@ git checkout v2
 
 (Если репозиторий уже клонирован — `cd` в его папку и `git checkout v2`.)
 
-## Виртуальное окружение
+## Виртуальное окружение и зависимости
 
 В корне репозитория:
 
@@ -22,39 +22,56 @@ python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+pip install -e .
 ```
 
-Первая установка тянет OpenCV/NumPy/Pillow — несколько минут. После активации в начале строки приглашения появляется `(.venv)`.
+Последняя команда (`pip install -e .`) подключает сам пакет `lastwar_bot` из `src/` в editable-режиме. Без неё `python -m lastwar_bot` ругается `No module named lastwar_bot`.
 
 > Если PowerShell ругается на блокировку скриптов при `Activate.ps1` — выполни один раз: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
 
-## Конфигурация `.env`
+## Smoke-тест (без внешних моделей)
+
+Без `.env` бот сразу работает в режиме `stub`:
+
+```powershell
+python -m lastwar_bot
+```
+
+Ожидаемый вывод:
+
+```
+LLM provider:    stub
+Vision provider: stub
+LLM reply: "[stub LLM] prompt='Reply with exactly: ok'; reply: ok"
+```
+
+Это подтверждает, что пакет установлен, конфиг читается, фабрика провайдеров работает.
+
+## Подключение реальной модели
+
+Когда дойдём до интеграции — копируешь шаблон `.env`:
 
 ```powershell
 copy .env.example .env
 notepad .env
 ```
 
-В файле задаются два провайдера независимо: для LLM (планирование) и для зрения. По умолчанию оба — `ollama`.
+### Вариант А: Ollama локально
 
-### Вариант А: всё локально через Ollama
-
-Достаточно убедиться, что имена моделей в `.env` совпадают с теми, что ты загрузил через `ollama pull`:
+Установить [Ollama](02-ollama.md) и в `.env`:
 
 ```ini
 LLM_PROVIDER=ollama
 VISION_PROVIDER=ollama
-
 OLLAMA_LLM_MODEL=qwen2.5:7b-instruct-q4_K_M
 OLLAMA_VISION_MODEL=qwen2-vl:2b
 ```
 
-### Вариант Б: облачный провайдер (OpenAI, Anthropic-compat, Groq, OpenRouter, …)
+### Вариант Б: облачный провайдер (OpenAI / Anthropic-compat / Groq / OpenRouter / …)
 
 ```ini
 LLM_PROVIDER=openai_compat
 VISION_PROVIDER=openai_compat
-
 OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_LLM_MODEL=gpt-4o-mini
@@ -65,36 +82,17 @@ OPENAI_VISION_MODEL=gpt-4o-mini
 
 ### Вариант В: смешать
 
-Текстовый LLM — облачный (для качества планирования), зрение — локальное (для скорости и приватности):
+Например, текстовый LLM — облачный, зрение — локальное Ollama:
 
 ```ini
 LLM_PROVIDER=openai_compat
 VISION_PROVIDER=ollama
 ```
 
-## Smoke-тест
-
-```powershell
-python -m lastwar_bot
-```
-
-Ожидаемый вывод:
-
-```
-LLM provider:    ollama
-Vision provider: ollama
-LLM reply: 'ok'
-```
-
-Если так — стек установлен правильно: Python видит зависимости, конфиг читается, провайдер отвечает.
-
 ## Типичные проблемы
 
-- **`ConnectError: All connection attempts failed`** при `LLM_PROVIDER=ollama` — Ollama не запущен. Открой трей и убедись, что демон активен, или перезапусти `Ollama.exe`.
+- **`No module named lastwar_bot`** — не выполнил `pip install -e .` в активированном `.venv`.
+- **`ConnectError: All connection attempts failed`** при `LLM_PROVIDER=ollama` — Ollama не запущен или не установлен. Проверь иконку в трее или перейди на `stub` / `openai_compat`.
 - **`401 Unauthorized`** при `openai_compat` — неверный или отсутствующий `OPENAI_API_KEY`.
 - **`model "..." not found`** в Ollama — модель не была загружена через `ollama pull <name>`.
-- **`ModuleNotFoundError: lastwar_bot`** — забыл активировать `.venv` или установить зависимости в текущее окружение.
-
-## Дальше
-
-Этот шаг подтвердил, что мост Python ↔ модель работает. Следующие итерации добавят захват окна Last War, классификатор экранов и каталог скиллов.
+- **`Activate.ps1 cannot be loaded because running scripts is disabled`** — `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.

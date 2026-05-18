@@ -6,6 +6,7 @@ from ..config import AppSettings, ProviderName
 from .base import LLMProvider, VisionProvider
 from .ollama import OllamaProvider
 from .openai_compat import OpenAICompatProvider
+from .stub import StubProvider
 
 
 def get_llm_provider(settings: AppSettings) -> LLMProvider:
@@ -17,6 +18,8 @@ def get_vision_provider(settings: AppSettings) -> VisionProvider:
 
 
 def _build(name: ProviderName, settings: AppSettings, *, kind: str):
+    if name == "stub":
+        return StubProvider()
     if name == "ollama":
         model = settings.ollama.llm_model if kind == "llm" else settings.ollama.vision_model
         return OllamaProvider(model=model, base_url=settings.ollama.base_url)
