@@ -635,14 +635,23 @@ class Interpreter:
         self._log("CLOSE_WINDOW -> WM_CLOSE posted")
 
     def _do_launch(self, stmt: LaunchStmt) -> None:
-        """Spawn the launcher as a detached child process."""
+        """Spawn the launcher as a detached child process.
+
+        Path strings support environment variables and `~`:
+        - ``%LOCALAPPDATA%\\FunFly\\...``  (Windows %VAR%)
+        - ``$HOME/.local/bin/foo``         (Unix $VAR)
+        - ``~/games/foo.exe``              (home directory)
+        """
+        import os
         import subprocess
         from pathlib import Path
 
-        exe = Path(stmt.path)
+        expanded = os.path.expanduser(os.path.expandvars(stmt.path))
+        exe = Path(expanded)
         if not exe.exists():
             raise ScriptRuntimeError(
-                f"line {stmt.line_no}: launcher not found at {stmt.path}"
+                f"line {stmt.line_no}: launcher not found at {expanded}"
+                + (f" (expanded from {stmt.path})" if expanded != stmt.path else "")
             )
         try:
             subprocess.Popen(
@@ -652,9 +661,9 @@ class Interpreter:
             )
         except OSError as exc:
             raise ScriptRuntimeError(
-                f"line {stmt.line_no}: failed to launch {stmt.path}: {exc}"
+                f"line {stmt.line_no}: failed to launch {expanded}: {exc}"
             )
-        self._log(f"LAUNCH {stmt.path}")
+        self._log(f"LAUNCH {expanded}")
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.

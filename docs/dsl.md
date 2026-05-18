@@ -186,8 +186,15 @@ path is quoted so spaces and backslashes need no escaping. The script
 returns immediately — pair with `WAIT screen == base WITHIN 300s` to
 block until the game is ready.
 
+The path string is passed through `os.path.expandvars` and
+`os.path.expanduser`, so it can contain:
+
+- Windows-style env vars: `%LOCALAPPDATA%\\FunFly\\...`
+- POSIX-style env vars: `$HOME/games/...`
+- Home directory shortcut: `~/games/...`
+
 ```
-LAUNCH "C:\Users\spame\AppData\Local\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+LAUNCH "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
 WAIT screen == base WITHIN 300s
 ```
 
