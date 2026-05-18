@@ -166,12 +166,18 @@ def grab(hwnd: int) -> np.ndarray:
     bmp.CreateCompatibleBitmap(src_dc, width, height)
     mem_dc.SelectObject(bmp)
 
-    # PW_RENDERFULLCONTENT = 2 — required for DirectX/UWP content on Win10+.
-    # Some pywin32 builds don't export PrintWindow, so we call user32 directly.
+    # PW_CLIENTONLY (0x1) | PW_RENDERFULLCONTENT (0x2) — render only the
+    # client area (skip the OS title bar / borders) and ask DWM for the
+    # composed contents so DirectX/UWP windows aren't black.
+    # Without PW_CLIENTONLY, the bitmap is window-sized starting at the
+    # window top-left, so the top ~30 rows are the Windows title bar and
+    # everything below is shifted down — every click derived from a
+    # SIFT match ends up offset by the title-bar height.
+    # Some pywin32 builds don't export PrintWindow; call user32 directly.
     print_window = ctypes.windll.user32.PrintWindow
     print_window.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
     print_window.restype = ctypes.c_bool
-    print_window(hwnd, mem_dc.GetSafeHdc(), 2)
+    print_window(hwnd, mem_dc.GetSafeHdc(), 3)
 
     raw = bmp.GetBitmapBits(True)
     img_bgra = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
