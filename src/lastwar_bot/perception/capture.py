@@ -83,6 +83,8 @@ def _window_area(hwnd: int) -> int:
 
 def grab(hwnd: int) -> np.ndarray:
     """Снять клиентскую область окна. Возвращает BGR ndarray формы (H, W, 3)."""
+    import ctypes
+
     import win32gui
     import win32ui
 
@@ -99,7 +101,11 @@ def grab(hwnd: int) -> np.ndarray:
     mem_dc.SelectObject(bmp)
 
     # PW_RENDERFULLCONTENT = 2 — критично для DirectX/UWP контента на Win10+.
-    win32gui.PrintWindow(hwnd, mem_dc.GetSafeHdc(), 2)
+    # Часть сборок pywin32 не экспортирует PrintWindow → вызываем напрямую.
+    print_window = ctypes.windll.user32.PrintWindow
+    print_window.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+    print_window.restype = ctypes.c_bool
+    print_window(hwnd, mem_dc.GetSafeHdc(), 2)
 
     raw = bmp.GetBitmapBits(True)
     img_bgra = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
