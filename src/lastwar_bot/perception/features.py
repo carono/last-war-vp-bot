@@ -85,14 +85,37 @@ def cached_template(path: Path | str) -> np.ndarray:
 
 
 def _sift_template_features(path: Path | str):
-    """Compute (and cache) SIFT keypoints+descriptors for a template path."""
+    """Compute (and cache) SIFT keypoints+descriptors for a template path.
+
+    PNGs with an alpha channel are treated as masked templates: pixels
+    where alpha < 128 are ignored during keypoint extraction. This lets
+    a caller cut out the dynamic centre of a UI element (e.g. a frame
+    that always contains a different number) and match only its
+    stable outline.
+    """
     key = str(path)
     cached = _SIFT_TEMPLATE_CACHE.get(key)
     if cached is not None:
         return cached
-    img = load_template(path)
+
+    raw = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if raw is None:
+        raise FileNotFoundError(f"Template not found or unreadable: {path}")
+
+    mask: np.ndarray | None = None
+    if raw.ndim == 3 and raw.shape[2] == 4:
+        alpha = raw[:, :, 3]
+        bgr = raw[:, :, :3]
+        mask = ((alpha >= 128).astype(np.uint8)) * 255
+        img = bgr
+    elif raw.ndim == 2:
+        # Grayscale PNG — promote to BGR for downstream consistency.
+        img = cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+    else:
+        img = raw
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    kp, des = default_sift().detectAndCompute(gray, None)
+    kp, des = default_sift().detectAndCompute(gray, mask)
     entry = (img, kp, des)
     _SIFT_TEMPLATE_CACHE[key] = entry
     return entry

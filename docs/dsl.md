@@ -75,6 +75,23 @@ PRESS ESC
 PRESS F5
 ```
 
+### Template files and alpha masks
+
+Every `<name>.png` reference resolves to a file in
+`src/lastwar_bot/game/templates/`. Plain RGB PNGs are matched as-is.
+PNGs with an **alpha channel** are treated specially: pixels where
+`alpha < 128` are *not* used for keypoint extraction. This is the way
+to match a UI element whose centre is dynamic (a frame around a number,
+a card whose body shows live game content, …) — only the stable outline
+contributes to the match, the dynamic centre is ignored. The bounding
+box and centre reported by the match still cover the full original
+template area, so a subsequent `CLICK` lands on the icon's centre as
+usual.
+
+Workflow: capture the template (e.g. via the UI's Pick region) and
+erase the dynamic part to transparent in any image editor (GIMP /
+Photoshop / Paint.NET).
+
 ### `FIND <template>.png`
 
 Search the current screen for the named template (PNG file under

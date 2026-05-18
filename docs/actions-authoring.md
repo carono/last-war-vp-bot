@@ -243,6 +243,12 @@ then wrap it in DSL.
 - **Tight crops without context**: SIFT needs a few keypoints. 40×40
   flat icons yield zero. The minimum useful template is ~60×60 with
   some surrounding pixels of contrast.
+- **Dynamic centres**: if the only stable part of a UI element is its
+  outer frame (centre shows a changing number / portrait / progress),
+  capture the template as a regular PNG, then erase the dynamic centre
+  to transparent in an image editor. The runtime treats `alpha < 128`
+  pixels as "don't extract keypoints here", so only the stable outline
+  contributes to the match.
 - **Mixing template references and action references in brackets**:
   the DSL is unambiguous — `.png` = template, no extension = action.
   Don't invent new bracket conventions.
