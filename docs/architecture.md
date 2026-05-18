@@ -91,6 +91,8 @@ The foundation is in place:
 - ✅ Input layer (`inputs.py`):
   - **Foreground** via `pydirectinput` + `SetForegroundWindow` — verified end-to-end against a live Last War window (toggle button at client (1340, 970) → world screen, ~88 % of pixels changed).
   - **Background** via `PostMessage(WM_LBUTTONDOWN/UP)` — **not** supported by Last War; the game reads input through DirectInput / Raw Input and ignores window messages. Backend is kept in the module so we can probe other apps, but the bot must operate with the game window focused.
+- ✅ Template matching (`perception/templates.py`): single-best `find()` and multi-instance `find_all()` with NMS deduplication. Used for UI elements (chrome, toggles, button icons).
+- ✅ Feature matching (`perception/features.py`): ORB + Lowe's-ratio + RANSAC homography. Suitable for textured world objects (player bases, monsters, resource nodes). Not suitable for small flat UI icons — they don't expose enough keypoints (empirically 0 on 64×64 button crops). CLI: `python -m lastwar_bot.perception.features template.png image.png`.
 - ⏳ Skill catalogue and executor.
 - ⏳ LLM-backed planner.
 - ⏳ OCR provider (RapidOCR vs PaddleOCR decision after the first real run).

@@ -1,0 +1,165 @@
+"""Feature-based object detection (ORB + RANSAC homography).
+
+For finding objects in the game world (player bases, monsters, resource
+nodes, etc.) where:
+
+- Position is unknown.
+- Scale and rotation may vary between captures.
+- Background varies significantly.
+
+NOT suitable for small flat UI icons — ORB needs corners/edges, and tiny
+or smooth-shaded icons (<64x64, uniform colour) yield zero keypoints. For
+UI, use template matching from `perception.templates`.
+
+CLI:
+    python -m lastwar_bot.perception.features template.png image.png [--save out.png]
+"""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+@dataclass(slots=True)
+class FeatureMatch:
+    top_left: tuple[int, int]
+    bottom_right: tuple[int, int]
+    center: tuple[int, int]
+    inliers: int                       # RANSAC-confirmed pairs (strongest signal)
+    good_matches: int                  # Lowe's-ratio survivors
+    template_keypoints: int            # raw keypoints found in the template
+    homography: np.ndarray | None = None
+
+
+def _orb(nfeatures: int) -> cv2.ORB:
+    return cv2.ORB_create(nfeatures=nfeatures)
+
+
+def load_template(path: Path | str) -> np.ndarray:
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Template not found or unreadable: {path}")
+    return img
+
+
+@lru_cache(maxsize=64)
+def _cached(path_str: str) -> np.ndarray:
+    return load_template(path_str)
+
+
+def cached_template(path: Path | str) -> np.ndarray:
+    return _cached(str(path))
+
+
+def find(
+    image: np.ndarray,
+    template: np.ndarray,
+    *,
+    nfeatures: int = 2000,
+    ratio: float = 0.75,
+    ransac_threshold: float = 5.0,
+    min_inliers: int = 8,
+) -> FeatureMatch | None:
+    """Find a single instance of `template` in `image`.
+
+    Returns None when ORB can't extract enough features from either
+    image, when too few pairs survive Lowe's ratio test, or when RANSAC
+    can't fit a stable homography.
+    """
+    orb = _orb(nfeatures)
+    kp1, des1 = orb.detectAndCompute(template, None)
+    kp2, des2 = orb.detectAndCompute(image, None)
+
+    if des1 is None or des2 is None:
+        return None
+    if len(kp1) < min_inliers or len(kp2) < min_inliers:
+        return None
+
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    pairs = bf.knnMatch(des1, des2, k=2)
+
+    good = []
+    for pair in pairs:
+        if len(pair) < 2:
+            continue
+        m, n = pair
+        if m.distance < ratio * n.distance:
+            good.append(m)
+    if len(good) < min_inliers:
+        return None
+
+    src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+    dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+    H, mask = cv2.findHomography(src, dst, cv2.RANSAC, ransac_threshold)
+    if H is None or mask is None:
+        return None
+
+    inliers = int(mask.sum())
+    if inliers < min_inliers:
+        return None
+
+    h, w = template.shape[:2]
+    corners = np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2)
+    projected = cv2.perspectiveTransform(corners, H).reshape(-1, 2)
+    x1, y1 = projected.min(axis=0).astype(int)
+    x2, y2 = projected.max(axis=0).astype(int)
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+
+    return FeatureMatch(
+        top_left=(int(x1), int(y1)),
+        bottom_right=(int(x2), int(y2)),
+        center=(int(cx), int(cy)),
+        inliers=inliers,
+        good_matches=len(good),
+        template_keypoints=len(kp1),
+        homography=H,
+    )
+
+
+def _main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="ORB-based feature matching.")
+    parser.add_argument("template", help="Template image path")
+    parser.add_argument("image", help="Image to search in")
+    parser.add_argument("--save", help="Save annotated image with bbox", default=None)
+    parser.add_argument("--nfeatures", type=int, default=2000)
+    parser.add_argument("--min-inliers", type=int, default=8)
+    parser.add_argument("--ratio", type=float, default=0.75)
+    args = parser.parse_args()
+
+    tpl = load_template(args.template)
+    img = load_template(args.image)
+    print(f"Template: {tpl.shape[1]}x{tpl.shape[0]}")
+    print(f"Image:    {img.shape[1]}x{img.shape[0]}")
+
+    match = find(img, tpl, nfeatures=args.nfeatures, ratio=args.ratio, min_inliers=args.min_inliers)
+    if match is None:
+        print("No match.")
+        return 1
+
+    print(
+        f"Match: center={match.center} bbox={match.top_left}->{match.bottom_right}\n"
+        f"  inliers={match.inliers} / good={match.good_matches} / template_kp={match.template_keypoints}"
+    )
+    if args.save:
+        out = img.copy()
+        cv2.rectangle(out, match.top_left, match.bottom_right, (0, 255, 0), 3)
+        cv2.circle(out, match.center, 8, (0, 0, 255), 2)
+        cv2.putText(
+            out, f"inliers={match.inliers}", (match.top_left[0], max(0, match.top_left[1] - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2,
+        )
+        cv2.imwrite(args.save, out)
+        print(f"Saved -> {args.save}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main())
