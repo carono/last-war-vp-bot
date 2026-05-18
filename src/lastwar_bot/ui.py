@@ -1,4 +1,4 @@
-"""Tk control window: Start / Stop the bot, status indicator, live log.
+"""Tk control window: Main and Debug tabs.
 
 Launch:
     python -m lastwar_bot.ui
@@ -14,7 +14,12 @@ import tkinter as tk
 from tkinter import scrolledtext, ttk
 
 from .config import AppSettings
+from .game.skills import navigate
+from .perception.capture import WindowNotFoundError, find_window, grab
 from .runner import BotRunner
+
+WINDOW_TITLE = "Last War-Survival Game"
+PROCESS_NAME = "LastWar.exe"
 
 
 class BotWindow(tk.Tk):
@@ -23,8 +28,8 @@ class BotWindow(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Last War Bot")
-        self.geometry("720x440")
-        self.minsize(560, 320)
+        self.geometry("780x560")
+        self.minsize(560, 380)
 
         self._settings = AppSettings()
         self._runner = BotRunner()
@@ -39,36 +44,63 @@ class BotWindow(tk.Tk):
     def _build_ui(self) -> None:
         header = ttk.Frame(self, padding=(10, 10, 10, 4))
         header.pack(side="top", fill="x")
-
         ttk.Label(header, text="Status:").pack(side="left")
         self._status_var = tk.StringVar(value="Idle")
         self._status_label = ttk.Label(header, textvariable=self._status_var, foreground="#666")
         self._status_label.pack(side="left", padx=(4, 20))
-
         ttk.Label(
             header,
             text=f"LLM: {self._settings.llm_provider}   ·   Vision: {self._settings.vision_provider}",
             foreground="#888",
         ).pack(side="left")
 
-        buttons = ttk.Frame(self, padding=(10, 0, 10, 6))
-        buttons.pack(side="top", fill="x")
-
-        self._start_btn = ttk.Button(buttons, text="Start", command=self._on_start)
-        self._start_btn.pack(side="left")
-        self._stop_btn = ttk.Button(buttons, text="Stop", command=self._on_stop, state="disabled")
-        self._stop_btn.pack(side="left", padx=(8, 0))
-        ttk.Button(buttons, text="Clear log", command=self._clear_log).pack(side="right")
+        notebook = ttk.Notebook(self)
+        notebook.pack(side="top", fill="x", padx=10, pady=4)
+        notebook.add(self._build_main_tab(notebook), text="Main")
+        notebook.add(self._build_debug_tab(notebook), text="Debug")
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=6)
-        log_frame.pack(side="top", fill="both", expand=True, padx=10, pady=(4, 10))
-        self._log = scrolledtext.ScrolledText(log_frame, height=14, state="disabled", wrap="word")
+        log_frame.pack(side="bottom", fill="both", expand=True, padx=10, pady=(0, 10))
+        self._log = scrolledtext.ScrolledText(log_frame, height=12, state="disabled", wrap="word")
         self._log.pack(fill="both", expand=True)
 
-    # ----- event plumbing -----
+    def _build_main_tab(self, parent: ttk.Notebook) -> tk.Widget:
+        f = ttk.Frame(parent, padding=10)
+        self._start_btn = ttk.Button(f, text="Start", command=self._on_start)
+        self._start_btn.pack(side="left")
+        self._stop_btn = ttk.Button(f, text="Stop", command=self._on_stop, state="disabled")
+        self._stop_btn.pack(side="left", padx=(8, 0))
+        ttk.Button(f, text="Clear log", command=self._clear_log).pack(side="right")
+        return f
+
+    def _build_debug_tab(self, parent: ttk.Notebook) -> tk.Widget:
+        f = ttk.Frame(parent, padding=10)
+
+        row1 = ttk.Frame(f)
+        row1.pack(side="top", fill="x")
+        ttk.Label(row1, text="Current screen:").pack(side="left")
+        self._screen_var = tk.StringVar(value="—")
+        ttk.Label(
+            row1, textvariable=self._screen_var, font=("TkDefaultFont", 10, "bold")
+        ).pack(side="left", padx=(6, 12))
+        self._detect_btn = ttk.Button(row1, text="Detect", command=self._on_detect)
+        self._detect_btn.pack(side="left")
+
+        ttk.Separator(f, orient="horizontal").pack(side="top", fill="x", pady=8)
+
+        row2 = ttk.Frame(f)
+        row2.pack(side="top", fill="x")
+        self._goto_base_btn = ttk.Button(row2, text="Go to Base", command=lambda: self._navigate("base"))
+        self._goto_base_btn.pack(side="left")
+        self._goto_world_btn = ttk.Button(row2, text="Go to World", command=lambda: self._navigate("world"))
+        self._goto_world_btn.pack(side="left", padx=(8, 0))
+
+        return f
+
+    # ----- logging plumbing -----
 
     def _enqueue(self, msg: str) -> None:
-        """Runner thread → UI message queue. Safe to call from any thread."""
+        """Worker-thread → UI message queue. Thread-safe."""
         self._messages.put(msg)
 
     def _poll_messages(self) -> None:
@@ -91,7 +123,7 @@ class BotWindow(tk.Tk):
         self._log.delete("1.0", "end")
         self._log.configure(state="disabled")
 
-    # ----- buttons -----
+    # ----- main tab handlers -----
 
     def _on_start(self) -> None:
         self._runner.start(on_event=self._enqueue)
@@ -101,8 +133,7 @@ class BotWindow(tk.Tk):
 
     def _on_stop(self) -> None:
         self._stop_btn.configure(state="disabled")
-        self._set_status("Stopping…", "#8a6a00")
-        # Stop on a worker thread so the UI stays responsive.
+        self._set_status("Stopping...", "#8a6a00")
         threading.Thread(target=self._do_stop, daemon=True).start()
 
     def _do_stop(self) -> None:
@@ -116,6 +147,55 @@ class BotWindow(tk.Tk):
     def _set_status(self, text: str, color: str) -> None:
         self._status_var.set(text)
         self._status_label.configure(foreground=color)
+
+    # ----- debug tab handlers -----
+
+    def _on_detect(self) -> None:
+        self._set_debug_buttons(False)
+        threading.Thread(target=self._do_detect, daemon=True).start()
+
+    def _do_detect(self) -> None:
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+        except WindowNotFoundError as exc:
+            self._enqueue(f"Detect: window not found — {exc}")
+            self.after(0, lambda: self._set_debug_buttons(True))
+            return
+        img = grab(info.hwnd)
+        screen = navigate.identify_screen(img)
+        text = screen or "unknown"
+        self.after(0, lambda: self._screen_var.set(text))
+        self._enqueue(f"Detect: current screen = {text}")
+        self.after(0, lambda: self._set_debug_buttons(True))
+
+    def _navigate(self, target: str) -> None:
+        self._set_debug_buttons(False)
+        threading.Thread(target=lambda: self._do_navigate(target), daemon=True).start()
+
+    def _do_navigate(self, target: str) -> None:
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+        except WindowNotFoundError as exc:
+            self._enqueue(f"Navigate->{target}: window not found — {exc}")
+            self.after(0, lambda: self._set_debug_buttons(True))
+            return
+        result = navigate.go_to(target, info.hwnd)  # type: ignore[arg-type]
+        score = f" score={result.match_score:.3f}" if result.match_score is not None else ""
+        at = f" at={result.click_at}" if result.click_at is not None else ""
+        self._enqueue(
+            f"Navigate->{target}: {result.action} "
+            f"(before={result.before}, after={result.after}, success={result.success}){at}{score}"
+        )
+        new = result.after or "unknown"
+        self.after(0, lambda: self._screen_var.set(new))
+        self.after(0, lambda: self._set_debug_buttons(True))
+
+    def _set_debug_buttons(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        for btn in (self._detect_btn, self._goto_base_btn, self._goto_world_btn):
+            btn.configure(state=state)
+
+    # ----- lifecycle -----
 
     def _on_close(self) -> None:
         try:
