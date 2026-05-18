@@ -78,6 +78,8 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `CLOSE_WINDOW` | `CLOSE_WINDOW` | Send `WM_CLOSE` to the game window. |
 | `CLICK (x, y)` | `CLICK (50, 50)` | Click absolute client coords (when FIND isn't usable, e.g. unique-per-player avatar). |
 | `READ_TEXT (...)` | `READ_TEXT (300, 100, 400, 60) INTO profile.name` | OCR a region and save into the active profile. |
+| `PRESS <key>` | `PRESS ESC` | Send a real keypress. Supports ESC/ENTER/SPACE/TAB/BACKSPACE/DELETE/HOME/END/PAGEUP/PAGEDOWN/UP/DOWN/LEFT/RIGHT, F1..F12, single letters/digits. |
+| `WHILE <cond> [LIMIT N]` | `WHILE screen == unknown LIMIT 8` | Repeat body until condition is false or LIMIT hit. Default LIMIT = 20. |
 
 Extended conditions:
 - `FIND <tpl>.png` — ad-hoc SIFT find as a condition; updates `LAST`.
@@ -147,6 +149,16 @@ CALL collect_resources
 CALL go_to_world
 CALL collect_world_truck
 ```
+
+### Bounded recovery loop
+```
+# close_modals.md
+WHILE screen == unknown LIMIT 8
+    PRESS ESC
+    WAIT 0.4
+```
+Press ESC until the bot can identify the current screen again — useful
+as a first step in any flow that must start from a known state.
 
 ## Workflow: "the user just asked for behaviour X"
 

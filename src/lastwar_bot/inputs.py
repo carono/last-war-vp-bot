@@ -42,6 +42,58 @@ def click(hwnd: int, x: int, y: int, mode: InputMode = "background") -> None:
         raise ValueError(f"Unknown mode: {mode!r}")
 
 
+# Virtual-key codes for the keys the DSL exposes by name. See:
+# https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+_VK_NAMES: dict[str, int] = {
+    "ESC": 0x1B, "ESCAPE": 0x1B,
+    "ENTER": 0x0D, "RETURN": 0x0D,
+    "SPACE": 0x20,
+    "TAB": 0x09,
+    "BACKSPACE": 0x08,
+    "DELETE": 0x2E, "DEL": 0x2E,
+    "HOME": 0x24, "END": 0x23,
+    "PAGEUP": 0x21, "PAGEDOWN": 0x22,
+    "UP": 0x26, "DOWN": 0x28, "LEFT": 0x25, "RIGHT": 0x27,
+    "F1": 0x70, "F2": 0x71, "F3": 0x72, "F4": 0x73, "F5": 0x74,
+    "F6": 0x75, "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79,
+    "F11": 0x7A, "F12": 0x7B,
+}
+
+
+def _vk_code(key_name: str) -> int:
+    name = key_name.upper().strip()
+    if name in _VK_NAMES:
+        return _VK_NAMES[name]
+    if len(name) == 1 and (name.isalpha() or name.isdigit()):
+        return ord(name)
+    raise ValueError(f"Unknown key name: {key_name!r}")
+
+
+def press_key(hwnd: int, key_name: str, *, hold: float = 0.02) -> None:
+    """Send a single key press (foreground, real input) to `hwnd`.
+
+    Brings the window to the front first (same UX cost as a foreground
+    click) and emits the key via `keybd_event`. Background key delivery
+    isn't supported — Last War (and most DirectInput games) ignores
+    PostMessage / WM_KEYDOWN, just like it ignores PostMessage clicks.
+    """
+    import win32api
+    import win32con
+    import win32gui
+
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    time.sleep(0.05)
+
+    vk = _vk_code(key_name)
+    win32api.keybd_event(vk, 0, 0, 0)
+    time.sleep(hold)
+    win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+
 def _client_lparam(x: int, y: int) -> int:
     """Pack client coordinates into an LPARAM for mouse messages."""
     return ((y & 0xFFFF) << 16) | (x & 0xFFFF)

@@ -47,6 +47,34 @@ ELSE
     LOG "Not on world, skipping"
 ```
 
+### `WHILE condition [LIMIT N]`
+
+Repeat the indented body while the condition is true. `LIMIT` caps the
+number of iterations as a safety against infinite loops (default 20,
+applied silently if no `LIMIT` clause is given). When the condition
+becomes false the loop exits cleanly; when the LIMIT is hit while the
+condition is still true the runtime logs a "LIMIT N reached" line and
+continues with the next statement.
+
+```
+WHILE screen == unknown LIMIT 8
+    PRESS ESC
+    WAIT 0.4
+```
+
+### `PRESS <key>`
+
+Send a single key press to the game window (foreground, real input —
+DirectInput games ignore message-based key delivery). Supported names:
+`ESC`, `ENTER`, `SPACE`, `TAB`, `BACKSPACE`, `DELETE`, `HOME`, `END`,
+`PAGEUP`, `PAGEDOWN`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `F1`..`F12`, plus
+any single letter or digit (`A`, `Z`, `5`, …).
+
+```
+PRESS ESC
+PRESS F5
+```
+
 ### `FIND <template>.png`
 
 Search the current screen for the named template (PNG file under

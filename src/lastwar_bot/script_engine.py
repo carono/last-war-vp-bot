@@ -64,7 +64,12 @@ _IDENT = r"[A-Za-z_][A-Za-z0-9_]*"
 
 _IF_RE = re.compile(rf"^IF\s+(.+?)\s*$", re.IGNORECASE)
 _ELSE_RE = re.compile(r"^ELSE\s*$", re.IGNORECASE)
+_WHILE_RE = re.compile(
+    rf"^WHILE\s+(.+?)(?:\s+LIMIT\s+(\d+))?\s*$",
+    re.IGNORECASE,
+)
 _FIND_RE = re.compile(rf"^FIND\s+({_IDENT}\.png)\s*$", re.IGNORECASE)
+_PRESS_RE = re.compile(rf"^PRESS\s+({_IDENT})\s*$", re.IGNORECASE)
 _CLICK_RE = re.compile(r"^CLICK\s*$", re.IGNORECASE)
 _CLICK_AT_RE = re.compile(
     r"^CLICK\s+\(\s*(\d+)\s*,\s*(\d+)\s*\)\s*$",
@@ -128,6 +133,18 @@ class ClickStmt(_Stmt):
 class ReadTextStmt(_Stmt):
     region: tuple[int, int, int, int]
     target_field: str  # written into Context.profile.data[target_field]
+
+
+@dataclass(slots=True)
+class PressStmt(_Stmt):
+    key: str  # ESC, ENTER, A, F5, ... — see inputs._VK_NAMES
+
+
+@dataclass(slots=True)
+class WhileStmt(_Stmt):
+    condition: str
+    limit: int                # safety cap on iterations
+    body: list[Any] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -224,6 +241,16 @@ def _parse_one(lines, i, indent):
             else_block, i = _parse_indented_block(lines, i, indent, ln)
         return IfStmt(text=text, line_no=ln, condition=cond, then_block=then_block, else_block=else_block), i
 
+    m = _WHILE_RE.match(text)
+    if m:
+        cond = m.group(1).strip()
+        limit = int(m.group(2)) if m.group(2) else 20
+        i += 1
+        body, i = _parse_indented_block(lines, i, indent, ln)
+        return WhileStmt(
+            text=text, line_no=ln, condition=cond, limit=limit, body=body,
+        ), i
+
     m = _FIND_RE.match(text)
     if m:
         tpl = m.group(1)
@@ -251,6 +278,10 @@ def _parse_one(lines, i, indent):
     m = _CALL_RE.match(text)
     if m:
         return CallStmt(text=text, line_no=ln, action_name=m.group(1)), i + 1
+
+    m = _PRESS_RE.match(text)
+    if m:
+        return PressStmt(text=text, line_no=ln, key=m.group(1)), i + 1
 
     m = _WAIT_RE.match(text)
     if m:
@@ -377,6 +408,10 @@ class Interpreter:
                 self._do_close_window(stmt)
             case ReadTextStmt():
                 self._do_read_text(stmt)
+            case PressStmt():
+                self._do_press(stmt)
+            case WhileStmt():
+                self._do_while(stmt)
 
     # ---- conditions ----
 
@@ -504,6 +539,29 @@ class Interpreter:
         cx, cy = match.center
         click(self.ctx.hwnd, cx, cy, mode="foreground")
         self._log(f"CLICK at ({cx}, {cy})")
+
+    def _do_press(self, stmt: PressStmt) -> None:
+        from .inputs import press_key
+
+        press_key(self.ctx.hwnd, stmt.key)
+        self._log(f"PRESS {stmt.key.upper()}")
+
+    def _do_while(self, stmt: WhileStmt) -> None:
+        iterations = 0
+        while iterations < stmt.limit:
+            if not self.eval_condition(stmt.condition, stmt.line_no):
+                break
+            self._log(f"WHILE {stmt.condition} (iter {iterations + 1}/{stmt.limit})")
+            self._depth += 1
+            try:
+                self._run_block(stmt.body)
+            finally:
+                self._depth -= 1
+            iterations += 1
+        if iterations == stmt.limit and self.eval_condition(stmt.condition, stmt.line_no):
+            self._log(f"WHILE -> LIMIT {stmt.limit} reached, giving up")
+        else:
+            self._log(f"WHILE -> done after {iterations} iteration(s)")
 
     def _do_read_text(self, stmt: ReadTextStmt) -> None:
         if self.ctx.profile is None:
