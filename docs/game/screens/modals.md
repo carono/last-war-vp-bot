@@ -10,6 +10,7 @@ Most non-trivial interactions open a **modal window** layered over the current p
 - Modals frequently contain **tabs** (filter rows, category strips, action groups).
 - Modals can nest / chain: clicking deep into a modal opens another modal or replaces the current one. The bot must track that it's inside a modal stack, not on the base/world.
 - "Slider" / horizontal carousel rows are common (e.g. the hire slider lists hire types).
+- Tabs and action buttons inside modals can carry **red attention dots** signalling which sub-section has new/pending content. The bot can use dots to drive exploration instead of opening every tab. See [overview.md → Attention markers](../overview.md#attention-markers-red-dots).
 
 ## Specific modals
 

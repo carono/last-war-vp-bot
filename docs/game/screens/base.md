@@ -34,6 +34,8 @@ Layout shape mirrors the [world screen](world.md), but the top-right and the bot
 
 The "go to world" button uses the same slot that holds "go to base" on the world screen; the icon swaps with the current screen.
 
+Edge buttons and individual buildings can carry **red dots** when something is pending (e.g. resource ready for collection, build finished, research done). See [overview.md → Attention markers](../overview.md#attention-markers-red-dots).
+
 ## Open questions
 
 - Whether the chat strip lives on the base too, or only on the world.

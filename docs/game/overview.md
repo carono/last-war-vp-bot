@@ -50,6 +50,19 @@ On the world map, zooming changes which interface buttons are visible.
 
 > _TODO: enumerate exactly what shows/hides at each zoom threshold._
 
+## Attention markers (red dots)
+
+Anywhere in the UI where the player has something new to handle — unread mail, ready-to-collect rewards, completed builds, available alliance donations, freshly unlocked event rewards — the relevant button is decorated with a **small red dot in a corner**, usually the top-right corner of the button. The exact pixel position is button-specific but the convention is consistent across the game.
+
+This is the bot's primary "is there work to do?" signal:
+
+- **Red dot present** on an activity entry point → the activity has pending work; the bot should enter it.
+- **Red dot absent** → there is nothing pending in that activity; the bot can skip it this session.
+
+The dot also appears on **tabs / buttons inside modals**, surfacing exactly which sub-section has something new. The bot can drive its modal exploration off the dots instead of opening every tab blindly.
+
+> _TODO: confirm corner position and approximate size; confirm whether the dot ever carries a number (e.g. count of pending items) or stays a plain dot._
+
 ## Modal-heavy interaction
 
 Most non-trivial interactions open a **modal window** on top of the current screen. Heroes, alliance, mail, hire, event detail — all modals. The base/world map underneath remains visible but inactive. See [screens/modals.md](screens/modals.md) for the modal pattern and specific modals.

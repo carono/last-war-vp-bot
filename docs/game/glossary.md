@@ -153,3 +153,6 @@ In-game messaging strip along the bottom of the world screen.
 
 ### Profile — **Профиль**
 Player avatar / account hub in the top-left corner.
+
+### Attention marker — _red dot_ / **красная точка**
+A small red dot drawn in a corner (typically top-right) of a button when there is something new or pending behind that button — unread mail, ready-to-collect rewards, completed builds, available alliance donations, etc. Also appears on tabs inside modals. The bot uses this as its primary "is there work to do?" signal: dot present → enter, dot absent → skip. See [overview.md → Attention markers](overview.md#attention-markers-red-dots).

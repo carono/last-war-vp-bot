@@ -37,6 +37,10 @@ Always present in the top-right block (when on world):
 
 The "go to base" button lives in the same slot that, on the base screen, holds "go to world". The slot is shared; the icon swaps with the current screen.
 
+### Attention markers
+
+Most of the world-screen edge buttons (mail, alliance, events, heroes, world-action launchers, …) can carry a **red dot** in a corner when there is something to collect / new behind them. See [overview.md → Attention markers](../overview.md#attention-markers-red-dots).
+
 ## Zoom-dependent UI
 
 On the world map, some interface elements appear or disappear depending on the zoom level.
