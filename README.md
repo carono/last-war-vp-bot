@@ -14,13 +14,17 @@ See [`docs/install/`](docs/install/README.md) — step-by-step Windows guides fo
 
 See [`docs/architecture.md`](docs/architecture.md).
 
-## Smoke test
+## Running
 
-After installation:
+Two entry points after installation:
 
 ```powershell
 .venv\Scripts\activate
-python -m lastwar_bot
-```
 
-The script verifies the connection to the configured LLM provider and prints a short model reply.
+# Provider smoke test — prints a short reply from the configured LLM.
+python -m lastwar_bot
+
+# Control UI — Tk window with Start / Stop. Each tick captures the
+# Last War window and logs basic stats.
+python -m lastwar_bot.ui
+```
