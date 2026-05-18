@@ -76,6 +76,7 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `LOG` | `LOG "msg"` | Trace line. |
 | `STOP` | `STOP "reason"` | Halt the action stack; runner stops on the next check. |
 | `CLOSE_WINDOW` | `CLOSE_WINDOW` | Send `WM_CLOSE` to the game window. |
+| `LAUNCH "path"` | `LAUNCH "C:\path\to\LastWarLauncher.exe"` | Start a detached process; pair with `WAIT screen == base` to block until the game is up. |
 | `CLICK (x, y)` | `CLICK (50, 50)` | Click absolute client coords (when FIND isn't usable, e.g. unique-per-player avatar). |
 | `READ_TEXT (...)` | `READ_TEXT (300, 100, 400, 60) INTO profile.name` | OCR a region and save into the active profile. |
 | `PRESS <key>` | `PRESS ESC` | Send a real keypress. Supports ESC/ENTER/SPACE/TAB/BACKSPACE/DELETE/HOME/END/PAGEUP/PAGEDOWN/UP/DOWN/LEFT/RIGHT, F1..F12, single letters/digits. |

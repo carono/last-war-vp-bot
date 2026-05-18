@@ -83,6 +83,7 @@ _WAIT_RE = re.compile(
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
 _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
 _CLOSE_WINDOW_RE = re.compile(r"^CLOSE_WINDOW\s*$", re.IGNORECASE)
+_LAUNCH_RE = re.compile(r'^LAUNCH\s+"([^"]+)"\s*$', re.IGNORECASE)
 _READ_TEXT_RE = re.compile(
     rf"^READ_TEXT\s+\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"
     rf"\s+INTO\s+profile\.({_IDENT})\s*$",
@@ -172,6 +173,12 @@ class StopStmt(_Stmt):
 @dataclass(slots=True)
 class CloseWindowStmt(_Stmt):
     """Send WM_CLOSE to the game window (no force-kill)."""
+
+
+@dataclass(slots=True)
+class LaunchStmt(_Stmt):
+    """Spawn a process (typically the game launcher). Fire-and-forget."""
+    path: str
 
 
 # ---- Errors ----------------------------------------------------------------
@@ -300,6 +307,10 @@ def _parse_one(lines, i, indent):
     if _CLOSE_WINDOW_RE.match(text):
         return CloseWindowStmt(text=text, line_no=ln), i + 1
 
+    m = _LAUNCH_RE.match(text)
+    if m:
+        return LaunchStmt(text=text, line_no=ln, path=m.group(1)), i + 1
+
     raise ScriptParseError(f"line {ln}: unrecognised statement: {text!r}")
 
 
@@ -406,6 +417,8 @@ class Interpreter:
                 raise _HaltSignal()
             case CloseWindowStmt():
                 self._do_close_window(stmt)
+            case LaunchStmt():
+                self._do_launch(stmt)
             case ReadTextStmt():
                 self._do_read_text(stmt)
             case PressStmt():
@@ -474,9 +487,29 @@ class Interpreter:
 
     def _current_screen(self) -> str | None:
         from .game.skills import navigate
-        from .perception.capture import grab
+        from .perception.capture import (
+            WindowNotFoundError, find_window, grab,
+        )
 
-        screen = navigate.identify_screen(grab(self.ctx.hwnd))
+        # Lazy window discovery. Scripts that start before the game is
+        # running (e.g. launch_game.md) hold ctx.hwnd = 0 until the
+        # window appears; each WAIT iteration re-tries find_window.
+        if not self.ctx.hwnd:
+            try:
+                info = find_window("Last War-Survival Game", "LastWar.exe")
+                self.ctx.hwnd = info.hwnd
+            except WindowNotFoundError:
+                self._log("(window not running)")
+                return None
+
+        try:
+            screen = navigate.identify_screen(grab(self.ctx.hwnd))
+        except Exception as exc:
+            # Window vanished between the find and the grab — invalidate
+            # the cached handle so the next iteration will re-discover it.
+            self._log(f"(screen detection failed: {exc!r})")
+            self.ctx.hwnd = 0
+            return None
         self._log(f"(screen = {screen!r})")
         return screen
 
@@ -600,6 +633,28 @@ class Interpreter:
 
         win32gui.PostMessage(self.ctx.hwnd, win32con.WM_CLOSE, 0, 0)
         self._log("CLOSE_WINDOW -> WM_CLOSE posted")
+
+    def _do_launch(self, stmt: LaunchStmt) -> None:
+        """Spawn the launcher as a detached child process."""
+        import subprocess
+        from pathlib import Path
+
+        exe = Path(stmt.path)
+        if not exe.exists():
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: launcher not found at {stmt.path}"
+            )
+        try:
+            subprocess.Popen(
+                [str(exe)],
+                cwd=str(exe.parent),
+                close_fds=True,
+            )
+        except OSError as exc:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: failed to launch {stmt.path}: {exc}"
+            )
+        self._log(f"LAUNCH {stmt.path}")
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.

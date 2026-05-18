@@ -179,6 +179,23 @@ Send a `WM_CLOSE` message to the game window. This is the polite way to
 ask the client to shut down (no force-kill). Pair with `STOP` to also
 halt the bot.
 
+### `LAUNCH "path/to/exe"`
+
+Spawn a process (typically the game launcher) as a detached child. The
+path is quoted so spaces and backslashes need no escaping. The script
+returns immediately — pair with `WAIT screen == base WITHIN 300s` to
+block until the game is ready.
+
+```
+LAUNCH "C:\Users\spame\AppData\Local\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+WAIT screen == base WITHIN 300s
+```
+
+Scripts that begin with `LAUNCH` run before the game window exists. The
+runtime detects this and lazily re-finds the window on each WAIT
+iteration, so the same `WAIT screen == ...` form works whether the
+window already exists or is about to appear.
+
 ## Conditions
 
 Allowed in `IF` and `WAIT`:

@@ -144,6 +144,16 @@ class BotWindow(tk.Tk):
         )
         self._pick_region_btn.pack(side="left", padx=(8, 0))
 
+        ttk.Separator(f, orient="horizontal").pack(side="top", fill="x", pady=8)
+
+        row6 = ttk.Frame(f)
+        row6.pack(side="top", fill="x")
+        ttk.Label(row6, text="Game process:").pack(side="left")
+        self._launch_btn = ttk.Button(
+            row6, text="Launch game", command=self._on_launch_game,
+        )
+        self._launch_btn.pack(side="left", padx=(8, 0))
+
         return f
 
     # ----- logging plumbing -----
@@ -317,6 +327,23 @@ class BotWindow(tk.Tk):
             )
         self.after(0, lambda: self._set_debug_buttons(True))
 
+    def _on_launch_game(self) -> None:
+        self._set_debug_buttons(False)
+        threading.Thread(target=self._do_launch_game, daemon=True).start()
+
+    def _do_launch_game(self) -> None:
+        # Find the window if it's already up; otherwise pass hwnd=0 and
+        # let the script engine lazy-discover after LAUNCH succeeds.
+        try:
+            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            hwnd = info.hwnd
+            self._enqueue(f"Launch game: window already open (hwnd=0x{hwnd:x})")
+        except WindowNotFoundError:
+            hwnd = 0
+        ok = run_action("launch_game", hwnd, on_event=self._enqueue, profile=self._profile)
+        self._enqueue(f"Launch game: {'OK' if ok else 'FAILED'}")
+        self.after(0, lambda: self._set_debug_buttons(True))
+
     def _on_pick_region(self) -> None:
         """Grab one frame and open the region-picker window over it."""
         try:
@@ -355,6 +382,7 @@ class BotWindow(tk.Tk):
         for btn in (
             self._detect_btn, self._goto_base_btn, self._goto_world_btn,
             self._fix_size_btn, self._capture_profile_btn,
+            self._pick_region_btn, self._launch_btn,
         ):
             btn.configure(state=state)
 
