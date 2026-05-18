@@ -1,60 +1,60 @@
-# 2. Установка Ollama и моделей (опционально)
+# 2. Install Ollama and models (optional)
 
-[Ollama](https://ollama.com) — локальный раннер LLM/VLM. Управление одной командой, автодетект GPU (CUDA на NVIDIA), всё хранится в одной папке.
+[Ollama](https://ollama.com) is a local LLM/VLM runner. One-command management, automatic GPU detection (CUDA on NVIDIA), everything stored in one folder.
 
-> Этот шаг **не обязателен на этапе разработки**: бот стартует с провайдером-заглушкой (`stub`), которая не требует внешних сервисов. Поставь Ollama, когда дойдёшь до реальной интеграции с моделью, либо если хочешь сразу использовать локальную VLM вместо облака. Альтернатива — облачный сервис с OpenAI-совместимым API (см. [шаг 3, вариант Б](03-bot.md#вариант-б-облачный-провайдер-openai--anthropic-compat--groq--openrouter-)).
+> This step is **not required during development**: the bot starts with a stub provider that needs no external services. Install Ollama when you reach real model integration, or if you want to use a local VLM from the start instead of cloud. The alternative is a cloud service via an OpenAI-compatible API (see [step 3, option B](03-bot.md#option-b-cloud-provider-openai--anthropic-compat--groq--openrouter)).
 
-## Установка
+## Install
 
-1. Открой [ollama.com/download/windows](https://ollama.com/download/windows).
-2. Скачай `OllamaSetup.exe` и запусти.
-3. После установки Ollama стартует автоматически и слушает `http://127.0.0.1:11434`. В системном трее появится иконка ламы.
+1. Open [ollama.com/download/windows](https://ollama.com/download/windows).
+2. Download `OllamaSetup.exe` and run it.
+3. After installation Ollama starts automatically and listens on `http://127.0.0.1:11434`. A llama icon appears in the system tray.
 
-## Проверка демона
+## Verify the daemon
 
-В PowerShell:
+In PowerShell:
 
 ```powershell
 curl http://127.0.0.1:11434/api/tags
 ```
 
-Должен вернуться JSON со списком моделей (на старте пустой: `{"models":[]}`). Если ошибка соединения — открой меню трея и убедись, что Ollama запущен.
+You should get JSON with the model list (empty at first: `{"models":[]}`). If the connection fails — open the tray menu and confirm Ollama is running.
 
-## Загрузка моделей
+## Pulling models
 
-Под видеокарту с 8 ГБ VRAM (например, RTX 2060) подходят квантизованные модели до 7B. Рекомендуемые стартовые варианты:
+For an 8 GB VRAM GPU (e.g. RTX 2060), quantised models up to 7B fit. Recommended starting set:
 
 ```powershell
-# Текстовая модель для планирования (≈4.5 ГБ)
+# Text model for planning (~4.5 GB)
 ollama pull qwen2.5:7b-instruct-q4_K_M
 
-# Vision-Language модель для классификации экранов (≈2 ГБ)
+# Vision-Language model for screen classification (~2 GB)
 ollama pull qwen2-vl:2b
 ```
 
-Загрузка идёт с CDN, занимает несколько минут на каждую.
+Downloads come from the CDN and take a few minutes each.
 
-После загрузки проверь, что модели на месте:
+Verify the models are present:
 
 ```powershell
 ollama list
 ```
 
-И быстрая проба текстовой модели:
+Quick text-model probe:
 
 ```powershell
-ollama run qwen2.5:7b-instruct-q4_K_M "Ответь одним словом: ok"
+ollama run qwen2.5:7b-instruct-q4_K_M "Reply with a single word: ok"
 ```
 
-## Что выбирать дальше
+## What to pick next
 
-В каталоге [ollama.com/library](https://ollama.com/library) можно искать модели. Параметры под нашу архитектуру:
+Browse [ollama.com/library](https://ollama.com/library) for more models. Guidelines for our architecture:
 
-- **LLM (текст):** что-то instruct-tuned, 7B Q4 (Qwen2.5, Llama 3.1, Mistral). Чем умнее — тем чище план.
-- **VLM (зрение):** `qwen2-vl:2b` — быстрый и точный для UI-задач. Альтернативы — `minicpm-v` (≈8B, тяжелее, точнее), `moondream` (≈1.8B, очень быстро, слабее).
+- **LLM (text):** something instruct-tuned, 7B Q4 (Qwen2.5, Llama 3.1, Mistral). The smarter, the cleaner the plan.
+- **VLM (vision):** `qwen2-vl:2b` — fast and accurate for UI tasks. Alternatives: `minicpm-v` (~8B, heavier, more accurate), `moondream` (~1.8B, very fast, weaker).
 
-Названия модели потом подставляются в `.env` бота (см. следующий шаг).
+The model names then go into the bot's `.env` (next step).
 
-## Дальше
+## Next
 
-[Шаг 3 — установка бота](03-bot.md).
+[Step 3 — installing the bot](03-bot.md).

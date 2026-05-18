@@ -1,10 +1,10 @@
-"""Stub provider — development mode без внешних LLM/VLM сервисов.
+"""Stub provider — development mode without external LLM/VLM services.
 
-Возвращает canned-ответы: позволяет собирать и тестировать пайплайн
-(захват окна → классификация → скилл) до того, как подключим реальную
-модель (Ollama / cloud). Для настоящих семантических запросов на этапе
-разработки используется ручной цикл: разработчик показывает скриншот и
-вопрос Claude в чате, ответ Claude применяется как результат VLM.
+Returns canned responses so the rest of the pipeline (capture → classify →
+skill) can be built and tested before a real backend is wired in. For
+genuine semantic calls during development, the developer-in-the-loop
+workflow is used: paste the screenshot and the question into the chat,
+take the assistant's reply as the VLM result.
 """
 
 from __future__ import annotations

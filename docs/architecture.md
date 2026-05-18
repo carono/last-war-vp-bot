@@ -1,91 +1,92 @@
-# Архитектура v2
+# Architecture (v2)
 
-## Принцип разделения
+## Separation of concerns
 
-Главная боль v1 (Lua/UOPilot) — навигация по цветам пикселей: малейшее обновление UI ломает скрипты. В v2 решение разносится на два слоя:
+The main pain point of v1 (Lua/UOPilot) was pixel-colour navigation: any UI update broke the scripts. v2 splits the problem into two layers:
 
-- **Python — «руки и глаза».** Захват окна, шаблонное распознавание (OpenCV), OCR, эмуляция мыши/клавиатуры, верификация состояния, retry/recovery. Эти примитивы предсказуемы, быстры (миллисекунды), детерминированы.
-- **AI — «семантический клей».** Когда нужно понять «что сейчас на экране», или разложить высокоуровневую команду («собери ресурсы на базе») на последовательность known-good действий — спрашиваем VLM/LLM. AI вызывается редко, по запросу, а не в каждом тике.
+- **Python — "hands and eyes".** Window capture, template matching (OpenCV), OCR, mouse/keyboard input, state verification, retry/recovery. These primitives are predictable, fast (milliseconds), and deterministic.
+- **AI — "semantic glue".** When we need to understand "what's on the screen right now", or to decompose a high-level goal ("collect resources at the base") into a sequence of known-good actions, we ask a VLM/LLM. The AI is called sparingly, on demand, not on every tick.
 
-Скрипт верхнего уровня: `«На базе собрать ресурсы»` → **planner** превращает в маршрут `[open_base, find_resource_icons, click_each, return]` → **executor** прогоняет каждый шаг через готовые Python-скиллы → после каждого шага сверяет ожидаемый экран с фактическим (через классификатор) → при отклонении вызывает recovery.
+Top-level flow: `"collect resources at the base"` → **planner** turns it into `[open_base, find_resource_icons, click_each, return]` → **executor** runs each step through pre-built Python skills → after each step it compares the expected screen with the actual one (via the classifier) → on mismatch, it triggers recovery.
 
-## Компоненты
+## Components
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  ВХОД: сценарий на естественном языке / команда / расписание   │
+│  INPUT: natural-language scenario / command / schedule         │
 └────────────────────────────────────────────────────────────────┘
                               ↓
 ┌────────────────────────────────────────────────────────────────┐
 │  PLANNER (LLMProvider)                                          │
-│    Знает каталог скиллов. Декомпозирует цель в план действий.   │
+│    Knows the skill catalogue. Decomposes the goal into a plan.  │
 └────────────────────────────────────────────────────────────────┘
                               ↓
 ┌────────────────────────────────────────────────────────────────┐
 │  EXECUTOR                                                       │
-│    Цикл: screenshot → classify → run_skill → verify → next      │
-│    Retry, fallback, логирование скринов при сбое.               │
+│    Loop: screenshot → classify → run_skill → verify → next.     │
+│    Retry, fallback, screenshot dump on failure.                 │
 └────────────────────────────────────────────────────────────────┘
                               ↓
 ┌────────────────────────────────────────────────────────────────┐
-│  SKILLS  (Python, заранее реализованные глаголы)                │
+│  SKILLS  (Python — pre-built verbs)                             │
 │    open_base, click_resource, find_template, wait_for_screen,   │
 │    read_number, back, close_popup, ...                          │
 └────────────────────────────────────────────────────────────────┘
                               ↓
 ┌────────────────────────────────────────────────────────────────┐
 │  PERCEPTION                                                     │
-│    template_match (OpenCV)    — быстрые знакомые иконки         │
-│    OCR (RapidOCR / Paddle)    — цифры и надписи                 │
-│    screen_classifier (VLM)    — «где мы?» (короткий ответ)      │
-│    VisionProvider fallback    — «не узнаю, помоги»              │
+│    template_match (OpenCV)    — fast lookups for known icons   │
+│    OCR (RapidOCR / Paddle)    — numbers and labels             │
+│    screen_classifier (VLM)    — "where are we?" (short reply)  │
+│    VisionProvider fallback    — "I don't recognise this, help" │
 └────────────────────────────────────────────────────────────────┘
                               ↓
 ┌────────────────────────────────────────────────────────────────┐
-│  I/O АДАПТЕРЫ                                                   │
+│  I/O ADAPTERS                                                   │
 │    WindowCapture (Win32 / mss / windows-capture)                │
 │    Input (pydirectinput / SendInput)                            │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## Провайдеры моделей (pluggable)
+## Model providers (pluggable)
 
-Зрение и текстовая модель — две независимые точки расширения. Интерфейсы в [`src/lastwar_bot/providers/base.py`](../src/lastwar_bot/providers/base.py):
+Vision and text models are two independent extension points. The interfaces live in [`src/lastwar_bot/providers/base.py`](../src/lastwar_bot/providers/base.py):
 
 - `LLMProvider.complete(LLMRequest) → str`
 - `VisionProvider.describe(VisionRequest) → str`
 
-Реализации:
+Implementations:
 
-| Провайдер        | Локально / облако | Куда подходит                                   |
-|------------------|-------------------|-------------------------------------------------|
-| `stub`           | нигде             | dev-режим без внешних сервисов; canned-ответы для отладки пайплайна |
-| `ollama`         | локально          | Qwen2-VL, Llama, Mistral и др. через Ollama     |
-| `openai_compat`  | облако / self-host | OpenAI, Anthropic-compat, Groq, Together, OpenRouter, llama.cpp-server, vLLM |
+| Provider         | Local / cloud      | Where it fits                                   |
+|------------------|--------------------|-------------------------------------------------|
+| `stub`           | neither            | dev mode with no external services; canned replies for pipeline testing |
+| `ollama`         | local              | Qwen2-VL, Llama, Mistral, etc. through Ollama   |
+| `openai_compat`  | cloud / self-host  | OpenAI, Anthropic-compat, Groq, Together, OpenRouter, llama.cpp server, vLLM |
 
-На этапе разработки используется `stub` плюс **ручной цикл**: когда нужен реальный семантический ответ (классификация экрана, разбор скриншота), разработчик показывает скриншот и вопрос помощнику в чате, ответ применяется как результат VLM. Это позволяет проектировать скиллы и executor без интеграции с моделью.
+Selection happens via the `LLM_PROVIDER` / `VISION_PROVIDER` env vars in `.env`. Adding a new provider = one file in `providers/` plus a branch in `providers/__init__._build`.
 
-Переключение — переменными окружения `LLM_PROVIDER` / `VISION_PROVIDER` в `.env`. Добавление нового провайдера = новый файл в `providers/` + ветка в `providers/__init__._build`.
+During development we use `stub` plus a **human-in-the-loop**: when a real semantic answer is needed (screen classification, screenshot review), the developer pastes the screenshot and the question to the assistant in chat, and the assistant's reply is applied as the VLM result. This lets us design skills and the executor before wiring in a real model.
 
-## Гибрид зрения
+## Hybrid perception
 
-VLM на 2060 8GB — это секунды на запрос. Поэтому горячий путь — CV+OCR (миллисекунды), а VLM используется:
+A VLM on a 2060 8 GB GPU costs seconds per call. So the hot path is CV+OCR (milliseconds), and the VLM is used:
 
-1. для **классификации экрана** раз в N секунд («где мы сейчас?»);
-2. как **fallback**, когда CV не нашёл ожидаемое;
-3. в **dev-режиме** — для генерации новых шаблонов и подсказок при разработке скиллов.
+1. for **screen classification** every N seconds (or when "we don't know where we are");
+2. as a **fallback** when CV did not find the expected element;
+3. in **dev mode** — to generate new templates and hints while building skills.
 
-Со временем накапливается датасет → больше навигации переходит в быструю CV-ветку.
+Over time the dataset grows and more navigation moves into the fast CV branch.
 
-## Состояние работ
+## Current status
 
-Сейчас собран фундамент:
+The foundation is in place:
 
-- ✅ Конфиг (`config.py`), pydantic-settings + `.env`.
-- ✅ Абстракции провайдеров (`providers/base.py`).
-- ✅ Реализации: `stub` (dev), Ollama (local), OpenAI-compat (cloud).
-- ✅ Smoke-test (`python -m lastwar_bot`).
-- ✅ Захват окна (`perception/capture.py`, GDI `PrintWindow`/`PW_RENDERFULLCONTENT`). CLI: `python -m lastwar_bot.perception.capture`.
-- ⏳ Скилл-каталог и executor.
-- ⏳ Planner поверх LLM.
-- ⏳ OCR-провайдер (выбор RapidOCR vs PaddleOCR после первой пробы).
+- ✅ Config (`config.py`), pydantic-settings + `.env`.
+- ✅ Provider abstractions (`providers/base.py`).
+- ✅ Implementations: `stub` (dev), Ollama (local), OpenAI-compat (cloud).
+- ✅ Smoke test (`python -m lastwar_bot`).
+- ✅ Window capture (`perception/capture.py`, GDI `PrintWindow`/`PW_RENDERFULLCONTENT`). CLI: `python -m lastwar_bot.perception.capture`.
+- ⏳ Input layer (pydirectinput foreground + PostMessage background test).
+- ⏳ Skill catalogue and executor.
+- ⏳ LLM-backed planner.
+- ⏳ OCR provider (RapidOCR vs PaddleOCR decision after the first real run).

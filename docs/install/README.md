@@ -1,16 +1,16 @@
-# Установка (Windows)
+# Installation (Windows)
 
-Инструкции рассчитаны на Windows 10/11. Все команды — для PowerShell. Идти по порядку.
+These guides target Windows 10/11. All commands are for PowerShell. Go through the steps in order.
 
-1. [Python 3.12](01-python.md) — интерпретатор и `pip`.
-2. [Бот](03-bot.md) — клонирование репозитория, виртуальное окружение, зависимости, smoke-тест в режиме `stub` (без внешних моделей).
-3. [Ollama + модели](02-ollama.md) — опционально, для перехода с заглушки на локальные LLM/VLM. Можно отложить.
+1. [Python 3.12](01-python.md) — interpreter and `pip`.
+2. [The bot](03-bot.md) — clone the repository, virtual environment, dependencies, smoke test in `stub` mode (no external models needed).
+3. [Ollama + models](02-ollama.md) — optional, for moving from the stub to local LLM/VLM. Safe to defer.
 
-На этапе разработки бот работает с провайдером-заглушкой (`stub`), реальная модель подключается позже одной правкой в `.env` — Ollama локально или любой OpenAI-совместимый сервис в облаке.
+During development the bot runs against a stub provider; the real model is wired in later by editing `.env` — either Ollama locally or any OpenAI-compatible cloud service.
 
-## Системные требования
+## System requirements
 
 - Windows 10/11 (64-bit).
-- 8+ ГБ RAM (16 ГБ комфортно).
-- NVIDIA GPU с 8+ ГБ VRAM — для локальной VLM. Без GPU — только через облачный провайдер.
-- Установленный официальный клиент Last War (для дальнейшей работы бота; на этапе установки не обязателен).
+- 8+ GB RAM (16 GB comfortable).
+- NVIDIA GPU with 8+ GB VRAM — for a local VLM. Without a GPU, use a cloud provider.
+- Last War PC client installed (needed for the bot to do anything; not required during initial setup).

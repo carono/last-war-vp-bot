@@ -1,1 +1,1 @@
-"""Восприятие: захват окна, шаблонный матчинг, OCR, классификация экрана."""
+"""Perception: window capture, template matching, OCR, screen classification."""
