@@ -42,18 +42,19 @@ _RED_HIGH2 = np.array([180, 255, 255], dtype=np.uint8)
 def find_red_dots(
     image: np.ndarray,
     *,
-    min_area: float = 20.0,
-    max_area: float = 600.0,
-    min_circularity: float = 0.55,
+    min_area: float = 30.0,
+    max_area: float = 400.0,
+    min_circularity: float = 0.65,
     edge_margin: int | None = None,
 ) -> list[RedDot]:
     """Find red notification dots in `image` (BGR).
 
-    Returns dots that pass area and circularity filters. If `edge_margin`
-    is given (pixels), only the perimeter strip of that thickness on
-    each side is searched — useful because attention markers live on the
-    edge-anchored UI, while the central gameplay area produces a lot of
-    incidental red (build-progress badges, fire effects, …).
+    Returns dots that pass area and circularity filters. Searches the
+    whole image by default — attention markers can appear anywhere,
+    including in the centre of the screen when a modal is open and the
+    dot sits on one of its tabs. If `edge_margin` is given, only the
+    perimeter strip of that thickness is searched (use with care; only
+    valid when we know no modal is on screen).
     """
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     mask = cv2.bitwise_or(
@@ -114,12 +115,13 @@ def _main() -> int:
     parser.add_argument("--out", default="screenshots/red_dots.png", help="Annotated output path")
     parser.add_argument("--title", default="Last War-Survival Game")
     parser.add_argument("--process", default="LastWar.exe")
-    parser.add_argument("--min-area", type=float, default=20.0)
-    parser.add_argument("--max-area", type=float, default=600.0)
-    parser.add_argument("--min-circ", type=float, default=0.55)
+    parser.add_argument("--min-area", type=float, default=30.0)
+    parser.add_argument("--max-area", type=float, default=400.0)
+    parser.add_argument("--min-circ", type=float, default=0.65)
     parser.add_argument(
-        "--edge-margin", type=int, default=100,
-        help="Search only the outer N-pixel strip (0 = whole image)",
+        "--edge-margin", type=int, default=0,
+        help="If >0, search only the outer N-pixel strip. Default 0 = whole image, "
+             "required for modal contexts where attention markers can be centred.",
     )
     args = parser.parse_args()
 
