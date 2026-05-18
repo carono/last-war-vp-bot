@@ -14,17 +14,23 @@
 # 1. Tap the player avatar in the top-left corner.
 #    Avatar art differs per player so we can't FIND it — use absolute
 #    coordinates. ~(50, 50) hits inside the avatar circle.
-CLICK (50, 50)
+#CLICK (50, 50)
 
-# 2. Wait for the profile modal to render.
+# 2. A "likes" popup may appear on the way to the profile screen.
+#    Dismiss it if visible; otherwise FIND just skips the body.
+FIND accept_likes.png
+    CLICK
+    WAIT 0.5
+
+# 3. Wait for the profile modal to render.
 WAIT FIND profile_modal_marker.png WITHIN 5s
 
-# 3. OCR each field. Placeholder regions — calibrate before relying.
+# 4. OCR each field. Placeholder regions — calibrate before relying.
 READ_TEXT (300, 100, 400, 60) INTO profile.name
 READ_TEXT (300, 180, 200, 50) INTO profile.level
 READ_TEXT (300, 240, 200, 50) INTO profile.server
 
 LOG "Profile updated; closing modal."
 
-# 4. Close the modal (separate script so other flows can reuse it).
+# 5. Close the modal (separate script so other flows can reuse it).
 CALL close_profile_modal
