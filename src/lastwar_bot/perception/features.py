@@ -218,7 +218,9 @@ class SceneIndex:
             m, n = pair
             if m.distance < ratio * n.distance:
                 good.append(m)
-        if len(good) < min_inliers:
+        # findHomography needs at least 4 correspondences; honour that even
+        # when the caller asked for a smaller floor.
+        if len(good) < max(min_inliers, 4):
             return None
 
         src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
@@ -235,11 +237,26 @@ class SceneIndex:
         projected = cv2.perspectiveTransform(corners, H).reshape(-1, 2)
         x1, y1 = projected.min(axis=0).astype(int)
         x2, y2 = projected.max(axis=0).astype(int)
+        cx, cy = (int(x1) + int(x2)) // 2, (int(y1) + int(y2)) // 2
+
+        # Sanity-check the homography. A degenerate fit on too few inliers
+        # can project the template's corners to wild locations — reject if:
+        #  - the projected centre lands outside the scene image
+        #  - the projected bounding box is degenerate or unreasonably scaled
+        img_h, img_w = self.image.shape[:2]
+        if not (0 <= cx < img_w and 0 <= cy < img_h):
+            return None
+        proj_w = max(1, x2 - x1)
+        proj_h = max(1, y2 - y1)
+        scale_x = proj_w / max(w, 1)
+        scale_y = proj_h / max(h, 1)
+        if scale_x < 0.3 or scale_x > 5.0 or scale_y < 0.3 or scale_y > 5.0:
+            return None
 
         return SiftMatch(
             top_left=(int(x1), int(y1)),
             bottom_right=(int(x2), int(y2)),
-            center=((int(x1) + int(x2)) // 2, (int(y1) + int(y2)) // 2),
+            center=(cx, cy),
             inliers=inliers,
             good_matches=len(good),
             template_keypoints=len(kp1),

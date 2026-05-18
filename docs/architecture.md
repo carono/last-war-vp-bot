@@ -9,6 +9,31 @@ The main pain point of v1 (Lua/UOPilot) was pixel-colour navigation: any UI upda
 
 Top-level flow: `"collect resources at the base"` → **planner** turns it into `[open_base, find_resource_icons, click_each, return]` → **executor** runs each step through pre-built Python skills → after each step it compares the expected screen with the actual one (via the classifier) → on mismatch, it triggers recovery.
 
+## High-level skills are scripts, not Python
+
+The skill catalogue lives in **`src/lastwar_bot/actions/*.md`** as a small
+Russian-flavoured DSL — readable for humans, writable by an LLM. Example
+(`go_to_base.md`):
+
+```
+Если находимся не на базе
+  Клик на картинку базы [click_base_button]
+  Ждем пока база откроется
+```
+
+A tiny interpreter (`script_engine.py`) parses these files and calls
+into low-level Python primitives (find_window, SceneIndex.find_sift,
+click, identify_screen, …). Only those primitives stay in Python; the
+orchestration is declarative. The longer-term goal is for the LLM to
+*author* new scripts from a natural-language scenario, making the bot
+inherently extensible without touching the Python code.
+
+Supported DSL features: `Если` / `Иначе`, `Ищем картинку [X.png]`
+with an indented body that runs on success, `Кликаем` (on the last
+find), `[action_name]` to call another `.md` script, `Ждем пока <X>
+откроется` and `Ждем N секунд`. The recognised vocabulary is centralised
+in `script_engine.Interpreter` and easy to extend.
+
 ## Components
 
 ```

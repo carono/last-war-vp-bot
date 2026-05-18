@@ -24,6 +24,7 @@ from .perception.capture import (
     grab,
 )
 from .runner import BotRunner
+from .script_engine import run_action
 
 WINDOW_TITLE = "Last War-Survival Game"
 PROCESS_NAME = "LastWar.exe"
@@ -191,21 +192,28 @@ class BotWindow(tk.Tk):
         threading.Thread(target=lambda: self._do_navigate(target), daemon=True).start()
 
     def _do_navigate(self, target: str) -> None:
+        """Run the high-level navigation script for `target` ('base' or 'world').
+
+        Scripts live in src/lastwar_bot/actions/*.md and are executed by
+        the DSL interpreter in script_engine.py. The Python `navigate`
+        module is still used internally (identify_screen, templates) but
+        the orchestration is now declarative.
+        """
         try:
             info = find_window(WINDOW_TITLE, PROCESS_NAME)
         except WindowNotFoundError as exc:
             self._enqueue(f"Navigate->{target}: window not found — {exc}")
             self.after(0, lambda: self._set_debug_buttons(True))
             return
-        result = navigate.go_to(target, info.hwnd)  # type: ignore[arg-type]
-        score = f" score={result.match_score:.3f}" if result.match_score is not None else ""
-        at = f" at={result.click_at}" if result.click_at is not None else ""
-        self._enqueue(
-            f"Navigate->{target}: {result.action} "
-            f"(before={result.before}, after={result.after}, success={result.success}){at}{score}"
-        )
-        new = result.after or "unknown"
-        self.after(0, lambda: self._screen_var.set(new))
+        action_name = "go_to_base" if target == "base" else "go_to_world"
+        ok = run_action(action_name, info.hwnd, on_event=self._enqueue)
+        # Refresh the indicator from the final state.
+        try:
+            final_screen = navigate.identify_screen(grab(info.hwnd)) or "unknown"
+        except Exception:
+            final_screen = "unknown"
+        self.after(0, lambda: self._screen_var.set(final_screen))
+        self._enqueue(f"Action {action_name}: {'OK' if ok else 'FAILED'}; screen now = {final_screen}")
         self.after(0, lambda: self._set_debug_buttons(True))
 
     def _on_fix_size(self) -> None:
