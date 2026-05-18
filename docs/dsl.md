@@ -100,6 +100,29 @@ IF screen == unknown
     LOG "Don't know where we are; bailing out"
 ```
 
+### `STOP ["reason"]`
+
+Signal that the bot should halt entirely. Unwinds all enclosing blocks
+and sub-actions. The runner notices the halt flag on the shared context
+after the action returns and stops itself. Optional quoted reason is
+surfaced in the log.
+
+Typical use is inside a watchdog: if a condition requires immediate
+abort, set the reason and stop.
+
+```
+FIND kicked_modal.png
+    LOG "Another login detected"
+    CLOSE_WINDOW
+    STOP "kicked by another login"
+```
+
+### `CLOSE_WINDOW`
+
+Send a `WM_CLOSE` message to the game window. This is the polite way to
+ask the client to shut down (no force-kill). Pair with `STOP` to also
+halt the bot.
+
 ## Conditions
 
 Allowed in `IF` and `WAIT`:
@@ -109,6 +132,21 @@ Allowed in `IF` and `WAIT`:
 - `screen == unknown` / `screen != unknown`
 - `FOUND` — last `FIND` succeeded
 - `NOT FOUND` — last `FIND` returned nothing
+
+## Watchdog
+
+The runner's tick loop runs a special action called `watchdog.md` (if
+present) on every tick *before* the main heartbeat. The watchdog is the
+designated place for "react to interrupt conditions" logic — modals
+that need acknowledgment, network errors that warrant a shutdown,
+account-locked dialogues, etc.
+
+If the watchdog executes a `STOP`, the runner halts immediately and
+won't run further ticks. Combine with `CLOSE_WINDOW` to also close the
+game cleanly.
+
+To disable, leave `watchdog.md` empty (only comments) or pass
+`watchdog_action=None` to `BotRunner`.
 
 (More predicates are added as new primitives appear — extend
 `Interpreter.eval_condition`.)

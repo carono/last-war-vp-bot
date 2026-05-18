@@ -72,6 +72,8 @@ _WAIT_RE = re.compile(
     re.IGNORECASE,
 )
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
+_STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
+_CLOSE_WINDOW_RE = re.compile(r"^CLOSE_WINDOW\s*$", re.IGNORECASE)
 
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
@@ -119,6 +121,17 @@ class WaitStmt(_Stmt):
 @dataclass(slots=True)
 class LogStmt(_Stmt):
     message: str
+
+
+@dataclass(slots=True)
+class StopStmt(_Stmt):
+    """Set the halt flag and bubble out of the entire action stack."""
+    reason: str | None = None
+
+
+@dataclass(slots=True)
+class CloseWindowStmt(_Stmt):
+    """Send WM_CLOSE to the game window (no force-kill)."""
 
 
 # ---- Errors ----------------------------------------------------------------
@@ -212,6 +225,13 @@ def _parse_one(lines, i, indent):
     if m:
         return LogStmt(text=text, line_no=ln, message=m.group(1)), i + 1
 
+    m = _STOP_RE.match(text)
+    if m:
+        return StopStmt(text=text, line_no=ln, reason=m.group(1)), i + 1
+
+    if _CLOSE_WINDOW_RE.match(text):
+        return CloseWindowStmt(text=text, line_no=ln), i + 1
+
     raise ScriptParseError(f"line {ln}: unrecognised statement: {text!r}")
 
 
@@ -239,6 +259,17 @@ class Context:
     hwnd: int
     on_event: EventCallback = field(default=lambda _msg: None)
     last_find: Any = None
+    halt: bool = False
+    halt_reason: str | None = None
+
+
+class _HaltSignal(Exception):
+    """Raised by STOP to unwind every enclosing block / sub-action.
+
+    The signal is caught at the outermost `run_action` boundary. The
+    actual reason and `halt=True` flag live in the shared Context so the
+    caller (e.g. the runner) can react after execution returns.
+    """
 
 
 class Interpreter:
@@ -263,6 +294,10 @@ class Interpreter:
             self._run_block(statements)
             self._depth -= 1
             self._log(f"< action: {name} OK")
+            return True
+        except _HaltSignal:
+            self._depth -= 1
+            self._log(f"< action: {name} HALTED ({self.ctx.halt_reason or 'no reason given'})")
             return True
         except (ScriptParseError, ScriptRuntimeError) as exc:
             self._depth -= 1
@@ -295,6 +330,13 @@ class Interpreter:
                 self._do_wait(stmt)
             case LogStmt():
                 self._log(f'LOG "{stmt.message}"')
+            case StopStmt():
+                self.ctx.halt = True
+                self.ctx.halt_reason = stmt.reason or f"STOP at line {stmt.line_no}"
+                self._log(f"STOP -> halt requested ({self.ctx.halt_reason})")
+                raise _HaltSignal()
+            case CloseWindowStmt():
+                self._do_close_window(stmt)
 
     # ---- conditions ----
 
@@ -382,10 +424,22 @@ class Interpreter:
         self._log(f"CALL {stmt.action_name}")
         sub = Interpreter(self.ctx)
         sub._depth = self._depth + 1
-        if not sub.run_action(stmt.action_name):
+        ok = sub.run_action(stmt.action_name)
+        # A STOP inside the sub-action set ctx.halt. Re-raise so the chain
+        # unwinds up to the outermost run_action boundary.
+        if self.ctx.halt:
+            raise _HaltSignal()
+        if not ok:
             raise ScriptRuntimeError(
                 f"line {stmt.line_no}: sub-action {stmt.action_name} failed"
             )
+
+    def _do_close_window(self, stmt: CloseWindowStmt) -> None:
+        import win32con
+        import win32gui
+
+        win32gui.PostMessage(self.ctx.hwnd, win32con.WM_CLOSE, 0, 0)
+        self._log("CLOSE_WINDOW -> WM_CLOSE posted")
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.

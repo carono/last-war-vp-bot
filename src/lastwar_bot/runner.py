@@ -20,6 +20,11 @@ from .perception.capture import WindowNotFoundError, find_window, grab
 
 EventCallback = Callable[[str], None]
 
+# Default name of the action script the runner consults on every tick
+# to react to interrupt conditions (e.g. "another login detected" modal).
+# Missing file or empty script = no-op, no error.
+DEFAULT_WATCHDOG_ACTION = "watchdog"
+
 
 class BotRunner:
     """Runs the bot loop on a background thread. Thread-safe start/stop/restart."""
@@ -31,11 +36,13 @@ class BotRunner:
         process_name: str = "LastWar.exe",
         tick_interval: float = 5.0,
         screenshot_dir: Path | str = "screenshots",
+        watchdog_action: str | None = DEFAULT_WATCHDOG_ACTION,
     ) -> None:
         self.window_title = window_title
         self.process_name = process_name
         self.tick_interval = tick_interval
         self.screenshot_dir = Path(screenshot_dir)
+        self.watchdog_action = watchdog_action
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -89,6 +96,12 @@ class BotRunner:
         except WindowNotFoundError as exc:
             self._emit(f"Window not found: {exc}")
             return
+
+        # Interrupt watchdog runs first. If it requested a halt, stop the
+        # runner immediately and do not perform the heartbeat work.
+        if self.watchdog_action and self._run_watchdog(info.hwnd):
+            return
+
         try:
             img = grab(info.hwnd)
         except Exception as exc:
@@ -98,3 +111,22 @@ class BotRunner:
         mean = float(img.mean())
         cv2.imwrite(str(self.screenshot_dir / "live.png"), img)
         self._emit(f"tick: {width}x{height}, mean={mean:.1f}")
+
+    def _run_watchdog(self, hwnd: int) -> bool:
+        """Run the configured watchdog action. Return True if it halted us."""
+        # Lazy import: avoids paying the script_engine import cost when no
+        # watchdog is configured and keeps the module dependency flat.
+        from .script_engine import ACTIONS_DIR, Context, Interpreter
+
+        path = ACTIONS_DIR / f"{self.watchdog_action}.md"
+        if not path.exists():
+            return False
+        ctx = Context(hwnd=hwnd, on_event=self._emit)
+        Interpreter(ctx).run_action(self.watchdog_action)
+        if ctx.halt:
+            self._emit(
+                f"Watchdog halt: {ctx.halt_reason or 'no reason'}; stopping runner."
+            )
+            self._stop_event.set()
+            return True
+        return False
