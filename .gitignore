@@ -34,3 +34,14 @@ screenshots/
 models_cache/
 *.log
 profiles/
+
+# Captured network traffic — may contain session tokens, never commit
+results/traffic_*.jsonl
+results/analysis_*.json
+results/raw/
+*.pcap
+*.pcapng
+sslkeys.log
+
+# Local benchmark artefacts (scan_resources.py output), not source
+results/*.png
