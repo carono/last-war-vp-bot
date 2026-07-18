@@ -22,7 +22,8 @@ Background and the go/no-go reasoning live in
 | `unity_ssl_unpin.js` | **Windows** (Frida) | dump TLS plaintext from Unity BoringSSL |
 | `analyze_pcap.py` | **WSL** (Python) | superseded — use `lastwar_proto.py` |
 | `lastwar_proto.py` | **WSL** (Python) | decode a saved `.pcapng` — the reference decoder |
-| `live_sniffer.py` | **Windows** (Python, admin) | decode the protocol **live**, no Wireshark |
+| `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
+| `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
@@ -30,7 +31,38 @@ and cannot see the Windows game's traffic directly. WSL is for offline analysis
 of a `.pcapng` you saved on Windows, and for running mitmproxy (with
 `networkingMode=mirrored`, see playbook §0).
 
-## Live decoding on Windows (no Wireshark)
+## Live decoding from WSL (preferred)
+
+Scapy's own sniffing did not see any traffic against npcap on this machine.
+Wireshark does, and WSL can execute Windows binaries — so `live_tshark.py`
+drives `dumpcap.exe` (the capture engine Wireshark itself uses), reads the pcap
+stream off its stdout and decodes it as it arrives. It reuses the framer and
+the stream reassembler; it is only a transport.
+
+```bash
+python3 tools/live_tshark.py --list        # interfaces, each probed for traffic
+python3 tools/live_tshark.py --iface 2     # decode on one interface
+python3 tools/live_tshark.py               # decode on all of them
+python3 tools/live_tshark.py --discover    # every TCP flow, decode nothing
+```
+
+No Administrator prompt is needed as long as npcap was installed with the
+"allow non-administrator capture" option — which is Wireshark's default.
+
+Wireshark is found automatically under `/mnt/c/Program Files/Wireshark`;
+override with `--tshark` / `--dumpcap`.
+
+**Note on interfaces.** The game's traffic showed up on both the wireless
+adapter and the network bridge, and *not* on the OpenVPN adapter — so an active
+VPN does not necessarily mean the traffic is on its virtual interface. Run
+`--list` and pick whichever is busy, or omit `--iface` to capture on all.
+
+## Live decoding on Windows (scapy)
+
+> Scapy sniffing did **not** work on the machine this was developed against —
+> it saw no packets at all. Prefer `live_tshark.py` above. This script is kept
+> because it is the same decoder and may work elsewhere.
+
 
 `live_sniffer.py` sniffs the game port and prints decoded commands as they
 happen. It imports the framer from `lastwar_proto.py`, so both tools always
