@@ -477,6 +477,17 @@ def is_game(flow: dict) -> bool:
     there are eight valid magic values per direction, so unrelated LAN traffic
     hits one by chance.
     """
+    # Probing unrelated flows throws BadTag by design; those must not land in
+    # unknown_tags, or the report invents protocol gaps that do not exist.
+    saved = unknown_tags.copy()
+    try:
+        return _probe_game(flow)
+    finally:
+        unknown_tags.clear()
+        unknown_tags.update(saved)
+
+
+def _probe_game(flow: dict) -> bool:
     for direction in ("down", "up"):
         if classify(flow[direction]) != "GAME":
             continue

@@ -39,6 +39,7 @@ profiles/
 results/traffic_*.jsonl
 results/analysis_*.json
 results/transcript*.json
+results/*.transcript.json
 results/raw/
 *.pcap
 *.pcapng
