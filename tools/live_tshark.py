@@ -172,6 +172,13 @@ class TaskListener:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        # Traffic counters. Without these a zero result is ambiguous — no map
+        # data at all (the map was not scrolling) reads exactly the same as
+        # map data that happened to contain no tasks, and the two call for
+        # opposite responses from whoever is running the scan.
+        self.blocks_seen = 0
+        self.tiles_seen = 0
+        self.tile_kinds: Counter = Counter()
 
     # ---- lifecycle ----
 
@@ -240,10 +247,16 @@ class TaskListener:
     def _ingest(self, payload: dict) -> None:
         import lastwar_proto as proto
 
+        kinds = Counter(
+            (point.get("_protobuf") or {}).get("f2")
+            for block in payload.get("serverPointArr") or ()
+            for point in block.get("points") or ()
+        )
         found = list(proto.secret_tasks(payload))
-        if not found:
-            return
         with self._lock:
+            self.blocks_seen += 1
+            self.tiles_seen += sum(kinds.values())
+            self.tile_kinds.update(kinds)
             for task in found:
                 self._tasks[task.uuid] = task
 
@@ -301,9 +314,19 @@ def watch_tasks(args) -> int:
 
     reported: set = set()
     deadline = time.time() + args.seconds
+    heartbeat = time.time()
     try:
         while time.time() < deadline:
             time.sleep(1.0)
+            # A silent tool cannot be told apart from a stalled one, and the
+            # operator needs to know *while panning* whether the panning is
+            # producing anything.
+            if time.time() - heartbeat >= 10:
+                heartbeat = time.time()
+                left = int(deadline - time.time())
+                print(f"{C_DIM}  …{left}s left — {listener.blocks_seen} map "
+                      f"response(s), {listener.tiles_seen} tile(s), "
+                      f"{len(listener.tasks)} task(s){C_RESET}")
             for task in listener.find(level=args.level, star_only=args.star,
                                       can_loot=args.can_loot):
                 if task.uuid in reported:
@@ -320,6 +343,15 @@ def watch_tasks(args) -> int:
 
     everything = listener.tasks
     print(f"\n{len(everything)} task(s) seen, {len(reported)} matched the filter")
+    print(f"traffic: {listener.blocks_seen} map response(s), "
+          f"{listener.tiles_seen} tile(s), kinds {dict(listener.tile_kinds)}")
+    if not listener.blocks_seen:
+        print(f"{C_ERR}No map data arrived at all.{C_RESET} The game sends it "
+              f"only while the map is scrolling — keep dragging the map for "
+              f"the whole run, not just at the start.")
+    elif not everything:
+        print(f"{C_DIM}Map data arrived but held no secret tasks (no f2=17 "
+              f"tiles) — pan over an area that has task markers.{C_RESET}")
 
     if args.families:
         print("\ncfgId families — compare these with the stars on screen:")
