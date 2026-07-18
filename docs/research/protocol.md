@@ -346,6 +346,12 @@ Observed ids in a single pan: 976, 8125, 940, 1032.
 `index[]` lists the block ids actually requested, so a small pan re-fetches
 only the newly exposed blocks (observed lengths 3–160).
 
+The request's `timeStamp` is **a sync token, not a clock** — it is a
+monotonically rising counter, and the server answers with only what changed
+since it. Panning inside an already-loaded region returns 3–40 points; entering
+a fresh district returned 1490. Any consumer that assumes a response describes
+the whole viewport will be wrong.
+
 The client does not debounce: dragging the map emits a request per frame, and
 the same `x`/`y` was seen sent five or six times in a row before any response
 arrived.
@@ -374,12 +380,52 @@ Verified: **6373/6373 tiles land inside their requested box** under this model.
 
 | `f2` | Count | What it is | Key fields |
 |---|---|---|---|
-| 7 | 1710 | Resource / terrain node | `f6.f1` = resource type+level, `f6.f8` = occupier uid, `f6.f10` = allianceId |
+| 7 | 1710 | **Resource mine** | `f6.f1` = `family*100 + level`, `f6.f8` = occupier uid, `f6.f9` serverId, `f6.f10` allianceId |
 | 6 | 1116 | **Player base** | `f3.f14` name, `f3.f15` alliance abbr, `f3.f4` HQ level (4–35), `f3.f27` country, `f3.f1` uid, `f3.f7` allianceId |
 | 17 | 224 | **Secret task / hero dispatch** — see below | `f10.f2` cfgId, `f10.f1` owner, `f10.f4` stealers, `f10.f8` expiry |
 | 11 | 34 | Stronghold / fortress (fixed 100-tile grid) | `f101.f3` level (1/5/7), `f101.f8` reward, `f101.f1` template |
 | 25 | 17 | Named facility held by a player | `f101.f5` player name, `f101.f10` alliance name |
 | 21 | 4 | Alliance HQ | `f11.f12` alliance name, `f11.f6` abbr, `f11.f7` member uid list |
+
+### Resource mines (`f2 = 7`)
+
+`f6.f1` encodes both the resource and its level as `family * 100 + level`,
+with levels running 1–10 (12 during a season, per the maintainer):
+
+| Family | `f6.f1` | Resource |
+|---|---|---|
+| 0 | 1–10 | bread |
+| 1 | 101–110 | iron |
+| 2 | 201–210 | gold |
+
+The `family * 100 + level` structure is derived from the wire data — a full
+area load showed all three families populated across levels 1–10. The mapping
+of family to resource name was **confirmed by the maintainer against the game
+screen**, not derived from the protocol; nothing on the wire names them.
+
+A free mine carries only `f6.f1` and `f6.f2`. Occupation adds `f6.f8` (the
+gathering player's uid), `f6.f9` (their server) `f6.f10` (their alliance) and
+`f6.f3` (an activity uuid) — so "free or taken" is readable without any OCR.
+
+### Monsters are not on the wire
+
+Map monsters (levels well above the 1–10 mine range: 12, 17, 21, 23, 26, 28
+were all visible on screen) **never appear in any observed message**. This was
+checked against:
+
+* incremental deltas from panning the camera (141 new tiles: bases, mines,
+  tasks — no monsters);
+* a **full load of a previously unvisited district** (1490 tiles, 1029 mines,
+  every family at every level 1–10 — still no monsters);
+* `push.world.point.update`, which carries the same tile encoding
+  (`create` / `change` / `remove` / `foldUp`) — no monsters;
+* a scan of every field of every message for values matching the observed
+  monster levels — no matches.
+
+So monsters are not simply "already synced". Either a command that never fired
+during observation delivers them, or they are generated client-side from map
+configuration. Unresolved; a capture that includes login would settle it,
+since the first map requests after `init` carry no sync token.
 
 **Player bases and secret tasks both arrive inside `world.get.block`** — there
 is no separate command for either. A single 60 s session yielded 1116 named
