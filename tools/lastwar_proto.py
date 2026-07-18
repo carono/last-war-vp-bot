@@ -280,8 +280,11 @@ def iter_frames(stream: bytes, direction: str):
     the self-delimiting TLV tree defines the frame boundary.
     """
     magics = SERVER_MAGICS if direction == "down" else CLIENT_MAGICS
+    # Smallest header that can be read without indexing past the end: a server
+    # header is flags + uint16, a client one adds serverId, K2 and K1.
+    min_header = 3 if direction == "down" else 5
     pos = 0
-    while pos + 3 <= len(stream):
+    while pos + min_header <= len(stream):
         flags = stream[pos]
         if flags not in magics:
             nxt = _resync(stream, pos, magics)
