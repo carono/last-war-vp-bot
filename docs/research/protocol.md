@@ -332,13 +332,23 @@ request plus its ack — the broadcast goes to the recipient's client, not ours.
 `viewLvl` is the zoom level, and `blockSize` moves with it. Two levels were
 observed:
 
-| viewLvl | blockSize | Viewport |
-|---|---|---|
-| 0 (zoomed in) | 10 | 50 × 50 tiles |
-| 1 (zoomed out) | 20 | 160 × 120 tiles |
+| viewLvl | blockSize | Viewport | `serverPointArr` |
+|---|---|---|---|
+| 0 (zoomed in) | 10 | 50 × 50 tiles | 1 block |
+| 1 (zoomed out) | 20 | 160 × 120 tiles | 1 block |
+| 2 (whole world) | 1000 | one server square | **9 blocks** (3 × 3 servers) |
+
+`viewLvl=2` was only seen live, not in any saved capture. At that level the
+client walks **other servers** — one request per server id — and each response
+carries nine blocks instead of one, i.e. a 3 × 3 grid of server squares.
+Observed ids in a single pan: 976, 8125, 940, 1032.
 
 `index[]` lists the block ids actually requested, so a small pan re-fetches
 only the newly exposed blocks (observed lengths 3–160).
+
+The client does not debounce: dragging the map emits a request per frame, and
+the same `x`/`y` was seen sent five or six times in a row before any response
+arrived.
 
 ### Coordinates — two different packings
 
