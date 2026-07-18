@@ -55,7 +55,10 @@ except Exception:  # colorama missing — degrade to plain text
 
 MAX_BUFFER = 4 << 20    # drop a desynced stream rather than grow without bound
 PROBE_LIMIT = 8 << 10   # bytes per probe round before sliding the window
-PROBE_WINDOW = 2 << 10  # only ever scan this far in for a sync point
+PROBE_KEEP = 2 << 10    # tail carried into the next round, so a frame boundary
+                        # straddling the cut is not thrown away
+PROBE_FRAMES = 8        # frames to inspect per candidate before giving up
+PROBE_CANDIDATES = 32   # sync points to try per direction, per round
 MAX_PROBE_ROUNDS = 64   # ~512 KB of unrecognised data before writing a stream off
 
 INTERESTING = (
@@ -107,6 +110,25 @@ def summarise(payload) -> str:
     if extra > 0:
         line += f" {C_DIM}(+{extra} fields){C_RESET}"
     return line
+
+
+def sync_candidates(buf: bytes, direction: str, limit: int) -> list[int]:
+    """Offsets in buf that could start a frame, cheapest first.
+
+    iter_frames abandons a whole scan when a length field reads as garbage,
+    which happens constantly while probing unrelated bytes. Feeding it each
+    candidate offset separately means one bad guess no longer hides every
+    real frame boundary behind it.
+    """
+    magics = proto.SERVER_MAGICS if direction == "down" else proto.CLIENT_MAGICS
+    out: list[int] = []
+    pos = -1
+    while len(out) < limit:
+        pos = proto._resync(buf, pos, magics)
+        if pos < 0:
+            break
+        out.append(pos)
+    return out
 
 
 def looks_like_envelope(env) -> bool:
@@ -190,24 +212,34 @@ class Stream:
             return False
         # Re-probing on every packet is wasteful: resyncing through unrelated
         # traffic is the hot path. Only retry once meaningfully more data has
-        # arrived, and never scan more than the first PROBE_WINDOW bytes.
+        # arrived.
         if len(self.buf) - self.probed_at < 256 and self.probed_at:
             return False
         self.probed_at = len(self.buf)
-        window = self.buf[:PROBE_WINDOW]
         saved = proto.unknown_tags.copy()
         try:
             # Deliberately no check on buf[0]: when the game is already running
             # the sniffer attaches mid-connection and the first byte is
             # arbitrary. iter_frames resyncs to the next valid flag byte, which
             # is the only way that case is ever recognised.
+            # Scan the whole buffer, not a prefix of it. Server frames can be
+            # tens of KB (the login init is 68 KB on the wire), so boundaries
+            # are sparse and a fixed front window misses them — that is what
+            # left the server direction unrecognised after a mid-session join.
             for direction in ("down", "up"):
-                for env, _start, _end in proto.iter_frames(window, direction):
-                    if looks_like_envelope(env):
-                        self.state = "game"
-                        self.direction = direction
-                        return True
-                    break
+                for start in sync_candidates(self.buf, direction, PROBE_CANDIDATES):
+                    for seen, (env, _s, _e) in enumerate(
+                        proto.iter_frames(self.buf[start:], direction)
+                    ):
+                        if looks_like_envelope(env):
+                            self.state = "game"
+                            self.direction = direction
+                            # Drop the bytes before the boundary so drain()
+                            # starts on a frame, not mid-frame.
+                            self.buf = self.buf[start:]
+                            return True
+                        if seen + 1 >= PROBE_FRAMES:
+                            break
         except Exception:
             pass
         finally:
@@ -220,7 +252,7 @@ class Stream:
             # login is 68 KB on the wire — and a single 8 KB look would write
             # the server direction off before the next frame boundary arrives.
             self.probe_rounds += 1
-            self.buf = b""
+            self.buf = self.buf[-PROBE_KEEP:]
             self.probed_at = 0
             if self.probe_rounds >= MAX_PROBE_ROUNDS:
                 self.state = "ignored"
@@ -232,10 +264,17 @@ class Stream:
         if self.state != "game" or not self.buf:
             return
         consumed = 0
-        for env, _start, end in proto.iter_frames(self.buf, self.direction):
-            consumed = end
-            self.frames += 1
-            yield env
+        try:
+            for env, _start, end in proto.iter_frames(self.buf, self.direction):
+                consumed = end
+                self.frames += 1
+                yield env
+        except IndexError:
+            # iter_frames bounds its loop on a 3-byte header, but a client
+            # header is 5, so a buffer ending inside one indexes past the end.
+            # That is "need more data", not a failure — keep what we have and
+            # retry when the next segment lands.
+            pass
         if consumed:
             self.buf = self.buf[consumed:]
 
