@@ -220,6 +220,52 @@ runtime detects this and lazily re-finds the window on each WAIT
 iteration, so the same `WAIT screen == ...` form works whether the
 window already exists or is about to appear.
 
+### `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]`
+
+Find secret tasks (hero dispatch) by reading the game's own network
+traffic instead of the screen. The result lands in the `MISSIONS`
+register and is queried with the `missions.count` condition; each match
+is written to the run log with its level, coordinates and loot count.
+
+This is the only primitive that does not look at pixels. Secret-task
+tiles cross the wire as exact numbers, so level, position and "who has
+already looted this" need no OCR. See `docs/research/protocol.md` §7.
+
+```
+SCAN_SECRET_MISSIONS LEVEL 7 STAR CAN_LOOT WITHIN 30s
+IF missions.count > 0
+    LOG "Found something worth raiding."
+```
+
+Modifiers are optional and order-independent:
+
+| Modifier | Effect |
+|---|---|
+| `LEVEL n` | only tasks of level `n` (decoded from `cfgId`) |
+| `STAR` | only starred tasks — **provisional**, see below |
+| `CAN_LOOT` | at least one of the three loot slots still free |
+| `FREE_SLOTS n` | stricter form: at least `n` of three free (`3` = untouched) |
+| `WITHIN N s` | how long to listen; returns early on the first match (default 30 s) |
+
+An unknown modifier is a **parse error**, not a warning — a silently
+ignored `STAR` would send the bot after the wrong tasks.
+
+Two things to know before relying on it:
+
+- **The map must be moving.** The game only sends map data while the map
+  scrolls. A stationary map produces no tiles and the scan will honestly
+  report zero. Run it while panning.
+- **Wireshark must be installed** — the scan drives its `dumpcap`
+  capture engine. Missing capture tooling raises; an empty result does
+  not (that is a legitimate answer, branch on `missions.count == 0`).
+
+`STAR` is provisional: the star is not a field on the wire, it is
+derived client-side from `cfgId`, and only one starred task was ever
+captured with its `cfgId` attached. The current reading is documented in
+one place — `STAR_TASK_FAMILIES` in `tools/lastwar_proto.py` — and
+`tools/live_tshark.py --tasks` exists to confirm or refute it against
+the live map.
+
 ## Conditions
 
 Allowed in `IF` and `WAIT`:
@@ -243,6 +289,13 @@ Allowed in `IF` and `WAIT`:
   ```
   IF profile.server == "972"
       CALL alliance_specific_thing
+  ```
+- `missions.count <op> <n>` where `<op>` is `==`, `!=`, `>`, `<`, `>=`
+  or `<=` — how many secret tasks the last `SCAN_SECRET_MISSIONS`
+  matched.
+  ```
+  IF missions.count == 0
+      LOG "Nothing in view; scroll and scan again."
   ```
 
 (More predicates are added as new primitives appear — extend

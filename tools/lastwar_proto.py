@@ -32,6 +32,7 @@ import struct
 import sys
 import zlib
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 # --------------------------------------------------------------------------
@@ -367,6 +368,202 @@ def _resync(stream: bytes, pos: int, magics) -> int:
         if found != -1 and (best == -1 or found < best):
             best = found
     return best
+
+
+# --------------------------------------------------------------------------
+# Map semantics: secret tasks (hero dispatch), the f2 = 17 tiles
+# --------------------------------------------------------------------------
+#
+# Everything above this line is transport — framing, masking, TLV. This
+# section is the first piece of *meaning*: it turns `world.get.block` tiles
+# into records the bot can act on. See docs/research/protocol.md §7.
+#
+#     f1       coordinate, y * maxAreaSize + x, server-local
+#     f100     task uuid
+#     f10.f1   owner uid          f10.f2   cfgId (encodes the level)
+#     f10.f3   completion time    f10.f4   uids that already looted it
+#     f10.f8   expiry             f10.f9   allianceId
+#     f102     serverId
+
+# A task can be looted by at most three players. Established over 636 tiles
+# and 144 dispatch records: no `f10.f4` and no `stealInfoList` ever ran
+# longer than three, and the two agreed 48/48 where the same uuid appeared
+# in both.
+MAX_LOOTERS = 3
+
+# `cfgId` splits into a family prefix and a trailing `LLVV` (level, variant).
+# The prefix is not a fixed width, so it must be read from the right:
+#     400602   -> family "40",   level 6, variant 2
+#     50000704 -> family "5000", level 7, variant 4
+# Four families exist, and each pins `f10.f10` exactly (766/766 tiles), so
+# that flag carries nothing the cfgId does not.
+TASK_FAMILY_FLAG = {"30": 1, "40": 1, "5000": 3, "6000": 3}
+
+# Level 99 is not a level. 128 tiles came back as `6000 99 xx`, one per
+# player, with a template range of their own — a different task class that
+# happens to share the encoding. Parsed, but kept out of level filters.
+SPECIAL_TASK_LEVEL = 99
+
+# ---------------------------------------------------------------------------
+# The star
+# ---------------------------------------------------------------------------
+# Some task markers are drawn with a star and are the ones worth raiding.
+# The star is **not a field**: all 766 captured tiles carry the identical
+# field set, so the client must derive it from `cfgId` — the same place the
+# level hides.
+#
+# Two observations, both pointing at the family prefix, neither conclusive:
+#   * a task shared into chat from server 999 at (470, 652) was starred, and
+#     its attachment named `cfgId 60000701` — family "6000";
+#   * the maintainer reports the unstarred task at (469, 659) matching a
+#     tile with `cfgId 50000704` — family "5000". That negative comes from
+#     a dataset not in this repo (its cfgId counts, 57/11, do not match the
+#     saved captures' 75/7), so it has not been reproduced here.
+#
+# So "family 6000 is starred" fits every observation but rests on data that
+# cannot be re-derived from the committed captures. This constant is the one
+# place the assumption lives; `live_tshark.py --tasks --families` tallies
+# families against the live map to confirm or refute it.
+STAR_TASK_FAMILIES = frozenset({"6000"})
+
+
+@dataclass(slots=True)
+class SecretTask:
+    uuid: int
+    server_id: int
+    x: int
+    y: int
+    level: int
+    cfg_id: int
+    family: str
+    looted_by: tuple[str, ...]
+    owner_uid: str | None
+    alliance_id: str | None
+    expires_at: int | None
+    completed_at: int | None
+
+    @property
+    def loot_count(self) -> int:
+        return len(self.looted_by)
+
+    @property
+    def free_slots(self) -> int:
+        return max(0, MAX_LOOTERS - self.loot_count)
+
+    @property
+    def can_loot(self) -> bool:
+        """At least one of the three loot slots is still open."""
+        return self.free_slots > 0
+
+    @property
+    def starred(self) -> bool:
+        """Provisional — see STAR_TASK_FAMILIES."""
+        return self.family in STAR_TASK_FAMILIES
+
+    @property
+    def is_special(self) -> bool:
+        """The one-per-player `99` class, not a levelled task."""
+        return self.level == SPECIAL_TASK_LEVEL
+
+    def as_dict(self) -> dict:
+        return {
+            "uuid": self.uuid, "server_id": self.server_id,
+            "x": self.x, "y": self.y, "level": self.level,
+            "cfg_id": self.cfg_id, "family": self.family,
+            "looted_by": list(self.looted_by), "owner_uid": self.owner_uid,
+            "alliance_id": self.alliance_id, "expires_at": self.expires_at,
+            "completed_at": self.completed_at, "loot_count": self.loot_count,
+            "free_slots": self.free_slots, "can_loot": self.can_loot,
+            "starred": self.starred,
+        }
+
+
+def split_cfg_id(cfg_id) -> tuple[str, int, int]:
+    """Return `(family, level, variant)` for a task cfgId.
+
+    The trailing four digits are always `LLVV`; everything before them is the
+    family. Anything shorter than five digits is not a task cfgId.
+    """
+    text = str(cfg_id)
+    if len(text) < 5 or not text.isdigit():
+        raise ValueError(f"not a task cfgId: {cfg_id!r}")
+    return text[:-4], int(text[-4:-2]), int(text[-2:])
+
+
+def _looters(raw) -> tuple[str, ...]:
+    """`f10.f4` is absent for none, a bare value for one, a list for many."""
+    if raw is None:
+        return ()
+    if isinstance(raw, list):
+        return tuple(str(v) for v in raw)
+    return (str(raw),)
+
+
+def secret_tasks(payload: dict):
+    """Yield every secret task in one decoded `world.get.block` response.
+
+    Tile coordinates are server-local (`f1 = y * maxAreaSize + x`) and are
+    lifted to world space using the block's requested corner — request and
+    response do not share a coordinate space, see protocol.md §7.
+    """
+    for block in payload.get("serverPointArr") or ():
+        area = block.get("maxAreaSize") or 1000
+        corner = block.get("leftBottom") or 0
+        # The request packs leftBottom as y * 3000 + x in world space; the
+        # server origin is that corner rounded down to the local grid.
+        origin_x = ((corner % 3000) // area) * area
+        origin_y = ((corner // 3000) // area) * area
+
+        for point in block.get("points") or ():
+            tile = point.get("_protobuf") or {}
+            if tile.get("f2") != 17:
+                continue
+            detail = tile.get("f10") or {}
+            try:
+                family, level, _variant = split_cfg_id(detail["f2"])
+            except (KeyError, ValueError):
+                continue  # shaped like a task, but no usable cfgId
+            packed = tile.get("f1") or 0
+            yield SecretTask(
+                uuid=tile.get("f100"),
+                server_id=tile.get("f102") or tile.get("f103"),
+                x=origin_x + packed % area,
+                y=origin_y + packed // area,
+                level=level,
+                cfg_id=int(detail["f2"]),
+                family=family,
+                looted_by=_looters(detail.get("f4")),
+                owner_uid=detail.get("f1"),
+                alliance_id=detail.get("f9"),
+                expires_at=detail.get("f8"),
+                completed_at=detail.get("f3"),
+            )
+
+
+def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
+                 min_free_slots=None, exclude_alliance=None) -> list:
+    """Narrow a task list. Criteria are ANDed; None/False means "any".
+
+    `can_loot` keeps tasks with at least one free slot of the three;
+    `min_free_slots` is the stricter form (3 = untouched). `exclude_alliance`
+    drops your own alliance's tasks, which you cannot loot from.
+    """
+    out = []
+    for t in tasks:
+        if level is not None and t.level != level:
+            continue
+        if star_only and not t.starred:
+            continue
+        if can_loot and not t.can_loot:
+            continue
+        if min_free_slots is not None and t.free_slots < min_free_slots:
+            continue
+        if exclude_alliance is not None and t.alliance_id == exclude_alliance:
+            continue
+        out.append(t)
+    # Least-looted first, then highest level — the order you would raid in.
+    out.sort(key=lambda t: (t.loot_count, -t.level))
+    return out
 
 
 # --------------------------------------------------------------------------

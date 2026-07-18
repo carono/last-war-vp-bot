@@ -14,6 +14,8 @@ Windows capture engine in, decoded commands out.
     python3 tools/live_tshark.py                 # capture on every real interface
     python3 tools/live_tshark.py --iface 2       # pin one
     python3 tools/live_tshark.py --discover      # show every TCP flow, decode nothing
+    python3 tools/live_tshark.py --tasks         # only secret tasks, with filters
+    python3 tools/live_tshark.py --tasks --families   # tally cfgId families
 
 No Administrator prompt is needed as long as npcap was installed with the
 "allow non-administrator capture" option, which is how Wireshark normally sets
@@ -23,6 +25,7 @@ it up.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import struct
@@ -30,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -142,6 +146,200 @@ def capture(binary: str, iface: str, label: str, decoder: LiveDecoder,
         proc.kill()
 
 
+class CaptureUnavailable(RuntimeError):
+    """Wireshark, scapy or an interface is missing — nothing can be captured."""
+
+
+class TaskListener:
+    """Background capture that indexes secret tasks as they cross the wire.
+
+    `world.get.block` fires while the map scrolls and its responses carry
+    every task tile in view, so the bot can ask "any level-7 task with a free
+    loot slot?" and get exact numbers instead of an OCR guess.
+
+    Tasks are keyed by uuid: the client does not debounce, so dragging the
+    map re-sends the same region, and a repeat refreshes a record rather than
+    duplicating it. The loot list on a refreshed tile is the newer one, which
+    is what a raid decision should use.
+
+    This is the bot-facing entry point of the tools/ protocol stack — the
+    reason `script_engine.SCAN_SECRET_MISSIONS` can reach it at all.
+    """
+
+    def __init__(self, interface: str | None = None) -> None:
+        self.interface = interface
+        self._tasks: dict[int, object] = {}
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._threads: list[threading.Thread] = []
+
+    # ---- lifecycle ----
+
+    def start(self) -> None:
+        """Begin capturing. Raises CaptureUnavailable if it cannot."""
+        try:
+            import lastwar_proto as proto
+            from live_sniffer import LiveDecoder
+        except ImportError as exc:  # scapy / zstandard missing
+            raise CaptureUnavailable(
+                f"protocol stack unavailable: {exc} — pip install scapy zstandard"
+            ) from exc
+
+        tshark = find_binary("tshark.exe")
+        dumpcap = find_binary("dumpcap.exe") or tshark
+        if not dumpcap or not tshark:
+            raise CaptureUnavailable("Wireshark not found — install it to capture")
+
+        ifaces = list_interfaces(tshark)
+        if not ifaces:
+            raise CaptureUnavailable("no capture interfaces found")
+        if self.interface:
+            ifaces = [(self.interface, f"iface {self.interface}")]
+
+        listener = self
+
+        class _Collector(LiveDecoder):
+            def emit(self, direction, env):  # LiveDecoder hook
+                if direction != "down":
+                    return
+                if proto.envelope_command(env) != "world.get.block":
+                    return
+                listener._ingest(proto.envelope_payload(env))
+
+        decoder = _Collector()
+        self._stop.clear()
+        # "tcp" is as narrow as the filter can safely go: the game endpoint is
+        # not stable and is dialled without DNS, so the stream is recognised
+        # by frame shape, not by address or port.
+        self._threads = [
+            threading.Thread(
+                target=capture,
+                args=(dumpcap, number, label, decoder, "tcp", self._stop, False),
+                daemon=True,
+            )
+            for number, label in ifaces
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        for thread in self._threads:
+            thread.join(timeout=2)
+        self._threads = []
+
+    def __enter__(self) -> "TaskListener":
+        self.start()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.stop()
+
+    # ---- data ----
+
+    def _ingest(self, payload: dict) -> None:
+        import lastwar_proto as proto
+
+        found = list(proto.secret_tasks(payload))
+        if not found:
+            return
+        with self._lock:
+            for task in found:
+                self._tasks[task.uuid] = task
+
+    @property
+    def tasks(self) -> list:
+        with self._lock:
+            return list(self._tasks.values())
+
+    def find(self, **criteria) -> list:
+        """Filter what has been seen so far. See `lastwar_proto.filter_tasks`."""
+        import lastwar_proto as proto
+
+        return proto.filter_tasks(self.tasks, **criteria)
+
+    def wait_for(self, timeout: float = 30.0, poll: float = 0.5,
+                 **criteria) -> list:
+        """Capture until something matches, or the timeout expires.
+
+        Returns as soon as at least one match exists — the map is being panned
+        while this runs, so waiting out the full timeout would only pile up
+        tiles the caller did not ask about. An empty list on timeout is a
+        legitimate answer, not an error.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            matches = self.find(**criteria)
+            if matches:
+                return matches
+            time.sleep(poll)
+        return self.find(**criteria)
+
+
+def watch_tasks(args) -> int:
+    """`--tasks` mode: stream secret tasks, optionally tally cfgId families.
+
+    The family tally is the experiment that settles the star. Pan the map
+    slowly over a patch with a handful of tasks, then compare the printed
+    counts with the stars actually drawn on that patch. If they match family
+    6000, the current reading holds; if they track a different family — or
+    the loot count instead — update STAR_TASK_FAMILIES in lastwar_proto.py,
+    which is the only place the assumption lives.
+    """
+    import lastwar_proto as proto
+
+    try:
+        listener = TaskListener(interface=args.iface)
+        listener.start()
+    except CaptureUnavailable as exc:
+        print(f"{C_ERR}cannot capture: {exc}{C_RESET}", file=sys.stderr)
+        return 1
+
+    print(f"listening {args.seconds}s for secret tasks — "
+          f"{C_DIM}pan the map, or nothing will arrive{C_RESET}")
+    print(f"{C_DIM}(the game sends map data only while the map scrolls){C_RESET}\n")
+
+    reported: set = set()
+    deadline = time.time() + args.seconds
+    try:
+        while time.time() < deadline:
+            time.sleep(1.0)
+            for task in listener.find(level=args.level, star_only=args.star,
+                                      can_loot=args.can_loot):
+                if task.uuid in reported:
+                    continue
+                reported.add(task.uuid)
+                star = " *" if task.starred else "  "
+                print(f"{star} lvl {task.level:>2}  ({task.x:>4},{task.y:>4})"
+                      f"  server {task.server_id}  looted {task.loot_count}/3"
+                      f"  family {task.family}  cfg {task.cfg_id}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        listener.stop()
+
+    everything = listener.tasks
+    print(f"\n{len(everything)} task(s) seen, {len(reported)} matched the filter")
+
+    if args.families:
+        print("\ncfgId families — compare these with the stars on screen:")
+        tally = Counter(t.family for t in everything)
+        for family, count in sorted(tally.items()):
+            mark = ("  <- currently read as STARRED"
+                    if family in proto.STAR_TASK_FAMILIES else "")
+            print(f"  family {family:<5} {count:>4} task(s){mark}")
+            spots = [f"({t.x},{t.y})" for t in everything if t.family == family]
+            print(f"    at {' '.join(spots[:12])}{' …' if len(spots) > 12 else ''}")
+        print(f"\nlevels seen: {dict(sorted(Counter(t.level for t in everything).items()))}")
+
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump([t.as_dict() for t in everything], fh,
+                      indent=2, ensure_ascii=False)
+        print(f"\nwrote {len(everything)} task(s) to {args.json}")
+    return 0
+
+
 def probe_interfaces(dumpcap: str, ifaces, seconds: int) -> dict[str, int]:
     """Count packets per interface so the quiet ones can be reported as quiet."""
     counts: dict[str, int] = {}
@@ -203,7 +401,22 @@ def main() -> int:
     ap.add_argument("--tshark", help="path to tshark.exe")
     ap.add_argument("--dumpcap", help="path to dumpcap.exe")
     ap.add_argument("--verbose", action="store_true", help="report per-interface errors")
+    ap.add_argument("--tasks", action="store_true",
+                    help="decode only secret tasks (hero dispatch) off the map")
+    ap.add_argument("--families", action="store_true",
+                    help="with --tasks: tally cfgId families — settles the star")
+    ap.add_argument("--seconds", type=int, default=60,
+                    help="with --tasks: how long to listen (default 60)")
+    ap.add_argument("--level", type=int, help="with --tasks: only this task level")
+    ap.add_argument("--star", action="store_true",
+                    help="with --tasks: only starred tasks (provisional)")
+    ap.add_argument("--can-loot", action="store_true",
+                    help="with --tasks: only tasks with a free loot slot")
+    ap.add_argument("--json", help="with --tasks: write every task seen to this file")
     args = ap.parse_args()
+
+    if args.tasks:
+        return watch_tasks(args)
 
     tshark = find_binary("tshark.exe", args.tshark)
     dumpcap = find_binary("dumpcap.exe", args.dumpcap) or tshark

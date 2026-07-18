@@ -541,19 +541,65 @@ the stealer list matched exactly).
 | `f10.f6` | 18 B: two packed int64 uuids | — |
 | `f10.f8` | expiry (ms) | `actEndTime` |
 | `f10.f9` | allianceId | `allianceId` |
-| `f10.f10` | flag, `1` or `3` | **unexplained** |
+| `f10.f10` | family flag, `1` or `3` | — (redundant, see below) |
 | `f102` / `f103` | serverId | `targetServer` |
 
-**Level** is not a field of its own — it is the third/fourth digit pair of
-`cfgId`, read as `LLVV` (level, variant): `50000704` = level 7 variant 4,
-`300502` = level 5 variant 2. Observed levels 1, 3, 4, 5, 6, 7 — plus a
-`6000 99xx` group (108 tiles) that does not fit the reading. That group is
-one-per-player with a distinct template range, so it is probably a different
-task class rather than "level 99".
+**Level** is not a field of its own — it is the *trailing* two digit pairs of
+`cfgId`, read as `LLVV` (level, variant), with everything before them a family
+prefix. The prefix is not a fixed width, so read from the right:
+
+```python
+family, level, variant = str(cfg)[:-4], int(str(cfg)[-4:-2]), int(str(cfg)[-2:])
+# 50000704 -> ("5000", 7, 4)     400602 -> ("40", 6, 2)
+```
+
+Four families appear: `30`, `40`, `5000`, `6000`. Observed levels 1, 3, 4, 5,
+6, 7 — plus a `6000 99xx` group (128 tiles) that does not fit the reading. That
+group is one-per-player with a distinct template range, so it is probably a
+different task class rather than "level 99".
+
+**`f10.f10` is fully determined by the cfgId family** — `30`/`40` → 1,
+`5000`/`6000` → 3, on 766/766 tiles. It therefore carries no information the
+cfgId does not already have. The obvious reading, "number of loot slots", is
+**wrong**: a family-`40` tile (`400602`, flag 1) was captured with two entries
+in `f10.f4`, and its blob was re-decoded by hand to rule out a parser artefact.
 
 **Robbery count** is the length of `f10.f4`: absent → 0, then 1, 2 or 3.
 **The maximum is 3** — no tile or dispatch record in 636 tiles / 144 records
-exceeded it, and `stealInfoList` lengths were only ever 0, 1 or 3.
+exceeded it. Verified directly: for the 48 tasks whose uuid appeared both as a
+tile and as a `hero.dispatch.*` record, `len(f10.f4)` equalled
+`len(stealInfoList)` **48/48**, and the cfgIds matched. So free loot slots are
+readable off the map with no OCR and no panel opening.
+
+#### The star — unresolved
+
+Some task markers are drawn with a star, and the maintainer wants to filter on
+it. **No field distinguishes them.** All 766 captured tiles carry the identical
+field set, so the star must be derived client-side from `cfgId` — the same
+place the level hides.
+
+Two observations point at the family prefix, and neither closes the question:
+
+* **Positive.** The task shared into chat from server 999 at (470, 652) was
+  starred, and its attachment named `cfgId 60000701` — family `6000`.
+* **Negative, unreproduced.** The maintainer reports the unstarred task at
+  (469, 659) matching a tile with `cfgId 50000704` — family `5000`. That
+  comes from a dataset not in this repository: its cfgId counts (`50000704`
+  ×57, `60000701` ×11) do not match the committed captures (×75, ×7), and no
+  server-999 tile appears in `results/` at all. It could not be re-derived
+  here.
+
+So "family `6000` is starred" fits every observation while resting on one
+positive and one second-hand negative. Family counts in a 60 s capture:
+`5000` 394, `6000` 117 (most of them the `99xx` class), `40` 62, `30` 34 —
+family `6000` is rare enough outside the `99xx` group to plausibly be a
+special marker.
+
+Settling it needs one look at the map while the wire is being read:
+`tools/live_tshark.py --tasks --families` tallies families and prints their
+coordinates; compare that with the stars actually drawn. The bot's own reading
+lives in exactly one constant, `STAR_TASK_FAMILIES` in
+`tools/lastwar_proto.py`.
 
 **Daily limits** live on the player, not the tile: `hero.dispatch.list` returns
 `todayAssistNum` and `todayStealNum`.
@@ -627,6 +673,11 @@ and per-squad hero lists in nested LEN fields.
 - **Where do monsters come from?** Answered — see §7. They are not on the wire
   at all; placement is client-side. What remains unknown is the generation rule
   itself, which would have to come from the game assets, not from traffic.
+- **What draws the star on a secret task?** Open — see §7. It is not a wire
+  field; the candidate reading is the `cfgId` family, resting on one positive
+  observation and one second-hand negative that could not be reproduced from
+  the committed captures. `tools/live_tshark.py --tasks --families` closes it
+  in about a minute of panning the map.
 - **Chat-shared coordinates can be off by one** from the matching tile
   (`x=189` shared, tile at `190`). Click point vs tile origin, or a
   zero/one-indexing difference — unresolved, and it matters for navigating by

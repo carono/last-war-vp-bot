@@ -16,8 +16,12 @@ Grammar (formal-ish, case-insensitive keywords):
     call_stmt  ::= "CALL" action_name
     wait_stmt  ::= "WAIT" condition [ "WITHIN" number [ "s" ] ]
     log_stmt   ::= "LOG" "\"" any text "\""
+    scan_stmt  ::= "SCAN_SECRET_MISSIONS" { scan_opt }
+    scan_opt   ::= "LEVEL" number | "STAR" | "CAN_LOOT"
+                 | "FREE_SLOTS" number | "WITHIN" number [ "s" ]
 
-    condition  ::= screen_check | "FOUND" | "NOT FOUND"
+    condition  ::= screen_check | "FOUND" | "NOT FOUND" | missions_check
+    missions_check ::= "missions.count" ("=="|"!="|">="|"<="|">"|"<") number
     screen_check ::= "screen" ( "==" | "!=" ) screen_name
     screen_name  ::= "base" | "world" | "unknown"
 
@@ -30,6 +34,9 @@ Implicit state during execution:
 - ``LAST``       — the result of the most recent successful FIND.
                    Refreshed each time a FIND succeeds; consumed by
                    CLICK with no explicit target.
+- ``MISSIONS``   — secret tasks from the most recent
+                   SCAN_SECRET_MISSIONS, read off the wire rather than
+                   the screen. Queried with ``missions.count``.
 - ``screen``     — the current screen, computed fresh from the live
                    capture on every condition evaluation.
 - ``FOUND``      — true when the immediately preceding FIND at the same
@@ -48,6 +55,7 @@ See `docs/dsl.md` for the user-facing reference.
 from __future__ import annotations
 
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -89,6 +97,14 @@ _READ_TEXT_RE = re.compile(
     rf"\s+INTO\s+profile\.({_IDENT})\s*$",
     re.IGNORECASE,
 )
+# SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN Ns]
+# Modifiers are order-independent, hence the scan-then-parse split below
+# rather than one positional regex.
+_SCAN_MISSIONS_RE = re.compile(r"^SCAN_SECRET_MISSIONS\b(.*)$", re.IGNORECASE)
+_SCAN_OPT_RE = re.compile(
+    r"\b(LEVEL|FREE_SLOTS|WITHIN)\s+(\d+(?:\.\d+)?)\s*s?\b|\b(STAR|CAN_LOOT)\b",
+    re.IGNORECASE,
+)
 
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
@@ -98,6 +114,9 @@ _FIND_COND_RE = re.compile(
 )
 _PROFILE_CHECK_RE = re.compile(
     rf'^profile\.({_IDENT})\s*(==|!=)\s*"([^"]*)"\s*$', re.IGNORECASE,
+)
+_MISSIONS_CHECK_RE = re.compile(
+    r"^missions\.count\s*(==|!=|>=|<=|>|<)\s*(\d+)\s*$", re.IGNORECASE,
 )
 
 
@@ -139,6 +158,16 @@ class ReadTextStmt(_Stmt):
 @dataclass(slots=True)
 class PressStmt(_Stmt):
     key: str  # ESC, ENTER, A, F5, ... — see inputs._VK_NAMES
+
+
+@dataclass(slots=True)
+class ScanMissionsStmt(_Stmt):
+    """Read secret tasks off the wire and leave them in the MISSIONS register."""
+    level: int | None = None
+    star_only: bool = False
+    can_loot: bool = False
+    free_slots: int | None = None
+    timeout: float = 30.0
 
 
 @dataclass(slots=True)
@@ -282,6 +311,10 @@ def _parse_one(lines, i, indent):
             target_field=m.group(5),
         ), i + 1
 
+    m = _SCAN_MISSIONS_RE.match(text)
+    if m:
+        return _parse_scan_missions(m.group(1), text, ln), i + 1
+
     m = _CALL_RE.match(text)
     if m:
         return CallStmt(text=text, line_no=ln, action_name=m.group(1)), i + 1
@@ -314,6 +347,42 @@ def _parse_one(lines, i, indent):
     raise ScriptParseError(f"line {ln}: unrecognised statement: {text!r}")
 
 
+def _parse_scan_missions(rest: str, text: str, ln: int) -> ScanMissionsStmt:
+    """Parse the modifier tail of SCAN_SECRET_MISSIONS.
+
+    Every modifier is optional and order-independent. Anything left over
+    after the known ones are consumed is a typo, and typos in a filter are
+    dangerous — a silently-ignored ``STAR`` would raid the wrong tasks — so
+    leftovers are a parse error rather than a warning.
+    """
+    stmt = ScanMissionsStmt(text=text, line_no=ln)
+    consumed = []
+    for m in _SCAN_OPT_RE.finditer(rest):
+        consumed.append(m.span())
+        if m.group(1):
+            keyword, value = m.group(1).upper(), m.group(2)
+            if keyword == "LEVEL":
+                stmt.level = int(value)
+            elif keyword == "FREE_SLOTS":
+                stmt.free_slots = int(value)
+            else:
+                stmt.timeout = float(value)
+        elif m.group(3).upper() == "STAR":
+            stmt.star_only = True
+        else:
+            stmt.can_loot = True
+
+    leftover = rest
+    for start, end in reversed(consumed):
+        leftover = leftover[:start] + leftover[end:]
+    if leftover.strip():
+        raise ScriptParseError(
+            f"line {ln}: unrecognised SCAN_SECRET_MISSIONS option: "
+            f"{leftover.strip()!r}"
+        )
+    return stmt
+
+
 def _parse_indented_block(lines, i, parent_indent, parent_line, required=True):
     """Parse a child block — statements whose indent > parent_indent.
 
@@ -341,6 +410,9 @@ class Context:
     halt: bool = False
     halt_reason: str | None = None
     profile: Any = None  # `lastwar_bot.profile.Profile` instance, or None
+    # Result of the most recent SCAN_SECRET_MISSIONS — a list of
+    # `net.missions.SecretMission`, read by the `missions.count` condition.
+    missions: list = field(default_factory=list)
 
 
 class _HaltSignal(Exception):
@@ -423,6 +495,8 @@ class Interpreter:
                 self._do_read_text(stmt)
             case PressStmt():
                 self._do_press(stmt)
+            case ScanMissionsStmt():
+                self._do_scan_missions(stmt)
             case WhileStmt():
                 self._do_while(stmt)
 
@@ -457,6 +531,16 @@ class Interpreter:
             if self.ctx.profile is not None:
                 actual = str(self.ctx.profile.get(field_name, ""))
             return (actual == expected) if op == "==" else (actual != expected)
+
+        m = _MISSIONS_CHECK_RE.match(cond)
+        if m:
+            op, wanted = m.group(1), int(m.group(2))
+            actual = len(self.ctx.missions)
+            return {
+                "==": actual == wanted, "!=": actual != wanted,
+                ">=": actual >= wanted, "<=": actual <= wanted,
+                ">": actual > wanted, "<": actual < wanted,
+            }[op]
 
         raise ScriptRuntimeError(f"line {line_no}: unknown condition: {cond!r}")
 
@@ -612,6 +696,72 @@ class Interpreter:
         self._log(
             f"READ_TEXT ({x}, {y}, {w}, {h}) -> profile.{stmt.target_field} = {text!r}"
         )
+
+    def _do_scan_missions(self, stmt: ScanMissionsStmt) -> None:
+        """Read secret tasks off the wire for up to `timeout` seconds.
+
+        The scan is passive: it decodes `world.get.block` responses the game
+        is already sending, so **the map has to be moving** for anything to
+        arrive. Pan the map (or run this alongside a scroll action) or the
+        result will legitimately be empty.
+
+        An empty result is not a failure — it leaves MISSIONS empty and the
+        script decides via `IF missions.count == 0`. A missing capture stack
+        *is* a failure, because the script asked for exact data and would
+        otherwise silently act on nothing.
+        """
+        # The protocol stack lives in tools/ — framer, XOR mask, TLV parser,
+        # task semantics — and is imported rather than duplicated. tools/ is
+        # not an installed package, so the path is wired up here.
+        tools = Path(__file__).resolve().parents[2] / "tools"
+        if str(tools) not in sys.path:
+            sys.path.insert(0, str(tools))
+        try:
+            from live_tshark import CaptureUnavailable, TaskListener
+        except ImportError as exc:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: SCAN_SECRET_MISSIONS needs the capture "
+                f"stack in tools/ — {exc}"
+            ) from exc
+
+        criteria = dict(
+            level=stmt.level,
+            star_only=stmt.star_only,
+            can_loot=stmt.can_loot,
+            min_free_slots=stmt.free_slots,
+        )
+        wanted = ", ".join(
+            part for part in (
+                f"level {stmt.level}" if stmt.level is not None else "",
+                "starred" if stmt.star_only else "",
+                "lootable" if stmt.can_loot else "",
+                f"{stmt.free_slots}+ free slots" if stmt.free_slots is not None else "",
+            ) if part
+        ) or "any"
+
+        try:
+            with TaskListener() as listener:
+                self._log(
+                    f"SCAN_SECRET_MISSIONS {wanted} — listening up to "
+                    f"{stmt.timeout:g}s (pan the map to make tiles arrive)"
+                )
+                found = listener.wait_for(timeout=stmt.timeout, **criteria)
+                seen = len(listener.tasks)
+        except CaptureUnavailable as exc:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: SCAN_SECRET_MISSIONS cannot capture — {exc}"
+            ) from exc
+
+        self.ctx.missions = found
+        self._log(
+            f"SCAN_SECRET_MISSIONS -> {len(found)} match(es) of {seen} task(s) seen"
+        )
+        for mission in found[:5]:
+            self._log(
+                f"  lvl {mission.level} at ({mission.x}, {mission.y}) "
+                f"server {mission.server_id} — {mission.loot_count}/3 looted"
+                f"{', starred' if mission.starred else ''}"
+            )
 
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")

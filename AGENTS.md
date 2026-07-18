@@ -122,12 +122,14 @@ screenshots/                           gitignored — runtime captures, debuggin
 | `STOP ["reason"]` | halt the whole action chain; runner stops on next check |
 | `CLOSE_WINDOW` | send WM_CLOSE to the game window |
 | `LAUNCH "path"` | spawn a detached process; `%VAR%` / `$VAR` / `~` are expanded |
+| `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]` | secret tasks read off the **wire**, not the screen; fills `MISSIONS` |
 
 Conditions allowed in `IF` / `WHILE` / `WAIT`:
 - `screen == base|world|unknown`, `screen != …`
 - `FOUND` / `NOT FOUND` (state of the last FIND **statement**)
 - `FIND <tpl>.png` (ad-hoc; also updates `LAST` on success)
 - `profile.<field> == "text"` / `profile.<field> != "text"`
+- `missions.count ==|!=|>|<|>=|<= N` (result of the last SCAN_SECRET_MISSIONS)
 
 ### Action scripts (`actions/`)
 
@@ -138,6 +140,8 @@ Existing skills the user maintains:
 - `close_modals.md` — press ESC until the screen is recognised again.
 - `close_profile_modal.md` — close the profile dialog by template.
 - `capture_profile.md` — OCR player name / level / server into profile JSON.
+- `scan_secret_missions.md` — find raidable secret tasks by level / loot
+  slots, reading the game's own map traffic instead of the screen.
 - `watchdog.md` — runs every runner tick; reacts to the "logged in from
   another device" modal (template `kicked_modal.png`) by closing the
   game and halting the bot.
