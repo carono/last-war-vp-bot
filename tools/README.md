@@ -48,13 +48,30 @@ python tools\live_sniffer.py
 445 KB `init` sent at login) are zstd-compressed and will not decode without
 it. The script warns and keeps going if it is missing.
 
-Useful flags: `--port` (default 17935), `--iface "Ethernet"` to pin an
-interface, `--list-ifaces`, `--raw` to dump full payloads, `--udp`.
+Useful flags: `--iface "Ethernet"` to pin an interface, `--list-ifaces`,
+`--raw` to dump full payloads, `--port` to narrow the capture filter.
 
-There is deliberately **no IP filter** — the game's address changes between
-sessions and the client races several gateways at login, so pinning an address
-loses traffic. Interface auto-detection locks onto whichever interface first
-carries a game packet.
+There is deliberately **no port or IP filter**. The game's address changes
+between sessions, and the client races several gateways at login, so anything
+pinned loses traffic. The game stream is found by **frame shape** instead: a
+valid flag byte, a frame that parses, and an envelope of the form
+`{c, a, p:{…}}`. The detected endpoint and port are printed when found.
+
+Detection also works when the game is **already running** — the sniffer
+resyncs to the next frame boundary, and keeps re-probing as new data arrives so
+that attaching in the middle of a large frame (the 68 KB compressed `init`)
+does not write the stream off.
+
+### If nothing appears
+
+```powershell
+python tools\live_sniffer.py --discover
+```
+
+Lists every TCP flow crossing the interface with its opening bytes and a shape
+guess (`TLS`, `HTTP`, `GAME?`, `unknown`). If no flow is marked `GAME?`, the
+game's traffic is not on that interface — check `--list-ifaces`, and check
+whether the game is routed through a VPN adapter.
 
 ## Step-by-step
 

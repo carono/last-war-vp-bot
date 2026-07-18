@@ -353,10 +353,17 @@ def iter_frames(stream: bytes, direction: str):
 
 
 def _resync(stream: bytes, pos: int, magics) -> int:
-    for i in range(pos + 1, len(stream)):
-        if stream[i] in magics:
-            return i
-    return -1
+    """Next candidate flag byte at or after pos+1.
+
+    bytes.find runs in C; scanning byte-by-byte in Python is orders of
+    magnitude slower and this is the hot path when probing unrelated traffic.
+    """
+    best = -1
+    for magic in magics:
+        found = stream.find(bytes([magic]), pos + 1)
+        if found != -1 and (best == -1 or found < best):
+            best = found
+    return best
 
 
 # --------------------------------------------------------------------------
