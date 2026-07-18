@@ -60,7 +60,7 @@ MAX_PROBE_ROUNDS = 64   # ~512 KB of unrecognised data before writing a stream o
 
 INTERESTING = (
     "x", "y", "viewLvl", "blockSize", "serverId", "worldId", "bigMap",
-    "uid", "msg", "roomId", "senderName", "senderUid",
+    "uid", "msg", "roomId", "senderName", "senderUid", "attachmentId",
     "uuid", "ownerUid", "targetServer", "arriveTime", "startPos", "targetPos",
     "success", "clientTime", "serverTime", "cfgId", "pointId", "level",
     "allianceId", "helpId", "count", "type",
@@ -69,6 +69,11 @@ INTERESTING = (
 
 def stamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+# attachmentId is a JSON blob describing a shared map object; it is the one
+# string worth showing in full, so it gets its own budget.
+WIDE_FIELDS = {"attachmentId"}
 
 
 def fmt_value(value, budget: int = 48) -> str:
@@ -86,7 +91,11 @@ def fmt_value(value, budget: int = 48) -> str:
 def summarise(payload) -> str:
     if not isinstance(payload, dict):
         return fmt_value(payload)
-    shown = [f"{k}={fmt_value(payload[k])}" for k in INTERESTING if k in payload]
+    shown = [
+        f"{k}={fmt_value(payload[k], 300 if k in WIDE_FIELDS else 48)}"
+        for k in INTERESTING
+        if k in payload
+    ]
     if not shown:
         shown = [
             f"{k}={fmt_value(v)}"

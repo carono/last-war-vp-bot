@@ -2,10 +2,11 @@
 
 Derived by passive capture only (no injection, no MITM, no cert tampering).
 Reference decoder: `tools/lastwar_proto.py`. Validated against
-three independent captures (A 173 s, B 60 s, C 101 s with login): **every
-frame of every reassembled game stream parses — 100% of bytes consumed in both
-directions, zero unknown tags.** Capture C alone: 844 server + 488 client
-frames across three endpoints, 179 distinct commands.
+three saved captures plus several hours of live decoding: **every frame of
+every reassembled game stream parses — 100% of bytes consumed in both
+directions, zero unknown tags.** The command vocabulary stands at **220**, and
+live observation kept extending it long after the saved captures stopped
+yielding anything new.
 
 ```bash
 pip install scapy zstandard
@@ -325,6 +326,79 @@ Two different shapes carry chat: `push.chat` (broadcast, seen in capture A with
 (direct message). A DM sent *by* the captured client only ever shows as the
 request plus its ack — the broadcast goes to the recipient's client, not ours.
 
+#### Sharing a map object — `attachmentId`
+
+A player can attach a map object to a message. The attachment is a **JSON
+string** inside `attachmentId`, and it is the cleanest description of a map
+object the protocol offers — the client already resolved what the object is.
+
+Three commands send one, depending on what is being shared:
+
+| Command | `posType` | Object |
+|---|---|---|
+| `chat.room.send` | 2 | monster |
+| `chat.room.send` | 5 | resource mine |
+| `chat.room.send` | 6 | mine with an active gatherer (`uname` reads `"Collector: [TAG]name"`) |
+| `hero.dispatch.share.chat` | 22 | secret task / hero dispatch |
+
+Common fields: `x`, `y`, `sid` (server), `olv` (object level), `oname`,
+`worldId`, `worldType`. `hero.dispatch.share.chat` adds `cfgId`, `uuid`,
+`dispatch` and repeats `uuid` / `targetServer` / `type` on the envelope.
+
+```json
+// monster, level 6
+{"posType":2, "oname":"300602", "olv":6, "x":636, "y":547, "sid":935}
+
+// gold mine, level 4
+{"posType":5, "oname":129027, "olv":4, "x":189, "y":597, "sid":1038}
+
+// secret task
+{"posType":22, "cfgId":60000701, "oname":"Секретное задание", "dispatch":1,
+ "uuid":1394584916020422441, "x":470, "y":652, "sid":999}
+```
+
+**`oname` is not one type.** For a mine it is an integer template id (`129027`
+for gold — the same value regardless of level). For a monster it is a *string*
+holding the `LLVV` template (`"300602"` = level 6, variant 2). For a secret
+task it is the localised display name. Any consumer must tolerate all three.
+
+`cfgId` in a task attachment is the same field as `f10.f2` on an `f2=17` tile —
+`50000704` and `60000701` both appear in captured tiles — which confirms the
+`LLVV` level reading from a second, independent direction. The command name
+`hero.dispatch.share.chat` also states outright what tile analysis had only
+inferred: an `f2=17` tile *is* a hero dispatch.
+
+Shared coordinates can be off by one from the tile: a mine shared as
+`x=189,y=597` matched the tile at `(190,597)`, with no tile at 189 on that row.
+Whether the link carries the click point or the indexing differs by one is
+unresolved — it matters for anything that navigates by coordinates from chat.
+
+### Switching servers
+
+A cross-server jump completes in about **1.6 s** and arrives in three waves,
+all on the same connection — no reconnect, no separate endpoint:
+
+```
++0.22  --> lw.season.rq.info, train.march.get.pos, get.server.state
++0.88  --> get.in.battle.city.stronghold, get.all.server.trade,
+           get.king.info, get.cross.server.king.info, go.to.world
++1.25  --> ~25 requests in one burst: user.leave.world,
+           meteorite.enter.world, world.get.block, city.war.get.info,
+           zwl.get.target.act.info, center.throne.activity.info,
+           lw.req.world.occupy.info, bloody.queen…rank.first.info
++1.40  <-- every response returns as one batch
+```
+
+The burst is **not limited to the destination**. Jumping to 959 also queried
+992, 1038 and 8120 — `meteorite.enter.world` fires for several `targetServerId`
+values and `world.get.block` for several `serverId` values. A reader that
+assumes one server per jump will mis-attribute tiles; the `serverId` inside
+each `serverPointArr` block is authoritative, not the jump target.
+
+Five commands first appeared during such a jump and are season/train scoped:
+`get.server.state`, `lw.season.rq.info`, `train.march.get.pos`,
+`train.refresh`, `zwl.get.target.act.info`.
+
 ## 7. World map semantics (`world.get.block`)
 
 ### Zoom
@@ -420,12 +494,27 @@ checked against:
 * `push.world.point.update`, which carries the same tile encoding
   (`create` / `change` / `remove` / `foldUp`) — no monsters;
 * a scan of every field of every message for values matching the observed
-  monster levels — no matches.
+  monster levels — no matches;
+* a **re-login**, including the 443 KB `init` — no monsters, and the sync
+  token does not reset across logout, so there is no "full snapshot" request;
+* a **switch to a server not visited that day** (959), watched end to end —
+  five commands appeared that were not in the 199-command vocabulary, all of
+  them season/train related, none about monsters.
 
-So monsters are not simply "already synced". Either a command that never fired
-during observation delivers them, or they are generated client-side from map
-configuration. Unresolved; a capture that includes login would settle it,
-since the first map requests after `init` carry no sync token.
+Across roughly 2000 unique tiles from every one of those paths, **zero**
+objects carried a level above the 1–10 mine range, while levels 12–28 were
+visible on screen throughout.
+
+The conclusion is that **monster placement is computed client-side** from map
+configuration and never crosses the wire. The server does know monsters exist
+and tracks outcomes — `init` carries `find_monster_max_level` (35 for this
+account) alongside `daily_kill_boss`, `daily_auto_kill_boss`,
+`attack_behemoth_boss_time` and `kill_lock_hart_boss` — and it accepts a chat
+share referencing a monster by `oname` and coordinate. So the server validates
+and scores monster interactions; it just never announces where they are.
+
+Practical consequence: monsters stay a vision problem. Mines, bases, tasks,
+strongholds and marches come off the wire as exact numbers.
 
 **Player bases and secret tasks both arrive inside `world.get.block`** — there
 is no separate command for either. A single 60 s session yielded 1116 named
@@ -535,6 +624,16 @@ and per-squad hero lists in nested LEN fields.
   traffic that is also visible in cleartext elsewhere.
 - **Tencent flows** (`129.226.x` TCP/80 and UDP/8081) are undecoded. Low value
   — they look like SDK telemetry and NAT probing, not gameplay.
+- **Where do monsters come from?** Answered — see §7. They are not on the wire
+  at all; placement is client-side. What remains unknown is the generation rule
+  itself, which would have to come from the game assets, not from traffic.
+- **Chat-shared coordinates can be off by one** from the matching tile
+  (`x=189` shared, tile at `190`). Click point vs tile origin, or a
+  zero/one-indexing difference — unresolved, and it matters for navigating by
+  coordinates taken from chat.
+- **`uname` in a shared secret task** arrived as `"????????"`. Either the game
+  masks the owner's name in a share, or the encoding is lost somewhere in this
+  pipeline; not distinguished yet.
 - **Protobuf field names are unknown.** Blob contents decode structurally
   (`f1`, `f2`, …) but there is no `.proto`, so semantics are inferred from
   context. Map-tile fields are guesses.
