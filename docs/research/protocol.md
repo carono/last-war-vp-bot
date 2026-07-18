@@ -440,15 +440,37 @@ same coordinate space.**
 - **Response** block `leftBottom` and every tile's `f1` are packed
   **`y * maxAreaSize + x`** (`maxAreaSize` = 1000) in **server-local** space.
 
-To lift a tile to world space, add the server's origin — the requested corner
-rounded down to the local grid:
+**Most consumers want server-local coordinates and no lift at all.** They are
+what the game shows on screen, they are what `pointId` in `hero.dispatch.*`
+carries, and they need only an unpack:
 
 ```python
-ox, oy = (gx // A) * A, (gy // A) * A     # gx, gy = request leftBottom unpacked
+x, y = f1 % A, f1 // A                    # A = maxAreaSize, 0..A-1
+```
+
+Verified three ways on the saved captures: every tile lands in `0..999`, every
+tile lands inside its own block's box (854/854), and for the 48 tasks that also
+appear as a `hero.dispatch.*` record, `pointId` unpacks to exactly the same
+pair (48/48).
+
+To lift a tile to *world* space instead, add the server's origin — the corner
+**of the request**, rounded down to the local grid:
+
+```python
+ox, oy = (gx // A) * A, (gy // A) * A     # gx, gy = REQUEST leftBottom unpacked
 world_x, world_y = ox + (f1 % A), oy + (f1 // A)
 ```
 
 Verified: **6373/6373 tiles land inside their requested box** under this model.
+
+> **Trap.** `gx, gy` above must come from the **request**. A decoder iterating
+> responses has the *block's* `leftBottom` closest to hand, and that one is
+> already server-local — feeding it through the world-space unpack (`% 3000`)
+> invents an origin of 1000 or 2000 whenever `leftBottom % 3000 > A`. The
+> failure is quiet: coordinates stay plausible, just shifted by a whole server
+> square, and only show up as x values above 1000 on a 1000×1000 server. This
+> bug shipped in `secret_tasks()` and was caught by a reader noticing the
+> out-of-range x, not by any test.
 
 ### Object types (`f2` on each tile)
 

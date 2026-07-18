@@ -519,17 +519,20 @@ def _looters(raw) -> tuple[str, ...]:
 def secret_tasks(payload: dict):
     """Yield every secret task in one decoded `world.get.block` response.
 
-    Tile coordinates are server-local (`f1 = y * maxAreaSize + x`) and are
-    lifted to world space using the block's requested corner — request and
-    response do not share a coordinate space, see protocol.md §7.
+    Coordinates come out **server-local**, 0..maxAreaSize-1 — the same numbers
+    the game shows on screen, paired with `server_id`. A tile's `f1` packs them
+    as `y * maxAreaSize + x`, so unpacking is all that is needed.
+
+    No world-space lift happens here, and that is deliberate. Request and
+    response use different packings (protocol.md §7): the *request* packs
+    `leftBottom` as `y * 3000 + x` in world space, the *response* block packs
+    its own `leftBottom` as `y * maxAreaSize + x` in server-local space. Adding
+    a world origin derived from the response block conflates the two — it
+    silently produced x values above 1000 on a 1000x1000 server, which is how
+    this was caught.
     """
     for block in payload.get("serverPointArr") or ():
         area = block.get("maxAreaSize") or 1000
-        corner = block.get("leftBottom") or 0
-        # The request packs leftBottom as y * 3000 + x in world space; the
-        # server origin is that corner rounded down to the local grid.
-        origin_x = ((corner % 3000) // area) * area
-        origin_y = ((corner // 3000) // area) * area
 
         for point in block.get("points") or ():
             tile = point.get("_protobuf") or {}
@@ -544,8 +547,8 @@ def secret_tasks(payload: dict):
             yield SecretTask(
                 uuid=tile.get("f100"),
                 server_id=tile.get("f102") or tile.get("f103"),
-                x=origin_x + packed % area,
-                y=origin_y + packed // area,
+                x=packed % area,
+                y=packed // area,
                 level=level,
                 cfg_id=int(detail["f2"]),
                 family=family,
