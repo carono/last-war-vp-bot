@@ -558,6 +558,20 @@ Four families appear: `30`, `40`, `5000`, `6000`. Observed levels 1, 3, 4, 5,
 group is one-per-player with a distinct template range, so it is probably a
 different task class rather than "level 99".
 
+**The reading is verified against the game, not just against itself.** A task
+shared into chat carried `cfgId 60000701`, and the maintainer read its level as
+**7** off the game UI — `LL = 07`, matching. That check is independent of the
+wire: the level came from the screen, the cfgId from the packet, and nothing in
+the decoder connects them. A second, weaker check comes from the shape of the
+data — level 4 does occur (four tiles on server 999: `50000404`, `400404`,
+`400401` ×2), and across 271 live tiles the distribution reads as a plausible
+game population (`4`×4, `5`×52, `6`×88, `7`×90) rather than the noise a
+misaligned digit window would produce.
+
+One tile broke the four-family pattern: `cfgId 5000302` is seven digits, which
+splits as family `500`, level 3, variant 2. A single occurrence — noted rather
+than concluded, but a reader hitting a fifth family should not be surprised.
+
 **`f10.f10` is fully determined by the cfgId family** — `30`/`40` → 1,
 `5000`/`6000` → 3, on 766/766 tiles. It therefore carries no information the
 cfgId does not already have. The obvious reading, "number of loot slots", is
