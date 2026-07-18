@@ -36,9 +36,11 @@ throwaway account only — never server #972.
    `\\wsl$\...\last-war-vp-bot\results\capture.pcapng`, or any path under
    `C:\Users\…`. Then on the WSL side:
    ```bash
-   .venv/bin/python tools/analyze_pcap.py results/capture.pcapng --port <p>
-   # → results/analysis_<ts>.json
+   .venv/bin/python tools/lastwar_proto.py results/capture.pcapng --json results/transcript.json
    ```
+   `lastwar_proto.py` finds the game flows itself and fully decodes them — see
+   `protocol.md`. Do **not** pass `--port`; hard-coding the port would
+   hide a second endpoint (login/region server) if one appears.
 
 ### What to send back for analysis
 - **`capture.pcapng`** (the raw capture), **or** if it is large/sensitive, just

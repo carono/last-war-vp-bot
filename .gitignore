@@ -38,6 +38,7 @@ profiles/
 # Captured network traffic — may contain session tokens, never commit
 results/traffic_*.jsonl
 results/analysis_*.json
+results/transcript*.json
 results/raw/
 *.pcap
 *.pcapng
