@@ -20,12 +20,41 @@ Background and the go/no-go reasoning live in
 | `lastwar_dissector.lua` | **Windows** (Wireshark) | decode custom length-prefixed TCP frames |
 | `lastwar_mitm_addon.py` | either (mitmproxy) | log + protobuf-decode HTTP/WS via MITM |
 | `unity_ssl_unpin.js` | **Windows** (Frida) | dump TLS plaintext from Unity BoringSSL |
-| `analyze_pcap.py` | **WSL** (Python) | offline analysis of a saved `.pcapng` |
+| `analyze_pcap.py` | **WSL** (Python) | superseded — use `lastwar_proto.py` |
+| `lastwar_proto.py` | **WSL** (Python) | decode a saved `.pcapng` — the reference decoder |
+| `live_sniffer.py` | **Windows** (Python, admin) | decode the protocol **live**, no Wireshark |
+| `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
 and cannot see the Windows game's traffic directly. WSL is for offline analysis
 of a `.pcapng` you saved on Windows, and for running mitmproxy (with
 `networkingMode=mirrored`, see playbook §0).
+
+## Live decoding on Windows (no Wireshark)
+
+`live_sniffer.py` sniffs the game port and prints decoded commands as they
+happen. It imports the framer from `lastwar_proto.py`, so both tools always
+speak the same protocol.
+
+```powershell
+# once — npcap must already be installed
+pip install scapy colorama zstandard
+
+# then, in an *Administrator* PowerShell, from the repo root:
+python tools\live_sniffer.py
+```
+
+`zstandard` is not optional in practice: large server frames (including the
+445 KB `init` sent at login) are zstd-compressed and will not decode without
+it. The script warns and keeps going if it is missing.
+
+Useful flags: `--port` (default 17935), `--iface "Ethernet"` to pin an
+interface, `--list-ifaces`, `--raw` to dump full payloads, `--udp`.
+
+There is deliberately **no IP filter** — the game's address changes between
+sessions and the client races several gateways at login, so pinning an address
+loses traffic. Interface auto-detection locks onto whichever interface first
+carries a game packet.
 
 ## Step-by-step
 
