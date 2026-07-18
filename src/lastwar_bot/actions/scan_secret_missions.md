@@ -14,7 +14,7 @@
 #
 # Filters (all optional, any order):
 #   LEVEL n       task level, read from cfgId
-#   STAR          only starred tasks — PROVISIONAL, see tools/lastwar_proto.py
+#   STAR          only starred tasks (cfgId family 6000), see lastwar_proto.py
 #   CAN_LOOT      at least one of the three loot slots still free
 #   FREE_SLOTS n  stricter: at least n of the three free (3 = untouched)
 #   WITHIN ns     how long to listen; returns early on the first match

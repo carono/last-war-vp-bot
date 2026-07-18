@@ -441,7 +441,7 @@ def main() -> int:
                     help="with --tasks: how long to listen (default 60)")
     ap.add_argument("--level", type=int, help="with --tasks: only this task level")
     ap.add_argument("--star", action="store_true",
-                    help="with --tasks: only starred tasks (provisional)")
+                    help="with --tasks: only starred tasks (cfgId family 6000)")
     ap.add_argument("--can-loot", action="store_true",
                     help="with --tasks: only tasks with a free loot slot")
     ap.add_argument("--json", help="with --tasks: write every task seen to this file")

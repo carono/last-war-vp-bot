@@ -412,18 +412,35 @@ SPECIAL_TASK_LEVEL = 99
 # field set, so the client must derive it from `cfgId` — the same place the
 # level hides.
 #
-# Two observations, both pointing at the family prefix, neither conclusive:
-#   * a task shared into chat from server 999 at (470, 652) was starred, and
-#     its attachment named `cfgId 60000701` — family "6000";
-#   * the maintainer reports the unstarred task at (469, 659) matching a
-#     tile with `cfgId 50000704` — family "5000". That negative comes from
-#     a dataset not in this repo (its cfgId counts, 57/11, do not match the
-#     saved captures' 75/7), so it has not been reproduced here.
+# Family "6000" is the maintainer's ruling, taken on this evidence:
 #
-# So "family 6000 is starred" fits every observation but rests on data that
-# cannot be re-derived from the committed captures. This constant is the one
-# place the assumption lives; `live_tshark.py --tasks --families` tallies
-# families against the live map to confirm or refute it.
+#   * a task shared into chat from server 999 at (470, 652) was starred, and
+#     its attachment named `cfgId 60000701` — family "6000". The maintainer
+#     confirmed the star personally at the moment of sharing;
+#   * an unstarred task at (469, 659) matched a tile with `cfgId 50000704`
+#     — family "5000". From a dataset outside this repo, not reproduced here;
+#   * across 271 live tiles nothing contradicted the reading.
+#
+# Two caveats a future reader should not have to rediscover:
+#
+#   * "nothing contradicted it" is weaker than it sounds. No tile's star was
+#     ever checked by eye except the shared one, so a contradiction had no
+#     way to surface. The 271 tiles are consistent with the rule, not a test
+#     of it.
+#   * one observation still does not fit. The maintainer reported a *starred
+#     level-4* task at (574, 624) on server 999. Family "6000" holds no
+#     level-4 task in any capture — its levels are 5, 7 and the 99 class —
+#     while level 4 does appear in families "5000" and "40". That tile was
+#     never captured, so it is unexplained rather than refuting; if the star
+#     filter ever misbehaves on low-level tasks, start here.
+#
+# Level 99 is excluded from the concern above: those are internal
+# one-per-player tasks that the UI does not draw, so they cannot be the
+# starred markers a player sees.
+#
+# This constant is the single place the rule lives. To re-test it, run
+# `live_tshark.py --tasks --families` and compare the tally with the stars
+# actually drawn on that patch of map.
 STAR_TASK_FAMILIES = frozenset({"6000"})
 
 
@@ -457,7 +474,7 @@ class SecretTask:
 
     @property
     def starred(self) -> bool:
-        """Provisional — see STAR_TASK_FAMILIES."""
+        """Drawn with a star on the map — see STAR_TASK_FAMILIES."""
         return self.family in STAR_TASK_FAMILIES
 
     @property

@@ -242,7 +242,7 @@ Modifiers are optional and order-independent:
 | Modifier | Effect |
 |---|---|
 | `LEVEL n` | only tasks of level `n` (decoded from `cfgId`) |
-| `STAR` | only starred tasks — **provisional**, see below |
+| `STAR` | only starred tasks (`cfgId` family `6000`), see below |
 | `CAN_LOOT` | at least one of the three loot slots still free |
 | `FREE_SLOTS n` | stricter form: at least `n` of three free (`3` = untouched) |
 | `WITHIN N s` | how long to listen; returns early on the first match (default 30 s) |
@@ -259,12 +259,13 @@ Two things to know before relying on it:
   capture engine. Missing capture tooling raises; an empty result does
   not (that is a legitimate answer, branch on `missions.count == 0`).
 
-`STAR` is provisional: the star is not a field on the wire, it is
-derived client-side from `cfgId`, and only one starred task was ever
-captured with its `cfgId` attached. The current reading is documented in
-one place — `STAR_TASK_FAMILIES` in `tools/lastwar_proto.py` — and
-`tools/live_tshark.py --tasks` exists to confirm or refute it against
-the live map.
+`STAR` matches `cfgId` family `6000`. The star is not a field on the
+wire — the client derives it from `cfgId`, the same place the level
+hides — so the rule lives in one constant, `STAR_TASK_FAMILIES` in
+`tools/lastwar_proto.py`, where the evidence behind it and the one
+observation that does not yet fit are both written down. Re-test it any
+time with `tools/live_tshark.py --tasks --families`, which tallies
+families against the stars actually drawn on the map.
 
 ## Conditions
 

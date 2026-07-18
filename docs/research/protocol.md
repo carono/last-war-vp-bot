@@ -571,35 +571,43 @@ tile and as a `hero.dispatch.*` record, `len(f10.f4)` equalled
 `len(stealInfoList)` **48/48**, and the cfgIds matched. So free loot slots are
 readable off the map with no OCR and no panel opening.
 
-#### The star — unresolved
+#### The star — family `6000`
 
-Some task markers are drawn with a star, and the maintainer wants to filter on
-it. **No field distinguishes them.** All 766 captured tiles carry the identical
+Some task markers are drawn with a star, and those are the ones worth raiding.
+**No field distinguishes them.** Every captured tile carries the identical
 field set, so the star must be derived client-side from `cfgId` — the same
 place the level hides.
 
-Two observations point at the family prefix, and neither closes the question:
+The maintainer's ruling is **family `6000`**, on this evidence:
 
-* **Positive.** The task shared into chat from server 999 at (470, 652) was
-  starred, and its attachment named `cfgId 60000701` — family `6000`.
-* **Negative, unreproduced.** The maintainer reports the unstarred task at
-  (469, 659) matching a tile with `cfgId 50000704` — family `5000`. That
-  comes from a dataset not in this repository: its cfgId counts (`50000704`
-  ×57, `60000701` ×11) do not match the committed captures (×75, ×7), and no
-  server-999 tile appears in `results/` at all. It could not be re-derived
-  here.
+* **Positive, confirmed by eye.** The task shared into chat from server 999 at
+  (470, 652) was starred, and its attachment named `cfgId 60000701` — family
+  `6000`. The maintainer confirmed the star at the moment of sharing.
+* **Negative, unreproduced.** An unstarred task at (469, 659) matched a tile
+  with `cfgId 50000704` — family `5000`. From a dataset outside this
+  repository; no server-999 tile appears in `results/`, so it was not
+  re-derived here.
+* **Consistency.** Across 271 live tiles nothing contradicted the reading.
 
-So "family `6000` is starred" fits every observation while resting on one
-positive and one second-hand negative. Family counts in a 60 s capture:
-`5000` 394, `6000` 117 (most of them the `99xx` class), `40` 62, `30` 34 —
-family `6000` is rare enough outside the `99xx` group to plausibly be a
-special marker.
+Two caveats, so the strength of this is not overstated later:
 
-Settling it needs one look at the map while the wire is being read:
-`tools/live_tshark.py --tasks --families` tallies families and prints their
-coordinates; compare that with the stars actually drawn. The bot's own reading
-lives in exactly one constant, `STAR_TASK_FAMILIES` in
-`tools/lastwar_proto.py`.
+* "Nothing contradicted it" is weaker than it sounds. No tile's star was ever
+  checked by eye except the shared one, so a contradiction had no route to
+  surface. The 271 tiles are *consistent with* the rule, not a test of it.
+* **One observation still does not fit.** The maintainer reported a starred
+  **level-4** task at (574, 624) on server 999. Family `6000` holds no level-4
+  task in any capture — its levels are 5, 7 and the `99` class — while level 4
+  does appear in families `5000` and `40`. That tile was never captured, so it
+  is unexplained rather than refuting. If the star filter ever misbehaves on
+  low-level tasks, start here.
+
+Level `99` does not muddy this: those are internal one-per-player tasks the UI
+does not draw, so they cannot be the starred markers a player sees.
+
+The rule lives in exactly one constant, `STAR_TASK_FAMILIES` in
+`tools/lastwar_proto.py`. To re-test it, run
+`tools/live_tshark.py --tasks --families` and compare the tally with the stars
+actually drawn on that patch of map.
 
 **Daily limits** live on the player, not the tile: `hero.dispatch.list` returns
 `todayAssistNum` and `todayStealNum`.
@@ -673,11 +681,11 @@ and per-squad hero lists in nested LEN fields.
 - **Where do monsters come from?** Answered — see §7. They are not on the wire
   at all; placement is client-side. What remains unknown is the generation rule
   itself, which would have to come from the game assets, not from traffic.
-- **What draws the star on a secret task?** Open — see §7. It is not a wire
-  field; the candidate reading is the `cfgId` family, resting on one positive
-  observation and one second-hand negative that could not be reproduced from
-  the committed captures. `tools/live_tshark.py --tasks --families` closes it
-  in about a minute of panning the map.
+- **What draws the star on a secret task?** Ruled: `cfgId` family `6000` — see
+  §7, which also records the one observation (a reported starred *level-4*
+  task) that the rule does not yet explain. It is not a wire field, so the
+  reading can only ever be re-tested against the screen:
+  `tools/live_tshark.py --tasks --families`.
 - **Chat-shared coordinates can be off by one** from the matching tile
   (`x=189` shared, tile at `190`). Click point vs tile origin, or a
   zero/one-indexing difference — unresolved, and it matters for navigating by
