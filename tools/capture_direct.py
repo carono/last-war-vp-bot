@@ -11,9 +11,11 @@ from live_sniffer.py — neither is reimplemented here. This module is a
 transport plus a secret-task index, and nothing else.
 
     python tools/capture_direct.py                       stream tasks, print them
-                                                         (also -> results/secret_missions_live.json,
-                                                          rewritten every ~10s)
-    python tools/capture_direct.py --json out.json       checkpoint elsewhere
+                                                         (until Ctrl+C, no file written)
+    python tools/capture_direct.py --seconds 300         stop on a timer instead
+    python tools/capture_direct.py --json out.json       also checkpoint to a file
+    python tools/capture_direct.py --json out.json --interval 3
+                                                         flush it every 3s, not 15
     python tools/capture_direct.py --level 7 --can-loot  only raidable level-7s
     python tools/capture_direct.py --list-ifaces         interfaces, then exit
 
@@ -57,10 +59,8 @@ GAME_PORT = 17935
 # proto.TASK_FRESH_SECONDS for why a tile not re-sent within it is untrustworthy.
 STALE_AFTER_SECONDS = proto.TASK_FRESH_SECONDS
 
-# Default sink for the live task index. The bot and any external poller read
-# from here, so it has a fixed home instead of needing --json on every run.
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_JSON = os.path.join(_REPO_ROOT, "results", "secret_missions_live.json")
+# There is deliberately no default sink. --json is opt-in so an unattended or
+# exploratory run cannot quietly overwrite a checkpoint someone else is reading.
 
 
 def check_platform() -> None:
@@ -82,20 +82,29 @@ def check_platform() -> None:
     raise SystemExit(2)
 
 
-def dump_tasks(records: list, path: str) -> None:
-    """Write already-built task records to `path`, atomically.
+def dump_tasks(records: list, path: str) -> bool:
+    """Write already-built task records to `path`. True if the write landed.
 
     Called while the capture is still running so a reader can poll the file
-    mid-session; the temp-file-and-rename keeps a poller from ever seeing a
-    half-written file, and keeping the temp alongside the target keeps the
-    rename on one filesystem. Records come from `TaskIndex.records()`, each
-    carrying `seen_at` so `proto.load_fresh_tasks()` can drop stale ones.
+    mid-session. Records come from `TaskIndex.records()`, each carrying
+    `seen_at` so `proto.load_fresh_tasks()` can drop stale ones.
+
+    This writes the target directly rather than renaming a temp file over it.
+    A rename is the atomic option and would spare a poller from ever seeing a
+    half-written file, but on Windows `os.replace` raises PermissionError
+    (WinError 5) whenever anything else holds the target open — an editor, a
+    poller, the indexer — and that killed whole capture sessions. A capture
+    that survives is worth more than a checkpoint that is never briefly
+    inconsistent, so a locked file now costs one skipped flush instead of the
+    run. The next flush rewrites it whole.
     """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(records, fh, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(records, fh, indent=2, ensure_ascii=False)
+        return True
+    except PermissionError:
+        return False
 
 
 class TaskIndex(LiveDecoder):
@@ -235,12 +244,14 @@ def main() -> int:
     ap.add_argument("--iface", help="pin one interface; omitted = all of them")
     ap.add_argument("--list-ifaces", action="store_true",
                     help="print the interfaces scapy can see, then exit")
-    ap.add_argument("--seconds", type=int, default=300,
-                    help="how long to listen (default 300)")
-    ap.add_argument("--json", default=DEFAULT_JSON,
+    ap.add_argument("--seconds", type=int, default=None,
+                    help="how long to listen (default: until Ctrl+C)")
+    ap.add_argument("--json", default=None,
                     help="checkpoint every task seen to this file, rewritten "
-                         "every ~10s (default: results/secret_missions_live.json); "
-                         "pass '' to disable the file entirely")
+                         "every --interval seconds (default: no file is written)")
+    ap.add_argument("--interval", type=int, default=15,
+                    help="seconds between --json checkpoint flushes "
+                         "(default 15; lower it to watch the file update)")
     ap.add_argument("--level", type=int, help="only tasks of this level")
     ap.add_argument("--star", action="store_true",
                     help="only starred tasks (cfgId family 6000)")
@@ -285,7 +296,9 @@ def main() -> int:
 
     print(f"Last War direct capture — scapy/npcap, no dumpcap")
     print(f"filter: '{bpf}'   interface: {args.iface or 'default'}")
-    print(f"{C_DIM}listening {args.seconds}s — pan the map, or nothing will "
+    window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
+    sink = f" -> {args.json} every {args.interval}s" if args.json else ""
+    print(f"{C_DIM}listening {window}{sink} — pan the map, or nothing will "
           f"arrive{C_RESET}\n")
 
     threads = [threading.Thread(target=sniff_forever,
@@ -297,19 +310,29 @@ def main() -> int:
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
     reported: set = set()
-    deadline = time.time() + args.seconds
+    # None means run until interrupted, so every deadline test has to tolerate
+    # not having one.
+    deadline = time.time() + args.seconds if args.seconds else None
     heartbeat = time.time()
+    # Tracked apart from the heartbeat: the flush period is the user's to set
+    # via --interval, while the progress line stays on its own 10s cadence.
+    last_flush = time.time()
     try:
-        while time.time() < deadline:
+        while deadline is None or time.time() < deadline:
             time.sleep(1.0)
             if time.time() - heartbeat >= 10:
                 heartbeat = time.time()
-                print(f"{C_DIM}  …{int(deadline - time.time())}s left — "
+                left = (f"…{int(deadline - time.time())}s left"
+                        if deadline is not None else "…running")
+                print(f"{C_DIM}  {left} — "
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.tasks)} task(s){C_RESET}")
-                if args.json:
-                    dump_tasks(index.records(), args.json)
+            if args.json and time.time() - last_flush >= args.interval:
+                last_flush = time.time()
+                if not dump_tasks(index.records(), args.json):
+                    print(f"{C_DIM}  (checkpoint locked, skipped this "
+                          f"flush){C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
                 if task.uuid in reported:
@@ -358,8 +381,12 @@ def main() -> int:
 
     if args.json:
         records = index.records()
-        dump_tasks(records, args.json)
-        print(f"{C_OK}wrote {len(records)} task(s) to {args.json}{C_RESET}")
+        if dump_tasks(records, args.json):
+            print(f"{C_OK}wrote {len(records)} task(s) to {args.json}{C_RESET}")
+        else:
+            print(f"{C_ERR}could not write {args.json} — the file is held by "
+                  f"another process.{C_RESET} Close whatever has it open and "
+                  f"re-run, or point --json somewhere else.")
     return 0
 
 
