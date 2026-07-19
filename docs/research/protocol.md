@@ -764,13 +764,64 @@ prospective one would get:
 `type` 7 is an item and 27 a resource; `id` indexes a client-side config table
 that is not on the wire.
 
-**Open question — the prospective reward.** Nothing in these captures shows the
-payout *before* a steal, because the captured account never opened a task it
-did not own. To get it, capture a session that taps another player's task
-marker and opens the detail panel; the request that fires there (something in
-the `hero.dispatch.*` family, keyed by the task `uuid`) is the one to look for.
-Failing that, the reward table may simply be client-side config, in which case
-it will never appear on the wire and has to come from the game assets.
+**Partly answered — the prospective reward.** The panel request was found (see
+below): tapping another player's task marker fires **`world.get.detail.new`**,
+not anything in the `hero.dispatch.*` family. Its *response* has still not been
+captured — the 2026-07-19 trap recorded both requests and missed both replies —
+so whether the payout is quoted there or comes from client-side config remains
+open. Re-run the trap with `--match world.get.detail` to close it.
+
+#### Stealing — `hero.dispatch.steal`
+
+Captured live on 2026-07-19 by `tools/trap_command.py` while the maintainer
+robbed a task by hand. The command is **`hero.dispatch.steal`** — no command
+containing "rob" exists. The exchange is four messages:
+
+```
+--> world.get.detail.new  {worldId, pointType: 17, point, previewAssistance: 10,
+                           serverId, uid: ""}      open the marker's panel
+--> hero.dispatch.steal   {targetServer, uuid, _id}          the steal itself
+<-- push.hero.dispatch.mission.steal {pointId, serverId, worldId, playerInfo}
+<-- hero.dispatch.steal   {reward[], ownerInfo, target_uid, target_alliance_id,
+                           config_id, uuid, recordUuid, color,
+                           todayStealNum, todayAssistNum}
+```
+
+**The request has three fields and none of them is a coordinate.** A steal is
+keyed by the task `uuid` (tile field `f100`), so a caller holding only `x`/`y`
+must first resolve the uuid from a map scan — `world.get.block` carries it.
+
+**The request carries no credential of any kind** — no uid, no signature, no
+`SecurityCode`, nothing from the login handshake. Authority comes entirely from
+*which connection the frame arrives on*. `_id` is the same per-connection
+monotonic counter every other request uses (9159 here). Any plan to send this
+frame therefore has to become an authenticated connection first; there is no
+token to lift out of a capture and attach to a lone request. See §10.
+
+`push.hero.dispatch.mission.steal` is a **broadcast**, and it carries the
+thief's `playerInfo` — uid, name, alliance abbr, country. Stealing is not
+quiet: the owner and their alliance are told who did it.
+
+The response is the first **prospective-side** reward record on the wire, and
+its shape is richer than the retrospective one above — `value` carries
+`itemId`, `addNum`/`add`, the resulting `number`, and for items `rewardAdd`,
+`count`, `para1`, `use`:
+
+```json
+{"type": 7,  "value": {"itemId": "710005", "count": 36, "rewardAdd": 18, "para1": "108500004"}}
+{"type": 27, "value": {"itemId": 8001, "add": 1588100, "number": 5510811779}}
+```
+
+`todayStealNum` / `todayAssistNum` come back on every steal, so the daily
+counter is readable without a separate `hero.dispatch.list`. **The cap itself
+is still not on the wire** — a bot must discover it by hitting it.
+
+Afterwards the client fires `hero.dispatch.share.chat` on its own to post the
+task into alliance chat. That is a client-side courtesy, not part of the steal.
+
+One coordinate note, consistent with the off-by-one already recorded above:
+the steal was at `point 509552` → `(552, 509)` server-local, while the chat
+attachment the client generated for the same task said `x: 551, y: 509`.
 
 ## 8. Embedded protobuf
 

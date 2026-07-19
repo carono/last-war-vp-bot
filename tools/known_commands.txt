@@ -87,6 +87,7 @@ down get.parkour.alliance.battlepass
 down get.player.cross.server.list
 down get.player.level.reward.info
 down get.recharge.info
+down get.server.state
 down get.user.info.multi
 down get.week.card.info
 down get.world.news.info
@@ -96,6 +97,8 @@ down ghost.recon.get.task.list
 down go.to.world
 down hero.dispatch.alliance.list
 down hero.dispatch.list
+down hero.dispatch.share.chat
+down hero.dispatch.steal
 down hero.dispatch.treasure.v2.get.info
 down hero.event.info.get
 down init
@@ -109,6 +112,7 @@ down lw.season.alliance.city.occupy.info
 down lw.season.alliance.reward.info
 down lw.season.city.stronghold.occupy.info
 down lw.season.res.rq.info
+down lw.season.rq.info
 down lw.user.push.chat.msg
 down lw.worldTip.get
 down meteorite.enter.world
@@ -124,9 +128,11 @@ down push.all.notice
 down push.alliance.march.refresh
 down push.alliance.march.remove
 down push.alliance.reward.new
+down push.alliance.share.mission.add
 down push.chat.get.system.mails
 down push.exchange.info
 down push.formation.preset
+down push.hero.dispatch.mission.steal
 down push.item.use
 down push.lw.alliance.alert.info.remove
 down push.new.news
@@ -134,6 +140,7 @@ down push.news.center.init
 down push.off.season.skip.cd
 down push.refresh.hero.lottery
 down push.refresh.hero.switch
+down push.resource.item.update
 down push.science.group
 down push.setting
 down push.utc.time
@@ -166,6 +173,7 @@ down user.get.shop.info
 down user.leave.world
 down user.remark.list
 down user.title.get.list
+down view.blood.night.act
 down vip.get.reward.info
 down world.all.city.reward.info
 down world.favo.get
@@ -182,6 +190,7 @@ down world.trends.event.activity
 down zombie.rush.act.info
 down zombie.rush.gain.plan.info
 down zwl.act.info
+down zwl.get.target.act.info
 up act.boss.get.achievement.info
 up activity.get.rank.reward
 up activity.goods.exchange.list
@@ -266,6 +275,7 @@ up get.parkour.alliance.battlepass
 up get.player.cross.server.list
 up get.player.level.reward.info
 up get.recharge.info
+up get.server.state
 up get.user.info.multi
 up get.week.card.info
 up get.world.news.info
@@ -275,6 +285,8 @@ up ghost.recon.get.task.list
 up go.to.world
 up hero.dispatch.alliance.list
 up hero.dispatch.list
+up hero.dispatch.share.chat
+up hero.dispatch.steal
 up hero.dispatch.treasure.v2.get.info
 up hero.event.info.get
 up inquiry.list
@@ -287,6 +299,7 @@ up lw.season.alliance.city.occupy.info
 up lw.season.alliance.reward.info
 up lw.season.city.stronghold.occupy.info
 up lw.season.res.rq.info
+up lw.season.rq.info
 up lw.user.push.chat.msg
 up lw.worldTip.get
 up meteorite.enter.world
@@ -319,6 +332,7 @@ up user.get.shop.info
 up user.leave.world
 up user.remark.list
 up user.title.get.list
+up view.blood.night.act
 up vip.get.reward.info
 up world.all.city.reward.info
 up world.favo.get
@@ -330,8 +344,10 @@ up world.get.alliance.city.detail
 up world.get.alliance.city.effect
 up world.get.block
 up world.get.city.stronghold.effect
+up world.get.detail.new
 up world.get.march.infos
 up world.trends.event.activity
 up zombie.rush.act.info
 up zombie.rush.gain.plan.info
 up zwl.act.info
+up zwl.get.target.act.info
