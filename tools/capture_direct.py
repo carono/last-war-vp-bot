@@ -11,7 +11,9 @@ from live_sniffer.py — neither is reimplemented here. This module is a
 transport plus a secret-task index, and nothing else.
 
     python tools/capture_direct.py                       stream tasks, print them
-    python tools/capture_direct.py --json out.json       checkpoint them to disk
+                                                         (also -> results/secret_missions_live.json,
+                                                          rewritten every ~10s)
+    python tools/capture_direct.py --json out.json       checkpoint elsewhere
     python tools/capture_direct.py --level 7 --can-loot  only raidable level-7s
     python tools/capture_direct.py --list-ifaces         interfaces, then exit
 
@@ -50,6 +52,11 @@ from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
 GAME_PORT = 17935
 
+# Default sink for the live task index. The bot and any external poller read
+# from here, so it has a fixed home instead of needing --json on every run.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_JSON = os.path.join(_REPO_ROOT, "results", "secret_missions_live.json")
+
 
 def check_platform() -> None:
     """Refuse to run where capture cannot possibly work, and say why.
@@ -78,9 +85,18 @@ def dump_tasks(tasks: list, path: str) -> None:
     half-written file, and keeping the temp alongside the target keeps the
     rename on one filesystem.
     """
+    records = []
+    for t in tasks:
+        record = t.as_dict()
+        # `steal_count` is what the live view and the task brief call it; keep
+        # the `loot_count` alias too so nothing downstream that reads as_dict()
+        # breaks.
+        record["steal_count"] = record["loot_count"]
+        records.append(record)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump([t.as_dict() for t in tasks], fh, indent=2, ensure_ascii=False)
+        json.dump(records, fh, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
 
 
@@ -189,7 +205,10 @@ def main() -> int:
                     help="print the interfaces scapy can see, then exit")
     ap.add_argument("--seconds", type=int, default=300,
                     help="how long to listen (default 300)")
-    ap.add_argument("--json", help="checkpoint every task seen to this file")
+    ap.add_argument("--json", default=DEFAULT_JSON,
+                    help="checkpoint every task seen to this file, rewritten "
+                         "every ~10s (default: results/secret_missions_live.json); "
+                         "pass '' to disable the file entirely")
     ap.add_argument("--level", type=int, help="only tasks of this level")
     ap.add_argument("--star", action="store_true",
                     help="only starred tasks (cfgId family 6000)")
@@ -262,7 +281,7 @@ def main() -> int:
                 reported.add(task.uuid)
                 star = " *" if task.starred else "  "
                 print(f"{star} lvl {task.level:>2}  ({task.x:>4},{task.y:>4})"
-                      f"  server {task.server_id}  looted {task.loot_count}/3"
+                      f"  server {task.server_id}  steal {task.loot_count}/3"
                       f"  family {task.family}  cfg {task.cfg_id}")
     except KeyboardInterrupt:
         pass
