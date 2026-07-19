@@ -111,7 +111,8 @@ class PcapStream:
 
 
 def capture(binary: str, iface: str, label: str, decoder: LiveDecoder,
-            bpf: str | None, stop: threading.Event, verbose: bool) -> None:
+            bpf: str | None, stop: threading.Event, verbose: bool,
+            registry: list | None = None) -> None:
     cmd = [binary, "-i", iface, "-P", "-w", "-"]
     if bpf:
         cmd += ["-f", bpf]
@@ -121,6 +122,15 @@ def capture(binary: str, iface: str, label: str, decoder: LiveDecoder,
         if verbose:
             print(f"{C_DIM}iface {iface}: {exc}{C_RESET}", file=sys.stderr)
         return
+
+    # The loop below blocks in `proc.stdout.read()`, which on a silent
+    # interface never returns — so setting `stop` cannot wake this thread and
+    # the `finally` never runs. The threads are daemons, so the interpreter
+    # exits anyway and leaves dumpcap.exe running on the Windows side, one per
+    # interface per run. Handing the process to the caller lets it do what
+    # probe_interfaces() already does: kill the capture engine to end the read.
+    if registry is not None:
+        registry.append(proc)
 
     from scapy.layers.l2 import Ether
 
@@ -172,6 +182,7 @@ class TaskListener:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._procs: list[subprocess.Popen] = []
         # Traffic counters. Without these a zero result is ambiguous — no map
         # data at all (the map was not scrolling) reads exactly the same as
         # map data that happened to contain no tasks, and the two call for
@@ -215,13 +226,15 @@ class TaskListener:
 
         decoder = _Collector()
         self._stop.clear()
+        self._procs = []
         # "tcp" is as narrow as the filter can safely go: the game endpoint is
         # not stable and is dialled without DNS, so the stream is recognised
         # by frame shape, not by address or port.
         self._threads = [
             threading.Thread(
                 target=capture,
-                args=(dumpcap, number, label, decoder, "tcp", self._stop, False),
+                args=(dumpcap, number, label, decoder, "tcp", self._stop, False,
+                      self._procs),
                 daemon=True,
             )
             for number, label in ifaces
@@ -231,6 +244,15 @@ class TaskListener:
 
     def stop(self) -> None:
         self._stop.set()
+        # Kill the capture engines first: that is what unblocks the reader
+        # threads. Joining before killing would just burn the timeout on
+        # every interface that happened to be quiet.
+        for proc in self._procs:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        self._procs = []
         for thread in self._threads:
             thread.join(timeout=2)
         self._threads = []
@@ -433,6 +455,10 @@ def main() -> int:
     ap.add_argument("--tshark", help="path to tshark.exe")
     ap.add_argument("--dumpcap", help="path to dumpcap.exe")
     ap.add_argument("--verbose", action="store_true", help="report per-interface errors")
+    ap.add_argument("--duration", type=int, default=0,
+                    help="stop after N seconds instead of waiting for Ctrl+C "
+                         "(needed for unattended runs — a piped stdin never "
+                         "delivers a KeyboardInterrupt)")
     ap.add_argument("--tasks", action="store_true",
                     help="decode only secret tasks (hero dispatch) off the map")
     ap.add_argument("--families", action="store_true",
@@ -483,11 +509,15 @@ def main() -> int:
     mode = "DISCOVER — listing every TCP flow" if args.discover else "decoding by frame shape"
     print(f"Last War live decoder via {os.path.basename(dumpcap)} — {mode}")
     print(f"interfaces: {len(targets)}   filter: {args.filter or 'none'}")
-    print(f"{C_DIM}Ctrl+C to stop{C_RESET}\n")
+    deadline = time.time() + args.duration if args.duration else 0
+    stop_hint = f"stopping after {args.duration}s" if args.duration else "Ctrl+C to stop"
+    print(f"{C_DIM}{stop_hint}{C_RESET}\n")
 
+    procs: list[subprocess.Popen] = []
     threads = [
         threading.Thread(target=capture,
-                         args=(dumpcap, number, label, decoder, args.filter, stop, args.verbose),
+                         args=(dumpcap, number, label, decoder, args.filter, stop,
+                               args.verbose, procs),
                          daemon=True)
         for number, label in targets
     ]
@@ -496,9 +526,23 @@ def main() -> int:
 
     try:
         while not stop.is_set():
+            if deadline and time.time() >= deadline:
+                break
             time.sleep(0.3)
     except KeyboardInterrupt:
+        pass
+    finally:
         stop.set()
+        # Without this the daemon threads die still blocked on a read and the
+        # dumpcap.exe children outlive the interpreter — they accumulate on
+        # the Windows side across runs until something kills them by name.
+        for proc in procs:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        for thread in threads:
+            thread.join(timeout=2)
 
     decoder.report()
     return 0
