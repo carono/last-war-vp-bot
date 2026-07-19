@@ -149,8 +149,34 @@ followed by a type-specific payload. All integers are **big-endian, signed**.
 
 Tags `0x06`/`0x07` are inferred from the numeric progression and have not been
 seen carrying a distinguishing value yet — treat as provisional. Every other
-tag is confirmed: across both captures the decoder consumes **100% of the
+tag is confirmed: across all three captures the decoder consumes **100% of the
 bytes of every reassembled game stream with zero unknown tags**.
+
+> **Do not trust the "unknown TLV tags" block in a live summary as evidence
+> that the protocol changed.** `unknown_tags` is a module-global counter bumped
+> at the `raise BadTag` site in `read_value()`. `iter_frames()` catches that
+> `BadTag`, discards the frame and resyncs to the next magic byte — but the
+> counter has already been incremented. So every misaligned frame the decoder
+> *rejects* still lands in the report, labelled as a format gap. `is_game()`
+> already guards against exactly this (it saves and restores the counter around
+> its probe); the resync path in `iter_frames()` does not.
+>
+> This is not hypothetical. `results/live_5min_run2.log` closed with ~20 tags
+> each at almost exactly ×4 — that suspicious uniformity is the resync scan, not
+> the game. The same tags reproduce from pure garbage:
+>
+> ```python
+> # a valid server header pointing at a body whose first byte is a bogus tag
+> frame = lambda b: bytes([0x80]) + len(b).to_bytes(2, "big") + b
+> stream = b"".join(frame(bytes([t]) + b"\x00" * 6) for t in (0x28, 0xB5, 0x82, 0xF7))
+> list(iter_frames(stream, "down"))   # -> [] : every frame dropped
+> unknown_tags                        # -> {40: 1, 181: 1, 130: 1, 247: 1}
+> ```
+>
+> Zero frames reached the caller, yet all four tags were reported as gaps. The
+> clean 5-minute capture C — 260 real frames — printed **no unknown-tag block at
+> all**, which is the actual signal. Before documenting a new tag, confirm it
+> appears in a frame that *decoded*.
 
 ## 4. Envelope
 
@@ -177,9 +203,20 @@ roughly every 4 s in both directions.
 
 ## 5. Command vocabulary
 
-Union of both captures — 33 distinct client commands. Still not exhaustive:
-capture B added 29 commands that capture A never showed, so each new activity
-surfaces more. Responses echo the request's command name.
+Union of three captures — 42 distinct client commands. Still not exhaustive:
+capture B added 29 commands that capture A never showed, and capture C added
+another 9, so each new activity surfaces more. Responses echo the request's
+command name.
+
+**Capture C** — a 5-minute unattended live session
+(`results/live_5min_run3.log`, 301 s, 7395 packets / 260 frames across 145
+half-streams, one game endpoint `3.33.246.23:17935`). Worth contrasting with
+the map-panning capture in `results/live_5min.log`: with the map idle, traffic
+collapses to keepalives and alliance pushes — 18 `world.get.block` in 5 minutes
+against 453 in under 2 minutes while scrolling. What an unattended capture
+surfaces is therefore whatever the *account* is doing (dailies firing, alliance
+events), not what the map is doing. Drive the client deliberately if you want
+map vocabulary.
 
 ### Client → server
 
@@ -236,6 +273,21 @@ continuously while the map scrolls (99 requests in 60 s in capture B).
 | `zwl.get.target.act.info`, `view.blood.night.act`, `center.throne.activity.info`, `bloody.queen.s1.rest.gain.city.occupation.rank.first.info` | event/activity status probes, mostly `serverId` |
 | *(keepalive)* | `clientTime` |
 
+**Added by capture C** (see below) — dailies, alliance training and social actions,
+none of which the earlier captures exercised:
+
+| Command | Parameters |
+|---|---|
+| `daily.quest.reward` | `stage` (`-1` = claim all) → `reward[]`, `rewardRate`, `rewardNum`, `stageArr[]` |
+| `daily.task.reward` | `taskId` → `reward[]`, `taskInfo[]` |
+| `gather.collect.reward` | `uuidArr[]` → `reward[]`, `collect_reward[]` |
+| `detect.event.get.card.box.list` | — → `cardBoxList[]`, `dailyDropTimes` |
+| `get.new.user.info` | `uid` → `serverId`, `uid`, `level`, `allianceId` (+51 fields — the fullest player record seen on the wire) |
+| `open.red.packet` | `serverId`, `uuid`, `cfgId` → `roomId` (`alliance_<serverId>_<allianceId>`) |
+| `thumbs.up` | `type` (61 observed) |
+| `train.batch.reward` | — → claims pending alliance-training rewards |
+| `train.record.batch.detail` | `info` (`"<uuid>;<serverId>"`) → `detailInfo[]` |
+
 ### Server → client
 
 Responses echo the request's command name. Pushes are unsolicited:
@@ -257,6 +309,10 @@ Responses echo the request's command name. Pushes are unsolicited:
 | `push.resource.item.update` | `resource_items[]` |
 | `push.batch.effect.change` | `reasons` |
 | `push.al.sign` | `signNum`, `allianceWageNum` |
+| `push.alliance.march.refresh` | `worldId`, `uuid`, `type` (+30 fields) — full restate of an allied march, not a delta |
+| `push.alliance.march.remove` | `teamUuid`, `isCancel` (distinguishes a recall from an arrival) |
+| `push.al.zombieRushPoint.change` | `allianceId` (+1) — fires in bursts during a Zombie Rush event |
+| `push.month.card.card.privilege` | *(no fields observed)* — bare notification |
 
 ## 6. Login sequence
 
@@ -737,6 +793,16 @@ and per-squad hero lists in nested LEN fields.
 - **Flag combinations `0xa0` (server+zlib) and `0xf4` (client+zstd)** are
   predicted by the bitfield but never observed; the decoder handles them, but
   that path is untested.
+- **The live summary's "unknown TLV tags" block over-reports** — it counts tags
+  from frames the decoder itself threw away during resync, and its wording
+  ("the protocol has changed, update docs/research/protocol.md") invites
+  writing fiction into this file. Mechanism and reproduction in §3. Fixing it
+  means either restoring the counter around the `BadTag` catch in
+  `iter_frames()` the way `is_game()` does, or only counting tags from frames
+  whose length field is corroborated by the next frame starting where this one
+  ended. Not done here — the report is misleading, not wrong-by-omission, and
+  the fix has a real trade-off: blanket suppression would also hide a genuine
+  new tag, since a real frame carrying one is discarded by the same path.
 
 Note on an earlier misreading: the frame header was once described as
 "8 bytes, K1 = payload[4], K2 = payload[3], mask by `i % 4`". That is wrong
