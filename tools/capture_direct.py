@@ -336,9 +336,19 @@ def main() -> int:
                           f"flush){C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
-                if task.uuid in reported:
+                # Keyed on what the line actually says, not on the uuid alone.
+                # `can_loot` and `pending` are recomputed against the clock, so
+                # a task walks PENDING -> LOOTABLE on its own; keying by uuid
+                # printed it once while still PENDING and then suppressed the
+                # LOOTABLE moment forever — the one line a raid decision needs.
+                # Loot count is in the key for the same reason: "steal 0/3" is
+                # a claim about the world that goes stale.
+                state = ("lootable" if task.can_loot
+                         else "pending" if task.pending else "seen")
+                key = (task.uuid, state, task.loot_count)
+                if key in reported:
                     continue
-                reported.add(task.uuid)
+                reported.add(key)
                 star = " *" if task.starred else "  "
                 # Owner uid matters most on starred tasks (whose base you are
                 # about to raid), so show it there.
@@ -358,7 +368,10 @@ def main() -> int:
         stop.set()
 
     everything = index.tasks
-    print(f"\n{len(everything)} task(s) seen, {len(reported)} matched the filter")
+    # reported holds (uuid, state, loot_count), so one task can appear under
+    # several keys as it changes; the count is of distinct tasks.
+    matched = len({uuid for uuid, _state, _loot in reported})
+    print(f"\n{len(everything)} task(s) seen, {matched} matched the filter")
     print(f"traffic: {index.delivered} delivered / {index.packets} with payload, "
           f"{index.blocks_seen} map response(s), {index.tiles_seen} tile(s), "
           f"kinds {dict(index.tile_kinds)}")
