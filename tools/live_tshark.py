@@ -176,8 +176,14 @@ class TaskListener:
     reason `script_engine.SCAN_SECRET_MISSIONS` can reach it at all.
     """
 
-    def __init__(self, interface: str | None = None) -> None:
+    def __init__(self, interface: str | None = None,
+                 tshark: str | None = None, dumpcap: str | None = None) -> None:
         self.interface = interface
+        # Without these the --tshark/--dumpcap flags parse but do nothing in
+        # --tasks mode, so a non-default Wireshark install reports "not found"
+        # and there is no way to talk the tool out of it.
+        self.tshark_path = tshark
+        self.dumpcap_path = dumpcap
         self._tasks: dict[int, object] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -203,10 +209,21 @@ class TaskListener:
                 f"protocol stack unavailable: {exc} — pip install scapy zstandard"
             ) from exc
 
-        tshark = find_binary("tshark.exe")
-        dumpcap = find_binary("dumpcap.exe") or tshark
+        tshark = find_binary("tshark.exe", self.tshark_path)
+        dumpcap = find_binary("dumpcap.exe", self.dumpcap_path) or tshark
         if not dumpcap or not tshark:
-            raise CaptureUnavailable("Wireshark not found — install it to capture")
+            missing = "tshark.exe" if not tshark else "dumpcap.exe"
+            override = "--tshark" if not tshark else "--dumpcap"
+            looked = ", ".join(WIRESHARK_DIRS)
+            # "not found" on its own sends people hunting for an install that
+            # is usually already there — the useful facts are which binary was
+            # missing, where it was looked for, and how to override that.
+            raise CaptureUnavailable(
+                f"{missing} not found. Looked in: {looked}. "
+                f"If Wireshark lives elsewhere, pass {override} <path>. "
+                f"Note this path is read from WSL, so it must be a /mnt/... "
+                f"path visible to this user."
+            )
 
         ifaces = list_interfaces(tshark)
         if not ifaces:
@@ -324,7 +341,8 @@ def watch_tasks(args) -> int:
     import lastwar_proto as proto
 
     try:
-        listener = TaskListener(interface=args.iface)
+        listener = TaskListener(interface=args.iface, tshark=args.tshark,
+                                dumpcap=args.dumpcap)
         listener.start()
     except CaptureUnavailable as exc:
         print(f"{C_ERR}cannot capture: {exc}{C_RESET}", file=sys.stderr)
