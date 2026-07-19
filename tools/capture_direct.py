@@ -248,10 +248,11 @@ def main() -> int:
                     help="how long to listen (default: until Ctrl+C)")
     ap.add_argument("--json", default=None,
                     help="checkpoint every task seen to this file, rewritten "
-                         "every --interval seconds (default: no file is written)")
+                         "on every tick (default: no file is written)")
     ap.add_argument("--interval", type=int, default=15,
-                    help="seconds between --json checkpoint flushes "
-                         "(default 15; lower it to watch the file update)")
+                    help="seconds between processing ticks — each one prints "
+                         "the progress line and rewrites --json if given "
+                         "(default 15; lower it for tests)")
     ap.add_argument("--level", type=int, help="only tasks of this level")
     ap.add_argument("--star", action="store_true",
                     help="only starred tasks (cfgId family 6000)")
@@ -313,24 +314,24 @@ def main() -> int:
     # None means run until interrupted, so every deadline test has to tolerate
     # not having one.
     deadline = time.time() + args.seconds if args.seconds else None
-    heartbeat = time.time()
-    # Tracked apart from the heartbeat: the flush period is the user's to set
-    # via --interval, while the progress line stays on its own 10s cadence.
-    last_flush = time.time()
+    # One timer for the whole periodic tick. Everything that works on the
+    # accumulated index rather than on a single freshly-arrived tile — the
+    # progress line and the checkpoint flush — happens here, on the period the
+    # user set. Splitting these apart is what made --interval look broken: the
+    # file honoured it while the progress line stayed on its own hardcoded 10s.
+    last_tick = time.time()
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
-            if time.time() - heartbeat >= 10:
-                heartbeat = time.time()
+            if time.time() - last_tick >= args.interval:
+                last_tick = time.time()
                 left = (f"…{int(deadline - time.time())}s left"
                         if deadline is not None else "…running")
                 print(f"{C_DIM}  {left} — "
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.tasks)} task(s){C_RESET}")
-            if args.json and time.time() - last_flush >= args.interval:
-                last_flush = time.time()
-                if not dump_tasks(index.records(), args.json):
+                if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
