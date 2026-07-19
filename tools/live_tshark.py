@@ -38,6 +38,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
 WIRESHARK_DIRS = (
@@ -45,12 +46,11 @@ WIRESHARK_DIRS = (
     "/mnt/c/Program Files (x86)/Wireshark",
 )
 
-# A tile the map has not re-sent for this long is dropped from the index: its
-# cached state is no longer verifiable, so serving it as raidable is the stale
-# false positive this guards against (a tile whose dispatch "completed" a day
-# ago still read can_loot=True). The map re-sends on-screen tiles as you pan,
-# so anything unseen for minutes is off-screen, not current.
-STALE_AFTER_SECONDS = 600
+# Freshness window for the task index, shared with capture_direct and the
+# reader via proto.TASK_FRESH_SECONDS so every layer agrees on "current": a
+# tile the map has not re-sent within it is off-screen and its cached state
+# unverifiable, so it is dropped rather than served as raidable.
+STALE_AFTER_SECONDS = proto.TASK_FRESH_SECONDS
 
 PCAP_MAGICS = {
     b"\xd4\xc3\xb2\xa1": ("<", 1_000_000),      # microsecond, little-endian

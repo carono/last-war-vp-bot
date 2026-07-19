@@ -397,6 +397,14 @@ MAX_LOOTERS = 3
 # surfaces those as `pending` so a raid can be lined up before the timer ends.
 PENDING_WINDOW_MS = 10 * 60 * 1000
 
+# A tile is only trustworthy while the map keeps re-sending it. Once it stops
+# (you panned away), its cached loot/dispatch state can no longer be verified
+# and reads exactly like a live one — the (159,90) false positive, still
+# can_loot=True a day after its dispatch "completed". So both the live index
+# and any reader of a checkpoint keep only tiles re-observed within this window.
+# The unit is wall-clock seconds on the capture host, not the game's ms clock.
+TASK_FRESH_SECONDS = 15 * 60
+
 # `cfgId` splits into a family prefix and a trailing `LLVV` (level, variant).
 # The prefix is not a fixed width, so it must be read from the right:
 #     400602   -> family "40",   level 6, variant 2
@@ -542,6 +550,26 @@ class SecretTask:
             "pending": self.pending, "starred": self.starred,
         }
 
+    @classmethod
+    def from_dict(cls, record: dict) -> "SecretTask":
+        """Rebuild a task from an as_dict() record — e.g. a checkpoint file.
+
+        Only the stored fields are restored; the time-relative properties
+        (can_loot, pending) are recomputed against the current clock when read,
+        never taken from the record, so a checkpoint written minutes ago is
+        re-evaluated rather than trusted frozen.
+        """
+        return cls(
+            uuid=record.get("uuid"), server_id=record.get("server_id"),
+            x=record.get("x"), y=record.get("y"), level=record.get("level"),
+            cfg_id=record.get("cfg_id"), family=record.get("family"),
+            looted_by=tuple(record.get("looted_by") or ()),
+            owner_uid=record.get("owner_uid"),
+            alliance_id=record.get("alliance_id"),
+            expires_at=record.get("expires_at"),
+            completed_at=record.get("completed_at"),
+        )
+
 
 def split_cfg_id(cfg_id) -> tuple[str, int, int]:
     """Return `(family, level, variant)` for a task cfgId.
@@ -639,6 +667,33 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
     # Least-looted first, then highest level — the order you would raid in.
     out.sort(key=lambda t: (t.loot_count, -t.level))
     return out
+
+
+def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
+                     now: float | None = None) -> list:
+    """Load a capture checkpoint, keeping only tiles re-seen this scan window.
+
+    A raid decision must ignore any tile last observed outside the current
+    window: its cached state is unverifiable and looks identical to a live one
+    (the (159,90) false positive — still raidable a day after its dispatch
+    "completed"). Each record carries `seen_at` (epoch seconds on the capture
+    host); records without it, or older than `max_age_seconds`, are dropped.
+    What survives comes back as `SecretTask` objects, so can_loot/pending are
+    recomputed against the current clock rather than trusted as written.
+
+    Accepts both the bare-list checkpoint and a ``{"tasks": [...]}`` wrapper.
+    """
+    now = time.time() if now is None else now
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    records = data.get("tasks") if isinstance(data, dict) else data
+    fresh = []
+    for record in records or ():
+        seen = record.get("seen_at")
+        if seen is None or now - seen > max_age_seconds:
+            continue
+        fresh.append(SecretTask.from_dict(record))
+    return fresh
 
 
 # --------------------------------------------------------------------------

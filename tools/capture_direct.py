@@ -52,14 +52,10 @@ from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
 GAME_PORT = 17935
 
-# A tile the map has not re-sent for this long is dropped from the index: we no
-# longer know its live state, and serving a day-old snapshot as raidable is
-# exactly the false positive this guards against — a tile whose dispatch
-# "completed" 24h ago still read can_loot=True because completed_at/expires_at
-# had not moved, while in game the task was long gone. The map re-sends every
-# tile on screen as you pan, so anything not seen in minutes is off-screen and
-# unverifiable, not current.
-STALE_AFTER_SECONDS = 600
+# Freshness window for the task index and its checkpoint, shared with the
+# reader (proto.load_fresh_tasks) so writer and reader agree on "current". See
+# proto.TASK_FRESH_SECONDS for why a tile not re-sent within it is untrustworthy.
+STALE_AFTER_SECONDS = proto.TASK_FRESH_SECONDS
 
 # Default sink for the live task index. The bot and any external poller read
 # from here, so it has a fixed home instead of needing --json on every run.
@@ -86,22 +82,15 @@ def check_platform() -> None:
     raise SystemExit(2)
 
 
-def dump_tasks(tasks: list, path: str) -> None:
-    """Write the task list to `path`, atomically.
+def dump_tasks(records: list, path: str) -> None:
+    """Write already-built task records to `path`, atomically.
 
     Called while the capture is still running so a reader can poll the file
     mid-session; the temp-file-and-rename keeps a poller from ever seeing a
     half-written file, and keeping the temp alongside the target keeps the
-    rename on one filesystem.
+    rename on one filesystem. Records come from `TaskIndex.records()`, each
+    carrying `seen_at` so `proto.load_fresh_tasks()` can drop stale ones.
     """
-    records = []
-    for t in tasks:
-        record = t.as_dict()
-        # `steal_count` is what the live view and the task brief call it; keep
-        # the `loot_count` alias too so nothing downstream that reads as_dict()
-        # breaks.
-        record["steal_count"] = record["loot_count"]
-        records.append(record)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -189,6 +178,30 @@ class TaskIndex(LiveDecoder):
                 self._tasks.pop(uuid, None)
                 self._seen_at.pop(uuid, None)
             return list(self._tasks.values())
+
+    def records(self) -> list:
+        """Fresh tasks as serialisable dicts, each stamped with `seen_at`.
+
+        `seen_at` (epoch seconds) is when the map last re-sent the tile, so a
+        reader can drop records it no longer trusts — see
+        `proto.load_fresh_tasks`. Eviction runs here too, so the file never
+        carries a tile already past the window.
+        """
+        cutoff = time.time() - self.stale_after
+        with self._index_lock:
+            for uuid in [u for u, seen in self._seen_at.items() if seen < cutoff]:
+                self._tasks.pop(uuid, None)
+                self._seen_at.pop(uuid, None)
+            out = []
+            for uuid, task in self._tasks.items():
+                record = task.as_dict()
+                # `steal_count` is what the live view and the task brief call
+                # it; keep the `loot_count` alias too so nothing that reads
+                # as_dict() breaks.
+                record["steal_count"] = record["loot_count"]
+                record["seen_at"] = int(self._seen_at.get(uuid, 0))
+                out.append(record)
+            return out
 
     def find(self, **criteria) -> list:
         return proto.filter_tasks(self.tasks, **criteria)
@@ -296,7 +309,7 @@ def main() -> int:
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.tasks)} task(s){C_RESET}")
                 if args.json:
-                    dump_tasks(index.tasks, args.json)
+                    dump_tasks(index.records(), args.json)
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
                 if task.uuid in reported:
@@ -344,8 +357,9 @@ def main() -> int:
               f"tiles) — pan over an area that has task markers.{C_RESET}")
 
     if args.json:
-        dump_tasks(everything, args.json)
-        print(f"{C_OK}wrote {len(everything)} task(s) to {args.json}{C_RESET}")
+        records = index.records()
+        dump_tasks(records, args.json)
+        print(f"{C_OK}wrote {len(records)} task(s) to {args.json}{C_RESET}")
     return 0
 
 
