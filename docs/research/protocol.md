@@ -125,6 +125,26 @@ held for 113/113 client frames.
 Worked example: masked `wo\x80ld.\x95et.\x90loc\x99` with `K1 = 0xf2` decodes to
 `world.get.block`.
 
+### Writing a client frame
+
+`tools/lastwar_encode.py` is the mirror of the decoder. Encoding order is
+**deflate, then mask** — the decoder unmasks before inflating, so the mask is
+the outermost layer on the wire. (The sentence above, "masked first, compressed
+second", describes the client's internal order and reads backwards as a wire
+description; the encoder follows the decoder, which is what round-trips.)
+
+The writer is verified against real traffic: `--verify` re-encodes every client
+frame of a capture and diffs the bytes — **603/603 byte-exact** across both
+saved captures, including the 4 zlib frames (compared by re-decoding, since
+zlib output is compressor-dependent). That check needs the *tags*, which
+`read_value()` throws away by collapsing four integer widths onto `int` and
+decoding strings lossily, so the module carries its own tag-preserving reader.
+
+`K1`/`K2` are free: 30 distinct pairs across 113 frames, so the client picks
+them per frame and they carry no state. The header's `serverId` stayed 935 in
+every frame of both captures — it is the account's **home** server, not the
+server being acted on; a cross-server action puts its target in the params.
+
 ## 3. TLV value encoding
 
 The body is one self-describing typed tree. A value is a 1-byte type tag
@@ -774,6 +794,15 @@ and per-squad hero lists in nested LEN fields.
   races **three** gateways on the same port 17935 and keeps one; there is no
   separate auth server and no separate chat server. The only genuinely distinct
   services are the asset CDN and the chat **translation** endpoint, both TLS.
+- **What does a rob request look like?** Unanswered, and not answerable from
+  what is here: the captured account never robbed anything, so no
+  `hero.dispatch.rob.*` — under that or any other name — appears in any
+  capture. The 153 client commands seen include only `hero.dispatch.list`,
+  `hero.dispatch.alliance.list` and `hero.dispatch.treasure.v2.get.info`. It
+  takes one live capture of a human robbing a task by hand:
+  `tools/trap_command.py --match hero.dispatch`, which also flags any command
+  outside the known vocabulary in case the name is nothing like the guess.
+  This is the blocker on task #882.
 - **Is `push.chat` ever seen for an outgoing DM?** No — only the request and
   its ack. Confirming the broadcast shape for a direct message needs a capture
   on the *receiving* account.

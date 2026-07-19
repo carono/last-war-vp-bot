@@ -36,7 +36,7 @@ models_cache/
 profiles/
 
 # Captured network traffic — may contain session tokens, never commit
-results/traffic_*.jsonl
+results/*.jsonl
 results/analysis_*.json
 results/transcript*.json
 results/*.transcript.json

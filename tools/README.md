@@ -22,6 +22,8 @@ Background and the go/no-go reasoning live in
 | `unity_ssl_unpin.js` | **Windows** (Frida) | dump TLS plaintext from Unity BoringSSL |
 | `analyze_pcap.py` | **WSL** (Python) | superseded — use `lastwar_proto.py` |
 | `lastwar_proto.py` | **WSL** (Python) | decode a saved `.pcapng` — the reference decoder |
+| `lastwar_encode.py` | **WSL** (Python) | build client frames — the mirror of the decoder |
+| `trap_command.py` | **WSL** (Python) | record a command the captures have never shown |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
@@ -165,9 +167,57 @@ IDA/Ghidra and fill in the offsets at the top of the script.
 if `protoc` is installed. To recover real field *names*, dump the `.proto` from
 `GameAssembly.dll` with Il2CppDumper (playbook §5).
 
+## Encoding a client frame (task #882)
+
+`lastwar_encode.py` is the writer half of the protocol: TLV serialiser, XOR
+mask, zlib, and the 5-byte client header. It is verified against reality rather
+than against itself — `--verify` re-encodes every client frame of a saved
+capture and diffs the bytes:
+
+```bash
+python3 tools/lastwar_encode.py --verify capture.pcapng          # 113/113
+python3 tools/lastwar_encode.py --verify results/capture.pcapng  # 490/490
+```
+
+603 frames, byte-exact, including the 4 zlib-compressed ones (those are
+compared by re-decoding, since zlib output depends on the compressor). Building
+a request:
+
+```python
+from lastwar_encode import build_request
+frame = build_request("hero.dispatch.list", {}, server_id=935, k1=0x5a, k2=0x00)
+```
+
+`k1`/`k2` are free choices — they vary per frame in every capture (30 distinct
+pairs in 113 frames) and ship in the clear. The header's `serverId` is the
+account's **home** server (935 throughout), not the server being acted on.
+
+**This module only builds bytes; nothing here opens a socket.** Sending is
+active protocol work — see the warning at the top of this file and
+`protocol.md` §10.
+
+### Catching a command that has never been captured
+
+The rob request behind task #882 is in no capture, because the captured account
+never robbed anything. `trap_command.py` listens live and records it the one
+time a human does it by hand:
+
+```bash
+python3 tools/trap_command.py --match hero.dispatch --seconds 300
+# …then rob a secret task in the game
+```
+
+It writes matching envelopes to `results/trap.jsonl` and **also flags any
+command outside `known_commands.txt`** — a 332-entry `<dir> <command>` baseline
+built from the saved transcripts. That second net matters because
+`hero.dispatch.rob.*` is a guess at the name; whatever the command is really
+called, "never seen before" catches it. Direction is part of the key: without
+it all 179 server pushes read as new and bury the one interesting line.
+
 ## Output layout
 ```
 results/
+├── trap.jsonl              # trapped envelopes (trap_command.py)
 ├── traffic_<ts>.jsonl      # one JSON record per HTTP flow / WS frame (mitm addon)
 ├── analysis_<ts>.json      # offline pcap analysis
 └── raw/                     # raw request/response bodies (*.bin)
