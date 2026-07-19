@@ -639,12 +639,20 @@ def secret_tasks(payload: dict):
 def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
                  min_free_slots=None, exclude_alliance=None,
                  pending=False) -> list:
-    """Narrow a task list. Criteria are ANDed; None/False means "any".
+    """Narrow a task list. None/False means "any".
+
+    Criteria from *different* dimensions are ANDed, but `can_loot` and
+    `pending` are two values of one dimension — raid readiness — so asking for
+    both means "either". They are disjoint by construction (`can_loot` needs
+    `completed_at` already past, `pending` needs it just ahead), so ANDing them
+    matched nothing at all and the caller simply went quiet. Everything else
+    still narrows: `--star --level 7 --can-loot --pending` reads as starred AND
+    level 7 AND (raidable now OR about to be).
 
     `can_loot` keeps only tasks that are raidable right now — dispatch
     completed, not expired, and a slot free (see `SecretTask.can_loot`).
     `pending` keeps only tasks about to become raidable — dispatch finishing
-    within ~10 minutes (see `SecretTask.pending`). The two are disjoint.
+    within ~10 minutes (see `SecretTask.pending`).
     `min_free_slots` is a stricter *slot* count (3 = untouched) and does not by
     itself imply raidable. `exclude_alliance` drops your own alliance's tasks,
     which you cannot loot from.
@@ -655,10 +663,11 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
             continue
         if star_only and not t.starred:
             continue
-        if can_loot and not t.can_loot:
-            continue
-        if pending and not t.pending:
-            continue
+        if can_loot or pending:
+            # Only the requested states count towards the match, so asking for
+            # one behaves exactly as before.
+            if not ((can_loot and t.can_loot) or (pending and t.pending)):
+                continue
         if min_free_slots is not None and t.free_slots < min_free_slots:
             continue
         if exclude_alliance is not None and t.alliance_id == exclude_alliance:

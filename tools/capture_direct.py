@@ -261,7 +261,8 @@ def main() -> int:
                          "slot free)")
     ap.add_argument("--pending", action="store_true",
                     help="only tasks about to become raidable (dispatch "
-                         "finishing within ~10 min)")
+                         "finishing within ~10 min); combine with --can-loot "
+                         "for either")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just %d — use if the "
                          "game ever moves off it" % GAME_PORT)

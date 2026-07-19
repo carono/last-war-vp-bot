@@ -557,7 +557,8 @@ def main() -> int:
                          "not expired, slot free)")
     ap.add_argument("--pending", action="store_true",
                     help="with --tasks: only tasks about to become raidable "
-                         "(dispatch finishing within ~10 min)")
+                         "(dispatch finishing within ~10 min); combine with "
+                         "--can-loot for either")
     ap.add_argument("--json", help="with --tasks: write every task seen to this file")
     args = ap.parse_args()
 
