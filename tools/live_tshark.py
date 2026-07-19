@@ -451,8 +451,23 @@ def watch_tasks(args) -> int:
         print("\ncfgId families — compare these with the stars on screen:")
         tally = Counter(t.family for t in everything)
         for family, count in sorted(tally.items()):
-            mark = ("  <- currently read as STARRED"
-                    if family in proto.STAR_TASK_FAMILIES else "")
+            # Read off the `starred` property, not the family set: family
+            # "6000" holds both real stars and the unstarred `99` class, so a
+            # family-level verdict would misreport exactly the case this
+            # tally exists to check.
+            starred = sum(1 for t in everything
+                          if t.family == family and t.starred)
+            special = sum(1 for t in everything
+                          if t.family == family and t.is_special)
+            if starred and special:
+                mark = (f"  <- {starred} read as STARRED, "
+                        f"{special} excluded as the 99 class")
+            elif starred:
+                mark = "  <- currently read as STARRED"
+            elif special:
+                mark = f"  <- all {special} are the 99 class, not starred"
+            else:
+                mark = ""
             print(f"  family {family:<5} {count:>4} task(s){mark}")
             spots = [f"({t.x},{t.y})" for t in everything if t.family == family]
             print(f"    at {' '.join(spots[:12])}{' …' if len(spots) > 12 else ''}")

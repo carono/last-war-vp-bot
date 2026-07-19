@@ -452,13 +452,31 @@ SPECIAL_TASK_LEVEL = 99
 # family "6000", level 4 — so the family does span level 4 after all; the old
 # note stood only because no such tile had been seen, not because none exist.
 #
-# Level 99 is excluded from the concern above: those are internal
-# one-per-player tasks that the UI does not draw, so they cannot be the
-# starred markers a player sees.
+# The `99` class is excluded from the star, and that exclusion is now a
+# sighting rather than an inference. This note used to argue that level 99
+# "the UI does not draw, so they cannot be the starred markers a player sees".
+# The first half is wrong: on 2026-07-19 the maintainer watched a family-"6000"
+# tile with `cfgId 60009902` — level 99 by the cfgId — render on screen as a
+# seasonal oil-barrel task, shown at level 6 in the UI and carrying **no star**.
+# So the UI does draw them; it just draws them unstarred, under a level of its
+# own that the cfgId does not agree with.
 #
-# This constant is the single place the rule lives. To re-test it, run
-# `live_tshark.py --tasks --families` and compare the tally with the stars
-# actually drawn on that patch of map.
+# The conclusion therefore survives its broken premise, and the family test
+# alone over-reports: in the captures of that day 113 of 189 starred lines —
+# 60% — were level 99, none of them ever confirmed by eye. Both by-eye
+# confirmations on record (`60000701` level 7, `60000401` level 4) are outside
+# the class, so excluding it costs no confirmed star.
+#
+# Two things this does NOT settle, for whoever picks it up next:
+#   * whether every `99` tile is unstarred, or only this seasonal type. One
+#     sighting cannot tell those apart;
+#   * what the UI level means when it disagrees with the cfgId (6 vs 99).
+#     Until that is understood, `level` on a `99` task is the wire's number,
+#     not the player's.
+#
+# This constant plus `SecretTask.starred` are the only places the rule lives.
+# To re-test, run `live_tshark.py --tasks --families` and compare the tally
+# with the stars actually drawn on that patch of map.
 STAR_TASK_FAMILIES = frozenset({"6000"})
 
 
@@ -530,8 +548,12 @@ class SecretTask:
 
     @property
     def starred(self) -> bool:
-        """Drawn with a star on the map — see STAR_TASK_FAMILIES."""
-        return self.family in STAR_TASK_FAMILIES
+        """Drawn with a star on the map — see STAR_TASK_FAMILIES.
+
+        The `99` class is excluded: family alone over-reports. See the note by
+        STAR_TASK_FAMILIES for the sighting that settled it.
+        """
+        return self.family in STAR_TASK_FAMILIES and not self.is_special
 
     @property
     def is_special(self) -> bool:

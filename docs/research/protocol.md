@@ -663,7 +663,7 @@ tile and as a `hero.dispatch.*` record, `len(f10.f4)` equalled
 `len(stealInfoList)` **48/48**, and the cfgIds matched. So free loot slots are
 readable off the map with no OCR and no panel opening.
 
-#### The star — family `6000`
+#### The star — family `6000`, excluding the `99` class
 
 Some task markers are drawn with a star, and those are the ones worth raiding.
 **No field distinguishes them.** Every captured tile carries the identical
@@ -686,18 +686,37 @@ Two caveats, so the strength of this is not overstated later:
 * "Nothing contradicted it" is weaker than it sounds. No tile's star was ever
   checked by eye except the shared one, so a contradiction had no route to
   surface. The 271 tiles are *consistent with* the rule, not a test of it.
-* **One observation still does not fit.** The maintainer reported a starred
-  **level-4** task at (574, 624) on server 999. Family `6000` holds no level-4
-  task in any capture — its levels are 5, 7 and the `99` class — while level 4
-  does appear in families `5000` and `40`. That tile was never captured, so it
-  is unexplained rather than refuting. If the star filter ever misbehaves on
-  low-level tasks, start here.
+* ~~One observation still does not fit.~~ **Resolved.** The maintainer had
+  reported a starred **level-4** task at (574, 624) on server 999 and noted
+  family `6000` held no level-4 tile in any capture. The 2026-07-19 run
+  captured `cfgId 60000401` — family `6000`, level 4 — so the family does span
+  level 4. The note stood only because no such tile had been seen.
 
-Level `99` does not muddy this: those are internal one-per-player tasks the UI
-does not draw, so they cannot be the starred markers a player sees.
+The `99` class is **excluded from the star**, and since 2026-07-19 that is a
+sighting rather than an inference. This section used to argue that level `99`
+tiles are "internal one-per-player tasks the UI does not draw, so they cannot
+be the starred markers a player sees". **The premise is wrong.** The maintainer
+watched a family-`6000` tile with `cfgId 60009902` — level 99 by the cfgId —
+render on screen as a seasonal oil-barrel task, displayed at **level 6** in the
+UI and carrying **no star**. The UI does draw these; it draws them unstarred,
+under a level of its own that the cfgId contradicts.
 
-The rule lives in exactly one constant, `STAR_TASK_FAMILIES` in
-`tools/lastwar_proto.py`. To re-test it, run
+The conclusion outlived its premise, and family alone demonstrably over-reports:
+in that day's captures **113 of 189 starred lines — 60% — were level 99**, none
+ever confirmed by eye, while both by-eye confirmations on record (`60000701`
+level 7, `60000401` level 4) sit outside the class. Excluding it costs no
+confirmed star.
+
+Two things this does not settle:
+
+* whether *every* `99` tile is unstarred or only this seasonal type — one
+  sighting cannot separate those;
+* what the UI level means when it disagrees with the cfgId (6 vs 99). Until
+  that is understood, `level` on a `99` task is the wire's number, not the
+  player's.
+
+The rule lives in `STAR_TASK_FAMILIES` plus `SecretTask.starred` (which applies
+the `99` exclusion) in `tools/lastwar_proto.py`. To re-test it, run
 `tools/live_tshark.py --tasks --families` and compare the tally with the stars
 actually drawn on that patch of map.
 
