@@ -28,6 +28,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -328,6 +329,20 @@ class TaskListener:
         return self.find(**criteria)
 
 
+def dump_tasks(tasks: list, path: str) -> None:
+    """Write the task list to `path`, atomically.
+
+    Called repeatedly while the capture runs, so a reader can poll the file
+    mid-session. Writing in place would let a reader catch a half-written
+    file; writing to a sibling and renaming makes the swap atomic, and keeping
+    the temp file in the same directory keeps the rename on one filesystem.
+    """
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump([t.as_dict() for t in tasks], fh, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
 def watch_tasks(args) -> int:
     """`--tasks` mode: stream secret tasks, optionally tally cfgId families.
 
@@ -339,6 +354,13 @@ def watch_tasks(args) -> int:
     which is the only place the assumption lives.
     """
     import lastwar_proto as proto
+
+    # Redirected to a file, stdout is block-buffered, so a run that is watched
+    # via `tail -f` shows nothing for minutes and reads as hung.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
     try:
         listener = TaskListener(interface=args.iface, tshark=args.tshark,
@@ -367,6 +389,11 @@ def watch_tasks(args) -> int:
                 print(f"{C_DIM}  …{left}s left — {listener.blocks_seen} map "
                       f"response(s), {listener.tiles_seen} tile(s), "
                       f"{len(listener.tasks)} task(s){C_RESET}")
+                # Checkpoint on the same beat. A long run used to hold every
+                # task in memory until it ended, so killing it — the usual way
+                # an hour-long capture is cut short — threw away the lot.
+                if args.json:
+                    dump_tasks(listener.tasks, args.json)
             for task in listener.find(level=args.level, star_only=args.star,
                                       can_loot=args.can_loot):
                 if task.uuid in reported:
@@ -405,9 +432,7 @@ def watch_tasks(args) -> int:
         print(f"\nlevels seen: {dict(sorted(Counter(t.level for t in everything).items()))}")
 
     if args.json:
-        with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump([t.as_dict() for t in everything], fh,
-                      indent=2, ensure_ascii=False)
+        dump_tasks(everything, args.json)
         print(f"\nwrote {len(everything)} task(s) to {args.json}")
     return 0
 
@@ -458,7 +483,21 @@ def probe_interfaces(dumpcap: str, ifaces, seconds: int) -> dict[str, int]:
     return counts
 
 
+def _terminate(_signum, _frame):
+    """Turn SIGTERM into the exception the cleanup paths already handle.
+
+    Python's default SIGTERM handling tears the interpreter down without
+    unwinding, so the `finally` blocks that kill the capture engines never
+    run — and a background run is normally stopped with exactly that signal.
+    Raising in the main thread, which is always the one parked in the sleep
+    loop, routes it through the same cleanup as Ctrl+C.
+    """
+    raise KeyboardInterrupt
+
+
 def main() -> int:
+    signal.signal(signal.SIGTERM, _terminate)
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
