@@ -52,6 +52,15 @@ from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
 GAME_PORT = 17935
 
+# A tile the map has not re-sent for this long is dropped from the index: we no
+# longer know its live state, and serving a day-old snapshot as raidable is
+# exactly the false positive this guards against — a tile whose dispatch
+# "completed" 24h ago still read can_loot=True because completed_at/expires_at
+# had not moved, while in game the task was long gone. The map re-sends every
+# tile on screen as you pan, so anything not seen in minutes is off-screen and
+# unverifiable, not current.
+STALE_AFTER_SECONDS = 600
+
 # Default sink for the live task index. The bot and any external poller read
 # from here, so it has a fixed home instead of needing --json on every run.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -109,9 +118,13 @@ class TaskIndex(LiveDecoder):
     newer loot list, which is the one a raid decision should use.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, stale_after: float = STALE_AFTER_SECONDS) -> None:
         super().__init__()
+        self.stale_after = stale_after
         self._tasks: dict[int, proto.SecretTask] = {}
+        # Wall-clock of the last time the map re-sent each task, so stale ones
+        # can be evicted rather than served as if still live.
+        self._seen_at: dict[int, float] = {}
         self._index_lock = threading.Lock()
         # A zero result is ambiguous without these: no map data at all reads
         # exactly like map data that held no tasks, and the two call for
@@ -163,12 +176,18 @@ class TaskIndex(LiveDecoder):
             self.blocks_seen += 1
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
+            now = time.time()
             for task in found:
                 self._tasks[task.uuid] = task
+                self._seen_at[task.uuid] = now
 
     @property
     def tasks(self) -> list:
+        cutoff = time.time() - self.stale_after
         with self._index_lock:
+            for uuid in [u for u, seen in self._seen_at.items() if seen < cutoff]:
+                self._tasks.pop(uuid, None)
+                self._seen_at.pop(uuid, None)
             return list(self._tasks.values())
 
     def find(self, **criteria) -> list:
@@ -213,7 +232,11 @@ def main() -> int:
     ap.add_argument("--star", action="store_true",
                     help="only starred tasks (cfgId family 6000)")
     ap.add_argument("--can-loot", action="store_true",
-                    help="only tasks with a free loot slot")
+                    help="only tasks raidable now (dispatch done, not expired, "
+                         "slot free)")
+    ap.add_argument("--pending", action="store_true",
+                    help="only tasks about to become raidable (dispatch "
+                         "finishing within ~10 min)")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just %d — use if the "
                          "game ever moves off it" % GAME_PORT)
@@ -275,14 +298,23 @@ def main() -> int:
                 if args.json:
                     dump_tasks(index.tasks, args.json)
             for task in index.find(level=args.level, star_only=args.star,
-                                   can_loot=args.can_loot):
+                                   can_loot=args.can_loot, pending=args.pending):
                 if task.uuid in reported:
                     continue
                 reported.add(task.uuid)
                 star = " *" if task.starred else "  "
+                # Owner uid matters most on starred tasks (whose base you are
+                # about to raid), so show it there.
+                owner = f"  owner {task.owner_uid}" if task.starred else ""
+                if task.pending:
+                    tag = f"  {C_OK}PENDING{C_RESET}"
+                elif task.can_loot:
+                    tag = f"  {C_OK}LOOTABLE{C_RESET}"
+                else:
+                    tag = ""
                 print(f"{star} lvl {task.level:>2}  ({task.x:>4},{task.y:>4})"
                       f"  server {task.server_id}  steal {task.loot_count}/3"
-                      f"  family {task.family}  cfg {task.cfg_id}")
+                      f"  family {task.family}  cfg {task.cfg_id}{owner}{tag}")
     except KeyboardInterrupt:
         pass
     finally:

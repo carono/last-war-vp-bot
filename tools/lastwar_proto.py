@@ -392,6 +392,11 @@ def _resync(stream: bytes, pos: int, magics) -> int:
 # in both.
 MAX_LOOTERS = 3
 
+# Once a dispatch is within this long of finishing, the game draws a countdown
+# with a loot button — the tile is not raidable yet but is about to be. A scan
+# surfaces those as `pending` so a raid can be lined up before the timer ends.
+PENDING_WINDOW_MS = 10 * 60 * 1000
+
 # `cfgId` splits into a family prefix and a trailing `LLVV` (level, variant).
 # The prefix is not a fixed width, so it must be read from the right:
 #     400602   -> family "40",   level 6, variant 2
@@ -500,6 +505,22 @@ class SecretTask:
         return self.free_slots > 0
 
     @property
+    def pending(self) -> bool:
+        """Not raidable yet, but its dispatch finishes within ~10 minutes.
+
+        At that point the game shows a countdown with a loot button, so a scan
+        flags the tile as imminent rather than hiding it. Mutually exclusive
+        with `can_loot`: that one needs `completed_at` already in the past,
+        this one needs it in the near future. `expires_at` (the tile's daily
+        map-expiry) still has to be ahead or the tile is already gone.
+        """
+        now = int(time.time() * 1000)
+        if self.expires_at is not None and self.expires_at <= now:
+            return False
+        return (self.completed_at is not None
+                and now < self.completed_at <= now + PENDING_WINDOW_MS)
+
+    @property
     def starred(self) -> bool:
         """Drawn with a star on the map — see STAR_TASK_FAMILIES."""
         return self.family in STAR_TASK_FAMILIES
@@ -518,7 +539,7 @@ class SecretTask:
             "alliance_id": self.alliance_id, "expires_at": self.expires_at,
             "completed_at": self.completed_at, "loot_count": self.loot_count,
             "free_slots": self.free_slots, "can_loot": self.can_loot,
-            "starred": self.starred,
+            "pending": self.pending, "starred": self.starred,
         }
 
 
@@ -588,11 +609,14 @@ def secret_tasks(payload: dict):
 
 
 def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
-                 min_free_slots=None, exclude_alliance=None) -> list:
+                 min_free_slots=None, exclude_alliance=None,
+                 pending=False) -> list:
     """Narrow a task list. Criteria are ANDed; None/False means "any".
 
     `can_loot` keeps only tasks that are raidable right now — dispatch
     completed, not expired, and a slot free (see `SecretTask.can_loot`).
+    `pending` keeps only tasks about to become raidable — dispatch finishing
+    within ~10 minutes (see `SecretTask.pending`). The two are disjoint.
     `min_free_slots` is a stricter *slot* count (3 = untouched) and does not by
     itself imply raidable. `exclude_alliance` drops your own alliance's tasks,
     which you cannot loot from.
@@ -604,6 +628,8 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
         if star_only and not t.starred:
             continue
         if can_loot and not t.can_loot:
+            continue
+        if pending and not t.pending:
             continue
         if min_free_slots is not None and t.free_slots < min_free_slots:
             continue
