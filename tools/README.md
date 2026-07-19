@@ -24,6 +24,7 @@ Background and the go/no-go reasoning live in
 | `lastwar_proto.py` | **WSL** (Python) | decode a saved `.pcapng` — the reference decoder |
 | `lastwar_encode.py` | **WSL** (Python) | build client frames — the mirror of the decoder |
 | `trap_command.py` | **WSL** (Python) | record a command the captures have never shown |
+| `steal_via_socket.py` | **Windows** (Python) | feasibility harness for duplicating the client socket — see [`../docs/research/socket-duplication.md`](../docs/research/socket-duplication.md) |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
