@@ -298,7 +298,18 @@ class LiveDecoder:
 
     def handle(self, pkt, iface: str | None) -> None:
         from scapy.layers.inet import IP, TCP  # local import keeps startup fast
+        from scapy.layers.l2 import Ether
 
+        # npcap reports linktype 1 (Ethernet) but scapy sometimes fails to map
+        # it and hands back an unparsed Packet with no IP/TCP layer, which would
+        # be silently dropped here — the whole capture then decodes nothing.
+        # Re-parse the raw bytes as Ethernet ourselves, exactly as the dumpcap
+        # path in live_tshark.py already does with Ether(raw).
+        if not pkt.haslayer(IP):
+            try:
+                pkt = Ether(bytes(pkt))
+            except Exception:
+                return
         if not (pkt.haslayer(IP) and pkt.haslayer(TCP)):
             return
         tcp, ip = pkt[TCP], pkt[IP]

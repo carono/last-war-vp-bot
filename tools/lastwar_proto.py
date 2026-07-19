@@ -30,6 +30,7 @@ import json
 import re
 import struct
 import sys
+import time
 import zlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -420,19 +421,23 @@ SPECIAL_TASK_LEVEL = 99
 #   * an unstarred task at (469, 659) matched a tile with `cfgId 50000704`
 #     — family "5000". From a dataset outside this repo, not reproduced here;
 #   * across 271 live tiles nothing contradicted the reading.
+#   * a 2026-07-19 live run (`--tasks --families`, server 935, 32 tasks) re-
+#     captured `cfgId 60000701` — the exact family-"6000" cfgId the maintainer
+#     had confirmed starred by hand — and never split a family across the star.
 #
-# Two caveats a future reader should not have to rediscover:
+# One caveat a future reader should not have to rediscover:
 #
 #   * "nothing contradicted it" is weaker than it sounds. No tile's star was
-#     ever checked by eye except the shared one, so a contradiction had no
-#     way to surface. The 271 tiles are consistent with the rule, not a test
-#     of it.
-#   * one observation still does not fit. The maintainer reported a *starred
-#     level-4* task at (574, 624) on server 999. Family "6000" holds no
-#     level-4 task in any capture — its levels are 5, 7 and the 99 class —
-#     while level 4 does appear in families "5000" and "40". That tile was
-#     never captured, so it is unexplained rather than refuting; if the star
-#     filter ever misbehaves on low-level tasks, start here.
+#     ever checked by eye except the one shared into chat, so a contradiction
+#     between an on-screen star and the family had no way to surface. The live
+#     tiles are consistent with the rule, not an independent by-eye test of it;
+#     the only ground truth for the star is visual, so that check stays manual.
+#
+# A prior caveat is now resolved. The maintainer had once reported a *starred
+# level-4* task and noted family "6000" held no level-4 tile in any capture,
+# which read as unexplained. The 2026-07-19 run captured `cfgId 60000401` —
+# family "6000", level 4 — so the family does span level 4 after all; the old
+# note stood only because no such tile had been seen, not because none exist.
 #
 # Level 99 is excluded from the concern above: those are internal
 # one-per-player tasks that the UI does not draw, so they cannot be the
@@ -469,7 +474,29 @@ class SecretTask:
 
     @property
     def can_loot(self) -> bool:
-        """At least one of the three loot slots is still open."""
+        """Raidable right now — which a free loot slot alone does not prove.
+
+        Confirmed against three tiles the maintainer checked by eye on server
+        1003: (442,413) could be raided, while (440,409) and (386,381) could
+        not despite reading 0/3 looted. What separates them is the owner's
+        dispatch state, not the loot count:
+
+          * `completed_at` (f3) is when the owner's dispatch finishes. While it
+            is still running the tile shows "ещё выполняется" and cannot be
+            raided even at 0/3 — so the dispatch must have completed, i.e.
+            `completed_at` is set and no longer in the future.
+          * `expires_at` (f8) is when the tile leaves the map; a past value
+            means it is already gone.
+          * a loot slot must still be free (a 3/3 tile is spent).
+
+        Both timestamps are epoch milliseconds on the game's clock, so they are
+        compared against wall-clock now.
+        """
+        now = int(time.time() * 1000)
+        if self.completed_at is None or self.completed_at > now:
+            return False
+        if self.expires_at is not None and self.expires_at <= now:
+            return False
         return self.free_slots > 0
 
     @property
@@ -564,9 +591,11 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
                  min_free_slots=None, exclude_alliance=None) -> list:
     """Narrow a task list. Criteria are ANDed; None/False means "any".
 
-    `can_loot` keeps tasks with at least one free slot of the three;
-    `min_free_slots` is the stricter form (3 = untouched). `exclude_alliance`
-    drops your own alliance's tasks, which you cannot loot from.
+    `can_loot` keeps only tasks that are raidable right now — dispatch
+    completed, not expired, and a slot free (see `SecretTask.can_loot`).
+    `min_free_slots` is a stricter *slot* count (3 = untouched) and does not by
+    itself imply raidable. `exclude_alliance` drops your own alliance's tasks,
+    which you cannot loot from.
     """
     out = []
     for t in tasks:

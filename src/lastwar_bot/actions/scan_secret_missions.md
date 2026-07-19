@@ -15,7 +15,11 @@
 # Filters (all optional, any order):
 #   LEVEL n       task level, read from cfgId
 #   STAR          only starred tasks (cfgId family 6000), see lastwar_proto.py
-#   CAN_LOOT      at least one of the three loot slots still free
+#   CAN_LOOT      raidable now: the owner's dispatch has completed
+#                 (completed_at set and past), the tile has not expired
+#                 (expires_at in the future), and a loot slot is still free.
+#                 A tile can read 0/3 looted and still be un-raidable while its
+#                 dispatch is "ещё выполняется" — see lastwar_proto.py.
 #   FREE_SLOTS n  stricter: at least n of the three free (3 = untouched)
 #   WITHIN ns     how long to listen; returns early on the first match
 
