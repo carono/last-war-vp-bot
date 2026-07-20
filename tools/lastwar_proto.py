@@ -1038,6 +1038,280 @@ def player_remarks(payload: dict):
         yield (str(target), text or None, entry.get("lastUpdateTime"))
 
 
+# --------------------------------------------------------------------------
+# Leaderboards: the ranking screens, as the server sends them
+# --------------------------------------------------------------------------
+#
+# Opening a ranking in the client makes it ask one command and the whole board
+# comes back in one reply — a list of dicts, one per player, each carrying at
+# least a uid and a name. No paging was ever seen: `al.rank` returned all 99
+# members and `champion.duel.result.show.rank.list` all 32 duellists in a
+# single frame.
+#
+# **The field called `rank` is not always the position.** That is the one trap
+# here, and it is not theoretical:
+#
+#   * in `champion.duel.result.show.rank.list` it is the position — the 32
+#     entries carried exactly 1..32, in order;
+#   * in `al.rank` it is the alliance *role* (R1..R5) — 99 entries carried
+#     {3: 86, 4: 10, 1: 2, 5: 1}, and the list is in no sorted order at all
+#     (not by power, not by weekly or daily donation). That board is really
+#     the roster; the client sorts it locally by whichever column you picked,
+#     so the position you see on screen was never on the wire.
+#
+# So a position is only ever reported when the candidate field actually is one
+# — `is_position_sequence()` checks that before anything is believed — and is
+# left None otherwise rather than guessed from the order of the list. The
+# index within the reply is kept separately as `list_index`, which is a fact
+# about the frame rather than a claim about the ranking.
+#
+# Two boards are described below because two are what the captures hold.
+# Every other ranking screen is found by shape instead (see
+# `discover_leaderboards`), so opening one the table has never seen still
+# collects it.
+LEADERBOARD_SCORE_FIELDS = (
+    "score", "point", "points", "integral", "exp", "value", "num",
+    "killNum", "armyKill", "weeklyProgress", "todayProgress", "power",
+)
+
+
+@dataclass(slots=True)
+class Leaderboard:
+    """Where the entries live in one ranking reply, and what they mean.
+
+    `position` and `score` name the fields on an entry; either may be None
+    when the board carries no such column.
+    """
+    command: str
+    list_key: str
+    label: str
+    position: str | None = None
+    score: str | None = None
+    score_label: str | None = None
+    server: str = "serverId"
+    alliance: str | None = None
+
+
+LEADERBOARDS = {
+    board.command: board
+    for board in (
+        Leaderboard(
+            command="al.rank",
+            list_key="list",
+            label="alliance roster",
+            # Deliberately not "rank": see the note above — it is the R1..R5
+            # role, and reading it as a position would number 86 of 99 members
+            # third.
+            position=None,
+            score="weeklyProgress",
+            score_label="weekly donation",
+            alliance=None,
+        ),
+        Leaderboard(
+            command="champion.duel.result.show.rank.list",
+            list_key="rank",
+            label="champion duel",
+            position="rank",
+            score=None,
+            server="server",
+            alliance="allianceName",
+        ),
+    )
+}
+
+# Commands whose replies carry a list of named players with a power or rank
+# field, and which are *not* rankings — every one confirmed against the saved
+# captures. Without this the shape test below claims them: a march's
+# `plunderRecord` is a battle report, `get.user.info.multi` is the answer to a
+# click, and the two activity rosters are sign-up sheets in no order.
+NOT_LEADERBOARDS = frozenset({
+    PROFILE_COMMAND, REMARK_COMMAND, "world.get.block", "init",
+    "world.get.march.infos", "push.world.march.new",
+    "push.world.march.world.get.new", "train.list",
+    "get.alliance.world.mark.info", "dragon.assign.player.info",
+    "quarantine.act.player.list",
+})
+
+# How many entries a list needs before its shape is taken as a ranking. Three
+# is enough to be a board and enough to keep a two-element roster fragment
+# from being announced as one.
+LEADERBOARD_MIN_ENTRIES = 3
+
+
+@dataclass(slots=True)
+class LeaderboardEntry:
+    board: str
+    board_label: str | None
+    uid: str
+    name: str | None
+    server_id: int | None
+    position: int | None
+    list_index: int
+    score: int | None
+    score_field: str | None
+    power: int | None
+    alliance: str | None
+    # True when the board was found by shape rather than described in
+    # LEADERBOARDS, so a reader can tell a column this file vouches for from
+    # one a heuristic picked.
+    discovered: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "leaderboard": self.board,
+            "leaderboard_label": self.board_label,
+            "uid": self.uid,
+            "name": self.name,
+            "server_id": self.server_id,
+            "position": self.position,
+            "list_index": self.list_index,
+            "score": self.score,
+            "score_field": self.score_field,
+            "power": self.power,
+            "alliance": self.alliance,
+            "discovered": self.discovered,
+        }
+
+
+def is_position_sequence(values) -> bool:
+    """Whether `values` really are ranking positions 1..N, in order.
+
+    The guard that keeps `al.rank`'s R1..R5 role from being read as a
+    placement. Demanding the exact sequence rather than merely "distinct and
+    increasing" is what rejects it: the roles are neither, while both boards'
+    genuine positions matched exactly.
+    """
+    numbers = list(values)
+    if len(numbers) < 2:
+        return False
+    if any(not isinstance(v, int) or isinstance(v, bool) for v in numbers):
+        return False
+    return numbers == list(range(1, len(numbers) + 1))
+
+
+def _entry_score(entry: dict, preferred: str | None):
+    """The score column of one entry, as `(field, value)`.
+
+    `preferred` wins when the described field is present; otherwise the first
+    of LEADERBOARD_SCORE_FIELDS that the entry carries is taken, which is what
+    lets an undescribed board still report a number.
+    """
+    if preferred and isinstance(entry.get(preferred), int):
+        return preferred, entry[preferred]
+    for field in LEADERBOARD_SCORE_FIELDS:
+        value = entry.get(field)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return field, value
+    return None, None
+
+
+def _read_board(command, label, entries, board, discovered):
+    """Turn one reply's list into LeaderboardEntry objects."""
+    positions = None
+    if board is not None and board.position:
+        candidates = [e.get(board.position) for e in entries]
+        if is_position_sequence(candidates):
+            positions = candidates
+    elif discovered:
+        # An undescribed board gets the same treatment, on whichever of the
+        # usual names it happens to use — believed only if it checks out.
+        for field in ("rank", "index", "pos", "position"):
+            candidates = [e.get(field) for e in entries]
+            if is_position_sequence(candidates):
+                positions = candidates
+                break
+
+    server_key = board.server if board is not None else "serverId"
+    alliance_key = board.alliance if board is not None else "allianceName"
+    for index, entry in enumerate(entries):
+        uid = entry.get("uid")
+        if uid is None:
+            continue
+        field, score = _entry_score(entry, board.score if board else None)
+        power = entry.get("power")
+        yield LeaderboardEntry(
+            board=command,
+            board_label=label,
+            uid=str(uid),
+            name=entry.get("name"),
+            server_id=(entry.get(server_key) or entry.get("serverId")
+                       or entry.get("server") or entry.get("curServerId")),
+            position=positions[index] if positions is not None else None,
+            list_index=index,
+            score=score,
+            score_field=field,
+            power=power if isinstance(power, int) else None,
+            alliance=(entry.get(alliance_key) if alliance_key else None)
+                     or entry.get("allianceName") or entry.get("abbr"),
+            discovered=discovered,
+        )
+
+
+def leaderboard_entries(command: str | None, payload):
+    """Yield every player in one ranking reply, described or not.
+
+    A command in LEADERBOARDS is read where that table says. Anything else is
+    offered to `discover_leaderboards`, so a ranking screen nobody has decoded
+    yet still yields rows — marked `discovered` so the distinction survives
+    into the JSON.
+    """
+    if not isinstance(payload, dict) or command is None:
+        return
+    board = LEADERBOARDS.get(command)
+    if board is not None:
+        entries = payload.get(board.list_key)
+        if isinstance(entries, list):
+            rows = [e for e in entries if isinstance(e, dict)]
+            yield from _read_board(command, board.label, rows, board, False)
+        return
+    for path, rows in discover_leaderboards(command, payload):
+        label = f"{command}{path}" if path else command
+        yield from _read_board(command, label, rows, None, True)
+
+
+def discover_leaderboards(command: str | None, payload):
+    """Find ranking-shaped lists in a reply this file does not describe.
+
+    Yields `(path, entries)`. The shape is "a list of at least
+    LEADERBOARD_MIN_ENTRIES dicts, each with a uid and a name, and the first
+    of them carrying a rank or a score column" — `name` is in there because
+    every non-ranking that survived the other tests was a list of *things*
+    rather than of players, and NOT_LEADERBOARDS holds the ones that are
+    lists of players and still not boards.
+
+    Nested lists are walked, because a board can arrive one level down inside
+    a wrapper object, but only the outermost match on a branch is yielded: a
+    board's entries are not themselves boards.
+    """
+    if command in NOT_LEADERBOARDS or not isinstance(payload, dict):
+        return
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield from walk(value, f"{path}.{key}")
+            return
+        if not isinstance(node, list):
+            return
+        rows = [e for e in node if isinstance(e, dict)]
+        if len(rows) >= LEADERBOARD_MIN_ENTRIES and _looks_like_board(rows[0]):
+            yield path, rows
+            return
+        for index, item in enumerate(node[:3]):
+            yield from walk(item, f"{path}[{index}]")
+
+    yield from walk(payload, "")
+
+
+def _looks_like_board(entry: dict) -> bool:
+    """Whether one entry reads as a player's row in a ranking."""
+    if entry.get("uid") is None or not entry.get("name"):
+        return False
+    if isinstance(entry.get("rank"), int):
+        return True
+    return any(isinstance(entry.get(f), int) for f in LEADERBOARD_SCORE_FIELDS)
+
+
 def filter_players(players, level=None, alliance=None) -> list:
     """Narrow a base list. None means "any".
 

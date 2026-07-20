@@ -334,6 +334,46 @@ Responses echo the request's command name. Pushes are unsolicited:
 | `push.al.zombieRushPoint.change` | `allianceId` (+1) — fires in bursts during a Zombie Rush event |
 | `push.month.card.card.privilege` | *(no fields observed)* — bare notification |
 
+### Rankings
+
+A ranking screen sends one command when you open it and the whole board comes
+back in a single reply — a list of dicts, one per player, each carrying at
+least a `uid` and a `name`. No paging was seen: `al.rank` returned all 99
+members and `champion.duel.result.show.rank.list` all 32 duellists in one
+frame. Nothing pushes a board; it crosses the wire only when the screen is
+opened, which is why `tools/scan_leaderboard.py` cannot make one arrive.
+
+| Command | Request | List | Per entry |
+|---|---|---|---|
+| `al.rank` | `allianceId` | `list[]` | `uid`, `name`, `power`, `armyKill`, `weeklyProgress`, `todayProgress`, `rank`, `mainCityLv`, `serverId`, `online`, `joinTime`, `donateTime` |
+| `champion.duel.result.show.rank.list` | `serverId`, `num` | `rank[]` | `uid`, `name`, `server`, `rank`, `allianceName`, `group5`, `rank5`, `skin[]` |
+
+**The field called `rank` is not always the position.** This is the one trap,
+and it is not theoretical:
+
+* in `champion.duel.result.show.rank.list` it *is* the placement — the 32
+  entries carried exactly 1..32, in order;
+* in `al.rank` it is the alliance **role** (R1..R5). The 99 entries carried
+  `{3: 86, 4: 10, 1: 2, 5: 1}`, and the list arrives in no sorted order at all
+  — not by `power`, not by `weeklyProgress`, not by `todayProgress`. That
+  board is really the roster; the client sorts it locally by whichever column
+  you picked, so **the position you see on that screen was never on the wire**
+  and cannot be recovered from the frame.
+
+So a decoder must verify a candidate field really is `1..N` in order before
+reading it as a placement, and report no position otherwise rather than
+inferring one from the order of the list. `lastwar_proto.is_position_sequence`
+is that check.
+
+Only these two boards appear in the saved captures, so anything else is
+recognised by shape: a list of ≥3 dicts each with a `uid`, a `name`, and a
+rank or score column. Replayed over both captures that test found exactly
+these two and no false positives — but only because the lists of players that
+are *not* rankings are excluded by name (`lastwar_proto.NOT_LEADERBOARDS`):
+a march's `plunderRecord`, `get.user.info.multi`, `train.list`,
+`get.alliance.world.mark.info`, and the `dragon.assign.player.info` /
+`quarantine.act.player.list` sign-up sheets all otherwise pass it.
+
 ## 6. Login sequence
 
 The client races **three gateways on port 17935 in parallel** and keeps the

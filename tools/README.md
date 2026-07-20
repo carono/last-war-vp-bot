@@ -29,7 +29,8 @@ Background and the go/no-go reasoning live in
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
 | `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
-| `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the two scanners |
+| `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
+| `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
@@ -163,9 +164,45 @@ to noted players and absent from the other 818. The command that *writes* a
 note has never been captured — every note in the capture was last edited 17
 hours before it started — so this is read-only knowledge.
 
+## Collecting rankings (`scan_leaderboard.py`)
+
+A ranking crosses the wire **only when you open its screen** — the whole board
+arrives in one reply, and nothing pushes it. So this scanner cannot make
+anything happen: start it, then walk the ranking screens you want.
+
+```powershell
+# from the repo root, under the Windows Python (npcap + scapy + zstandard)
+python tools\scan_leaderboard.py --json results\ranks.json
+python tools\scan_leaderboard.py --board al.rank --seconds 300
+python tools\scan_leaderboard.py --known-only --json results\ranks.json
+```
+
+Rows are deduplicated by `(uid, leaderboard)`, so re-opening a board refreshes
+what it says about a player rather than appending them again, while the same
+player on two boards stays two records — their score means a different thing
+on each, which is what `score_field` names.
+
+**`position` is often null, and that is the honest answer.** The field called
+`rank` is the placement on some boards and something else on others: in
+`al.rank` it is the alliance role (R1..R5), and that board arrives in no
+sorted order, because the client sorts it locally by whichever column you
+picked. The position on that screen was never on the wire. So a position is
+reported only where the numbers really are `1..N` in order, and left null
+otherwise rather than invented; `list_index` always says where the row sat in
+the frame. See protocol.md §5 → Rankings.
+
+**Boards nobody has decoded are collected too.** Two are described in
+`lastwar_proto.py` because two are what the captures hold; any other ranking
+is recognised by shape — ≥3 players each with a uid, a name and a score or
+rank column — and those rows carry `"discovered": true` so a reader can tell a
+column the protocol file vouches for from one a heuristic picked. Replayed
+over both saved captures the shape test found the two real boards and nothing
+else, but a board it has never seen is still a guess: `--known-only` restricts
+the run to the described ones.
+
 ### Recording everything (`--dump`)
 
-Both scanners take `--dump <path>` and write **every** decoded frame, in both
+All three scanners take `--dump <path>` and write **every** decoded frame, in both
 directions, as JSONL — one `{"seq", "ts", "direction", "name", "action",
 "payload"}` object per line. It is the companion to a clicking session: the
 sweep's own JSON keeps only what the tool understands, while the transcript
