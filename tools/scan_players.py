@@ -33,9 +33,18 @@ are taken just as seriously; the numbers are equally real.
                                                           also record every frame
     python tools/scan_players.py --list-ifaces            interfaces, then exit
 
+**Your own notes on players are merged in too, as `remark`.** The client keeps
+them server-side and fetches the whole list with `user.remark.list` — but only
+**once, at login**. So start the scan *before* logging in, or the list never
+crosses the wire and no record gets a note. They are keyed by uid alone (a
+note follows the player, not their base), and most of them are for players a
+given run never sees: of the 869 notes in the saved capture, 276 landed on a
+collected record.
+
 Fields per record: uid, name, level (HQ), alliance_id, alliance_abbr, country,
 x, y, server_id, uuid, seen_at — plus power, army_power, army_kill, svip_level
-and profile_seen_at on any record a click answered for.
+and profile_seen_at on any record a click answered for, and remark where you
+wrote a note.
 
 `--dump` is the other half of a clicking session: it writes **every** decoded
 frame, both directions, as JSONL, so a run spent clicking around can be mined
@@ -131,6 +140,13 @@ class PlayerIndex(MapIndex):
         # is a bug; one where nothing was clicked is not.
         self.profiles_merged = 0
         self.profiles_added = 0
+        # Notes keyed by uid alone — a note follows the player, not their base,
+        # so it has no server id and applies on whichever server they turn up.
+        # Held rather than merged once, because the client sends the whole list
+        # at login, before any map data: a merge that only touched records
+        # already collected would apply almost none of them.
+        self._remarks: dict[str, str] = {}
+        self.remarks_known = 0
 
     def on_blocks(self, payload, blocks, now: float) -> None:
         found = list(proto.player_bases(payload))
@@ -142,27 +158,86 @@ class PlayerIndex(MapIndex):
             existing = self._bases.get(key)
             # A profile fetched earlier holds numbers this tile cannot, so the
             # tile must not overwrite it — merge the other way round instead.
-            self._bases[key] = (base.merged_with(self._as_profile(existing))
-                                if existing is not None and existing.has_profile
-                                else base)
+            merged = (base.merged_with(self._as_profile(existing))
+                      if existing is not None and existing.has_profile
+                      else base)
+            self._bases[key] = self._stamp_remark(merged)
             self._seen_at[key] = now
 
     def on_response(self, command, payload) -> None:
+        """Fold in the two replies that say more than the map does."""
+        if command == proto.REMARK_COMMAND:
+            self._take_remarks(payload)
+        elif command == proto.PROFILE_COMMAND:
+            self._take_profiles(payload)
+
+    def _take_remarks(self, payload) -> None:
+        """Take the notes you wrote on other players, from `user.remark.list`.
+
+        The client asks for these once at login, a page at a time, so they
+        normally land before a single map response. They are kept keyed by uid
+        and stamped onto records both now and as those records arrive.
+
+        Callers hold `_index_lock`.
+        """
+        cleared = set()
+        for target_uid, remark, _updated in proto.player_remarks(payload):
+            if remark is None:
+                # An entry with no text means the note was deleted. Never seen
+                # from the real server — all 869 notes in the capture had text,
+                # and a deleted one is more likely to be absent from the list
+                # than present and empty — but if it does arrive it has to
+                # clear the record rather than leave stale text on it.
+                self._remarks.pop(target_uid, None)
+                cleared.add(target_uid)
+            else:
+                self._remarks[target_uid] = remark
+        self.remarks_known = len(self._remarks)
+        # Whatever is already collected gets stamped immediately; the rest is
+        # handled as records arrive.
+        for base in self._bases.values():
+            if base.uid in cleared:
+                base.remark = None
+            self._stamp_remark(base)
+
+    def _stamp_remark(self, base):
+        """Write your note on that player onto `base`, if you wrote one.
+
+        Mutates and returns the same object, so it can be dropped into an
+        assignment. A record with no note keeps `remark` as None rather than
+        an empty string — "no note" and "an empty note" would otherwise be
+        indistinguishable in the JSON.
+
+        Callers hold `_index_lock`.
+        """
+        remark = self._remarks.get(base.uid)
+        if remark is not None:
+            base.remark = remark
+        return base
+
+    @property
+    def remarked(self) -> int:
+        """How many collected records carry one of your notes."""
+        with self._index_lock:
+            return sum(1 for b in self._bases.values() if b.remark)
+
+    def _take_profiles(self, payload) -> None:
         """Fold in a `get.user.info.multi` reply — clicking a base sends one.
 
         The reply carries power, army power, lifetime kills and SVIP level,
         which no map tile does. Batched replies (an alliance roster fetched at
         login) are the same shape and are taken just as seriously; the numbers
         are equally real, only the reason the client asked differs.
+
+        Callers hold `_index_lock`.
         """
-        if command != proto.PROFILE_COMMAND:
-            return
         now = time.time()
         for profile in proto.player_profiles(payload):
             key = self._key_for(profile)
             existing = self._bases.get(key)
             if existing is not None:
-                self._bases[key] = existing.merged_with(profile)
+                self._bases[key] = self._stamp_remark(
+                    existing.merged_with(profile))
                 self.profiles_merged += 1
             else:
                 # A base the sweep never passed over — clicked from a search,
@@ -173,7 +248,7 @@ class PlayerIndex(MapIndex):
                                             alliance=self.alliance):
                     self.rejected += 1
                     continue
-                self._bases[key] = base
+                self._bases[key] = self._stamp_remark(base)
                 self.profiles_added += 1
             self._seen_at[key] = now
             self._profile_at[key] = now
@@ -259,7 +334,7 @@ class PlayerIndex(MapIndex):
                 # `power` is in the line because a click that answers for a
                 # base already printed is exactly the news worth reprinting.
                 line = (base.level, base.alliance_abbr, base.x, base.y,
-                        base.power)
+                        base.power, base.remark)
                 if self._reported.get(key) == line:
                     continue
                 self._reported[key] = line
@@ -344,7 +419,8 @@ def main() -> int:
                       f"{len(index.bases)} base(s) collected "
                       f"({len(index.current_bases)} here), "
                       f"{index.profiles_merged + index.profiles_added} "
-                      f"profile(s) looked up{C_RESET}")
+                      f"profile(s) looked up, "
+                      f"{index.remarked} noted{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -369,10 +445,11 @@ def main() -> int:
                          f"  kills {base.army_kill:,}"
                          f"  svip {base.svip_level}"
                          if base.has_profile else "")
+                note = f"  {C_OK}<{base.remark}>{C_RESET}" if base.remark else ""
                 print(f"  HQ {base.level if base.level is not None else '??':>2}"
                       f"  {where}  server {base.server_id}"
                       f"  {tag:>8} {base.name or '?'}"
-                      f"  uid {base.uid}  {base.country or ''}{stats}")
+                      f"  uid {base.uid}  {base.country or ''}{note}{stats}")
     except KeyboardInterrupt:
         pass
     finally:
@@ -388,6 +465,14 @@ def main() -> int:
     print(f"{profiled} of them carry profile stats "
           f"({index.profiles_merged} folded into a base already collected, "
           f"{index.profiles_added} known only from a lookup)")
+    if index.remarks_known:
+        print(f"{index.remarked} of them carry one of your notes "
+              f"({index.remarks_known} note(s) in the account's list, most on "
+              f"players this run never saw)")
+    else:
+        print(f"{C_DIM}No notes were received: the client sends "
+              f"user.remark.list once at login, so start the scan before "
+              f"logging in to have them.{C_RESET}")
     print(f"traffic: {index.delivered} delivered / {index.packets} with payload, "
           f"{index.blocks_seen} map response(s), {index.tiles_seen} tile(s), "
           f"kinds {dict(index.tile_kinds)}")

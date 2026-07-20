@@ -139,6 +139,30 @@ never passed over. Clicking before or after the tile arrives gives the same
 result. So the usual session is: pan the map to collect the roster, then click
 through whichever bases you want numbers for — one run, one file.
 
+### Your notes on players (`remark`)
+
+The private note you can write on another player in the client is **stored
+server-side**, not locally. The client fetches the whole list with
+`user.remark.list` (paginated, 500 per page) **once at login**, and the scanner
+merges it into the matching records as `remark`.
+
+That timing is the catch: **start the scan before logging into the game**, or
+the list never crosses the wire and no record gets a note. Notes are keyed by
+uid alone — a note follows the player, not their base — so one applies on
+whichever server that player turns up on, and it survives a later profile
+lookup rather than being overwritten by it.
+
+Most notes are for players a given run never passes over: of the 869 in the
+saved capture, 276 landed on a collected record. The closing summary reports
+both numbers so the difference is not mistaken for a merge failure.
+
+A note is **not** on the `f2 = 6` tile and not on the profile, which was
+tested rather than assumed: the literal note text appears nowhere else in the
+capture, and across 1094 base tiles no field is present on the 276 belonging
+to noted players and absent from the other 818. The command that *writes* a
+note has never been captured — every note in the capture was last edited 17
+hours before it started — so this is read-only knowledge.
+
 ### Recording everything (`--dump`)
 
 Both scanners take `--dump <path>` and write **every** decoded frame, in both

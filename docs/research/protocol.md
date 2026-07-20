@@ -610,6 +610,44 @@ sources agreed **59/59** on level, server, name, `allianceId` and
 `(serverId, uid)` with neither contradicting the other. `tools/scan_players.py`
 does exactly this.
 
+### Player notes (`user.remark.list`)
+
+The private note the client lets you write on another player is stored
+**server-side**, not locally. `user.remark.list` returns the whole list,
+paginated — the client asks `{"pageSize": 500, "page": N}` once at login, and
+in the saved capture two pages held 869 notes.
+
+| Field | What it is |
+|---|---|
+| `uid` | the author — you; identical on every entry |
+| `targetUid` | the player the note is about |
+| `remark` | the note text |
+| `lastUpdateTime` | last edited, epoch ms |
+
+A note is **not** on the `f2 = 6` tile and not on the player's profile. Tested
+rather than assumed:
+
+* the literal note text appears nowhere else in the capture;
+* of 1094 base tiles, no field is present on the 276 belonging to noted
+  players and absent from the other 818;
+* no field *value* is common to >90% of noted players and absent from all
+  others.
+
+The alliance fields (`f3.f7`, `f3.f11`, `f3.f15`, `f3.f26`) do differ between
+the two groups — 12% of noted players carry `f7` against 68% of the rest — but
+in the opposite direction to a marker. Noted players are mostly *outside* an
+alliance, which says what this account marks (farms), not that the tile
+carries a flag.
+
+The command that **writes** a note has never been captured: every note in the
+capture was last edited 17 hours before it started, and no client frame in it
+mentions one. To find it, run a scan with `--dump` while setting a note and
+grep the transcript for up-frames.
+
+`tools/scan_players.py` merges these into its records as `remark`, keyed by
+`targetUid`. Because the list only arrives at login, the scan has to be
+started **before** logging in.
+
 ### Resource mines (`f2 = 7`)
 
 `f6.f1` encodes both the resource and its level as `family * 100 + level`,

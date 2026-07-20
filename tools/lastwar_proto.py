@@ -794,6 +794,9 @@ class PlayerBase:
     army_power: int | None = None
     army_kill: int | None = None
     svip_level: int | None = None
+    # The note *you* wrote on this player in the client — see player_remarks().
+    # Not a property of the player, and nothing on their tile carries it.
+    remark: str | None = None
 
     @property
     def has_profile(self) -> bool:
@@ -824,6 +827,9 @@ class PlayerBase:
             uuid=self.uuid,
             power=profile.power, army_power=profile.army_power,
             army_kill=profile.army_kill, svip_level=profile.svip_level,
+            # Carried, never taken from the profile: a remark comes from a
+            # third source and a profile reply would otherwise erase it.
+            remark=self.remark,
         )
 
     def as_dict(self) -> dict:
@@ -834,6 +840,7 @@ class PlayerBase:
             "country": self.country, "uuid": self.uuid,
             "power": self.power, "army_power": self.army_power,
             "army_kill": self.army_kill, "svip_level": self.svip_level,
+            "remark": self.remark,
         }
 
     @classmethod
@@ -848,6 +855,7 @@ class PlayerBase:
             power=record.get("power"), army_power=record.get("army_power"),
             army_kill=record.get("army_kill"),
             svip_level=record.get("svip_level"),
+            remark=record.get("remark"),
         )
 
 
@@ -974,6 +982,60 @@ def player_profiles(payload: dict):
             army_kill=entry.get("armyKill"),
             svip_level=entry.get("svipLevel"),
         )
+
+
+# --------------------------------------------------------------------------
+# Player remarks: the notes you wrote on other players
+# --------------------------------------------------------------------------
+#
+# The client lets you write a private note on another player, and it is stored
+# **server-side** rather than locally: `user.remark.list` returns the whole
+# list, paginated, and the client fetches it once at login —
+# `{"pageSize": 500, "page": 1}` per request. In the saved capture the two
+# pages held 869 notes.
+#
+#     uid             the author — you; the same on every entry
+#     targetUid       the player the note is about
+#     remark          the note text
+#     lastUpdateTime  when it was last edited, epoch ms
+#
+# A note is **not** on the `f2 = 6` tile and is not on the player's profile.
+# That was tested rather than assumed: the literal text of the notes appears
+# nowhere else in the capture, and of the 1094 base tiles seen, no field is
+# present on the 276 belonging to noted players and absent from the other 818.
+# The alliance fields do differ between those groups, but in the opposite
+# direction — noted players are mostly *outside* an alliance, which says what
+# the maintainer marks (farms), not that the tile carries a marker.
+#
+# Two consequences for anything merging these onto player records:
+#
+#   * the key is `targetUid` alone, with no server id — a note follows the
+#     player, not their base, so it applies to that uid on any server;
+#   * the list arrives at login, typically *before* any map data. A merge that
+#     only looks at records already collected would therefore apply almost
+#     nothing; it has to remember the notes and stamp records as they arrive.
+#
+# The command that *writes* a note has never been captured — every note in the
+# capture was last edited 17 hours before it started. So this is read-only
+# knowledge: the list can be read, and there is no evidence here about setting
+# one.
+REMARK_COMMAND = "user.remark.list"
+
+
+def player_remarks(payload: dict):
+    """Yield `(target_uid, remark, updated_at)` from a `user.remark.list` reply.
+
+    An empty note comes back as None rather than an empty string, so a caller
+    can treat "no note" uniformly however the server chose to spell it.
+    """
+    for entry in payload.get("list") or ():
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("targetUid")
+        if target is None:
+            continue
+        text = entry.get("remark")
+        yield (str(target), text or None, entry.get("lastUpdateTime"))
 
 
 def filter_players(players, level=None, alliance=None) -> list:
