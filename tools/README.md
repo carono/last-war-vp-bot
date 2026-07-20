@@ -143,10 +143,10 @@ through whichever bases you want numbers for — one run, one file.
 
 Both scanners take `--dump <path>` and write **every** decoded frame, in both
 directions, as JSONL — one `{"seq", "ts", "direction", "name", "action",
-"payload"}` object per line. It is the companion to a clicking session: the sweep's own JSON keeps
-only what the tool understands, while the transcript keeps everything it does
-not, so a run can be mined afterwards for whatever else the client asks and
-the server answers.
+"payload"}` object per line. It is the companion to a clicking session: the
+sweep's own JSON keeps only what the tool understands, while the transcript
+keeps everything it does not, so a run can be mined afterwards for whatever
+else the client asks and the server answers.
 
 ```powershell
 python tools\scan_players.py --json results\players.json --dump results\traffic.jsonl
