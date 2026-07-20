@@ -30,6 +30,7 @@ Background and the go/no-go reasoning live in
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
 | `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
+| `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |
 | `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
@@ -254,6 +255,44 @@ transport and the rule for deciding which server's map is on screen (weight of
 recent traffic, overruled by a `meteorite.enter.world` the client announces).
 A base sweep keeps what it collected across a server change; a task capture
 drops it, because dispatch timers keep running on a map nobody is watching.
+
+## Finding trucks (`scan_trucks.py`)
+
+Trucks are the one thing on the map that is **not a tile**. They ride the march
+stream as marches of type 37 carrying a `train` object, so `world.get.block`
+never mentions them and a scan built on map blocks finds none. This one listens
+to the march stream instead — see protocol.md §7 → Trucks.
+
+```powershell
+# from the repo root, under the Windows Python (npcap + scapy + zstandard)
+python tools\scan_trucks.py --json results\trucks.json
+python tools\scan_trucks.py --type gold,sled --can-loot
+python tools\scan_trucks.py --type 5 --level 34,35 --seconds 300
+python tools\scan_trucks.py --not-alliance <your allianceId>
+```
+
+Unlike a task capture this does **not** need the map to be moving: the server
+pushes marches unprompted. Panning still helps — it is what makes the server
+volunteer the marches of the patch you pan over.
+
+Each truck reports its type, level, interpolated position, server, owner uid,
+alliance, escort power and squad, cargo total, and how many of its four
+robberies are spent. `--can-loot` keeps the ones still running with a robbery
+left. That is the wire's answer and it is narrower than the game's: whether
+*you* may rob a given truck also depends on your own alliance (`--not-alliance`
+covers that) and on your remaining daily attempts, which are not on the wire at
+all.
+
+**Position is interpolated, not reported.** A truck hops station to station and
+the server describes only the current hop — where it set out (`startPos`) and
+when the whole run ends (`arriveTime`) are both something else. So a truck that
+stops being re-sent goes on gliding down a route it may have left, which is
+what the 15-minute freshness window is for.
+
+**The colour names are inferred and have never been checked by eye.** The
+cargo ordering proves the *ranks* are graded (see protocol.md §7 → Trucks);
+which colour the client paints each rank is not on the wire. `--type` takes
+tier numbers 1-5 as well as names, which is what the wire actually says.
 
 ## Step-by-step
 
