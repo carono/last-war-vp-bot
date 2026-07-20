@@ -278,7 +278,7 @@ continuously while the map scrolls (99 requests in 60 s in capture B).
 
 | Command | Parameters |
 |---|---|
-| `get.user.info.multi` | `uids`, `allservers` |
+| `get.user.info.multi` | `uids`, `allservers` → `uids[]` player profiles — see below |
 | `mail.read.status.betch` | `uids` (long comma-separated list; this is the one client message big enough to be zlib-compressed) |
 | `train.list` | `isRefresh`, `pageIndex`, `pageSize` → `trainServers`, `allianceTrainList` |
 | `train.march.get.pos` | `point`, `serverId`, `uuid`, `positionId` |
@@ -577,6 +577,38 @@ Verified: **6373/6373 tiles land inside their requested box** under this model.
 | 11 | 34 | Stronghold / fortress (fixed 100-tile grid) | `f101.f3` level (1/5/7), `f101.f8` reward, `f101.f1` template |
 | 25 | 17 | Named facility held by a player | `f101.f5` player name, `f101.f10` alliance name |
 | 21 | 4 | Alliance HQ | `f11.f12` alliance name, `f11.f6` abbr, `f11.f7` member uid list |
+
+### Player profiles (`get.user.info.multi`)
+
+Clicking a base on the map makes the client ask `get.user.info.multi` for that
+one uid. The reply is **plain JSON, not protobuf**, and carries the numbers no
+map tile does:
+
+| Field | What it is |
+|---|---|
+| `power` | total power |
+| `armyPower` | army power |
+| `armyKill` | lifetime army kills |
+| `svipLevel` | SVIP level |
+| `mainBuildingLevel`, `level` | HQ level — agreed on all 95 profiles seen |
+| `serverId`, `currentServer`, `srcServer` | current server, current server, origin server |
+| `uid`, `name`, `country`, `allianceId`, `allianceAbbrName` | same values the `f2=6` tile carries |
+
+Each entry names its own `uid`, so a reply needs no correlating back to the
+request via `_id`. Present on all 95 profiles in the saved captures: `uid`,
+`power`, `armyPower`, `armyKill`, `svipLevel`, `level`, `mainBuildingLevel`,
+`serverId`, `name`, `country`, `allianceId`, `allianceAbbrName`.
+
+The same command also arrives **batched** — 46 and 43 uids in the captures, an
+alliance roster fetched at login. Same entry shape; only the reason the client
+asked differs. Note the request's own `uids` is a list of bare uid *strings*
+while the reply's is a list of objects, so a decoder must not assume either.
+
+Where a player appeared as both a map tile and a profile (59 uids), the two
+sources agreed **59/59** on level, server, name, `allianceId` and
+`allianceAbbrName` — so a profile merges onto a tile's record by
+`(serverId, uid)` with neither contradicting the other. `tools/scan_players.py`
+does exactly this.
 
 ### Resource mines (`f2 = 7`)
 

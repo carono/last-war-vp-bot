@@ -130,6 +130,20 @@ each time the map re-sends the tile. `--alliance` / `--level` narrow what is
 *collected*, so the JSON and the console always agree; each run rewrites the
 file rather than appending to it.
 
+**Clicking bases while it runs adds their combat stats.** A click makes the
+client ask `get.user.info.multi` for that uid, and the reply carries what the
+tile does not — `power`, `armyPower`, `armyKill`, `svipLevel`. The scanner
+listens for those replies and folds them into the matching record, or files a
+new one (with null coordinates) if the click landed on a player the sweep
+never passed over. Clicking before or after the tile arrives gives the same
+result. So the usual session is: pan the map to collect the roster, then click
+through whichever bases you want numbers for — one run, one file.
+
+Every profile field was checked against the saved captures: `power`,
+`armyPower`, `armyKill` and `svipLevel` are present on all 95 profiles seen,
+and where a player appeared as both a tile and a profile (59 uids) the two
+sources agreed 59/59 on level, server, name, alliance id and abbreviation.
+
 The game only sends map data while the map is **moving**, so keep panning for
 the whole run — a run with zero map responses means nobody was dragging, not
 that the capture failed. The closing traffic line distinguishes the two.

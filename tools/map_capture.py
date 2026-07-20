@@ -211,6 +211,11 @@ class MapIndex(LiveDecoder):
         if direction != "down":
             return
         if command != "world.get.block":
+            # Everything else the server says, offered to the subclass. A map
+            # sweep listens here for `get.user.info.multi`, which is how a
+            # click on a base answers with numbers no tile carries.
+            with self._index_lock:
+                self.on_response(command, proto.envelope_payload(env))
             return
         payload = proto.envelope_payload(env)
         blocks = payload.get("serverPointArr") or ()
@@ -243,6 +248,14 @@ class MapIndex(LiveDecoder):
 
     def on_blocks(self, payload, blocks, now: float) -> None:
         """Keep whatever this scanner is after. `_index_lock` is held."""
+
+    def on_response(self, command: str | None, payload) -> None:
+        """Any server response that is not a map block. `_index_lock` is held.
+
+        The map is not the only thing worth listening to while a sweep runs —
+        clicking something in the client makes it ask a question, and the
+        answer arrives here.
+        """
 
     def on_server_left(self, server: int) -> None:
         """The player moved off `server`. `_index_lock` is held.

@@ -788,6 +788,43 @@ class PlayerBase:
     alliance_abbr: str | None
     country: str | None
     uuid: int | None
+    # Only a profile response carries these — the map tile does not. None means
+    # "never looked this player up", which is not the same as zero.
+    power: int | None = None
+    army_power: int | None = None
+    army_kill: int | None = None
+    svip_level: int | None = None
+
+    @property
+    def has_profile(self) -> bool:
+        """Whether a `get.user.info.multi` reply has filled the combat stats."""
+        return self.power is not None
+
+    def merged_with(self, profile: "PlayerProfile") -> "PlayerBase":
+        """This base with `profile`'s fields laid over it.
+
+        The profile is the fresher and richer source — it is a direct answer
+        about this player, where the tile is a snapshot of the ground. So it
+        wins on everything it carries, and the tile keeps only what it alone
+        knows: the coordinates and the tile uuid.
+        """
+        return PlayerBase(
+            uid=self.uid,
+            server_id=profile.server_id or self.server_id,
+            x=self.x, y=self.y,
+            name=profile.name if profile.name is not None else self.name,
+            level=profile.level if profile.level is not None else self.level,
+            alliance_id=(profile.alliance_id if profile.alliance_id is not None
+                         else self.alliance_id),
+            alliance_abbr=(profile.alliance_abbr
+                           if profile.alliance_abbr is not None
+                           else self.alliance_abbr),
+            country=(profile.country if profile.country is not None
+                     else self.country),
+            uuid=self.uuid,
+            power=profile.power, army_power=profile.army_power,
+            army_kill=profile.army_kill, svip_level=profile.svip_level,
+        )
 
     def as_dict(self) -> dict:
         return {
@@ -795,6 +832,8 @@ class PlayerBase:
             "x": self.x, "y": self.y, "name": self.name, "level": self.level,
             "alliance_id": self.alliance_id, "alliance_abbr": self.alliance_abbr,
             "country": self.country, "uuid": self.uuid,
+            "power": self.power, "army_power": self.army_power,
+            "army_kill": self.army_kill, "svip_level": self.svip_level,
         }
 
     @classmethod
@@ -806,6 +845,9 @@ class PlayerBase:
             alliance_id=record.get("alliance_id"),
             alliance_abbr=record.get("alliance_abbr"),
             country=record.get("country"), uuid=record.get("uuid"),
+            power=record.get("power"), army_power=record.get("army_power"),
+            army_kill=record.get("army_kill"),
+            svip_level=record.get("svip_level"),
         )
 
 
@@ -844,6 +886,94 @@ def player_bases(payload: dict):
                 country=detail.get("f27"),
                 uuid=tile.get("f100"),
             )
+
+
+# --------------------------------------------------------------------------
+# Player profiles: the `get.user.info.multi` reply
+# --------------------------------------------------------------------------
+#
+# Clicking a base on the map makes the client ask `get.user.info.multi` for
+# that one uid, and the reply carries the numbers the tile never does — total
+# power, army power, lifetime army kills, SVIP level. Unlike a map response
+# this one is plain JSON, not protobuf, and every entry names its own `uid`,
+# so a reply needs no correlating back to the request that asked for it.
+#
+# The same command also arrives in batches (46 and 43 uids in the saved
+# captures, an alliance roster fetched at login). Those entries are the same
+# shape and just as real, so they are parsed identically; only how a caller
+# got them differs.
+#
+# Field presence over the 95 profiles in the saved captures: `uid`, `power`,
+# `armyPower`, `armyKill`, `svipLevel`, `level`, `mainBuildingLevel`,
+# `serverId`, `name`, `country`, `allianceId` and `allianceAbbrName` are on
+# every one. Where the same player also appeared as a map tile (59 uids), the
+# two sources agreed 59/59 on level, server, name, alliance id and alliance
+# abbreviation — so a profile can be merged onto a tile's record by
+# `(server_id, uid)` without either contradicting the other.
+PROFILE_COMMAND = "get.user.info.multi"
+
+
+@dataclass(slots=True)
+class PlayerProfile:
+    uid: str
+    server_id: int | None
+    name: str | None
+    level: int | None
+    alliance_id: str | None
+    alliance_abbr: str | None
+    country: str | None
+    power: int | None
+    army_power: int | None
+    army_kill: int | None
+    svip_level: int | None
+
+    def as_base(self) -> PlayerBase:
+        """This profile as a base record with no coordinates.
+
+        What a click on a player the sweep never saw as a tile produces: every
+        field the profile knows, and None where only the map could have said.
+        """
+        return PlayerBase(
+            uid=self.uid, server_id=self.server_id, x=None, y=None,
+            name=self.name, level=self.level, alliance_id=self.alliance_id,
+            alliance_abbr=self.alliance_abbr, country=self.country, uuid=None,
+            power=self.power, army_power=self.army_power,
+            army_kill=self.army_kill, svip_level=self.svip_level,
+        )
+
+
+def player_profiles(payload: dict):
+    """Yield every player profile in one decoded `get.user.info.multi` reply.
+
+    `mainBuildingLevel` is preferred over `level` for the level, because the
+    tile's own level field is the HQ level and the two must stay comparable.
+    They agreed on all 95 profiles seen, so the preference costs nothing and
+    guards against the day they diverge.
+
+    `serverId` is where the player is now, which is also where their base sits
+    — it matched the tile's server on all 59 uids seen as both.
+    """
+    for entry in payload.get("uids") or ():
+        if not isinstance(entry, dict):
+            continue  # the request's own `uids` is a list of bare uid strings
+        uid = entry.get("uid")
+        if uid is None:
+            continue
+        alliance_id = entry.get("allianceId")
+        yield PlayerProfile(
+            uid=str(uid),
+            server_id=(entry.get("serverId") or entry.get("currentServer")
+                       or entry.get("srcServer")),
+            name=entry.get("name"),
+            level=entry.get("mainBuildingLevel") or entry.get("level"),
+            alliance_id=str(alliance_id) if alliance_id else None,
+            alliance_abbr=entry.get("allianceAbbrName") or None,
+            country=entry.get("country"),
+            power=entry.get("power"),
+            army_power=entry.get("armyPower"),
+            army_kill=entry.get("armyKill"),
+            svip_level=entry.get("svipLevel"),
+        )
 
 
 def filter_players(players, level=None, alliance=None) -> list:

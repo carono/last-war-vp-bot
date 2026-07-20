@@ -10,6 +10,16 @@ What it keeps is the `f2 = 6` tile: a player's base, carrying their public
 profile inline (protocol.md §7). Name, HQ level and alliance come straight off
 the wire, so a sweep needs neither OCR nor a single profile screen opened.
 
+**Clicking a base while the sweep runs adds its combat stats.** The click
+makes the client ask `get.user.info.multi` for that uid, and the reply carries
+what no tile does — `power`, `armyPower`, `armyKill`, `svipLevel`. Those are
+folded into the record the sweep already has, or filed as a new one if the
+click landed on a player whose tile was never passed over (then `x`/`y` are
+null and the console prints "click" where coordinates would go). Order does
+not matter: clicking before or after the tile arrives converges on the same
+record. Batched replies — an alliance roster the client fetches at login —
+are taken just as seriously; the numbers are equally real.
+
     python tools/scan_players.py                          stream bases, print them
                                                           (until Ctrl+C, no file written)
     python tools/scan_players.py --seconds 300            stop on a timer instead
@@ -20,6 +30,10 @@ the wire, so a sweep needs neither OCR nor a single profile screen opened.
     python tools/scan_players.py --level 30               only HQ 30
     python tools/scan_players.py --level 30,31            HQ 30 or 31
     python tools/scan_players.py --list-ifaces            interfaces, then exit
+
+Fields per record: uid, name, level (HQ), alliance_id, alliance_abbr, country,
+x, y, server_id, uuid, seen_at — plus power, army_power, army_kill, svip_level
+and profile_seen_at on any record a click answered for.
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
 NAT'd VM whose network namespace is not the host's, so an AF_PACKET socket
@@ -44,7 +58,9 @@ timer:
     that fast, and a sweep across several servers is the point of the tool.
     `seen_at` on every record says when the map last confirmed it;
   * `--alliance` and `--level` narrow what is *collected*, not just what is
-    printed, so the file and the console always agree.
+    printed, so the file and the console always agree. They apply to clicked
+    profiles too, so a click on someone outside the filter is dropped rather
+    than smuggled into a narrowed sweep.
 
 Each run rewrites `--json` from scratch — it is this run's result, not a
 database that grows across runs. Point successive sweeps at different files
@@ -93,11 +109,20 @@ class PlayerIndex(MapIndex):
         # Wall-clock of the last time the map re-sent each base, so a reader
         # can tell a base confirmed a minute ago from one seen once an hour in.
         self._seen_at: dict[tuple, float] = {}
+        # ...and when a profile reply last answered for it, which is a
+        # different question: a base re-seen every second may still carry
+        # power numbers from one click ten minutes ago.
+        self._profile_at: dict[tuple, float] = {}
         # Bases the filter threw away, so "0 collected" can be told apart from
         # "3000 seen, none of them yours".
         self.rejected = 0
         # The printable line last announced per base — see take_new().
         self._reported: dict[tuple, tuple] = {}
+        # How many profile replies were folded in, split by what they did. A
+        # sweep where the user clicked twenty bases and nothing was enriched
+        # is a bug; one where nothing was clicked is not.
+        self.profiles_merged = 0
+        self.profiles_added = 0
 
     def on_blocks(self, payload, blocks, now: float) -> None:
         found = list(proto.player_bases(payload))
@@ -106,8 +131,73 @@ class PlayerIndex(MapIndex):
         self.rejected += len(found) - len(kept)
         for base in kept:
             key = (base.server_id, base.uid)
-            self._bases[key] = base
+            existing = self._bases.get(key)
+            # A profile fetched earlier holds numbers this tile cannot, so the
+            # tile must not overwrite it — merge the other way round instead.
+            self._bases[key] = (base.merged_with(self._as_profile(existing))
+                                if existing is not None and existing.has_profile
+                                else base)
             self._seen_at[key] = now
+
+    def on_response(self, command, payload) -> None:
+        """Fold in a `get.user.info.multi` reply — clicking a base sends one.
+
+        The reply carries power, army power, lifetime kills and SVIP level,
+        which no map tile does. Batched replies (an alliance roster fetched at
+        login) are the same shape and are taken just as seriously; the numbers
+        are equally real, only the reason the client asked differs.
+        """
+        if command != proto.PROFILE_COMMAND:
+            return
+        now = time.time()
+        for profile in proto.player_profiles(payload):
+            key = self._key_for(profile)
+            existing = self._bases.get(key)
+            if existing is not None:
+                self._bases[key] = existing.merged_with(profile)
+                self.profiles_merged += 1
+            else:
+                # A base the sweep never passed over — clicked from a search,
+                # a chat link, or a roster. Kept without coordinates rather
+                # than dropped: the numbers are the point of the lookup.
+                base = profile.as_base()
+                if not proto.filter_players([base], level=self.level,
+                                            alliance=self.alliance):
+                    self.rejected += 1
+                    continue
+                self._bases[key] = base
+                self.profiles_added += 1
+            self._seen_at[key] = now
+            self._profile_at[key] = now
+
+    def _key_for(self, profile) -> tuple:
+        """Where this profile belongs in the index.
+
+        `(server_id, uid)` normally, and the two sources agree on the server:
+        across the saved captures every one of the 59 uids seen as both a tile
+        and a profile matched. The fallback is for the case that agreement
+        cannot cover — a player who teleported between the tile sighting and
+        the click — where keying strictly would file the same player twice.
+        A uid is globally unique, so a single existing record for it is
+        unambiguous; two would not be, and then the strict key is right.
+
+        Callers hold `_index_lock`.
+        """
+        key = (profile.server_id, profile.uid)
+        if key in self._bases:
+            return key
+        elsewhere = [k for k in self._bases if k[1] == profile.uid]
+        return elsewhere[0] if len(elsewhere) == 1 else key
+
+    @staticmethod
+    def _as_profile(base) -> proto.PlayerProfile:
+        """The profile half of an existing record, for re-merging onto it."""
+        return proto.PlayerProfile(
+            uid=base.uid, server_id=base.server_id, name=None, level=None,
+            alliance_id=None, alliance_abbr=None, country=None,
+            power=base.power, army_power=base.army_power,
+            army_kill=base.army_kill, svip_level=base.svip_level,
+        )
 
     @property
     def bases(self) -> list:
@@ -129,14 +219,19 @@ class PlayerIndex(MapIndex):
     def records(self) -> list:
         """Every base as a serialisable dict, each stamped with `seen_at`.
 
-        `seen_at` is epoch seconds on the capture host — when the map last
-        re-sent the tile, not when the file was written.
+        `seen_at` is epoch seconds on the capture host — when the map or a
+        profile reply last confirmed the record, not when the file was
+        written. `profile_seen_at` is there only on records a profile reply
+        answered for, so a reader can tell power numbers from one click ten
+        minutes ago apart from ones fetched a second ago.
         """
         with self._index_lock:
             out = []
             for key, base in self._bases.items():
                 record = base.as_dict()
                 record["seen_at"] = int(self._seen_at.get(key, 0))
+                if key in self._profile_at:
+                    record["profile_seen_at"] = int(self._profile_at[key])
                 out.append(record)
         # Newest confirmation first within a server, so a reader skimming the
         # file sees what the sweep just passed over.
@@ -153,7 +248,10 @@ class PlayerIndex(MapIndex):
         out = []
         with self._index_lock:
             for key, base in self._bases.items():
-                line = (base.level, base.alliance_abbr, base.x, base.y)
+                # `power` is in the line because a click that answers for a
+                # base already printed is exactly the news worth reprinting.
+                line = (base.level, base.alliance_abbr, base.x, base.y,
+                        base.power)
                 if self._reported.get(key) == line:
                     continue
                 self._reported[key] = line
@@ -236,16 +334,29 @@ def main() -> int:
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.bases)} base(s) collected "
-                      f"({len(index.current_bases)} here){C_RESET}")
+                      f"({len(index.current_bases)} here), "
+                      f"{index.profiles_merged + index.profiles_added} "
+                      f"profile(s) looked up{C_RESET}")
                 if args.json and not dump_records(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
             for base in index.take_new():
                 tag = f"[{base.alliance_abbr}]" if base.alliance_abbr else ""
+                # A base known only from a click has no coordinates, so the
+                # column reads "click" rather than a pair of empty brackets.
+                where = (f"({base.x:>4},{base.y:>4})" if base.x is not None
+                         else "     click  ")
+                # Only shown once a profile has answered — a blank column is
+                # "not looked up", which a zero would misrepresent.
+                stats = (f"  {C_OK}power {base.power:,}{C_RESET}"
+                         f"  army {base.army_power:,}"
+                         f"  kills {base.army_kill:,}"
+                         f"  svip {base.svip_level}"
+                         if base.has_profile else "")
                 print(f"  HQ {base.level if base.level is not None else '??':>2}"
-                      f"  ({base.x:>4},{base.y:>4})  server {base.server_id}"
+                      f"  {where}  server {base.server_id}"
                       f"  {tag:>8} {base.name or '?'}"
-                      f"  uid {base.uid}  {base.country or ''}")
+                      f"  uid {base.uid}  {base.country or ''}{stats}")
     except KeyboardInterrupt:
         pass
     finally:
@@ -253,10 +364,14 @@ def main() -> int:
 
     everything = index.bases
     servers = sorted({b.server_id for b in everything if b.server_id})
+    profiled = sum(1 for b in everything if b.has_profile)
     print(f"\n{len(everything)} base(s) collected across "
           f"{len(servers)} server(s) {servers or ''}"
           + (f", {index.rejected} tile(s) dropped by the filter"
              if index.rejected else ""))
+    print(f"{profiled} of them carry profile stats "
+          f"({index.profiles_merged} folded into a base already collected, "
+          f"{index.profiles_added} known only from a lookup)")
     print(f"traffic: {index.delivered} delivered / {index.packets} with payload, "
           f"{index.blocks_seen} map response(s), {index.tiles_seen} tile(s), "
           f"kinds {dict(index.tile_kinds)}")
@@ -265,6 +380,12 @@ def main() -> int:
              "Map data arrived but held no player bases you asked for (no "
              "f2=6 tiles passed the filter) — pan over inhabited ground, or "
              "widen --alliance/--level.")
+    if everything and not profiled:
+        print(f"{C_DIM}No profile stats: nothing was clicked during the run, "
+              f"or the clicks landed on something other than a base. Power, "
+              f"army power and kills only arrive in a get.user.info.multi "
+              f"reply, which the client sends when you open a player."
+              f"{C_RESET}")
 
     if args.json:
         records = index.records()
