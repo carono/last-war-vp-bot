@@ -50,7 +50,7 @@ import signal
 import sys
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -112,28 +112,33 @@ def dump_tasks(records: list, path: str) -> bool:
         return False
 
 
-def _single_block_server(blocks) -> int | None:
-    """The server id of a one-block map response, or None if it is ambiguous.
+# How much recent map traffic decides which server is on screen. Panning the
+# undebounced client emits a request per frame (protocol.md §7), so the map
+# actually being dragged produces a continuous stream of responses, while a
+# neighbouring server prefetched at a border produces a handful. The window is
+# what separates those two, so it has to be long enough to hold a normal pan.
+SERVER_VOTE_WINDOW_SECONDS = 30.0
+# ...and how many responses a challenger needs before it can take the screen.
+# One is what the old first-past-the-post rule effectively required, and a
+# single prefetch response was enough to flip it.
+SERVER_VOTE_MIN = 3
 
-    At the play zooms (viewLvl 0 and 1) a `world.get.block` response carries
-    exactly one block, and that block is the map on screen — a reliable answer
-    to "which server is the player on". Zoomed all the way out the response
-    carries nine blocks spanning neighbouring servers, and a server jump fires
-    the command for several ids in one burst (protocol.md §6); neither says
-    where the player is, so both return None and leave the current server as
-    it was.
 
-    Blocks have no server field of their own — the id lives on the tiles, so
-    it is read off the first tile that carries one.
+def _block_servers(blocks) -> list:
+    """The server id each block in a map response belongs to.
+
+    Every block carries its own `serverId` — verified present on 261/261
+    blocks of the saved capture, and never once disagreeing with the `f102`
+    on its own tiles (0 mismatches in 8217 tiles). That makes it exact where
+    reading the id off the first tile was a guess: a block whose tiles happen
+    to lead with a neighbour's would have been misattributed wholesale.
     """
-    if len(blocks) != 1:
-        return None
-    for point in blocks[0].get("points") or ():
-        tile = point.get("_protobuf") or {}
-        server = tile.get("f102") or tile.get("f103")
+    out = []
+    for block in blocks:
+        server = block.get("serverId")
         if server:
-            return server
-    return None
+            out.append(server)
+    return out
 
 
 class TaskIndex(LiveDecoder):
@@ -157,12 +162,16 @@ class TaskIndex(LiveDecoder):
         # can be evicted rather than served as if still live.
         self._seen_at: dict[tuple, float] = {}
         self._index_lock = threading.Lock()
-        # The server whose map the player is actually looking at. Tiles alone
-        # cannot say: a single jump fires `world.get.block` for several server
-        # ids at once (protocol.md §6), and zoomed all the way out one response
-        # carries a 3x3 grid of *neighbouring* servers. Only a response holding
-        # exactly one block is unambiguous, so only those move this.
+        # The server whose map the player is actually looking at. No single
+        # response can say: approaching a border the client prefetches the
+        # neighbouring server, and a jump fires `world.get.block` for several
+        # ids at once (protocol.md §6) — each arriving as its own ordinary
+        # response, indistinguishable from the one for the map on screen.
+        # Deciding per response is what let a neighbour take the screen, so
+        # this is decided by weight of recent traffic instead; see _elect().
         self.current_server: int | None = None
+        # (timestamp, server) per block of recent map traffic — the ballots.
+        self._votes: deque = deque()
         # (old, new) pairs the sniffer thread noticed, drained by the printing
         # loop so the banner lands in order with the rest of the output.
         self._server_changes: list = []
@@ -213,11 +222,14 @@ class TaskIndex(LiveDecoder):
             for point in block.get("points") or ()
         )
         found = list(proto.secret_tasks(payload))
-        viewing = _single_block_server(blocks)
+        servers = _block_servers(blocks)
         with self._index_lock:
             self.blocks_seen += 1
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
+            now = time.time()
+            self._votes.extend((now, server) for server in servers)
+            viewing = self._elect(now)
             if viewing is not None and viewing != self.current_server:
                 self._server_changes.append((self.current_server, viewing))
                 self.current_server = viewing
@@ -227,11 +239,44 @@ class TaskIndex(LiveDecoder):
                 # rest of the freshness window and the run keeps announcing
                 # raids on a server the player has already left.
                 self._evict(lambda key: key[0] != viewing)
-            now = time.time()
             for task in found:
                 key = (task.server_id, task.uuid)
                 self._tasks[key] = task
                 self._seen_at[key] = now
+
+    def _elect(self, now: float) -> int | None:
+        """Which server the recent map traffic says is on screen.
+
+        The map being dragged is re-requested every frame, so it dominates the
+        window; a server merely prefetched because the viewport neared its
+        border contributes a few blocks and loses. The incumbent is only
+        unseated by a challenger that both leads the window and clears
+        SERVER_VOTE_MIN, so a burst of prefetches cannot hand the screen to a
+        neighbour and hand it straight back — the flapping that made tiles
+        from the server next door print as if they were here.
+
+        Returns None while no server has enough traffic to claim the screen,
+        which leaves the incumbent (or "unknown yet") in place.
+
+        Callers hold `_index_lock`.
+        """
+        cutoff = now - SERVER_VOTE_WINDOW_SECONDS
+        while self._votes and self._votes[0][0] < cutoff:
+            self._votes.popleft()
+        if not self._votes:
+            return None
+        tally = Counter(server for _ts, server in self._votes)
+        leader, votes = tally.most_common(1)[0]
+        if leader == self.current_server:
+            return leader
+        if votes < SERVER_VOTE_MIN:
+            return None
+        # A tie must not unseat anyone: at a border both servers stream while
+        # the viewport straddles them, and whichever happened to arrive first
+        # would otherwise win.
+        if self.current_server is not None and votes <= tally[self.current_server]:
+            return None
+        return leader
 
     def _evict(self, doomed) -> None:
         """Drop every indexed task whose key `doomed(key)` accepts.
