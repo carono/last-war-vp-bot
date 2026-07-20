@@ -547,6 +547,24 @@ class SecretTask:
                 and now < self.completed_at <= now + PENDING_WINDOW_MS)
 
     @property
+    def awaiting(self) -> bool:
+        """On the map, but its dispatch has more than the pending window left.
+
+        The third and last state of a live tile: `can_loot` is raidable now,
+        `pending` is raidable within ~10 minutes, and this is everything else
+        still ahead of its timer. All three are mutually exclusive, so counting
+        the starred ones here says how many stars the map is holding in
+        reserve — a number that only moves as tiles mature into `pending`.
+
+        An already-expired tile is gone from the map and is none of the three.
+        """
+        now = int(time.time() * 1000)
+        if self.expires_at is not None and self.expires_at <= now:
+            return False
+        return (self.completed_at is not None
+                and self.completed_at > now + PENDING_WINDOW_MS)
+
+    @property
     def starred(self) -> bool:
         """Drawn with a star on the map — see STAR_TASK_FAMILIES.
 

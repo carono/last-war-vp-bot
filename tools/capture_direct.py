@@ -34,6 +34,11 @@ normal setup.
 The game only sends `world.get.block` while the map is moving, so a run that
 reports zero map responses means nobody was panning — not that the capture
 is broken. The counters below are there to tell those two apart.
+
+A run follows the player across servers. Every progress line names the server
+currently on screen, and moving to another one prints a banner and drops
+everything indexed for the old one — its dispatch timers would otherwise keep
+running and go on announcing raids on a map nobody is looking at.
 """
 
 from __future__ import annotations
@@ -107,23 +112,60 @@ def dump_tasks(records: list, path: str) -> bool:
         return False
 
 
+def _single_block_server(blocks) -> int | None:
+    """The server id of a one-block map response, or None if it is ambiguous.
+
+    At the play zooms (viewLvl 0 and 1) a `world.get.block` response carries
+    exactly one block, and that block is the map on screen — a reliable answer
+    to "which server is the player on". Zoomed all the way out the response
+    carries nine blocks spanning neighbouring servers, and a server jump fires
+    the command for several ids in one burst (protocol.md §6); neither says
+    where the player is, so both return None and leave the current server as
+    it was.
+
+    Blocks have no server field of their own — the id lives on the tiles, so
+    it is read off the first tile that carries one.
+    """
+    if len(blocks) != 1:
+        return None
+    for point in blocks[0].get("points") or ():
+        tile = point.get("_protobuf") or {}
+        server = tile.get("f102") or tile.get("f103")
+        if server:
+            return server
+    return None
+
+
 class TaskIndex(LiveDecoder):
     """LiveDecoder that keeps the secret tasks instead of printing commands.
 
-    Tasks are keyed by uuid because the client does not debounce: panning the
-    map re-sends regions it already asked about, so a repeat has to refresh a
-    record rather than append a duplicate. The refreshed tile carries the
-    newer loot list, which is the one a raid decision should use.
+    Tasks are keyed by `(server_id, uuid)` because the client does not
+    debounce: panning the map re-sends regions it already asked about, so a
+    repeat has to refresh a record rather than append a duplicate. The
+    refreshed tile carries the newer loot list, which is the one a raid
+    decision should use. The server id belongs in the key because a uuid is
+    only unique within its server — keyed by uuid alone, a tile from the
+    server you just left and one from the server you just joined overwrite
+    each other.
     """
 
     def __init__(self, stale_after: float = STALE_AFTER_SECONDS) -> None:
         super().__init__()
         self.stale_after = stale_after
-        self._tasks: dict[int, proto.SecretTask] = {}
+        self._tasks: dict[tuple, proto.SecretTask] = {}
         # Wall-clock of the last time the map re-sent each task, so stale ones
         # can be evicted rather than served as if still live.
-        self._seen_at: dict[int, float] = {}
+        self._seen_at: dict[tuple, float] = {}
         self._index_lock = threading.Lock()
+        # The server whose map the player is actually looking at. Tiles alone
+        # cannot say: a single jump fires `world.get.block` for several server
+        # ids at once (protocol.md §6), and zoomed all the way out one response
+        # carries a 3x3 grid of *neighbouring* servers. Only a response holding
+        # exactly one block is unambiguous, so only those move this.
+        self.current_server: int | None = None
+        # (old, new) pairs the sniffer thread noticed, drained by the printing
+        # loop so the banner lands in order with the rest of the output.
+        self._server_changes: list = []
         # A zero result is ambiguous without these: no map data at all reads
         # exactly like map data that held no tasks, and the two call for
         # opposite responses from whoever is running the scan.
@@ -164,29 +206,66 @@ class TaskIndex(LiveDecoder):
         if proto.envelope_command(env) != "world.get.block":
             return
         payload = proto.envelope_payload(env)
+        blocks = payload.get("serverPointArr") or ()
         kinds = Counter(
             (point.get("_protobuf") or {}).get("f2")
-            for block in payload.get("serverPointArr") or ()
+            for block in blocks
             for point in block.get("points") or ()
         )
         found = list(proto.secret_tasks(payload))
+        viewing = _single_block_server(blocks)
         with self._index_lock:
             self.blocks_seen += 1
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
+            if viewing is not None and viewing != self.current_server:
+                self._server_changes.append((self.current_server, viewing))
+                self.current_server = viewing
+                # Everything indexed for the server we just left describes a
+                # map nobody is looking at any more. Its dispatch timers keep
+                # ticking, so those tiles go on reading as LOOTABLE for the
+                # rest of the freshness window and the run keeps announcing
+                # raids on a server the player has already left.
+                self._evict(lambda key: key[0] != viewing)
             now = time.time()
             for task in found:
-                self._tasks[task.uuid] = task
-                self._seen_at[task.uuid] = now
+                key = (task.server_id, task.uuid)
+                self._tasks[key] = task
+                self._seen_at[key] = now
+
+    def _evict(self, doomed) -> None:
+        """Drop every indexed task whose key `doomed(key)` accepts.
+
+        Callers hold `_index_lock`.
+        """
+        for key in [k for k in self._seen_at if doomed(k)]:
+            self._tasks.pop(key, None)
+            self._seen_at.pop(key, None)
+
+    def drain_server_changes(self) -> list:
+        """Server switches noticed since the last call, as (old, new) pairs."""
+        with self._index_lock:
+            changes, self._server_changes = self._server_changes, []
+            return changes
 
     @property
     def tasks(self) -> list:
         cutoff = time.time() - self.stale_after
         with self._index_lock:
-            for uuid in [u for u, seen in self._seen_at.items() if seen < cutoff]:
-                self._tasks.pop(uuid, None)
-                self._seen_at.pop(uuid, None)
+            self._evict(lambda key: self._seen_at[key] < cutoff)
             return list(self._tasks.values())
+
+    @property
+    def current_tasks(self) -> list:
+        """Fresh tasks on the server the player is currently looking at.
+
+        Before the first unambiguous map response there is no current server
+        yet, and everything seen so far is the best answer available.
+        """
+        server = self.current_server
+        if server is None:
+            return self.tasks
+        return [t for t in self.tasks if t.server_id == server]
 
     def records(self) -> list:
         """Fresh tasks as serialisable dicts, each stamped with `seen_at`.
@@ -198,22 +277,34 @@ class TaskIndex(LiveDecoder):
         """
         cutoff = time.time() - self.stale_after
         with self._index_lock:
-            for uuid in [u for u, seen in self._seen_at.items() if seen < cutoff]:
-                self._tasks.pop(uuid, None)
-                self._seen_at.pop(uuid, None)
+            self._evict(lambda key: self._seen_at[key] < cutoff)
             out = []
-            for uuid, task in self._tasks.items():
+            for key, task in self._tasks.items():
                 record = task.as_dict()
                 # `steal_count` is what the live view and the task brief call
                 # it; keep the `loot_count` alias too so nothing that reads
                 # as_dict() breaks.
                 record["steal_count"] = record["loot_count"]
-                record["seen_at"] = int(self._seen_at.get(uuid, 0))
+                record["seen_at"] = int(self._seen_at.get(key, 0))
                 out.append(record)
             return out
 
     def find(self, **criteria) -> list:
-        return proto.filter_tasks(self.tasks, **criteria)
+        """Filter the *current* server's tasks — never the one just left."""
+        return proto.filter_tasks(self.current_tasks, **criteria)
+
+    @property
+    def starred_awaiting(self) -> int:
+        """Starred tiles on the current server whose timer is not near done.
+
+        Statistics only — nothing acts on these, they are too far out. It is
+        the count that answers "how many stars is this map holding", which the
+        LOOTABLE/PENDING lines cannot: those only ever mention a tile once its
+        dispatch is within ten minutes of finishing, so a map full of fresh
+        stars and a map with none look identical until the first one matures.
+        """
+        return sum(1 for task in self.current_tasks
+                   if task.starred and task.awaiting)
 
 
 def sniff_forever(index: TaskIndex, iface, bpf: str, stop: threading.Event) -> None:
@@ -324,14 +415,33 @@ def main() -> int:
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
+            # Drained before anything is printed, so the banner separates the
+            # old server's lines from the new one's instead of landing amid
+            # them.
+            for old, new in index.drain_server_changes():
+                if old is None:
+                    print(f"{C_OK}server {new}{C_RESET} — reading this map\n")
+                else:
+                    print(f"\n{C_OK}server {old} -> {new}{C_RESET} — dropped "
+                          f"everything indexed for {old}; only server {new} "
+                          f"is reported from here\n")
+                    # The new server's tasks are a fresh set of lines, and a
+                    # return trip to `old` has to re-announce what it finds
+                    # rather than stay silent on keys reported before the move.
+                    reported.clear()
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
                 left = (f"…{int(deadline - time.time())}s left"
                         if deadline is not None else "…running")
-                print(f"{C_DIM}  {left} — "
+                where = (f"server {index.current_server}"
+                         if index.current_server is not None
+                         else "server unknown yet")
+                print(f"{C_DIM}  {left} — {where}, "
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
-                      f"{len(index.tasks)} task(s){C_RESET}")
+                      f"{len(index.current_tasks)} task(s), "
+                      f"{index.starred_awaiting} star(s) still on "
+                      f"timer{C_RESET}")
                 if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -343,10 +453,11 @@ def main() -> int:
                 # printed it once while still PENDING and then suppressed the
                 # LOOTABLE moment forever — the one line a raid decision needs.
                 # Loot count is in the key for the same reason: "steal 0/3" is
-                # a claim about the world that goes stale.
+                # a claim about the world that goes stale. The server id is in
+                # it because a uuid only identifies a tile within its server.
                 state = ("lootable" if task.can_loot
                          else "pending" if task.pending else "seen")
-                key = (task.uuid, state, task.loot_count)
+                key = (task.server_id, task.uuid, state, task.loot_count)
                 if key in reported:
                     continue
                 reported.add(key)
@@ -369,10 +480,19 @@ def main() -> int:
         stop.set()
 
     everything = index.tasks
-    # reported holds (uuid, state, loot_count), so one task can appear under
-    # several keys as it changes; the count is of distinct tasks.
-    matched = len({uuid for uuid, _state, _loot in reported})
-    print(f"\n{len(everything)} task(s) seen, {matched} matched the filter")
+    # reported holds (server_id, uuid, state, loot_count), so one task can
+    # appear under several keys as it changes; the count is of distinct tasks.
+    # It also survives a server switch, so it counts every task the run ever
+    # announced — not just the ones still indexed for the current server.
+    matched = len({(server, uuid) for server, uuid, _state, _loot in reported})
+    where = (f" on server {index.current_server}"
+             if index.current_server is not None else "")
+    # Read before the summary prints, so the count belongs to the same moment
+    # as the task list rather than to a clock tick later.
+    awaiting = index.starred_awaiting
+    print(f"\n{len(everything)} task(s) seen{where}, "
+          f"{matched} matched the filter, "
+          f"{awaiting} starred task(s) still on timer (>10 min out)")
     print(f"traffic: {index.delivered} delivered / {index.packets} with payload, "
           f"{index.blocks_seen} map response(s), {index.tiles_seen} tile(s), "
           f"kinds {dict(index.tile_kinds)}")
