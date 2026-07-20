@@ -25,6 +25,7 @@ Background and the go/no-go reasoning live in
 | `lastwar_encode.py` | **WSL** (Python) | build client frames — the mirror of the decoder |
 | `trap_command.py` | **WSL** (Python) | record a command the captures have never shown |
 | `steal_via_socket.py` | **Windows** (Python) | feasibility harness for duplicating the client socket — see [`../docs/research/socket-duplication.md`](../docs/research/socket-duplication.md) |
+| `relay.py` | **Windows** (Python) or **Linux/emulator** | userland asyncio MITM relay — inject a command and see its reply, see [`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md) |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
@@ -400,6 +401,64 @@ built from the saved transcripts. That second net matters because
 `hero.dispatch.rob.*` is a guess at the name; whatever the command is really
 called, "never seen before" catches it. Direction is part of the key: without
 it all 179 server pushes read as new and bury the one interesting line.
+
+## Injecting a command and seeing its reply (`relay.py`)
+
+`steal_via_socket.py` can *send* a frame but never sees the answer — it borrows
+the client's socket and shares one receive buffer with the game, so it sends
+blind. `relay.py` closes that gap. It is an ordinary application-layer
+man-in-the-middle: the game connects to the relay, the relay connects to the
+real gateway, and every frame is decoded and logged **through both legs** — so
+an injected `go.to.world` finally shows its `{success, _id}` reply coming back.
+Both legs are normal OS sockets, so the kernel owns the TCP state on each side
+and the client's stream is never spliced mid-frame (the ban vector WinDivert
+tripped is simply absent). See
+[`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md)
+(Vector A) for the full rationale.
+
+```bash
+# observe only — decode and log every frame through both legs
+python tools/relay.py --upstream <gateway-ip>:17935
+
+# inject a safe go.to.world 20s after the client connects, then swallow its reply
+python tools/relay.py --upstream <gateway-ip>:17935 --inject-cmd go.to.world --inject-after 20
+
+# Linux / Android emulator: iptables REDIRECT front-end, gateway read off the socket
+sudo iptables -t nat -A OUTPUT -p tcp --dport 17935 -j REDIRECT --to-ports 17935
+python3 tools/relay.py --transparent --inject-cmd go.to.world --inject-after 20
+```
+
+**Getting the game onto the relay is a separate, unsolved-on-PC step.** The
+client dials a bare gateway IP on :17935 with no DNS and races three gateways at
+login, so redirection must key on *destination port*, not a name or IP:
+
+- **Linux / emulator** — `iptables -t nat` REDIRECT of dst-port 17935 to the
+  relay, then `--transparent` recovers the real gateway from `SO_ORIGINAL_DST`.
+  This is where the relay and the `_id` logic get proven first (research doc
+  Vector E), on a throwaway account.
+- **Windows** — a userland redirector (the tolerated env TUN with a dst-port
+  rule, or a wintun + tun2socks of our own) sends the :17935 flow at the relay,
+  and `--upstream <gateway-ip>:17935` names where to forward. Read the gateway
+  IP off a passive `live_tshark.py` capture first. As of 2026-07 no TUN is
+  active on this host (default route is direct), so this front-end has to be
+  stood up before a PC run — the relay itself is ready.
+
+The one real subtlety is the `_id` counter. Injecting a frame consumes an `_id`,
+so the server's freshness check matters:
+
+- `--id-mode passive` (default) leaves client frames untouched — correct if the
+  server tolerates a *monotonic sequence with gaps*. Inject at `last+1`, swallow
+  the one reply, and watch whether the client's later frames still get served.
+  This is the experiment to run first.
+- `--id-mode nat` shifts every later client `_id` up by the injection offset, so
+  the server sees a strictly increasing sequence — correct if the check is
+  *strict-sequential*. (The rewrite is byte-exact for the uncompressed client
+  frame; the server's echoed `_id` is **not** remapped back, so the client may
+  reject the shifted replies — the point of `nat` is to learn whether the server
+  accepts the shifted client frames.)
+
+Both modes and the inject/swallow path are covered by an in-process loopback
+test rather than only against the live game.
 
 ## Output layout
 ```
