@@ -121,6 +121,82 @@ SERVER_VOTE_MIN = 3
 SERVER_JUMP_GRACE_SECONDS = 5.0
 
 
+class FrameLog:
+    """Append-only JSONL transcript of every decoded frame, both directions.
+
+    One JSON object per line — `{"seq", "ts", "dir", "cmd", "env"}` — so the
+    file is readable with `jq` while the run is still going, and a truncated
+    last line (the process was killed mid-write) costs one frame rather than
+    the whole file. That is the reason for JSONL over one big JSON array.
+
+    `env` is the full decoded envelope, not just its payload: `_id` is what
+    pairs a request with its reply, and dropping it would make the transcript
+    unable to answer the question it exists for.
+
+    **Map traffic is most of the volume.** Over a 1336-frame sample of the
+    saved captures the transcript came to 8.8 MB, of which `world.get.block`
+    was 54% and `push.world.march.world.get.new` another 23% — the remaining
+    862 frames, which is where an unknown command would be found, fit in 4 MB.
+    So the size is reported on every progress tick, and the useful slice is
+    one filter away:
+
+        jq -c 'select(.cmd != "world.get.block")' dump.jsonl
+        jq -r '.cmd' dump.jsonl | sort | uniq -c | sort -rn
+    """
+
+    def __init__(self, path: str) -> None:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        # Buffered, not line-buffered: this is written from the sniffer thread
+        # and a flush per frame would push back on packet capture. Flushed on
+        # every progress tick and on close instead, so a reader tailing the
+        # file is at most one tick behind.
+        self.path = path
+        self._fh = open(path, "w", encoding="utf-8")
+        self.frames = 0
+        self.failed = 0
+
+    def write(self, direction: str, command, env) -> None:
+        record = {"seq": self.frames, "ts": round(time.time(), 3),
+                  "dir": direction, "cmd": command, "env": env}
+        try:
+            # `default=repr` rather than letting it raise: a frame carrying
+            # something unserialisable must not take down a capture that is
+            # otherwise fine, and repr keeps it inspectable.
+            line = json.dumps(record, ensure_ascii=False, default=repr)
+        except (TypeError, ValueError):
+            self.failed += 1
+            return
+        self._fh.write(line + "\n")
+        self.frames += 1
+
+    def flush(self) -> None:
+        try:
+            self._fh.flush()
+        except (ValueError, OSError):
+            pass
+
+    def size(self) -> int:
+        """Bytes written so far, counting only what has reached the disk."""
+        try:
+            return os.path.getsize(self.path)
+        except OSError:
+            return 0
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except (ValueError, OSError):
+            pass
+
+
+def human_size(count: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if count < 1024 or unit == "GB":
+            return f"{count:.0f}{unit}" if unit == "B" else f"{count:.1f}{unit}"
+        count /= 1024.0
+    return f"{count:.1f}GB"
+
+
 def block_servers(blocks) -> list:
     """The server id each block in a map response belongs to.
 
@@ -177,6 +253,8 @@ class MapIndex(LiveDecoder):
         # the difference between "npcap delivered nothing" and "it delivered
         # packets this decoder threw away", which need opposite fixes.
         self.delivered = 0
+        # Set by start_capture() when --dump was given; see FrameLog.
+        self.transcript: FrameLog | None = None
 
     # -- transport ---------------------------------------------------------
 
@@ -204,6 +282,12 @@ class MapIndex(LiveDecoder):
 
     def emit(self, direction: str, env) -> None:  # LiveDecoder hook
         command = proto.envelope_command(env)
+        if self.transcript is not None:
+            # First thing, and outside every early return below: the whole
+            # point of a transcript is the frames this scanner does *not*
+            # otherwise care about. LiveDecoder.handle() already serialises
+            # emit() under its own lock, so the writer needs none of its own.
+            self.transcript.write(direction, command, env)
         if direction == "up":
             if command == "meteorite.enter.world":
                 self._note_jump(proto.envelope_payload(env))
@@ -381,6 +465,12 @@ def add_capture_arguments(ap: argparse.ArgumentParser) -> None:
                     help="print the interfaces scapy can see, then exit")
     ap.add_argument("--seconds", type=int, default=None,
                     help="how long to listen (default: until Ctrl+C)")
+    ap.add_argument("--dump", metavar="PATH", default=None,
+                    help="write every decoded frame, both directions, to "
+                         "this file as JSONL — one frame per line, for "
+                         "finding out what else the client and server say. "
+                         "Map traffic is ~3/4 of the bytes; filter it out "
+                         "with jq afterwards")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just %d — use if the "
                          "game ever moves off it" % GAME_PORT)
@@ -408,6 +498,15 @@ def start_capture(index: MapIndex, args) -> tuple:
     # §1), so the port is the only durable narrowing available; --all-tcp is
     # the escape hatch if even that changes.
     bpf = "tcp" if args.all_tcp else f"tcp port {GAME_PORT}"
+    if getattr(args, "dump", None):
+        try:
+            index.transcript = FrameLog(args.dump)
+        except OSError as exc:
+            # Refused now rather than after a long run that quietly recorded
+            # nothing — the transcript is usually the reason for the run.
+            print(f"{C_ERR}cannot write the transcript to {args.dump}: "
+                  f"{exc}{C_RESET}", file=sys.stderr)
+            raise SystemExit(1)
     stop = threading.Event()
     for iface in ([args.iface] if args.iface else [None]):
         threading.Thread(target=sniff_forever, args=(index, iface, bpf, stop),

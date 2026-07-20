@@ -19,6 +19,8 @@ secret-task index, and nothing else.
                                                               flush it every 3s, not 15
     python tools/secret_task_capture.py --level 7 --can-loot  only raidable level-7s
     python tools/secret_task_capture.py --level 7,8           level 7 or level 8
+    python tools/secret_task_capture.py --dump traffic.jsonl  record every decoded
+                                                              frame as JSONL too
     python tools/secret_task_capture.py --list-ifaces         interfaces, then exit
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
@@ -57,7 +59,7 @@ import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, diagnose,
-    dump_records as dump_tasks, level_set, start_capture,
+    dump_records as dump_tasks, human_size, level_set, start_capture,
 )
 
 # Freshness window for the task index and its checkpoint, shared with the
@@ -266,6 +268,14 @@ def main() -> int:
                 if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
+                if index.transcript is not None:
+                    # Flushed here rather than per frame, so a reader tailing
+                    # the transcript is one tick behind at worst and the
+                    # sniffer thread is never blocked on the disk.
+                    index.transcript.flush()
+                    print(f"{C_DIM}  transcript: "
+                          f"{index.transcript.frames} frame(s), "
+                          f"{human_size(index.transcript.size())}{C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
                 # Keyed on what the line actually says, not on the uuid alone.
@@ -330,6 +340,14 @@ def main() -> int:
             print(f"{C_ERR}could not write {args.json} — the file is held by "
                   f"another process.{C_RESET} Close whatever has it open and "
                   f"re-run, or point --json somewhere else.")
+
+    if index.transcript is not None:
+        index.transcript.close()
+        lost = (f", {index.transcript.failed} frame(s) could not be serialised"
+                if index.transcript.failed else "")
+        print(f"{C_OK}wrote {index.transcript.frames} frame(s) "
+              f"({human_size(index.transcript.size())}) to "
+              f"{index.transcript.path}{C_RESET}{lost}")
     return 0
 
 

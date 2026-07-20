@@ -29,11 +29,19 @@ are taken just as seriously; the numbers are equally real.
     python tools/scan_players.py --alliance VP            only that alliance's bases
     python tools/scan_players.py --level 30               only HQ 30
     python tools/scan_players.py --level 30,31            HQ 30 or 31
+    python tools/scan_players.py --dump results/traffic.jsonl
+                                                          also record every frame
     python tools/scan_players.py --list-ifaces            interfaces, then exit
 
 Fields per record: uid, name, level (HQ), alliance_id, alliance_abbr, country,
 x, y, server_id, uuid, seen_at — plus power, army_power, army_kill, svip_level
 and profile_seen_at on any record a click answered for.
+
+`--dump` is the other half of a clicking session: it writes **every** decoded
+frame, both directions, as JSONL, so a run spent clicking around can be mined
+afterwards for whatever else the client asks and the server answers. The
+sweep's own JSON only keeps what this tool understands; the transcript keeps
+everything it does not.
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
 NAT'd VM whose network namespace is not the host's, so an AF_PACKET socket
@@ -81,7 +89,7 @@ import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, diagnose, dump_records,
-    level_set, start_capture,
+    human_size, level_set, start_capture,
 )
 
 
@@ -340,6 +348,14 @@ def main() -> int:
                 if args.json and not dump_records(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
+                if index.transcript is not None:
+                    # Flushed here rather than per frame, so a reader tailing
+                    # the transcript is one tick behind at worst and the
+                    # sniffer thread is never blocked on the disk.
+                    index.transcript.flush()
+                    print(f"{C_DIM}  transcript: "
+                          f"{index.transcript.frames} frame(s), "
+                          f"{human_size(index.transcript.size())}{C_RESET}")
             for base in index.take_new():
                 tag = f"[{base.alliance_abbr}]" if base.alliance_abbr else ""
                 # A base known only from a click has no coordinates, so the
@@ -395,6 +411,14 @@ def main() -> int:
             print(f"{C_ERR}could not write {args.json} — the file is held by "
                   f"another process.{C_RESET} Close whatever has it open and "
                   f"re-run, or point --json somewhere else.")
+
+    if index.transcript is not None:
+        index.transcript.close()
+        lost = (f", {index.transcript.failed} frame(s) could not be serialised"
+                if index.transcript.failed else "")
+        print(f"{C_OK}wrote {index.transcript.frames} frame(s) "
+              f"({human_size(index.transcript.size())}) to "
+              f"{index.transcript.path}{C_RESET}{lost}")
     return 0
 
 
