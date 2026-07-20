@@ -147,6 +147,13 @@ SERVER_VOTE_WINDOW_SECONDS = 30.0
 # One is what the old first-past-the-post rule effectively required, and a
 # single prefetch response was enough to flip it.
 SERVER_VOTE_MIN = 3
+# After the client announces a jump the election is held shut for this long.
+# The move is instant but the socket is not: responses the old server was
+# already sending keep arriving for a moment afterwards, and with the ballot
+# box just emptied a handful of them is enough to clear SERVER_VOTE_MIN and
+# hand the screen straight back. Long enough to outlast those stragglers,
+# short enough that panning off the new map still registers normally.
+SERVER_JUMP_GRACE_SECONDS = 5.0
 
 
 def _block_servers(blocks) -> list:
@@ -200,6 +207,9 @@ class TaskIndex(LiveDecoder):
         # (old, new) pairs the sniffer thread noticed, drained by the printing
         # loop so the banner lands in order with the rest of the output.
         self._server_changes: list = []
+        # Until when _elect() is held shut after a declared jump; see
+        # SERVER_JUMP_GRACE_SECONDS.
+        self._jump_grace_until = 0.0
         # A zero result is ambiguous without these: no map data at all reads
         # exactly like map data that held no tasks, and the two call for
         # opposite responses from whoever is running the scan.
@@ -235,9 +245,14 @@ class TaskIndex(LiveDecoder):
         self.handle(pkt, iface)
 
     def emit(self, direction: str, env) -> None:  # LiveDecoder hook
+        command = proto.envelope_command(env)
+        if direction == "up":
+            if command == "meteorite.enter.world":
+                self._note_jump(proto.envelope_payload(env))
+            return
         if direction != "down":
             return
-        if proto.envelope_command(env) != "world.get.block":
+        if command != "world.get.block":
             return
         payload = proto.envelope_payload(env)
         blocks = payload.get("serverPointArr") or ()
@@ -253,21 +268,69 @@ class TaskIndex(LiveDecoder):
             self.tiles_seen += sum(kinds.values())
             self.tile_kinds.update(kinds)
             now = time.time()
+            if now < self._jump_grace_until:
+                # Responses the old server was already sending. Holding the
+                # election shut is not enough on its own — these would sit in
+                # the window and take the screen back the moment it reopened,
+                # which is exactly the case a minimap click produces: the
+                # viewport lands on cached ground, the new server is asked for
+                # nothing, and the stragglers are the only ballots there are.
+                servers = [s for s in servers if s == self.current_server]
             self._votes.extend((now, server) for server in servers)
             viewing = self._elect(now)
-            if viewing is not None and viewing != self.current_server:
-                self._server_changes.append((self.current_server, viewing))
-                self.current_server = viewing
-                # Everything indexed for the server we just left describes a
-                # map nobody is looking at any more. Its dispatch timers keep
-                # ticking, so those tiles go on reading as LOOTABLE for the
-                # rest of the freshness window and the run keeps announcing
-                # raids on a server the player has already left.
-                self._evict(lambda key: key[0] != viewing)
+            if viewing is not None:
+                self._switch_to(viewing)
             for task in found:
                 key = (task.server_id, task.uuid)
                 self._tasks[key] = task
                 self._seen_at[key] = now
+
+    def _note_jump(self, payload) -> None:
+        """Take the client at its word about which server it just moved to.
+
+        Weight of traffic (see _elect) can only follow the map, so it needs
+        the map to keep talking: dragging re-requests a region every frame and
+        the new server out-votes the old one within a second. A minimap click
+        is not a drag. The viewport lands somewhere already cached, the client
+        may not ask for a single block, and with no ballots to count the
+        election never runs — the run goes on reporting raids on the server
+        the player left, indefinitely.
+
+        `meteorite.enter.world` closes that hole because the client sends it
+        *before* it moves: 3/3 of the server changes in the saved captures are
+        preceded by it, its `targetServerId` matches every `world.get.block`
+        request that follows, and it never once named a server the client did
+        not then go to. That makes it a statement of intent rather than
+        evidence to be weighed, so it overrules the tally outright.
+        """
+        server = payload.get("targetServerId")
+        if not server:
+            return
+        with self._index_lock:
+            if server == self.current_server:
+                return
+            # The tally describes the map being left. Carried across, it is a
+            # head start for the wrong server; the grace window then keeps the
+            # in-flight stragglers from rebuilding it.
+            self._votes.clear()
+            self._jump_grace_until = time.time() + SERVER_JUMP_GRACE_SECONDS
+            self._switch_to(server)
+
+    def _switch_to(self, server: int) -> None:
+        """Make `server` the map on screen, dropping what the old one left.
+
+        Callers hold `_index_lock`.
+        """
+        if server == self.current_server:
+            return
+        self._server_changes.append((self.current_server, server))
+        self.current_server = server
+        # Everything indexed for the server we just left describes a map
+        # nobody is looking at any more. Its dispatch timers keep ticking, so
+        # those tiles go on reading as LOOTABLE for the rest of the freshness
+        # window and the run keeps announcing raids on a server the player has
+        # already left.
+        self._evict(lambda key: key[0] != server)
 
     def _elect(self, now: float) -> int | None:
         """Which server the recent map traffic says is on screen.
@@ -283,8 +346,13 @@ class TaskIndex(LiveDecoder):
         Returns None while no server has enough traffic to claim the screen,
         which leaves the incumbent (or "unknown yet") in place.
 
+        A jump the client declared outright is not up for election, so while
+        the grace window is open nothing here can unseat it.
+
         Callers hold `_index_lock`.
         """
+        if now < self._jump_grace_until:
+            return None
         cutoff = now - SERVER_VOTE_WINDOW_SECONDS
         while self._votes and self._votes[0][0] < cutoff:
             self._votes.popleft()

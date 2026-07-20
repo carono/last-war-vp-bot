@@ -466,10 +466,29 @@ all on the same connection — no reconnect, no separate endpoint:
 ```
 
 The burst is **not limited to the destination**. Jumping to 959 also queried
-992, 1038 and 8120 — `meteorite.enter.world` fires for several `targetServerId`
-values and `world.get.block` for several `serverId` values. A reader that
-assumes one server per jump will mis-attribute tiles; the `serverId` inside
-each `serverPointArr` block is authoritative, not the jump target.
+992, 1038 and 8120, and `world.get.block` fires for several `serverId` values.
+A reader that assumes one server per jump will mis-attribute tiles; the
+`serverId` inside each `serverPointArr` block is authoritative, not the jump
+target.
+
+`meteorite.enter.world` is the exception, and an earlier revision of this
+section wrongly lumped it in with the rest. Re-checked across every capture on
+disk it names **one** server per jump — 935×3, 1003×2 (the same value sent
+twice), 1035×1, never two different ones — and that server is the one every
+following `world.get.block` request then asks for. The off-target ids in the
+burst ride on `center.throne.activity.info`, `get.all.server.trade` and
+`get.in.battle.city.stronghold` instead (8120 on all three), which is what the
+original claim had confused it with.
+
+That makes it the one **advance** notice of a move. Everything else is
+evidence after the fact, and after-the-fact evidence needs the map to keep
+talking: a drag re-requests blocks every frame, so weight of traffic follows
+it within a second. A **minimap click does not** — the viewport lands on
+ground the client already has, it may request no blocks at all, and a reader
+weighing traffic will sit on the old server indefinitely. `secret_task_capture.py`
+therefore treats `targetServerId` as a statement of intent that overrules the
+tally outright, clearing the votes and holding the election shut for ~5 s so
+in-flight responses from the server being left cannot take the screen back.
 
 Five commands first appeared during such a jump and are season/train scoped:
 `get.server.state`, `lw.season.rq.info`, `train.march.get.pos`,
