@@ -46,7 +46,7 @@ WIRESHARK_DIRS = (
     "/mnt/c/Program Files (x86)/Wireshark",
 )
 
-# Freshness window for the task index, shared with capture_direct and the
+# Freshness window for the task index, shared with secret_task_capture and the
 # reader via proto.TASK_FRESH_SECONDS so every layer agrees on "current": a
 # tile the map has not re-sent within it is off-screen and its cached state
 # unverifiable, so it is dropped rather than served as raidable.

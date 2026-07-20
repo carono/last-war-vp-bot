@@ -27,6 +27,7 @@ Background and the go/no-go reasoning live in
 | `steal_via_socket.py` | **Windows** (Python) | feasibility harness for duplicating the client socket — see [`../docs/research/socket-duplication.md`](../docs/research/socket-duplication.md) |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
+| `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM

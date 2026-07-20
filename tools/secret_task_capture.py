@@ -10,22 +10,22 @@ Protocol logic is imported from lastwar_proto.py and the stream reassembly
 from live_sniffer.py — neither is reimplemented here. This module is a
 transport plus a secret-task index, and nothing else.
 
-    python tools/capture_direct.py                       stream tasks, print them
-                                                         (until Ctrl+C, no file written)
-    python tools/capture_direct.py --seconds 300         stop on a timer instead
-    python tools/capture_direct.py --json out.json       also checkpoint to a file
-    python tools/capture_direct.py --json out.json --interval 3
-                                                         flush it every 3s, not 15
-    python tools/capture_direct.py --level 7 --can-loot  only raidable level-7s
-    python tools/capture_direct.py --level 7,8           level 7 or level 8
-    python tools/capture_direct.py --list-ifaces         interfaces, then exit
+    python tools/secret_task_capture.py                       stream tasks, print them
+                                                              (until Ctrl+C, no file written)
+    python tools/secret_task_capture.py --seconds 300         stop on a timer instead
+    python tools/secret_task_capture.py --json out.json       also checkpoint to a file
+    python tools/secret_task_capture.py --json out.json --interval 3
+                                                              flush it every 3s, not 15
+    python tools/secret_task_capture.py --level 7 --can-loot  only raidable level-7s
+    python tools/secret_task_capture.py --level 7,8           level 7 or level 8
+    python tools/secret_task_capture.py --list-ifaces         interfaces, then exit
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
 NAT'd VM whose network namespace is not the host's, so an AF_PACKET socket
 there sees WSL's own traffic and never a byte of the game's. From WSL, invoke
 the Windows interpreter by path:
 
-    /mnt/c/Python312/python.exe tools/capture_direct.py --seconds 300
+    /mnt/c/Python312/python.exe tools/secret_task_capture.py --seconds 300
 
 Requirements on that interpreter: npcap (ships with Wireshark), plus
 `pip install scapy zstandard`. No Administrator prompt is needed when npcap
