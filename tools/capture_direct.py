@@ -17,6 +17,7 @@ transport plus a secret-task index, and nothing else.
     python tools/capture_direct.py --json out.json --interval 3
                                                          flush it every 3s, not 15
     python tools/capture_direct.py --level 7 --can-loot  only raidable level-7s
+    python tools/capture_direct.py --level 7,8           level 7 or level 8
     python tools/capture_direct.py --list-ifaces         interfaces, then exit
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
@@ -85,6 +86,30 @@ def check_platform() -> None:
           f"    /mnt/c/Python312/python.exe {' '.join(sys.argv)}\n",
           file=sys.stderr)
     raise SystemExit(2)
+
+
+def level_set(text: str) -> set:
+    """Parse `--level` — one level or a comma-separated list of them.
+
+    Raises argparse's own error type so a typo prints the usage line and the
+    offending value rather than a traceback. Silently skipping an unparsable
+    entry would be worse than refusing: the run would narrow to something the
+    user did not ask for and quietly report fewer tasks.
+    """
+    levels = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            levels.add(int(part))
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"{part!r} is not a level; expected a number or a "
+                f"comma-separated list like 7,8")
+    if not levels:
+        raise argparse.ArgumentTypeError("no level given")
+    return levels
 
 
 def dump_tasks(records: list, path: str) -> bool:
@@ -389,7 +414,9 @@ def main() -> int:
                     help="seconds between processing ticks — each one prints "
                          "the progress line and rewrites --json if given "
                          "(default 15; lower it for tests)")
-    ap.add_argument("--level", type=int, help="only tasks of this level")
+    ap.add_argument("--level", type=level_set, metavar="N[,N...]",
+                    help="only tasks of this level; a comma-separated list "
+                         "matches any of them (--level 7,8)")
     ap.add_argument("--star", action="store_true",
                     help="only starred tasks (cfgId family 6000)")
     ap.add_argument("--can-loot", action="store_true",

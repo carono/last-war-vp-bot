@@ -681,6 +681,10 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
                  pending=False) -> list:
     """Narrow a task list. None/False means "any".
 
+    `level` takes either one level or any iterable of them, and a task passes
+    if it matches any — levels are one dimension, so listing several reads as
+    "or", the same way `can_loot`/`pending` do below.
+
     Criteria from *different* dimensions are ANDed, but `can_loot` and
     `pending` are two values of one dimension — raid readiness — so asking for
     both means "either". They are disjoint by construction (`can_loot` needs
@@ -697,9 +701,15 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
     itself imply raidable. `exclude_alliance` drops your own alliance's tasks,
     which you cannot loot from.
     """
+    # A bare int stays a one-element set, so every existing caller passing a
+    # single level is unaffected.
+    levels = None
+    if level is not None:
+        levels = {level} if isinstance(level, int) else set(level)
+
     out = []
     for t in tasks:
-        if level is not None and t.level != level:
+        if levels is not None and t.level not in levels:
             continue
         if star_only and not t.starred:
             continue
