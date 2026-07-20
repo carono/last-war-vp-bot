@@ -756,6 +756,123 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 
 
 # --------------------------------------------------------------------------
+# Map semantics: player bases, the f2 = 6 tiles
+# --------------------------------------------------------------------------
+#
+# The second kind of tile worth keeping. A base carries its owner's public
+# profile inline, so a map sweep reads name/level/alliance off the wire with
+# no OCR and no profile screen. See docs/research/protocol.md §7.
+#
+#     f1       coordinate, y * maxAreaSize + x, server-local
+#     f100     tile uuid (repeated as f3.f2)
+#     f3.f1    owner uid          f3.f14   player name
+#     f3.f4    HQ level (4-35)    f3.f27   country code
+#     f3.f7    allianceId         f3.f15   alliance abbreviation
+#     f102     serverId
+#
+# Field presence over the 3223 base tiles of the saved captures: f1, f4, f14
+# and f27 are on every one of them, while f7 (1573) and f15 (1551) are only on
+# the bases of players who are in an alliance. So a missing alliance is the
+# normal case, not a decode failure, and both come back as None.
+
+
+@dataclass(slots=True)
+class PlayerBase:
+    uid: str
+    server_id: int
+    x: int
+    y: int
+    name: str | None
+    level: int | None
+    alliance_id: str | None
+    alliance_abbr: str | None
+    country: str | None
+    uuid: int | None
+
+    def as_dict(self) -> dict:
+        return {
+            "uid": self.uid, "server_id": self.server_id,
+            "x": self.x, "y": self.y, "name": self.name, "level": self.level,
+            "alliance_id": self.alliance_id, "alliance_abbr": self.alliance_abbr,
+            "country": self.country, "uuid": self.uuid,
+        }
+
+    @classmethod
+    def from_dict(cls, record: dict) -> "PlayerBase":
+        return cls(
+            uid=record.get("uid"), server_id=record.get("server_id"),
+            x=record.get("x"), y=record.get("y"), name=record.get("name"),
+            level=record.get("level"),
+            alliance_id=record.get("alliance_id"),
+            alliance_abbr=record.get("alliance_abbr"),
+            country=record.get("country"), uuid=record.get("uuid"),
+        )
+
+
+def player_bases(payload: dict):
+    """Yield every player base in one decoded `world.get.block` response.
+
+    Coordinates come out **server-local**, exactly as in `secret_tasks()` and
+    for the same reason — see the note there about the two different packings.
+
+    A tile with no `f3.f1` is skipped: without an owner uid there is nothing to
+    key a record on, and a nameless placeholder in the output would be
+    indistinguishable from a real base whose fields failed to decode.
+    """
+    for block in payload.get("serverPointArr") or ():
+        area = block.get("maxAreaSize") or 1000
+
+        for point in block.get("points") or ():
+            tile = point.get("_protobuf") or {}
+            if tile.get("f2") != 6:
+                continue
+            detail = tile.get("f3") or {}
+            uid = detail.get("f1")
+            if uid is None:
+                continue
+            packed = tile.get("f1") or 0
+            alliance_id = detail.get("f7")
+            yield PlayerBase(
+                uid=str(uid),
+                server_id=tile.get("f102") or tile.get("f103"),
+                x=packed % area,
+                y=packed // area,
+                name=detail.get("f14"),
+                level=detail.get("f4"),
+                alliance_id=str(alliance_id) if alliance_id is not None else None,
+                alliance_abbr=detail.get("f15"),
+                country=detail.get("f27"),
+                uuid=tile.get("f100"),
+            )
+
+
+def filter_players(players, level=None, alliance=None) -> list:
+    """Narrow a base list. None means "any".
+
+    `level` takes one HQ level or any iterable of them, matching the "or"
+    reading `filter_tasks` gives it. `alliance` matches the abbreviation
+    case-insensitively — the tag is drawn uppercase in game but nothing on the
+    wire guarantees the case, and an exact-case filter that silently matches
+    nothing is worse than a loose one.
+    """
+    levels = None
+    if level is not None:
+        levels = {level} if isinstance(level, int) else set(level)
+    tag = alliance.strip().casefold() if alliance else None
+
+    out = []
+    for p in players:
+        if levels is not None and p.level not in levels:
+            continue
+        if tag is not None and (p.alliance_abbr or "").casefold() != tag:
+            continue
+        out.append(p)
+    # Highest level first — the bases worth looking at before the rest.
+    out.sort(key=lambda p: (-(p.level or 0), p.uid))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Capture survey: every flow, classified
 # --------------------------------------------------------------------------
 

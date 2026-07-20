@@ -28,6 +28,8 @@ Background and the go/no-go reasoning live in
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
+| `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
+| `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the two scanners |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
@@ -108,6 +110,35 @@ Lists every TCP flow crossing the interface with its opening bytes and a shape
 guess (`TLS`, `HTTP`, `GAME?`, `unknown`). If no flow is marked `GAME?`, the
 game's traffic is not on that interface — check `--list-ifaces`, and check
 whether the game is routed through a VPN adapter.
+
+## Sweeping player bases (`scan_players.py`)
+
+Every `f2 = 6` tile is a player's base and carries their public profile inline
+— uid, name, HQ level, alliance id and abbreviation, country (protocol.md §7).
+So a map sweep collects a roster with no OCR and without opening a single
+profile screen.
+
+```powershell
+# from the repo root, under the Windows Python (npcap + scapy + zstandard)
+python tools\scan_players.py --json results\players.json
+python tools\scan_players.py --alliance VP --seconds 300
+python tools\scan_players.py --level 30,31 --json results\hq30.json
+```
+
+Records are deduplicated by `(server_id, uid)` and re-stamped with `seen_at`
+each time the map re-sends the tile. `--alliance` / `--level` narrow what is
+*collected*, so the JSON and the console always agree; each run rewrites the
+file rather than appending to it.
+
+The game only sends map data while the map is **moving**, so keep panning for
+the whole run — a run with zero map responses means nobody was dragging, not
+that the capture failed. The closing traffic line distinguishes the two.
+
+Both this and `secret_task_capture.py` sit on `map_capture.py`, which owns the
+transport and the rule for deciding which server's map is on screen (weight of
+recent traffic, overruled by a `meteorite.enter.world` the client announces).
+A base sweep keeps what it collected across a server change; a task capture
+drops it, because dispatch timers keep running on a map nobody is watching.
 
 ## Step-by-step
 
