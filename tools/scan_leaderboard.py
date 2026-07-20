@@ -39,20 +39,44 @@ sure thing.
 `rank` is the placement on some boards and something else entirely on others —
 in `al.rank` it is the alliance role (R1..R5), and that board arrives in no
 sorted order at all, because the client sorts it locally by whichever column
-you picked. So a position is reported only where the numbers actually are
-1..N in order, and left null otherwise rather than invented from the order of
-the reply. `list_index` is always there: it says where the row sat in the
-frame, which is a fact, not a claim.
+you picked. So a position is reported only where it can be had honestly, and
+`position_source` says how it was arrived at:
 
-Fields per record: leaderboard, leaderboard_label, uid, name, server_id,
-position, list_index, score, score_field, power, alliance, discovered, seen_at.
+    "field"   the board numbered the row itself — and the numbers were
+              checked to really be 1..N in order before being believed
+              (champion duel: 1..32)
+    "order"   the board stated no number, but the server sorted the list, so
+              the index is the placement (alliance ranking: 44 entries,
+              strictly descending by fightpower)
+    null      neither, so `position` is null too rather than invented
+
+`list_index` is always there: it says where the row sat in the frame, which is
+a fact, not a claim.
+
+**Not every board is about players.** The alliance ranking's rows are
+alliances — `uid` is an alliance id and `name` is the alliance's name, with
+the tag in `alliance` and the R5 nowhere in the record. `entity` says which
+kind a row is, and it matters: joining an alliance id against a player uid
+would be nonsense.
+
+A board id carries a variant where one command serves several rankings:
+`rank.get/type=2` is the alliance board, so opening `rank.get` at another type
+files its own board instead of deduping into this one. `--board rank.get`
+matches every variant of it; `--board rank.get/type=2` selects just the one.
+
+Fields per record: leaderboard, leaderboard_label, entity, uid, name,
+server_id, position, position_source, list_index, score, score_field, power,
+alliance, discovered, seen_at.
 
 Rows are keyed by `(uid, leaderboard)`, so re-opening a board refreshes what
 it says about a player rather than appending them again, and the same player
 appearing on two different boards is two records — which is the point, since
 their score on each means a different thing. `score_field` names the column
 the number came from, because a board's score is whatever that board counts;
-comparing across boards without reading it would be nonsense.
+comparing across boards without reading it would be nonsense. The big counters
+arrive inconsistently typed — `rank.get` sent `fightpower` as a number and
+`armyKill` as a string in the same entry — so they are parsed either way and
+`score` is always an int.
 
 **This must run under the Windows Python, not the WSL one.** WSL2 sits in a
 NAT'd VM whose network namespace is not the host's, so an AF_PACKET socket
@@ -129,7 +153,7 @@ class LeaderboardIndex(MapIndex):
             return
         kept = 0
         for row in rows:
-            if self.boards is not None and row.board not in self.boards:
+            if self.boards is not None and not self._wanted(row.board):
                 self.rejected += 1
                 continue
             key = (row.uid, row.board)
@@ -139,6 +163,17 @@ class LeaderboardIndex(MapIndex):
         if kept:
             self.boards_seen[rows[0].board] = self.boards_seen.get(
                 rows[0].board, 0) + 1
+
+    def _wanted(self, board: str) -> bool:
+        """Whether `--board` asked for this board.
+
+        The bare command matches every variant of it, because a board id can
+        carry one (`rank.get/type=2`) and `--board rank.get` is what somebody
+        reading the command list would naturally type. Naming the variant
+        outright still selects just that one.
+        """
+        return any(board == want or board.startswith(want + "/")
+                   for want in self.boards)
 
     @property
     def rows(self) -> list:
@@ -280,14 +315,24 @@ def main() -> int:
                           f"{C_DIM}[{row.board}]{C_RESET}{tag}")
                 # Blank rather than a number where the board never said: see
                 # the module docstring on why a position is often unknowable.
-                place = (f"#{row.position:<3}" if row.position is not None
-                         else f"{C_DIM}·{row.list_index:<3}{C_RESET}")
+                # A position taken from the order of the reply rather than
+                # stated by the board is dimmed, so the two are never read as
+                # the same claim.
+                if row.position is None:
+                    place = f"{C_DIM}·{row.list_index:<3}{C_RESET}"
+                elif row.position_source == "order":
+                    place = f"{C_DIM}#{row.position:<3}{C_RESET}"
+                else:
+                    place = f"#{row.position:<3}"
                 score = (f"  {row.score_field} {row.score:,}"
                          if row.score is not None else "")
                 power = f"  power {row.power:,}" if row.power is not None else ""
                 where = f"  server {row.server_id}" if row.server_id else ""
                 tag = f"  [{row.alliance}]" if row.alliance else ""
-                print(f"  {place} {row.name or '?'}  uid {row.uid}"
+                # An alliance's uid is an alliance id, not a player's, and the
+                # column is labelled so nobody joins the two sets on it.
+                ident = "id" if row.entity == "alliance" else "uid"
+                print(f"  {place} {row.name or '?'}  {ident} {row.uid}"
                       f"{tag}{where}{score}{power}")
     except KeyboardInterrupt:
         pass

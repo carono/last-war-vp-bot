@@ -756,6 +756,441 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 
 
 # --------------------------------------------------------------------------
+# Map semantics: trucks, the march-type-37 `train` objects
+# --------------------------------------------------------------------------
+#
+# A truck is not a tile. It never appears in `world.get.block` at all, which is
+# why a scan built on map blocks alone finds none: it rides the *march* stream,
+# as an ordinary march of type 37 (`_proto._protobuf.f11`) carrying an extra
+# `train` object beside it. Three commands deliver them, and all three nest the
+# march the same way apart from the wrapper:
+#
+#     push.world.march.world.get.new   .serverMarchArr[].marchInfos[]
+#     world.get.march.infos            .marchInfos[]
+#     push.world.march.new             the payload itself is one march
+#     push.world.march.del             {ownerUid, uuid, isBattleFail} — gone
+#
+# Of the 158 trucks in the saved captures, 157 are `type: 1` (a player's own
+# truck, the robbable one) and 1 is `type: 2` — the alliance train, which has
+# no owner and a `carriageList` instead of a squad. Only type 1 is yielded.
+#
+# The march protobuf carries the geometry, the `train` object the cargo:
+#
+#     f9  / f10   current leg, packed y * 1000 + x, server-local
+#     f13 / f14   when that leg started / ends, epoch ms
+#     f26         serverId
+#     train.uid           owner uid (== the wrapper's ownerUid, 177/177)
+#     train.name          owner name        train.country   country code
+#     train.allianceId    alliance uuid     train.abbr      alliance tag
+#     train.cfgId         tier + level, see split_truck_cfg_id()
+#     train.startPos      where it set out (the owner's city)
+#     train.arriveTime    when the whole run ends and it leaves the map
+#     train.marchInfo.robTimes       how many times it has been robbed
+#     train.marchInfo.plunderRecord  who did it, with their power
+#     train.marchInfo.power          escort power
+#     train.marchInfo.heroInfo       escort squad, keyed by slot
+#     train.baseGoods.full           the cargo it set out with
+#
+# `startPos` is NOT the current position and `arriveTime` is NOT the leg's end:
+# a truck hops station to station, so f9/f10/f13/f14 describe only the hop it
+# is on right now (0/177 matches against startPos, 0/177 against arriveTime).
+# Position therefore has to be interpolated along the current leg — see
+# `Truck.position`.
+
+# `completeness` is exactly `1 - 0.25 * robTimes` on all 158 captured trucks
+# (110 at 0/1.0, 46 at 1/0.75, 2 at 2/0.5), so four robberies empty one. Three
+# and four were never observed, so the ceiling is read off the arithmetic
+# rather than seen; if a truck ever shows robTimes 4 with completeness above 0,
+# this constant is what to revisit.
+MAX_TRUCK_ROBS = 4
+
+# Marches pack their coordinates server-local the same way tiles do, but a
+# march response carries no `maxAreaSize` to divide by the way a map block
+# does. Every server in the captures is 1000 wide, which is what tiles report,
+# so that is the divisor. A server of another width would skew truck positions
+# and nothing else.
+TRUCK_AREA_SIZE = 1000
+
+# `cfgId` encodes tier and level in two schemes, and which one applies is read
+# off the magnitude. Both were verified against the `level` field the server
+# sends alongside: 156 of 156 trucks decode to exactly the level they claim,
+# with no mismatch.
+#
+#   cfgId >= 1000   `TLLL` — tier * 1000 + level. Levels 31+ only.
+#   200..299        `2LL`  — the sled, a family of its own; level = cfgId - 200
+#   1..150          `(tier-1) * 30 + level`, a flat table capped at level 30
+#
+# The tiers are graded, and the grading is what the cargo confirms. Totalling
+# `baseGoods.full` per (level, tier) comes out monotone in tier at every level
+# that has more than one — e.g. at level 33: 7.1M, 8.9M, 10.7M, 13.3M for tiers
+# 2..5, and 23.1M for the sled, which is roughly double the best graded truck.
+# The two schemes agree with each other across the level-30/31 seam (tier 4:
+# 8.04M then 8.36M; tier 5: 10.05M then 9.20M), so the tier digit means the
+# same thing in both.
+#
+# The colour names below are the standard five-grade ramp and are an
+# **inference, never checked by eye** — the same standing as the star in
+# STAR_TASK_FAMILIES. What the evidence actually establishes is the *order*;
+# which colour the client paints each rank is not on the wire. A caller that
+# only trusts what was measured should filter on `tier`, not on the name. To
+# settle it, run this scanner beside the map and compare a named truck with the
+# one drawn on screen.
+TRUCK_TIER_NAMES = {1: "white", 2: "green", 3: "blue", 4: "purple", 5: "gold"}
+SLED = "sled"
+
+# What `--type` accepts, over and above the names above. "yellow" is what the
+# top grade gets called in the field; both reach tier 5.
+TRUCK_TIER_ALIASES = {"yellow": 5, "orange": 5, "grey": 1, "gray": 1}
+
+# The flat table's stride: five tiers of thirty levels each, 1..150.
+_TRUCK_TABLE_STRIDE = 30
+_TRUCK_TABLE_MAX = _TRUCK_TABLE_STRIDE * 5
+
+
+def split_truck_cfg_id(cfg_id) -> tuple:
+    """Return `(tier, level)` for a truck cfgId — see the note above.
+
+    `tier` is 1..5 for a graded truck and the string `SLED` for a sled, which
+    is a family rather than a rank. Raises ValueError on anything outside both
+    schemes, so a caller can tell "a truck this decoder does not understand"
+    from one it read as tier 0.
+    """
+    value = int(cfg_id)
+    if value >= 1000:
+        tier, level = divmod(value, 1000)
+        if 1 <= tier <= 5 and 1 <= level <= 99:
+            return tier, level
+    elif 200 <= value < 300:
+        return SLED, value - 200
+    elif 1 <= value <= _TRUCK_TABLE_MAX:
+        index = value - 1
+        return index // _TRUCK_TABLE_STRIDE + 1, index % _TRUCK_TABLE_STRIDE + 1
+    raise ValueError(f"not a truck cfgId: {cfg_id!r}")
+
+
+def truck_type_set(text: str) -> set:
+    """Parse `--type` — colour names, `sled`, or bare tier numbers.
+
+    Returns a set of tiers (ints) and/or `SLED`, so it drops straight into
+    `filter_trucks(types=...)`. Mixing forms is allowed: `--type gold,sled,2`.
+    """
+    by_name = {name: tier for tier, name in TRUCK_TIER_NAMES.items()}
+    by_name.update(TRUCK_TIER_ALIASES)
+    wanted = set()
+    for part in text.split(","):
+        part = part.strip().lower()
+        if not part:
+            continue
+        if part == SLED:
+            wanted.add(SLED)
+        elif part in by_name:
+            wanted.add(by_name[part])
+        elif part.isdigit() and 1 <= int(part) <= 5:
+            wanted.add(int(part))
+        else:
+            known = ", ".join(sorted(by_name) + [SLED])
+            raise ValueError(f"{part!r} is not a truck type; expected one of "
+                             f"{known}, or a tier number 1-5")
+    if not wanted:
+        raise ValueError("no truck type given")
+    return wanted
+
+
+@dataclass(slots=True)
+class Truck:
+    uuid: int
+    march_uuid: int
+    server_id: int
+    owner_uid: str | None
+    owner_name: str | None
+    alliance_id: str | None
+    alliance_abbr: str | None
+    country: str | None
+    cfg_id: int
+    tier: object          # 1..5, or SLED
+    level: int
+    rob_times: int
+    robbed_by: tuple
+    power: int | None
+    squad: tuple          # (hero id, level, power) per escort slot
+    cargo: int            # summed numeric `baseGoods.full`, the full haul
+    leg_from: tuple       # (x, y) the current hop started at
+    leg_to: tuple         # (x, y) it ends at
+    leg_start_ms: int | None
+    leg_end_ms: int | None
+    arrive_at: int | None
+    start_pos: tuple | None
+
+    @property
+    def tier_name(self) -> str:
+        """`white`..`gold`, or `sled`. An inference — see TRUCK_TIER_NAMES."""
+        if self.tier == SLED:
+            return SLED
+        return TRUCK_TIER_NAMES.get(self.tier, f"tier{self.tier}")
+
+    @property
+    def is_sled(self) -> bool:
+        return self.tier == SLED
+
+    @property
+    def free_robs(self) -> int:
+        return max(0, MAX_TRUCK_ROBS - self.rob_times)
+
+    @property
+    def position(self) -> tuple:
+        """`(x, y)` right now, interpolated along the current leg.
+
+        The server sends the hop's endpoints and its start/end times, not a
+        live position, so this is where the truck *should* be on the game's own
+        clock. Outside the leg's window it clamps to the endpoints: before it
+        starts the truck is still at `leg_from`, and after `leg_end_ms` it is
+        parked at `leg_to` until the next hop is pushed — which is also what
+        the client draws in the gap.
+        """
+        (x0, y0), (x1, y1) = self.leg_from, self.leg_to
+        start, end = self.leg_start_ms, self.leg_end_ms
+        if start is None or end is None or end <= start:
+            return x1, y1
+        now = int(time.time() * 1000)
+        share = (now - start) / (end - start)
+        share = min(1.0, max(0.0, share))
+        return (round(x0 + (x1 - x0) * share), round(y0 + (y1 - y0) * share))
+
+    @property
+    def arrived(self) -> bool:
+        """Its run is over, so it is off the map whatever else it still says.
+
+        Trucks that have not been dispatched at all report `arriveTime` 0 —
+        those are listed by `alliance.train.info` and the login payload, never
+        by the march stream, and they are not on the map either.
+        """
+        if not self.arrive_at:
+            return True
+        return self.arrive_at <= int(time.time() * 1000)
+
+    @property
+    def can_loot(self) -> bool:
+        """Robbable right now: still running, and not yet robbed dry.
+
+        This is the wire's answer, and it is narrower than the game's: whether
+        *you* may rob this particular truck also depends on your own alliance
+        (you cannot rob your own) and on your remaining daily attempts, neither
+        of which is in this payload. Pass `exclude_alliance` to
+        `filter_trucks()` for the first; the second is not on the wire at all.
+        """
+        return not self.arrived and self.free_robs > 0
+
+    def as_dict(self) -> dict:
+        x, y = self.position
+        return {
+            "uuid": self.uuid, "march_uuid": self.march_uuid,
+            "server_id": self.server_id, "owner_uid": self.owner_uid,
+            "owner_name": self.owner_name, "alliance_id": self.alliance_id,
+            "alliance_abbr": self.alliance_abbr, "country": self.country,
+            "cfg_id": self.cfg_id, "tier": self.tier,
+            "tier_name": self.tier_name, "level": self.level,
+            "x": x, "y": y,
+            "leg_from": list(self.leg_from), "leg_to": list(self.leg_to),
+            "leg_start_ms": self.leg_start_ms, "leg_end_ms": self.leg_end_ms,
+            "arrive_at": self.arrive_at,
+            "start_pos": list(self.start_pos) if self.start_pos else None,
+            "rob_times": self.rob_times, "robbed_by": list(self.robbed_by),
+            "free_robs": self.free_robs, "power": self.power,
+            "squad": [list(hero) for hero in self.squad], "cargo": self.cargo,
+            "can_loot": self.can_loot,
+        }
+
+    @classmethod
+    def from_dict(cls, record: dict) -> "Truck":
+        """Rebuild a truck from an as_dict() record — e.g. a checkpoint.
+
+        Only stored fields are restored. `position` and `can_loot` are
+        recomputed against the current clock when read, never taken from the
+        record, so a checkpoint written minutes ago is re-evaluated: a truck
+        keeps moving after it is written down.
+        """
+        def pair(value, fallback=(0, 0)):
+            return tuple(value) if value else fallback
+
+        return cls(
+            uuid=record.get("uuid"), march_uuid=record.get("march_uuid"),
+            server_id=record.get("server_id"),
+            owner_uid=record.get("owner_uid"),
+            owner_name=record.get("owner_name"),
+            alliance_id=record.get("alliance_id"),
+            alliance_abbr=record.get("alliance_abbr"),
+            country=record.get("country"), cfg_id=record.get("cfg_id"),
+            tier=record.get("tier"), level=record.get("level"),
+            rob_times=record.get("rob_times") or 0,
+            robbed_by=tuple(record.get("robbed_by") or ()),
+            power=record.get("power"),
+            squad=tuple(tuple(hero) for hero in record.get("squad") or ()),
+            cargo=record.get("cargo") or 0,
+            leg_from=pair(record.get("leg_from")),
+            leg_to=pair(record.get("leg_to")),
+            leg_start_ms=record.get("leg_start_ms"),
+            leg_end_ms=record.get("leg_end_ms"),
+            arrive_at=record.get("arrive_at"),
+            start_pos=pair(record.get("start_pos"), None),
+        )
+
+
+def _unpack_march_pos(packed, area: int = TRUCK_AREA_SIZE):
+    """`y * area + x` -> `(x, y)`, or None when the field is absent."""
+    if packed is None:
+        return None
+    return int(packed) % area, int(packed) // area
+
+
+def _truck_squad(hero_info) -> tuple:
+    """`marchInfo.heroInfo` -> `((hero id, level, power), ...)` by slot.
+
+    Keyed by slot number as a string ("1".."6"), so it is sorted numerically
+    rather than left in dict order — the escort reads as a squad list.
+    """
+    if not isinstance(hero_info, dict):
+        return ()
+    def slot(item):
+        key = item[0]
+        return int(key) if str(key).isdigit() else 0
+    return tuple(
+        (hero.get("id"), hero.get("level"), hero.get("power"))
+        for _key, hero in sorted(hero_info.items(), key=slot)
+        if isinstance(hero, dict)
+    )
+
+
+def _truck_cargo(goods) -> int:
+    """Total the numeric entries of a `baseGoods` bundle.
+
+    Entries are `{"type": N, "value": ...}` where value is a number for the
+    resource types and a `{"num", "id"}` item for everything else. Only the
+    numbers are summed, so this is "how much resource is aboard" and not a
+    count of the item rewards, which are not comparable to each other anyway.
+    """
+    if not isinstance(goods, dict):
+        return 0
+    total = 0
+    for entry in goods.get("full") or ():
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if isinstance(value, (int, float)):
+            total += int(value)
+    return total
+
+
+def _iter_marches(payload: dict):
+    """Yield every march entry in one decoded response, whatever the wrapper.
+
+    The three commands that carry trucks nest their marches differently and
+    `push.world.march.new` does not nest at all — its payload *is* the march.
+    Each is checked for independently rather than switched on the command
+    name, so a fourth wrapper (or the same march arriving under a name this
+    was never told about) still decodes.
+    """
+    if not isinstance(payload, dict):
+        return
+    if "_proto" in payload:
+        yield payload
+    for block in payload.get("serverMarchArr") or ():
+        if isinstance(block, dict):
+            yield from block.get("marchInfos") or ()
+    yield from payload.get("marchInfos") or ()
+
+
+def trucks(payload: dict):
+    """Yield every player truck in one decoded march response.
+
+    Coordinates come out **server-local**, paired with `server_id`, exactly as
+    in `secret_tasks()` and `player_bases()` — the numbers the game shows on
+    screen. No world-space lift happens here; see `secret_tasks()` for why
+    that would be wrong.
+
+    Alliance trains (`type` 2) are skipped: they belong to no player, cannot be
+    robbed the way a truck can, and carry a `carriageList` where a truck has a
+    squad, so a caller would have to special-case every field.
+    """
+    for march in _iter_marches(payload):
+        if not isinstance(march, dict):
+            continue
+        train = march.get("train")
+        if not isinstance(train, dict) or train.get("type") != 1:
+            continue
+        info = (march.get("_proto") or {}).get("_protobuf") or {}
+        march_info = train.get("marchInfo") or {}
+        try:
+            tier, level = split_truck_cfg_id(train["cfgId"])
+        except (KeyError, ValueError, TypeError):
+            continue  # shaped like a truck, but no usable cfgId
+        leg_from = _unpack_march_pos(info.get("f9")) or (0, 0)
+        leg_to = _unpack_march_pos(info.get("f10")) or leg_from
+        robbed_by = tuple(
+            str(entry.get("uid")) for entry in march_info.get("plunderRecord") or ()
+            if isinstance(entry, dict) and entry.get("uid")
+        )
+        yield Truck(
+            uuid=train.get("uuid"),
+            march_uuid=train.get("marchUid") or march.get("uuid"),
+            server_id=train.get("serverId") or info.get("f26"),
+            owner_uid=train.get("uid") or march.get("ownerUid"),
+            owner_name=train.get("name"),
+            alliance_id=train.get("allianceId"),
+            alliance_abbr=train.get("abbr"),
+            country=train.get("country"),
+            cfg_id=int(train["cfgId"]),
+            tier=tier,
+            level=level,
+            rob_times=march_info.get("robTimes") or 0,
+            robbed_by=robbed_by,
+            power=march_info.get("power"),
+            squad=_truck_squad(march_info.get("heroInfo")),
+            cargo=_truck_cargo(train.get("baseGoods")),
+            leg_from=leg_from,
+            leg_to=leg_to,
+            leg_start_ms=info.get("f13"),
+            leg_end_ms=info.get("f14"),
+            arrive_at=train.get("arriveTime"),
+            start_pos=_unpack_march_pos(train.get("startPos")),
+        )
+
+
+def filter_trucks(items, types=None, level=None, can_loot=False,
+                  min_free_robs=None, exclude_alliance=None) -> list:
+    """Narrow a truck list. None/False means "any".
+
+    `types` is a set of tiers (1..5) and/or `SLED`, as `truck_type_set()`
+    returns; a truck passes if it matches any, because tier is one dimension
+    and listing several reads as "or". `level` works the same way and takes
+    either one level or an iterable of them. Criteria from *different*
+    dimensions are ANDed, so `--type gold,sled --level 35 --can-loot` reads as
+    (gold OR sled) AND level 35 AND robbable.
+
+    `can_loot` keeps only trucks still running with a robbery left in them.
+    `exclude_alliance` drops your own alliance's trucks, which you cannot rob —
+    pass your allianceId, not the tag.
+    """
+    levels = None
+    if level is not None:
+        levels = {level} if isinstance(level, int) else set(level)
+
+    out = []
+    for truck in items:
+        if types is not None and truck.tier not in types:
+            continue
+        if levels is not None and truck.level not in levels:
+            continue
+        if can_loot and not truck.can_loot:
+            continue
+        if min_free_robs is not None and truck.free_robs < min_free_robs:
+            continue
+        if exclude_alliance is not None and truck.alliance_id == exclude_alliance:
+            continue
+        out.append(truck)
+    # Fattest haul first, then least robbed — the order you would raid in.
+    out.sort(key=lambda t: (-t.cargo, t.rob_times))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Map semantics: player bases, the f2 = 6 tiles
 # --------------------------------------------------------------------------
 #
@@ -1072,6 +1507,8 @@ def player_remarks(payload: dict):
 LEADERBOARD_SCORE_FIELDS = (
     "score", "point", "points", "integral", "exp", "value", "num",
     "killNum", "armyKill", "weeklyProgress", "todayProgress", "power",
+    # An alliance board scores in `fightpower`, and has no `power` at all.
+    "fightpower", "alliancepoint",
 )
 
 
@@ -1081,6 +1518,20 @@ class Leaderboard:
 
     `position` and `score` name the fields on an entry; either may be None
     when the board carries no such column.
+
+    `ordered` says the server sends the list already in ranking order, so the
+    position can be read off the index. That is only ever set for a board
+    where the capture *shows* it sorted — `al.rank` is the standing proof that
+    it cannot be assumed.
+
+    `variant` names a payload key that multiplexes several boards onto one
+    command: `rank.get` answers with alliances at `type = 2` and would answer
+    something else at another type. The board id then carries it
+    (`rank.get/type=2`) so two different rankings never share a key.
+
+    `entity` is what a row *is* — a player or an alliance. Both kinds carry a
+    `uid`, but an alliance's is an alliance id, and joining the two sets on
+    uid would be nonsense.
     """
     command: str
     list_key: str
@@ -1090,6 +1541,10 @@ class Leaderboard:
     score_label: str | None = None
     server: str = "serverId"
     alliance: str | None = None
+    name: str = "name"
+    entity: str = "player"
+    ordered: bool = False
+    variant: str | None = None
 
 
 LEADERBOARDS = {
@@ -1116,6 +1571,33 @@ LEADERBOARDS = {
             server="server",
             alliance="allianceName",
         ),
+        # The alliance ranking screen. Rows are alliances, not players: `uid`
+        # is an alliance id and the name is under `alliancename`, which is
+        # exactly why the shape test used to walk straight past this board —
+        # it demanded a `name`. `leader`/`leaderUid` name the R5, who *is* a
+        # player, but the row is still the alliance's.
+        #
+        # There is no rank field at all. The 44 entries came back strictly
+        # sorted by `fightpower` descending, so the order is the ranking and
+        # `ordered` says so — the opposite finding to `al.rank`, and the
+        # reason that flag exists per board rather than as a global rule.
+        #
+        # `type = 2` is the alliance board. The command is multiplexed, so the
+        # type rides in the board id.
+        Leaderboard(
+            command="rank.get",
+            list_key="allianceRanking",
+            label="alliance ranking",
+            position=None,
+            ordered=True,
+            score="fightpower",
+            score_label="fightpower",
+            name="alliancename",
+            entity="alliance",
+            alliance="abbr",
+            server="srcServer",
+            variant="type",
+        ),
     )
 }
 
@@ -1130,6 +1612,12 @@ NOT_LEADERBOARDS = frozenset({
     "push.world.march.world.get.new", "train.list",
     "get.alliance.world.mark.info", "dragon.assign.player.info",
     "quarantine.act.player.list",
+    # The alliance *recruitment browser*, not a ranking — the client opens it
+    # from the same part of the UI, and it carries 39 alliances with a name
+    # and a `fightpower`, so it passes the shape test. Its list came back in
+    # no fightpower order at all (24.4G, 15.0G, 9.5G, 3.1G, 197M, then back
+    # up), which is what tells the two apart.
+    "al.search",
 })
 
 # How many entries a list needs before its shape is taken as a ranking. Three
@@ -1151,6 +1639,13 @@ class LeaderboardEntry:
     score_field: str | None
     power: int | None
     alliance: str | None
+    # What this row is — "player" or "alliance". Both carry a uid, but an
+    # alliance's uid is an alliance id, so the two must not be joined.
+    entity: str = "player"
+    # How `position` was arrived at: "field" if the board numbered the row
+    # itself, "order" if the server sent the list already sorted and the index
+    # was used, None if no position could be had honestly.
+    position_source: str | None = None
     # True when the board was found by shape rather than described in
     # LEADERBOARDS, so a reader can tell a column this file vouches for from
     # one a heuristic picked.
@@ -1160,10 +1655,12 @@ class LeaderboardEntry:
         return {
             "leaderboard": self.board,
             "leaderboard_label": self.board_label,
+            "entity": self.entity,
             "uid": self.uid,
             "name": self.name,
             "server_id": self.server_id,
             "position": self.position,
+            "position_source": self.position_source,
             "list_index": self.list_index,
             "score": self.score,
             "score_field": self.score_field,
@@ -1189,6 +1686,29 @@ def is_position_sequence(values) -> bool:
     return numbers == list(range(1, len(numbers) + 1))
 
 
+def as_number(value):
+    """`value` as an int, whether the server sent it as one or as a string.
+
+    The big counters cross the wire inconsistently — `rank.get` sent
+    `fightpower` as an int and `armyKill` as a string in the *same* entry, and
+    `al.search` sent `fightpower` as a string. They are past 2^32, so the
+    likeliest reason is a server-side JSON encoder widening the ones that
+    would lose precision in a double. Returns None for anything that is not a
+    number, which includes bools: `True` is an int in Python and would
+    otherwise be reported as a score of 1.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
 def _entry_score(entry: dict, preferred: str | None):
     """The score column of one entry, as `(field, value)`.
 
@@ -1196,22 +1716,34 @@ def _entry_score(entry: dict, preferred: str | None):
     of LEADERBOARD_SCORE_FIELDS that the entry carries is taken, which is what
     lets an undescribed board still report a number.
     """
-    if preferred and isinstance(entry.get(preferred), int):
-        return preferred, entry[preferred]
+    if preferred:
+        value = as_number(entry.get(preferred))
+        if value is not None:
+            return preferred, value
     for field in LEADERBOARD_SCORE_FIELDS:
-        value = entry.get(field)
-        if isinstance(value, int) and not isinstance(value, bool):
+        value = as_number(entry.get(field))
+        if value is not None:
             return field, value
     return None, None
 
 
 def _read_board(command, label, entries, board, discovered):
     """Turn one reply's list into LeaderboardEntry objects."""
+    if not entries:
+        return
     positions = None
+    source = None
     if board is not None and board.position:
         candidates = [e.get(board.position) for e in entries]
         if is_position_sequence(candidates):
             positions = candidates
+            source = "field"
+    elif board is not None and board.ordered:
+        # The server sorted it, so the index is the placement. Recorded as
+        # position_source="order" rather than passed off as a number the
+        # board stated, because those are different degrees of certainty.
+        positions = list(range(1, len(entries) + 1))
+        source = "order"
     elif discovered:
         # An undescribed board gets the same treatment, on whichever of the
         # usual names it happens to use — believed only if it checks out.
@@ -1219,32 +1751,50 @@ def _read_board(command, label, entries, board, discovered):
             candidates = [e.get(field) for e in entries]
             if is_position_sequence(candidates):
                 positions = candidates
+                source = "field"
                 break
 
     server_key = board.server if board is not None else "serverId"
     alliance_key = board.alliance if board is not None else "allianceName"
+    name_key = board.name if board is not None else "name"
+    entity = board.entity if board is not None else _entry_entity(entries[0])
     for index, entry in enumerate(entries):
         uid = entry.get("uid")
         if uid is None:
             continue
         field, score = _entry_score(entry, board.score if board else None)
-        power = entry.get("power")
         yield LeaderboardEntry(
             board=command,
             board_label=label,
             uid=str(uid),
-            name=entry.get("name"),
+            name=entry.get(name_key) or entry.get("name")
+                 or entry.get("alliancename"),
             server_id=(entry.get(server_key) or entry.get("serverId")
-                       or entry.get("server") or entry.get("curServerId")),
+                       or entry.get("server") or entry.get("srcServer")
+                       or entry.get("curServerId")),
             position=positions[index] if positions is not None else None,
+            position_source=source if positions is not None else None,
             list_index=index,
             score=score,
             score_field=field,
-            power=power if isinstance(power, int) else None,
+            power=as_number(entry.get("power")),
             alliance=(entry.get(alliance_key) if alliance_key else None)
                      or entry.get("allianceName") or entry.get("abbr"),
+            entity=entity,
             discovered=discovered,
         )
+
+
+def _entry_entity(entry: dict) -> str:
+    """Whether an undescribed board's rows are players or alliances.
+
+    An alliance row names itself `alliancename` and has no player name of its
+    own; a player row has `name`. Only consulted for boards found by shape —
+    a described one states its entity outright.
+    """
+    if entry.get("name"):
+        return "player"
+    return "alliance" if entry.get("alliancename") else "player"
 
 
 def leaderboard_entries(command: str | None, payload):
@@ -1262,7 +1812,8 @@ def leaderboard_entries(command: str | None, payload):
         entries = payload.get(board.list_key)
         if isinstance(entries, list):
             rows = [e for e in entries if isinstance(e, dict)]
-            yield from _read_board(command, board.label, rows, board, False)
+            yield from _read_board(board_id(board, payload), board.label,
+                                   rows, board, False)
         return
     for path, rows in discover_leaderboards(command, payload):
         label = f"{command}{path}" if path else command
@@ -1303,13 +1854,38 @@ def discover_leaderboards(command: str | None, payload):
     yield from walk(payload, "")
 
 
+def board_id(board: Leaderboard, payload: dict) -> str:
+    """The board's key, carrying its variant where the command has one.
+
+    `rank.get` is the reason: one command, several rankings, told apart by
+    `type` in both the request and the reply. Without the variant in the key
+    two different boards would dedup into each other the moment a second type
+    was opened.
+    """
+    if not board.variant:
+        return board.command
+    value = payload.get(board.variant)
+    if value is None:
+        return board.command
+    return f"{board.command}/{board.variant}={value}"
+
+
 def _looks_like_board(entry: dict) -> bool:
-    """Whether one entry reads as a player's row in a ranking."""
-    if entry.get("uid") is None or not entry.get("name"):
+    """Whether one entry reads as a row in a ranking.
+
+    A row needs a uid, something to call it by, and a number. The name is
+    accepted under `alliancename` as well as `name`, because an alliance board
+    has no player name on the row — that gap is what made `rank.get` invisible
+    to this test until the alliance ranking was captured.
+    """
+    if entry.get("uid") is None:
+        return False
+    if not (entry.get("name") or entry.get("alliancename")):
         return False
     if isinstance(entry.get("rank"), int):
         return True
-    return any(isinstance(entry.get(f), int) for f in LEADERBOARD_SCORE_FIELDS)
+    return any(as_number(entry.get(f)) is not None
+               for f in LEADERBOARD_SCORE_FIELDS)
 
 
 def filter_players(players, level=None, alliance=None) -> list:

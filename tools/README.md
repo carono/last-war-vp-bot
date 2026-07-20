@@ -187,9 +187,18 @@ on each, which is what `score_field` names.
 `al.rank` it is the alliance role (R1..R5), and that board arrives in no
 sorted order, because the client sorts it locally by whichever column you
 picked. The position on that screen was never on the wire. So a position is
-reported only where the numbers really are `1..N` in order, and left null
-otherwise rather than invented; `list_index` always says where the row sat in
-the frame. See protocol.md §5 → Rankings.
+reported only where it can be had honestly, and `position_source` says how —
+`"field"` when the board numbered the row itself (verified to really be
+`1..N`), `"order"` when the board stated nothing but the server sent the list
+sorted, `null` when neither. `list_index` always says where the row sat in the
+frame. See protocol.md §5 → Rankings.
+
+**Not every board is about players.** The alliance ranking (`rank.get`, type
+2) has alliances for rows: `uid` is an alliance id and `name` is the
+alliance's. The `entity` field says which kind a row is — an alliance id must
+not be joined against a player uid. Where one command serves several rankings
+the board id carries the variant (`rank.get/type=2`), so opening another type
+files its own board; `--board rank.get` matches every variant of it.
 
 **Boards nobody has decoded are collected too.** Two are described in
 `lastwar_proto.py` because two are what the captures hold; any other ranking

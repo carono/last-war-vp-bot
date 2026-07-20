@@ -347,6 +347,33 @@ opened, which is why `tools/scan_leaderboard.py` cannot make one arrive.
 |---|---|---|---|
 | `al.rank` | `allianceId` | `list[]` | `uid`, `name`, `power`, `armyKill`, `weeklyProgress`, `todayProgress`, `rank`, `mainCityLv`, `serverId`, `online`, `joinTime`, `donateTime` |
 | `champion.duel.result.show.rank.list` | `serverId`, `num` | `rank[]` | `uid`, `name`, `server`, `rank`, `allianceName`, `group5`, `rank5`, `skin[]` |
+| `rank.get` | `serverId`, `type`, `global` | `allianceRanking[]` | `uid` (**alliance id**), `alliancename`, `abbr`, `fightpower`, `armyKill`, `leader`, `leaderUid`, `curMember`, `maxMember`, `nums`, `country`, `icon`, `srcServer` |
+
+**`rank.get` is multiplexed by `type`** — `type: 2` is the alliance ranking,
+and the reply echoes both `type` and `serverId`, plus `selfRanking` (your own
+alliance's place). A decoder must key the board on the type as well as the
+command, or two different rankings dedup into each other.
+
+Its rows are **alliances, not players**: `uid` is an alliance id and the name
+is under `alliancename`, with `leader`/`leaderUid` naming the R5 as a separate
+field. Any shape test that demands a `name` walks straight past this board.
+
+It carries **no rank field at all** — the 44 entries came back strictly sorted
+by `fightpower` descending, so the reply order *is* the ranking. That is the
+opposite of `al.rank` above, which is why "is the list sorted" has to be
+established per board rather than assumed either way.
+
+Note the inconsistent typing: `fightpower` arrived as a JSON number and
+`armyKill` as a string **in the same entry** (and `al.search` sent
+`fightpower` as a string). All are past 2^32, so a server-side encoder is
+likely widening the ones that would lose precision as doubles — a decoder has
+to accept both spellings.
+
+Not a ranking, despite the shape: **`al.search`** (`page`, `searchType`,
+`recommend` → `list[]` of 39 alliances) is the recruitment browser reached
+from the same part of the UI. It carries `alliancename` and `fightpower` like
+a board, but its list is in no fightpower order (24.4G, 15.0G, 9.5G, 3.1G,
+197M, then back up), which is what tells the two apart.
 
 **The field called `rank` is not always the position.** This is the one trap,
 and it is not theoretical:
@@ -363,16 +390,20 @@ and it is not theoretical:
 So a decoder must verify a candidate field really is `1..N` in order before
 reading it as a placement, and report no position otherwise rather than
 inferring one from the order of the list. `lastwar_proto.is_position_sequence`
-is that check.
+is that check. Where a board states no number but the server *did* sort the
+list (`rank.get`), the index is the placement — recorded with its provenance
+(`position_source`) so "the board said so" and "the order implies it" stay
+distinguishable.
 
-Only these two boards appear in the saved captures, so anything else is
-recognised by shape: a list of ≥3 dicts each with a `uid`, a `name`, and a
-rank or score column. Replayed over both captures that test found exactly
-these two and no false positives — but only because the lists of players that
-are *not* rankings are excluded by name (`lastwar_proto.NOT_LEADERBOARDS`):
-a march's `plunderRecord`, `get.user.info.multi`, `train.list`,
-`get.alliance.world.mark.info`, and the `dragon.assign.player.info` /
-`quarantine.act.player.list` sign-up sheets all otherwise pass it.
+Boards not in the table are recognised by shape: a list of ≥3 dicts each with
+a `uid`, a name (under `name` *or* `alliancename`), and a rank or score
+column. Replayed over all three captures that test finds exactly the real
+boards and no false positives — but only because the lists that are *not*
+rankings are excluded by name (`lastwar_proto.NOT_LEADERBOARDS`): a march's
+`plunderRecord`, `get.user.info.multi`, `train.list`,
+`get.alliance.world.mark.info`, `al.search`, and the
+`dragon.assign.player.info` / `quarantine.act.player.list` sign-up sheets all
+otherwise pass it.
 
 ## 6. Login sequence
 
@@ -534,7 +565,15 @@ Five commands first appeared during such a jump and are season/train scoped:
 `get.server.state`, `lw.season.rq.info`, `train.march.get.pos`,
 `train.refresh`, `zwl.get.target.act.info`.
 
-## 7. World map semantics (`world.get.block`)
+## 7. World map semantics (`world.get.block`, plus the march stream)
+
+Two streams describe the map, and only the first is made of tiles.
+`world.get.block` carries everything that stands still — bases, secret tasks,
+strongholds — and is what the rest of this section is about. Everything that
+*moves* rides the march stream instead (`push.world.march.*`,
+`world.get.march.infos`), which is a separate shape entirely and is covered
+under "Trucks" at the end of this section. A scan built on map blocks alone
+finds no trucks, and that is why: they were never tiles.
 
 ### Zoom
 
@@ -951,6 +990,78 @@ task into alliance chat. That is a client-side courtesy, not part of the steal.
 One coordinate note, consistent with the off-by-one already recorded above:
 the steal was at `point 509552` → `(552, 509)` server-local, while the chat
 attachment the client generated for the same task said `x: 551, y: 509`.
+
+### Trucks (march type 37)
+
+A truck is not a tile and never appears in `world.get.block`. It rides the
+march stream as an ordinary march whose `_proto._protobuf.f11` is **37**,
+carrying an extra `train` object beside the march. Four commands are involved:
+
+| Command | Where the march sits |
+|---|---|
+| `push.world.march.world.get.new` | `.serverMarchArr[].marchInfos[]` |
+| `world.get.march.infos` | `.marchInfos[]` |
+| `push.world.march.new` | the payload *is* one march |
+| `push.world.march.del` | `{ownerUid, uuid, isBattleFail}` — the march is over |
+
+`train.type` separates two things that share the shape. **1** is a player's own
+truck, the robbable one; **2** is the alliance train, which has no owner and a
+`carriageList` where a truck has an escort squad. Of the 158 in the saved
+captures, 157 are type 1 and one is type 2.
+
+The march protobuf carries the geometry and the `train` object the cargo:
+
+```
+f9 / f10    current leg, packed y * 1000 + x, server-local
+f13 / f14   when that leg started / ends, epoch ms
+f26         serverId
+
+train.uid / .name / .country      owner
+train.allianceId / .abbr          alliance
+train.cfgId                       tier + level, see below
+train.startPos                    where it set out (the owner's city)
+train.arriveTime                  when the run ends and it leaves the map
+train.baseGoods.full              the cargo it set out with
+train.marchInfo.robTimes          how many times it has been robbed
+train.marchInfo.plunderRecord     who did it, with their power
+train.marchInfo.power / .heroInfo escort power and squad
+```
+
+**`startPos` is not the current position and `arriveTime` is not the leg's
+end.** A truck hops station to station and only the hop it is on right now is
+described, which is why neither matched across all 177 truck marches on disk
+(0/177 against each). Position has to be interpolated along `f9`→`f10` over
+`f13`..`f14`; `Truck.position` does it.
+
+`completeness` is exactly `1 - 0.25 * robTimes` on all 158 trucks (110 at
+0/1.0, 46 at 1/0.75, 2 at 2/0.5), so **four robberies empty one**. Three and
+four were never observed, so the ceiling is arithmetic rather than a sighting.
+
+#### `cfgId` — tier and level
+
+Two schemes, chosen by magnitude. Both were checked against the `level` the
+server sends alongside: **156 of 156 decode to exactly the level they claim,
+with no mismatch.**
+
+| `cfgId` | Meaning |
+|---|---|
+| ≥ 1000 | `tier * 1000 + level`. Levels 31+ only |
+| 200–299 | the sled, a family of its own; `level = cfgId - 200` |
+| 1–150 | `(tier - 1) * 30 + level`, a flat table capped at level 30 |
+
+The tiers are graded, and the cargo is what proves it. Totalling
+`baseGoods.full` per (level, tier) is monotone in tier at every level with more
+than one — at level 33: 7.1M, 8.9M, 10.7M, 13.3M for tiers 2..5, and 23.1M for
+the sled, roughly double the best graded truck. The two schemes agree across
+the level-30/31 seam (tier 4: 8.04M then 8.36M; tier 5: 10.05M then 9.20M), so
+the tier digit means the same thing in both.
+
+**The colour names are an inference and have never been checked by eye** — the
+same standing as the star in §7's task families. What the evidence establishes
+is the *order*; which colour the client paints each rank is not on the wire.
+`tools/scan_trucks.py --type` accepts tier numbers for exactly that reason.
+To settle it, run the scanner beside the map and compare a named truck against
+the one drawn on screen.
 
 ## 8. Embedded protobuf
 
