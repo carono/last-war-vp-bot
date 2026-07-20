@@ -124,14 +124,21 @@ SERVER_JUMP_GRACE_SECONDS = 5.0
 class FrameLog:
     """Append-only JSONL transcript of every decoded frame, both directions.
 
-    One JSON object per line — `{"seq", "ts", "dir", "cmd", "env"}` — so the
-    file is readable with `jq` while the run is still going, and a truncated
-    last line (the process was killed mid-write) costs one frame rather than
-    the whole file. That is the reason for JSONL over one big JSON array.
+    One JSON object per line — `{"seq", "ts", "direction", "name", "action",
+    "payload"}` — so the file is readable with `jq` while the run is still
+    going, and a truncated last line (the process was killed mid-write) costs
+    one frame rather than the whole file. That is the reason for JSONL over
+    one big JSON array.
 
-    `env` is the full decoded envelope, not just its payload: `_id` is what
-    pairs a request with its reply, and dropping it would make the transcript
-    unable to answer the question it exists for.
+    `payload` is what `proto.envelope_payload()` returns, which is where `_id`
+    lives — 915 of the 1336 frames in the replayed capture carry one, and it
+    is what pairs a request with its reply. The rest are server pushes, which
+    have no request to pair with.
+
+    `action` is the envelope's numeric `a`. It is kept because it is the only
+    identifier on a frame the decoder could not name: 58 frames of that same
+    replay had no command string, and those are precisely the ones somebody
+    reading a transcript is hunting for.
 
     **Map traffic is most of the volume.** Over a 1336-frame sample of the
     saved captures the transcript came to 8.8 MB, of which `world.get.block`
@@ -140,8 +147,8 @@ class FrameLog:
     So the size is reported on every progress tick, and the useful slice is
     one filter away:
 
-        jq -c 'select(.cmd != "world.get.block")' dump.jsonl
-        jq -r '.cmd' dump.jsonl | sort | uniq -c | sort -rn
+        jq -c 'select(.name != "world.get.block")' dump.jsonl
+        jq -r '.name' dump.jsonl | sort | uniq -c | sort -rn
     """
 
     def __init__(self, path: str) -> None:
@@ -156,8 +163,14 @@ class FrameLog:
         self.failed = 0
 
     def write(self, direction: str, command, env) -> None:
-        record = {"seq": self.frames, "ts": round(time.time(), 3),
-                  "dir": direction, "cmd": command, "env": env}
+        record = {
+            "seq": self.frames,
+            "ts": round(time.time(), 3),
+            "direction": direction,
+            "name": command,
+            "action": env.get("a") if isinstance(env, dict) else None,
+            "payload": proto.envelope_payload(env),
+        }
         try:
             # `default=repr` rather than letting it raise: a frame carrying
             # something unserialisable must not take down a capture that is

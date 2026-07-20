@@ -142,8 +142,8 @@ through whichever bases you want numbers for — one run, one file.
 ### Recording everything (`--dump`)
 
 Both scanners take `--dump <path>` and write **every** decoded frame, in both
-directions, as JSONL — one `{"seq", "ts", "dir", "cmd", "env"}` object per
-line. It is the companion to a clicking session: the sweep's own JSON keeps
+directions, as JSONL — one `{"seq", "ts", "direction", "name", "action",
+"payload"}` object per line. It is the companion to a clicking session: the sweep's own JSON keeps
 only what the tool understands, while the transcript keeps everything it does
 not, so a run can be mined afterwards for whatever else the client asks and
 the server answers.
@@ -153,13 +153,18 @@ python tools\scan_players.py --json results\players.json --dump results\traffic.
 ```
 
 ```bash
-jq -r '.cmd' traffic.jsonl | sort | uniq -c | sort -rn   # what commands appeared
-jq -c 'select(.cmd != "world.get.block")' traffic.jsonl  # drop the bulky map frames
-jq -c 'select(.cmd == "get.user.info.multi")' traffic.jsonl
+jq -r '.name' traffic.jsonl | sort | uniq -c | sort -rn    # what commands appeared
+jq -c 'select(.name != "world.get.block")' traffic.jsonl  # drop the bulky map frames
+jq -c 'select(.name == "get.user.info.multi")' traffic.jsonl
+jq -c 'select(.name == null)' traffic.jsonl               # frames only .action names
 ```
 
-`env` is the whole envelope rather than just the payload, so `_id` is there to
-pair a request with its reply. JSONL rather than one JSON array so the file is
+`payload` is the decoded body, which is where `_id` lives — that is what pairs
+a request with its reply (915 of 1336 frames in the replayed capture had one;
+the rest are server pushes, which answer nothing). `action` is the envelope's
+numeric `a`, kept because it is the only identifier on a frame the decoder
+could not name — 58 frames of that replay had no command string, and those are
+exactly what a transcript is read for. JSONL rather than one JSON array so the file is
 readable while the run is still going and a process killed mid-write costs one
 line, not the file. Expect volume: over a 1336-frame sample the transcript was
 8.8 MB, of which `world.get.block` was 54% and `push.world.march.world.get.new`
