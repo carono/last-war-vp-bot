@@ -708,18 +708,32 @@ def dup_game_socket_by_lport(pid: int, local_port: int,
 
 def dup_game_socket_blind_scan(pid: int, local_port: int,
                                max_hval: int = 0x4000) -> tuple:
-    """Find the game socket by brute-forcing handle values (no NtQuerySystemInformation).
+    """Find the game socket: fast NtQuerySystemInformation path, then fallback.
 
-    Avoids the ACE-triggered DuplicateHandle block that follows a
-    NtQuerySystemInformation call — empirically, without that call DuplicateHandle
-    on the game socket succeeds quickly (task #961 confirmed: 61 bytes sent).
+    Primary: _collect_socket_candidates() obtains the exact socket-type handle
+    list in a single NtQuerySystemInformation call; dup_game_socket_by_lport()
+    then identifies the right one by getsockname.  Typically < 1 second.
 
-    Tries every multiple of 4 from 0x4 to max_hval.  Most fail immediately
-    (DuplicateHandle returns 0 for non-existent handles).  Matching is done via
-    getsockname on successful dups.
+    Fallback (if NtQuerySystemInformation raises): sequential DuplicateHandle
+    over 4..max_hval, but with an NtQueryObject type check before getsockname
+    so that only socket/File handles incur the (potentially blocking) getsockname
+    call.  Skips ~90 % of non-socket handles cheaply.
 
     Returns (orig_handle_value, dup_handle: wintypes.HANDLE) or raises OSError.
     """
+    # Primary: NtQuerySystemInformation candidate list
+    candidates = None
+    try:
+        candidates, _ = _collect_socket_candidates(pid)
+    except Exception as exc:
+        print(f"{C_DIM}blind_scan: NtQuerySystemInformation failed ({exc}), "
+              f"using NtQueryObject-filtered sequential scan{C_RESET}", flush=True)
+    if candidates:
+        return dup_game_socket_by_lport(pid, local_port, candidates)
+
+    # Fallback: sequential scan with NtQueryObject type filter
+    import socket as _socket_m
+    ntdll = ctypes.WinDLL("ntdll")
     win = _win()
     k32, ws2 = win["k32"], win["ws2"]
     hgame = k32.OpenProcess(PROCESS_DUP_HANDLE, False, pid)
@@ -727,23 +741,43 @@ def dup_game_socket_blind_scan(pid: int, local_port: int,
         raise OSError(f"OpenProcess(PROCESS_DUP_HANDLE) failed: "
                       f"{ctypes.get_last_error()}")
     hself = k32.GetCurrentProcess()
+
+    # Determine the socket object-type name from a known socket handle.
+    _ts = _socket_m.socket(_socket_m.AF_INET, _socket_m.SOCK_STREAM)
+    _td = wintypes.HANDLE()
+    k32.DuplicateHandle(hself, wintypes.HANDLE(_ts.fileno()), hself,
+                        ctypes.byref(_td), 0, False, DUPLICATE_SAME_ACCESS)
+    sock_type = _object_type_name(ntdll, _td.value) if _td.value else None  # "File"
+    _ts.close()
+    if _td.value:
+        k32.CloseHandle(_td)
+
     found = None
     tried = 0
+    filtered = 0
     for hval in range(4, max_hval + 1, 4):
         _d = wintypes.HANDLE()
         if not k32.DuplicateHandle(hgame, wintypes.HANDLE(hval), hself,
                                    ctypes.byref(_d), 0, False, DUPLICATE_SAME_ACCESS):
             continue
         tried += 1
+        # Skip non-socket handles before the (potentially blocking) getsockname.
+        if sock_type is not None:
+            if _object_type_name(ntdll, _d.value) != sock_type:
+                k32.CloseHandle(_d)
+                filtered += 1
+                continue
         laddr = _local(ws2, _d.value)
         if laddr and laddr[1] == local_port:
             found = (hval, _d)
             break
         k32.CloseHandle(_d)
-    # NOTE: hgame intentionally not closed — it leaks cleanly on process exit.
+    # NOTE: hgame intentionally not closed — leaks cleanly on process exit.
     if found is None:
-        raise OSError(f"game socket :{local_port} not found "
-                      f"(tried {tried} successful dups up to hval=0x{max_hval:x})")
+        raise OSError(
+            f"game socket :{local_port} not found "
+            f"(tried {tried} dups up to hval=0x{max_hval:x}, "
+            f"filtered {filtered} non-socket via NtQueryObject)")
     return found
 
 
@@ -1182,7 +1216,20 @@ def sniff_and_inject(pid: int, args) -> int:
             blocking: list = []   # (hval, dup_HANDLE) where getsockname timed out
             found = None
 
-            cands = _cands or []
+            cands = _cands
+            if cands is None:
+                # Phase 1 failed before the bg thread started — retry here.
+                # The delay between Phase 1 (main thread) and this point is
+                # > 300 ms (thread startup + scapy import), so ACE's getsockname
+                # hook window has already expired; the retry is safe.
+                try:
+                    cands, _ = _collect_socket_candidates(_pid)
+                    print(f"{C_DIM}bg-dup: Phase 1 retry → {len(cands)} "
+                          f"candidates{C_RESET}", flush=True)
+                except Exception as _e2:
+                    print(f"{C_DIM}bg-dup: Phase 1 retry failed ({_e2}){C_RESET}",
+                          flush=True)
+                    cands = []
             for hval in cands:
                 _d = wintypes.HANDLE()
                 if not k32_.DuplicateHandle(hgame2, wintypes.HANDLE(hval), hself2,
