@@ -906,7 +906,6 @@ def sniff_and_inject(pid: int, args) -> int:
     try:
         import lastwar_proto as proto
         from live_sniffer import LiveDecoder
-        from scapy.arch import get_if_list
     except ImportError as exc:
         print(f"{C_ERR}sniff-and-inject needs the capture stack "
               f"(scapy): {exc}{C_RESET}")
@@ -937,14 +936,10 @@ def sniff_and_inject(pid: int, args) -> int:
     _blind_event = threading.Event()
     _blind_result: list = [None]   # set to (hval, HANDLE) or OSError
 
-    # Transport is scapy-over-npcap, exactly as map_capture.py / scan_players.py:
-    # dumpcap on the "Сетевой мост" adapter never surfaced upstream _id frames,
-    # while the scapy path (with the Ether re-parse below) does. No dumpcap.exe
-    # and no tshark.exe are spawned.
-    ifaces = get_if_list()
-    if not ifaces:
-        print(f"{C_ERR}scapy sees no capture interfaces.{C_RESET}")
-        return 1
+    # Transport is scapy-over-npcap, same as map_capture.py / scan_players.py.
+    # Use iface=None (all interfaces at once, same as map_capture.start_capture
+    # default) so the game stream is always visible regardless of which adapter
+    # Windows routes it through.
 
     state: dict = {
         "max_id": -1,
@@ -1048,6 +1043,35 @@ def sniff_and_inject(pid: int, args) -> int:
                     state["up_next_seq"] = (_tcp.seq + _payload_len) & 0xFFFFFFFF
                     state["up_ack"] = _tcp.ack
                     state["up_packets"] += 1
+                    # Decode upstream frames directly from this TCP segment.
+                    # Client RPCs (world.get.block, go.to.world, …) fit in a
+                    # single segment so no stream reassembly is needed.
+                    # LiveDecoder.classify() rejects upstream envelopes because
+                    # they lack a top-level "c" key; this path bypasses that.
+                    _raw = bytes(_tcp.payload)
+                    try:
+                        for _env, _fstart, _fend in proto.iter_frames(_raw, "up"):
+                            _ep = proto.envelope_payload(_env)
+                            if not isinstance(_ep, dict):
+                                continue
+                            _rid = _ep.get("_id")
+                            if isinstance(_rid, int) and _rid > state["max_id"]:
+                                state["max_id"] = _rid
+                                # serverId lives in upstream header bytes [1:3]
+                                if (state["server_id"] is None
+                                        and len(_raw) >= _fstart + 3):
+                                    _sid_hdr = int.from_bytes(
+                                        _raw[_fstart + 1:_fstart + 3], "big")
+                                    if _sid_hdr:
+                                        state["server_id"] = _sid_hdr
+                                if not state["got_id"].is_set():
+                                    print(
+                                        f"{C_OK}upstream _id={_rid}  "
+                                        f"server_id={state['server_id']}{C_RESET}",
+                                        flush=True)
+                                state["got_id"].set()
+                    except Exception:
+                        pass
                 elif (_ip.src == _server_ip
                         and _tcp.sport == GAME_PORT
                         and _ip.dst == _local_ip
@@ -1076,10 +1100,9 @@ def sniff_and_inject(pid: int, args) -> int:
             if not stop.is_set():
                 print(f"{C_DIM}iface {iface}: {exc}{C_RESET}")
 
-    threads = [
-        threading.Thread(target=_sniff_forever, args=(iface,), daemon=True)
-        for iface in ifaces
-    ]
+    # Single thread with iface=None — scapy sniffs all interfaces at once,
+    # matching map_capture.start_capture() default behaviour.
+    threads = [threading.Thread(target=_sniff_forever, args=(None,), daemon=True)]
 
     print(f"{C_DIM}sniffing upstream _id via scapy/npcap "
           f"(open a menu or scroll the map)…{C_RESET}")
@@ -1157,20 +1180,21 @@ def sniff_and_inject(pid: int, args) -> int:
         print(f"{C_DIM}bg-dup: blind scan via getpeername (no NtQuerySysInfo)…{C_RESET}",
               flush=True)
 
-    # Strategy: wait up to 15 s for a real downstream _id (from a fresh server
-    # reply).  If the connection is idle (only push events), fall back to waiting
-    # for at least 5 upstream packets, then inject with a synthetic large _id
-    # (50000) that the server will echo back — safe because the client's counter
-    # is in the 1-500 range per session and 50000 cannot collide.
+    # Wait for a real upstream _id decoded directly from TCP segments.
+    # The _make_feed() callback decodes each upstream packet via
+    # proto.iter_frames(raw, "up") and sets got_id as soon as the first
+    # upstream RPC frame (world.get.block, etc.) is seen.  Keepalives have no
+    # _id, so we need at least one map scroll or menu tap in the window.
     got = state["got_id"].wait(timeout=15.0)
     if not got or state["max_id"] < 0:
-        # No numbered downstream reply seen.  Wait for upstream activity instead.
-        print(f"{C_DIM}no downstream _id in 15 s — waiting for upstream TCP "
-              f"packets to confirm game is active…{C_RESET}", flush=True)
+        # Still nothing after 15 s.  Wait up to 45 s more for upstream packets
+        # then for a decoded _id — the orchestrator keeps panning the map.
+        print(f"{C_DIM}no upstream _id in 15 s — waiting (scroll map / open menu)…"
+              f"{C_RESET}", flush=True)
         deadline_up = time.time() + 45.0
-        while time.time() < deadline_up and state["up_packets"] < 5:
+        while time.time() < deadline_up and not state["got_id"].is_set():
             time.sleep(0.2)
-        if state["up_packets"] < 5:
+        if not state["got_id"].is_set() or state["max_id"] < 0:
             stop.set()
             for p in procs:
                 try:
@@ -1179,13 +1203,9 @@ def sniff_and_inject(pid: int, args) -> int:
                     pass
             if pre_dup_handle is not None:
                 _win()["k32"].CloseHandle(pre_dup_handle)
-            print(f"{C_WARN}no upstream traffic in 60 s — is the game running? "
+            print(f"{C_WARN}no upstream _id in 60 s — is the game on the world map?  "
                   f"up_packets={state['up_packets']}{C_RESET}")
             return 1
-        print(f"{C_DIM}up_packets={state['up_packets']} — proceeding with "
-              f"synthetic inject_id=50000{C_RESET}", flush=True)
-        # Synthetic: large _id that won't collide with the session counter.
-        state["max_id"] = 49999
 
     # Settle: wait for any ongoing RPC burst to finish.
     time.sleep(1.5)
