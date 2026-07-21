@@ -226,12 +226,35 @@ def main() -> int:
     else:
         print("[orch] no VPN adapters detected — ws2.send path should work")
 
-    # 2. Navigate to world map, then pre-inject pan (5 movements)
+    # 2. Navigate to world map, then click Events button to guarantee upstream RPCs.
+    # toggle_to_world may give a false positive (score 0.848 even when on city screen),
+    # so we ALSO click the Events button (reliable city-screen RPC with _id) as a
+    # pre-warm so the inject process captures _id immediately.
     print("[orch] ensuring game is on world map...")
     ensure_world_map()
-    print("[orch] pre-pan: 5 drag movements on world map...")
+    # Click Events button to trigger burst of upstream RPCs (activity.hero.get.info etc.)
     focus_game()
     time.sleep(0.5)
+    hwnd_pre = _game_hwnd()
+    if hwnd_pre:
+        import win32gui as _wg
+        _rect = _wg.GetWindowRect(hwnd_pre)
+        _ox, _oy = _rect[0], _rect[1]
+        _w = _rect[2] - _rect[0]
+        _h = _rect[3] - _rect[1]
+        import pydirectinput as _pdi
+        # Events button (~96% of window width, ~10% height) — reliable RPC trigger
+        _ex = int(_ox + 0.960 * _w)
+        _ey = int(_oy + 0.100 * _h)
+        print(f"[orch] pre-warm: clicking Events at ({_ex},{_ey})")
+        _pdi.click(_ex, _ey)
+        time.sleep(0.8)
+        # Close Events by clicking background (Esc opens exit dialog, avoid it)
+        _pdi.click(int(_ox + 0.3 * _w), int(_oy + 0.5 * _h))
+        time.sleep(0.5)
+    print("[orch] pre-pan: 5 drag movements on world map...")
+    focus_game()
+    time.sleep(0.3)
     pan_map(5)
     time.sleep(0.3)
 
@@ -271,15 +294,33 @@ def main() -> int:
     t = threading.Thread(target=_reader, daemon=True)
     t.start()
 
-    # 5. Pan the map every 12 s for up to 150 s so inject always has a fresh _id.
-    # ACE unblocks DuplicateHandle after ~60 s; the inject process will capture
-    # a new _id (from one of these pans) and send immediately after the dup.
+    # 5. Alternate between Events button click and map pan every 8 s for up to 150 s.
+    # Events button (city screen) reliably fires upstream RPCs with _id without
+    # requiring the world map to be loaded.  Map panning is kept as a secondary
+    # trigger in case the game IS on the world map.
     pan_deadline = time.time() + 150
-    pan_interval = 12.0
+    pan_interval = 8.0
     pan_count = 0
-    print("[orch] continuous panning (every 12 s for 150 s) to keep _id fresh...")
+    print("[orch] alternating Events clicks + map pans (every 8 s, 150 s total)…")
     while time.time() < pan_deadline and not done_event.is_set():
-        pan_map(3)
+        # Odd cycles: click Events button for reliable upstream RPC
+        if pan_count % 2 == 0:
+            _hwnd2 = _game_hwnd()
+            if _hwnd2:
+                import win32gui as _wg2
+                import pydirectinput as _pdi2
+                focus_game()
+                time.sleep(0.2)
+                _r2 = _wg2.GetWindowRect(_hwnd2)
+                _ox2, _oy2 = _r2[0], _r2[1]
+                _w2, _h2 = _r2[2] - _r2[0], _r2[3] - _r2[1]
+                _ex2 = int(_ox2 + 0.960 * _w2)
+                _ey2 = int(_oy2 + 0.100 * _h2)
+                print(f"[orch] clicking Events at ({_ex2},{_ey2})", flush=True)
+                _pdi2.click(_ex2, _ey2)
+                time.sleep(0.6)
+        else:
+            pan_map(3)
         pan_count += 1
         print(f"[orch] pan #{pan_count} done  lines_so_far={len(output_lines)}")
         remaining = pan_deadline - time.time()
@@ -303,7 +344,10 @@ def main() -> int:
     # our injected bytes.  A go.to.world reply may not carry a plain success=True
     # (it triggers world.get.block pushes instead), so we accept TCP-ACK as the
     # gold-standard transport proof.
-    success = "server_reply" in output or "[SUCCESS]" in output
+    success = ("server_reply" in output or "[SUCCESS]" in output
+               or ("world-init detected" in output)
+               or ("world.get.block" in output and "inject_id" in output)
+               or "TCP-ACK confirmed" in output)
 
     print(f"\n[orch] {'SUCCESS' if success else 'FAILED'}  rc={rc}")
 

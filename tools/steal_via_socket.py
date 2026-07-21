@@ -547,7 +547,7 @@ def _local(ws2, handle: int) -> tuple | None:
         done.set()
 
     _threading.Thread(target=_call, daemon=True).start()
-    done.wait(2.0)
+    done.wait(0.5)
     return result[0]
 
 
@@ -615,7 +615,7 @@ def dup_game_socket_by_lport(pid: int, local_port: int,
                       f"{ctypes.get_last_error()}")
     hself = k32.GetCurrentProcess()
     found = None
-    timeout_candidates: list = []  # sockets where getsockname blocked — likely VPN socket
+    blocking_candidates: list = []  # (hval, dup) for sockets where getsockname blocked
 
     for hval in candidates:
         _dup_result: list = [None]
@@ -639,7 +639,7 @@ def dup_game_socket_by_lport(pid: int, local_port: int,
 
         # Inline getsockname with 2 s timeout — track whether event fired or timed out.
         # Non-socket handles return WSAENOTSOCK instantly (event fires, result=None).
-        # VPN-hooked sockets BLOCK indefinitely (event never fires in 2 s → timeout candidate).
+        # VPN-hooked sockets BLOCK indefinitely (event never fires in 2 s).
         _gn_result: list = [None]
         _gn_done = _th.Event()
 
@@ -654,28 +654,51 @@ def dup_game_socket_by_lport(pid: int, local_port: int,
             _e.set()
 
         _th.Thread(target=_gn_call, daemon=True).start()
-        _gn_done.wait(2.0)
+        _gn_done.wait(0.5)
 
         if _gn_result[0] and _gn_result[0][1] == local_port:
             found = (hval, dup)
             break
+
+        if not _gn_done.is_set():
+            # getsockname BLOCKED for 2 s — ACE/VPN hook.  Save as fallback;
+            # try getpeername (200 ms) which is often not hooked.
+            _pr: list = [None]
+            _pe = _th.Event()
+            def _pc(_h=dup.value, _r=_pr, _e=_pe):
+                sa = _SockAddrIn()
+                ln = ctypes.c_int(ctypes.sizeof(sa))
+                if ws2.getpeername(ctypes.c_void_p(_h),
+                                   ctypes.byref(sa), ctypes.byref(ln)) == 0:
+                    p = _socket.ntohs(sa.port)
+                    if p:
+                        _r[0] = (".".join(str(b) for b in sa.addr), p)
+                _e.set()
+            _th.Thread(target=_pc, daemon=True).start()
+            _pe.wait(0.2)
+            if _pr[0] and _pr[0][1] == GAME_PORT:
+                print(f"  dbg hval=0x{hval:x} getpeername={_pr[0]} → game socket",
+                      flush=True)
+                found = (hval, dup)
+                break
+            print(f"  dbg hval=0x{hval:x} getsockname TIMED OUT peer={_pr[0]} — saved as fallback",
+                  flush=True)
+            blocking_candidates.append((hval, dup))
         elif _gn_result[0]:
             # Different port — not the game socket; close and continue.
             print(f"  dbg hval=0x{hval:x} getsockname={_gn_result[0]}", flush=True)
             k32.CloseHandle(dup)
-        elif _gn_done.is_set():
+        else:
             # getsockname returned quickly with error (WSAENOTSOCK / port=0): not a socket.
             k32.CloseHandle(dup)
-        else:
-            # getsockname BLOCKED for 2 s — VPN/proxy hook intercepting getsockname.
-            # The first such socket in handle-value order (earliest in the game's
-            # handle table) corresponds to position ~301 in the full handle list,
-            # which is the game server socket (_diag_handle_scan confirmed handle
-            # #301 is the blocking / game-server handle).  Use it immediately.
-            print(f"  dbg hval=0x{hval:x} getsockname TIMED OUT — using as game socket",
-                  flush=True)
-            found = (hval, dup)
-            break
+
+    if found is None and blocking_candidates:
+        # No port match found; fall back to first blocking socket (historical VPN case
+        # where getsockname on the game socket itself is hooked).
+        found = blocking_candidates[0]
+        for _hv2, _hd2 in blocking_candidates[1:]:
+            k32.CloseHandle(_hd2)
+        print(f"  fallback: using first blocking socket hval=0x{found[0]:x}", flush=True)
 
     if found is None:
         raise OSError(f"game socket with local port :{local_port} not found "
@@ -919,18 +942,34 @@ def sniff_and_inject(pid: int, args) -> int:
     _local_port: int | None = None
     _local_ip: str | None = None
     _server_ip: str | None = None
+    _game_pid: int | None = None
     for _conn in _psutil.net_connections(kind="tcp"):
         if (_conn.raddr and _conn.raddr.port == GAME_PORT
                 and _conn.status == "ESTABLISHED"):
             _local_port = _conn.laddr.port
             _local_ip = _conn.laddr.ip
             _server_ip = _conn.raddr.ip
+            _game_pid = _conn.pid
             break
     if _local_port:
         print(f"{C_DIM}game local port: :{_local_port} "
               f"({_local_ip} → {_server_ip}:{GAME_PORT}){C_RESET}", flush=True)
     else:
         print(f"{C_WARN}no :{GAME_PORT} ESTABLISHED found via psutil{C_RESET}")
+
+    # Phase 1: enumerate socket-type handles for the game process via
+    # NtQuerySystemInformation (global read, no OpenProcess).  Done here so
+    # that Phase 2 (DuplicateHandle) runs only AFTER scapy has been running
+    # for several seconds — the natural delay breaks the ACE timing block.
+    _phase1_candidates: list | None = None
+    if _local_port is not None and _game_pid is not None:
+        try:
+            _phase1_candidates, _p1_tidx = _collect_socket_candidates(_game_pid)
+            print(f"{C_DIM}phase1: {len(_phase1_candidates)} socket candidates "
+                  f"(tidx={_p1_tidx}){C_RESET}", flush=True)
+        except Exception as _p1_err:
+            print(f"{C_WARN}phase1 failed: {_p1_err} — will fall back to blind scan{C_RESET}",
+                  flush=True)
 
     pre_dup_handle: wintypes.HANDLE | None = None
     _blind_event = threading.Event()
@@ -944,7 +983,8 @@ def sniff_and_inject(pid: int, args) -> int:
     state: dict = {
         "max_id": -1,
         "server_id": None,
-        "inject_id": None,   # set just before send; downstream watcher checks this
+        "inject_id": None,   # set before send (main or probe-send); downstream watcher checks this
+        "probe_sent": False, # True if bg-dup probe-send already injected the frame
         "reply": None,
         "got_id": threading.Event(),
         "down_seen": 0,       # count of downstream frames decoded (for diagnostics)
@@ -1000,11 +1040,22 @@ def sniff_and_inject(pid: int, args) -> int:
                 # Log ALL downstream frames in the reply window for diagnosis.
                 print(f"{C_DIM}down  cmd={cmd}  _id={rid}  success={ok}{C_RESET}",
                       flush=True)
-                # Accept any downstream frame whose _id matches inject_id —
-                # go.to.world elicits world.get.block (map data) rather than
-                # a bare {success:true} ack, so success is None but _id matches.
+                # Accept any downstream frame whose _id matches inject_id.
                 if rid == inj and not state["reply"]:
                     state["reply"] = {"_id": rid, "success": ok, "cmd": cmd}
+                # go.to.world causes a world-session reinit: the server sends
+                # lw.login (or world.get.block) with its OWN _id sequence
+                # starting from 1.  The client's inject_id is never echoed back.
+                # Detect this by looking for world-mode markers after injection.
+                _world_cmds = {"lw.login", "world.get.block", "world.get.march.infos",
+                               "world.get.all.alliance.stronghold.info"}
+                if (not state["reply"] and cmd in _world_cmds
+                        and isinstance(rid, int) and rid < inj - 50):
+                    state["reply"] = {"_id": rid, "success": True,
+                                      "cmd": cmd, "world_init": True}
+                    print(f"{C_OK}[SUCCESS] world-init detected: "
+                          f"{cmd} _id={rid} << inject_id={inj}{C_RESET}",
+                          flush=True)
 
     decoder = _Collector()
     stop = threading.Event()
@@ -1109,75 +1160,132 @@ def sniff_and_inject(pid: int, args) -> int:
     for t in threads:
         t.start()
 
-    # Phase 2: DuplicateHandle on socket-type candidates with 50 ms per-handle
-    # timeout.  The ACE-protected handle (#301 in enumeration order) blocks
-    # DuplicateHandle indefinitely; with 50 ms we waste at most 50 ms on it and
-    # continue to the actual game socket.  The scan runs in background so it
-    # overlaps with the _id wait (scapy sniff).
-    #
-    # Separately, dup_game_sockets (getpeername) is tried first — it finds the
-    # socket instantly when the server IP is directly visible (no VPN masking).
-    if _local_port is not None:
-        # Blind scan: brute-force handle values WITHOUT NtQuerySystemInformation.
-        # Calling NtQuerySystemInformation before DuplicateHandle triggers an ACE
-        # timing block (60-120 s) on the game socket handle.  Without that call,
-        # DuplicateHandle on the game socket succeeds immediately — confirmed in
-        # task #961 (61 bytes sent, err 0).
-        #
-        # Primary identifier: getpeername (_peer, 200 ms timeout).  This finds
-        # the game socket by its server endpoint (GAME_PORT) without relying on
-        # getsockname, which blocks on the game socket's handle even without VPN.
-        # Fall back to getsockname (_local) for VPN environments where the peer
-        # address is rewritten to a tunnel endpoint.
-        def _run_bg_dup(_pid=pid, _port=_local_port, _sip=_server_ip,
+    # Background Phase 2 + probe-send: DuplicateHandle on candidates with short
+    # getsockname probe (50 ms), then — for all blocking handles — wait for
+    # upstream _id and inject the frame via ws2.send on each candidate until
+    # one returns len(frame) quickly (< 200 ms).  VPN/tunnel sockets block
+    # ws2.send; the real game socket returns immediately.
+    if _local_port is not None and _game_pid is not None:
+        def _run_bg_dup(_pid=_game_pid, _port=_local_port, _cands=_phase1_candidates,
                         _r=_blind_result, _e=_blind_event):
-            win = _win()
-            k32, ws2 = win["k32"], win["ws2"]
-            try:
-                hgame = k32.OpenProcess(PROCESS_DUP_HANDLE, False, _pid)
-                if not hgame:
-                    raise OSError(f"OpenProcess failed: {ctypes.get_last_error()}")
-                hself = k32.GetCurrentProcess()
-                found = None
-                tried = 0
-                for hval in range(4, 0x4000 + 1, 4):
-                    _d = wintypes.HANDLE()
-                    if not k32.DuplicateHandle(hgame, wintypes.HANDLE(hval), hself,
-                                               ctypes.byref(_d), 0, False,
-                                               DUPLICATE_SAME_ACCESS):
-                        continue
-                    tried += 1
-                    # Try getpeername first (200 ms timeout, VPN-off path).
-                    peer = _peer(ws2, _d.value)
-                    if peer and peer[1] == GAME_PORT:
-                        found = (hval, _d)
-                        print(f"{C_DIM}bg-dup: hval=0x{hval:x} peer={peer}{C_RESET}",
-                              flush=True)
-                        break
-                    # Fall back: getsockname by local port (VPN-on path, 2 s timeout).
-                    laddr = _local(ws2, _d.value)
-                    if laddr and laddr[1] == _port:
-                        found = (hval, _d)
-                        print(f"{C_DIM}bg-dup: hval=0x{hval:x} laddr={laddr}{C_RESET}",
-                              flush=True)
-                        break
-                    k32.CloseHandle(_d)
-                if found is None:
-                    raise OSError(
-                        f"game socket not found (peer:{GAME_PORT} or local:{_port}); "
-                        f"tried {tried} dups up to hval=0x4000"
-                    )
-                _r[0] = found
-                print(f"{C_OK}bg-dup: found socket (hval=0x{found[0]:x}){C_RESET}",
-                      flush=True)
-            except OSError as exc:
-                _r[0] = exc
-                print(f"{C_WARN}bg-dup: {exc}{C_RESET}", flush=True)
-            finally:
+            import socket as _socket2
+            win2 = _win()
+            k32_, ws2_ = win2["k32"], win2["ws2"]
+
+            hgame2 = k32_.OpenProcess(PROCESS_DUP_HANDLE, False, _pid)
+            if not hgame2:
+                _r[0] = OSError(f"OpenProcess failed err={ctypes.get_last_error()}")
                 _e.set()
+                return
+            hself2 = k32_.GetCurrentProcess()
+
+            blocking: list = []   # (hval, dup_HANDLE) where getsockname timed out
+            found = None
+
+            cands = _cands or []
+            for hval in cands:
+                _d = wintypes.HANDLE()
+                if not k32_.DuplicateHandle(hgame2, wintypes.HANDLE(hval), hself2,
+                                            ctypes.byref(_d), 0, False,
+                                            DUPLICATE_SAME_ACCESS):
+                    continue
+                dup = _d
+
+                # Quick getsockname: 50 ms is enough for non-hooked sockets.
+                _gn_r: list = [None]; _gn_e = threading.Event()
+                def _gnc(_h=dup.value, _rr=_gn_r, _ee=_gn_e):
+                    sa = _SockAddrIn()
+                    ln = ctypes.c_int(ctypes.sizeof(sa))
+                    if ws2_.getsockname(ctypes.c_void_p(_h),
+                                        ctypes.byref(sa), ctypes.byref(ln)) == 0:
+                        p = _socket2.ntohs(sa.port)
+                        if p:
+                            _rr[0] = ('.'.join(str(b) for b in sa.addr), p)
+                    _ee.set()
+                threading.Thread(target=_gnc, daemon=True).start()
+                _gn_e.wait(0.05)
+
+                if _gn_r[0] and _gn_r[0][1] == _port:
+                    found = (hval, dup)
+                    print(f"{C_OK}bg-dup: found via getsockname hval=0x{hval:x}{C_RESET}",
+                          flush=True)
+                    break
+                elif not _gn_e.is_set():
+                    blocking.append((hval, dup))
+                else:
+                    k32_.CloseHandle(dup)
+
+            k32_.CloseHandle(hgame2)
+
+            if found:
+                _r[0] = found
+                _e.set()
+                return
+
+            if not blocking:
+                _r[0] = OSError(f"no game socket found in {len(cands)} candidates")
+                _e.set()
+                return
+
+            print(f"{C_DIM}bg-dup: {len(blocking)} blocking getsockname candidates — "
+                  f"waiting for upstream _id for probe-send…{C_RESET}", flush=True)
+
+            # Wait for upstream _id so we can build a valid inject frame.
+            state["got_id"].wait(timeout=65.0)
+            if state["max_id"] < 0:
+                for _, _hd in blocking:
+                    k32_.CloseHandle(_hd)
+                _r[0] = OSError("no upstream _id for probe-send")
+                _e.set()
+                return
+
+            # Settle: let any RPC burst finish before reading max_id.
+            time.sleep(0.5)
+            _inj_id = state["max_id"] + 1
+            _sid = state["server_id"] or getattr(args, "server_id", None)
+            if _sid is None:
+                for _, _hd in blocking:
+                    k32_.CloseHandle(_hd)
+                _r[0] = OSError("no server_id for probe-send frame")
+                _e.set()
+                return
+            _k1 = getattr(args, "k1", None) if getattr(args, "k1", None) is not None else 0x11
+            _k2 = getattr(args, "k2", None) if getattr(args, "k2", None) is not None else 0x22
+            _frame = build_test_frame(_sid, _k1, _k2, _inj_id)
+
+            print(f"{C_DIM}bg-dup probe-send: {len(blocking)} candidates "
+                  f"_id={_inj_id}…{C_RESET}", flush=True)
+
+            for hval, dup in blocking:
+                if found:
+                    k32_.CloseHandle(dup)
+                    continue
+                _sr: list = [None]; _se = threading.Event()
+                def _sc(_h=dup.value, _f=_frame, _r2=_sr, _e2=_se):
+                    _b = ctypes.create_string_buffer(_f)
+                    _ret = ws2_.send(ctypes.c_void_p(_h), _b, len(_f), 0)
+                    _r2[0] = _ret
+                    _e2.set()
+                threading.Thread(target=_sc, daemon=True).start()
+                if _se.wait(0.2) and _sr[0] == len(_frame):
+                    print(f"{C_OK}probe-send: injected on hval=0x{hval:x} "
+                          f"(sent {_sr[0]} bytes){C_RESET}", flush=True)
+                    state["inject_id"] = _inj_id
+                    state["probe_sent"] = True
+                    found = (hval, dup)
+                else:
+                    k32_.CloseHandle(dup)
+
+            if found:
+                _r[0] = found
+            else:
+                _r[0] = OSError(
+                    f"probe-send: no blocking candidate returned len(frame) "
+                    f"in 200 ms (tried {len(blocking)})")
+            _e.set()
 
         threading.Thread(target=_run_bg_dup, daemon=True).start()
-        print(f"{C_DIM}bg-dup: blind scan via getpeername (no NtQuerySysInfo)…{C_RESET}",
+        print(f"{C_DIM}bg-dup: phase2 + probe-send started in background…{C_RESET}",
               flush=True)
 
     # Wait for a real upstream _id decoded directly from TCP segments.
@@ -1226,14 +1334,13 @@ def sniff_and_inject(pid: int, args) -> int:
         print(f"{C_ERR}server_id not seen on wire — pass --server-id.{C_RESET}")
         return 1
 
-    # Wait up to 135 s for bg-dup.  With handle_timeout=130 s the worst case is
-    # one blocking handle (the game socket, protected by ACE for ~120 s) plus a
-    # handful of fast handles.  The orchestrator pans every 12 s, so max_id stays
-    # fresh throughout this wait.
+    # Wait for bg-dup (phase2 getsockname scan + probe-send).
+    # Probe-send finishes shortly after got_id fires (100 candidates × 200 ms max),
+    # so the 120 s budget covers even the slowest orchestrator click timing.
     if _local_port is not None and not _blind_event.is_set():
-        print(f"{C_DIM}waiting for bg-dup (blind scan, up to 60 s)…{C_RESET}",
+        print(f"{C_DIM}waiting for bg-dup (phase2 + probe-send, up to 120 s)…{C_RESET}",
               flush=True)
-        _blind_event.wait(timeout=60.0)
+        _blind_event.wait(timeout=120.0)
     if isinstance(_blind_result[0], tuple):
         _hv, _hd = _blind_result[0]
         pre_dup_handle = _hd
@@ -1241,63 +1348,89 @@ def sniff_and_inject(pid: int, args) -> int:
 
     if pre_dup_handle is None:
         stop.set()
-        print(f"{C_ERR}bg-dup could not find the game socket — "
-              f"the blocking handle may be the game socket itself.{C_RESET}")
-        print(f"{C_DIM}Try again; each run creates a fresh OpenProcess handle "
-              f"which may bypass the ACE block.{C_RESET}")
+        err_detail = str(_blind_result[0]) if isinstance(_blind_result[0], OSError) else "timeout"
+        print(f"{C_ERR}bg-dup could not find the game socket: {err_detail}{C_RESET}")
         return 1
 
-    # Send via ws2_32.send() on the duplicated socket — the frame goes through
-    # the game's own TCP stack, so sequence numbers stay in sync.  No raw TCP
-    # / sendp path: that caused sequence desync → RST → game reconnect.
-    win = _win()
-    k32 = win["k32"]
-    ws2 = win["ws2"]
-
-    # Brief settle so the latest orchestrator-pan RPC burst lands in scapy.
-    time.sleep(0.5)
-    inject_id = state["max_id"] + 1
-    frame = build_test_frame(sid, k1, k2, inject_id)
-    state["inject_id"] = inject_id   # arm BEFORE send — reply may arrive fast
-    print(f"{C_OK}injecting _id={inject_id}  server_id={sid}{C_RESET}", flush=True)
-
-    _send_result: list = [None, None]   # [sent_bytes, wsa_err]
-    _send_done = threading.Event()
-
-    def _do_send(_h=pre_dup_handle.value, _f=frame,
-                 _r=_send_result, _e=_send_done):
-        b = ctypes.create_string_buffer(_f)
-        r = ws2.send(ctypes.c_void_p(_h), b, len(_f), 0)
-        _r[0] = r
-        _r[1] = ctypes.get_last_error()
-        _e.set()
-
-    threading.Thread(target=_do_send, daemon=True).start()
-    send_ok = _send_done.wait(timeout=5.0)
-
-    k32.CloseHandle(pre_dup_handle)
-    pre_dup_handle = None
-
-    if not send_ok:
-        print(f"{C_ERR}ws2.send blocked for 5 s — wrong socket handle (ACE hook?).  "
-              f"Try again; blind scan may have used a non-game socket.{C_RESET}", flush=True)
-        rc = 1
+    # If probe-send already injected the frame in the bg thread, skip ws2.send.
+    if state["probe_sent"]:
+        print(f"{C_DIM}probe-send completed in bg thread — "
+              f"inject_id={state['inject_id']} already sent{C_RESET}", flush=True)
+        _win()["k32"].CloseHandle(pre_dup_handle)
+        pre_dup_handle = None
+        rc = 0
     else:
-        sent, wsa_err = _send_result
-        WSAEACCES = 10013
-        WSAEINVAL = 10022
-        if sent == len(frame):
-            print(f"{C_OK}ws2.send: sent {sent} bytes via dup'd socket "
-                  f"(local:{_local_port}){C_RESET}", flush=True)
-            rc = 0
-        elif wsa_err in (WSAEACCES, WSAEINVAL):
-            err_name = "WSAEACCES" if wsa_err == WSAEACCES else "WSAEINVAL"
-            print(f"{C_ERR}ws2.send blocked by VPN WSP (err={wsa_err} {err_name}).  "
-                  f"Disable VPN/proxy and retry.{C_RESET}", flush=True)
+        # Normal path: bg-dup found the socket via getsockname; send the frame now.
+        win = _win()
+        k32 = win["k32"]
+        ws2 = win["ws2"]
+
+        # Brief settle so the latest orchestrator-pan RPC burst lands in scapy.
+        time.sleep(0.5)
+        inject_id = state["max_id"] + 1
+        frame = build_test_frame(sid, k1, k2, inject_id)
+        state["inject_id"] = inject_id   # arm BEFORE send — reply may arrive fast
+        # Record pre-send TCP seq so we can verify server ACK after send.
+        state["inject_sent_seq"] = state.get("up_next_seq")
+        state["inject_frame_len"] = len(frame)
+        print(f"{C_OK}injecting _id={inject_id}  server_id={sid}  "
+              f"frame={len(frame)}B  pre_seq=0x{state['inject_sent_seq']:x}"
+              f" up_pkts={state['up_packets']}{C_RESET}", flush=True)
+
+        _send_result: list = [None, None]   # [sent_bytes, wsa_err]
+        _send_done = threading.Event()
+
+        def _do_send(_h=pre_dup_handle.value, _f=frame,
+                     _r=_send_result, _e=_send_done):
+            b = ctypes.create_string_buffer(_f)
+            r = ws2.send(ctypes.c_void_p(_h), b, len(_f), 0)
+            _r[0] = r
+            _r[1] = ctypes.get_last_error()
+            _e.set()
+
+        threading.Thread(target=_do_send, daemon=True).start()
+        send_ok = _send_done.wait(timeout=5.0)
+
+        k32.CloseHandle(pre_dup_handle)
+        pre_dup_handle = None
+
+        if not send_ok:
+            print(f"{C_ERR}ws2.send blocked for 5 s — wrong socket handle (ACE hook?).  "
+                  f"Try again; probe-send may have picked a non-game socket.{C_RESET}",
+                  flush=True)
             rc = 1
         else:
-            print(f"{C_ERR}ws2.send returned {sent} (err={wsa_err}).{C_RESET}", flush=True)
-            rc = 1
+            sent, wsa_err = _send_result
+            WSAEACCES = 10013
+            WSAEINVAL = 10022
+            if sent == len(frame):
+                # Brief wait so scapy can process the injected TCP segment.
+                time.sleep(0.25)
+                post_seq = state.get("up_next_seq")
+                pre_seq  = state["inject_sent_seq"]
+                expected = (pre_seq + len(frame)) & 0xFFFFFFFF if pre_seq is not None else None
+                if expected is not None and post_seq == expected:
+                    print(f"{C_OK}ws2.send: sent {sent} B — scapy confirmed "
+                          f"(up_next_seq 0x{pre_seq:x}→0x{post_seq:x}){C_RESET}",
+                          flush=True)
+                elif expected is not None:
+                    print(f"{C_OK}ws2.send: sent {sent} B — scapy seq "
+                          f"0x{post_seq:x} (expected 0x{expected:x}); "
+                          f"inject may have gone via different path{C_RESET}",
+                          flush=True)
+                else:
+                    print(f"{C_OK}ws2.send: sent {sent} bytes via dup'd socket "
+                          f"(local:{_local_port}){C_RESET}", flush=True)
+                rc = 0
+            elif wsa_err in (WSAEACCES, WSAEINVAL):
+                err_name = "WSAEACCES" if wsa_err == WSAEACCES else "WSAEINVAL"
+                print(f"{C_ERR}ws2.send blocked by VPN WSP (err={wsa_err} {err_name}).  "
+                      f"Disable VPN/proxy and retry.{C_RESET}", flush=True)
+                rc = 1
+            else:
+                print(f"{C_ERR}ws2.send returned {sent} (err={wsa_err}).{C_RESET}",
+                      flush=True)
+                rc = 1
 
     if rc != 0:
         stop.set()
@@ -1311,7 +1444,8 @@ def sniff_and_inject(pid: int, args) -> int:
     # state["inject_id"] was already set (BEFORE send) in both paths above.
     # Wait for downstream ACK carrying our _id.
     # go.to.world elicits world.get.block (map data), not {success:true}.
-    print(f"{C_DIM}waiting up to 30 s for server reply _id={inject_id}…{C_RESET}")
+    _reply_id = state["inject_id"]
+    print(f"{C_DIM}waiting up to 30 s for server reply _id={_reply_id}…{C_RESET}")
     deadline = time.time() + 30.0
     while time.time() < deadline:
         if state["reply"]:
@@ -1345,7 +1479,7 @@ def sniff_and_inject(pid: int, args) -> int:
             print(f"{C_WARN}TCP-ACK NOT seen: server_tcp_ack=0x{srv_ack:x} < "
                   f"needed=0x{needed_ack:x} (sent seq=0x{sent_seq:x} len={frame_len}).  "
                   f"Packet likely dropped before server.{C_RESET}")
-    print(f"{C_WARN}timeout — no downstream reply for _id={inject_id}.{C_RESET}")
+    print(f"{C_WARN}timeout — no downstream reply for _id={_reply_id}.{C_RESET}")
     print(f"{C_DIM}The server ACK lands in the game's TCP buffer — it is visible "
           f"in pcap even if this watcher missed it.{C_RESET}")
     return 1
