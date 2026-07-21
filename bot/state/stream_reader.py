@@ -30,21 +30,37 @@ from typing import Callable
 
 from bot.core import protocol
 from bot.core.protocol import DOWN, UP, Envelope
-from bot.state.game_state import GameState, Scene
+from bot.state.game_state import GameState
 
 # --- command -> scene classification -----------------------------------------
-# Curated on purpose. Broad prefix matching ("anything with 'city'") is wrong:
-# world.get.alliance.city.* is world-map data, not the player's base. Only
-# commands that can *only* happen in one view are used as scene evidence.
+# Markers, not one-shot switches. A passive capture that joined mid-connection
+# routinely misses the single ``go.to.world`` / ``user.leave.world`` frame, so we
+# key on the *continuous* traffic each view generates instead (see GameState.scene).
+#
+# WORLD markers are deliberately restricted to **client-initiated world-map
+# queries**: the client only asks for world tiles/marches while that map is open,
+# so these can never fire from the base. Server-pushed march notifications
+# (``push.world.march.*``) are excluded on purpose — those can arrive globally and
+# would falsely pin the scene to WORLD while the player sits in their base.
 _WORLD_COMMANDS = frozenset({
     "go.to.world",            # explicit switch to the world map
     "meteorite.enter.world",  # cross-server travel lands you on the world map
-    "world.get.block",        # rectangular world-tile query (world view only)
-    "world.get.march.infos",  # march overlay on the world map
+    "world.get.block",        # rectangular world-tile query — the workhorse marker
+    "world.get.march.infos",  # march overlay query on the world map
+    "world.get.alliance.city.detail",   # tapping an alliance city on the map
+    "world.get.alliance.city.effect",
+    "world.get.all.alliance.city.info",
+    "world.get.all.alliance.stronghold.info",
+    "world.get.city.stronghold.effect",
+    "world.all.city.reward.info",
+    "lw.req.world.occupy.info",
 })
+# CITY markers are a fast positive path when they happen to be captured; the base
+# is otherwise the quiet default (any traffic with no fresh WORLD marker → CITY).
 _CITY_COMMANDS = frozenset({
-    "user.leave.world",           # explicit return to base
+    "user.leave.world",             # explicit return to base
     "building.production.collect",  # collecting from your own base buildings
+    "push.resource.item.update",    # base production ticking resource balances up
 })
 
 # world.get.block field that encodes the current world-map zoom.
@@ -109,9 +125,9 @@ class StreamReader:
             self.state.last_update_ts = ts
 
         if command in _WORLD_COMMANDS:
-            self.state.scene = Scene.WORLD
+            self.state.mark_world(ts)
         elif command in _CITY_COMMANDS:
-            self.state.scene = Scene.CITY
+            self.state.mark_city(ts)
 
         if command == "world.get.block":
             self._update_zoom(env.payload)

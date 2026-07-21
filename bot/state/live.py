@@ -18,12 +18,14 @@ module loads anywhere for inspection.
 """
 from __future__ import annotations
 
+import glob
 import os
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 
-from bot.core import protocol
 from bot.state.game_state import GameState, Scene
 from bot.state.stream_reader import StreamReader
 
@@ -68,14 +70,17 @@ class LiveState:
 
     def __init__(self, reader: StreamReader | None = None, *,
                  interface: str | None = None,
-                 tshark: str | None = None, dumpcap: str | None = None) -> None:
+                 tshark: str | None = None, dumpcap: str | None = None,
+                 poll_interval: float = 1.5) -> None:
         self.reader = reader if reader is not None else StreamReader()
         self._interface = interface
         self._tshark = tshark
         self._dumpcap = dumpcap
+        self._poll_interval = poll_interval
         self._stop = threading.Event()
-        self._threads: list[threading.Thread] = []
+        self._poller: threading.Thread | None = None
         self._procs: list = []
+        self._tmpdir: str | None = None
 
     @property
     def state(self) -> GameState:
@@ -83,9 +88,16 @@ class LiveState:
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> None:
-        """Begin capturing. Raises :class:`CaptureUnavailable` if it cannot."""
+        """Begin capturing. Raises :class:`CaptureUnavailable` if it cannot.
+
+        Each interface is captured to its own rolling pcap file with ``dumpcap``;
+        a poller thread re-decodes those files through the robust offline reader
+        (:meth:`StreamReader.from_pcap`) and folds the result into the shared
+        state. This deliberately avoids the streaming ``live_sniffer`` decoder,
+        whose mid-connection reassembly drops most of the game's frames — the very
+        ``world.get.block`` markers the scene detector relies on.
+        """
         import live_tshark as lt
-        from live_sniffer import LiveDecoder
 
         tshark = _resolve_binary("tshark.exe", self._tshark)
         dumpcap = _resolve_binary("dumpcap.exe", self._dumpcap) or tshark
@@ -100,43 +112,83 @@ class LiveState:
         if self._interface:
             ifaces = [(self._interface, f"iface {self._interface}")]
 
-        reader = self.reader
-
-        class _Bridge(LiveDecoder):
-            def emit(self, direction, env):  # LiveDecoder hook
-                reader.apply(protocol.Envelope.from_raw(direction, env))
-
-        decoder = _Bridge()
         self._stop.clear()
         self._procs = []
-        # "tcp" is the narrowest safe filter: the game endpoint has no stable
-        # address or port and is dialled without DNS, so the flow is recognised
-        # by frame shape, not by host — same choice tools/live_tshark makes.
-        self._threads = [
-            threading.Thread(
-                target=lt.capture,
-                args=(dumpcap, number, label, decoder, "tcp", self._stop, False,
-                      self._procs),
-                daemon=True,
-            )
-            for number, label in ifaces
-        ]
-        for thread in self._threads:
-            thread.start()
+        self._tmpdir = tempfile.mkdtemp(prefix="lwlive_")
+        # One dumpcap per interface, each to its own file. The game flow is on a
+        # single interface; the rest write near-empty files that decode to nothing.
+        # "-b" ring-rotates so the files stay small (bounded re-decode cost) while
+        # always retaining more than the scene window's worth of recent traffic.
+        for number, _label in ifaces:
+            base = os.path.join(self._tmpdir, f"if{number}.pcap")
+            cmd = [dumpcap, "-i", str(number), "-f", "tcp",
+                   "-b", "duration:5", "-b", "files:5", "-w", base]
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+            except Exception:
+                continue
+            self._procs.append(proc)
+        if not self._procs:
+            raise CaptureUnavailable("could not start any capture process")
+
+        self._poller = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poller.start()
+
+    def _poll_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._decode_once()
+            except Exception:
+                pass
+            self._stop.wait(self._poll_interval)
+
+    def _decode_once(self) -> None:
+        """Re-decode every capture file and fold the freshest markers into state."""
+        st = self.reader.state
+        latest_world = latest_city = None
+        best_ts = None
+        for path in glob.glob(os.path.join(self._tmpdir or "", "*.pcap*")):
+            try:
+                if os.path.getsize(path) < 40:  # smaller than a pcap header
+                    continue
+                fresh = StreamReader.from_pcap(path)
+            except Exception:
+                continue  # a file mid-rotation / torn tail: retry next tick
+            s = fresh.state
+            if s.world_ts is not None:
+                latest_world = max(latest_world or s.world_ts, s.world_ts)
+            if s.city_ts is not None:
+                latest_city = max(latest_city or s.city_ts, s.city_ts)
+            if s.last_update_ts is not None and (best_ts is None
+                                                 or s.last_update_ts > best_ts):
+                best_ts = s.last_update_ts
+                st.last_command = s.last_command
+                st.last_update_ts = s.last_update_ts
+                st.zoom = s.zoom
+                if s.resources:
+                    st.resources.update(s.resources)
+        # Markers only ever move forward, so a ring file rotating away can't drag
+        # the scene back.
+        if latest_world is not None:
+            st.world_ts = max(st.world_ts or latest_world, latest_world)
+        if latest_city is not None:
+            st.city_ts = max(st.city_ts or latest_city, latest_city)
 
     def stop(self) -> None:
         self._stop.set()
-        # Killing the capture engines is what unblocks the reader threads (they
-        # sit in a blocking stdout read), so kill before joining.
         for proc in self._procs:
             try:
                 proc.kill()
             except Exception:
                 pass
         self._procs = []
-        for thread in self._threads:
-            thread.join(timeout=2)
-        self._threads = []
+        if self._poller is not None:
+            self._poller.join(timeout=2)
+            self._poller = None
+        if self._tmpdir:
+            shutil.rmtree(self._tmpdir, ignore_errors=True)
+            self._tmpdir = None
 
     def __enter__(self) -> "LiveState":
         self.start()

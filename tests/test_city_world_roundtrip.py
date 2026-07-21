@@ -42,11 +42,14 @@ class Skip(Exception):
     """A precondition for the live test is missing; the test is inconclusive."""
 
 
-# Passive scene detection depends on decisive traffic crossing the wire, which
-# on an idle base can take a moment; the switches themselves are near-instant
-# once the tap lands, so these are generous rather than tight.
-_INITIAL_SCENE_TIMEOUT = 45.0   # first scene the stream reveals after start
-_SWITCH_TIMEOUT = 20.0          # server ack of a City<->World switch
+# Scene is read from a sliding window of *markers*, not one-shot switch commands
+# (which a mid-connection passive capture routinely drops). WORLD is confirmed by
+# panning the map to elicit continuous ``world.get.block`` tile queries; CITY is
+# the quiet default, confirmed once those markers age out of the detector window
+# (~SCENE_WORLD_TTL). The WORLD->CITY direction therefore needs a timeout wider
+# than that aging window plus any trailing tile-query responses.
+_PASSIVE_SCENE_TIMEOUT = 5.0    # let a little traffic flow before we probe
+_SWITCH_TIMEOUT = 30.0          # confirm a City<->World switch from the stream
 _LAUNCH_TIMEOUT = 300.0         # cold start ends on the base screen
 
 
@@ -74,6 +77,32 @@ def _ensure_running(launch: bool) -> None:
     raise Skip("game did not start within the launch timeout")
 
 
+def _establish_scene(live: LiveState) -> Scene:
+    """Return the current scene (CITY/WORLD), probing actively rather than waiting.
+
+    The scene detector needs a WORLD marker to see WORLD and any traffic at all to
+    default to CITY. So we let a little traffic flow, then *probe with a pan*: only
+    the world map answers a swipe with ``world.get.block`` queries, so if panning
+    turns the scene WORLD we started there; otherwise, once any command has been
+    decoded, we are in the base. Raises :class:`Skip` only when nothing decodes at
+    all (game offline, or the capture is blind — e.g. VPN-proxied traffic).
+    """
+    _log(f"letting traffic settle (<= {_PASSIVE_SCENE_TIMEOUT:.0f}s)…")
+    live.wait_for(Scene.CITY, timeout=_PASSIVE_SCENE_TIMEOUT)
+
+    _log("probing scene with a map pan (only WORLD answers with tile queries)")
+    deadline = time.monotonic() + _SWITCH_TIMEOUT
+    while time.monotonic() < deadline:
+        navigation.pan_world()
+        if live.state.scene is Scene.WORLD:
+            return Scene.WORLD
+        if live.state.scene is Scene.CITY:
+            # Traffic is decoding and a pan produced no world query → the base.
+            return Scene.CITY
+        time.sleep(0.25)
+    raise Skip("no traffic decoded at all — game offline or capture blind (VPN?)")
+
+
 def run_roundtrip(launch: bool = False) -> None:
     """Drive and assert the full round trip. Raises Skip / AssertionError."""
     _ensure_running(launch)
@@ -85,18 +114,17 @@ def run_roundtrip(launch: bool = False) -> None:
         raise Skip(f"live capture unavailable: {exc}") from exc
 
     try:
-        # 1. Confirm the starting scene from the stream. The task starts in the
-        #    base; if the game happens to be on the world map, normalise first.
-        _log(f"waiting for a decisive scene (<= {_INITIAL_SCENE_TIMEOUT:.0f}s)…")
-        if not (live.wait_for(Scene.CITY, timeout=_INITIAL_SCENE_TIMEOUT)
-                or live.state.scene is Scene.WORLD):
-            raise Skip(
-                "no decisive traffic observed — the game must be online and "
-                "active (idle bases can emit nothing for a while)")
-        if live.state.scene is Scene.WORLD:
-            _log("started on WORLD — going to base first to normalise")
-            navigation.go_to_base(live.state, timeout=_SWITCH_TIMEOUT)
-        assert live.wait_for(Scene.CITY, timeout=_SWITCH_TIMEOUT), (
+        # 1. Establish the starting scene and normalise to the base (CITY). The
+        #    scene is read from the stream; if the idle stream reveals nothing we
+        #    induce a decisive switch with a tap rather than skip.
+        scene = _establish_scene(live)
+        _log(f"established scene: {live.state.summary()}")
+        if scene is Scene.WORLD:
+            _log("normalising WORLD -> CITY")
+            ok = navigation.go_to_base(live.state, timeout=_SWITCH_TIMEOUT)
+            assert ok and live.state.scene is Scene.CITY, (
+                f"could not normalise to CITY: {live.state.summary()}")
+        assert live.state.scene is Scene.CITY, (
             f"expected to start on CITY, state is {live.state.summary()}")
         _log(f"CITY confirmed: {live.state.summary()}")
 
