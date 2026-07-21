@@ -1,0 +1,29 @@
+Logging ALL upstream commands for 60s -> results\task967\trap_all_up_974.jsonl
+[2mNow click a resource bubble / Collect on a base building.[0m
+
+
+[11:38:49] GAME STREAM FOUND — 34.145.128.94:17935 on Беспроводная сеть
+    port 17935 — decoding from here
+
+*NEW* --> gm.gain.item   {resource=[1× {…}], _id=345}
+*NEW* --> lw.pve.idle.reward   {action=0, _id=346}
+*NEW* --> building.production.collect   {uuid=1156814436946922740, _id=347}
+*NEW* --> building.production.collect   {uuid=1156814232810146863, _id=348}
+*NEW* --> building.production.collect   {uuid=1156814232810146864, _id=349}
+*NEW* --> building.production.collect   {uuid=1156814649652661249, _id=350}
+*NEW* --> building.production.collect   {uuid=1156814562004290613, _id=351}
+*NEW* --> lw.pve.idle.reward   {action=0, _id=352}
+*NEW* --> gm.gain.item   {resource=[1× {…}], _id=353}
+*NEW* --> lw.pve.idle.reward   {action=0, _id=354}
+*NEW* --> building.production.collect   {uuid=1156814436946922740, _id=355}
+*NEW* --> building.production.collect   {uuid=1156814232810146863, _id=356}
+*NEW* --> building.production.collect   {uuid=1156814232810146864, _id=357}
+*NEW* --> building.production.collect   {uuid=1156814649652661249, _id=358}
+*NEW* --> building.production.collect   {uuid=1156814562004290613, _id=359}
+*NEW* --> lw.pve.idle.reward   {action=0, _id=360}
+*NEW* --> gm.gain.item   {resource=[1× {…}], _id=361}
+
+=== upstream command tally (17 frames) ===
+    10  building.production.collect *NEW*
+     4  lw.pve.idle.reward *NEW*
+     3  gm.gain.item *NEW*

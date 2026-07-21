@@ -1,0 +1,16 @@
+Last War player sweep — scapy/npcap, no dumpcap
+filter: 'tcp port 17935'   interface: default
+listening 16s — pan the map, or nothing will arrive
+
+WARNING: Unable to guess datalink type (interface=\Device\NPF_{6FEC8683-5D7D-49DD-9F83-92AF82C3587C} linktype=1). Using <member 'name' of 'Packet' objects>
+
+[01:44:00] GAME STREAM FOUND — 34.145.128.94:17935
+    port 17935 — decoding from here
+
+  …0s left — server unknown yet, 0 map response(s), 0 tile(s), 0 base(s) collected (0 here), 0 profile(s) looked up, 0 noted
+
+0 base(s) collected across 0 server(s) 
+0 of them carry profile stats (0 folded into a base already collected, 0 known only from a lookup)
+No notes were received: the client sends user.remark.list once at login, so start the scan before logging in to have them.
+traffic: 63 delivered / 39 with payload, 0 map response(s), 0 tile(s), kinds {}
+Packets arrived but no map data. The game sends it only while the map scrolls — keep dragging the map for the whole run, not just at the start.
