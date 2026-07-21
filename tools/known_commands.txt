@@ -1,8 +1,8 @@
 # Commands observed in the saved captures, one "<dir> <command>" per line —
-# the baseline a live trap diffs against, so a command the game has never sent
+# No account data here, only command names.
 # before stands out. Server pushes are listed too: without them every push
 # reads as new. Regenerate: see tools/trap_command.py --help.
-# No account data here, only command names.
+# the baseline a live trap diffs against, so a command the game has never sent
 down act.boss.get.achievement.info
 down activity.get.rank.reward
 down activity.goods.exchange.list
@@ -36,6 +36,7 @@ down battle.card.score.info
 down battle.field.will.open.time
 down berserk.boss.hit.base.gain.info
 down bloody.queen.s1.rest.gain.city.occupation.rank.first.info
+down building.production.collect
 down center.throne.activity.info
 down champion.duel.activity.info
 down champion.duel.result.show.rank.list
@@ -224,6 +225,7 @@ up battle.card.score.info
 up battle.field.will.open.time
 up berserk.boss.hit.base.gain.info
 up bloody.queen.s1.rest.gain.city.occupation.rank.first.info
+up building.production.collect
 up center.throne.activity.info
 up champion.duel.activity.info
 up champion.duel.result.show.rank.list
@@ -282,6 +284,7 @@ up get.world.news.info
 up get.zone.mobilization.info
 up ghost.recon.get.alliance.task.list
 up ghost.recon.get.task.list
+up gm.gain.item
 up go.to.world
 up hero.dispatch.alliance.list
 up hero.dispatch.list
@@ -293,6 +296,7 @@ up inquiry.list
 up login.ext
 up login.other
 up lw.get.alliance.alert.info
+up lw.pve.idle.reward
 up lw.req.world.occupy.info
 up lw.season.activity.eve.decisive.battle.info
 up lw.season.alliance.city.occupy.info

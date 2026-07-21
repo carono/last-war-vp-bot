@@ -1063,7 +1063,101 @@ is the *order*; which colour the client paints each rank is not on the wire.
 To settle it, run the scanner beside the map and compare a named truck against
 the one drawn on screen.
 
-## 8. Embedded protobuf
+## 8. Injected commands (task #973)
+
+Commands verified for injection via the dup'd-socket path
+(`tools/steal_via_socket.py --sniff-and-inject`). Prerequisites: VPN off,
+game running, `PROCESS_DUP_HANDLE` granted (confirmed 2026-07-19).
+
+### user.leave.world — return to base from world map
+
+Source: `results/capture.transcript.json`, confirmed passive capture.
+
+```
+upstream:   user.leave.world  {worldId:0, serverId:<home>, _id:N}
+response:   user.leave.world  {success:True, _id:N}
+```
+
+`worldId` is always `0` for the home server. `serverId` is the home server
+(935). The reply carries a direct `success=True`, unlike `go.to.world` which
+triggers a world-init stream with no echo.
+
+Orchestrator: `tools/run_leave_world_inject.py`
+
+```
+/mnt/c/Python312/python.exe tools/run_leave_world_inject.py
+```
+
+### gather.collect.reward — collect world-map gathering resources
+
+Source: `results/live_5min.log`, observed upstream frame.
+
+```
+upstream:   gather.collect.reward  {uuidArr:[<march_uuid>,...], _id:N}
+response:   gather.collect.reward  {reward:[...], collect_reward:[], _id:N}
+            push.resource.item.update  {resource_items:[...]}
+```
+
+`uuidArr` contains the UUIDs of completed gathering marches (troops that
+returned from a resource node). Obtain UUIDs from `tools/scan_trucks.py` or
+by sniffing live march data (`tools/live_tshark.py`).
+
+Orchestrator: `tools/run_gather_inject.py`
+
+```
+/mnt/c/Python312/python.exe tools/run_gather_inject.py --uuid-arr 1394584906709054020
+```
+
+### building.production.collect — collect a base building's output (task #974)
+
+Source: `results/task967/trap_all_up_974.jsonl`, trapped live 2026-07-21 by
+logging every upstream command while a human tapped the green resource bubbles
+on the base screen. The command is `building.production.collect`, one frame per
+production building (farm / sawmill / mine / oil / steel):
+
+```
+upstream:   building.production.collect  {uuid:<building_uuid>, _id:N}
+response:   building.production.collect  {...}
+            push.resource.item.update  {resource_items:[...]}
+```
+
+The only parameter is `uuid` — the per-building UUID (not a tile field). Tapping
+several bubbles produced five frames with distinct UUIDs:
+
+```
+building.production.collect {uuid=1156814436946922740}
+building.production.collect {uuid=1156814232810146863}
+building.production.collect {uuid=1156814232810146864}
+building.production.collect {uuid=1156814649652661249}
+building.production.collect {uuid=1156814562004290613}
+```
+
+Two neighbours fire alongside the base collect and are worth noting:
+`lw.pve.idle.reward {action:0}` (idle-production reward) and
+`gm.gain.item {resource:[…]}`.
+
+Why the earlier narrow trap missed it: `tools/trap_resource_collect.py` filters
+on the substring `collect` plus a candidate list plus a novel-vs-vocabulary
+check. `building.production.collect` *does* contain `collect`, so a fresh run of
+that trap during a tap would now catch it — the first attempts simply didn't
+land a tap inside the capture window (the game keeps stealing foreground from a
+scripted click). The reliable method was `tools/trap_all_up.py`, which logs
+*every* upstream command with no filter.
+
+Builder: `build_building_collect_frame` in `tools/steal_via_socket.py`.
+Orchestrator: `tools/run_collect_inject.py`
+
+```
+# get a building UUID by trapping one manual collect:
+/mnt/c/Python312/python.exe -X utf8 tools/trap_all_up.py --seconds 60 \
+    --tshark "C:\Program Files\Wireshark\tshark.exe" \
+    --dumpcap "C:\Program Files\Wireshark\dumpcap.exe"
+
+# then inject (repeat --uuid for several buildings):
+/mnt/c/Python312/python.exe tools/run_collect_inject.py --uuid 1156814436946922740
+```
+
+## 10. Embedded protobuf
 
 `0x0a` blobs carry protobuf messages with no shipped `.proto`. The decoder
 emits best-effort `{f1: …, f2: …}` field maps alongside the raw hex.
@@ -1078,7 +1172,7 @@ f2  = terrain / tile type          f102, f103 = serverId
 March blobs (`push.world.march.new._proto`) embed the player name, alliance id
 and per-squad hero lists in nested LEN fields.
 
-## 9. Open questions
+## 11. Open questions
 
 - **Is there a second game endpoint?** Answered. Gameplay, chat and map all
   ride one connection — even a cross-server jump reuses it. At login the client
@@ -1150,7 +1244,7 @@ the mask indices count from the **body** start, not the packet start. The old
 description happened to work only because the arithmetic coincided for the
 one packet shape it was derived from.
 
-## 10. Relationship to the "no protocol RE" decision (task #366)
+## 12. Relationship to the "no protocol RE" decision (task #366)
 
 Task #366 rejected protocol work because ACE kernel anti-cheat makes it
 impractical. That conclusion was about **active** techniques — MITM, pinning

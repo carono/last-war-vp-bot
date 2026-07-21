@@ -198,6 +198,51 @@ def build_steal_frame(uuid: int, target_server: int, server_id: int,
                                k1, k2, req_id)
 
 
+def build_leave_world_frame(server_id: int, k1: int, k2: int,
+                             req_id: int) -> bytes:
+    """Build user.leave.world — return from world map to city/base.
+
+    Payload trapped from capture.transcript.json (2026-07-19):
+        upstream:  {worldId:0, serverId:<home>, _id:N}
+        response:  {success:True, _id:N}
+    """
+    params = {"worldId": 0, "serverId": server_id}
+    return build_command_frame("user.leave.world", params, server_id,
+                               k1, k2, req_id)
+
+
+def build_gather_collect_frame(uuid_arr: list, server_id: int,
+                                k1: int, k2: int, req_id: int) -> bytes:
+    """Build gather.collect.reward — collect resources from completed world-map gathering.
+
+    Payload observed in live_5min.log (2026-07-xx):
+        upstream:  {uuidArr:[<march_uuid>,...], _id:N}
+        response:  {reward:[...], collect_reward:[], _id:N}
+
+    uuid_arr: list of int march-UUIDs for completed gathering trips.
+    """
+    params = {"uuidArr": uuid_arr}
+    return build_command_frame("gather.collect.reward", params, server_id,
+                               k1, k2, req_id)
+
+
+def build_building_collect_frame(uuid: int, server_id: int,
+                                  k1: int, k2: int, req_id: int) -> bytes:
+    """Build building.production.collect — collect output from a base building.
+
+    This is the base-screen resource collect (farm/sawmill/mine/oil/steel):
+    tapping the green bubble over a production building sends one command per
+    building. Payload trapped live on 2026-07-21 (task #974, protocol.md §8):
+        upstream:  {uuid:<building_uuid>, _id:N}
+        response:  building.production.collect / push.resource.item.update
+
+    uuid: the int UUID of the production building (per-building, not per-tile).
+    """
+    params = {"uuid": uuid}
+    return build_command_frame("building.production.collect", params, server_id,
+                               k1, k2, req_id)
+
+
 def _frame_for(args) -> bytes | None:
     """Build whichever command the CLI selected, or None if args are missing."""
     common = ("server_id", "k1", "k2", "id")
@@ -208,6 +253,29 @@ def _frame_for(args) -> bytes | None:
             return None
         return build_steal_frame(args.uuid, args.target_server, args.server_id,
                                  args.k1, args.k2, args.id)
+    if args.command == "user.leave.world":
+        if any(getattr(args, n) is None for n in common):
+            print(f"{C_ERR}user.leave.world needs --server-id --k1 --k2 --id{C_RESET}")
+            return None
+        return build_leave_world_frame(args.server_id, args.k1, args.k2, args.id)
+    if args.command == "gather.collect.reward":
+        if not getattr(args, "uuid_arr", None):
+            print(f"{C_ERR}gather.collect.reward needs --uuid-arr (comma-separated march UUIDs){C_RESET}")
+            return None
+        if any(getattr(args, n) is None for n in common):
+            print(f"{C_ERR}gather.collect.reward needs --server-id --k1 --k2 --id{C_RESET}")
+            return None
+        return build_gather_collect_frame(args.uuid_arr, args.server_id,
+                                          args.k1, args.k2, args.id)
+    if args.command == "building.production.collect":
+        if getattr(args, "uuid", None) is None:
+            print(f"{C_ERR}building.production.collect needs --uuid (building UUID){C_RESET}")
+            return None
+        if any(getattr(args, n) is None for n in common):
+            print(f"{C_ERR}building.production.collect needs --server-id --k1 --k2 --id{C_RESET}")
+            return None
+        return build_building_collect_frame(args.uuid, args.server_id,
+                                            args.k1, args.k2, args.id)
     # default: the go.to.world transport test
     if any(getattr(args, n) is None for n in common):
         print(f"{C_ERR}go.to.world needs --server-id --k1 --k2 --id{C_RESET}")
@@ -940,8 +1008,28 @@ def send_via_dup(pid: int, frame: bytes) -> int:
 # interval — so the counter cannot have advanced in the gap.
 
 
+def _inject_frame_builder(args):
+    """Return a callable (server_id, k1, k2, req_id) -> bytes for the selected command."""
+    cmd = getattr(args, "command", "go.to.world") or "go.to.world"
+    if cmd == "user.leave.world":
+        return lambda sid, k1, k2, rid: build_leave_world_frame(sid, k1, k2, rid)
+    if cmd == "gather.collect.reward":
+        uuid_arr = getattr(args, "uuid_arr", []) or []
+        return lambda sid, k1, k2, rid: build_gather_collect_frame(uuid_arr, sid, k1, k2, rid)
+    if cmd == "building.production.collect":
+        uuid = getattr(args, "uuid", None)
+        return lambda sid, k1, k2, rid: build_building_collect_frame(uuid, sid, k1, k2, rid)
+    return lambda sid, k1, k2, rid: build_test_frame(sid, k1, k2, rid)
+
+
 def sniff_and_inject(pid: int, args) -> int:
-    """Passive-sniff the live _id counter, then inject go.to.world immediately.
+    """Passive-sniff the live _id counter, then inject the selected command immediately.
+
+    Supported commands (--command):
+      go.to.world         — open world map from city (default, reversible)
+      user.leave.world    — return to city/base from world map
+      gather.collect.reward — collect gathered resources (needs --uuid-arr)
+      building.production.collect — collect a base building's output (needs --uuid)
 
     Flow:
       1. Start passive pcap on all interfaces (upstream + downstream).
@@ -949,7 +1037,7 @@ def sniff_and_inject(pid: int, args) -> int:
          (Nudge: open a menu, scroll the map — anything that triggers an RPC.)
       3. Take max(seen_ids) + 1 as the injection _id. The send follows in the
          same millisecond, so the counter cannot have advanced in the gap.
-      4. Build go.to.world{_id=N+1} and send it via the duplicated socket.
+      4. Build the selected command frame with _id=N+1 and send via dup'd socket.
       5. Watch downstream for a reply with _id=N+1 and success=true.
 
     Logs: got _id=N → injecting _id=N+1 → server_reply or timeout.
@@ -1025,6 +1113,8 @@ def sniff_and_inject(pid: int, args) -> int:
         "up_next_seq": None,  # TCP seq after last upstream packet (for raw inject)
         "up_ack": None,       # TCP ack from last upstream packet
         "up_packets": 0,      # count of upstream TCP packets seen by scapy
+        "k1": None,           # XOR key byte 1 extracted from any upstream frame
+        "k2": None,           # XOR key byte 2 extracted from any upstream frame
         "game_iface": None,   # interface where downstream game stream was seen
         "game_src_mac": None, # our MAC on game_iface (from received packet's dst)
         "game_dst_mac": None, # gateway MAC on game_iface (from received packet's src)
@@ -1136,6 +1226,11 @@ def sniff_and_inject(pid: int, args) -> int:
                     _raw = bytes(_tcp.payload)
                     try:
                         for _env, _fstart, _fend in proto.iter_frames(_raw, "up"):
+                            # k1/k2 are at frame offsets +4, +3 (proto.py line 321).
+                            # Extract from ANY upstream frame, not just ones with _id.
+                            if state["k1"] is None and len(_raw) >= _fstart + 5:
+                                state["k2"] = _raw[_fstart + 3]
+                                state["k1"] = _raw[_fstart + 4]
                             _ep = proto.envelope_payload(_env)
                             if not isinstance(_ep, dict):
                                 continue
@@ -1278,6 +1373,7 @@ def sniff_and_inject(pid: int, args) -> int:
                   f"waiting for upstream _id for probe-send…{C_RESET}", flush=True)
 
             # Wait for upstream _id so we can build a valid inject frame.
+            # If --req-id was given it already seeded got_id, so this returns immediately.
             state["got_id"].wait(timeout=65.0)
             if state["max_id"] < 0:
                 for _, _hd in blocking:
@@ -1296,12 +1392,18 @@ def sniff_and_inject(pid: int, args) -> int:
                 _r[0] = OSError("no server_id for probe-send frame")
                 _e.set()
                 return
-            _k1 = getattr(args, "k1", None) if getattr(args, "k1", None) is not None else 0x11
-            _k2 = getattr(args, "k2", None) if getattr(args, "k2", None) is not None else 0x22
-            _frame = build_test_frame(_sid, _k1, _k2, _inj_id)
+            _k1 = (getattr(args, "k1", None)
+                   if getattr(args, "k1", None) is not None
+                   else state.get("k1") if state.get("k1") is not None
+                   else 0x11)
+            _k2 = (getattr(args, "k2", None)
+                   if getattr(args, "k2", None) is not None
+                   else state.get("k2") if state.get("k2") is not None
+                   else 0x22)
+            _frame = _inject_frame_builder(args)(_sid, _k1, _k2, _inj_id)
 
             print(f"{C_DIM}bg-dup probe-send: {len(blocking)} candidates "
-                  f"_id={_inj_id}…{C_RESET}", flush=True)
+                  f"_id={_inj_id} k1=0x{_k1:02x} k2=0x{_k2:02x}…{C_RESET}", flush=True)
 
             for hval, dup in blocking:
                 if found:
@@ -1340,6 +1442,17 @@ def sniff_and_inject(pid: int, args) -> int:
     # proto.iter_frames(raw, "up") and sets got_id as soon as the first
     # upstream RPC frame (world.get.block, etc.) is seen.  Keepalives have no
     # _id, so we need at least one map scroll or menu tap in the window.
+    #
+    # --req-id bypass: when the caller already knows the next _id (e.g. base
+    # screen where the game sends no named upstream commands), pre-seed the
+    # state so the inject can proceed without live sniffing.
+    _forced_id = getattr(args, "req_id", None)
+    if _forced_id is not None and not state["got_id"].is_set():
+        state["max_id"] = _forced_id - 1
+        state["got_id"].set()
+        print(f"{C_DIM}--req-id bypass: using _id={_forced_id} (max_id seeded to {_forced_id-1}){C_RESET}",
+              flush=True)
+
     got = state["got_id"].wait(timeout=15.0)
     if not got or state["max_id"] < 0:
         # Still nothing after 15 s.  Wait up to 45 s more for upstream packets
@@ -1366,8 +1479,16 @@ def sniff_and_inject(pid: int, args) -> int:
     time.sleep(1.5)
 
     sid = state["server_id"] or getattr(args, "server_id", None)
-    k1 = getattr(args, "k1", None) if getattr(args, "k1", None) is not None else 0x11
-    k2 = getattr(args, "k2", None) if getattr(args, "k2", None) is not None else 0x22
+    k1 = (getattr(args, "k1", None)
+          if getattr(args, "k1", None) is not None
+          else state.get("k1") if state.get("k1") is not None
+          else 0x11)
+    k2 = (getattr(args, "k2", None)
+          if getattr(args, "k2", None) is not None
+          else state.get("k2") if state.get("k2") is not None
+          else 0x22)
+    if state.get("k1") is not None:
+        print(f"{C_DIM}k1/k2 from wire: 0x{k1:02x}/0x{k2:02x}{C_RESET}", flush=True)
 
     if sid is None:
         stop.set()
@@ -1415,7 +1536,7 @@ def sniff_and_inject(pid: int, args) -> int:
         # Brief settle so the latest orchestrator-pan RPC burst lands in scapy.
         time.sleep(0.5)
         inject_id = state["max_id"] + 1
-        frame = build_test_frame(sid, k1, k2, inject_id)
+        frame = _inject_frame_builder(args)(sid, k1, k2, inject_id)
         state["inject_id"] = inject_id   # arm BEFORE send — reply may arrive fast
         # Record pre-send TCP seq so we can verify server ACK after send.
         state["inject_sent_seq"] = state.get("up_next_seq")
@@ -1582,10 +1703,16 @@ def main() -> int:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
                                   errors="replace", line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--command", choices=["go.to.world", "steal"],
+    ap.add_argument("--command",
+                    choices=["go.to.world", "steal",
+                             "user.leave.world", "gather.collect.reward",
+                             "building.production.collect"],
                     default="go.to.world",
-                    help="which frame to build/send (default: go.to.world — the "
-                         "safe reversible transport test; steal is the real one)")
+                    help="which frame to build/send (default: go.to.world; "
+                         "user.leave.world returns to base from world map; "
+                         "gather.collect.reward collects finished world-map gathering; "
+                         "building.production.collect collects a base building's output (--uuid); "
+                         "steal is the resource-rob — irreversible)")
     ap.add_argument("--build", action="store_true",
                     help="build the selected frame and print its bytes (no send)")
     ap.add_argument("--sniff-id", action="store_true",
@@ -1596,8 +1723,8 @@ def main() -> int:
                     help="enumerate + duplicate the game's socket handle (needs DUP_HANDLE)")
     ap.add_argument("--sniff-and-inject", action="store_true",
                     help="passive-sniff for upstream _id, then immediately inject "
-                         "go.to.world and wait for the server ACK; requires --force; "
-                         "use --server-id / --k1 / --k2 if not seen on wire")
+                         "the selected --command and wait for the server ACK; "
+                         "requires --force; use --server-id / --k1 / --k2 if not seen on wire")
     ap.add_argument("--send", action="store_true",
                     help="actually send the selected frame down the duplicated socket "
                          "(manual mode: requires --server-id --k1 --k2 --id)")
@@ -1606,11 +1733,17 @@ def main() -> int:
     ap.add_argument("--i-understand-ban-risk", action="store_true",
                     help="required by --send steal; you accept the #972 ban risk")
     ap.add_argument("--uuid", type=_int_auto, help="task uuid (tile field f100)")
+    ap.add_argument("--uuid-arr", type=lambda s: [int(x) for x in s.split(",")],
+                    dest="uuid_arr",
+                    help="comma-separated march UUIDs for gather.collect.reward")
     ap.add_argument("--target-server", type=int, help="server the task lives on")
     ap.add_argument("--server-id", type=int, help="home server for the header")
     ap.add_argument("--k1", type=_int_auto, help="per-frame key byte 1")
     ap.add_argument("--k2", type=_int_auto, help="per-frame key byte 2")
     ap.add_argument("--id", type=int, help="next per-connection _id counter")
+    ap.add_argument("--req-id", type=int, dest="req_id",
+                    help="force the request _id without waiting for upstream sniff "
+                         "(use when game is on base screen and generates no named upstream traffic)")
     args = ap.parse_args()
 
     if args.build:
