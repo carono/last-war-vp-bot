@@ -1,0 +1,37 @@
+{
+  "module": "GameAssembly.dll",
+  "note": "Addresses/MethodInfo* are per-process (ASLR); re-resolve after restart. Names/tokens/offsets are stable.",
+  "struct_offsets": {
+    "Il2CppClass.name": 72,
+    "Il2CppClass.namespace": 80,
+    "Il2CppClass.methods": 160,
+    "Il2CppClass.method_count": 252,
+    "MethodInfo.size": 40,
+    "MethodInfo.token_flags": 0,
+    "MethodInfo.klass": 8,
+    "MethodInfo.name": 24,
+    "MethodInfo.compiled_pointer": null
+  },
+  "transition": {
+    "class": "SceneManager",
+    "assembly": "Assembly-CSharp",
+    "go_to_world": {
+      "method": "ChangeScene",
+      "signature": "public static void ChangeScene(SceneID)",
+      "arg": "SceneID.World = 2",
+      "token": "0x60030xx"
+    },
+    "helpers": {
+      "CreateWorld": "public static, 0 args",
+      "CreateCity": "public static, 0 args",
+      "DestroyCurScene": "public static, 0 args",
+      "IsInWorld": "public static, returns bool",
+      "IsInCity": "public static, returns bool",
+      "get_CurrSceneID": "public static, returns SceneID",
+      "set_CurrSceneID": "public static, SceneID arg"
+    }
+  },
+  "SceneID_enum": { "None": 0, "City": 1, "World": 2 },
+  "call_path": "il2cpp_runtime_invoke(MethodInfo*, obj=NULL_for_static, void** params, Il2CppException** exc); value-type args passed by pointer-to-value (no boxing).",
+  "invoke_tool": "tools/call_go_to_world.py (dry by default; --fire to perform; mutates live state)"
+}
