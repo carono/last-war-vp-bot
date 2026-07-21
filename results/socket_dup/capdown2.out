@@ -1,0 +1,7 @@
+capturing 40s across 17 ifaces -> results/socket_dup/cap2.jsonl
+
+[22:43:58] GAME STREAM FOUND � 34.145.128.94:17935 on vEthernet (Создать виртуальный коммутатор)
+    port 17935 � decoding from here
+
+records=53 down_with_id=0 up_with_id=0
+wrote results/socket_dup/cap2.jsonl
