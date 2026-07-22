@@ -24,10 +24,16 @@ Custom binary over **plain TCP — no TLS**. Observed endpoint
 IP directly with **no preceding DNS lookup**, so SNI/DNS filters will not find
 it — filter by frame shape or port instead.
 
-Gameplay, chat, alliance events and map queries all multiplex over this
-**single connection** — `push.chat` is not a separate endpoint. Two auxiliary
-services do live elsewhere, both over ordinary TLS: a CDN for assets and a
-**chat translation** service. Neither carries gameplay.
+Gameplay, alliance events and map queries all multiplex over this **single
+connection**. Chat is only **partly** here: the game gateway carries chat
+control (room registry, DM send/ack, system mails, notifications), but the
+**live broadcast chat stream rides a separate, dedicated TLS WebSocket**,
+`lastwar-chat-wss-us-{aws,gcp,ali}-ali.lastwargame.com:443` (multi-cloud, fails
+over between providers, can drop independently of the game socket). Proven by
+active capture — see [`chat.md`](chat.md) and
+[`chat-active-capture.md`](chat-active-capture.md). Other auxiliary TLS services:
+asset/battle-report CDNs, telemetry (`lw-c-log`, `te-receiver`) and a chat
+**translation** service — none carry gameplay.
 
 Two captures were analysed: capture A (173 s) and capture B (60 s, with
 cross-server travel). The first showed no DNS at all for the game; the second
@@ -489,6 +495,9 @@ items, heroes, vip, science, shops, settings and more. It is the reason the
 
 
 ### Chat
+
+> Full chat write-up — room types, message shapes, system broadcasts and the
+> "separate connection" question — is in [`chat.md`](chat.md).
 
 Rooms come from `common.chat.room.id`: public rooms are `country_<server>` and
 `custom_lang_<lang>_<server>`; a direct message uses
