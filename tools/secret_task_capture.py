@@ -226,6 +226,18 @@ def main() -> int:
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
     reported: set = set()
+    # A secret tile is a one-shot steal target. The moment anyone raids a slot
+    # its loot_count ticks up, and without this that higher count reads as a
+    # brand-new world state and re-announces the tile as if freshly LOOTABLE —
+    # the exact double-detection this guards against. `stolen` holds the
+    # (server_id, uuid) of every tile whose count has risen since we first saw
+    # it; once in here a tile is announced no more, even if a free slot remains
+    # and `can_loot` still reads true. `first_loot` is that first-seen count,
+    # the baseline a rise is measured against. Both deliberately outlive a
+    # server switch (unlike `reported`, cleared below): a tile someone has
+    # already stolen stays stolen on a return trip.
+    stolen: set = set()
+    first_loot: dict = {}
     # None means run until interrupted, so every deadline test has to tolerate
     # not having one.
     deadline = time.time() + args.seconds if args.seconds else None
@@ -278,17 +290,30 @@ def main() -> int:
                           f"{human_size(index.transcript.size())}{C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
+                tile = (task.server_id, task.uuid)
+                # A tile already retired as stolen never speaks again.
+                if tile in stolen:
+                    continue
+                # A rise above the first-seen loot count means a slot was raided
+                # while we watched — someone stole this tile. Retire it so the
+                # higher count cannot re-announce the same tile as if new; the
+                # earlier state was already reported once, which is enough.
+                baseline = first_loot.setdefault(tile, task.loot_count)
+                if task.loot_count > baseline:
+                    stolen.add(tile)
+                    continue
                 # Keyed on what the line actually says, not on the uuid alone.
                 # `can_loot` and `pending` are recomputed against the clock, so
                 # a task walks PENDING -> LOOTABLE on its own; keying by uuid
                 # printed it once while still PENDING and then suppressed the
                 # LOOTABLE moment forever — the one line a raid decision needs.
-                # Loot count is in the key for the same reason: "steal 0/3" is
-                # a claim about the world that goes stale. The server id is in
-                # it because a uuid only identifies a tile within its server.
+                # Loot count is deliberately NOT in the key: a count that rose
+                # means the tile was stolen, and that is handled above by
+                # retiring it, not by re-announcing it. The server id is in the
+                # key because a uuid only identifies a tile within its server.
                 state = ("lootable" if task.can_loot
                          else "pending" if task.pending else "seen")
-                key = (task.server_id, task.uuid, state, task.loot_count)
+                key = (task.server_id, task.uuid, state)
                 if key in reported:
                     continue
                 reported.add(key)
@@ -311,11 +336,11 @@ def main() -> int:
         stop.set()
 
     everything = index.tasks
-    # reported holds (server_id, uuid, state, loot_count), so one task can
-    # appear under several keys as it changes; the count is of distinct tasks.
-    # It also survives a server switch, so it counts every task the run ever
-    # announced — not just the ones still indexed for the current server.
-    matched = len({(server, uuid) for server, uuid, _state, _loot in reported})
+    # reported holds (server_id, uuid, state), so one task can appear under
+    # several keys as it walks PENDING -> LOOTABLE; the count is of distinct
+    # tasks. It also survives a server switch, so it counts every task the run
+    # ever announced — not just the ones still indexed for the current server.
+    matched = len({(server, uuid) for server, uuid, _state in reported})
     where = (f" on server {index.current_server}"
              if index.current_server is not None else "")
     # Read before the summary prints, so the count belongs to the same moment
