@@ -1063,6 +1063,111 @@ is the *order*; which colour the client paints each rank is not on the wire.
 To settle it, run the scanner beside the map and compare a named truck against
 the one drawn on screen.
 
+### Alliance march alerts and rallies (`lw.alliance.alert`) — task #994
+
+Every world march an **alliance member** launches is broadcast to the whole
+alliance in real time. This is the feed a rally (Ралли / «стяг») rides on. Three
+commands carry it:
+
+| Command | Direction | Shape |
+|---|---|---|
+| `lw.get.alliance.alert.info` | client → server | request → the full list of currently-active alerts (poll for a snapshot without waiting for pushes) |
+| `push.lw.alliance.alert.info.create` | server → client | `{info:{…60 fields}, uuid}` — one member's march just launched |
+| `push.lw.alliance.alert.info.remove` | server → client | `{uuid}` — that march ended (arrival, recall, or battle over); bare uuid only |
+
+`remove` outnumbers `create` heavily on the wire (120 vs 9 in `capture.pcapng`)
+because the client also removes marches that were already in flight at login /
+scrolled out of the alliance's view.
+
+**The `info` object** (union of all 60 keys seen):
+
+```
+uuid, teamUuid, holdUuid          this march; the rally-team id; the rally hold/assembly id
+type, target, isAtk, status       kind; target-tile class; 1=attack 0=help/reinforce; lifecycle state
+ownerUid, ownerName, ownerServer, ownerCurServerId, srcServer
+allianceUid, allianceName, allianceAbbr, allianceIcon
+power, armyWeight, squadNo, speed, combatInfos[]   attacker strength + squad (protobuf, base64)
+ownerFormationUuid, fixedSoldierType, headSkinId, headFrame, ...
+startPos, targetPos, path, mainPointId, diffPoint  geometry (path is "startPoint;targetPoint")
+startTime, endTime                epoch-ms launch / arrival — ETA is endTime, or interpolate along path
+tUid, tName, tAllianceAbbr, tResId, tHeadSkinId, tPicVer   the *target* (defender player or resource)
+targetUuid, targetServer
+pvpNum, pveNum, catchZombieNum, collectSpd, inBattle, isBroken   activity counters / flags
+worldId, worldType, server, isAnonymity, isProto, src_action
+```
+
+`combatInfos` is a base64 protobuf per squad (hero ids, troop counts, tiers);
+it decodes structurally like every other `_proto` blob, field names unknown.
+
+**How a rally is distinguished from a solo march.** A rally is a coordinated
+multi-member march: the leader opens it on a target, others join, and it sets
+out as one army. On the wire the linkage is:
+
+- **`teamUuid`** — non-zero and **shared** by the leader's and every joiner's
+  alert. A solo march has `teamUuid = 0`.
+- **`holdUuid`** — the rally hold / assembly point while it fills, `0` for solo.
+- `target` / `targetUuid` point at the rally target; monster / boss rallies use
+  the `push.world.march.world.get.new` monster stream in parallel (`type=2`,
+  `monsterId`, see §7), and alliance-boss rallies also surface via
+  `alliance.boss.act.info`.
+
+**Historical note — no rally in `capture.pcapng`.** All 9 `alert.info.create`s
+in the original saved capture are **solo PvP** marches (`teamUuid = holdUuid =
+0`): an alliance-vs-alliance base war — `target=11` (player base), `isAtk`
+alternating 1/0, `path` running base→base, `tName` the defender (e.g.
+`Last Lollo → criss Lr`, `Big Boss Big → Last Lollo`). The rally-specific
+values needed a **live capture taken while an alliance actually forms a rally**;
+that capture has since been taken (below).
+
+#### Live-confirmed rally structure (task #995)
+
+A live 120 s passive capture (`tools/live_tshark.py` / raw `dumpcap` against
+`3.33.246.23:17935`, world 935, alliance TLou) caught a full alliance rally
+lifecycle. Raw pcap + decoded extract: `results/rally/rally_live.pcapng`,
+`results/rally/rally_structure.json`.
+
+The rally did **not** ride the `push.lw.alliance.alert.info.*` stream at all
+(only bare `remove`s appeared there). It rode the **`push.alliance.march.*`**
+family — the richer allied-march representation seen in captures A/B — which
+carries the whole join→fill→launch sequence with the full member list inline:
+
+| Command | Direction | Shape |
+|---|---|---|
+| `push.alliance.march.create` | server → client | a rally team is opened: `{uuid (==teamUuid), attackAllianceId, server/nowServer, targetPointId, targetContentId, targetUuid, targetUid, attackUid, attackName, attackPointId, leaderRank, leaderOffical, teamHasLight, assemblyMarchMax, waitTime/marchTime/waitMemberTime, fixedSoldierType, members:[], leaderMarch:{…}}` |
+| `push.alliance.march.refresh` | server → client | same envelope, `members[]` now populated as joiners arrive — each a full march object carrying the **same `teamUuid` as `uuid`**; `waitMemberTime` advances |
+| `push.alliance.march.remove` | server → client | `{teamUuid, isCancel}` — rally launched (`isCancel:false`) or cancelled |
+
+Every **`push.world.march.new`** for a participating member also carries that
+`teamUuid` (0 for solo marches), so the world-march stream alone already
+distinguishes a rally: **≥2 distinct `ownerUid` sharing one non-zero
+`teamUuid`**. In this capture two concurrent rallies were seen this way
+(`teamUuid 1397117483466598347` — 2 owners; `…474986795` — the leader's team).
+
+A **`…march`** object (`leaderMarch`, each `members[]` entry, and a
+`world.march.new` payload) carries: `uuid, teamUuid, ownerUid, ownerName,
+allianceId/Name/Abbr/Icon, power, curHp/maxHp, path ("startId;targetPos"),
+startId, startTime, endTime, target, targetPos, status, headSkinId, armyInfo`.
+`armyInfo` is a base64 protobuf squad (hero ids, troop counts, tiers) — decodes
+structurally like every other `_proto` blob, field names unknown.
+
+**How to distinguish rally from solo (confirmed).** `teamUuid != 0` on any
+march / member entry ⇒ part of a rally team; the leader's `uuid` **is** the
+`teamUuid` shared across the create, every refresh member, the remove, and all
+members' `world.march.new`. `assemblyMarchMax` (5 here) caps the join count;
+`waitTime`/`marchTime` is the launch deadline.
+
+**To re-capture.** Passive sniff only (active RE is ACE-blocked; see
+`socket-duplication.md` and the memory notes). Capture the game endpoint while a
+rally runs, then grep the decoded transcript:
+
+```bash
+# archive raw (small, endpoint-only) — dumpcap.exe from WSL, iface from `tshark.exe -D`
+dumpcap.exe -i 1 -f "host 3.33.246.23 and port 17935" -a duration:120 -w rally.pcapng
+python tools/lastwar_proto.py rally.pcapng --grep 'alliance.march|world.march.new' --json out.json
+```
+
+Filter for `teamUuid != 0` to isolate the rally from ordinary member marches.
+
 ## 8. Injected commands (task #973)
 
 Commands verified for injection via the dup'd-socket path
