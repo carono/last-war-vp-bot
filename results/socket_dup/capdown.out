@@ -1,7 +1,0 @@
-capturing 26s across 17 ifaces -> results/socket_dup/cap.jsonl
-
-[22:42:10] GAME STREAM FOUND � 34.145.128.94:17935 on Беспроводная сеть
-    port 17935 � decoding from here
-
-records=85 down_with_id=5 up_with_id=5
-wrote results/socket_dup/cap.jsonl

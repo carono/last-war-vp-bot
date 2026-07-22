@@ -1,8 +1,0 @@
-Last War live decoder via dumpcap.exe — decoding by frame shape
-interfaces: 17   filter: none
-stopping after 18s
-
-
-----------------------------------------------------------------
-297 packets / 0 frames in 19s across 7 half-streams
-no game stream detected. Run with --discover to see what is actually crossing this interface.

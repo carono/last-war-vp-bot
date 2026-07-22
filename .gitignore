@@ -35,15 +35,9 @@ models_cache/
 *.log
 profiles/
 
-# Captured network traffic — may contain session tokens, never commit
-results/*.jsonl
-results/analysis_*.json
-results/transcript*.json
-results/*.transcript.json
-results/raw/
+# Local artefacts: captures (may hold session tokens), decoded transcripts,
+# benchmark output — never source, kept on disk but out of git.
+results/
 *.pcap
 *.pcapng
 sslkeys.log
-
-# Local benchmark artefacts (scan_resources.py output), not source
-results/*.png
