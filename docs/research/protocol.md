@@ -345,7 +345,7 @@ opened, which is why `tools/scan_leaderboard.py` cannot make one arrive.
 
 | Command | Request | List | Per entry |
 |---|---|---|---|
-| `al.rank` | `allianceId` | `list[]` | `uid`, `name`, `power`, `armyKill`, `weeklyProgress`, `todayProgress`, `rank`, `mainCityLv`, `serverId`, `online`, `joinTime`, `donateTime` |
+| `al.rank` | `allianceId` | `list[]` | `uid`, `name`, `power`, `armyKill`, `weeklyProgress`, `todayProgress`, `rank`, `mainCityLv`, `serverId`, `online`, `offLineTime` (offline members only, epoch-ms last-seen), `joinTime`, `donateTime` |
 | `champion.duel.result.show.rank.list` | `serverId`, `num` | `rank[]` | `uid`, `name`, `server`, `rank`, `allianceName`, `group5`, `rank5`, `skin[]` |
 | `rank.get` | `serverId`, `type`, `global` | `allianceRanking[]` | `uid` (**alliance id**), `alliancename`, `abbr`, `fightpower`, `armyKill`, `leader`, `leaderUid`, `curMember`, `maxMember`, `nums`, `country`, `icon`, `srcServer` |
 
@@ -404,6 +404,45 @@ rankings are excluded by name (`lastwar_proto.NOT_LEADERBOARDS`): a march's
 `get.alliance.world.mark.info`, `al.search`, and the
 `dragon.assign.player.info` / `quarantine.act.player.list` sign-up sheets all
 otherwise pass it.
+
+### Alliance-member presence (online / "last seen")
+
+All the presence a bot can read off the wire lives on exactly one command, and
+it fully backs the UI's *"онлайн"* / *"был N минут назад"* line:
+
+* **`al.rank` is the only frame that carries per-member presence.** Each roster
+  entry has `online` (a plain boolean; capture: 100 members, 6 `true` / 94
+  `false`), and every *offline* member additionally carries **`offLineTime`** —
+  the epoch-**ms** timestamp of when they last went offline. Online members omit
+  `offLineTime` (there is nothing to show but "онлайн"). A walk over the whole
+  session found `online` / `offLineTime` in `al.rank` and nowhere else.
+
+* **`offLineTime` is the backing value for "был N минут назад".** The UI renders
+  `now − offLineTime`: in the capture the 94 offline members spread from ~0 min
+  to ~15 h ago, exactly the roster's relative-time column. So the last-seen time
+  *is* on the wire — it just rides the roster response, keyed per member, not a
+  standalone command. (My first pass on #996 wrongly reported no last-seen field;
+  it was hidden because online members omit `offLineTime` and the field is
+  camel-cased `offLineTime`, not `offlineTime`.)
+
+* **It is tied to the alliance-list screen — there is no background feed.**
+  `al.rank` crossed the wire once (one `up` request, one `down` reply) and only
+  when the alliance ranking/roster screen was opened. No `push.*` carries
+  `online`/`offLineTime`; presence is never streamed unsolicited. So a bot cannot
+  observe presence passively — it must open the roster (or inject the `al.rank`
+  request) to sample it, and the snapshot is stale the moment it lands. The
+  profile commands the client fetches for other players (`get.new.user.info`,
+  `get.user.info.multi`, `user.remark.list`) carry no presence, and
+  `social.status.view` (`otherUid` → `socialStatus`) returns an empty object.
+
+* **The local player's own presence** is in the `init` blob at login —
+  `lastOffLineTime`, `offLineTime`, `todayLoginTimes`, `loginDays`, `regTime`,
+  `lastTime` — describing *you*, never a teammate.
+
+Net: `al.rank` gives both who is online now (`online`) and when each offline
+member was last seen (`offLineTime`, epoch-ms) — the complete "онлайн / был N
+минут назад" data — but only on demand when the roster is opened; nothing pushes
+it in the background.
 
 ## 6. Login sequence
 
