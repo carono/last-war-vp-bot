@@ -1039,6 +1039,50 @@ One coordinate note, consistent with the off-by-one already recorded above:
 the steal was at `point 509552` → `(552, 509)` server-local, while the chat
 attachment the client generated for the same task said `x: 551, y: 509`.
 
+#### Shared secret missions — `alliance.share.mission.*`
+
+A secret task (`f2 = 17`, above) is a map tile: you only learn of one by
+panning `world.get.block` onto it. When a player presses **share** on a mission
+worth raiding, the server broadcasts it to the whole alliance as a push — so an
+alliance member learns of it without looking at that patch of map at all. This
+is the "секретная миссия" side of the same feature, distinct from the tile
+scan; there is **no** separate `secret.mission.*` / `world.secret.mission.*`
+command family (searched across every capture — none exists). The only
+game class carrying the word is `HeroDispatchMissionPointInfo`, i.e. hero
+dispatch is the mission.
+
+Two commands carry them (captured 2026-07-19 in `results/rob_trap.jsonl`):
+
+```
+<-- push.alliance.share.mission.add {missionCfgId, missionUuid,
+        missionCurrentServerId, shareUid, shareAllianceId, missionPlayerServerId}
+--> get.alliance.share.mission.list {allianceId}
+<-- get.alliance.share.mission.list {allianceId, shareMissionArr[]}
+```
+
+| Field | Meaning | Same as a tile's |
+|---|---|---|
+| `missionCfgId` | config id — encodes level + star | `f10.f2` / `cfgId` |
+| `missionUuid` | the mission/task uuid | `f100` / `uuid` |
+| `missionCurrentServerId` | server the tile sits on now | `f102` |
+| `missionPlayerServerId` | the owner's home server | — |
+| `shareUid` | who shared it | — |
+| `shareAllianceId` | the alliance it was shared to | `f10.f9` |
+
+The one captured `add` was `missionCfgId 60000701` — family `6000`, level 7, a
+**starred** mission, which is exactly the kind a player shares. Level and the
+star are read off `missionCfgId` exactly as `SecretTask` reads them off `cfgId`
+(`split_cfg_id`, `STAR_TASK_FAMILIES`). The push carries **no** dispatch/loot
+state (no completion time, no stealer list), so it says "a mission became
+available", not "raidable right now" — cross-check the uuid against a
+`secret_task_capture` scan for that. `shareMissionArr[]` was **empty** in every
+capture, so its element field names are inferred from the `add` push, not
+observed; the decoder tolerates a missing key. `hero.dispatch.share.chat` also
+carries the same mission inside `extraShareInfo` (adds `missionUid`, `num`,
+`shareServerId`), but without a `missionCfgId` — so the `add` push is the richer
+source. Decoded by `lastwar_proto.share_missions`; streamed live by
+`tools/secret_mission_capture.py`.
+
 ### Trucks (march type 37)
 
 A truck is not a tile and never appears in `world.get.block`. It rides the

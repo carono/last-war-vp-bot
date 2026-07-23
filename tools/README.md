@@ -28,7 +28,8 @@ Background and the go/no-go reasoning live in
 | `relay.py` | **Windows** (Python) or **Linux/emulator** | userland asyncio MITM relay — inject a command and see its reply, see [`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md) |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
-| `secret_task_capture.py` | **Windows** (Python) | stream secret tasks live via scapy/npcap, no Wireshark binaries spawned |
+| `secret_task_capture.py` | **Windows** (Python) | stream secret tasks (raidable map tiles) live via scapy/npcap, no Wireshark binaries spawned |
+| `secret_mission_capture.py` | **WSL** (Python) | stream alliance-shared **secret missions** (`alliance.share.mission.*`) live via `dumpcap.exe` — the push a map scan never sees |
 | `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |

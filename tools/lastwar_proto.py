@@ -756,6 +756,174 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 
 
 # --------------------------------------------------------------------------
+# Alliance-shared secret missions (`push.alliance.share.mission.add`)
+# --------------------------------------------------------------------------
+#
+# A *secret task* (§7, `f2 = 17`) is a tile the map hands out on `world.get.block`
+# to everyone who pans over it. A *shared secret mission* is a different thing:
+# an alliance member found one worth raiding and pressed "share", and the server
+# broadcast it to the whole alliance so anyone can go assist/steal it. It never
+# rides `world.get.block` — it arrives as its own push, keyed by the same
+# `missionUuid` / `missionCfgId` a tile would carry, so the two streams line up
+# but are captured in completely different ways: a task needs the map moving, a
+# shared mission needs nobody but an ally pressing the button.
+#
+# Two commands carry them, and both go through `_share_mission_from_dict`:
+#
+#   * `push.alliance.share.mission.add` — the live broadcast, one mission per
+#     frame. Confirmed on the wire (`results/rob_trap.jsonl`):
+#         {missionCfgId: 60000701, missionUuid: 1394584906709054020,
+#          missionCurrentServerId: 946, shareUid: "1522777203000972",
+#          shareAllianceId: "3d4b...", missionPlayerServerId: 946}
+#     `missionCfgId 60000701` is family "6000" level 7 — a *starred* mission,
+#     which is exactly what a player bothers to share.
+#   * `get.alliance.share.mission.list` → `shareMissionArr[]` — the snapshot the
+#     client pulls on login. Every capture caught it **empty**, so the element
+#     field names are inferred from the push above, not observed. The parser is
+#     deliberately tolerant of a missing key so a differently-named array
+#     element still yields a partial record rather than nothing.
+SHARE_MISSION_COMMANDS = (
+    "push.alliance.share.mission.add",
+    "get.alliance.share.mission.list",
+)
+
+
+@dataclass(slots=True)
+class ShareMission:
+    uuid: int | None
+    cfg_id: int | None
+    family: str | None
+    level: int | None
+    server_id: int | None         # missionCurrentServerId — where the tile sits now
+    owner_server_id: int | None   # missionPlayerServerId — the owner's home server
+    share_uid: str | None         # who shared it
+    share_alliance_id: str | None
+
+    @property
+    def is_special(self) -> bool:
+        """The level-99 template class — see SPECIAL_TASK_LEVEL / SecretTask."""
+        return self.level == SPECIAL_TASK_LEVEL
+
+    @property
+    def starred(self) -> bool:
+        """Drawn with a star — the family "6000" rule shared with SecretTask.
+
+        A shared mission that is *not* starred is unusual: sharing is what a
+        player does with a raid worth a march, and those are the starred ones.
+        The rule lives in one place (STAR_TASK_FAMILIES) so a task and the
+        mission that references the same tile always agree on the star.
+        """
+        return self.family in STAR_TASK_FAMILIES and not self.is_special
+
+    def as_dict(self) -> dict:
+        return {
+            "uuid": self.uuid,
+            "cfg_id": self.cfg_id,
+            "family": self.family,
+            "level": self.level,
+            "server_id": self.server_id,
+            "owner_server_id": self.owner_server_id,
+            "share_uid": self.share_uid,
+            "share_alliance_id": self.share_alliance_id,
+        }
+
+    @classmethod
+    def from_dict(cls, record: dict) -> "ShareMission":
+        return cls(
+            uuid=record.get("uuid"),
+            cfg_id=record.get("cfg_id"),
+            family=record.get("family"),
+            level=record.get("level"),
+            server_id=record.get("server_id"),
+            owner_server_id=record.get("owner_server_id"),
+            share_uid=record.get("share_uid"),
+            share_alliance_id=record.get("share_alliance_id"),
+        )
+
+
+def _share_mission_from_dict(item: dict) -> ShareMission | None:
+    """One shared-mission record → `ShareMission`, or None if it is not one.
+
+    `missionCfgId` is the anchor: without it there is no level, no star and no
+    way to tell this dict from any other. `family`/`level` come off the cfgId
+    the same way a task's do (`split_cfg_id`); a cfgId that does not split is
+    kept as a raw number with no family/level rather than dropped, so a fifth
+    family (see the `5000302` note in §7) still surfaces.
+    """
+    if not isinstance(item, dict):
+        return None
+    cfg = item.get("missionCfgId")
+    uuid = item.get("missionUuid")
+    if cfg is None and uuid is None:
+        return None  # not a shared-mission record at all
+    family = level = None
+    if cfg is not None:
+        try:
+            family, level, _variant = split_cfg_id(cfg)
+        except (ValueError, TypeError):
+            family = level = None
+    return ShareMission(
+        uuid=uuid,
+        cfg_id=int(cfg) if isinstance(cfg, int) else cfg,
+        family=family,
+        level=level,
+        server_id=item.get("missionCurrentServerId"),
+        owner_server_id=item.get("missionPlayerServerId"),
+        share_uid=item.get("shareUid"),
+        share_alliance_id=item.get("shareAllianceId"),
+    )
+
+
+def share_missions(command: str | None, payload):
+    """Yield every shared secret mission in one decoded frame.
+
+    Routes on `command`: the `.add` push carries one mission *as* the payload,
+    the `.list` response wraps them in `shareMissionArr`. Anything else yields
+    nothing, so a caller can hand every frame through without pre-filtering —
+    though `command in SHARE_MISSION_COMMANDS` is the cheap guard.
+    """
+    if not isinstance(payload, dict):
+        return
+    if command == "get.alliance.share.mission.list":
+        items = payload.get("shareMissionArr") or ()
+        for item in items:
+            mission = _share_mission_from_dict(item)
+            if mission is not None:
+                yield mission
+    elif command == "push.alliance.share.mission.add":
+        mission = _share_mission_from_dict(payload)
+        if mission is not None:
+            yield mission
+
+
+def filter_share_missions(missions, level=None, star_only=False,
+                          server=None) -> list:
+    """Narrow a shared-mission list. None/False means "any".
+
+    `level` takes one level or any iterable of them (matches any — see
+    `filter_tasks`). `star_only` keeps only starred missions. `server` keeps
+    only missions whose tile currently sits on that server
+    (`missionCurrentServerId`), which is the one you would march to.
+    """
+    levels = None
+    if level is not None:
+        levels = {level} if isinstance(level, int) else set(level)
+
+    out = []
+    for m in missions:
+        if levels is not None and m.level not in levels:
+            continue
+        if star_only and not m.starred:
+            continue
+        if server is not None and m.server_id != server:
+            continue
+        out.append(m)
+    # Starred first, then highest level — the order you would raid in.
+    out.sort(key=lambda m: (not m.starred, -(m.level or 0)))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Map semantics: trucks, the march-type-37 `train` objects
 # --------------------------------------------------------------------------
 #
