@@ -12,8 +12,14 @@ into `tools/rally_report.py` (icon + name shown per confirmed hero).
   which matches the exclusive-weapon cap. (`rally_report.py` historically
   labelled `f15` "skillGrade" — it is the weapon grade.) The other slot fields:
   `f1`=heroId, `f2`=troop level, `f3`=tier/stars (all 5 in-sample), `f4`=slot
-  position `1..6`, `f8`=20/26 (unconfirmed, not weapon grade), `f17`=named
-  skills, and on the drone slot (`heroId=1000000`) `f16`=drone payload.
+  position `1..6`, `f8`=20/26 (unconfirmed, not weapon grade), `f17`=awakened
+  weapon slots, and on the drone slot (`heroId=1000000`) `f16`=drone payload.
+* **`f17` = the awakened weapon's upgrade slots**, not "named skills" as first
+  guessed. It is `[{f1: slot 1..4, f2: level}]` and appears **only** once the
+  weapon is awakened (`f15 == 30` for all 217 f17-bearing heroes in
+  `monitor.jsonl`). Slots unlock in order 1→2→3→4, each with its own level
+  (in-sample max levels: slot 1 = 50, slot 2 = 20, slot 3 = 5; slot 4 unseen).
+  Rendered per hero in `rally_report.py`.
 * **`_zw` = "专武" / *zhuanwu* — the awakened exclusive-weapon skin.** Confirmed
   from the `gameres` index model names `A_Hero@<Name>_zhuanwu_*`. The awakened
   skin is worn at **weapon grade ≥ 30**; below that the base icon is used.
