@@ -401,12 +401,12 @@ def main() -> int:
                 lvl = f"{m.level:>2}" if m.level is not None else " ?"
                 where = (f"({m.x:>4},{m.y:>4})" if m.x is not None
                          else "(   ?,   ?)")
-                if m.done:
-                    tag = f"  {C_MISSION}LOOTABLE{C_RESET}"
-                elif m.running:
-                    tag = f"  {C_OK}RUNNING{C_RESET}"
-                else:
-                    tag = ""
+                # Only the actionable state gets a label, exactly as the
+                # secret-task scan tags LOOTABLE and nothing else: a dispatched
+                # squad still out (state 2) is listed, but unlabelled — the
+                # "RUNNING" flag was noise a raid decision cannot use, the same
+                # way secret_task prints an in-progress dispatch with a blank tag.
+                tag = f"  {C_MISSION}LOOTABLE{C_RESET}" if m.done else ""
                 print(f"{star} lvl {lvl}  {where}  "
                       f"server {m.target_server}  members {m.member_count}  "
                       f"loot {m.steal_count}  family {m.family or '?'}  "
