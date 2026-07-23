@@ -702,7 +702,9 @@ Verified: **6373/6373 tiles land inside their requested box** under this model.
 | 6 | 1116 | **Player base** | `f3.f14` name, `f3.f15` alliance abbr, `f3.f4` HQ level (4–35), `f3.f27` country, `f3.f1` uid, `f3.f7` allianceId |
 | 17 | 224 | **Secret task / hero dispatch** — see below | `f10.f2` cfgId, `f10.f1` owner, `f10.f4` stealers, `f10.f8` expiry |
 | 11 | 34 | Stronghold / fortress (fixed 100-tile grid) | `f101.f3` level (1/5/7), `f101.f8` reward, `f101.f1` template |
+| 29 | 28 | **Ghost-recon squad — "Операция Призрак"** — see below (task #1010) | `f14.f2` cfgId (fam 4/5/6), `f14.f1` owner, `f14.f6` targetServer, `f14.f5` members, `f14.f9` state, `f14.f8` uuid (hex) |
 | 25 | 17 | Named facility held by a player | `f101.f5` player name, `f101.f10` alliance name |
+| 35 | 3 | Named facility on a fixed grid | `f101.f4` player name, `f101.f11` alliance name, `f101.f6` level, `f101.f12` serverId |
 | 21 | 4 | Alliance HQ | `f11.f12` alliance name, `f11.f6` abbr, `f11.f7` member uid list |
 
 ### Player profiles (`get.user.info.multi`)
@@ -1124,6 +1126,52 @@ Decoded by `lastwar_proto.ghost_recon_missions` / `GhostReconMission`; streamed
 live by `tools/secret_mission_capture.py` (its `--discover` mode is what found
 `ghost.recon.*` in the first place, and re-finds a renamed family when the
 seasonal feature shifts).
+
+**A ghost-recon dispatch is also a map tile (`f2 = 29`) — task #1010.** An
+earlier note here claimed ghost recon "never rides `world.get.block`". Wrong: a
+ghost squad is drawn on the map under a tile type we had been discarding as an
+unknown. Established by data 2026-07-23 (`results/task1010/tiles.jsonl` +
+`results/ghost1005/session.pcapng`), no guessing:
+
+- 28+43 `f2 = 29` tiles across two captures, **every one** with a cfgId of
+  family 4/5/6 (the ghost rarity tiers), `state = 3`, and one shared `actEndTime`
+  (the weekly window). No other tile kind carries that shape.
+- the `f2 = 29` cfgId set (`40307`, `50302`, `50304`, `50307`, …) **shares exact
+  values with the confirmed `ghost.recon.*` poll/push missions** (`results/task1004`)
+  and is **disjoint** from the `f2 = 17` secret-task cfgIds (6–8 digit,
+  families 30/40/500/…). This is what pins the tile type to ghost recon.
+
+**Open caveat (uuid not yet matched).** We have not yet caught the *same mission
+instance* in both the poll/push and as a tile — in both captures the two sets of
+uuids were disjoint (`tools/_ghost_uuid_crosscheck.py`). That is expected, not
+contradictory: the poll/push lists **your own alliance's** missions, while the
+map shows **other players'** squads wherever you pan, so they coincide only if
+you pan over your alliance's own squad with the panel open. Closing this is a
+one-run job: `tools/ghost_recon_tile_dump.py` already matches tile↔mission by
+uuid live — open the panel, pan over a known mission, and the uuid link prints.
+
+The tile carries the same mission the poll does, in protobuf field numbers under
+`f14`:
+
+| tile field | poll field |
+|---|---|
+| `f14.f1` | `ownerId` |
+| `f14.f2` | `cfgId` (family 4/5/6) |
+| `f14.f3` | `teamStartTime` |
+| `f14.f5[]` | `memberList` (leader + helpers) |
+| `f14.f6` | `targetServer` |
+| `f14.f7` | `actEndTime` (shared across the week) |
+| `f14.f8` | mission uuid, 32-hex form |
+| `f14.f9` | `state` (`3` = done / lootable) |
+| `f14.f11` | `completionTime` |
+| `f100` | mission uuid (numeric) · `f1` = server-local `pointId` |
+
+`f102`/`f103` is the tile's own server (where the squad is drawn); the server it
+attacks is `f14.f6`, a different id. Decoded by `lastwar_proto.ghost_recon_tiles`
+(the tile analogue of `secret_tasks`), so ghost recon can now be found by a
+**tile scan** — panning the map, exactly like a secret task — not only through
+the `ghost.recon.*` poll. `tools/ghost_recon_tile_dump.py` dumps every tile kind
+and labels `f2 = 29`.
 
 ### Trucks (march type 37)
 
