@@ -12,19 +12,34 @@ when the squad returns. It is a different thing from the two lookalikes:
   * a *shared* task (`alliance.share.mission.*`) — that same tile, pushed to the
     alliance when someone presses "share".
 
-A ghost-recon mission never rides `world.get.block`. It arrives in the responses
-to two commands the client sends when you open the panel — decoded by
-`lastwar_proto.ghost_recon_missions`:
+A ghost-recon mission never rides `world.get.block`. It reaches the client two
+ways, and this monitor watches both:
 
-    ghost.recon.get.task.list            your squads + the ones you can loot
-    ghost.recon.get.alliance.task.list   the ally-help list ("Команда союзников")
+  * **polled** — the responses to two commands the client sends when you open the
+    panel, decoded by `lastwar_proto.ghost_recon_missions`:
 
-so this monitor is **passive**: it reports whatever the client fetches. Keep the
-Secret Command Post panel open (or let the game poll it) to keep it fed. Each
-mission has a `state` — 0 an empty slot, 2 a squad still out, 3 done (lootable /
-help-rewardable). The monitor announces a mission when it first matters and
-again when it turns **DONE**, keyed by `(uuid, state)` so a walk
-empty→running→done prints each step once, not every refresh.
+        ghost.recon.get.task.list            your squads + the ones you can loot
+        ghost.recon.get.alliance.task.list   the ally-help list ("Команда союзников")
+
+    Each polled mission has a `state` — 0 an empty slot, 2 a squad still out, 3
+    done (lootable / help-rewardable). It is announced when it first matters and
+    again when it turns **DONE**, keyed by `(uuid, state)` so a walk
+    empty→running→done prints each step once, not every refresh.
+
+  * **pushed** — the live `push.ghost.recon.alliance.single` stream (decoded by
+    `lastwar_proto.ghost_recon_alliance_push`), the ghost-recon analogue of
+    `push.alliance.share.mission.*`. The server pushes one alliance team the
+    instant it appears (`add`), changes (`change`, e.g. a helper joins), or ends
+    (`remove`). This is the real **detection** path — a team surfaces without the
+    panel being open. Each push carries the target server, the `pointId`
+    coordinate, the `cfgId`, the owner and the member list, but no numeric
+    `state`; the `type` is the state (occupied on add/change, freed on remove).
+    A team line prints on `add` and again each time the squad grows (a `change`
+    that adds no member is treated as a duplicate); `remove` prints once.
+
+Both streams are **passive**: nothing is sent, only what crosses the wire is
+read. Keep the Secret Command Post panel open to feed the polled list; the push
+stream needs no interaction.
 
 It captures the same way `secret_task_capture.py` does — straight through the
 npcap driver via scapy (`map_capture.start_capture`), with no `dumpcap.exe` or
@@ -137,8 +152,15 @@ class MissionMonitor(LiveDecoder):
         self.joinable = joinable
         self.json_path = json_path
         self.frames = 0                 # ghost-recon frames that held missions
-        self._missions: dict = {}       # uuid -> record dict
+        self.push_events = 0            # push.ghost.recon.alliance.single frames
+        self._missions: dict = {}       # uuid -> record dict (polled list)
         self._announced: set = set()    # (uuid, state) already printed
+        # The live alliance push stream is a distinct source from the polled
+        # list — it is alliance members' teams as they appear on the map, not
+        # your own Secret Command Post slots — so it gets its own index rather
+        # than clobbering the fuller polled records under a shared uuid.
+        self._teams: dict = {}          # uuid -> team record (from the push)
+        self._team_announced: set = set()  # (uuid, slot, member_count) printed
         # -- discovery state (only touched when discover=True) --
         self.discover_mode = discover
         self.discover_path = discover_path
@@ -157,14 +179,19 @@ class MissionMonitor(LiveDecoder):
             self._discover(direction, command, env)
         if direction != "down":
             return
+        payload = proto.envelope_payload(env)
+        now = time.time()
+        # The live push stream — a team appears/changes/ends in real time. This
+        # is the actual *detection* path, the analogue of push.alliance.share.*.
+        if command == proto.GHOST_ALLIANCE_PUSH:
+            self._on_alliance_push(payload, now)
+            return
         if command not in proto.GHOST_RECON_COMMANDS:
             return
-        payload = proto.envelope_payload(env)
         missions = list(proto.ghost_recon_missions(command, payload))
         if not missions:
             return
         self.frames += 1
-        now = time.time()
         for mission in missions:
             self._record(mission, command, now)
 
@@ -179,7 +206,83 @@ class MissionMonitor(LiveDecoder):
             rec.update(mission.as_dict())  # refresh state/members/steal/timers
         rec["last_seen"] = int(now)
         rec["last_command"] = command
+        rec["source"] = "poll"
         self._announce(mission)
+
+    # -- live alliance push ------------------------------------------------
+
+    def _on_alliance_push(self, payload, now: float) -> None:
+        """Fold one push.ghost.recon.alliance.single frame into the team index.
+
+        `add`/`change` upsert the team; `remove` drops it (its slot is free
+        again). Each is announced through `_announce_team`, which keys on
+        `(uuid, kind, member_count)` so a team growing helper by helper prints
+        each step but a duplicate frame does not.
+        """
+        decoded = proto.ghost_recon_alliance_push(payload)
+        if decoded is None:
+            return
+        kind, mission = decoded
+        self.push_events += 1
+        if kind == "remove":
+            # The remove frame carries only the uuid; recover the coordinate,
+            # server and cfg from the record being dropped so the log line and
+            # the filters still have something to work with.
+            rec = self._teams.pop(mission.uuid, None)
+            known = proto.GhostReconMission.from_dict(rec) if rec else mission
+            self._announce_team("remove", known)
+            return
+        rec = self._teams.get(mission.uuid)
+        if rec is None:
+            rec = mission.as_dict()
+            rec["first_seen"] = int(now)
+            self._teams[mission.uuid] = rec
+        else:
+            rec.update(mission.as_dict())
+        rec["last_seen"] = int(now)
+        rec["last_command"] = proto.GHOST_ALLIANCE_PUSH
+        rec["push_kind"] = kind
+        rec["source"] = "push"
+        self._announce_team(kind, mission)
+
+    def _team_passes(self, mission) -> bool:
+        """Filter a pushed team. State-based filters exclude it by design.
+
+        The push carries no `state`/`allianceShow`, so `--state`/`--done`/
+        `--joinable` cannot be satisfied by a pushed team — a caller asking for
+        those wants the polled list, so the push stream stays quiet then. The
+        server/family/level filters still apply.
+        """
+        if self.state or self.done or self.joinable:
+            return False
+        return bool(proto.filter_ghost_recon(
+            [mission], level=self.level, family=self.family, server=self.server))
+
+    def _announce_team(self, kind: str, mission) -> None:
+        # add and change are the same dimension — the team's composition — so
+        # they dedupe together on member_count: a `change` that did not grow the
+        # squad (a reward-state move we cannot see) is not re-announced, but each
+        # new helper is. `remove` is its own slot so it always fires once.
+        slot = "remove" if kind == "remove" else "team"
+        key = (mission.uuid, slot, mission.member_count)
+        if key in self._team_announced or not self._team_passes(mission):
+            return
+        self._team_announced.add(key)
+        # add/change = a squad is out, the target server is occupied by its
+        # owner; remove = the team is gone and the slot is free again.
+        if kind == "remove":
+            tag = f"{C_DIM}freed{C_RESET}"
+        else:
+            tag = f"{C_MISSION}occupied{C_RESET}"
+        where = f"({mission.x},{mission.y})" if mission.x is not None else "(?,?)"
+        print(f"{_stamp()} team {kind:>6}  {tag}  "
+              f"fam {mission.family or '?'} lvl {mission.level or '?'}  "
+              f"server {mission.target_server}  {where}  "
+              f"members {mission.member_count}  cfg {mission.cfg_id}  "
+              f"owner {_short(mission.owner_id)}", flush=True)
+        if self.json_path and not _write_checkpoint(self.records(), self.json_path):
+            print(f"{C_DIM}  (checkpoint locked, skipped this flush){C_RESET}",
+                  flush=True)
 
     # -- report ------------------------------------------------------------
 
@@ -215,8 +318,10 @@ class MissionMonitor(LiveDecoder):
                   flush=True)
 
     def records(self) -> list:
-        """All missions seen so far, newest-refreshed first."""
-        return sorted(self._missions.values(),
+        """Everything seen so far — polled missions and pushed teams — newest
+        first. Each record's `source` says which stream it came from."""
+        combined = list(self._missions.values()) + list(self._teams.values())
+        return sorted(combined,
                       key=lambda r: r.get("last_seen", 0), reverse=True)
 
     def report(self) -> None:
@@ -225,24 +330,38 @@ class MissionMonitor(LiveDecoder):
         matched = len({uuid for uuid, _state in self._announced})
         done = sum(1 for r in self._missions.values()
                    if r.get("state") == proto.GHOST_STATE_DONE)
+        teams_matched = len({key[0] for key in self._team_announced})
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
         print(f"{C_OK}{len(self._missions)} mission(s) seen, {matched} matched, "
               f"{done} done/lootable{C_RESET} — from {self.frames} frame(s)")
-        for rec in self.records():
+        for rec in self._missions.values():
             if not any(k[0] == rec["uuid"] for k in self._announced):
                 continue
             print(f"  {STATE_NAME.get(rec.get('state'), rec.get('state')):>7}  "
                   f"fam {rec.get('family')} lvl {rec.get('level')}  "
                   f"server {rec.get('target_server')}  loot {rec.get('steal_count')}"
                   f"  cfg {rec.get('cfg_id')}")
-        if not self._missions:
+        if self.push_events or self._teams:
+            print(f"{C_OK}{len(self._teams)} alliance team(s) live, "
+                  f"{teams_matched} matched{C_RESET} — from "
+                  f"{self.push_events} push event(s)")
+            for rec in sorted(self._teams.values(),
+                              key=lambda r: r.get("last_seen", 0), reverse=True):
+                where = (f"({rec.get('x')},{rec.get('y')})"
+                         if rec.get("x") is not None else "(?,?)")
+                print(f"  team  fam {rec.get('family')} lvl {rec.get('level')}  "
+                      f"server {rec.get('target_server')}  {where}  "
+                      f"members {rec.get('member_count')}  cfg {rec.get('cfg_id')}"
+                      f"  owner {_short(rec.get('owner_id'))}")
+        if not self._missions and not self._teams:
             print(f"{C_DIM}No ghost-recon missions arrived. Open the Secret "
                   f"Command Post → «Операция Призрак» in game so the client "
                   f"fetches them — and the feature only runs on its weekly day."
                   f"{C_RESET}")
         if self.json_path:
-            if _write_checkpoint(self.records(), self.json_path):
-                print(f"{C_OK}wrote {len(self._missions)} mission(s) to "
+            records = self.records()
+            if _write_checkpoint(records, self.json_path):
+                print(f"{C_OK}wrote {len(records)} record(s) to "
                       f"{self.json_path}{C_RESET}")
             else:
                 print(f"{C_ERR}could not write {self.json_path} — held by "
@@ -405,8 +524,9 @@ def main() -> int:
               f"{C_RESET}\n")
     else:
         print(f"{C_DIM}decoding ghost.recon.get.task.list / "
-              f".get.alliance.task.list{sink} (Ctrl+C to stop) — open «Операция "
-              f"Призрак» in game so the client fetches them{C_RESET}\n")
+              f".get.alliance.task.list + push.ghost.recon.alliance.single"
+              f"{sink} (Ctrl+C to stop) — open «Операция Призрак» in game to "
+              f"feed the polled list; teams push live on their own{C_RESET}\n")
 
     # None means run until interrupted, so the deadline test tolerates no timer.
     deadline = time.time() + args.seconds if args.seconds else None

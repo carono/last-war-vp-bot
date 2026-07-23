@@ -1112,6 +1112,50 @@ def ghost_recon_missions(command: str | None, payload):
             yield mission
 
 
+# The live alliance ghost-recon stream. Unlike the two `get.*.task.list`
+# commands, which only answer when the client polls the panel, this one is
+# *pushed*: the server sends one team the instant it appears, changes, or ends.
+# It is the ghost-recon analogue of `push.alliance.share.mission.*` — the command
+# that makes real-time detection (not just on-demand listing) possible.
+GHOST_ALLIANCE_PUSH = "push.ghost.recon.alliance.single"
+
+
+def ghost_recon_alliance_push(payload):
+    """Decode one ``push.ghost.recon.alliance.single`` frame.
+
+    The server pushes a single alliance ghost-recon team, tagged by ``type``:
+
+      * ``add``    — a teammate just dispatched a ghost-recon squad;
+      * ``change`` — that team changed (a helper joined, reward state moved, ...);
+      * ``remove`` — the team is gone (completed / expired / recalled).
+
+    ``add``/``change`` carry a mission-shaped ``info`` — the same fields a
+    ``taskList`` entry has, minus ``state``/``stealList`` (the push does not carry
+    a numeric state; the ``type`` *is* the state signal). ``remove`` carries only
+    the bare ``uuid``.
+
+    Returns ``(kind, mission)`` — ``kind`` one of add/change/remove and
+    ``mission`` a `GhostReconMission` (for ``remove``, one that carries only its
+    ``uuid``) — or ``None`` if the frame is not a recognisable push of this
+    command. ``point_id`` on the mission decodes to ``x``/``y`` exactly as it does
+    for the polled list.
+    """
+    if not isinstance(payload, dict):
+        return None
+    kind = payload.get("type")
+    if kind == "remove":
+        uuid = payload.get("uuid")
+        if uuid is None:
+            return None
+        return kind, GhostReconMission.from_dict({"uuid": uuid})
+    if kind not in ("add", "change"):
+        return None
+    mission = _ghost_task_from_dict(payload.get("info"))
+    if mission is None:
+        return None
+    return kind, mission
+
+
 def filter_ghost_recon(missions, level=None, family=None, state=None,
                        server=None, joinable=False, done=False) -> list:
     """Narrow a ghost-recon list. None/False means "any".

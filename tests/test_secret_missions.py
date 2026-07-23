@@ -138,6 +138,95 @@ def test_monitor_announces_state_transitions():
     assert (uuid, proto.GHOST_STATE_DONE) in mon._announced
 
 
+def _push(kind, **info):
+    """A push.ghost.recon.alliance.single payload — add/change carry info,
+    remove carries only uuid."""
+    if kind == "remove":
+        return {"type": "remove", "uuid": info["uuid"]}
+    return {"type": kind, "info": info}
+
+
+def test_ghost_alliance_push_decode():
+    """add/change decode a mission from `info`; remove carries just the uuid."""
+    add = _push("add", targetServer=992, pointId=16284, cfgId=50307,
+                ownerId="1587394824000972", uuid=1397117489703528332,
+                memberList=[{}], teamStartTime=1784801597335)
+    kind, m = proto.ghost_recon_alliance_push(add)
+    assert kind == "add"
+    assert m.uuid == 1397117489703528332 and m.target_server == 992
+    assert m.cfg_id == 50307 and m.family == "5"
+    assert m.x == 284 and m.y == 16          # pointId 16284 -> y*1000+x
+    assert m.member_count == 1 and m.owner_id == "1587394824000972"
+
+    change = _push("change", targetServer=992, pointId=16284, cfgId=50307,
+                   ownerId="1587394824000972", uuid=1397117489703528332,
+                   memberList=[{}, {}, {}])
+    kind, m = proto.ghost_recon_alliance_push(change)
+    assert kind == "change" and m.member_count == 3
+
+    kind, m = proto.ghost_recon_alliance_push(_push("remove", uuid=42))
+    assert kind == "remove" and m.uuid == 42
+
+    # Unknown / malformed shapes decode to None, not an exception.
+    assert proto.ghost_recon_alliance_push({"type": "other"}) is None
+    assert proto.ghost_recon_alliance_push({"type": "add"}) is None
+    assert proto.ghost_recon_alliance_push("nonsense") is None
+
+
+def test_monitor_tracks_alliance_push():
+    """The monitor indexes pushed teams and announces add/grow/remove once each."""
+    cmd = proto.GHOST_ALLIANCE_PUSH
+    def env(payload):
+        return {"p": {"p": payload, "c": cmd}}
+
+    mon = smc.MissionMonitor()
+    mon.emit("down", env(_push("add", targetServer=992, pointId=16284,
+                               cfgId=50307, ownerId="o", uuid=7,
+                               memberList=[{}])))
+    assert 7 in mon._teams and mon._teams[7]["source"] == "push"
+    assert mon._teams[7]["x"] == 284 and mon._teams[7]["target_server"] == 992
+    after_add = len(mon._team_announced)
+    assert after_add == 1
+
+    # An identical refresh (same member count) does not re-announce.
+    mon.emit("down", env(_push("change", targetServer=992, pointId=16284,
+                               cfgId=50307, ownerId="o", uuid=7,
+                               memberList=[{}])))
+    assert len(mon._team_announced) == after_add
+
+    # A helper joining (member count grows) announces again.
+    mon.emit("down", env(_push("change", targetServer=992, pointId=16284,
+                               cfgId=50307, ownerId="o", uuid=7,
+                               memberList=[{}, {}])))
+    assert len(mon._team_announced) == after_add + 1
+    assert mon._teams[7]["member_count"] == 2
+
+    # remove drops the team from the live index and frees its slot.
+    mon.emit("down", env(_push("remove", uuid=7)))
+    assert 7 not in mon._teams
+    assert any(k[0] == 7 and k[1] == "remove" for k in mon._team_announced)
+    assert mon.push_events == 4
+    # The polled stream is untouched by pushes.
+    assert mon._missions == {}
+
+
+def test_monitor_push_server_filter():
+    """--server narrows pushed teams the same way it narrows polled ones."""
+    cmd = proto.GHOST_ALLIANCE_PUSH
+    def env(payload):
+        return {"p": {"p": payload, "c": cmd}}
+    mon = smc.MissionMonitor(server={991})
+    mon.emit("down", env(_push("add", targetServer=992, pointId=16284,
+                               cfgId=50307, ownerId="o", uuid=1,
+                               memberList=[{}])))
+    # Team stored (index is unfiltered) but not announced — wrong server.
+    assert 1 in mon._teams and mon._team_announced == set()
+    mon.emit("down", env(_push("add", targetServer=991, pointId=989166,
+                               cfgId=60306, ownerId="o", uuid=2,
+                               memberList=[{}])))
+    assert any(k[0] == 2 for k in mon._team_announced)
+
+
 def test_monitor_ignores_up_and_other_commands():
     frame = _ghost_frame()
     if frame is None:
