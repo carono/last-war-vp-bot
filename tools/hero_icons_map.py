@@ -61,6 +61,11 @@ CONFIRMED = {
     50008: "Nimitz",
     50009: "Katyusha",
     50010: "Stetman",
+    50013: "Ewan_McGregor",
+    50014: "Fiona",
+    50015: "Tom",
+    50016: "Tesla",
+    50022: "Adam",
 }
 
 #: heroIds observed in results/rally/monitor.jsonl (for reference / coverage).
