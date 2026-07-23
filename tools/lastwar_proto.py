@@ -924,6 +924,231 @@ def filter_share_missions(missions, level=None, star_only=False,
 
 
 # --------------------------------------------------------------------------
+# Secret missions — "Операция Призрак" / ghost recon (`ghost.recon.*`)
+# --------------------------------------------------------------------------
+#
+# The in-game "секретная миссия" — the **Secret Command Post** ("Секретный
+# командный пункт"), its "Операция Призрак" tab (a helmet icon). Confirmed live
+# 2026-07-23 (a Thursday — the feature runs weekly): opening that panel fires
+# `ghost.recon.get.task.list`, and "Команда союзников" (the ally-help list)
+# fires `ghost.recon.get.alliance.task.list`. This is a third, distinct thing
+# from the two above — not a `world.get.block` tile (a *secret task*), not an
+# `alliance.share.mission` push (a *shared* task). A ghost-recon mission is a
+# co-op dispatch: an ally sends a squad, others join to help, everyone loots.
+#
+# Raw sample: results/task1004/ghost_recon_task_list.json (6 tasks). The
+# response wraps them in `taskList`, with a dispatch window around it:
+#
+#     {dispatchBeginTime, dispatchEndTime, openTime, autoStart, taskList: [ ... ]}
+#
+# Per task (all fields observed):
+#
+# | Field | Meaning |
+# |---|---|
+# | `uuid` | mission id |
+# | `cfgId` | config id — rarity/type/level (see below) |
+# | `state` | 0 empty slot · 2 running · 3 done (lootable / help-rewardable) |
+# | `pointId` | target coordinate, `y*1000+x` (0 while `state` 0) |
+# | `targetServer` | server the mission targets |
+# | `ownerId` / `ownerServer` / `allianceId` | who launched it |
+# | `allianceShow` | 1 = visible to the alliance (joinable), 0 = private |
+# | `memberList[]` | the squads: leader + helpers, each `heroList` + `memberInfo` + `canReward`/`rewarded`/`helpRewarded` |
+# | `stealList[]` | who already looted it — `{uid, name, abbr, reward[], time}` |
+# | `teamStartTime` / `completionTime` / `taskExpireTime` / `actEndTime` | epoch-ms timers |
+#
+# `cfgId` reads like a task's (`split_cfg_id`): family "4"/"5"/"6" — the rarity
+# tier the UI colours (SSR / UR★ / …) — then two more pairs. But the UI level
+# ("ур.5") did **not** match the cfgId's digits (they read "03") on the one
+# capture, exactly the cfgId-vs-UI disagreement noted for the level-99 task
+# class; so `level` here is the wire's number, not necessarily the player's, and
+# the rarity→family mapping is unconfirmed. Raw `cfg_id` is always kept.
+GHOST_RECON_COMMANDS = (
+    "ghost.recon.get.task.list",
+    "ghost.recon.get.alliance.task.list",
+)
+
+# `state` values, named. 1 is unobserved (no task carried it) — left out rather
+# than guessed at.
+GHOST_STATE_EMPTY = 0     # a dispatch slot nobody has filled yet
+GHOST_STATE_RUNNING = 2   # squad is out; not lootable yet
+GHOST_STATE_DONE = 3      # completed — lootable, and helpers can claim reward
+
+
+@dataclass(slots=True)
+class GhostReconMission:
+    uuid: int | None
+    cfg_id: int | None
+    family: str | None
+    level: int | None
+    state: int | None
+    target_server: int | None
+    owner_id: str | None
+    owner_server: int | None
+    alliance_id: str | None
+    alliance_show: bool
+    point_id: int | None
+    x: int | None
+    y: int | None
+    member_count: int
+    steal_count: int
+    team_start_time: int | None
+    completion_time: int | None
+    expire_time: int | None
+
+    @property
+    def running(self) -> bool:
+        return self.state == GHOST_STATE_RUNNING
+
+    @property
+    def done(self) -> bool:
+        """Completed — the squad is back, so it can be looted / rewarded."""
+        return self.state == GHOST_STATE_DONE
+
+    @property
+    def empty(self) -> bool:
+        """A slot nobody has dispatched into yet (no coordinate, no members)."""
+        return self.state == GHOST_STATE_EMPTY
+
+    @property
+    def joinable(self) -> bool:
+        """Shown to the alliance and actually dispatched — an ally can help.
+
+        A private (`allianceShow` 0) or still-empty slot is not something a
+        teammate can join, so those are excluded even though they are real rows.
+        """
+        return self.alliance_show and not self.empty
+
+    def as_dict(self) -> dict:
+        return {
+            "uuid": self.uuid, "cfg_id": self.cfg_id, "family": self.family,
+            "level": self.level, "state": self.state,
+            "target_server": self.target_server, "owner_id": self.owner_id,
+            "owner_server": self.owner_server, "alliance_id": self.alliance_id,
+            "alliance_show": self.alliance_show, "point_id": self.point_id,
+            "x": self.x, "y": self.y, "member_count": self.member_count,
+            "steal_count": self.steal_count,
+            "team_start_time": self.team_start_time,
+            "completion_time": self.completion_time,
+            "expire_time": self.expire_time,
+        }
+
+    @classmethod
+    def from_dict(cls, record: dict) -> "GhostReconMission":
+        return cls(
+            uuid=record.get("uuid"), cfg_id=record.get("cfg_id"),
+            family=record.get("family"), level=record.get("level"),
+            state=record.get("state"),
+            target_server=record.get("target_server"),
+            owner_id=record.get("owner_id"),
+            owner_server=record.get("owner_server"),
+            alliance_id=record.get("alliance_id"),
+            alliance_show=bool(record.get("alliance_show")),
+            point_id=record.get("point_id"), x=record.get("x"),
+            y=record.get("y"), member_count=record.get("member_count", 0),
+            steal_count=record.get("steal_count", 0),
+            team_start_time=record.get("team_start_time"),
+            completion_time=record.get("completion_time"),
+            expire_time=record.get("expire_time"),
+        )
+
+
+def _ghost_task_from_dict(task: dict) -> GhostReconMission | None:
+    """One `taskList[]` entry → `GhostReconMission`, or None if not one.
+
+    `uuid` is the anchor: a row without it is not a mission. `cfgId` may be
+    absent on an empty slot in principle, so a missing/odd cfgId degrades to raw
+    number with no family/level rather than dropping the row — an empty slot is
+    still information (a server the alliance has not filled yet).
+    """
+    if not isinstance(task, dict):
+        return None
+    uuid = task.get("uuid")
+    if uuid is None:
+        return None
+    cfg = task.get("cfgId")
+    family = level = None
+    if cfg is not None:
+        try:
+            family, level, _variant = split_cfg_id(cfg)
+        except (ValueError, TypeError):
+            family = level = None
+    point = task.get("pointId") or 0
+    x = point % 1000 if point else None
+    y = point // 1000 if point else None
+    members = task.get("memberList")
+    steals = task.get("stealList")
+    return GhostReconMission(
+        uuid=uuid,
+        cfg_id=int(cfg) if isinstance(cfg, int) else cfg,
+        family=family, level=level,
+        state=task.get("state"),
+        target_server=task.get("targetServer"),
+        owner_id=task.get("ownerId"),
+        owner_server=task.get("ownerServer"),
+        alliance_id=task.get("allianceId"),
+        alliance_show=bool(task.get("allianceShow")),
+        point_id=point or None, x=x, y=y,
+        member_count=len(members) if isinstance(members, list) else 0,
+        steal_count=len(steals) if isinstance(steals, list) else 0,
+        team_start_time=task.get("teamStartTime") or None,
+        completion_time=task.get("completionTime") or None,
+        expire_time=task.get("taskExpireTime") or None,
+    )
+
+
+def ghost_recon_missions(command: str | None, payload):
+    """Yield every ghost-recon mission in one decoded frame.
+
+    Both `ghost.recon.get.task.list` and `ghost.recon.get.alliance.task.list`
+    wrap the rows in `taskList`, so the command only has to be one of them; the
+    shape is identical. `command` is accepted (and ignored beyond the guard) to
+    match `share_missions`' signature so callers route the same way.
+    """
+    if command not in GHOST_RECON_COMMANDS or not isinstance(payload, dict):
+        return
+    for task in payload.get("taskList") or ():
+        mission = _ghost_task_from_dict(task)
+        if mission is not None:
+            yield mission
+
+
+def filter_ghost_recon(missions, level=None, family=None, state=None,
+                       server=None, joinable=False, done=False) -> list:
+    """Narrow a ghost-recon list. None/False means "any".
+
+    `level`/`family`/`state`/`server` each take one value or an iterable
+    (matches any). `joinable` keeps only alliance-visible, dispatched missions
+    an ally can help; `done` keeps only completed (lootable) ones. `joinable`
+    and `done` are ANDed with the rest but ORed with each other — the same
+    "one dimension, two values" rule as `filter_tasks`' can_loot/pending.
+    """
+    def _set(v):
+        return None if v is None else ({v} if isinstance(v, (int, str)) else set(v))
+
+    levels, families, states, servers = map(
+        _set, (level, family, state, server))
+
+    out = []
+    for m in missions:
+        if levels is not None and m.level not in levels:
+            continue
+        if families is not None and m.family not in families:
+            continue
+        if states is not None and m.state not in states:
+            continue
+        if servers is not None and m.target_server not in servers:
+            continue
+        if joinable or done:
+            if not ((joinable and m.joinable) or (done and m.done)):
+                continue
+        out.append(m)
+    # Done first (act on those now), then running, then empty; then most-looted
+    # last so the freshest loot is on top.
+    out.sort(key=lambda m: (m.state != GHOST_STATE_DONE, m.steal_count))
+    return out
+
+
+# --------------------------------------------------------------------------
 # Map semantics: trucks, the march-type-37 `train` objects
 # --------------------------------------------------------------------------
 #

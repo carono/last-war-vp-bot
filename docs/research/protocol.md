@@ -1080,8 +1080,50 @@ capture, so its element field names are inferred from the `add` push, not
 observed; the decoder tolerates a missing key. `hero.dispatch.share.chat` also
 carries the same mission inside `extraShareInfo` (adds `missionUid`, `num`,
 `shareServerId`), but without a `missionCfgId` — so the `add` push is the richer
-source. Decoded by `lastwar_proto.share_missions`; streamed live by
-`tools/secret_mission_capture.py`.
+source. Decoded by `lastwar_proto.share_missions`.
+
+#### Secret missions — "Операция Призрак" / ghost recon (`ghost.recon.*`)
+
+The in-game **секретная миссия** is neither of the two above. It is the
+**Secret Command Post** ("Секретный командный пункт"), its "Операция Призрак"
+tab — a helmet icon in the world-screen bottom-left cluster. Confirmed live
+2026-07-23, a **Thursday**: the feature is weekly, so captures taken any other
+day hold none of it (searched — zero `ghost.*` / `secret.mission.*` frames until
+that day). It is a co-op dispatch: an ally sends a squad against a target
+server, teammates join to help ("Команда союзников"), everyone loots when the
+squad returns.
+
+Two client commands fetch them when the panel opens; both wrap the rows in
+`taskList` with the same shape:
+
+```
+--> ghost.recon.get.task.list            (open the panel)
+<-- ghost.recon.get.task.list   {dispatchBeginTime, dispatchEndTime, openTime,
+                                 autoStart, taskList[]}
+--> ghost.recon.get.alliance.task.list   ("Команда союзников" — the help list)
+<-- ghost.recon.get.alliance.task.list  {taskList[]}
+```
+
+Per task (all fields observed in `results/task1004/ghost_recon_task_list.json`,
+6 tasks):
+
+| Field | Meaning |
+|---|---|
+| `uuid` | mission id |
+| `cfgId` | rarity/type/level — family `4`/`5`/`6` is the rarity tier the UI colours (SSR / UR★); read like a task cfgId, but the UI level ("ур.5") did **not** match the digits ("03"), the same cfgId-vs-UI caveat as the level-99 class |
+| `state` | `0` empty slot · `2` running (squad out) · `3` done — lootable, helpers can claim |
+| `pointId` | target coordinate `y*1000+x` (0 while `state` 0) |
+| `targetServer` | server the mission targets |
+| `ownerId` / `ownerServer` / `allianceId` | who launched it |
+| `allianceShow` | `1` visible to the alliance (joinable), `0` private |
+| `memberList[]` | squads — leader + helpers, each `heroList` (`heroId`/`level`/`rank`/`awakenLv`) + `memberInfo` + `canReward`/`rewarded`/`helpRewarded` |
+| `stealList[]` | who looted it — `{uid, name, abbr, reward[], time}`; the UI caps "Награбленные награды" at 5 |
+| `teamStartTime` / `completionTime` / `taskExpireTime` / `actEndTime` | epoch-ms timers |
+
+Decoded by `lastwar_proto.ghost_recon_missions` / `GhostReconMission`; streamed
+live by `tools/secret_mission_capture.py` (its `--discover` mode is what found
+`ghost.recon.*` in the first place, and re-finds a renamed family when the
+seasonal feature shifts).
 
 ### Trucks (march type 37)
 

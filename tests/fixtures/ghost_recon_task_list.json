@@ -1,0 +1,761 @@
+{
+ "t": 1784777192.046,
+ "dir": "down",
+ "command": "ghost.recon.get.task.list",
+ "payload": {
+  "dispatchEndTime": 1784782800000,
+  "taskList": [
+   {
+    "targetServer": 972,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 1,
+    "ownerId": "1642290567000935",
+    "uuid": 1397117488331990837,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 1784777520022,
+    "remindTime": 0,
+    "memberList": [
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1178947012016711485
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40008,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156118890900858746
+       },
+       {
+        "awakenLv": 0,
+        "level": 140,
+        "heroId": 40009,
+        "rank": 25,
+        "skinId": 0,
+        "uuid": 1178946935512606694
+       }
+      ],
+      "uid": "1642290567000935",
+      "memberInfo": {
+       "uid": "1642290567000935",
+       "country": "GB",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Vèŕty",
+       "headPicVer": 1075,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 153,
+        "heroId": 40013,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156814649925291196
+       },
+       {
+        "awakenLv": 0,
+        "level": 153,
+        "heroId": 40009,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1169110068663405635
+       },
+       {
+        "awakenLv": 0,
+        "level": 153,
+        "heroId": 40016,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1171336699935181935
+       }
+      ],
+      "uid": "1522777203000972",
+      "memberInfo": {
+       "uid": "1522777203000972",
+       "country": "UN",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Carono",
+       "headPicVer": 273,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 0,
+      "rewarded": 0,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1178947092979371141
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40020,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156814472439123046
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40016,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1163729240110386238
+       }
+      ],
+      "uid": "1569320060000972",
+      "memberInfo": {
+       "uid": "1569320060000972",
+       "country": "EU",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "8888 Rock 8888",
+       "headPicVer": 1087,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 0,
+      "rewarded": 0,
+      "helpRewarded": 0
+     }
+    ],
+    "pointId": 5064,
+    "sendChatTime": 1784772372352,
+    "stealList": [],
+    "teamStartTime": 1784772371155,
+    "state": 2,
+    "cfgId": 40307
+   },
+   {
+    "targetServer": 991,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 1,
+    "ownerId": "1592841643001032",
+    "uuid": 1397117488432654179,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 1784776082152,
+    "remindTime": 0,
+    "memberList": [
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50016,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1186573870333954273
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50025,
+        "rank": 20,
+        "skinId": 0,
+        "uuid": 1164811301026007043
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1196706509581715491
+       }
+      ],
+      "uid": "1592841643001032",
+      "memberInfo": {
+       "uid": "1592841643001032",
+       "country": "US",
+       "headSkinET": 1786857481772,
+       "headSkinId": 25015,
+       "name": "Stew1010",
+       "headPicVer": 41,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 1,
+      "helpRewarded": 1
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1166270660482410321
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50016,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156119415360825245
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50026,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156119182073636831
+       }
+      ],
+      "uid": "1464970648000935",
+      "memberInfo": {
+       "uid": "1464970648000935",
+       "country": "UKL",
+       "headSkinET": 1786535205821,
+       "headSkinId": 21016,
+       "name": "CallMeCurly",
+       "headPicVer": 2084,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 1
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50027,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156814428172438764
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50028,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156814486481652894
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1189464893129215019
+       }
+      ],
+      "uid": "1522777203000972",
+      "memberInfo": {
+       "uid": "1522777203000972",
+       "country": "UN",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Carono",
+       "headPicVer": 273,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 1
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50025,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156118936996259784
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50015,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156119407018354658
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50026,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156118979258066820
+       }
+      ],
+      "uid": "1312909737000935",
+      "memberInfo": {
+       "uid": "1312909737000935",
+       "country": "PL",
+       "name": "BadAnni",
+       "headPicVer": 439,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 1
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50019,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1189464840364870716
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50018,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1199633372989869310
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50017,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1178947101766437899
+       }
+      ],
+      "uid": "1346176402000972",
+      "memberInfo": {
+       "uid": "1346176402000972",
+       "country": "DE",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Just4FunPlaya",
+       "headPicVer": 71,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 1
+     }
+    ],
+    "pointId": 989166,
+    "sendChatTime": 1784773351622,
+    "stealList": [
+     {
+      "reward": [
+       {
+        "type": 7,
+        "value": {
+         "num": 20,
+         "id": "710005"
+        }
+       },
+       {
+        "type": 7,
+        "value": {
+         "num": 3,
+         "id": "520004"
+        }
+       },
+       {
+        "type": 7,
+        "value": {
+         "num": 50,
+         "id": "500104"
+        }
+       },
+       {
+        "type": 27,
+        "value": {
+         "num": 1,
+         "id": "7038"
+        }
+       }
+      ],
+      "uid": "1345469874000986",
+      "headSkinET": 0,
+      "isLike": 0,
+      "headSkinId": 0,
+      "name": "Mrongos",
+      "headPicVer": 55,
+      "msgId": 0,
+      "time": 1784776082600,
+      "abbr": "UCON",
+      "headPic": "",
+      "mark": 0
+     },
+     {
+      "reward": [
+       {
+        "type": 7,
+        "value": {
+         "num": 20,
+         "id": "710005"
+        }
+       },
+       {
+        "type": 7,
+        "value": {
+         "num": 3,
+         "id": "520004"
+        }
+       },
+       {
+        "type": 7,
+        "value": {
+         "num": 50,
+         "id": "500104"
+        }
+       },
+       {
+        "type": 27,
+        "value": {
+         "num": 1,
+         "id": "7038"
+        }
+       }
+      ],
+      "uid": "1301817333000980",
+      "headSkinET": 1786189997866,
+      "isLike": 0,
+      "headSkinId": 25015,
+      "name": "どれみ Doremiღ",
+      "headPicVer": 771,
+      "msgId": 0,
+      "time": 1784776083028,
+      "abbr": "n0Va",
+      "headPic": "",
+      "mark": 0
+     }
+    ],
+    "teamStartTime": 1784773350696,
+    "state": 3,
+    "cfgId": 60306
+   },
+   {
+    "targetServer": 975,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 0,
+    "ownerId": "1522777203000972",
+    "uuid": 1397117488327796668,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 0,
+    "remindTime": 0,
+    "memberList": [],
+    "pointId": 0,
+    "sendChatTime": 0,
+    "stealList": [],
+    "teamStartTime": 0,
+    "state": 0,
+    "cfgId": 40311
+   },
+   {
+    "targetServer": 954,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 0,
+    "ownerId": "1522777203000972",
+    "uuid": 1397117488327796669,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 0,
+    "remindTime": 0,
+    "memberList": [],
+    "pointId": 0,
+    "sendChatTime": 0,
+    "stealList": [],
+    "teamStartTime": 0,
+    "state": 0,
+    "cfgId": 50309
+   },
+   {
+    "targetServer": 976,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 0,
+    "ownerId": "1522777203000972",
+    "uuid": 1397117488327796670,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 0,
+    "remindTime": 0,
+    "memberList": [],
+    "pointId": 0,
+    "sendChatTime": 0,
+    "stealList": [],
+    "teamStartTime": 0,
+    "state": 0,
+    "cfgId": 60303
+   },
+   {
+    "targetServer": 987,
+    "taskExpireTime": 1784858399999,
+    "actEndTime": 2147483647000,
+    "allianceShow": 1,
+    "ownerId": "1508426726000972",
+    "uuid": 1397117488491374409,
+    "ownerServer": 935,
+    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "completionTime": 1784776506383,
+    "remindTime": 0,
+    "memberList": [
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50022,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1232221962152168569
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40013,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1161210219527916746
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50009,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1161210188385209569
+       }
+      ],
+      "uid": "1508426726000972",
+      "memberInfo": {
+       "uid": "1508426726000972",
+       "country": "DE",
+       "name": "7777 Woduk 7777",
+       "headPicVer": 242,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 1,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 170,
+        "heroId": 50009,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1184020443099826268
+       },
+       {
+        "awakenLv": 0,
+        "level": 165,
+        "heroId": 50022,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1247461451443210479
+       },
+       {
+        "awakenLv": 0,
+        "level": 130,
+        "heroId": 40020,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1164811328377063502
+       }
+      ],
+      "uid": "1470415541001032",
+      "memberInfo": {
+       "uid": "1470415541001032",
+       "country": "US",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Truecrip",
+       "headPicVer": 982,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 1,
+      "rewarded": 0,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 40020,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156169253746095760
+       },
+       {
+        "awakenLv": 0,
+        "level": 140,
+        "heroId": 40007,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1156169438492603929
+       },
+       {
+        "awakenLv": 0,
+        "level": 154,
+        "heroId": 40015,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1161210309919356515
+       }
+      ],
+      "uid": "1739345346000950",
+      "memberInfo": {
+       "uid": "1739345346000950",
+       "country": "TR",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Cyberlexsus",
+       "headPicVer": 113,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 0,
+      "rewarded": 1,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 120,
+        "heroId": 40009,
+        "rank": 16,
+        "skinId": 0,
+        "uuid": 1161210355599527144
+       },
+       {
+        "awakenLv": 0,
+        "level": 120,
+        "heroId": 40008,
+        "rank": 16,
+        "skinId": 0,
+        "uuid": 1156814203621985429
+       },
+       {
+        "awakenLv": 0,
+        "level": 120,
+        "heroId": 40013,
+        "rank": 17,
+        "skinId": 0,
+        "uuid": 1161210323819285587
+       }
+      ],
+      "uid": "1266172685000972",
+      "memberInfo": {
+       "uid": "1266172685000972",
+       "country": "UN",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Gia ni",
+       "headPicVer": 8,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 0,
+      "rewarded": 1,
+      "helpRewarded": 0
+     },
+     {
+      "heroList": [
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50026,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1163729172502400048
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50018,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1194449507136556113
+       },
+       {
+        "awakenLv": 0,
+        "level": 175,
+        "heroId": 50014,
+        "rank": 26,
+        "skinId": 0,
+        "uuid": 1199633394401791032
+       }
+      ],
+      "uid": "1522777203000972",
+      "memberInfo": {
+       "uid": "1522777203000972",
+       "country": "UN",
+       "headSkinET": 0,
+       "headSkinId": 25000,
+       "name": "Carono",
+       "headPicVer": 273,
+       "abbr": "TLou",
+       "headPic": ""
+      },
+      "canReward": 0,
+      "rewarded": 0,
+      "helpRewarded": 0
+     }
+    ],
+    "pointId": 885008,
+    "sendChatTime": 1784774246686,
+    "stealList": [],
+    "teamStartTime": 1784774245521,
+    "state": 3,
+    "cfgId": 50304
+   }
+  ],
+  "_id": 279,
+  "openTime": 1784772000000,
+  "_time": 0,
+  "dispatchBeginTime": 1784772000000,
+  "autoStart": 1
+ }
+}

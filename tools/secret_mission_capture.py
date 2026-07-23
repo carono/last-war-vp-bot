@@ -1,44 +1,47 @@
 #!/usr/bin/env python3
-"""Live monitor for alliance-shared **secret missions** (секретные миссии).
+"""Live monitor for **secret missions** — "Операция Призрак" / ghost recon.
 
-A *secret task* (`secret_task_capture.py`, protocol.md §7, tile `f2 = 17`) is a
-hero-dispatch marker the map hands out on `world.get.block` to anyone who pans
-over it — you only see one by scrolling the map onto it. A *shared secret
-mission* is the other half of the same feature: an ally found a mission worth
-raiding, pressed **share**, and the server broadcast it to the whole alliance.
-It never rides `world.get.block`. It arrives as its own push, so this monitor
-finds missions the map scan never can — nobody has to be looking at that patch
-of map, an ally just has to press the button.
+The in-game *секретная миссия* is the **Secret Command Post** ("Секретный
+командный пункт"), its "Операция Призрак" tab (the helmet icon on the world
+screen). It is a co-op weekly activity: an alliance member dispatches a squad
+against a target server, teammates join to help, and everyone loots the reward
+when the squad returns. It is a different thing from the two lookalikes:
 
-Two commands carry them (both decoded by `lastwar_proto.share_missions`):
+  * a *secret task* (`secret_task_capture.py`, `world.get.block` tile `f2=17`) —
+    a hero-dispatch marker you raid off the map;
+  * a *shared* task (`alliance.share.mission.*`) — that same tile, pushed to the
+    alliance when someone presses "share".
 
-    push.alliance.share.mission.add        one mission, broadcast live
-    get.alliance.share.mission.list        the snapshot pulled on login
-                                           (shareMissionArr[])
+A ghost-recon mission never rides `world.get.block`. It arrives in the responses
+to two commands the client sends when you open the panel — decoded by
+`lastwar_proto.ghost_recon_missions`:
 
-Each mission carries the same `missionCfgId` / `missionUuid` a task tile would,
-so level and the star are read the same way (`cfgId` family 6000 = starred —
-and a shared mission is almost always starred, because the star is what a
-player bothers to share). What it does *not* carry is the tile's dispatch/loot
-state, so this reports "a mission became available to raid", not "you can raid
-it right now" — cross-check the uuid against a `secret_task_capture` scan for
-that.
+    ghost.recon.get.task.list            your squads + the ones you can loot
+    ghost.recon.get.alliance.task.list   the ally-help list ("Команда союзников")
 
-Usage (run from WSL — it drives Wireshark's `dumpcap.exe`, same as
-`rally_monitor.py`; the game and its traffic are on the Windows side)::
+so this monitor is **passive**: it reports whatever the client fetches. Keep the
+Secret Command Post panel open (or let the game poll it) to keep it fed. Each
+mission has a `state` — 0 an empty slot, 2 a squad still out, 3 done (lootable /
+help-rewardable). The monitor announces a mission when it first matters and
+again when it turns **DONE**, keyed by `(uuid, state)` so a walk
+empty→running→done prints each step once, not every refresh.
+
+Usage (run from WSL — it drives Wireshark's `dumpcap.exe`, like
+`rally_monitor.py`; the game is on the Windows side)::
 
     python3 tools/secret_mission_capture.py                 stream, print each
-    python3 tools/secret_mission_capture.py --star          only starred ones
-    python3 tools/secret_mission_capture.py --level 7,8      level 7 or 8
-    python3 tools/secret_mission_capture.py --server 946     one server only
-    python3 tools/secret_mission_capture.py --json out.json  checkpoint to file
-    python3 tools/secret_mission_capture.py --duration 3600  stop on a timer
-    python3 tools/secret_mission_capture.py --list           interfaces, exit
+    python3 tools/secret_mission_capture.py --done          only lootable now
+    python3 tools/secret_mission_capture.py --joinable      only ally-help ones
+    python3 tools/secret_mission_capture.py --family 6      only that rarity tier
+    python3 tools/secret_mission_capture.py --server 991    only missions vs 991
+    python3 tools/secret_mission_capture.py --json out.json checkpoint to a file
+    python3 tools/secret_mission_capture.py --list          interfaces, exit
 
-Every distinct `missionUuid` is announced **once**; a re-broadcast of one
-already seen only bumps its share counter, so a chatty alliance does not spam
-the log. Passive capture only — active RE is ACE-blocked (see
-docs/research/socket-duplication.md).
+`--discover` is a diagnostic for when the protocol shifts (the feature is
+seasonal): it flags ANY frame whose command/keys look mission-ish and tallies
+every command seen, so a new command family can be caught and wired in. It is
+how `ghost.recon.*` was found in the first place. Passive capture only — active
+RE is ACE-blocked (see docs/research/socket-duplication.md).
 """
 
 from __future__ import annotations
@@ -46,10 +49,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import threading
 import time
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -57,7 +62,24 @@ import live_tshark as lt  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 import lastwar_proto as proto  # noqa: E402
 
-C_MISSION = "\x1b[1;33m"  # bold yellow, the "worth raiding" colour
+C_MISSION = "\x1b[1;33m"  # bold yellow, the "worth acting on" colour
+
+# --discover: catch a secret-mission command family the moment it appears on the
+# wire — the reason this needs the feature to be live (a Thursday). Any command
+# name or top-level payload key matching one of these is flagged, and every
+# command name is tallied regardless, so even if the real word is none of these
+# the full command inventory of the session is on record. `ghost`/`recon` are in
+# here because that is what the live search turned up; widen as leads accumulate.
+DISCOVER_PATTERN = re.compile(
+    r"mission|secret|\bspy\b|special|\blw\.|dispatch|espionage|intel|"
+    r"agent|ghost|recon", re.IGNORECASE)
+
+# What the game calls each `state`, for the log.
+STATE_NAME = {
+    proto.GHOST_STATE_EMPTY: "empty",
+    proto.GHOST_STATE_RUNNING: "running",
+    proto.GHOST_STATE_DONE: "DONE",
+}
 
 
 def _stamp() -> str:
@@ -75,8 +97,8 @@ def _write_checkpoint(records: list, path: str) -> bool:
 
     Written in place rather than via an atomic rename for the same reason
     `map_capture.dump_records` is: on Windows `os.replace` raises when anything
-    else holds the target open (an editor, a poller), which would kill the run.
-    A locked file costs one skipped flush; the next one rewrites it whole.
+    else holds the target open, which would kill the run. A locked file costs
+    one skipped flush; the next one rewrites it whole.
     """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     try:
@@ -88,35 +110,50 @@ def _write_checkpoint(records: list, path: str) -> bool:
 
 
 class MissionMonitor(LiveDecoder):
-    """LiveDecoder that harvests the alliance-shared secret-mission stream.
+    """LiveDecoder that harvests the ghost-recon secret-mission stream.
 
-    Missions are keyed by `missionUuid`. The first sighting of a uuid that
-    passes the filter is announced; later re-broadcasts of the same uuid only
-    refresh its record and bump `share_count`, so the log carries one line per
-    distinct mission rather than one per broadcast.
+    Missions are keyed by `uuid`. A mission is announced when it first passes
+    the filter and again each time its `state` changes (so empty→running→done
+    prints once per step); the `(uuid, state)` guard is what stops a refresh
+    every few seconds from re-announcing an unchanged mission.
     """
 
-    def __init__(self, level=None, star_only=False, server=None,
-                 json_path: str | None = None) -> None:
+    def __init__(self, level=None, family=None, state=None, server=None,
+                 done=False, joinable=False, json_path=None,
+                 discover=False, discover_path=None) -> None:
         super().__init__()
         self.level = level
-        self.star_only = star_only
+        self.family = family
+        self.state = state
         self.server = server
+        self.done = done
+        self.joinable = joinable
         self.json_path = json_path
-        self.frames = 0                 # share frames that decoded to a mission
+        self.frames = 0                 # ghost-recon frames that held missions
         self._missions: dict = {}       # uuid -> record dict
-        self._announced: set = set()    # uuids already printed
+        self._announced: set = set()    # (uuid, state) already printed
+        # -- discovery state (only touched when discover=True) --
+        self.discover_mode = discover
+        self.discover_path = discover_path
+        self.all_commands: Counter = Counter()
+        self.hits: dict = {}
+        self._dfh = None
+        if discover and discover_path:
+            os.makedirs(os.path.dirname(discover_path) or ".", exist_ok=True)
+            self._dfh = open(discover_path, "a", encoding="utf-8")
 
     # -- decode ------------------------------------------------------------
 
     def emit(self, direction: str, env) -> None:  # LiveDecoder hook
+        command = proto.envelope_command(env)
+        if self.discover_mode:
+            self._discover(direction, command, env)
         if direction != "down":
             return
-        command = proto.envelope_command(env)
-        if command not in proto.SHARE_MISSION_COMMANDS:
+        if command not in proto.GHOST_RECON_COMMANDS:
             return
         payload = proto.envelope_payload(env)
-        missions = list(proto.share_missions(command, payload))
+        missions = list(proto.ghost_recon_missions(command, payload))
         if not missions:
             return
         self.frames += 1
@@ -129,72 +166,144 @@ class MissionMonitor(LiveDecoder):
         rec = self._missions.get(uuid)
         if rec is None:
             rec = mission.as_dict()
-            rec["starred"] = mission.starred
             rec["first_seen"] = int(now)
-            rec["share_count"] = 0
-            rec["last_command"] = command
             self._missions[uuid] = rec
+        else:
+            rec.update(mission.as_dict())  # refresh state/members/steal/timers
         rec["last_seen"] = int(now)
-        rec["share_count"] += 1
         rec["last_command"] = command
-        self._announce(mission, rec)
+        self._announce(mission)
 
     # -- report ------------------------------------------------------------
 
     def _passes(self, mission) -> bool:
-        """The active --level/--star/--server filter, applied to one mission."""
-        return bool(proto.filter_share_missions(
-            [mission], level=self.level, star_only=self.star_only,
-            server=self.server))
+        """The active filter, applied to one mission."""
+        return bool(proto.filter_ghost_recon(
+            [mission], level=self.level, family=self.family, state=self.state,
+            server=self.server, done=self.done, joinable=self.joinable))
 
-    def _announce(self, mission, rec) -> None:
-        # One line per distinct uuid, and only for missions the filter keeps.
-        if mission.uuid in self._announced or not self._passes(mission):
+    def _announce(self, mission) -> None:
+        # Empty slots are never announced on their own — they carry no target
+        # and nothing to act on. A caller wanting to see them can pass --state 0.
+        if mission.empty and self.state != proto.GHOST_STATE_EMPTY:
             return
-        self._announced.add(mission.uuid)
-        star = f"{C_MISSION} *{C_RESET}" if mission.starred else "  "
-        lvl = mission.level if mission.level is not None else "?"
-        print(f"{_stamp()} SHARE{star} lvl {str(lvl):>2}  "
-              f"server {mission.server_id}  uuid {mission.uuid}  "
-              f"cfg {mission.cfg_id}  by {_short(mission.share_uid)}  "
-              f"alliance {_short(mission.share_alliance_id)}", flush=True)
+        key = (mission.uuid, mission.state)
+        if key in self._announced or not self._passes(mission):
+            return
+        self._announced.add(key)
+        tag = ""
+        if mission.done:
+            tag = f"  {C_MISSION}DONE — lootable{C_RESET}"
+        elif mission.running:
+            tag = f"  {C_DIM}running{C_RESET}"
+        where = f"({mission.x},{mission.y})" if mission.x is not None else "(?,?)"
+        print(f"{_stamp()} {STATE_NAME.get(mission.state, mission.state):>7}  "
+              f"fam {mission.family or '?'} lvl {mission.level or '?'}  "
+              f"server {mission.target_server}  {where}  "
+              f"members {mission.member_count}  loot {mission.steal_count}  "
+              f"cfg {mission.cfg_id}  owner {_short(mission.owner_id)}"
+              f"{tag}", flush=True)
         if self.json_path and not _write_checkpoint(self.records(), self.json_path):
             print(f"{C_DIM}  (checkpoint locked, skipped this flush){C_RESET}",
                   flush=True)
 
     def records(self) -> list:
-        """All missions seen so far, as serialisable dicts (newest first)."""
+        """All missions seen so far, newest-refreshed first."""
         return sorted(self._missions.values(),
                       key=lambda r: r.get("last_seen", 0), reverse=True)
 
     def report(self) -> None:
-        matched = len(self._announced)
+        if self.discover_mode:
+            self._discover_report()
+        matched = len({uuid for uuid, _state in self._announced})
+        done = sum(1 for r in self._missions.values()
+                   if r.get("state") == proto.GHOST_STATE_DONE)
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
-        print(f"{C_OK}{len(self._missions)} mission(s) shared, "
-              f"{matched} matched the filter{C_RESET} "
-              f"— from {self.frames} share frame(s)")
+        print(f"{C_OK}{len(self._missions)} mission(s) seen, {matched} matched, "
+              f"{done} done/lootable{C_RESET} — from {self.frames} frame(s)")
         for rec in self.records():
-            if rec["uuid"] not in self._announced:
+            if not any(k[0] == rec["uuid"] for k in self._announced):
                 continue
-            star = " *" if rec.get("starred") else "  "
-            print(f" {star} lvl {rec.get('level')}  server {rec.get('server_id')}"
-                  f"  uuid {rec.get('uuid')}  cfg {rec.get('cfg_id')}"
-                  f"  x{rec.get('share_count')}")
+            print(f"  {STATE_NAME.get(rec.get('state'), rec.get('state')):>7}  "
+                  f"fam {rec.get('family')} lvl {rec.get('level')}  "
+                  f"server {rec.get('target_server')}  loot {rec.get('steal_count')}"
+                  f"  cfg {rec.get('cfg_id')}")
         if not self._missions:
-            print(f"{C_DIM}No missions were shared while listening. These arrive "
-                  f"only when an alliance member presses \"share\" on a secret "
-                  f"mission — nothing you can pan the map to force.{C_RESET}")
+            print(f"{C_DIM}No ghost-recon missions arrived. Open the Secret "
+                  f"Command Post → «Операция Призрак» in game so the client "
+                  f"fetches them — and the feature only runs on its weekly day."
+                  f"{C_RESET}")
         if self.json_path:
             if _write_checkpoint(self.records(), self.json_path):
                 print(f"{C_OK}wrote {len(self._missions)} mission(s) to "
                       f"{self.json_path}{C_RESET}")
             else:
-                print(f"{C_ERR}could not write {self.json_path} — held by another "
-                      f"process.{C_RESET}")
+                print(f"{C_ERR}could not write {self.json_path} — held by "
+                      f"another process.{C_RESET}")
+
+    # -- discovery ---------------------------------------------------------
+
+    def _discover(self, direction: str, command, env) -> None:
+        """Flag any frame that might be a still-unknown secret-mission stream.
+
+        Tallies every command name (so the session's full inventory is on
+        record), prints each command the first time it is seen, and highlights +
+        archives (to `discover_path`) any whose name or top-level payload keys
+        match DISCOVER_PATTERN. On the day this catches a new command, wire its
+        name into GHOST_RECON_COMMANDS / ghost_recon_missions() and move on.
+        """
+        name = command or "<unnamed>"
+        first_time = name not in self.all_commands
+        self.all_commands[name] += 1
+        payload = proto.envelope_payload(env)
+        keys = list(payload.keys()) if isinstance(payload, dict) else []
+        hay = name + " " + " ".join(str(k) for k in keys)
+        matched = bool(DISCOVER_PATTERN.search(hay))
+        if first_time and not matched:
+            print(f"{_stamp()} {C_DIM}new  {direction:>4}  {name}{C_RESET}",
+                  flush=True)
+        if not matched:
+            return
+        if self._dfh is not None:
+            try:
+                self._dfh.write(json.dumps(
+                    {"t": round(time.time(), 3), "dir": direction,
+                     "command": command, "payload": payload},
+                    ensure_ascii=False, default=repr) + "\n")
+                self._dfh.flush()
+            except Exception:
+                pass
+        if name in self.hits:
+            return
+        self.hits[name] = {"dir": direction, "keys": keys, "payload": payload}
+        print(f"{_stamp()} {C_MISSION}HIT{C_RESET} {direction:>4}  {name}  "
+              f"keys={keys}", flush=True)
+
+    def _discover_report(self) -> None:
+        print(f"\n{C_DIM}{'=' * 64}{C_RESET}")
+        total = sum(self.all_commands.values())
+        print(f"{C_OK}discover: {len(self.all_commands)} distinct command(s), "
+              f"{total} frame(s); {len(self.hits)} matched "
+              f"{DISCOVER_PATTERN.pattern!r}{C_RESET}")
+        if self.hits:
+            print("candidate secret-mission commands:")
+            for name, info in sorted(self.hits.items()):
+                print(f"  {C_MISSION}{name}{C_RESET}  ({info['dir']})  "
+                      f"keys={info['keys']}")
+            print(f"{C_DIM}full sample frames appended to "
+                  f"{self.discover_path}{C_RESET}")
+        else:
+            print(f"{C_DIM}nothing matched. Open the secret-mission UI in game "
+                  f"and keep the capture running — these appear only when that "
+                  f"screen is touched (and only on the day they run).{C_RESET}")
+        print("full command inventory (name: count):")
+        for name, count in self.all_commands.most_common():
+            mark = f"{C_MISSION} <-- match{C_RESET}" if name in self.hits else ""
+            print(f"  {count:>5}  {name}{mark}")
 
 
-def _level_set(text: str):
-    """`--level 7` or `--level 7,8` → a set of ints (argparse-friendly)."""
+def _int_set(text: str):
+    """`--level 3` or `--level 3,5` → a set of ints (argparse-friendly)."""
     out = set()
     for part in text.split(","):
         part = part.strip()
@@ -204,9 +313,17 @@ def _level_set(text: str):
             out.add(int(part))
         except ValueError:
             raise argparse.ArgumentTypeError(
-                f"{part!r} is not a level; expected a number or list like 7,8")
+                f"{part!r} is not a number; expected N or a list like 3,5")
     if not out:
-        raise argparse.ArgumentTypeError("no level given")
+        raise argparse.ArgumentTypeError("no value given")
+    return out
+
+
+def _str_set(text: str):
+    """`--family 6` or `--family 4,6` → a set of strings."""
+    out = {p.strip() for p in text.split(",") if p.strip()}
+    if not out:
+        raise argparse.ArgumentTypeError("no value given")
     return out
 
 
@@ -218,15 +335,33 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", default=None,
                     help="checkpoint every mission seen to this file, rewritten "
-                         "on each new sighting (default: no file written)")
-    ap.add_argument("--level", type=_level_set, metavar="N[,N...]",
-                    help="only missions of this level (read from cfgId); a "
-                         "comma-separated list matches any of them")
-    ap.add_argument("--star", action="store_true",
-                    help="only starred missions (cfgId family 6000)")
-    ap.add_argument("--server", type=int, default=None,
-                    help="only missions whose tile currently sits on this "
-                         "server (missionCurrentServerId)")
+                         "on each announcement (default: no file written)")
+    ap.add_argument("--level", type=_int_set, metavar="N[,N...]",
+                    help="only missions of this level (from cfgId; a list "
+                         "matches any)")
+    ap.add_argument("--family", type=_str_set, metavar="F[,F...]",
+                    help="only missions of this cfgId family / rarity tier "
+                         "(4/5/6; a list matches any)")
+    ap.add_argument("--state", type=_int_set, metavar="S[,S...]",
+                    help="only missions in this state (0 empty, 2 running, "
+                         "3 done)")
+    ap.add_argument("--server", type=_int_set, metavar="N[,N...]",
+                    help="only missions targeting this server")
+    ap.add_argument("--done", action="store_true",
+                    help="only completed missions (state 3 — lootable now)")
+    ap.add_argument("--joinable", action="store_true",
+                    help="only alliance-visible dispatched missions an ally can "
+                         "help; combine with --done for either")
+    ap.add_argument("--discover", action="store_true",
+                    help="discovery mode: flag ANY frame whose command name or "
+                         "payload keys look mission-ish, tally every command, "
+                         "and append matched frames to --discover-out. Use when "
+                         "the protocol shifts (the feature is seasonal).")
+    ap.add_argument("--discover-out",
+                    default=os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "results", "task1004", "discover.jsonl"),
+                    help="where --discover appends matched frames (JSONL)")
     ap.add_argument("--iface", help="interface number from `dumpcap -D`; "
                                     "omitted = capture on all of them")
     ap.add_argument("--list", action="store_true", dest="list_ifaces",
@@ -238,6 +373,13 @@ def main() -> int:
     ap.add_argument("--tshark", help="path to tshark.exe")
     ap.add_argument("--dumpcap", help="path to dumpcap.exe")
     args = ap.parse_args()
+
+    # Redirected to a file, stdout is block-buffered, so a run watched with
+    # `tail -f` shows nothing for minutes and reads as hung.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
     tshark = lt.find_binary("tshark.exe", args.tshark)
     dumpcap = lt.find_binary("dumpcap.exe", args.dumpcap) or tshark
@@ -256,15 +398,24 @@ def main() -> int:
         return 0
     targets = [(args.iface, f"iface {args.iface}")] if args.iface else ifaces
 
-    monitor = MissionMonitor(level=args.level, star_only=args.star,
-                             server=args.server, json_path=args.json)
+    monitor = MissionMonitor(
+        level=args.level, family=args.family, state=args.state,
+        server=args.server, done=args.done, joinable=args.joinable,
+        json_path=args.json, discover=args.discover,
+        discover_path=args.discover_out)
     stop = threading.Event()
     sink = f" -> {args.json}" if args.json else ""
     print(f"Secret-mission monitor via {os.path.basename(dumpcap)} — "
           f"{len(targets)} iface(s), filter {args.filter!r}, {args.duration}s")
-    print(f"{C_DIM}listening for alliance.share.mission broadcasts{sink}  "
-          f"(Ctrl+C to stop) — these arrive when an ally shares a mission, "
-          f"not when you move the map{C_RESET}\n")
+    if args.discover:
+        print(f"{C_MISSION}DISCOVER mode{C_RESET}{C_DIM}: flagging any "
+              f"mission/secret/ghost/recon frame, tallying every command -> "
+              f"{args.discover_out}. Open the Secret Command Post in game."
+              f"{C_RESET}\n")
+    else:
+        print(f"{C_DIM}decoding ghost.recon.get.task.list / "
+              f".get.alliance.task.list{sink} (Ctrl+C to stop) — open «Операция "
+              f"Призрак» in game so the client fetches them{C_RESET}\n")
 
     procs: list = []
     threads = [
@@ -278,9 +429,17 @@ def main() -> int:
         thread.start()
 
     deadline = time.time() + args.duration
+    last_tick = time.time()
     try:
         while not stop.is_set() and time.time() < deadline:
             time.sleep(0.3)
+            if args.discover and time.time() - last_tick >= 15:
+                last_tick = time.time()
+                left = int(deadline - time.time())
+                print(f"{C_DIM}  …{left}s left — {monitor.packets} game "
+                      f"frame(s), {len(monitor.all_commands)} distinct "
+                      f"command(s), {len(monitor.hits)} match(es){C_RESET}",
+                      flush=True)
     except KeyboardInterrupt:
         pass
     finally:
