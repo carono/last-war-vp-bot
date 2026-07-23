@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Live monitor for **secret missions** — "Операция Призрак" / ghost recon.
+"""Ghost-recon mission index — built exactly like `secret_task_capture.py`.
 
 The in-game *секретная миссия* is the **Secret Command Post** ("Секретный
 командный пункт"), its "Операция Призрак" tab (the helmet icon on the world
-screen). It is a co-op weekly activity: an alliance member dispatches a squad
+screen): a co-op weekly activity where an alliance member dispatches a squad
 against a target server, teammates join to help, and everyone loots the reward
 when the squad returns. It is a different thing from the two lookalikes:
 
@@ -12,424 +12,86 @@ when the squad returns. It is a different thing from the two lookalikes:
   * a *shared* task (`alliance.share.mission.*`) — that same tile, pushed to the
     alliance when someone presses "share".
 
-A ghost-recon mission never rides `world.get.block`. It reaches the client two
-ways, and this monitor watches both:
+This scanner is `secret_task_capture.py` with one thing swapped: it keeps
+ghost-recon missions instead of secret-task tiles, and prints them in the same
+shape. Everything else — the scapy/npcap transport, the which-server-is-on-screen
+election, the periodic progress line, the JSON checkpoint, the closing summary —
+is the shared `map_capture.MapIndex` machinery, subclassed rather than copied.
 
-  * **polled** — the responses to two commands the client sends when you open the
-    panel, decoded by `lastwar_proto.ghost_recon_missions`:
+The one real difference is *where the entity lives on the wire*. A secret task
+rides `world.get.block`, so panning the map is what surfaces it. A ghost-recon
+mission never rides `world.get.block`; it reaches the client two other ways,
+both of which `MapIndex` hands to `on_response()`:
 
-        ghost.recon.get.task.list            your squads + the ones you can loot
-        ghost.recon.get.alliance.task.list   the ally-help list ("Команда союзников")
+  * **pushed** — `push.ghost.recon.alliance.single`, the live alliance-team
+    stream. The server pushes one team the instant it appears (`add`), changes
+    (`change`, e.g. a helper joins) or ends (`remove`). This is the real
+    detection path: a squad surfaces without the panel being open, which is what
+    renders the mission markers you see while walking the map.
+  * **polled** — `ghost.recon.get.task.list` / `.get.alliance.task.list`, the
+    responses the client sends only when you *open* the panel. Opening "Операция
+    Призрак" is what fetches the full list (your own slots and the ally-help
+    ones); a mission already on the map puts nothing on the wire by itself.
 
-    Each polled mission has a `state` — 0 an empty slot, 2 a squad still out, 3
-    done (lootable / help-rewardable). It is announced when it first matters and
-    again when it turns **DONE**, keyed by `(uuid, state)` so a walk
-    empty→running→done prints each step once, not every refresh.
+So keep the run going and play as usual — pushed teams print on their own — and
+open the Secret Command Post whenever you want the polled list refreshed. The
+server-on-screen election still runs off `world.get.block` as you pan, so the
+progress line and the banner name the map you are looking at, exactly as the
+secret-task scan does; a mission's own `server` column is its *target* server,
+not the one on screen.
 
-  * **pushed** — the live `push.ghost.recon.alliance.single` stream (decoded by
-    `lastwar_proto.ghost_recon_alliance_push`), the ghost-recon analogue of
-    `push.alliance.share.mission.*`. The server pushes one alliance team the
-    instant it appears (`add`), changes (`change`, e.g. a helper joins), or ends
-    (`remove`). This is the real **detection** path — a team surfaces without the
-    panel being open. Each push carries the target server, the `pointId`
-    coordinate, the `cfgId`, the owner and the member list, but no numeric
-    `state`; the `type` is the state (occupied on add/change, freed on remove).
-    A team line prints on `add` and again each time the squad grows (a `change`
-    that adds no member is treated as a duplicate); `remove` prints once.
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py            stream missions, print them
+                                                                           (until Ctrl+C, no file written)
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --seconds 300   stop on a timer instead
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --json out.json also checkpoint to a file
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --json out.json --interval 3
+                                                                           flush it every 3s, not 15
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --done      only lootable-now missions
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable  only ally-help ones
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6  only that rarity tier
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992
+                                                                           only missions vs 991 or 992
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --list-ifaces   interfaces, then exit
 
-Both streams are **passive**: nothing is sent, only what crosses the wire is
-read. Keep the Secret Command Post panel open to feed the polled list; the push
-stream needs no interaction.
+**This must run under the Windows Python, not the WSL one.** WSL2 sits in a
+NAT'd VM whose network namespace is not the host's, so an AF_PACKET socket
+there sees WSL's own traffic and never a byte of the game's. Requirements on
+that interpreter: npcap (ships with Wireshark), plus `pip install scapy
+zstandard`. No Administrator prompt is needed when npcap was installed with
+"allow non-administrator capture", which is Wireshark's normal setup.
 
-It captures the same way `secret_task_capture.py` does — straight through the
-npcap driver via scapy (`map_capture.start_capture`), with no `dumpcap.exe` or
-`tshark.exe` in the loop. **This must run under the Windows Python, not the WSL
-one** (WSL2's NAT'd network namespace never sees the game's packets); invoke it
-by path::
-
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py             stream, print each
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --done       only lootable now
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable   only ally-help ones
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6    only that rarity tier
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991  only missions vs 991
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --json out.json  checkpoint to a file
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --list-ifaces    interfaces, exit
-
-Requirements on that interpreter: npcap (ships with Wireshark), plus
-`pip install scapy zstandard`.
-
-`--discover` is a diagnostic for when the protocol shifts (the feature is
-seasonal): it flags ANY frame whose command/keys look mission-ish and tallies
-every command seen, so a new command family can be caught and wired in. It is
-how `ghost.recon.*` was found in the first place. Passive capture only — active
-RE is ACE-blocked (see docs/research/socket-duplication.md).
+The feature is seasonal (it runs weekly), so a run on the wrong day sees no
+missions at all no matter how long it listens. The closing summary tells that
+apart from a broken capture.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import re
 import signal
 import sys
 import time
-from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
-from map_capture import (  # noqa: E402
-    add_capture_arguments, check_platform, start_capture,
-)
 import lastwar_proto as proto  # noqa: E402
+from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
+from map_capture import (  # noqa: E402
+    MapIndex, add_capture_arguments, check_platform,
+    dump_records as dump_missions, human_size, start_capture,
+)
 
 C_MISSION = "\x1b[1;33m"  # bold yellow, the "worth acting on" colour
 
-# --discover: catch a secret-mission command family the moment it appears on the
-# wire — the reason this needs the feature to be live (a Thursday). Any command
-# name or top-level payload key matching one of these is flagged, and every
-# command name is tallied regardless, so even if the real word is none of these
-# the full command inventory of the session is on record. `ghost`/`recon` are in
-# here because that is what the live search turned up; widen as leads accumulate.
-DISCOVER_PATTERN = re.compile(
-    r"mission|secret|\bspy\b|special|\blw\.|dispatch|espionage|intel|"
-    r"agent|ghost|recon", re.IGNORECASE)
 
-# What the game calls each `state`, for the log.
-STATE_NAME = {
-    proto.GHOST_STATE_EMPTY: "empty",
-    proto.GHOST_STATE_RUNNING: "running",
-    proto.GHOST_STATE_DONE: "DONE",
-}
+def _int_set(text: str) -> set:
+    """`--level 3` or `--level 3,5` → a set of ints (argparse-friendly).
 
-
-def _stamp() -> str:
-    return time.strftime("%H:%M:%S")
-
-
-def _short(value, keep: int = 8) -> str:
-    """Trim a long id (alliance hash, uid) for a one-line log."""
-    text = str(value) if value is not None else "-"
-    return text if len(text) <= keep + 1 else text[:keep] + "…"
-
-
-def _write_checkpoint(records: list, path: str) -> bool:
-    """Rewrite `path` whole with the current mission records. True on success.
-
-    Written in place rather than via an atomic rename for the same reason
-    `map_capture.dump_records` is: on Windows `os.replace` raises when anything
-    else holds the target open, which would kill the run. A locked file costs
-    one skipped flush; the next one rewrites it whole.
+    Raises argparse's own error type so a typo prints the usage line and the
+    offending value rather than a traceback — silently dropping an unparsable
+    entry would narrow the run to something the user did not ask for.
     """
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    try:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(records, fh, indent=2, ensure_ascii=False)
-        return True
-    except PermissionError:
-        return False
-
-
-class MissionMonitor(LiveDecoder):
-    """LiveDecoder that harvests the ghost-recon secret-mission stream.
-
-    Missions are keyed by `uuid`. A mission is announced when it first passes
-    the filter and again each time its `state` changes (so empty→running→done
-    prints once per step); the `(uuid, state)` guard is what stops a refresh
-    every few seconds from re-announcing an unchanged mission.
-    """
-
-    def __init__(self, level=None, family=None, state=None, server=None,
-                 done=False, joinable=False, json_path=None,
-                 discover=False, discover_path=None) -> None:
-        super().__init__()
-        self.level = level
-        self.family = family
-        self.state = state
-        self.server = server
-        self.done = done
-        self.joinable = joinable
-        self.json_path = json_path
-        self.frames = 0                 # ghost-recon frames that held missions
-        self.push_events = 0            # push.ghost.recon.alliance.single frames
-        self._missions: dict = {}       # uuid -> record dict (polled list)
-        self._announced: set = set()    # (uuid, state) already printed
-        # The live alliance push stream is a distinct source from the polled
-        # list — it is alliance members' teams as they appear on the map, not
-        # your own Secret Command Post slots — so it gets its own index rather
-        # than clobbering the fuller polled records under a shared uuid.
-        self._teams: dict = {}          # uuid -> team record (from the push)
-        self._team_announced: set = set()  # (uuid, slot, member_count) printed
-        # -- discovery state (only touched when discover=True) --
-        self.discover_mode = discover
-        self.discover_path = discover_path
-        self.all_commands: Counter = Counter()
-        self.hits: dict = {}
-        self._dfh = None
-        if discover and discover_path:
-            os.makedirs(os.path.dirname(discover_path) or ".", exist_ok=True)
-            self._dfh = open(discover_path, "a", encoding="utf-8")
-
-    # -- decode ------------------------------------------------------------
-
-    def emit(self, direction: str, env) -> None:  # LiveDecoder hook
-        command = proto.envelope_command(env)
-        if self.discover_mode:
-            self._discover(direction, command, env)
-        if direction != "down":
-            return
-        payload = proto.envelope_payload(env)
-        now = time.time()
-        # The live push stream — a team appears/changes/ends in real time. This
-        # is the actual *detection* path, the analogue of push.alliance.share.*.
-        if command == proto.GHOST_ALLIANCE_PUSH:
-            self._on_alliance_push(payload, now)
-            return
-        if command not in proto.GHOST_RECON_COMMANDS:
-            return
-        missions = list(proto.ghost_recon_missions(command, payload))
-        if not missions:
-            return
-        self.frames += 1
-        for mission in missions:
-            self._record(mission, command, now)
-
-    def _record(self, mission, command: str, now: float) -> None:
-        uuid = mission.uuid
-        rec = self._missions.get(uuid)
-        if rec is None:
-            rec = mission.as_dict()
-            rec["first_seen"] = int(now)
-            self._missions[uuid] = rec
-        else:
-            rec.update(mission.as_dict())  # refresh state/members/steal/timers
-        rec["last_seen"] = int(now)
-        rec["last_command"] = command
-        rec["source"] = "poll"
-        self._announce(mission)
-
-    # -- live alliance push ------------------------------------------------
-
-    def _on_alliance_push(self, payload, now: float) -> None:
-        """Fold one push.ghost.recon.alliance.single frame into the team index.
-
-        `add`/`change` upsert the team; `remove` drops it (its slot is free
-        again). Each is announced through `_announce_team`, which keys on
-        `(uuid, kind, member_count)` so a team growing helper by helper prints
-        each step but a duplicate frame does not.
-        """
-        decoded = proto.ghost_recon_alliance_push(payload)
-        if decoded is None:
-            return
-        kind, mission = decoded
-        self.push_events += 1
-        if kind == "remove":
-            # The remove frame carries only the uuid; recover the coordinate,
-            # server and cfg from the record being dropped so the log line and
-            # the filters still have something to work with.
-            rec = self._teams.pop(mission.uuid, None)
-            known = proto.GhostReconMission.from_dict(rec) if rec else mission
-            self._announce_team("remove", known)
-            return
-        rec = self._teams.get(mission.uuid)
-        if rec is None:
-            rec = mission.as_dict()
-            rec["first_seen"] = int(now)
-            self._teams[mission.uuid] = rec
-        else:
-            rec.update(mission.as_dict())
-        rec["last_seen"] = int(now)
-        rec["last_command"] = proto.GHOST_ALLIANCE_PUSH
-        rec["push_kind"] = kind
-        rec["source"] = "push"
-        self._announce_team(kind, mission)
-
-    def _team_passes(self, mission) -> bool:
-        """Filter a pushed team. State-based filters exclude it by design.
-
-        The push carries no `state`/`allianceShow`, so `--state`/`--done`/
-        `--joinable` cannot be satisfied by a pushed team — a caller asking for
-        those wants the polled list, so the push stream stays quiet then. The
-        server/family/level filters still apply.
-        """
-        if self.state or self.done or self.joinable:
-            return False
-        return bool(proto.filter_ghost_recon(
-            [mission], level=self.level, family=self.family, server=self.server))
-
-    def _announce_team(self, kind: str, mission) -> None:
-        # add and change are the same dimension — the team's composition — so
-        # they dedupe together on member_count: a `change` that did not grow the
-        # squad (a reward-state move we cannot see) is not re-announced, but each
-        # new helper is. `remove` is its own slot so it always fires once.
-        slot = "remove" if kind == "remove" else "team"
-        key = (mission.uuid, slot, mission.member_count)
-        if key in self._team_announced or not self._team_passes(mission):
-            return
-        self._team_announced.add(key)
-        # add/change = a squad is out, the target server is occupied by its
-        # owner; remove = the team is gone and the slot is free again.
-        if kind == "remove":
-            tag = f"{C_DIM}freed{C_RESET}"
-        else:
-            tag = f"{C_MISSION}occupied{C_RESET}"
-        where = f"({mission.x},{mission.y})" if mission.x is not None else "(?,?)"
-        print(f"{_stamp()} team {kind:>6}  {tag}  "
-              f"fam {mission.family or '?'} lvl {mission.level or '?'}  "
-              f"server {mission.target_server}  {where}  "
-              f"members {mission.member_count}  cfg {mission.cfg_id}  "
-              f"owner {_short(mission.owner_id)}", flush=True)
-        if self.json_path and not _write_checkpoint(self.records(), self.json_path):
-            print(f"{C_DIM}  (checkpoint locked, skipped this flush){C_RESET}",
-                  flush=True)
-
-    # -- report ------------------------------------------------------------
-
-    def _passes(self, mission) -> bool:
-        """The active filter, applied to one mission."""
-        return bool(proto.filter_ghost_recon(
-            [mission], level=self.level, family=self.family, state=self.state,
-            server=self.server, done=self.done, joinable=self.joinable))
-
-    def _announce(self, mission) -> None:
-        # Empty slots are never announced on their own — they carry no target
-        # and nothing to act on. A caller wanting to see them can pass --state 0.
-        if mission.empty and self.state != proto.GHOST_STATE_EMPTY:
-            return
-        key = (mission.uuid, mission.state)
-        if key in self._announced or not self._passes(mission):
-            return
-        self._announced.add(key)
-        tag = ""
-        if mission.done:
-            tag = f"  {C_MISSION}DONE — lootable{C_RESET}"
-        elif mission.running:
-            tag = f"  {C_DIM}running{C_RESET}"
-        where = f"({mission.x},{mission.y})" if mission.x is not None else "(?,?)"
-        print(f"{_stamp()} {STATE_NAME.get(mission.state, mission.state):>7}  "
-              f"fam {mission.family or '?'} lvl {mission.level or '?'}  "
-              f"server {mission.target_server}  {where}  "
-              f"members {mission.member_count}  loot {mission.steal_count}  "
-              f"cfg {mission.cfg_id}  owner {_short(mission.owner_id)}"
-              f"{tag}", flush=True)
-        if self.json_path and not _write_checkpoint(self.records(), self.json_path):
-            print(f"{C_DIM}  (checkpoint locked, skipped this flush){C_RESET}",
-                  flush=True)
-
-    def records(self) -> list:
-        """Everything seen so far — polled missions and pushed teams — newest
-        first. Each record's `source` says which stream it came from."""
-        combined = list(self._missions.values()) + list(self._teams.values())
-        return sorted(combined,
-                      key=lambda r: r.get("last_seen", 0), reverse=True)
-
-    def report(self) -> None:
-        if self.discover_mode:
-            self._discover_report()
-        matched = len({uuid for uuid, _state in self._announced})
-        done = sum(1 for r in self._missions.values()
-                   if r.get("state") == proto.GHOST_STATE_DONE)
-        teams_matched = len({key[0] for key in self._team_announced})
-        print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
-        print(f"{C_OK}{len(self._missions)} mission(s) seen, {matched} matched, "
-              f"{done} done/lootable{C_RESET} — from {self.frames} frame(s)")
-        for rec in self._missions.values():
-            if not any(k[0] == rec["uuid"] for k in self._announced):
-                continue
-            print(f"  {STATE_NAME.get(rec.get('state'), rec.get('state')):>7}  "
-                  f"fam {rec.get('family')} lvl {rec.get('level')}  "
-                  f"server {rec.get('target_server')}  loot {rec.get('steal_count')}"
-                  f"  cfg {rec.get('cfg_id')}")
-        if self.push_events or self._teams:
-            print(f"{C_OK}{len(self._teams)} alliance team(s) live, "
-                  f"{teams_matched} matched{C_RESET} — from "
-                  f"{self.push_events} push event(s)")
-            for rec in sorted(self._teams.values(),
-                              key=lambda r: r.get("last_seen", 0), reverse=True):
-                where = (f"({rec.get('x')},{rec.get('y')})"
-                         if rec.get("x") is not None else "(?,?)")
-                print(f"  team  fam {rec.get('family')} lvl {rec.get('level')}  "
-                      f"server {rec.get('target_server')}  {where}  "
-                      f"members {rec.get('member_count')}  cfg {rec.get('cfg_id')}"
-                      f"  owner {_short(rec.get('owner_id'))}")
-        if not self._missions and not self._teams:
-            print(f"{C_DIM}No ghost-recon missions arrived. Open the Secret "
-                  f"Command Post → «Операция Призрак» in game so the client "
-                  f"fetches them — and the feature only runs on its weekly day."
-                  f"{C_RESET}")
-        if self.json_path:
-            records = self.records()
-            if _write_checkpoint(records, self.json_path):
-                print(f"{C_OK}wrote {len(records)} record(s) to "
-                      f"{self.json_path}{C_RESET}")
-            else:
-                print(f"{C_ERR}could not write {self.json_path} — held by "
-                      f"another process.{C_RESET}")
-
-    # -- discovery ---------------------------------------------------------
-
-    def _discover(self, direction: str, command, env) -> None:
-        """Flag any frame that might be a still-unknown secret-mission stream.
-
-        Tallies every command name (so the session's full inventory is on
-        record), prints each command the first time it is seen, and highlights +
-        archives (to `discover_path`) any whose name or top-level payload keys
-        match DISCOVER_PATTERN. On the day this catches a new command, wire its
-        name into GHOST_RECON_COMMANDS / ghost_recon_missions() and move on.
-        """
-        name = command or "<unnamed>"
-        first_time = name not in self.all_commands
-        self.all_commands[name] += 1
-        payload = proto.envelope_payload(env)
-        keys = list(payload.keys()) if isinstance(payload, dict) else []
-        hay = name + " " + " ".join(str(k) for k in keys)
-        matched = bool(DISCOVER_PATTERN.search(hay))
-        if first_time and not matched:
-            print(f"{_stamp()} {C_DIM}new  {direction:>4}  {name}{C_RESET}",
-                  flush=True)
-        if not matched:
-            return
-        if self._dfh is not None:
-            try:
-                self._dfh.write(json.dumps(
-                    {"t": round(time.time(), 3), "dir": direction,
-                     "command": command, "payload": payload},
-                    ensure_ascii=False, default=repr) + "\n")
-                self._dfh.flush()
-            except Exception:
-                pass
-        if name in self.hits:
-            return
-        self.hits[name] = {"dir": direction, "keys": keys, "payload": payload}
-        print(f"{_stamp()} {C_MISSION}HIT{C_RESET} {direction:>4}  {name}  "
-              f"keys={keys}", flush=True)
-
-    def _discover_report(self) -> None:
-        print(f"\n{C_DIM}{'=' * 64}{C_RESET}")
-        total = sum(self.all_commands.values())
-        print(f"{C_OK}discover: {len(self.all_commands)} distinct command(s), "
-              f"{total} frame(s); {len(self.hits)} matched "
-              f"{DISCOVER_PATTERN.pattern!r}{C_RESET}")
-        if self.hits:
-            print("candidate secret-mission commands:")
-            for name, info in sorted(self.hits.items()):
-                print(f"  {C_MISSION}{name}{C_RESET}  ({info['dir']})  "
-                      f"keys={info['keys']}")
-            print(f"{C_DIM}full sample frames appended to "
-                  f"{self.discover_path}{C_RESET}")
-        else:
-            print(f"{C_DIM}nothing matched. Open the secret-mission UI in game "
-                  f"and keep the capture running — these appear only when that "
-                  f"screen is touched (and only on the day they run).{C_RESET}")
-        print("full command inventory (name: count):")
-        for name, count in self.all_commands.most_common():
-            mark = f"{C_MISSION} <-- match{C_RESET}" if name in self.hits else ""
-            print(f"  {count:>5}  {name}{mark}")
-
-
-def _int_set(text: str):
-    """`--level 3` or `--level 3,5` → a set of ints (argparse-friendly)."""
     out = set()
     for part in text.split(","):
         part = part.strip()
@@ -445,7 +107,7 @@ def _int_set(text: str):
     return out
 
 
-def _str_set(text: str):
+def _str_set(text: str) -> set:
     """`--family 6` or `--family 4,6` → a set of strings."""
     out = {p.strip() for p in text.split(",") if p.strip()}
     if not out:
@@ -453,46 +115,204 @@ def _str_set(text: str):
     return out
 
 
+def _short(value, keep: int = 8) -> str:
+    """Trim a long id (owner uid, alliance hash) for a one-line log."""
+    text = str(value) if value is not None else "-"
+    return text if len(text) <= keep + 1 else text[:keep] + "…"
+
+
+def _starred(mission) -> bool:
+    """The top rarity tier — family "6", the ghost-recon analogue of the
+    secret-task star (cfgId family 6000). Marked with a `*` in the log, same as
+    a starred task."""
+    return mission.family == "6"
+
+
+class MissionIndex(MapIndex):
+    """MapIndex that keeps ghost-recon missions instead of secret-task tiles.
+
+    A ghost-recon mission never rides `world.get.block`, so `on_blocks` stays
+    the inherited no-op: its only effect here is that the base class keeps the
+    server-on-screen election running as the player pans, exactly as the
+    secret-task scan relies on it. The missions arrive on two other streams,
+    both delivered to `on_response()`:
+
+      * `push.ghost.recon.alliance.single` — the live alliance-team push
+        (`add`/`change` upsert a team, `remove` drops it), the real detection
+        path;
+      * `ghost.recon.get.task.list` / `.get.alliance.task.list` — the panel
+        polls, the full list.
+
+    Missions are keyed by `uuid`, which the wire treats as globally unique
+    across servers (a mission names its own `targetServer`), so — unlike a
+    secret-task tile, keyed `(server_id, uuid)` because a uuid is only unique
+    within a server — there is nothing to disambiguate. There is also no stale
+    eviction: a task is evicted when the map stops re-sending it, but a mission
+    is not re-sent by panning, so it stays indexed until a `remove` push ends it
+    or the run does. A server switch does **not** drop missions either — they
+    are alliance-wide, not bound to the map on screen.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._missions: dict[int, proto.GhostReconMission] = {}
+        # Wall-clock of the last frame that carried each mission, and which
+        # stream it came from — both stamped onto the JSON checkpoint.
+        self._seen_at: dict[int, float] = {}
+        self._source: dict[int, str] = {}
+        # Counters for the progress line and the closing summary. `packets` /
+        # `blocks_seen` come from the base class; these two are the ghost-recon
+        # streams specifically, so a run can say whether the panel was polled
+        # and whether any team pushed.
+        self.push_seen = 0    # push.ghost.recon.alliance.single frames folded in
+        self.poll_seen = 0    # get.*.task.list responses that carried a taskList
+
+    # -- harvest -----------------------------------------------------------
+
+    def on_response(self, command: str | None, payload) -> None:
+        """Any non-`world.get.block` server frame. `_index_lock` is held.
+
+        This is where every ghost-recon mission enters the index — the push
+        stream and the two panel polls. Everything else the server says is
+        ignored.
+        """
+        now = time.time()
+        if command == proto.GHOST_ALLIANCE_PUSH:
+            decoded = proto.ghost_recon_alliance_push(payload)
+            if decoded is None:
+                return
+            self.push_seen += 1
+            kind, mission = decoded
+            if kind == "remove":
+                # The team ended (completed / expired / recalled); its slot is
+                # free again. Drop it so the closing count reflects what is still
+                # live, mirroring the secret-task eviction.
+                self._missions.pop(mission.uuid, None)
+                self._seen_at.pop(mission.uuid, None)
+                self._source.pop(mission.uuid, None)
+                return
+            self._store(mission, now, "push")
+        elif command in proto.GHOST_RECON_COMMANDS:
+            missions = list(proto.ghost_recon_missions(command, payload))
+            if not missions:
+                return
+            self.poll_seen += 1
+            for mission in missions:
+                self._store(mission, now, "poll")
+
+    def _store(self, mission, now: float, source: str) -> None:
+        """Upsert one mission. A push carries fewer fields than a poll, so a
+        later poll enriches a team first seen on the push; keep the newest of
+        each. Callers hold `_index_lock`."""
+        self._missions[mission.uuid] = mission
+        self._seen_at[mission.uuid] = now
+        self._source[mission.uuid] = source
+
+    # -- read --------------------------------------------------------------
+
+    @property
+    def missions(self) -> list:
+        with self._index_lock:
+            return list(self._missions.values())
+
+    @property
+    def done_count(self) -> int:
+        """Missions in state 3 — completed and lootable right now."""
+        with self._index_lock:
+            return sum(1 for m in self._missions.values() if m.done)
+
+    def find(self, **criteria) -> list:
+        """Filter the indexed missions. Empty slots (state 0 — no target, no
+        members) are dropped unless the caller explicitly asks for state 0,
+        since there is nothing to act on."""
+        wants_empty = bool(criteria.get("state")) and \
+            proto.GHOST_STATE_EMPTY in criteria["state"]
+        out = proto.filter_ghost_recon(self.missions, **criteria)
+        if not wants_empty:
+            out = [m for m in out if not m.empty]
+        return out
+
+    def records(self) -> list:
+        """Missions as serialisable dicts, each stamped with `seen_at` (epoch
+        seconds of the last frame that carried it) and `source` (push/poll),
+        newest first."""
+        with self._index_lock:
+            out = []
+            for uuid, mission in self._missions.items():
+                record = mission.as_dict()
+                record["seen_at"] = int(self._seen_at.get(uuid, 0))
+                record["source"] = self._source.get(uuid, "poll")
+                out.append(record)
+        out.sort(key=lambda r: r.get("seen_at", 0), reverse=True)
+        return out
+
+
+def _diagnose(index: MissionIndex, found: int) -> None:
+    """Explain a thin result, so "nothing found" is never ambiguous.
+
+    The secret-task scan calls `map_capture.diagnose`, but that one's "no map
+    data — keep dragging the map" branch is wrong here: a ghost-recon mission
+    does not ride the map, so panning surfaces nothing. This is the same idea
+    with the last branch corrected — a quiet stream is told apart from a deaf
+    capture, and the fix named for each.
+    """
+    if index.delivered and not index.packets:
+        print(f"{C_ERR}npcap delivered {index.delivered} packet(s) but none "
+              f"decoded as TCP-with-payload.{C_RESET} That is scapy failing to "
+              f"map the datalink type — check for an 'Unable to guess datalink "
+              f"type' warning above.")
+    elif not index.delivered:
+        print(f"{C_ERR}No packets at all.{C_RESET} Either the game is not "
+              f"running, or npcap cannot see this interface — try "
+              f"--list-ifaces and pin one with --iface, and run under "
+              f"/mnt/c/Python312/python.exe (not the WSL one).")
+    elif found:
+        return
+    else:
+        print(f"{C_DIM}Game traffic arrived but carried no ghost-recon mission. "
+              f"A mission already on the map puts nothing on the wire by "
+              f"itself:\n"
+              f"  • open the Secret Command Post → «Операция Призрак» to poll "
+              f"the list — that is the only thing that fetches it;\n"
+              f"  • push.ghost.recon.alliance.single is edge-triggered "
+              f"(add/change/remove of an alliance team), so a squad dispatched "
+              f"before you started emits no add.\n"
+              f"The feature is also weekly — a run on the wrong day sees "
+              f"none.{C_RESET}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    # The shared scapy transport flags (--iface / --list-ifaces / --seconds /
-    # --all-tcp), same as secret_task_capture.py. --dump is a MapIndex-only
-    # feature, so it is not offered here.
-    add_capture_arguments(ap, include_dump=False)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    add_capture_arguments(ap)
     ap.add_argument("--json", default=None,
                     help="checkpoint every mission seen to this file, rewritten "
-                         "on each announcement (default: no file written)")
+                         "on every tick (default: no file is written)")
+    ap.add_argument("--interval", type=int, default=15,
+                    help="seconds between processing ticks — each one prints "
+                         "the progress line and rewrites --json if given "
+                         "(default 15; lower it for tests)")
     ap.add_argument("--level", type=_int_set, metavar="N[,N...]",
-                    help="only missions of this level (from cfgId; a list "
-                         "matches any)")
+                    help="only missions of this level (from cfgId); a "
+                         "comma-separated list matches any (--level 3,5)")
     ap.add_argument("--family", type=_str_set, metavar="F[,F...]",
                     help="only missions of this cfgId family / rarity tier "
                          "(4/5/6; a list matches any)")
     ap.add_argument("--state", type=_int_set, metavar="S[,S...]",
                     help="only missions in this state (0 empty, 2 running, "
-                         "3 done)")
+                         "3 done); a list matches any")
     ap.add_argument("--server", type=_int_set, metavar="N[,N...]",
-                    help="only missions targeting this server")
+                    help="only missions targeting this server; a list matches "
+                         "any")
     ap.add_argument("--done", action="store_true",
                     help="only completed missions (state 3 — lootable now)")
     ap.add_argument("--joinable", action="store_true",
                     help="only alliance-visible dispatched missions an ally can "
                          "help; combine with --done for either")
-    ap.add_argument("--discover", action="store_true",
-                    help="discovery mode: flag ANY frame whose command name or "
-                         "payload keys look mission-ish, tally every command, "
-                         "and append matched frames to --discover-out. Use when "
-                         "the protocol shifts (the feature is seasonal).")
-    ap.add_argument("--discover-out",
-                    default=os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "results", "task1004", "discover.jsonl"),
-                    help="where --discover appends matched frames (JSONL)")
     args = ap.parse_args()
-    # After parsing, so `--help` is readable from the WSL interpreter rather
-    # than refused by the capture-platform check.
+    # After parsing, so `--help` is readable from the WSL interpreter
+    # rather than refused by a check about capturing packets.
     check_platform()
 
     # Redirected to a file, stdout is block-buffered, so a run watched with
@@ -502,52 +322,129 @@ def main() -> int:
     except Exception:
         pass
 
-    monitor = MissionMonitor(
-        level=args.level, family=args.family, state=args.state,
-        server=args.server, done=args.done, joinable=args.joinable,
-        json_path=args.json, discover=args.discover,
-        discover_path=args.discover_out)
-    # Same capture call secret_task_capture.py uses — scapy/npcap, no dumpcap.
-    # Exits the process on --list-ifaces or a missing scapy.
-    stop, bpf = start_capture(monitor, args)
+    index = MissionIndex()
+    stop, bpf = start_capture(index, args)
+
+    print("Last War direct capture — scapy/npcap, no dumpcap")
+    print(f"filter: '{bpf}'   interface: {args.iface or 'default'}")
+    window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
+    sink = f" -> {args.json} every {args.interval}s" if args.json else ""
+    print(f"{C_DIM}listening {window}{sink} — teams push live as you play; "
+          f"open «Операция Призрак» to poll the full list{C_RESET}\n")
+
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    sink = f" -> {args.json}" if args.json else ""
-    window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
-    print(f"Secret-mission monitor — scapy/npcap, no dumpcap")
-    print(f"filter: '{bpf}'   interface: {args.iface or 'default'}   "
-          f"listening {window}")
-    if args.discover:
-        print(f"{C_MISSION}DISCOVER mode{C_RESET}{C_DIM}: flagging any "
-              f"mission/secret/ghost/recon frame, tallying every command -> "
-              f"{args.discover_out}. Open the Secret Command Post in game."
-              f"{C_RESET}\n")
-    else:
-        print(f"{C_DIM}decoding ghost.recon.get.task.list / "
-              f".get.alliance.task.list + push.ghost.recon.alliance.single"
-              f"{sink} (Ctrl+C to stop) — open «Операция Призрак» in game to "
-              f"feed the polled list; teams push live on their own{C_RESET}\n")
-
-    # None means run until interrupted, so the deadline test tolerates no timer.
+    # (uuid, state) already announced. A mission walks running -> done, and each
+    # step is worth one line; keying on the state (not the uuid alone) prints
+    # the DONE moment a raid decision needs while a refresh of an unchanged
+    # mission stays silent. Not cleared on a server switch: a mission is
+    # alliance-wide, not tied to the map on screen.
+    reported: set = set()
+    # None means run until interrupted, so every deadline test has to tolerate
+    # not having one.
     deadline = time.time() + args.seconds if args.seconds else None
+    # One timer for the whole periodic tick — the progress line and the
+    # checkpoint flush both fire on the period the user set, never on a
+    # hardcoded one.
     last_tick = time.time()
     try:
         while deadline is None or time.time() < deadline:
-            time.sleep(0.3)
-            if args.discover and time.time() - last_tick >= 15:
+            time.sleep(1.0)
+            # Drained before anything is printed, so the banner separates the
+            # old server's context from the new one's rather than landing amid
+            # the mission lines. Informational only here — missions are not
+            # dropped on a switch, since they do not belong to the map.
+            for old, new in index.drain_server_changes():
+                if old is None:
+                    print(f"{C_OK}server {new}{C_RESET} — now on this map\n")
+                else:
+                    print(f"\n{C_OK}server {old} -> {new}{C_RESET} — now "
+                          f"viewing server {new}\n")
+            if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
                 left = (f"…{int(deadline - time.time())}s left"
                         if deadline is not None else "…running")
-                print(f"{C_DIM}  {left} — {monitor.packets} game "
-                      f"frame(s), {len(monitor.all_commands)} distinct "
-                      f"command(s), {len(monitor.hits)} match(es){C_RESET}",
-                      flush=True)
+                where = (f"server {index.current_server}"
+                         if index.current_server is not None
+                         else "server unknown yet")
+                print(f"{C_DIM}  {left} — {where}, "
+                      f"{index.blocks_seen} map response(s), "
+                      f"{index.push_seen} push(es), "
+                      f"{index.poll_seen} poll(s), "
+                      f"{len(index.missions)} mission(s), "
+                      f"{index.done_count} done{C_RESET}")
+                if args.json and not dump_missions(index.records(), args.json):
+                    print(f"{C_DIM}  (checkpoint locked, skipped this "
+                          f"flush){C_RESET}")
+                if index.transcript is not None:
+                    # Flushed here rather than per frame, so a reader tailing
+                    # the transcript is one tick behind at worst and the
+                    # sniffer thread is never blocked on the disk.
+                    index.transcript.flush()
+                    print(f"{C_DIM}  transcript: "
+                          f"{index.transcript.frames} frame(s), "
+                          f"{human_size(index.transcript.size())}{C_RESET}")
+            for m in index.find(level=args.level, family=args.family,
+                                state=args.state, server=args.server,
+                                done=args.done, joinable=args.joinable):
+                # Keyed on what the line actually says — a mission walks
+                # running -> done and each state prints once; a refresh of the
+                # same state does not re-announce. The steal count is
+                # deliberately NOT in the key: a mission can be looted by many,
+                # so a rising count is not a new event, unlike a secret task
+                # where it means the tile was taken.
+                key = (m.uuid, m.state)
+                if key in reported:
+                    continue
+                reported.add(key)
+                star = " *" if _starred(m) else "  "
+                lvl = f"{m.level:>2}" if m.level is not None else " ?"
+                where = (f"({m.x:>4},{m.y:>4})" if m.x is not None
+                         else "(   ?,   ?)")
+                if m.done:
+                    tag = f"  {C_MISSION}LOOTABLE{C_RESET}"
+                elif m.running:
+                    tag = f"  {C_OK}RUNNING{C_RESET}"
+                else:
+                    tag = ""
+                print(f"{star} lvl {lvl}  {where}  "
+                      f"server {m.target_server}  members {m.member_count}  "
+                      f"loot {m.steal_count}  family {m.family or '?'}  "
+                      f"cfg {m.cfg_id}  owner {_short(m.owner_id)}{tag}")
     except KeyboardInterrupt:
         pass
     finally:
         stop.set()
 
-    monitor.report()
+    everything = index.missions
+    # reported holds (uuid, state), so one mission can appear under several
+    # keys as it walks running -> done; the count is of distinct missions.
+    matched = len({uuid for uuid, _state in reported})
+    print(f"\n{len(everything)} mission(s) seen, "
+          f"{matched} matched the filter, "
+          f"{index.done_count} done/lootable")
+    print(f"traffic: {index.delivered} delivered / {index.packets} with "
+          f"payload, {index.push_seen} push(es), {index.poll_seen} poll(s), "
+          f"{index.blocks_seen} map response(s)")
+
+    _diagnose(index, len(everything))
+
+    if args.json:
+        records = index.records()
+        if dump_missions(records, args.json):
+            print(f"{C_OK}wrote {len(records)} mission(s) to {args.json}{C_RESET}")
+        else:
+            print(f"{C_ERR}could not write {args.json} — the file is held by "
+                  f"another process.{C_RESET} Close whatever has it open and "
+                  f"re-run, or point --json somewhere else.")
+
+    if index.transcript is not None:
+        index.transcript.close()
+        lost = (f", {index.transcript.failed} frame(s) could not be serialised"
+                if index.transcript.failed else "")
+        print(f"{C_OK}wrote {index.transcript.frames} frame(s) "
+              f"({human_size(index.transcript.size())}) to "
+              f"{index.transcript.path}{C_RESET}{lost}")
     return 0
 
 
