@@ -35,6 +35,7 @@ attacks.
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --json out.json --interval 3
                                                                            flush it every 3s, not 15
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --done      only lootable-now missions
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable  only ally-help ones
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6  only that rarity tier
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992
                                                                            only missions vs 991 or 992
@@ -269,6 +270,10 @@ def main() -> int:
                          "any")
     ap.add_argument("--done", action="store_true",
                     help="only completed missions (state 3 — lootable now)")
+    ap.add_argument("--joinable", action="store_true",
+                    help="only alliance-visible dispatched missions an ally can "
+                         "help (a squad is out, slot not empty); combine with "
+                         "--done for either")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
@@ -349,7 +354,7 @@ def main() -> int:
                           f"{human_size(index.transcript.size())}{C_RESET}")
             for m in index.find(level=args.level, family=args.family,
                                 state=args.state, server=args.server,
-                                done=args.done):
+                                done=args.done, joinable=args.joinable):
                 # Keyed on what the line actually says — a mission walks
                 # running -> done and each state prints once; a refresh of the
                 # same state does not re-announce. The server id is in the key
