@@ -973,6 +973,11 @@ GHOST_STATE_EMPTY = 0     # a dispatch slot nobody has filled yet
 GHOST_STATE_RUNNING = 2   # squad is out; not lootable yet
 GHOST_STATE_DONE = 3      # completed — lootable, and helpers can claim reward
 
+# The top rarity tier, the ghost-recon analogue of a secret task's star
+# (STAR_TASK_FAMILIES). cfgId families run 4/5/6 (see split_cfg_id); "6" is the
+# rarest, the one worth calling out with a star — same idea, different digits.
+GHOST_STAR_FAMILY = "6"
+
 
 @dataclass(slots=True)
 class GhostReconMission:
@@ -1017,6 +1022,15 @@ class GhostReconMission:
         teammate can join, so those are excluded even though they are real rows.
         """
         return self.alliance_show and not self.empty
+
+    @property
+    def starred(self) -> bool:
+        """Top rarity tier — the ghost-recon analogue of a secret task's star.
+
+        The rule lives in one place (GHOST_STAR_FAMILY) so a mission and the
+        scanner agree on what a star is.
+        """
+        return self.family == GHOST_STAR_FAMILY
 
     def as_dict(self) -> dict:
         return {
@@ -1225,15 +1239,19 @@ def ghost_recon_tiles(payload: dict):
             )
 
 
-def filter_ghost_recon(missions, level=None, family=None, state=None,
-                       server=None, joinable=False, done=False) -> list:
+def filter_ghost_recon(missions, level=None, family=None, star_only=False,
+                       state=None, server=None, joinable=False,
+                       done=False) -> list:
     """Narrow a ghost-recon list. None/False means "any".
 
     `level`/`family`/`state`/`server` each take one value or an iterable
-    (matches any). `joinable` keeps only alliance-visible, dispatched missions
-    an ally can help; `done` keeps only completed (lootable) ones. `joinable`
-    and `done` are ANDed with the rest but ORed with each other — the same
-    "one dimension, two values" rule as `filter_tasks`' can_loot/pending.
+    (matches any). `star_only` keeps only the top rarity tier (family
+    GHOST_STAR_FAMILY), the analogue of `filter_tasks`' `star_only`; it ANDs
+    with an explicit `--family` the same way the secret-task scan lets you say
+    `--star --level 7`. `joinable` keeps only alliance-visible, dispatched
+    missions an ally can help; `done` keeps only completed (lootable) ones.
+    `joinable` and `done` are ANDed with the rest but ORed with each other — the
+    same "one dimension, two values" rule as `filter_tasks`' can_loot/pending.
     """
     def _set(v):
         return None if v is None else ({v} if isinstance(v, (int, str)) else set(v))
@@ -1246,6 +1264,8 @@ def filter_ghost_recon(missions, level=None, family=None, state=None,
         if levels is not None and m.level not in levels:
             continue
         if families is not None and m.family not in families:
+            continue
+        if star_only and not m.starred:
             continue
         if states is not None and m.state not in states:
             continue

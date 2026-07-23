@@ -37,6 +37,8 @@ attacks.
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --done      only lootable-now missions
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable  only ally-help ones
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6  only that rarity tier
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --star      only top-tier (family 6)
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --level 3,5 only those levels (from cfgId)
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992
                                                                            only missions vs 991 or 992
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --dump traffic.jsonl  record every
@@ -123,10 +125,11 @@ def _short(value, keep: int = 8) -> str:
 
 
 def _starred(mission) -> bool:
-    """The top rarity tier — family "6", the ghost-recon analogue of the
-    secret-task star (cfgId family 6000). Marked with a `*` in the log, same as
-    a starred task."""
-    return mission.family == "6"
+    """The top rarity tier — the ghost-recon analogue of the secret-task star
+    (cfgId family 6000). Marked with a `*` in the log, same as a starred task.
+    The rule itself lives on the mission (`GhostReconMission.starred`) so the
+    scanner and `--star`/`filter_ghost_recon` cannot disagree on it."""
+    return mission.starred
 
 
 class MissionIndex(MapIndex):
@@ -262,6 +265,9 @@ def main() -> int:
     ap.add_argument("--family", type=_str_set, metavar="F[,F...]",
                     help="only missions of this cfgId family / rarity tier "
                          "(4/5/6; a list matches any)")
+    ap.add_argument("--star", action="store_true",
+                    help="only top-tier missions (cfgId family 6), the "
+                         "ghost-recon analogue of a secret task's star")
     ap.add_argument("--state", type=_int_set, metavar="S[,S...]",
                     help="only missions in this state (0 empty, 2 running, "
                          "3 done); a list matches any")
@@ -353,8 +359,9 @@ def main() -> int:
                           f"{index.transcript.frames} frame(s), "
                           f"{human_size(index.transcript.size())}{C_RESET}")
             for m in index.find(level=args.level, family=args.family,
-                                state=args.state, server=args.server,
-                                done=args.done, joinable=args.joinable):
+                                star_only=args.star, state=args.state,
+                                server=args.server, done=args.done,
+                                joinable=args.joinable):
                 # Keyed on what the line actually says — a mission walks
                 # running -> done and each state prints once; a refresh of the
                 # same state does not re-announce. The server id is in the key
