@@ -24,8 +24,13 @@ Field semantics inside ``armyInfo`` are inferred structurally — the game ships
         f2  = level           (troop level, e.g. 175)
         f3  = tier / stars    (5 == max on the sampled data)
         f4  = slot position   (1..6, marching order)
-        f15 = skill grade     (inferred; per-hero upgrade counter)
-        f17 = named skills     [{f1: skillId, f2: level}]
+        f15 = weapon grade    (0..30; the exclusive weapon "专武" caps at 30,
+                               where its awakened _zw skin is worn)
+        f17 = weapon slots     [{f1: slot 1..4, f2: upgrade level}] — the awakened
+                               weapon's upgrade slots. Present only once f15 == 30
+                               (confirmed: all 217 f17-bearing heroes are grade 30);
+                               slots unlock in order 1→2→3→4, each with its own
+                               level. (Earlier guessed to be "named skills".)
         f16 = drone payload    ({f1, f2}) on the 1000000 slot
     formation preset = armyInfo._squad.f2.f13
 """
@@ -33,9 +38,12 @@ Field semantics inside ``armyInfo`` are inferred structurally — the game ships
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import json
 import os
+
+import hero_icons_map as hero_map
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -62,6 +70,24 @@ def _formation(army_info):
     return (squad.get("f2") or {}).get("f13")
 
 
+_ICON_CACHE: dict = {}
+
+
+def _icon_data_uri(hero_id, weapon_grade):
+    """Small hero icon as an inline ``data:`` URI, so the report stays
+    self-contained. ``None`` when the id is not confirmed (see hero_map)."""
+    key = (hero_id, weapon_grade is not None and weapon_grade >= hero_map.ZW_GRADE)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    path = hero_map.icon_path(hero_id, weapon_grade, size="small")
+    uri = None
+    if path:
+        with open(path, "rb") as fh:
+            uri = "data:image/png;base64," + base64.b64encode(fh.read()).decode("ascii")
+    _ICON_CACHE[key] = uri
+    return uri
+
+
 def _parse_squad(army_info):
     """Return {heroes:[...], drone:{...}|None, formation:int|None}."""
     heroes, drone = [], None
@@ -74,17 +100,21 @@ def _parse_squad(army_info):
             drone = {"heroId": hero_id, "slot": row.get("f4"),
                      "grade": info.get("f2")}
             continue
-        skills = [
-            {"skillId": s.get("f1"), "level": s.get("f2")}
-            for s in _as_list(row.get("f17")) if isinstance(s, dict)
+        weapons = [
+            {"slot": w.get("f1"), "level": w.get("f2")}
+            for w in _as_list(row.get("f17")) if isinstance(w, dict)
         ]
+        weapons.sort(key=lambda w: w.get("slot") or 0)
+        grade = row.get("f15")
         heroes.append({
             "heroId": hero_id,
             "slot": row.get("f4"),
             "level": row.get("f2"),
             "tier": row.get("f3"),
-            "skillGrade": row.get("f15"),
-            "skills": skills,
+            "weaponGrade": grade,
+            "iconName": hero_map.resname_for(hero_id),
+            "iconData": _icon_data_uri(hero_id, grade),
+            "weapons": weapons,
         })
     heroes.sort(key=lambda h: h.get("slot") or 0)
     return {"heroes": heroes, "drone": drone, "formation": _formation(army_info)}
@@ -94,8 +124,8 @@ def _squad_richness(squad):
     """How complete a snapshot is — used to keep the fullest reading of a march
     (the same army uuid is re-broadcast on every rally refresh, sometimes with
     fewer fields)."""
-    skill_rows = sum(len(h.get("skills") or []) for h in squad["heroes"])
-    return (len(squad["heroes"]), 1 if squad["drone"] else 0, skill_rows)
+    weapon_rows = sum(len(h.get("weapons") or []) for h in squad["heroes"])
+    return (len(squad["heroes"]), 1 if squad["drone"] else 0, weapon_rows)
 
 
 def consolidate(path):
@@ -226,11 +256,18 @@ tr.detail.hidden{display:none}
   display:flex;flex-direction:column;gap:3px}
 .slot .hid{font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px}
 .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.hface{width:26px;height:26px;border-radius:6px;flex:0 0 auto;object-fit:cover;
+  border:1px solid var(--line);background:#0d1220}
 .slot .row{display:flex;justify-content:space-between;font-size:11px;color:var(--dim)}
 .stars{color:var(--gold);font-size:11px;letter-spacing:1px}
-.skills{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;min-height:4px}
+.meta{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:2px;min-height:4px}
 .chip{font-size:10px;background:#182036;border:1px solid var(--line);border-radius:6px;
   padding:1px 6px;color:var(--cyan)}
+.weapons{display:flex;gap:3px;align-items:center;font-size:10px;color:var(--dim);margin-top:1px}
+.weapons .wl{opacity:.7;margin-right:1px}
+.wslot{min-width:17px;text-align:center;border-radius:5px;padding:1px 4px;font-weight:700;
+  background:#241d10;border:1px solid #4a3a17;color:var(--gold)}
+.wslot.empty{background:#0d1220;border-color:var(--line);color:#41506e;font-weight:400}
 .drone{margin-top:10px;font-size:12px;color:var(--dim);display:flex;align-items:center;gap:8px}
 .drone b{color:var(--ink)}
 footer{margin-top:44px;color:var(--dim);font-size:12px;text-align:center}
@@ -243,14 +280,33 @@ function fmt(n){return (n||0).toLocaleString('en-US');}
 function stars(t){return '\\u2605'.repeat(t||0);}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
+function weaponStrip(ws){
+  // The awakened exclusive weapon has 4 upgrade slots; each carries its own
+  // level (absent until unlocked). Shown only once a weapon is awakened.
+  if(!ws || !ws.length) return '';
+  const by={}; ws.forEach(w=>{by[w.slot]=w.level;});
+  let cells='';
+  for(let s=1;s<=4;s++){
+    const lv=by[s];
+    cells+=lv!=null
+      ?`<span class="wslot" title="Weapon slot ${s} \\u00b7 level ${lv}">${lv}</span>`
+      :`<span class="wslot empty" title="Weapon slot ${s} \\u00b7 locked">\\u2013</span>`;
+  }
+  return `<div class="weapons"><span class="wl">\\u2694\\ufe0f</span>${cells}</div>`;
+}
+
 function heroSlot(h){
   const col=`hsl(${hueFor(h.heroId)} 70% 60%)`;
-  const named=(h.skills||[]).map(s=>`<span class="chip">S${s.skillId}\\u00b7${s.level}</span>`).join('');
-  const grade=h.skillGrade!=null?`<span class="chip">g${h.skillGrade}</span>`:'';
+  const grade=h.weaponGrade!=null?`<span class="chip" title="Weapon grade">g${h.weaponGrade}</span>`:'';
+  const face=h.iconData
+    ?`<img class="hface" src="${h.iconData}" alt="${esc(h.iconName||'')}" title="${esc(h.iconName||'')}">`
+    :`<span class="dot" style="background:${col}"></span>`;
+  const label=h.iconName?esc(h.iconName.replace(/_/g,' ')):`#${h.heroId}`;
   return `<div class="slot">
-    <div class="hid"><span class="dot" style="background:${col}"></span>#${h.heroId}</div>
+    <div class="hid">${face}${label}</div>
     <div class="row"><span>Lv ${h.level??'\\u2014'}</span><span class="stars">${stars(h.tier)}</span></div>
-    <div class="skills">${grade}${named}</div>
+    <div class="meta">${grade}</div>
+    ${weaponStrip(h.weapons)}
   </div>`;
 }
 
