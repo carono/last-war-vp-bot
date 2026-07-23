@@ -26,11 +26,13 @@ Field semantics inside ``armyInfo`` are inferred structurally — the game ships
         f4  = slot position   (1..6, marching order)
         f15 = weapon grade    (0..30; the exclusive weapon "专武" caps at 30,
                                where its awakened _zw skin is worn)
-        f17 = weapon slots     [{f1: slot 1..4, f2: upgrade level}] — the awakened
-                               weapon's upgrade slots. Present only once f15 == 30
-                               (confirmed: all 217 f17-bearing heroes are grade 30);
-                               slots unlock in order 1→2→3→4, each with its own
-                               level. (Earlier guessed to be "named skills".)
+        f17 = 专武 bonus levels [{f1: stage 1..4, f2: level}] — extra upgrade
+                               levels of the *exclusive weapon* (专武), unlocked
+                               only once it reaches grade 30 (confirmed: all 217
+                               f17-bearing heroes are grade 30). This is NOT hero
+                               gear — hero equipment is not carried in rally data
+                               at all. (Earlier mislabelled "named skills", then
+                               "weapon slots".)
         f16 = drone payload    ({f1, f2}) on the 1000000 slot
     formation preset = armyInfo._squad.f2.f13
 """
@@ -280,24 +282,24 @@ function fmt(n){return (n||0).toLocaleString('en-US');}
 function stars(t){return '\\u2605'.repeat(t||0);}
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-function weaponStrip(ws){
-  // The awakened exclusive weapon has 4 upgrade slots; each carries its own
-  // level (absent until unlocked). Shown only once a weapon is awakened.
+function zwBonus(ws){
+  // 专武 bonus: extra upgrade levels of the exclusive weapon, unlocked only
+  // once it reaches grade 30. NOT hero gear (gear isn't carried in rally data).
   if(!ws || !ws.length) return '';
   const by={}; ws.forEach(w=>{by[w.slot]=w.level;});
   let cells='';
   for(let s=1;s<=4;s++){
     const lv=by[s];
     cells+=lv!=null
-      ?`<span class="wslot" title="Weapon slot ${s} \\u00b7 level ${lv}">${lv}</span>`
-      :`<span class="wslot empty" title="Weapon slot ${s} \\u00b7 locked">\\u2013</span>`;
+      ?`<span class="wslot" title="\\u4e13\\u6b66 bonus ${s} \\u00b7 level ${lv}">${lv}</span>`
+      :`<span class="wslot empty" title="\\u4e13\\u6b66 bonus ${s} \\u00b7 none">\\u2013</span>`;
   }
-  return `<div class="weapons"><span class="wl">\\u2694\\ufe0f</span>${cells}</div>`;
+  return `<div class="weapons"><span class="wl" title="\\u4e13\\u6b66 (exclusive weapon) bonus levels">\\u4e13\\u6b66</span>${cells}</div>`;
 }
 
 function heroSlot(h){
   const col=`hsl(${hueFor(h.heroId)} 70% 60%)`;
-  const grade=h.weaponGrade!=null?`<span class="chip" title="Weapon grade">g${h.weaponGrade}</span>`:'';
+  const grade=h.weaponGrade!=null?`<span class="chip" title="Exclusive weapon (\\u4e13\\u6b66) grade">g${h.weaponGrade}</span>`:'';
   const face=h.iconData
     ?`<img class="hface" src="${h.iconData}" alt="${esc(h.iconName||'')}" title="${esc(h.iconName||'')}">`
     :`<span class="dot" style="background:${col}"></span>`;
@@ -306,7 +308,7 @@ function heroSlot(h){
     <div class="hid">${face}${label}</div>
     <div class="row"><span>Lv ${h.level??'\\u2014'}</span><span class="stars">${stars(h.tier)}</span></div>
     <div class="meta">${grade}</div>
-    ${weaponStrip(h.weapons)}
+    ${zwBonus(h.weapons)}
   </div>`;
 }
 
