@@ -1156,6 +1156,75 @@ def ghost_recon_alliance_push(payload):
     return kind, mission
 
 
+# The ghost-recon squad drawn on the world map — object type `f2 = 29` on
+# `world.get.block`, alongside secret tasks (`f2 = 17`), bases (`6`), mines (`7`).
+GHOST_RECON_TILE_TYPE = 29
+
+
+def ghost_recon_tiles(payload: dict):
+    """Yield every ghost-recon squad drawn on the map as an `f2 = 29` tile.
+
+    Confirmed live 2026-07-23 (task #1010, `results/task1010/tiles.jsonl`): a
+    ghost-recon dispatch ("Операция Призрак") is NOT only a `ghost.recon.*` poll
+    row — it is also a `world.get.block` tile, handed to anyone who pans over it,
+    exactly like a secret task. This overturns the earlier "ghost recon never
+    rides world.get.block" conclusion: it does, under a tile type we had been
+    discarding as an unknown. The tile packs the same mission in protobuf field
+    numbers under `f14` that the poll carries under named keys:
+
+        f14.f1  ownerId            f14.f6  targetServer
+        f14.f2  cfgId (fam 4/5/6)  f14.f7  actEndTime (weekly, shared by all)
+        f14.f3  teamStartTime      f14.f8  mission uuid (32-hex form)
+        f14.f5  memberList[]       f14.f9  state (3 = done/lootable observed)
+        f14.f11 completionTime     f14.f10 2147483647000 (no-expiry sentinel)
+
+    All 28 tiles in the confirming capture had cfgId family 4/5/6 (the ghost
+    rarity tiers) and `f9 = 3`, with one shared `f7` — the signatures that tell
+    this tile apart from every other kind. Coordinates come out server-local
+    (`f1 % maxAreaSize`), the mission's `pointId`. `owner_server` is the tile's
+    own server (`f102`/`f103`), where the squad is drawn; `target_server`
+    (`f14.f6`) is the different id it attacks.
+    """
+    for block in payload.get("serverPointArr") or ():
+        area = block.get("maxAreaSize") or 1000
+        for point in block.get("points") or ():
+            tile = point.get("_protobuf") or {}
+            if tile.get("f2") != GHOST_RECON_TILE_TYPE:
+                continue
+            detail = tile.get("f14") or {}
+            cfg = detail.get("f2")
+            family = level = None
+            if cfg is not None:
+                try:
+                    family, level, _variant = split_cfg_id(cfg)
+                except (ValueError, TypeError):
+                    family = level = None
+            # `f5` is the squad: a list of members, or a bare dict when the
+            # dispatch has only its leader so far.
+            members = detail.get("f5")
+            member_count = (len(members) if isinstance(members, list)
+                            else 1 if isinstance(members, dict) else 0)
+            packed = tile.get("f1") or 0
+            yield GhostReconMission(
+                uuid=tile.get("f100"),
+                cfg_id=int(cfg) if isinstance(cfg, int) else cfg,
+                family=family, level=level,
+                state=detail.get("f9"),
+                target_server=detail.get("f6"),
+                owner_id=detail.get("f1"),
+                owner_server=tile.get("f102") or tile.get("f103"),
+                alliance_id=None,
+                alliance_show=True,
+                point_id=packed or None,
+                x=packed % area, y=packed // area,
+                member_count=member_count,
+                steal_count=0,
+                team_start_time=detail.get("f3"),
+                completion_time=detail.get("f11"),
+                expire_time=detail.get("f7"),
+            )
+
+
 def filter_ghost_recon(missions, level=None, family=None, state=None,
                        server=None, joinable=False, done=False) -> list:
     """Narrow a ghost-recon list. None/False means "any".
