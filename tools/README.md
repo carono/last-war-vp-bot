@@ -29,7 +29,7 @@ Background and the go/no-go reasoning live in
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks (raidable map tiles) live via scapy/npcap, no Wireshark binaries spawned |
-| `secret_mission_capture.py` | **WSL** (Python) | stream **secret missions** — "Операция Призрак" / ghost recon (`ghost.recon.*`) live via `dumpcap.exe`; `--discover` catches a new command family when the seasonal feature shifts |
+| `secret_mission_capture.py` | **Windows** (Python) | stream **secret missions** — "Операция Призрак" / ghost recon (`ghost.recon.*`) live via scapy/npcap, no Wireshark binaries spawned; `--discover` catches a new command family when the seasonal feature shifts |
 | `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |

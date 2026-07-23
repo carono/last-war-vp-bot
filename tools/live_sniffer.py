@@ -296,6 +296,17 @@ class LiveDecoder:
         self.started = time.time()
         self.packets = 0
 
+    def feed_packet(self, pkt, iface: str | None) -> None:
+        """Scapy sniffer entry point — hand it one captured packet.
+
+        `map_capture.sniff_forever` calls this for every packet npcap delivers,
+        so any LiveDecoder — not just MapIndex — can be driven by
+        `map_capture.start_capture`. `handle` already re-parses the raw bytes as
+        Ethernet when scapy fails to guess the datalink type, so there is
+        nothing to add here; MapIndex overrides it only to count deliveries.
+        """
+        self.handle(pkt, iface)
+
     def handle(self, pkt, iface: str | None) -> None:
         from scapy.layers.inet import IP, TCP  # local import keeps startup fast
         from scapy.layers.l2 import Ether

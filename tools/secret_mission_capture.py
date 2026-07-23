@@ -26,16 +26,22 @@ help-rewardable). The monitor announces a mission when it first matters and
 again when it turns **DONE**, keyed by `(uuid, state)` so a walk
 empty→running→done prints each step once, not every refresh.
 
-Usage (run from WSL — it drives Wireshark's `dumpcap.exe`, like
-`rally_monitor.py`; the game is on the Windows side)::
+It captures the same way `secret_task_capture.py` does — straight through the
+npcap driver via scapy (`map_capture.start_capture`), with no `dumpcap.exe` or
+`tshark.exe` in the loop. **This must run under the Windows Python, not the WSL
+one** (WSL2's NAT'd network namespace never sees the game's packets); invoke it
+by path::
 
-    python3 tools/secret_mission_capture.py                 stream, print each
-    python3 tools/secret_mission_capture.py --done          only lootable now
-    python3 tools/secret_mission_capture.py --joinable      only ally-help ones
-    python3 tools/secret_mission_capture.py --family 6      only that rarity tier
-    python3 tools/secret_mission_capture.py --server 991    only missions vs 991
-    python3 tools/secret_mission_capture.py --json out.json checkpoint to a file
-    python3 tools/secret_mission_capture.py --list          interfaces, exit
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py             stream, print each
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --done       only lootable now
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable   only ally-help ones
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6    only that rarity tier
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991  only missions vs 991
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --json out.json  checkpoint to a file
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --list-ifaces    interfaces, exit
+
+Requirements on that interpreter: npcap (ships with Wireshark), plus
+`pip install scapy zstandard`.
 
 `--discover` is a diagnostic for when the protocol shifts (the feature is
 seasonal): it flags ANY frame whose command/keys look mission-ish and tallies
@@ -52,14 +58,15 @@ import os
 import re
 import signal
 import sys
-import threading
 import time
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import live_tshark as lt  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
+from map_capture import (  # noqa: E402
+    add_capture_arguments, check_platform, start_capture,
+)
 import lastwar_proto as proto  # noqa: E402
 
 C_MISSION = "\x1b[1;33m"  # bold yellow, the "worth acting on" colour
@@ -328,11 +335,13 @@ def _str_set(text: str):
 
 
 def main() -> int:
-    signal.signal(signal.SIGTERM, lt._terminate)
-
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    # The shared scapy transport flags (--iface / --list-ifaces / --seconds /
+    # --all-tcp), same as secret_task_capture.py. --dump is a MapIndex-only
+    # feature, so it is not offered here.
+    add_capture_arguments(ap, include_dump=False)
     ap.add_argument("--json", default=None,
                     help="checkpoint every mission seen to this file, rewritten "
                          "on each announcement (default: no file written)")
@@ -362,17 +371,10 @@ def main() -> int:
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "results", "task1004", "discover.jsonl"),
                     help="where --discover appends matched frames (JSONL)")
-    ap.add_argument("--iface", help="interface number from `dumpcap -D`; "
-                                    "omitted = capture on all of them")
-    ap.add_argument("--list", action="store_true", dest="list_ifaces",
-                    help="list capture interfaces, then exit")
-    ap.add_argument("--duration", type=int, default=1800,
-                    help="stop after N seconds (default 1800 = 30 min)")
-    ap.add_argument("--filter", default="tcp port 17935",
-                    help="capture BPF (default pins the game port)")
-    ap.add_argument("--tshark", help="path to tshark.exe")
-    ap.add_argument("--dumpcap", help="path to dumpcap.exe")
     args = ap.parse_args()
+    # After parsing, so `--help` is readable from the WSL interpreter rather
+    # than refused by the capture-platform check.
+    check_platform()
 
     # Redirected to a file, stdout is block-buffered, so a run watched with
     # `tail -f` shows nothing for minutes and reads as hung.
@@ -381,32 +383,21 @@ def main() -> int:
     except Exception:
         pass
 
-    tshark = lt.find_binary("tshark.exe", args.tshark)
-    dumpcap = lt.find_binary("dumpcap.exe", args.dumpcap) or tshark
-    if not tshark or not dumpcap:
-        print(f"{C_ERR}Wireshark not found (tshark.exe/dumpcap.exe).{C_RESET}",
-              file=sys.stderr)
-        return 1
-
-    ifaces = lt.list_interfaces(tshark)
-    if not ifaces:
-        print(f"{C_ERR}no capture interfaces found{C_RESET}", file=sys.stderr)
-        return 1
-    if args.list_ifaces:
-        for number, label in ifaces:
-            print(f"  {number}  {label}")
-        return 0
-    targets = [(args.iface, f"iface {args.iface}")] if args.iface else ifaces
-
     monitor = MissionMonitor(
         level=args.level, family=args.family, state=args.state,
         server=args.server, done=args.done, joinable=args.joinable,
         json_path=args.json, discover=args.discover,
         discover_path=args.discover_out)
-    stop = threading.Event()
+    # Same capture call secret_task_capture.py uses — scapy/npcap, no dumpcap.
+    # Exits the process on --list-ifaces or a missing scapy.
+    stop, bpf = start_capture(monitor, args)
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+
     sink = f" -> {args.json}" if args.json else ""
-    print(f"Secret-mission monitor via {os.path.basename(dumpcap)} — "
-          f"{len(targets)} iface(s), filter {args.filter!r}, {args.duration}s")
+    window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
+    print(f"Secret-mission monitor — scapy/npcap, no dumpcap")
+    print(f"filter: '{bpf}'   interface: {args.iface or 'default'}   "
+          f"listening {window}")
     if args.discover:
         print(f"{C_MISSION}DISCOVER mode{C_RESET}{C_DIM}: flagging any "
               f"mission/secret/ghost/recon frame, tallying every command -> "
@@ -417,26 +408,17 @@ def main() -> int:
               f".get.alliance.task.list{sink} (Ctrl+C to stop) — open «Операция "
               f"Призрак» in game so the client fetches them{C_RESET}\n")
 
-    procs: list = []
-    threads = [
-        threading.Thread(target=lt.capture,
-                         args=(dumpcap, number, label, monitor, args.filter,
-                               stop, False, procs),
-                         daemon=True)
-        for number, label in targets
-    ]
-    for thread in threads:
-        thread.start()
-
-    deadline = time.time() + args.duration
+    # None means run until interrupted, so the deadline test tolerates no timer.
+    deadline = time.time() + args.seconds if args.seconds else None
     last_tick = time.time()
     try:
-        while not stop.is_set() and time.time() < deadline:
+        while deadline is None or time.time() < deadline:
             time.sleep(0.3)
             if args.discover and time.time() - last_tick >= 15:
                 last_tick = time.time()
-                left = int(deadline - time.time())
-                print(f"{C_DIM}  …{left}s left — {monitor.packets} game "
+                left = (f"…{int(deadline - time.time())}s left"
+                        if deadline is not None else "…running")
+                print(f"{C_DIM}  {left} — {monitor.packets} game "
                       f"frame(s), {len(monitor.all_commands)} distinct "
                       f"command(s), {len(monitor.hits)} match(es){C_RESET}",
                       flush=True)
@@ -444,13 +426,6 @@ def main() -> int:
         pass
     finally:
         stop.set()
-        for proc in procs:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        for thread in threads:
-            thread.join(timeout=2)
 
     monitor.report()
     return 0

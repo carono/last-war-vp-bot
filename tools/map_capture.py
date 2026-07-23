@@ -471,19 +471,27 @@ def sniff_forever(index: MapIndex, iface, bpf: str, stop: threading.Event) -> No
             print(f"{C_DIM}iface {iface}: {exc}{C_RESET}", file=sys.stderr)
 
 
-def add_capture_arguments(ap: argparse.ArgumentParser) -> None:
-    """The transport flags every scanner shares."""
+def add_capture_arguments(ap: argparse.ArgumentParser,
+                          include_dump: bool = True) -> None:
+    """The transport flags every scanner shares.
+
+    `include_dump` gates the `--dump` transcript flag: only scanners built on
+    `MapIndex` (whose `emit` writes the FrameLog) can honour it, so a plain
+    `LiveDecoder` scanner passes `include_dump=False` rather than advertise a
+    flag that would silently write nothing.
+    """
     ap.add_argument("--iface", help="pin one interface; omitted = all of them")
     ap.add_argument("--list-ifaces", action="store_true",
                     help="print the interfaces scapy can see, then exit")
     ap.add_argument("--seconds", type=int, default=None,
                     help="how long to listen (default: until Ctrl+C)")
-    ap.add_argument("--dump", metavar="PATH", default=None,
-                    help="write every decoded frame, both directions, to "
-                         "this file as JSONL — one frame per line, for "
-                         "finding out what else the client and server say. "
-                         "Map traffic is ~3/4 of the bytes; filter it out "
-                         "with jq afterwards")
+    if include_dump:
+        ap.add_argument("--dump", metavar="PATH", default=None,
+                        help="write every decoded frame, both directions, to "
+                             "this file as JSONL — one frame per line, for "
+                             "finding out what else the client and server say. "
+                             "Map traffic is ~3/4 of the bytes; filter it out "
+                             "with jq afterwards")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just %d — use if the "
                          "game ever moves off it" % GAME_PORT)
