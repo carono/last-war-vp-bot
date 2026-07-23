@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -102,6 +103,56 @@ def test_ghost_roundtrip_and_from_dict():
         point_id=989166, x=166, y=989, member_count=5, steal_count=2,
         team_start_time=1, completion_time=2, expire_time=3)
     assert proto.GhostReconMission.from_dict(m.as_dict()) == m
+
+
+def _ghost_tile(uuid, *, completion, start, expire, state=3, cfg=40301,
+                server=1057, packed=401994):
+    """One `f2 = 29` tile shaped like the real world.get.block capture."""
+    return {"_protobuf": {
+        "f1": packed, "f2": 29, "f100": uuid, "f102": server, "f103": server,
+        "f14": {"f1": "owner", "f2": cfg, "f3": completion, "f5": [{}],
+                "f6": 1032, "f7": expire, "f8": "hex", "f9": state,
+                "f10": 2147483647000, "f11": start}}}
+
+
+def test_ghost_tile_field_mapping_not_swapped():
+    """The tile's f3 is completionTime and f11 is teamStartTime, not the reverse.
+
+    The poll proves completionTime > teamStartTime; on the tile f3 > f11, so a
+    naive f3->start / f11->completion read is backwards. Guard the correct map.
+    """
+    payload = {"serverPointArr": [{"maxAreaSize": 1000, "points": [
+        _ghost_tile(1, completion=2000, start=1000, expire=9000)]}]}
+    m = list(proto.ghost_recon_tiles(payload))[0]
+    assert m.completion_time == 2000   # f3, the later time (squad returns)
+    assert m.team_start_time == 1000   # f11, the earlier time (dispatched)
+    assert m.expire_time == 9000       # f7, the weekly window end
+
+
+def test_ghost_tile_lootable_gated_on_clock_not_f9():
+    """LOOTABLE follows the completion timer, not the always-3 tile state (f9).
+
+    Both tiles carry f9 = 3 — the state that used to be trusted as "done" and
+    wrongly flagged a still-running squad as lootable. Only the one whose
+    completionTime is already in the past is can_loot.
+    """
+    now = int(time.time() * 1000)
+    hour = 3600 * 1000
+    payload = {"serverPointArr": [{"maxAreaSize": 1000, "points": [
+        _ghost_tile(10, completion=now - hour, start=now - 2 * hour,
+                    expire=now + hour),                       # squad back
+        _ghost_tile(11, completion=now + hour, start=now - hour,
+                    expire=now + 2 * hour),                   # still out
+        _ghost_tile(12, completion=now - 2 * hour, start=now - 3 * hour,
+                    expire=now - hour),                       # back but expired
+    ]}]}
+    missions = {m.uuid: m for m in proto.ghost_recon_tiles(payload)}
+    assert all(m.state == 3 for m in missions.values())       # f9 says done for all
+    assert missions[10].can_loot is True
+    assert missions[11].can_loot is False                     # completion ahead
+    assert missions[12].can_loot is False                     # expired off the map
+    lootable = proto.filter_ghost_recon(list(missions.values()), can_loot=True)
+    assert {m.uuid for m in lootable} == {10}
 
 
 def _push(kind, **info):

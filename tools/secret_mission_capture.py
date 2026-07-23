@@ -22,11 +22,15 @@ checkpoint and the closing summary.
 
 Because a mission is a map tile, **panning the map is what surfaces it** — the
 same as a secret task. The tile packs the mission in protobuf field numbers under
-`f14` (owner, target server, cfgId rarity tier, state, uuid, coordinates); see
-`proto.ghost_recon_tiles` for the field map. The observed live state is `f9 = 3`
-(completed / lootable). A tile's own server (`owner_server`) is where the squad
-is drawn — the map on screen — while its `target_server` is the different id it
-attacks.
+`f14` (owner, target server, cfgId rarity tier, state, uuid, coordinates, and
+two timers); see `proto.ghost_recon_tiles` for the field map. The tile's `f9`
+state is **not** a reliable done flag — every ghost tile reads `f9 = 3` whether
+or not its squad has returned — so LOOTABLE is decided by the clock instead: the
+completionTime (`f14.f3`, when the squad gets back) is in the past and the weekly
+taskExpireTime (`f14.f7`) is still ahead. That is `GhostReconMission.can_loot`,
+the exact analogue of `SecretTask.can_loot`. A tile's own server (`owner_server`)
+is where the squad is drawn — the map on screen — while its `target_server` is
+the different id it attacks.
 
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py            stream missions, print them
                                                                            (until Ctrl+C, no file written)
@@ -210,10 +214,12 @@ class MissionIndex(MapIndex):
         return [m for m in self.missions if m.owner_server == server]
 
     @property
-    def done_count(self) -> int:
-        """Missions in state 3 — completed and lootable right now — on the
-        server on screen."""
-        return sum(1 for m in self.current_missions if m.done)
+    def lootable_count(self) -> int:
+        """Missions lootable right now on the server on screen — the squad is
+        back (`completion_time` past) and the tile has not expired. Read off the
+        clock, not the map's `f9` state, which is not a reliable done flag on a
+        tile (see `GhostReconMission.can_loot`)."""
+        return sum(1 for m in self.current_missions if m.can_loot)
 
     def find(self, **criteria) -> list:
         """Filter the *current* server's missions — never the one just left.
@@ -275,7 +281,9 @@ def main() -> int:
                     help="only missions targeting this server; a list matches "
                          "any")
     ap.add_argument("--done", action="store_true",
-                    help="only completed missions (state 3 — lootable now)")
+                    help="only missions lootable right now — the squad is back "
+                         "(completion time passed) and the tile has not expired; "
+                         "read off the clock, not the tile's f9 state")
     ap.add_argument("--joinable", action="store_true",
                     help="only alliance-visible dispatched missions an ally can "
                          "help (a squad is out, slot not empty); combine with "
@@ -304,12 +312,13 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    # (owner_server, uuid, state) already announced. A mission walks running ->
-    # done, and each step is worth one line; keying on the state (not the uuid
-    # alone) prints the DONE moment a raid decision needs while a refresh of an
-    # unchanged mission stays silent. Cleared on a server switch below, since the
-    # new server's tiles are a fresh set of lines and a return trip must
-    # re-announce what it finds.
+    # (owner_server, uuid, can_loot) already announced. A mission walks
+    # still-out -> lootable, and each step is worth one line; keying on the
+    # clock-based can_loot (not the tile's f9, which is always 3) prints the
+    # lootable moment a raid decision needs while a refresh of an unchanged
+    # mission stays silent. Cleared on a server switch below, since the new
+    # server's tiles are a fresh set of lines and a return trip must re-announce
+    # what it finds.
     reported: set = set()
     # None means run until interrupted, so every deadline test has to tolerate
     # not having one.
@@ -346,7 +355,7 @@ def main() -> int:
                       f"{index.blocks_seen} map response(s), "
                       f"{index.tiles_seen} tile(s), "
                       f"{len(index.current_missions)} mission(s), "
-                      f"{index.done_count} done{C_RESET}")
+                      f"{index.lootable_count} lootable{C_RESET}")
                 if args.json and not dump_missions(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -360,13 +369,17 @@ def main() -> int:
                           f"{human_size(index.transcript.size())}{C_RESET}")
             for m in index.find(level=args.level, family=args.family,
                                 star_only=args.star, state=args.state,
-                                server=args.server, done=args.done,
+                                server=args.server, can_loot=args.done,
                                 joinable=args.joinable):
-                # Keyed on what the line actually says — a mission walks
-                # running -> done and each state prints once; a refresh of the
-                # same state does not re-announce. The server id is in the key
-                # because a uuid only identifies a tile within its server.
-                key = (m.owner_server, m.uuid, m.state)
+                # Keyed on whether it is lootable, NOT on the tile's `state`
+                # (f9): every ghost tile reads f9 = 3 whether its squad is back
+                # or not, so keying on state announced a still-running mission
+                # as LOOTABLE and never re-announced the real done moment. Keying
+                # on `can_loot` (the clock-based gate) prints the mission once
+                # while its squad is out and again when it actually returns. The
+                # server id is in the key because a uuid is unique only within
+                # its server.
+                key = (m.owner_server, m.uuid, m.can_loot)
                 if key in reported:
                     continue
                 reported.add(key)
@@ -376,8 +389,9 @@ def main() -> int:
                          else "(   ?,   ?)")
                 # Only the actionable state gets a label, exactly as the
                 # secret-task scan tags LOOTABLE and nothing else: a dispatched
-                # squad still out (state 2) is listed, but unlabelled.
-                tag = f"  {C_MISSION}LOOTABLE{C_RESET}" if m.done else ""
+                # squad still out is listed, but unlabelled. Lootability is the
+                # timer, not f9.
+                tag = f"  {C_MISSION}LOOTABLE{C_RESET}" if m.can_loot else ""
                 print(f"{star} lvl {lvl}  {where}  "
                       f"server {m.owner_server} -> {m.target_server}  "
                       f"members {m.member_count}  family {m.family or '?'}  "
@@ -388,15 +402,15 @@ def main() -> int:
         stop.set()
 
     everything = index.missions
-    # reported holds (owner_server, uuid, state), so one mission can appear under
-    # several keys as it walks running -> done; the count is of distinct
+    # reported holds (owner_server, uuid, can_loot), so one mission can appear
+    # under two keys as it walks still-out -> lootable; the count is of distinct
     # missions.
-    matched = len({(server, uuid) for server, uuid, _state in reported})
+    matched = len({(server, uuid) for server, uuid, _lootable in reported})
     where = (f" on server {index.current_server}"
              if index.current_server is not None else "")
     print(f"\n{len(everything)} mission(s) seen{where}, "
           f"{matched} matched the filter, "
-          f"{index.done_count} done/lootable")
+          f"{index.lootable_count} lootable now")
     print(f"traffic: {index.delivered} delivered / {index.packets} with "
           f"payload, {index.blocks_seen} map response(s), "
           f"{index.tiles_seen} tile(s), kinds {dict(index.tile_kinds)}")

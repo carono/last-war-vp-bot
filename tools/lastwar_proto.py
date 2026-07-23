@@ -1024,6 +1024,28 @@ class GhostReconMission:
         return self.alliance_show and not self.empty
 
     @property
+    def can_loot(self) -> bool:
+        """Lootable right now: the squad is back and the mission has not expired.
+
+        On a `world.get.block` tile the numeric `state` (f9) is not a reliable
+        "done" flag — every ghost tile observed carried `f9 = 3` whether or not
+        its squad had actually returned — so lootability is read off the clock,
+        exactly as a secret task's is (`SecretTask.can_loot`). `completion_time`
+        (the tile's f3, the squad's return time) must be set and no longer in the
+        future; `expire_time` (f7 / taskExpireTime, the weekly window end) must
+        still be ahead. Both are epoch milliseconds on the game's clock.
+
+        The polled list carries a trustworthy `state`, so there `done` and
+        `can_loot` agree; only on the map does the timer override a bogus `f9`.
+        """
+        now = int(time.time() * 1000)
+        if self.completion_time is None or self.completion_time > now:
+            return False
+        if self.expire_time is not None and self.expire_time <= now:
+            return False
+        return True
+
+    @property
     def starred(self) -> bool:
         """Top rarity tier — the ghost-recon analogue of a secret task's star.
 
@@ -1187,17 +1209,30 @@ def ghost_recon_tiles(payload: dict):
     numbers under `f14` that the poll carries under named keys:
 
         f14.f1  ownerId            f14.f6  targetServer
-        f14.f2  cfgId (fam 4/5/6)  f14.f7  actEndTime (weekly, shared by all)
-        f14.f3  teamStartTime      f14.f8  mission uuid (32-hex form)
-        f14.f5  memberList[]       f14.f9  state (3 = done/lootable observed)
-        f14.f11 completionTime     f14.f10 2147483647000 (no-expiry sentinel)
+        f14.f2  cfgId (fam 4/5/6)  f14.f7  taskExpireTime (weekly, shared)
+        f14.f3  completionTime     f14.f8  mission uuid (32-hex form)
+        f14.f5  memberList[]       f14.f9  state (see the f9 caveat below)
+        f14.f11 teamStartTime      f14.f10 2147483647000 (no-expiry sentinel)
 
-    All 28 tiles in the confirming capture had cfgId family 4/5/6 (the ghost
-    rarity tiers) and `f9 = 3`, with one shared `f7` — the signatures that tell
-    this tile apart from every other kind. Coordinates come out server-local
-    (`f1 % maxAreaSize`), the mission's `pointId`. `owner_server` is the tile's
-    own server (`f102`/`f103`), where the squad is drawn; `target_server`
-    (`f14.f6`) is the different id it attacks.
+    Two field pairings matter and are *not* what a first read suggests. `f3` is
+    the **completionTime** — when the dispatched squad returns and the mission
+    becomes lootable — and `f11` is the earlier **teamStartTime**; the poll's
+    named keys prove the ordering (`completionTime > teamStartTime` always) and
+    `f3 > f11` holds for every tile, with `f3 - f11` (~45-86 min) matching the
+    poll's dispatch duration. This is the same `f3 = completed_at` the secret-task
+    tile uses (`SecretTask.can_loot`), the shared tile format.
+
+    **The `f9` state is NOT a reliable done flag on the map** — every ghost tile
+    in the confirming capture carried `f9 = 3` regardless of whether its squad had
+    actually returned, so a scan that trusted it announced still-running missions
+    as lootable. Lootability is therefore read off the clock instead
+    (`GhostReconMission.can_loot`): completionTime (`f3`) in the past and
+    taskExpireTime (`f7`) still ahead. What does tell the tile apart from every
+    other kind is cfgId family 4/5/6 (the ghost rarity tiers) plus the shared
+    weekly `f7`. Coordinates come out server-local (`f1 % maxAreaSize`), the
+    mission's `pointId`. `owner_server` is the tile's own server (`f102`/`f103`),
+    where the squad is drawn; `target_server` (`f14.f6`) is the different id it
+    attacks.
     """
     for block in payload.get("serverPointArr") or ():
         area = block.get("maxAreaSize") or 1000
@@ -1233,15 +1268,15 @@ def ghost_recon_tiles(payload: dict):
                 x=packed % area, y=packed // area,
                 member_count=member_count,
                 steal_count=0,
-                team_start_time=detail.get("f3"),
-                completion_time=detail.get("f11"),
+                team_start_time=detail.get("f11"),
+                completion_time=detail.get("f3"),
                 expire_time=detail.get("f7"),
             )
 
 
 def filter_ghost_recon(missions, level=None, family=None, star_only=False,
                        state=None, server=None, joinable=False,
-                       done=False) -> list:
+                       done=False, can_loot=False) -> list:
     """Narrow a ghost-recon list. None/False means "any".
 
     `level`/`family`/`state`/`server` each take one value or an iterable
@@ -1249,9 +1284,12 @@ def filter_ghost_recon(missions, level=None, family=None, star_only=False,
     GHOST_STAR_FAMILY), the analogue of `filter_tasks`' `star_only`; it ANDs
     with an explicit `--family` the same way the secret-task scan lets you say
     `--star --level 7`. `joinable` keeps only alliance-visible, dispatched
-    missions an ally can help; `done` keeps only completed (lootable) ones.
-    `joinable` and `done` are ANDed with the rest but ORed with each other — the
-    same "one dimension, two values" rule as `filter_tasks`' can_loot/pending.
+    missions an ally can help; `done` keeps only ones the numeric state calls
+    completed (trustworthy on the *poll*); `can_loot` keeps only ones lootable
+    right now by the clock (`completion_time` past, not expired) — the correct
+    gate on a *map tile*, where `state` (f9) is not a reliable done flag. These
+    three are ANDed with the rest but ORed with each other — the same "one
+    dimension, several values" rule as `filter_tasks`' can_loot/pending.
     """
     def _set(v):
         return None if v is None else ({v} if isinstance(v, (int, str)) else set(v))
@@ -1271,8 +1309,9 @@ def filter_ghost_recon(missions, level=None, family=None, star_only=False,
             continue
         if servers is not None and m.target_server not in servers:
             continue
-        if joinable or done:
-            if not ((joinable and m.joinable) or (done and m.done)):
+        if joinable or done or can_loot:
+            if not ((joinable and m.joinable) or (done and m.done)
+                    or (can_loot and m.can_loot)):
                 continue
         out.append(m)
     # Done first (act on those now), then running, then empty; then most-looted
