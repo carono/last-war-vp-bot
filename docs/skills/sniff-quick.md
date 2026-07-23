@@ -5,7 +5,7 @@ When asked to capture/sniff/collect traffic:
 3. Analyze results
 
 For ghost recon: replace with secret_mission_capture.py
-For rally: rally_monitor.py --duration 60
+For rally: rally_monitor.py --seconds 60
 For raw dump: use map_capture directly
 
 Default timeout: 60s. No asking, no planning — just run.

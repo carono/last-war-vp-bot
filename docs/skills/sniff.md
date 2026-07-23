@@ -64,13 +64,13 @@ on the wire at all.
 ```
 
 ### `rally_monitor.py` — alliance rallies / стяги
-Harvests every participant's `armyInfo` out of `push.alliance.march.*`.
-> **⚠️ Different transport.** Unlike the three above, `rally_monitor.py` still
-> drives Wireshark's `dumpcap.exe` (not scapy). It needs Wireshark installed and
-> its default BPF is `host 3.33.246.23 and port 17935` — a **stale IP**. Pass the
-> live one: `--filter "host 34.145.128.94 and port 17935"`, or `--dumpcap <path>`.
+Harvests every participant's `armyInfo` out of `push.alliance.march.*`. Same
+scapy/npcap transport as the three above (no `dumpcap.exe`/`tshark.exe`), but it
+listens on the `push.alliance.march.*` push stream instead of `world.get.block`,
+so **no map panning is needed** — a rally arrives the moment it is launched or
+refreshed.
 ```bash
-python3 tools/rally_monitor.py --iface <n> --duration 1800 --out results/rally/monitor.jsonl
+/mnt/c/Python312/python.exe tools/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
 ```
 
 **Map tiles need the map moving.** Secret tasks, missions and ghost tiles ride
@@ -156,7 +156,7 @@ jq -c 'select(.name == null)' traffic.jsonl                    # unnamed (only .
 | Symptom | Cause | Fix |
 |---|---|---|
 | 0 packets / 0 frames, no error | Ran under the **WSL** Python | Use `/mnt/c/Python312/python.exe`. WSL sees none of the game's packets. |
-| `Wireshark not found (tshark.exe/dumpcap.exe)` | You're on the **dumpcap** path (only `rally_monitor.py`) | The scapy tools (`secret_task`/`secret_mission`/`ghost_recon_tile_dump`) need **no** Wireshark — use them. For `rally_monitor.py`: install Wireshark or pass `--dumpcap <path>`. |
+| `scapy is not installed on this interpreter` | The capturing Python lacks scapy | `pip install scapy zstandard` on that interpreter (npcap itself ships with Wireshark). All four tools share this one transport. |
 | `Unable to guess datalink type` / "npcap delivered N packets but none decoded" | scapy mis-maps the npcap linktype | Already worked around (frames re-parsed as Ethernet). If it persists, pin the right adapter with `--iface`. |
 | "No packets at all" | Game not running, or wrong interface | Check the `:17935` ESTABLISHED line; `--list-ifaces` and pin `#13 vEthernet (…)`. |
 | Empty capture, game clearly online | Idle base sends only keepalives; map tiles need motion | **Pan the map / open the screen** during the run. |

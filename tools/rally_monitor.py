@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Live rally (стяг) monitor — harvest the armies out of alliance rallies.
 
-Runs ``dumpcap`` against the game endpoint (port 17935), decodes the
-``push.alliance.march.create`` / ``push.alliance.march.refresh`` stream, pulls
-every participant's ``armyInfo`` (the base64 protobuf squad — hero ids, tiers,
-levels, skills) and writes one JSON line per participant to
+Decodes the ``push.alliance.march.create`` / ``push.alliance.march.refresh``
+stream, pulls every participant's ``armyInfo`` (the base64 protobuf squad — hero
+ids, tiers, levels, skills) and writes one JSON line per participant to
 ``results/rally/monitor.jsonl`` for later analysis.
 
-    python3 tools/rally_monitor.py
-    python3 tools/rally_monitor.py --out results/rally/monitor.jsonl
-    python3 tools/rally_monitor.py --iface 1 --duration 1800
+    /mnt/c/Python312/python.exe tools/rally_monitor.py
+    /mnt/c/Python312/python.exe tools/rally_monitor.py --seconds 300
+    /mnt/c/Python312/python.exe tools/rally_monitor.py --out results/rally/monitor.jsonl
+    /mnt/c/Python312/python.exe tools/rally_monitor.py --iface \\Device\\NPF_... --seconds 1800
+    /mnt/c/Python312/python.exe tools/rally_monitor.py --list-ifaces   interfaces, then exit
 
 Each JSONL line::
 
@@ -17,8 +18,23 @@ Each JSONL line::
      heroes:[{heroId, tier, level, skills:[{skillId, level}]}],
      formation, armyInfoRaw}
 
-On Ctrl+C it prints a short summary: how many distinct rally teams (стяги) and
-how many distinct participants were seen.
+On Ctrl+C (or the ``--seconds`` timer) it prints a short summary: how many
+distinct rally teams (стяги) and how many distinct participants were seen.
+
+Transport is scapy/npcap via ``map_capture.start_capture`` — the same
+driver-only path as ``secret_task_capture.py`` and ``secret_mission_capture.py``,
+with no ``dumpcap.exe`` or ``tshark.exe`` spawned. Unlike those two this is *not*
+a ``world.get.block`` map scan: a rally rides the ``push.alliance.march.*`` push
+stream, so ``RallyMonitor`` stays a plain ``LiveDecoder`` rather than a
+``MapIndex`` — ``LiveDecoder.feed_packet`` and ``start_capture`` both drive a
+LiveDecoder that is not a MapIndex, so nothing here needs the map machinery
+(server election, tile blocks) that the map scanners subclass.
+
+**This must run under the Windows Python, not the WSL one.** WSL2 sits in a
+NAT'd VM whose network namespace is not the host's, so a capture there sees
+WSL's own traffic and never a byte of the game's — see
+``map_capture.check_platform()``. Requirements on that interpreter: npcap
+(ships with Wireshark), plus ``pip install scapy zstandard``.
 
 Field semantics inside ``armyInfo`` are **inferred structurally** — the game
 ships no ``.proto`` (see docs/research/protocol.md §7). The best-effort mapping
@@ -38,14 +54,15 @@ import json
 import os
 import signal
 import sys
-import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import live_tshark as lt  # noqa: E402
-from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 import lastwar_proto as proto  # noqa: E402
+from live_sniffer import C_DIM, C_OK, C_RESET, LiveDecoder  # noqa: E402
+from map_capture import (  # noqa: E402
+    add_capture_arguments, check_platform, start_capture,
+)
 
 # The rally stream. Matched as a substring against the decoded command name so
 # "alliance.march.create" also catches the push.-prefixed form, and the same for
@@ -143,7 +160,14 @@ def _iter_marches(obj):
 
 
 class RallyMonitor(LiveDecoder):
-    """LiveDecoder that harvests + archives the armies behind every rally."""
+    """LiveDecoder that harvests + archives the armies behind every rally.
+
+    A plain LiveDecoder, not a MapIndex: rallies arrive on the
+    ``push.alliance.march.*`` push stream rather than as ``world.get.block`` map
+    tiles, so none of the map-scan machinery (server election, tile blocks)
+    applies. ``map_capture.start_capture`` drives it all the same — the scapy
+    sniffer calls ``LiveDecoder.feed_packet`` regardless of the subclass.
+    """
 
     def __init__(self, out_path: str):
         super().__init__()
@@ -207,73 +231,59 @@ class RallyMonitor(LiveDecoder):
             print("teams (teamUuid):")
             for team in sorted(self.teams):
                 print(f"  {team}")
-        print(f"\narchive: {self.out_path}")
+        print(f"\n{self.packets} packet(s) with payload; archive: {self.out_path}")
+        if not self.frames:
+            print(f"{C_DIM}No rally events decoded — rallies ride "
+                  f"push.alliance.march.*, which only arrives when an alliance "
+                  f"rally is actually launched or refreshed while capturing."
+                  f"{C_RESET}")
         self._out.close()
 
 
 def main() -> int:
-    signal.signal(signal.SIGTERM, lt._terminate)
-
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    # The shared transport flags (--iface, --list-ifaces, --seconds, --all-tcp),
+    # same as the map scanners. --dump is a MapIndex-only transcript feature, so
+    # it is not offered here — this decoder's emit() would write nothing to it.
+    add_capture_arguments(ap, include_dump=False)
     ap.add_argument("--out", default=DEFAULT_OUT,
                     help=f"JSONL archive, appended (default {DEFAULT_OUT})")
-    ap.add_argument("--iface", help="interface number from `tshark.exe -D`; omitted = all")
-    ap.add_argument("--duration", type=int, default=1800,
-                    help="stop after N seconds (default 1800 = 30 min)")
-    ap.add_argument("--filter", default="host 3.33.246.23 and port 17935",
-                    help="capture BPF (default pins the game endpoint)")
-    ap.add_argument("--tshark", help="path to tshark.exe")
-    ap.add_argument("--dumpcap", help="path to dumpcap.exe")
     args = ap.parse_args()
+    # After parsing, so `--help` is readable from the WSL interpreter rather
+    # than refused by the capture-only platform check.
+    check_platform()
 
-    tshark = lt.find_binary("tshark.exe", args.tshark)
-    dumpcap = lt.find_binary("dumpcap.exe", args.dumpcap) or tshark
-    if not tshark or not dumpcap:
-        print(f"{C_ERR}Wireshark not found (tshark.exe/dumpcap.exe).{C_RESET}",
-              file=sys.stderr)
-        return 1
-
-    ifaces = lt.list_interfaces(tshark)
-    if not ifaces:
-        print(f"{C_ERR}no capture interfaces found{C_RESET}", file=sys.stderr)
-        return 1
-    targets = [(args.iface, f"iface {args.iface}")] if args.iface else ifaces
+    # Redirected to a file, stdout is block-buffered, so a run watched with
+    # `tail -f` shows nothing for minutes and reads as hung.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
 
     monitor = RallyMonitor(args.out)
-    stop = threading.Event()
-    print(f"Rally monitor via {os.path.basename(dumpcap)} — "
-          f"{len(targets)} iface(s), filter {args.filter!r}, {args.duration}s")
+    stop, bpf = start_capture(monitor, args)
+
+    print("Rally monitor — scapy/npcap, no dumpcap")
+    print(f"filter: '{bpf}'   interface: {args.iface or 'default'}")
+    window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
     print(f"{C_DIM}decoding alliance.march.create/refresh armies -> "
-          f"{monitor.out_path}  (Ctrl+C to stop){C_RESET}\n")
+          f"{monitor.out_path}\nlistening {window} — a rally must be launched or "
+          f"refreshed for anything to arrive{C_RESET}\n")
 
-    procs: list = []
-    threads = [
-        threading.Thread(target=lt.capture,
-                         args=(dumpcap, number, label, monitor, args.filter, stop,
-                               False, procs),
-                         daemon=True)
-        for number, label in targets
-    ]
-    for thread in threads:
-        thread.start()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    deadline = time.time() + args.duration
+    # None means run until interrupted, so the deadline test tolerates not
+    # having one.
+    deadline = time.time() + args.seconds if args.seconds else None
     try:
-        while not stop.is_set() and time.time() < deadline:
-            time.sleep(0.3)
+        while deadline is None or time.time() < deadline:
+            time.sleep(0.5)
     except KeyboardInterrupt:
         pass
     finally:
         stop.set()
-        for proc in procs:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        for thread in threads:
-            thread.join(timeout=2)
 
     monitor.report()
     return 0
