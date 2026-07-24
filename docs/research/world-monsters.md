@@ -243,3 +243,30 @@ monsters. `GoToUtil.GoAttackMonster()` only re-opens the alliance rally boss; th
 is the map-tap dispatch flow. Screenshots: `results/monster19_popup.png` (the «Обжора» solo
 popup), `results/obzhora_dispatch.png` (dispatch «Лёгкая победа»), `results/march_launched.png`
 (march out), `results/battle_result.png` (monster killed, troops returning).
+
+### Follow-up 5 — the Golden Zombie found & killed (it was in the "golden vein" region)
+
+The user was right — the golden zombies are plentiful, just in a different area. Panning the
+world map up/right (away from the alliance base cluster) reached a **golden-vein region**: a
+large golden boss tagged **«100»** (golden scarab, LWWorldMonsterType boss) surrounded by
+**small golden zombies «10»** sitting on **piles of gold coins + orange chests**.
+
+Tapping a lvl-10 golden one confirmed it: popup **«Вторгшиеся Зомби» ур.10** — exactly
+`MonsterTemplateManager` cfgId `1030000` (**recommended power 670,000**, matching the config),
+guaranteed rewards **Courage Medal ×10** + weapon/hero EXP + iron/food 268K + gold, and a
+**red crossed-swords «Атаковать»** (solo) button. **Attacked and killed it:** red-swords →
+dispatch UI (**55.59M vs 670.00K → «Лёгкая победа»**, «Марш 00:01:17») → **«Марш»** launched
+the march (`IsHaveMarchInWorld() = true`, green march path to the golden zombie), and ~80 s
+later the golden zombie was **gone / killed** (`IsHaveMarchInWorld = false`).
+
+**Sniffer during panning (120 s):** `world.get.block` returned 34 tiles, `f2` only
+`{7 mine, 17 secret_task, 6 base}` — **no monster tiles even while panning over the golden
+zombies**. So golden zombies (like all monsters) are rendered client-side but **not delivered
+via `world.get.block`**; the traffic while roaming is just base/mine/task tiles + `push.world
+.march.*` + `push.battle.finish`. This re-confirms `world-tiles.md` (monsters ≠ block tiles).
+
+**Recipe to attack a Golden Zombie:** pan to a golden-vein region → tap a lvl-10 «Вторгшиеся
+Зомби» (on gold piles) → red-swords «Атаковать» → «Марш». Screenshots: `results/gold_region.png`
+(the golden cluster), `results/golden_zombie_popup.png` («Вторгшиеся Зомби» ур.10),
+`results/golden_dispatch.png` (55.59M vs 670K), `results/golden_march.png` (march out),
+`results/golden_battle_result.png` (golden zombie killed).
