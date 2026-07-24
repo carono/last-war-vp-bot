@@ -270,3 +270,65 @@ via `world.get.block`**; the traffic while roaming is just base/mine/task tiles 
 (the golden cluster), `results/golden_zombie_popup.png` («Вторгшиеся Зомби» ур.10),
 `results/golden_dispatch.png` (55.59M vs 670K), `results/golden_march.png` (march out),
 `results/golden_battle_result.png` (golden zombie killed).
+
+## Finding 5 — attacking a monster ENTIRELY via Lua (no physical click)
+
+The whole tap→popup→attack flow reduces to **one Lua call**:
+
+```lua
+GoToUtil.GoAttackMonster(pointId)   -- opens the UIWorldPoint attack popup, no click
+```
+
+`GoToUtil.GoAttackMonster(pointId)` is the single entry point that the physical raycast-tap
+funnels into: given a world **pointId** it **sends the server "get world-point detail"
+request itself** (the raycast is only there to discover the pointId), waits for the reply,
+and **opens the `UIWorldPoint` popup** rendered from that detail — all out-of-process via
+`XLuaManager.SafeDoString`. Verified: `GetStackWindowCount()` goes `0 → 1` and a screenshot
+shows the full monster popup (rewards, recommended power, energy/timer). No `pydirectinput`,
+no BitBlt, no tap.
+
+### Getting a candidate pointId without a tap
+
+Monsters are **not** in `world.get.block` nor any Lua data manager (Findings 1–4), so the
+pointId can't be read from data. Derive it from the camera after the finder centers on one:
+
+```lua
+GoToUtil.FindMonster(10)                       -- centers the CAMERA on a nearby lvl-10 monster (returns nil)
+local cam = CS.UnityEngine.Camera.main
+local p, f = cam.transform.position, cam.transform.forward
+local t  = -p.y / f.y                          -- ray to the y=0 ground plane
+local g  = CS.UnityEngine.Vector3(p.x + f.x*t, 0, p.z + f.z*t)   -- ground look-at point
+local pointId = SceneUtils.WorldToTileIndex(g) -- tile index at screen centre  → candidate pointId
+GoToUtil.GoAttackMonster(pointId)
+```
+
+Caveat: `WorldToTileIndex(cameraGroundLookAt)` gives the tile at *screen centre*, which in the
+isometric projection is offset a couple of tiles from the monster's sprite, so it can land on
+an **adjacent** monster. In one run it opened **«Роковая Элита» ур.5** (a nearby rally elite)
+instead of the intended golden zombie — see the discriminator below.
+
+### The popup: `UIWindowNames.UIWorldPoint` (`UIWorldPointCtrl` / `UIWorldPointView`)
+
+`w = UIManager.Instance:GetStackTopWindow()` → `w.Name == "UIWorldPoint"`, with:
+
+- **`w.Ctrl`** (`UIWorldPointCtrl`) — the logic/data. Fields: `pointId`, `uuid`, `type`,
+  `serverId`, `ownerUid`, … Methods incl. **`RequestWorldPointDetail`**, **`GetMonsterData`**,
+  `GetPointData`, `GetMonsterRewardData`, `OnMarkClick`, `CloseSelf`, and a `Get*Data` per
+  point kind (ruin/rescue/boss/resource/ghostrecon/zombierush/…).
+- **`w.View`** (`UIWorldPointView`) — the widgets (the central round action button).
+
+**Solo-vs-rally discriminator:** `w.Ctrl:GetMonsterData().canAttack`
+
+- `canAttack == 1` → **soloable** (red crossed-swords «Атаковать»/«Марш»).
+- `canAttack == 0` → **rally-only** (orange flag «Стягивание») — e.g. «Роковая Элита» returned
+  `canAttack = 0`. **Launching a rally is an alliance-wide outward action → needs explicit
+  user sign-off; do not press it.** Solo «Марш» is the pre-authorised path.
+
+### Remaining step for a full no-click SOLO march
+
+`GoAttackMonster(pointId)` opens the popup; to *launch* the solo march without a click the
+popup's action button handler still needs to be invoked (through `w.Ctrl`/`w.View`, ultimately
+`MarchUtil.OnClickStartMarch`/`StartMarch`/`SendCreateMarchToServer`), and the pointId must
+resolve to a `canAttack == 1` monster (scan neighbouring tiles reading `GetMonsterData().canAttack`
+until one is soloable). Screenshot of the proven no-click popup: `results/goattack.png`
+(«Роковая Элита» ур.5 opened purely from Lua).
