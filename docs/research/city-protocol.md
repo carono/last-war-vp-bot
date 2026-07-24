@@ -47,6 +47,14 @@ Interface caveat learned along the way: capturing only on the Hyper-V `vEthernet
 physical Wireless/bridge adapters (`-i 1 -i 2`) see both — but even there the game server's
 down payload was 0. So the negative result is real, not a capture artifact.
 
+**Re-confirmed on a clean World→City entry** (`results/city_entry.pcapng`): started in
+World, sniffer up, then a single `SceneUtils.ChangeToCity()` — a *real* base entry, not a
+round-trip. Result identical: **75 up / 0 down** payload frames (150 total = 75 requests +
+75 bare ACKs). Crucially, entering the base generated **no city-side request at all** — no
+`user.enter`/`city.*`/`build.*`, only `user.leave.world` plus world-teardown queries. The
+City entry is a pure client-side render from the cached base model; the network is not
+consulted for base state. Three independent captures now agree.
+
 **Conclusion:** buildings, troops, resources, NPCs and build queues were **not** observed,
 because that data does not cross the wire on a City↔World switch. It is part of the base
 snapshot the client receives **once at login** and then keeps; re-entering the base renders
@@ -98,3 +106,4 @@ sign-off.
 - `results/city_capture.pcapng` — pass B single-interface raw pcap (up only; interface lesson).
 - `results/city_capture2.pcapng` — pass B multi-interface raw pcap (both directions; server down payload = 0).
 - `results/city_decoded.json`, `results/city_decoded2.json` — offline `lastwar_proto` decodes.
+- `results/city_entry.pcapng`, `results/city_entry.json` — dedicated clean World→City entry (75 up / 0 down; no city-side request).
