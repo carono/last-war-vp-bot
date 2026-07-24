@@ -325,3 +325,99 @@ back. The dump JSON's `addr` is **not** a usable class pointer. A bad
   validate the enum arg, and prefer the emulator + throwaway account first per §5.
   MethodInfo/class pointers above are stable only for pid 32136's lifetime; that
   process is gone, so all addresses must be **re-resolved** on the next launch.
+
+---
+
+## 9. xLua source analysis (task #1017, Step 0) — from the real MIT repo
+
+Read the actual `Tencent/xLua` sources (not the 0-method dump) to stop guessing.
+This resolves *why* the managed route kept failing and gives a robust discovery
+plan. **The game was down during this step, so Steps 1–2 (resolve + canary) could
+not run — see §9.4.**
+
+### 9.1 `LuaEnv` — no singleton, exact field order
+
+From `Assets/XLua/Src/LuaEnv.cs`:
+
+- **`LuaEnv` has NO singleton.** It is created with `new LuaEnv()`. So there is
+  nothing to reach via a static `Instance` on `LuaEnv` itself — the earlier
+  `get_Instance` hunt was doomed at the type level.
+- **Instance fields, declaration order:**
+  1. `internal RealStatePtr rawL;` — the raw **`lua_State`** pointer (`RealStatePtr`
+     = `System.IntPtr`).
+  2. `private LuaTable _G;` — the global table.
+  3. `internal ObjectTranslator translator;`
+  4. `internal int errorFuncRef = -1;`
+  5. `internal object luaLock;`
+- **Raw `lua_State` is exposed** via property `internal RealStatePtr L { get; }`
+  (throws if `rawL == Zero`). So once a live `LuaEnv` is in hand, the native Lua
+  C API is reachable through `rawL`.
+- **Run-Lua API:** `public object[] DoString(string chunk, string chunkName =
+  "chunk", LuaTable env = null)` (and a `byte[]` overload). Matches the overload
+  `xlua_route.py` already selects.
+
+> **Offset caveat.** Source order is `rawL(0)→_G(1)→translator(2)`, but this build's
+> runtime `il2cpp_field_get_offset` reported `_G@0x10, translator@0x18` — i.e. the
+> compiled layout differs from upstream declaration order (il2cpp reorders, and the
+> game's xLua may be patched). **Always trust runtime `field_get_offset`, never the
+> source order, for offsets.** Resolve `rawL`/`_G`/`translator` offsets live by name.
+
+### 9.2 `ObjectTranslator` — the back-reference that makes discovery robust
+
+From `Assets/XLua/Src/ObjectTranslator.cs`:
+
+- **`ObjectTranslator` holds `internal LuaEnv luaEnv;`** — a back-reference to its
+  owning `LuaEnv`, set in the ctor `ObjectTranslator(LuaEnv luaenv, RealStatePtr L)`
+  (`this.luaEnv = luaenv;`). **One `ObjectTranslator` per `LuaEnv`.**
+- First instance fields (order): `methodWrapsCache`, `objectCheckers`,
+  `objectCasters`, `objects` (ObjectPool), `reverseMap` (Dictionary), **`luaEnv`**.
+- It does **not** store the `lua_State` as a field (it's passed per-call).
+
+This is the key that §8 was missing. `LuaEnv.translator` and
+`ObjectTranslator.luaEnv` form a **mutual reference**. That mutual link is a far
+stronger instance-discovery filter than the one-directional signature check that
+found 0 hits in §8:
+
+> **Mutual-reference discovery (robust):**
+> 1. header-scan for `ObjectTranslator` candidates (§8 found ~82, mostly metadata);
+> 2. for each candidate `OT`, read `OT.luaEnv` (offset via runtime `field_get_offset`
+>    on the `luaEnv` field) → candidate `L`;
+> 3. read `L.translator` → if it equals `OT` **and** `clsname(L) == "LuaEnv"`,
+>    the pair is genuine. Metadata false-positives cannot satisfy the mutual link.
+>
+> This does not depend on any singleton, on `_G` being non-null, or on `XLuaManager`
+> at all — it keys purely on the two objects pointing at each other.
+
+### 9.3 The game's `XLuaManager` — not a `MonoSingleton`
+
+The proposed "`MonoSingleton<T>` → static `Instance`" path does **not** hold on
+this build: `XLuaManager` inherits `System.Object` **directly** (runtime parent
+chain `XLuaManager → Object`, §8.1) and has no static `Instance` field — only path
+strings. `XLuaManager` is a *game-specific* wrapper (not part of xLua core; the
+xLua repo has no `XLuaManager.cs`). Its `get_Env` returns the `LuaEnv`, but it is
+an **instance** method, so it still needs a live `XLuaManager` — which the
+header-scan cannot pin either. **Therefore the mutual-reference route (§9.2), which
+avoids the manager entirely, is the recommended discovery path**, superseding both
+the `get_Instance` and the `get_Env`-on-a-scanned-manager approaches.
+
+### 9.4 Blocker — Steps 1–2 need a live process, and the game is down
+
+The game crashed at the end of §8 (my invalid-class-pointer error) and has not
+been relaunched. Resolving a live `LuaEnv` (Step 1) and the `DoString` canary
+(Step 2) both require the running process. **I am not autonomously relaunching the
+client / re-authenticating the account while the user is away** — that is an
+account-touching action for them to take.
+
+What is ready for the next live session (game up, user present):
+- `tools/xlua_dostring.py` now implements the **mutual-reference discovery**
+  (§9.2) — read-only, but **untested since the crash** (no live process to verify
+  against). Re-resolve all class pointers on the new pid first.
+- Then the canary: `DoString("CS.UnityEngine.Debug.Log('xlua_alive')")`.
+- **Reminder:** the C# **static `SceneManager` route (§8.2)** already reaches the
+  actual City→World goal (`ChangeScene(SceneID.World==2)`) without any of this
+  instance-discovery difficulty. The xLua route is worth finishing for arbitrary
+  Lua, but it is **not** on the critical path for the scene transition.
+
+**Sources:** `Tencent/xLua` (MIT) `Assets/XLua/Src/LuaEnv.cs` and
+`ObjectTranslator.cs`; xLua `LuaBehaviour` example and community notes on the
+"one global LuaEnv, held by a manager" pattern.

@@ -1,14 +1,27 @@
-r"""Drive the game's xLua VM via LuaEnv.DoString — fixed instance discovery.
+r"""Drive the game's xLua VM via LuaEnv.DoString — mutual-reference discovery.
 
-Supersedes the XLuaManager.get_Instance path in xlua_route.py (that accessor
-returns null on this build — the singleton lives on a base MonoSingleton<T>).
-This walks XLuaManager's parent chain, reads each STATIC field via
-il2cpp_field_static_get_value, and takes the one whose value is a live
-XLuaManager object; then LuaEnv = XLuaManager.get_Env(instance), validated by
-its _G(LuaTable)/translator(ObjectTranslator) signature, then DoString(chunk).
+Source-derived (Tencent/xLua, MIT — see docs/research/xlua-state.md §9):
+  * LuaEnv has NO singleton (it is `new LuaEnv()`); fields rawL(lua_State),
+    _G(LuaTable), translator(ObjectTranslator).
+  * ObjectTranslator holds a back-reference `internal LuaEnv luaEnv;` and there is
+    exactly one per LuaEnv.
+So LuaEnv.translator and ObjectTranslator.luaEnv point at each other. That MUTUAL
+link uniquely identifies the live pair among header-scan metadata noise — far more
+robust than the one-directional signature check that found 0 hits (see §8), and it
+needs no singleton and no XLuaManager.
 
-All calls run RIP-gated on the attached main thread (see il2cpp-invoke-stability).
-Read-only recon + a guarded DoString. Base must be idle.
+Discovery:
+  1. header-scan for ObjectTranslator instances (find_instance_rpm.scan);
+  2. for each OT, read OT.luaEnv -> L; if L.translator == OT and clsname(L)=='LuaEnv'
+     the pair is genuine.
+Field offsets are resolved LIVE via il2cpp_field_get_offset (never source order —
+this build reorders; §9.1).
+
+All calls run RIP-gated on the attached main thread. Read-only recon + a guarded
+DoString. Base must be idle.
+
+!! UNTESTED since the game crash at the end of §8 — no live process was available
+   to verify this path. Re-resolve every class pointer on the new pid first.
 
     C:\Python312\python.exe tools\xlua_dostring.py                 # canary Debug.Log
     C:\Python312\python.exe tools\xlua_dostring.py --lua "print('x')"
@@ -21,73 +34,68 @@ sys.path.insert(0, "tools")
 import xlua_route as XR
 import il2cpp_dump as D
 import il2cpp_probe as P
-
-GET_ENV_MI = 0x12a2fa4a8  # XLuaManager.get_Env (0-arg instance) — stable per game run
+import find_instance_rpm as F
 
 
 def a(s):
-    """ASCII-safe: the stdout here is cp1251; class/field names can be CJK."""
+    """ASCII-safe: stdout here is cp1251; class/field names can be CJK."""
     return str(s).encode("ascii", "replace").decode("ascii")
+
+
+def find_luaenv_via_translator(x, luaenv_cls):
+    """Locate the live LuaEnv through the ObjectTranslator back-reference."""
+    e, h = x.e, x.h
+    # ObjectTranslator class (Assembly-CSharp, ns '') — resolved off the live enum
+    ot_cls = F.resolve_class(h, x.pid, e, "ObjectTranslator")
+    if not ot_cls:
+        raise SystemExit("ObjectTranslator class not resolved")
+    tr_off = x.foff(luaenv_cls, "translator")      # LuaEnv.translator offset
+    le_off = x.foff(ot_cls, "luaEnv")              # ObjectTranslator.luaEnv offset
+    print(f"ObjectTranslator cls=0x{ot_cls:x} LuaEnv.translator@0x{tr_off:x} "
+          f"ObjectTranslator.luaEnv@0x{le_off:x}")
+    if not (tr_off and le_off):
+        raise SystemExit("could not resolve translator/luaEnv field offsets")
+
+    def u(addr):
+        b = D.rpm_safe(h, addr, 8)
+        return D.u64(b, 0) if b else 0
+
+    hits = F.scan(h, ot_cls, "ObjectTranslator")
+    for ot in sorted(set(hits)):
+        if ot_cls <= ot < ot_cls + 0x8000:        # inside the class struct
+            continue
+        if u(ot + 8) != 0:                         # monitor must be 0 for an object
+            continue
+        L = u(ot + le_off)                         # OT.luaEnv -> candidate LuaEnv
+        if not (0x10000 < L < 0x7FFFFFFFFFFF) or (L & 7):
+            continue
+        if x.clsname(L) != "LuaEnv":
+            continue
+        if u(L + tr_off) == ot:                    # mutual link — decisive
+            print(f"  MUTUAL: ObjectTranslator 0x{ot:x} <-> LuaEnv 0x{L:x}")
+            return L
+    return 0
 
 
 def main():
     lua = None
     if "--lua" in sys.argv:
         lua = sys.argv[sys.argv.index("--lua") + 1]
-    chunk = lua or 'CS.UnityEngine.Debug.Log("xlua_test")'
+    chunk = lua or 'CS.UnityEngine.Debug.Log("xlua_alive")'
 
     x = XR.X()
-    e = x.e
-
-    def alloc(n=8):
-        p = int(P.VirtualAllocEx(x.h, None, n, 0x3000, 4))
-        P.WriteProcessMemory(x.h, C.c_void_p(p), b"\x00" * n, n, C.byref(C.c_size_t(0)))
-        return p
-
     lcls = x.find_luaenv_class()
-    mgrcls = x.xluamgr_cls
-    print(f"LuaEnv cls=0x{lcls:x} XLuaManager cls=0x{mgrcls:x}")
+    print(f"LuaEnv cls=0x{lcls:x}")
 
-    # --- singleton discovery: static fields of XLuaManager and its parents ---
-    found = None
-    cls = mgrcls
-    for depth in range(6):
-        if not cls:
-            break
-        it = alloc(8)
-        while True:
-            f = x.hj(e["il2cpp_class_get_fields"], [cls, it], "fields")
-            if not f:
-                break
-            fl = x.hj(e["il2cpp_field_get_flags"], [f], "ff")
-            if not (fl & 0x10):  # FIELD_ATTRIBUTE_STATIC
-                continue
-            fnm = D.cstr(x.h, x.hj(e["il2cpp_field_get_name"], [f], "fn"))
-            out = alloc(8)
-            x.hj(e["il2cpp_field_static_get_value"], [f, out], "sget")
-            val = D.u64(P.rpm(x.h, out, 8), 0)
-            if not (0x10000 < val < 0x7FFFFFFFFFFF) or (val & 7):
-                continue
-            cn = x.clsname(val)
-            if cn not in ("(null)", "(unreadable)", "(nonptr)"):
-                print(f"  [d{depth}] static {a(fnm)} = 0x{val:x} [{a(cn)}]")
-            if cn == "XLuaManager":
-                found = val
-        cls = x.hj(e["il2cpp_class_get_parent"], [cls], "parent")
-    print(f"SINGLETON = {hex(found) if found else None}")
-    if not found:
-        raise SystemExit("no XLuaManager singleton via static fields")
+    luaenv = find_luaenv_via_translator(x, lcls)
+    if not luaenv:
+        raise SystemExit("no live LuaEnv found via ObjectTranslator back-reference")
 
-    # --- LuaEnv via get_Env, validated by signature ---
-    luaenv, exc = x.invoke(GET_ENV_MI, found, [], "get_Env")
-    g = x.clsname(D.u64(P.rpm(x.h, luaenv + 0x10, 8), 0))
-    tr = x.clsname(D.u64(P.rpm(x.h, luaenv + 0x18, 8), 0))
-    print(f"get_Env -> 0x{(luaenv or 0):x} exc=0x{exc:x} cls={a(x.clsname(luaenv))} "
-          f"_G={a(g)} translator={a(tr)}")
-    if not (g == "LuaTable" and tr == "ObjectTranslator"):
-        raise SystemExit("LuaEnv signature check failed")
+    # signature confirm (offsets are live-resolved inside the finder already)
+    g = x.clsname(D.u64(P.rpm(x.h, luaenv + x.foff(lcls, "_G"), 8), 0))
+    tr = x.clsname(D.u64(P.rpm(x.h, luaenv + x.foff(lcls, "translator"), 8), 0))
+    print(f"LuaEnv=0x{luaenv:x} _G={a(g)} translator={a(tr)}")
 
-    # --- DoString ---
     ds_mi, ds_pc = x.find_dostring_string(lcls)
     print(f"DoString mi=0x{ds_mi:x} params={ds_pc}")
     cs = x.il2_string_new(chunk)
