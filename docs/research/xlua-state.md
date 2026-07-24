@@ -449,6 +449,71 @@ re-resolved on the new pid):
 
 ---
 
+## 12. SOLVED — City→World works via xLua `SceneUtils.ChangeToWorld()` (task #1017)
+
+**This is the real, visually-confirmed City→World transition, and it closes the goal.**
+The C# `SceneManager.ChangeScene` path (§11) was a dead end; the working path is a
+**Lua** call, reached through a **static** facade that bypasses the whole managed
+instance-discovery wall (§8–§10).
+
+### 12.1 The unlock — `GameEntry.get_Lua()` → `XLuaManager.SafeDoString(string)`
+
+The instance-discovery wall (no reachable `LuaEnv`/`XLuaManager` by header-scan or the
+mutual-reference finder — the latter also failed, 1316 metadata hits, 0 valid) is
+**sidestepped by a static facade**, exactly like the game `SceneManager`:
+
+- **`GameEntry`** is a static facade (`get_Network`, `get_Event`, …, **`get_Lua`**).
+  `GameEntry.get_Lua()` (static, `mi=0x129eaa8e8`) **returns the live `XLuaManager`**
+  (`0x12be0bdc0`, `exc=0`) — no scan needed.
+- **`XLuaManager.SafeDoString(System.String)`** (`mi=0x13d0e4830`) runs a Lua chunk.
+
+**Proven end to end** (Player.log at `%LOCALAPPDATA%LocalLow/FunFly/Last War-Survival
+Game/Player.log`):
+- `error('proof_ran_'..tostring(1+1))` → log shows `xLua exception: …: proof_ran_2`
+  (arithmetic + concat + error all executed);
+- `CS.UnityEngine.Debug.LogError('XLUA_MARKER_1017')` → `XLUA_MARKER_1017` in the log.
+- Note `SafeDoString` **swallows Lua errors** (il2cpp `exc` is always 0) — verify via
+  the Player.log / a return value / observed state, not the `exc` slot.
+
+So arbitrary Lua with full `CS.*` bindings runs in-process. This is the xLua route the
+earlier sections wanted; it was blocked only on reaching the VM, which the static
+`GameEntry.get_Lua()` solves.
+
+### 12.2 The transition — `SceneUtils.ChangeToWorld()` (visually confirmed)
+
+Dumping `_G` for world/scene tables surfaced the game's Lua API. The working call is
+**`SceneUtils.ChangeToWorld()`** (reverse: `SceneUtils.ChangeToCity()`); the table also
+has `CreateWorld`, `CreateCity`, `GetIsInWorld/City`, `CheckCanGotoWorld`. Higher-level
+`GoToUtil.TryJumpToWorld()` runs `ok=true` but no-ops without a target point.
+
+A/B on a fresh City session (pid 72276), via `tools/_lua_gotoworld.py`:
+
+| Stage | Lua state | Screenshot | bottom-right button |
+|---|---|---|---|
+| BEFORE | `GetIsInWorld=false`, `GetIsInCity=true` | City base rendered | «Мир» |
+| `SceneUtils.ChangeToWorld()` | `ok=true err=nil` | — | — |
+| AFTER | `GetIsInWorld=true`, `GetIsInCity=false` | **World map fully rendered** (other players' `#935 [TLou]…` bases, march queue, server event banner) | **«База»** — flipped! |
+
+`results/gw_after.png` shows the **world map**, and the toggle button **changed from
+«Мир» to «База»** — the decisive visual signal per `[[project_screenshot_and_map_switch]]`.
+Unlike §11's C# `ChangeScene` (enum flip + black torn-down view), the Lua call performs
+the **full flow** (data + scene build + camera) and the client renders the world.
+
+### 12.3 How to do City→World (definitive recipe)
+
+```
+GameEntry.get_Lua()  (static mi, resolve at runtime + validate)   -> XLuaManager
+XLuaManager.SafeDoString("SceneUtils.ChangeToWorld()")            -> renders World
+# reverse: SafeDoString("SceneUtils.ChangeToCity()")
+```
+
+Tools: `tools/xlua_dostring.py` documents the VM; `tools/_lua_gotoworld.py` is the
+transition harness. Resolve `GameEntry`/`XLuaManager` and the two MethodInfos at runtime
+(validate the class name; addresses are per-pid). **This supersedes §11: use the Lua
+`SceneUtils.ChangeToWorld()` path, never the bare C# `SceneManager.ChangeScene`.**
+
+---
+
 ## 11. City→World via ChangeScene — engine enum flips, but NOT a working visual transition (task #1017)
 
 > **Verdict up front (see §11.3 for the decisive A/B test):** `ChangeScene(SceneID
