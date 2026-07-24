@@ -1,0 +1,95 @@
+{
+ "Geometry/distance/path": [
+  "AxisAlignRectIntersectAxisAlignSegment",
+  "AxisAlignRectIntersectSegment",
+  "CalcMoveOnPath",
+  "CreatePathSegment",
+  "GetBlackLengthByStartEnd",
+  "GetIndexByOffset",
+  "GetIndexByOffsetX",
+  "GetIndexByOffsetY",
+  "GetNinePalacesOffset",
+  "GetNinePalacesOffsetByIndex",
+  "ManhattanDistance",
+  "TileDistance",
+  "TileDistanceToMyHome"
+ ],
+ "Coordinate/tile conversion": [
+  "BigIndexToStandardIndex",
+  "BigIndexToTilePos",
+  "DecodeWorldPos",
+  "EncodeWorldPos",
+  "IndexToTilePos",
+  "TileIndexToWorld",
+  "TilePosToIndex",
+  "TileToUniqueTile",
+  "TileToWorld",
+  "TileXYToIndex",
+  "UniqueTileToWorld",
+  "WorldToClosestGridWorld",
+  "WorldToTile",
+  "WorldToTileFloat",
+  "WorldToTileFloatXY",
+  "WorldToTileIndex",
+  "WorldToTileXZ",
+  "WorldToUniqueTile",
+  "WorldXYToUniqueTileXY"
+ ],
+ "Scene control": [
+  "ChangeToCity",
+  "ChangeToWorld",
+  "CheckCanGotoWorld",
+  "CreateCity",
+  "CreateWorld",
+  "GetIsInCity",
+  "GetIsInPve",
+  "GetIsInWorld",
+  "GetSceneLuaArray",
+  "SceneDescription",
+  "SetIsInCity",
+  "UnInitSceneLuaArray"
+ ],
+ "Other/sync": [
+  "CheckNeedSyncCityBuildIdName",
+  "GetMarchCurPos",
+  "IsInCityField",
+  "IsIndexInWorld",
+  "SyncCityBuildIdName"
+ ],
+ "Alliance points": [
+  "CheckNewAllianceMemberSwitch",
+  "ClearALMemberPoints",
+  "ClearLastRequestALPointsTime",
+  "TryFastJoinAlliance",
+  "TryJoinAlliance",
+  "WorldSendGetALPointsRequest"
+ ],
+ "Land/zone/camp": [
+  "GetCampIdByPointIndex",
+  "GetCampIdByPosId",
+  "GetCityMetaByPointIndex",
+  "GetOccupyServerIdByPosId",
+  "GetZoneIdByPosId",
+  "IsBlackLandActive",
+  "IsInBlackLand",
+  "IsInBlackOrYellowLand",
+  "IsInBlackRange",
+  "IsInYellowLand"
+ ],
+ "Audio/effects": [
+  "PlayCityAMBSound",
+  "PlayCityBGM",
+  "PlayGuideSceneBgMusic",
+  "PlayWorldAMBSound",
+  "PlayWorldBGM",
+  "PlayWorldEffect",
+  "PlayWorldSceneBGMusic",
+  "TryPlayDarkneesSeasonBloodyNightBGM",
+  "TryPlayQueenOfBloodWorldBgm"
+ ],
+ "Pooling": [
+  "RefreshUsePool",
+  "ReturnPoolV2",
+  "ReturnPoolV3"
+ ]
+}

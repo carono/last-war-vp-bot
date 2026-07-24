@@ -142,3 +142,84 @@ Partial **settings** group also captured: `BankSetting`, `LWUIMigrationSetting`,
 - **`GuideOpenPanelType`** — exists (guide-driven panel opens); values not captured (no alliance key).
 - Other UI globals seen: `UIWindow`, `UIBaseView`, `UIModelView`, `UIScrollView`/`UIScrollViewSimple`, `UILoopGridView`/`UILoopListView2`/`UILoopListViewSimple`/`UIUnlimitedScrollView`, `UIComponentPoolManager`, `UITimeManager`, `TroopHeadUIManager`, `WorldBuildHeadUIManager`, `WorldMarchTileUIManager`, `UIViewSkinBridge`, `UIChatSplitPanel`. (Open-type enums: `UIMailOpenType`, `TrainUIOpenType`, `AlarmUIOpenType`, `UISeasonCallBackInfoOpenType`, `UIDetectSlotBoxPanelType`.)
 
+
+---
+
+# Full enumeration — complete live dump (supersedes the partial lists above)
+
+Dumped from a fresh login via `SafeDoString` writing straight to disk (`CS.System.IO.File.WriteAllText`, bypassing Player.log truncation). Raw dumps in `results/*.txt` (git-ignored); **grouped machine-readable copies committed under `docs/research/ui-open-data/*.json`**. Counts: **UIWindowNames 2221, GoToUtil 147, SceneUtils 77, DataCenter 464, GuideOpenPanelType 1**.
+
+## `GoToUtil` — 147 methods (complete)
+
+The full high-level navigator. Every `Go*`/`Goto*`/`Jump*`/`Move*`/`Open*`/`Request*` runs a fetch+open flow (proven: `GotoAllianceShop`). Grouped:
+
+- **Alliance** (5): `GoToAllianceFurnace`, `GoToAllianceMemberBase`, `GoToNewAllianceSkill`, `GotoAllianceShop`, `RequestAllianceMemberBasePoint`
+- **Build/city/resource** (47): `CheckSeasonResourceStatus`, `GetBuildState`, `GetHighestLevelBuild`, `GetSourceByResourceItem`, `GoBarracks`, `GoBuildOpenUpgrade`, `GoBusinessCenterWindow`, `GoCheckBuild`, `GoCityCollect`, `GoConnectBuild`, `GoEnergy`, `GoFactory`, `GoFactoryWork`, `GoGarageUpgrade`, `GoGarbage`, `GoHospital`, `GoToCityBuildByQuest`, `GoToCivilizationSparkBuild`, `GoToCurObstacle`, `GoToGarageRefit`, `GoToSeasonCityList`, `GotoBuildListByBuildId`, `GotoBuildListRobotByRobotId`, `GotoBuildRoad`, `GotoCityByBuildId`, `GotoCityByBuildUuid`, `GotoCityByCondBuildId`, `GotoCityPos`, `GotoCityTroopAndPointToGarbage`, `GotoColdStorage`, `GotoDabenPos`, `GotoDragonBuildPos`, `GotoFarm`, `GotoFarmGet`, `GotoFastBuildList`, `GotoFinishedBuilding`, `GotoMainBuildPos`, `GotoNearestCity`, `GotoNearestCityStronghold`, `GotoPasture`, `GotoPastureByUuid`, `GotoResourceBuild`, `GotoWorldBuildAndOpenUI`, `GotoWorldResource`, `OpenInCity`, `RequestNearestTradeStationWithLord`, `RequestNearestTradeStationWithoutLord`
+- **Generic window/view** (12): `CloseAllWindows`, `GoMainUIBtn`, `GoToByQuestId`, `GoToWindow`, `GotoOpenView`, `GotoOpenViewOpenOptions`, `GotoOpenView_BattleReturnOpt`, `GotoTWSkillChipView`, `GotoTWView`, `GotoWorkerRecruitView`, `OpenChatView`, `OpenMinTrainTimePanel`
+- **Hero/formation** (14): `GoFormation`, `GoHeroBag`, `GoHeroDetails`, `GoHeroDetailsByItemId`, `GoHeroStation`, `GoHeroStationScores`, `GoHeroTrust`, `GoHeroUniqueWeaponPreview`, `GoToCareerSelect`, `GoToPlayerCareer`, `GotoHeroAwaken`, `GotoHeroHonorWall`, `GotoHeroUniqueWepaon`, `GotoTrainSolider`
+- **Monster/combat/PvE** (13): `FindMonster`, `GoAttackMonster`, `GoLandLockById`, `GoLandPve`, `GoLockMonster`, `GoPveLevel`, `GoSearchEnemy`, `GoTriggerPve`, `GoUnlockedTile`, `GoUnlockedTile_Newbies`, `GotoBossMonsterBetweenLv`, `GotoMonsterReward`, `LookAtFirstCanUnlockLandLockByPve`
+- **Other** (15): `CheckCrossWar`, `DoPlayerAssistance`, `GoBagPackUseItem`, `GoLWParkourBattle`, `GoToByTypeAndParam`, `GoToCostTrainSpeed`, `GoToPlayerLevel`, `GoToServerPreCheck`, `GotoAnySpeed`, `GotoBattlefield`, `GotoDragonPos`, `GotoEffectLack`, `GotoPos`, `GotoPosForDragon`, `PersonalArmsGoto`
+- **Science/upgrade** (9): `GoToCampScience`, `GoToCivilizationSparkBattle`, `GoToCivilizationSparkUpgrade`, `GoToMilitaryCampPromotion`, `GotoScience`, `OpenSciencePanel`, `OpenScienceQueue`, `OpenScienceTabPanel`, `OpenScienceTree`
+- **Season/activity** (7): `CheckActIdInOffSeasonViewAndOpen`, `GoActWindow`, `GoActWindowDontClose`, `GotoSeasonActivityView`, `GotoSeasonBiuBiuActivity`, `GotoSeasonSnowStormActivity`, `OpenActivityCommonGroupWindow`
+- **Shop/pay/reward** (11): `GoGiftMall`, `GoToMonthCard`, `GoToStorageShop`, `GotoActShopWindow`, `GotoActShopWindowMission`, `GotoGiftPackView`, `GotoGuluBox`, `GotoMigrationTicketShop`, `GotoPay`, `GotoPayTips`, `GotoSeasonWeekCardView`
+- **World/map/march** (14): `GoRadarProbe`, `GoToCountBattleMap`, `GoToCurWorldPoint`, `GotoCurrMonopolyCell`, `GotoMarchCurPos`, `GotoServerZone`, `GotoWorldPos`, `JumpToMarchByUuid`, `JumpToWorldPoint`, `MoveToWorldMarchAndOpen`, `MoveToWorldPoint`, `MoveToWorldPointAndOpen`, `OnClickWorldPoint`, `TryJumpToWorld`
+
+Highlights: monster nav `GoAttackMonster`, `FindMonster`, `GoLockMonster`, `GotoBossMonsterBetweenLv`, `GotoMonsterReward`; building `GoBarracks`, `GoFactory`, `GoHospital`, `GotoCityByBuildId`; hero `GoHeroBag`, `GoHeroDetails`, `GoFormation`; science `GotoScience`, `OpenScienceTree`; generic `GoToWindow`, `GotoOpenView`, `CloseAllWindows`, `GoMainUIBtn`.
+
+## `SceneUtils` — 77 methods (complete)
+
+Not just scene switching — it also holds the world-map **coordinate math** used elsewhere in these docs (city-navigation / world-tiles). Grouped:
+
+- **Alliance points** (6): `CheckNewAllianceMemberSwitch`, `ClearALMemberPoints`, `ClearLastRequestALPointsTime`, `TryFastJoinAlliance`, `TryJoinAlliance`, `WorldSendGetALPointsRequest`
+- **Audio/effects** (9): `PlayCityAMBSound`, `PlayCityBGM`, `PlayGuideSceneBgMusic`, `PlayWorldAMBSound`, `PlayWorldBGM`, `PlayWorldEffect`, `PlayWorldSceneBGMusic`, `TryPlayDarkneesSeasonBloodyNightBGM`, `TryPlayQueenOfBloodWorldBgm`
+- **Coordinate/tile conversion** (19): `BigIndexToStandardIndex`, `BigIndexToTilePos`, `DecodeWorldPos`, `EncodeWorldPos`, `IndexToTilePos`, `TileIndexToWorld`, `TilePosToIndex`, `TileToUniqueTile`, `TileToWorld`, `TileXYToIndex`, `UniqueTileToWorld`, `WorldToClosestGridWorld`, `WorldToTile`, `WorldToTileFloat`, `WorldToTileFloatXY`, `WorldToTileIndex`, `WorldToTileXZ`, `WorldToUniqueTile`, `WorldXYToUniqueTileXY`
+- **Geometry/distance/path** (13): `AxisAlignRectIntersectAxisAlignSegment`, `AxisAlignRectIntersectSegment`, `CalcMoveOnPath`, `CreatePathSegment`, `GetBlackLengthByStartEnd`, `GetIndexByOffset`, `GetIndexByOffsetX`, `GetIndexByOffsetY`, `GetNinePalacesOffset`, `GetNinePalacesOffsetByIndex`, `ManhattanDistance`, `TileDistance`, `TileDistanceToMyHome`
+- **Land/zone/camp** (10): `GetCampIdByPointIndex`, `GetCampIdByPosId`, `GetCityMetaByPointIndex`, `GetOccupyServerIdByPosId`, `GetZoneIdByPosId`, `IsBlackLandActive`, `IsInBlackLand`, `IsInBlackOrYellowLand`, `IsInBlackRange`, `IsInYellowLand`
+- **Other/sync** (5): `CheckNeedSyncCityBuildIdName`, `GetMarchCurPos`, `IsInCityField`, `IsIndexInWorld`, `SyncCityBuildIdName`
+- **Pooling** (3): `RefreshUsePool`, `ReturnPoolV2`, `ReturnPoolV3`
+- **Scene control** (12): `ChangeToCity`, `ChangeToWorld`, `CheckCanGotoWorld`, `CreateCity`, `CreateWorld`, `GetIsInCity`, `GetIsInPve`, `GetIsInWorld`, `GetSceneLuaArray`, `SceneDescription`, `SetIsInCity`, `UnInitSceneLuaArray`
+
+Note the coordinate helpers `EncodeWorldPos`/`DecodeWorldPos`, `WorldToTile`/`TileToWorld`, `TileDistance`/`ManhattanDistance`/`TileDistanceToMyHome`, `BigIndexToTilePos` — a ready-made API for the point↔tile packing reverse-engineered in `world-tiles.md`.
+
+## `UIWindowNames` — 2221 windows, grouped (full list: `docs/research/ui-open-data/ui_window_names.json`)
+
+| group | count | examples |
+|---|--:|---|
+| Other | 580 | `BirthdayDataSetPanel`, `BountyHunterExchange`, `BountyHunterRules`, `BountyHunterSpecialEvent`, `BuyDiamondPackTips`, `CommonTipConfirm`, `CompleteImmdiatelyPanel`, `CrazyRockGame` … (+572) |
+| Battle/war/rally | 503 | `ActLotteryBigRewardSpecialShow`, `ActLotteryPreOpenReward`, `AllyDuelScoreGacha`, `AllyDuelScoreGachaRules`, `ArmyFormationDetailPowerTips`, `ArmyFormationPowerTips`, `AttackCityS0RadarEventPopView`, `BanquetAttackMonsterFinRewardGet` … (+495) |
+| Season/event/activity | 280 | `ActLotteryDraw100Result`, `ActLotteryDrawResult`, `ActMonopolyItemUse`, `AllyDrillUpdateBoss`, `DiggingLevelSingleView`, `KillZombieAlChallengeRank`, `KillZombieBoxUpgrade`, `LWActMeteoriteFlyTip` … (+272) |
+| Hero/weapon/chip | 198 | `ActCitySkinExchangeItemUse`, `ExchangeHeroSuccess`, `HeroAwakenSkillPreview`, `HeroAwakenSkinPreview`, `HeroAwakenUpgradeStarEffect`, `HeroExchangeGuide`, `HeroExchangePreview`, `LWEffectOverviewHeroDetail` … (+190) |
+| Building/city/base | 150 | `BankCity`, `BankCityHistory`, `CampSelectHistory`, `CampSelectHistoryS6`, `CampSelectList`, `CampSelectListS6`, `CityGiveUpPopup`, `CityProtectTimeTips` … (+142) |
+| Alliance | 124 | `AllianceMilitaryPayRank`, `AllianceMilitaryRewardPreviewView`, `AllianceMilitaryRewardUpgrade`, `DiggingLevelAllianceCView`, `DiggingLevelAllianceView`, `LWAllianceCongratulationListPop`, `LWAllianceCongratulationPopView`, `LWAllianceMilitaryPayMainView` … (+116) |
+| Shop/pay/gift/reward | 95 | `AccuRechargeOverlapDisplay`, `BankDepositInfo`, `BankHelp`, `BankHistory`, `BankReport`, `BankSetting`, `FirstPayGetExpClickTipsView`, `FirstPayGetExpHistoryPopView` … (+87) |
+| Chat/social/mail | 89 | `LWUIActEasterEggChat`, `LWUIActEasterEggMessage`, `LWUIActEasterThumbsUpGlory`, `LWUIActMeteoriteRankChangedNotice`, `LWUIChatCommonShare`, `LWUIChatOperation`, `LWUIFriendsCircleSetting`, `LWUIMeteoriteConditionNotice` … (+81) |
+| Setting/system/guide | 65 | `LWGuideMask`, `LWStatusSettingsView`, `LWUIMigrationChangeWord`, `LWUIMigrationGuide`, `LWUIMigrationPlayerMark`, `LWUIMigrationRequest`, `LWUIMigrationRequestConfirm`, `LWUIMigrationResult` … (+57) |
+| Resource/production | 58 | `GoldBrickStoreConfirmPop`, `GoldTreePrayShow`, `GoldTreeRank`, `GoldTreeResult`, `GoldTreeRule`, `LWTradeStationRecord`, `LWUIActEasterEggYesterdayCoin`, `LWUIBagResourceOverview` … (+50) |
+| Map/world/detect | 36 | `LWUIMasterySkillUseInWorld`, `LWUIWorldTrend`, `UIDetectCaveExploration`, `UIDetectEvent`, `UIDetectEventLevelUp`, `UIDetectEventPowerUpgrade`, `UIDetectSlotBoxOpen`, `UILLWorldMapTransport` … (+28) |
+| Rank/leaderboard | 32 | `CrossOccupyRankDetail`, `LWCommonScoreDetail`, `LWUISheepRank`, `S6MilitaryEliteScoreTipsView`, `ScratchOffRankPage`, `TorchRelayRank`, `UIALChallengeRank`, `UIAllyDrillRank` … (+24) |
+| Science/research | 11 | `LWSeasonVirusResearchLevelUp`, `UILWScienceDetail`, `UILWScienceInfo`, `UILWScienceMain`, `UILWScienceQueue`, `UILWScienceTree`, `UILWTrainDepartureScienceTips`, `UIScience` … (+3) |
+
+## `DataCenter` — 464 managers, grouped (full list: `docs/research/ui-open-data/datacenter.json`)
+
+`DataCenter.<X>` are the Lua data managers (each a singleton-ish table with getters). Grouped:
+
+| group | count | examples |
+|---|--:|---|
+| Other | 141 | `AccountListManager`, `AccountManager`, `AirDropGarbageManager`, `AllyDrillDataManager`, `AllyDuelScoreGachaManager`, `BackGestureManager`, `BoardManager` … (+134) |
+| Build/City/Decoration | 56 | `ActEpidemicZoneManager`, `BaseExpansionTemplateManager`, `BuildBubbleManager`, `BuildBubbleManagerHelper`, `BuildCanUpgradeEffectManager`, `BuildConnectEffectManager`, `BuildEffectManager` … (+49) |
+| Activity/Season/Event | 54 | `ActCommunityLinkManager`, `ActConcertDataManager`, `ActDispatchTaskDataManager`, `ActDispatchTreasureManager`, `ActDragonManager`, `ActFrontBreakSundayDataManager`, `ActGhostreconBubblePosManager` … (+47) |
+| Hero/Equip/Card | 42 | `BuildHeroCountdownManager`, `BuildHeroManager`, `BuildingDisplayCardManager`, `CommonEquipDataManager`, `CommonEquipTemplateManager`, `DominatorCockatriceUnlockManager`, `DominatorGuideManager` … (+35) |
+| Alliance | 38 | `ActGhostreconAllianceManager`, `AllianceAlertDataManager`, `AllianceAutoInviteManager`, `AllianceBaseDataManager`, `AllianceCareerManager`, `AllianceCityLogManager`, `AllianceCityTemplateManager` … (+31) |
+| Battle/War/March/Troop | 32 | `ActBattlePassData`, `ActChampionBattleManager`, `ActDispatchTaskFakeMarchManager`, `ActMeteoriteBattleManager`, `ArmyFormationDataManager`, `ArmyManager`, `BattleFieldAnimManager` … (+25) |
+| UI/Guide/Template/RedDot | 30 | `AdaptiveBoxTemplateManager`, `AllyDuelConditionTipManager`, `AppearanceTemplateManager`, `DailyTaskTemplateManager`, `EffectNumberTemplateManager`, `GoldBrickTemplateManager`, `GovernmentTemplateManager` … (+23) |
+| Shop/Pay/Reward/VIP | 17 | `CommonShopManager`, `CumulativeRechargeManager`, `DailyPackageManager`, `DailyPackageTemplateManager`, `FirstPayManager`, `GiftDetailShowDataManager`, `GiftSystemManager` … (+10) |
+| Resource/Trade | 16 | `CollectResourceManager`, `CollectResourceTemplateManager`, `EventCollectManager`, `GatherResourceTemplateManager`, `LWGateTruckGoodsManager`, `LWResourceLackManager`, `MineCaveManager` … (+9) |
+| World/Map/Point | 14 | `ActDetectTreasureDataManager`, `BirthPointTemplateManager`, `CanUnlockFogManager`, `CommonRedPointManager`, `DetectResultDataManager`, `LWWorldTrendDataManager`, `NextGarbagePointManager` … (+7) |
+| Monster/Boss/Zombie | 11 | `ActBossDataManager`, `ActivityKillZombieManager`, `ActivityMonsterInvasionDataManager`, `LWBerserkBossManager`, `LWSeasonBossLoginDataManager`, `LWZombieRushManager`, `LWZombieRushPlanInfoManager` … (+4) |
+| Chat/Social/Mail | 9 | `ChatCacheMsgManager`, `ChatEmojiManager`, `ChatEmojiTemplateManager`, `ChatPrivateDataManager`, `ChatPrivateSearchDataManager`, `GroupChatSetTemplateManager`, `LWChatPinManager` … (+2) |
+| Science/Tech | 4 | `CampScienceDataManager`, `LWSpreadResearchDataManager`, `ScienceDataManager`, `ScienceTemplateManager` |
+
+## `GuideOpenPanelType`
+
+Only one value: **`Common = 1`** (the guide system's panel-open kind is not an alliance-style enum).
+
