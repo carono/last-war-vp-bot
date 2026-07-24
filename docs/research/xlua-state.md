@@ -226,3 +226,102 @@ the types* but does **not** currently drive a live VM end to end on this build �
 its `luaenv_via_manager` depends on a `get_Instance` that returns null here. The
 "working managed driver" phrasing above overstated it; the real state is
 "mechanism proven, live instance not yet pinned."
+
+---
+
+## 8. Autonomous session (task #1017, unattended) — the xLua route is walled, but
+the C# **static** `SceneManager` route is the answer; and one crash
+
+Ran unattended against pid 32136 (`tools/xlua_dostring.py` + ad-hoc probes). Two
+big outcomes and one incident.
+
+### 8.1 The xLua managed route is definitively blocked on this build
+
+Every avenue to obtain a *live managed instance* failed — this is structural, not
+a missing detail:
+
+- **No `get_Instance`.** `XLuaManager` inherits directly from `System.Object`
+  (parent chain: `XLuaManager → Object`), so it is **not** a `MonoBehaviour` /
+  `MonoSingleton<T>`. Its static fields are only path/config strings — **no
+  `Instance` field**. So there is no static accessor to the singleton at all.
+- **Heap header-scan finds only metadata.** `find_instance_rpm LuaEnv` → 7
+  candidates, none signature-valid; `XLuaManager` → 4 candidates, **all metadata**
+  (calling `get_Env` on each returned garbage class pointers like `NetworkManager`,
+  `EventNotifyWrap` — module-range `Il2CppClass*`, not objects).
+- **A full 3.38 GB scan of every committed region** for an object with
+  `*(obj)==LuaEnv_class && +0x10→LuaTable && +0x18→ObjectTranslator` returned
+  **0 hits.** The live VM exists (82 raw `ObjectTranslator` / 10 `LuaTable` header
+  hits) but no locatable `LuaEnv` object carries the resolvable class pointer.
+
+**Conclusion:** on this ACE build, managed **object headers do not carry an
+`Il2CppClass*` that matches `il2cpp_class_from_name`** (or the live objects sit
+outside scannable regions) — so *instance discovery by memory scan is dead*, and
+with no static singleton accessor, the xLua `DoString` route has no reachable
+`LuaEnv`. Park it.
+
+### 8.2 Breakthrough — the game `SceneManager` is entirely **static**, which
+bypasses the instance wall
+
+Enumerating the game `SceneManager` (Assembly-CSharp) at runtime: **all 38 methods
+are static.** Static methods need no `this`, so they sidestep the instance-discovery
+wall completely. Confirmed working live (all `exc==0`; `runtime_invoke` **boxes**
+value-type returns, so the real value is at `ret+0x10`):
+
+| Static method | MethodInfo | Result at time of test |
+|---|---|---|
+| `get_CurrSceneID` | `0x12992e4d8` | **2** |
+| `IsInWorld` | `0x12995c9b8` | **true** |
+| `IsInCity` | `0x12a206eb8` | false |
+| `IsSceneNone` | `0x129e43390` | false |
+| `get_CurrentSceneSubType` | `0x12992ec20` | 7 |
+| `ChangeScene(SceneID)` | `0x362370b68` | *the City↔World primitive (1 value-type arg)* |
+| `CreateWorld` / `CreateCity` | `0x2e76d1170` / `…1198` | static 0-arg scene builders |
+| `get_World` | `0x12a206ee0` | returns a `WorldScene` object, not the enum |
+
+So **`SceneManager.ChangeScene(SceneID.World)` is the City→World primitive**, it is
+static and directly callable, and **`SceneID.World == 2`** is confirmed
+(`CurrSceneID==2` while `IsInWorld==true`). This supersedes the xLua route for the
+scene-transition goal: the useful action is reachable in C# after all, via a
+*static* call. `get_CurrSceneID`/`IsInWorld` also give a perfect read-only canary
+and a post-transition verification.
+
+### 8.3 Incident — the game crashed (my error), and `ChangeScene` never actually
+fired
+
+While enumerating the `SceneID` enum's members to confirm the **City** value, I
+called `il2cpp_class_get_fields` with an **invalid class pointer** — `0x1266F9C08`,
+taken from the dump JSON's `addr` field, which is **not** the runtime
+`Il2CppClass*` (its name read as `SupportsType`). Feeding a garbage `Il2CppClass*`
+to a runtime API **on the gated main thread** dereferenced bad memory
+(`RPM err=299` inside `hijack_call`) and **crashed `LastWar.exe`** (process and ACE
+both gone afterwards).
+
+Consequently **`ChangeScene(SceneID.World=2)` was never executed** — the run that
+would have fired it failed at startup because the game was already down. The
+transition is *identified and argument-confirmed* but **not yet demonstrated live.**
+
+I did **not** restart the game — relaunching the client and re-authenticating the
+user's account while they are away is their call, not an autonomous one.
+
+**Root-cause lesson (matches il2cpp-invoke-stability §5 "refuse null targets", now
+generalized):** guard **class pointers** the same way as MethodInfo. Never pass an
+`Il2CppClass*` to a runtime API unless it was returned by a runtime resolver
+(`il2cpp_class_from_name` / the live enum table) and validated by reading its name
+back. The dump JSON's `addr` is **not** a usable class pointer. A bad
+`Il2CppClass*` on the main thread is as fatal as a null MethodInfo.
+
+### 8.4 State and next steps
+
+- **Confirmed and reusable:** static invoke works; `SceneManager` is all-static;
+  `ChangeScene(SceneID)` @ `0x362370b68`; `World==2`; read-only canaries
+  `get_CurrSceneID` / `IsInWorld` / `IsInCity`.
+- **Still open:** the **City** `SceneID` value (enumerate `SceneID` via a *valid*
+  runtime class ptr — resolve it from the live class-enum table, not the dump
+  `addr`); and an actual live `ChangeScene(World)` fire, done **with the game in
+  City and the user present**, verified by `IsInWorld` flipping true.
+- **Parked:** the xLua `DoString` route (no reachable live `LuaEnv`); revisit only
+  if a static/singleton accessor to a VM handle is ever found.
+- **Safety:** any real `ChangeScene` fire is a scene mutation — gate on idle base,
+  validate the enum arg, and prefer the emulator + throwaway account first per §5.
+  MethodInfo/class pointers above are stable only for pid 32136's lifetime; that
+  process is gone, so all addresses must be **re-resolved** on the next launch.
