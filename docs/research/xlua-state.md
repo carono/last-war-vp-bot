@@ -142,5 +142,87 @@ Lua-authoring problems, not injection problems:
 API and `DoString` semantics; zentia/xLua (xLua-il2cpp variant) for the
 il2cpp-baked binding layout; Unity IL2CPP manual for how managed assemblies and
 native plugins compile in an IL2CPP player. Live confirmation is from this repo:
-`results/il2cpp_dump.json` (class presence) and `tools/xlua_route.py` (working
-managed driver, task #984).
+`results/il2cpp_dump.json` (class presence) and `tools/xlua_route.py` (managed
+driver skeleton, task #984 — but see §7 for the live blocker).
+
+---
+
+## 7. Live attempt to run `DoString` (task #1017, pid 32136)
+
+Active run against the focused game process. **Outcome: the C# scaffolding for
+`DoString` fully resolves, but no live `LuaEnv` instance could be pinned, so no
+Lua chunk was executed. The City→World transition was therefore not attempted —
+it is correctly gated behind a working `DoString` test.** The game process stayed
+alive throughout (all hijacks fired against tid 43404 parked at
+`SAFE_RIP=0x7ffd40710e84`; base was idle).
+
+### What worked
+
+- **The gated hijack + invoke path is healthy.** Every `il2cpp_*` call landed:
+  class enum, `il2cpp_class_from_name`, field/method resolution — all 6/6 style
+  reliability described in `il2cpp-invoke-stability.md`.
+- **`XLua.LuaEnv` class resolved** (`0x1264660a8`) with the open-source field
+  layout confirmed live: `_G` at **+0x10**, `translator` at **+0x18**
+  (`il2cpp_class_get_field_from_name` + `field_get_offset`).
+- **`XLuaManager` methods enumerated at runtime** (the dump lists 0 methods for
+  game classes, so this had to be read live via `il2cpp_class_get_methods`). The
+  singleton accessor is **not** `get_Instance` — that call returns `mi == 0`, which
+  is why `xlua_route.py`'s `luaenv_via_manager` aborts. Instead `XLuaManager` has
+  an **instance** method **`get_Env` (0 params, `MethodInfo 0x12a2fa4a8`)** that
+  returns the `LuaEnv`, plus `InitLuaEnv`, `LuaLoadPb`, `ClearLuaReference`, etc.
+- **`DoString(String, String, LuaTable)` overload is resolvable** on the LuaEnv
+  class (3 params, first arg `System.String`).
+
+### What did not work — the blocker
+
+- **`XLuaManager.get_Instance` → null.** No static 0-arg `Instance` accessor exists
+  on `XLuaManager` itself (only `get_DelayLuaStartGame`, `get_s_useLwLuaFile`,
+  `get_s_lwLuaFile`, `.cctor`). The singleton is almost certainly inherited from a
+  base `MonoSingleton<T>` — its `Instance`/static field lives on the **base**
+  class, which `il2cpp_class_get_method_from_name(XLuaManager, …)` does not surface.
+- **Heap header-scan finds only metadata, not a live instance.**
+  `find_instance_rpm.py LuaEnv` → 58 raw header hits, 7 candidates, **none** pass
+  the `_G→LuaTable` / `translator→ObjectTranslator` signature; the surviving
+  candidates cluster at `0x12684exxx` with `+0x18` pointing **into** the
+  `GameAssembly` module range (FieldInfo/metadata, exactly the false-positive the
+  `xlua_route.py` comment warned about). `find_instance_rpm.py XLuaManager` → 323
+  hits, 4 candidates; the cleanest (`0x1297eff00`) reports class `XLuaManager`.
+- **`get_Env` on that candidate returns a non-instance.** Calling
+  `get_Env(0x1297eff00)` succeeded with `exc == 0` but returned **`0x12646a018`** —
+  an address in the module's static-data range (near the LuaEnv class struct), not
+  a heap object: its class deref is unreadable and `_G`/`translator` point at
+  garbage. So `0x1297eff00` is not the live, initialized singleton (or its
+  `LuaEnv` field is unset), and no valid `LuaEnv` was obtained.
+
+### Interpretation
+
+The managed `DoString` route is **wired but not yet reachable**: we can resolve
+every type and method, but cannot currently hand `runtime_invoke` a genuine live
+`LuaEnv` object. The gap is purely **instance discovery** — the game's xLua
+variant does not keep the singleton where a header-scan or a self-declared
+`get_Instance` finds it.
+
+### Next steps (in order of expected payoff, all still gated + emulator-first for
+mutation)
+
+1. **Resolve the singleton via its base class.** Walk `XLuaManager`'s parent chain
+   (`il2cpp_class_get_parent`) to the `MonoSingleton<T>`/`Singleton<T>` base, read
+   its static **`Instance`** field with `il2cpp_field_static_get_value` (or
+   `class_get_field_from_name` on the base + read static data). This is the
+   canonical fix and does not need a heap scan.
+2. **Back-reference from `ObjectTranslator`.** There is exactly one live
+   `ObjectTranslator` per VM; scan for it, then find the `LuaEnv` that references
+   it (LuaEnv+0x18 → this translator). A single ObjectTranslator is a much cleaner
+   scan target than LuaEnv.
+3. **Hook `InitLuaEnv`'s return** (read-only): resolve its MethodInfo and, on the
+   next gated call, capture the constructed `LuaEnv` — but this only helps at VM
+   init, not mid-session.
+4. Only once a valid `LuaEnv` is confirmed by signature: run the canary
+   `print(...)` / `CS.UnityEngine.Debug.Log(...)` chunk, *then* author the
+   City→World Lua and validate on an emulator + throwaway account.
+
+**Correction to earlier sections:** `xlua_route.py` is a *skeleton that resolves
+the types* but does **not** currently drive a live VM end to end on this build —
+its `luaenv_via_manager` depends on a `get_Instance` that returns null here. The
+"working managed driver" phrasing above overstated it; the real state is
+"mechanism proven, live instance not yet pinned."
