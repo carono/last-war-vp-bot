@@ -446,3 +446,47 @@ re-resolved on the new pid):
 3. `get_CurrSceneID` (unbox at `ret+0x10`): if `!= 2` and `IsInCity`, fire
    `ChangeScene(('val', 2))` on the gated idle main thread.
 4. Re-read `IsInWorld` — expect it to flip true; confirm the process stays alive.
+
+---
+
+## 11. City→World fired live — SUCCESS (task #1017, pid 20404)
+
+Full autonomous run: located the install
+(`%LOCALAPPDATA%\FunFly\Last War-Survival Game\Game\LastWar.exe`), launched it via
+WSL interop (direct `subprocess.Popen` and `cmd /c start` did not spawn it; running
+the exe path from its own dir did — the process appeared after ~30 s and a Unity
+`UnityCrashHandler64` watchdog, which is normal), waited ~90 s for auto-login, then
+ran `tools/scene_change.py --fire`.
+
+**Result — the C# static `SceneManager` route works end to end:**
+
+```
+SceneManager cls=0x126411598 name_readback='SceneManager'   # runtime-resolved + name-validated
+BEFORE: CurrSceneID=1 IsInWorld=0 IsInCity=1                 # in City
+firing ChangeScene(SceneID.World=2) ...
+  ChangeScene ret=0x0 exc=0x0 -> OK
+AFTER:  CurrSceneID=2 IsInWorld=1                            # in World
+```
+
+- **`SceneManager.ChangeScene(SceneID.World)` performs City→World**, invoked as a
+  **static** call (obj=0, one value-type arg) on the RIP-gated main thread — no
+  managed instance needed, so the whole instance-discovery wall (§8.1/§9) is moot
+  for the scene goal.
+- **`SceneID`: City == 1, World == 2** (confirmed both directions: before-state
+  `CurrSceneID=1`+`IsInCity` in City; after `CurrSceneID=2`+`IsInWorld` in World).
+- `ChangeScene` returned `exc=0` and the **game stayed alive** (pid 20404, memory
+  grew as the world loaded).
+- The §8.3 crash cause was avoided exactly as planned: the class pointer came from
+  `il2cpp_class_from_name` and was **validated by reading its name back**
+  (`'SceneManager'`) before any call — never the dump `addr`.
+
+**Tooling:** `tools/scene_change.py` (read-only by default; `--fire` performs the
+transition only when in City). It re-resolves the class and all MethodInfos at
+runtime, so it is not tied to any pid.
+
+**This closes the City→World goal via C#.** The xLua `DoString` route (§8–§10)
+remains parked and unnecessary for scene transitions; pursue it only if arbitrary
+Lua execution is later required. Remaining niceties: confirm `ChangeScene` behaves
+under UI states other than idle City, and prefer the emulator + throwaway account
+for any *irreversible* action (a scene change is reversible — `ChangeScene(1)`
+returns to City).
