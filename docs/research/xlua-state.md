@@ -514,6 +514,72 @@ transition harness. Resolve `GameEntry`/`XLuaManager` and the two MethodInfos at
 
 ---
 
+## 13. City→World via `LuaEnv.DoString` on the live instance (task #1024)
+
+§12 drove the world switch through `XLuaManager.SafeDoString(string)` — a *manager*
+method, which sidesteps ever holding an `XLua.LuaEnv`. Task #1024 closes the other
+half: reach the **live `LuaEnv` instance** and call **`LuaEnv.DoString`** directly.
+Driver: `tools/lua_goto_world.py` (built on `tools/xlua_route.py`).
+
+### 13.1 Breaking the instance-discovery wall — a typed getter, not a heap scan
+
+The wall from §8–§9 (no reachable `LuaEnv` by header-scan or the mutual-reference
+finder) is real and stays broken *by scanning*, because on this obfuscated build the
+runtime **class pointer of a live game object differs from the metadata class** that
+`il2cpp_class_from_name("XLua","LuaEnv")` returns, and **game class names do not
+decode** (name at `class+0x48` reads as garbage). So:
+
+- matching a heap object to `LuaEnv` by class-pointer equality finds **nothing**
+  (verified: full scan of the manager object, 0 hits), and
+- matching by decoded class *name* is useless (names are garbage).
+
+The way through is **il2cpp method metadata**, which *is* reliable:
+
+1. `GameEntry.get_Lua()` (static facade, §12.1) → the live **XLuaManager** object.
+2. Enumerate `XLuaManager`'s methods; pick the **0-arg method whose il2cpp
+   *return type* is `XLua.LuaEnv`** — here **`get_Env()`**. The return-type name comes
+   from metadata (`il2cpp_method_get_return_type` → `il2cpp_type_get_name`), so it is
+   trustworthy even though instance class *names* are not.
+3. Invoke `get_Env()` on the manager → the live **`LuaEnv`** (`exc=0`). Trust the
+   getter's typed return; do **not** gate on class-pointer/name (both unreliable here).
+
+`xlua_route.py` now does exactly this in `luaenv_via_manager` /
+`luaenv_via_manager_method`. `XLuaManager.get_Instance` is **absent** on this build —
+the old `xlua_route.py` path that called it always returned 0.
+
+### 13.2 The call and the proof
+
+`LuaEnv.DoString` has two 3-param overloads; pick the `System.String` one (not
+`System.Byte[]`) — `MI` param0 type `System.String`. Then:
+
+```
+GameEntry.get_Lua() -> XLuaManager
+XLuaManager.get_Env() -> LuaEnv                     (live instance)
+LuaEnv.DoString("SceneUtils.ChangeToWorld()", ...)  -> renders World
+# reverse: LuaEnv.DoString("SceneUtils.ChangeToCity()")
+```
+
+Confirmed live (pid 35688), City→World round-trip via `tools/lua_goto_world.py`, the
+scene flags read back **from Lua through the same `LuaEnv.DoString`** (logged to
+`Player.log` as `LUAENV_1024` markers):
+
+| Stage | `SceneUtils.GetIsInWorld` / `GetIsInCity` | screenshot toggle |
+|---|---|---|
+| before | `false` / `true` (base) | — |
+| `DoString("SceneUtils.ChangeToWorld()")` | `ret=0 exc=0` | — |
+| after | **`true` / `false`** (world) | **«База»** + world-map content (`БЗ #935 X:294 Y:636`) |
+
+`results/gw_after.png` shows the flipped **«База»** toggle and other-player world
+content — the same decisive visual as §12.2, reached this time through
+`LuaEnv.DoString`. **Unlike `SafeDoString`, `LuaEnv.DoString` does NOT swallow Lua
+errors**, so a bad chunk surfaces in the il2cpp `exc` slot (here `exc=0` throughout).
+
+This replaces the ClickWorld / toggle-button approach with a direct Lua scene call.
+A session kick (§5) may appear if the account is live elsewhere; the engine flags
+still read World underneath — leave the account-security modal to the user.
+
+---
+
 ## 11. City→World via ChangeScene — engine enum flips, but NOT a working visual transition (task #1017)
 
 > **Verdict up front (see §11.3 for the decisive A/B test):** `ChangeScene(SceneID

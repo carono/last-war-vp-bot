@@ -53,22 +53,36 @@ Verify it is up:
 /mnt/c/Windows/System32/tasklist.exe | grep -i lastwar.exe
 ```
 
-## 3. Scene control procedure (City↔World)
+## 3. Scene control procedure (City↔World) — the Lua route
 
-The game `SceneManager` (Assembly-CSharp) is **entirely static**, so scene control
-needs **no managed instance** — it sidesteps the instance-discovery wall that blocks
-the xLua route (`xlua-state.md` §8/§9). `SceneID`: **City == 1, World == 2**.
+> **The C# `SceneManager` primitives do NOT work for this.** `ChangeScene(SceneID
+> .World)` and `CreateWorld()` (Assembly-CSharp, static) flip the engine scene *enum*
+> and return `exc=0`, but they do **not** render a City→World transition — the view is
+> torn to black and the target scene never composites (`ChangeScene` is destructive;
+> `CreateWorld` flips the enum non-destructively but still never switches the view, and
+> it desyncs state so the real «Мир» button then no-ops). See `xlua-state.md` §11/§11.3
+> for the decisive A/B test. **Do not use the C# route.**
+
+The **working** City→World is a **Lua** call, reached through a **static facade** that
+bypasses the managed instance-discovery wall (`xlua-state.md` §8/§9, §12):
+
+```
+GameEntry.get_Lua()  (static)                       -> XLuaManager
+XLuaManager.SafeDoString("SceneUtils.ChangeToWorld()")   -> renders World
+# reverse: SafeDoString("SceneUtils.ChangeToCity()")
+```
 
 Driver: `tools/scene_change.py` (re-resolves everything at runtime; not pid-bound):
 
 ```bash
-# read-only: report current scene
+# read-only: report current scene (state read FROM Lua)
 C:\Python312\python.exe tools\scene_change.py
 # City -> World (only fires if currently in City)
 C:\Python312\python.exe tools\scene_change.py --fire
-# explicit target / round-trip demo
-C:\Python312\python.exe tools\scene_change.py --fire --to 1     # World -> City
-C:\Python312\python.exe tools\scene_change.py --roundtrip       # other scene, then back
+# World -> City
+C:\Python312\python.exe tools\scene_change.py --to-city
+# add --shot to screenshot before/after
+C:\Python312\python.exe tools\scene_change.py --fire --shot
 ```
 
 Exact steps the driver performs (this is the reusable recipe):
@@ -76,25 +90,26 @@ Exact steps the driver performs (this is the reusable recipe):
 1. **`find_game_pid`** → open the process (`il2cpp_probe`).
 2. **Learn `SAFE_RIP`** and gate all calls to the idle main thread (RIP-gated
    hijack — `il2cpp-invoke-stability.md`).
-3. **Resolve the class at RUNTIME:** enumerate the assembly table, then
-   `il2cpp_class_from_name(Assembly-CSharp, "", "SceneManager")`.
+3. **Resolve `GameEntry` + `XLuaManager` classes at RUNTIME** (enumerate the assembly
+   table, then `il2cpp_class_from_name(Assembly-CSharp, "", ...)`).
    **NEVER use the dump JSON `addr` as a class pointer** — that is not a runtime
    `Il2CppClass*` and feeding it to a runtime API crashed the game once
    (`xlua-state.md` §8.3).
-4. **Validate by reading the name back:** `name@(cls+0x48)` must equal
-   `"SceneManager"`. Abort otherwise.
-5. **Resolve MethodInfos by name** (addresses are per-pid, re-fetch every run):
-   `get_CurrSceneID/0`, `IsInWorld/0`, `IsInCity/0`, `ChangeScene/1`.
-6. **Read state:** invoke `get_CurrSceneID` (static → obj=0). `runtime_invoke`
-   **boxes** value-type returns, so read the value at **`ret+0x10`**; likewise
-   unbox `IsInWorld`/`IsInCity` (low byte = bool).
-7. **Transition:** if in City, `ChangeScene(('val', 2))` — one value-type arg,
-   static call. Re-read `get_CurrSceneID`/`IsInWorld` to confirm.
+4. **Resolve MethodInfos by name** (addresses are per-pid, re-fetch every run):
+   `GameEntry.get_Lua/0` (static), `XLuaManager.SafeDoString/1`.
+5. **Get the live manager:** invoke `GameEntry.get_Lua` (static → obj=0) → the live
+   `XLuaManager` object (`exc=0`).
+6. **Read state FROM LUA, not C# flags:** `SafeDoString` a chunk that logs
+   `SceneUtils.GetIsInWorld()`/`GetIsInCity()` to the Unity `Player.log`, then parse
+   the marker. `SafeDoString` **swallows** Lua errors and returns nothing, so state is
+   confirmed via the log — the il2cpp `exc` slot is always 0 here.
+7. **Transition:** `SafeDoString("SceneUtils.ChangeToWorld()")` (or `ChangeToCity()`).
+   Re-read the Lua state to confirm.
 
-Confirmed live (pid 20404): `CurrSceneID 1→2`, `IsInWorld 0→1`, `exc=0`, game alive.
-Direction note: `ChangeScene(2)` (City→World) is exception-clean; `ChangeScene(1)`
-(World→City) raises a **non-fatal** managed exception but still transitions — for the
-reverse move, trust `get_CurrSceneID`, not the `exc` slot (`xlua-state.md` §11.1).
+Confirmed live (pid 35688, task #1024): `GetIsInWorld false→true`, `GetIsInCity
+true→false`, world map rendered, toggle button flips «Мир»→«База». Unlike the C#
+`ChangeScene` (enum-only, black torn-down view), the Lua call performs the full flow
+(data + scene build + camera) and the client renders the world.
 
 ## 4. Visual capture caveat — the 3D scene photographs black
 
