@@ -159,3 +159,36 @@ The actual small monsters are the **roaming world zombies** (seen live at lvl 1/
 `FindMonster(level)` locates small monsters, but a fully-programmatic *solo* attack on a chosen
 small monster is blocked on obtaining its world-point object without a physical tap. Screenshot
 of the small-monster field + ring-selection: `results/find_monster_lv8.png`.
+
+### Follow-up 2 — the small-monster attack UI, and why `GoAttackMonster(pt)` stays blocked
+
+Corrected the "level-10" assumption: on the world map the **blue tank icons tagged 8/9/10 are
+Iron Mines** (resource nodes, wire `f2=7`) being harvested by alliance members — tapping one
+opened «Железный рудник 10 ур.» (`Добытчик [TLou]Korive, 370513/504000`), **not a monster**.
+The tag is the mine level. The real small monsters are the red **Behemoth "elites"** (lvl 3/33)
+and the roaming zombie squads.
+
+Neither suggested live manager exposes the found monster's point object:
+- `DataCenter.WorldPointDetailManager` — **no** current/selected-point getter
+  (`GetCurrentPoint/GetSelectPoint/GetLastPoint/…` all absent); only `GetDetailByPointId(id)`
+  (needs the id) and `worldPointDetailList` which was **empty** (`count=0`) after `FindMonster`.
+- `DataCenter.MonsterManager` — counters only (`GetCurCanAttackMaxLevel`, `GetKillBossNum`,
+  `find_monster_max_level`, …); **no** monster-entity/point getter.
+
+So `GoAttackMonster(pt)` cannot be fed a live-obtained point through these managers — the
+client only materializes a monster's world-point object from a **real map tap**
+(`OnClickWorldPoint`). Doing that tap **did** open the full attack flow for a **small monster**:
+a physical click on the lvl-3 **«Роковая Элита»** opened its popup (guaranteed rewards
+weapon/hero EXP + iron/food/coins, recommended power **50,000**, stamina 20), and clicking its
+attack button opened the **troop-dispatch UI** — my heroes (Lv.175, 3,123 units), power
+**55.59M vs 50.00K → «Лёгкая победа»**, rally-time selector, and the **«Стягивание»** launch
+button. The flow was left one tap short of launch: **«Стягивание» starts an alliance rally**
+(an alliance-wide, outward action), so it was not pressed without explicit sign-off.
+
+**Bottom line:** the monster-attack flow is fully reachable and a small monster's attack UI
+opens end-to-end, but the trigger is a **map tap** (`OnClickWorldPoint`), not a pure
+`GoToUtil.GoAttackMonster(pt)` call — `GoAttackMonster()` alone only opens the alliance rally
+boss, and the per-monster point object is not exposed by any live manager we could read.
+Screenshots (git-ignored): `results/monster_lv10_tapped.png` (the "10" = Iron Mine),
+`results/monster_lv3_tapped.png` (lvl-3 «Роковая Элита» popup),
+`results/monster_attack_dispatch.png` (the dispatch UI, «Лёгкая победа»).
