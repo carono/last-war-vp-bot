@@ -1,0 +1,89 @@
+# World monsters — how the wire actually carries them
+
+Goal: cold-load the World and catch monsters at entry. **Result overturns the premise:
+monsters are NOT bulk-loaded when you enter the World, and never appear as
+`world.get.block` tiles.** They arrive as **event/activity messages in the login
+snapshot** and as **on-demand / lifecycle push streams during play**. Companion to
+`world-tiles.md` (tile kinds) and `city-protocol.md` (login cold-load).
+
+## Method
+
+Strict cold-load: capture from a **fresh TCP handshake** (`dumpcap` both directions,
+physical interfaces), then `taskkill /F /IM LastWar.exe` + relaunch, wait for auto-login
+(~120 s, lands in **City**), then the **first `SceneUtils.ChangeToWorld()` since the cold
+login** (`tools/lua_goto_world.py`) — the client has no cached world data yet, so this is
+the genuine world cold-load. Decoded offline with `tools/lastwar_proto.py`. Also a warm
+`ChangeToWorld` sniff (`tools/secret_task_capture.py --dump`) for comparison.
+
+## Finding 1 — nothing monster-shaped loads at world entry
+
+The first-world-enter capture (fresh login, server `34.145.128.94`, 134 down msgs) contained
+**no** `push.running.boss.*`, **no** `monster.invasion.boss.detail`, **no** bulk monster list.
+The single `world.get.block` had only `f2 ∈ {6 base, 7 mine, 17 secret_task}` and empty
+`triggers`. The 29 `push.world.march.new` are **player marches** (e.g. `Blanche de Namur`,
+`Bucknaked` of `[TLou] THE LAST 0F US`, target coord `471553;339547`, difficulty `Normal`) —
+troops moving toward monsters, **not monsters**. A warm `ChangeToWorld` is identical (the
+switch is a client-side render; nothing re-fetches). So: **the World scene switch carries no
+monster data**, exactly like the base scene switch in `city-protocol.md`.
+
+## Finding 2 — monsters come as event/activity messages in the LOGIN snapshot
+
+The fresh-login snapshot (`city-protocol.md` cold-load) *does* carry the world monsters —
+as **activity messages**, with concrete type / level / coordinate / time. `pointId → (x,y)`
+uses `x = pointId % 1000`, `y = pointId // 1000` (as for all world points).
+
+| message | monster data (concrete example) |
+|---|---|
+| **`alliance.boss.act.info`** | an alliance world boss: `bossType=2`, **level** `difficultyLevel=100`, **coord** `bossPointId=480565 → (565,480)` on `bossServerId=935`, `bossUuid=1397117482397050809`, **time** `battleStartTime=1784833203021` / `battleEndTime=1784835003021`, `totalDamage=819837555936`, `mvpDamage=105633102555`, `isAutoRally=1` |
+| **`monster.invasion.act.info`** | the Monster Invasion event: `invasionId=5`, `bossStatus=2`, `stage=1`, `attackNum`, `refreshTime`, `planTime`, reward list, and the monster arrays **`selfMonsters[]` / `aliMonsters[]`** (empty when no invasion is live — these hold the per-monster entries when one is) |
+| **`zombie.rush.act.info`** | alliance Zombie Rush: `maxDifficultyId=1012`, `round=20`, `state=3`, `selectDifficultyId=1012`, `actStartTime`/`actEndTime`, `pointId` |
+| **`berserk.boss.hit.base.gain.info`**, **`act.boss.get.achievement.info`**, **`monster.shop.info`** | berserk-boss, act-boss, and the monster-kill reward shop (`buyRecords` per difficulty) |
+| `init` counters | `daily_kill_boss=20`, `daily_kill_boss_leader=9`, `find_monster_max_level=35`, `attack_behemoth_boss_time`, `actBerserkBoss`, `actBossTrans` — the player's monster-kill progress, not entities |
+
+So the **boss-type monsters** (alliance boss, invasion boss, berserk boss, behemoth) are
+delivered at login as their event objects, each with a `bossPointId`, `difficultyLevel`,
+`bossUuid`, and battle timestamps.
+
+## Finding 3 — roaming monsters are on-demand / lifecycle pushes
+
+The roaming, tappable monsters (and boss movement/death) ride **push + query** streams during
+play, not a bulk load (observed across the earlier world captures):
+
+| message | role / example |
+|---|---|
+| `monster.invasion.boss.detail` | **on-demand** query when you tap a boss → `{uuid, ownerName:"ofbi", allianceUid, allianceAbbr:"TLou", isProtected:true}` |
+| `push.running.boss.del` (and `.new`/`.add`) | roaming-boss lifecycle → `{uuid}` (spawn / move / death) |
+| `push.al.zombieRushPoint.change` | alliance zombie-rush spawn point → `{zombieRushPoint:5486330, allianceId}` |
+| chat/world ticker | e.g. `Ур. 130 Зомби-Босс (БЗ #935 X:519 Y:554)` — a lvl-130 Zombie-Boss at `(519,554)` (point `554519`) |
+
+`DataCenter` managers back these: `MonsterManager` (kill counters, `GetCurCanAttackMaxLevel`,
+`find_monster_max_level`), `MonsterTemplateManager` (level→attributes config),
+`WorldPointDetailManager` (`GetDetailByPointId` — per-point detail fetched on demand),
+`MonsterLockDataManager`, `LWZombieRushManager`, `LWBerserkBossManager`, and the
+`S0/S4/Season` boss data managers.
+
+### Client entity-type enum (`LWWorldMonsterType`, from Lua)
+
+```
+ResMetal=1 ResFood=2 Boss=3 City=4 ResGold=5 Radar=6 MonsterInvade=7 RunningMonster=8
+ResObsidian=9 ResFlint=10 FlowerCar=13 S4Tank=14 S4Airplane=15 S4Missile=16 S4Boss=17
+S4TankBN=18 S4AirplaneBN=19 S4MissileBN=20 S4BossBN=21 S4RunningBoss=22 Lockhart=1001
+```
+Monsters are `Boss=3`, `MonsterInvade=7`, `RunningMonster=8` (+ seasonal `S4Boss/S4RunningBoss`).
+**This is a client display enum, distinct from the wire `f2` tile kind** (`world-tiles.md`).
+
+## Takeaway
+
+To read world monsters you do **not** watch `world.get.block` or the scene switch. You:
+1. parse the **login snapshot** `alliance.boss.act.info` / `monster.invasion.act.info` /
+   `zombie.rush.act.info` for the current event bosses (type, `difficultyLevel`,
+   `bossPointId→(x,y)`, `bossUuid`, battle times), and
+2. follow **`push.running.boss.*`** + tap-driven **`monster.invasion.boss.detail`** for the
+   roaming/on-demand ones (or read them live from the `DataCenter` monster managers).
+
+## Artifacts (git-ignored under `results/`)
+
+- `results/world_coldlogin.pcapng` — fresh-login capture (login → City).
+- `results/world_firstenter.pcapng` / `world_firstenter_decoded.json` — first `ChangeToWorld` since cold login (no monster bulk load).
+- `results/world_coldload_monsters.jsonl` — warm `ChangeToWorld` sniff (comparison).
+- `results/coldload_decoded.json` — the login snapshot carrying the monster event messages above.
