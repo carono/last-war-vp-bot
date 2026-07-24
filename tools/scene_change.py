@@ -9,8 +9,13 @@ current scene, and if in City fires ChangeScene(SceneID.World).
 `runtime_invoke` BOXES value-type returns → the real value is at ret+0x10.
 SceneID.World == 2 (confirmed: CurrSceneID==2 while IsInWorld==true).
 
-    C:\Python312\python.exe tools\scene_change.py            # read-only: report state
-    C:\Python312\python.exe tools\scene_change.py --fire     # fire ChangeScene(World) if in City
+    C:\Python312\python.exe tools\scene_change.py             # read-only: report state
+    C:\Python312\python.exe tools\scene_change.py --fire      # ChangeScene(World) if in City
+    C:\Python312\python.exe tools\scene_change.py --fire --to 1   # go to City
+    C:\Python312\python.exe tools\scene_change.py --roundtrip # other scene, then back (demo)
+
+Launch (game must be running first; run the exe from its own dir via WSL interop):
+    "$LOCALAPPDATA/FunFly/Last War-Survival Game/Game/LastWar.exe"
 """
 from __future__ import annotations
 import sys
@@ -40,6 +45,10 @@ def unbox_i32(x, mi, label):
 
 def main():
     fire = "--fire" in sys.argv
+    roundtrip = "--roundtrip" in sys.argv
+    to = WORLD
+    if "--to" in sys.argv:
+        to = int(sys.argv[sys.argv.index("--to") + 1])
     x = XR.X()
     e = x.e
 
@@ -83,26 +92,41 @@ def main():
     inc_b = (inc & 0xff) if inc is not None else None
     print(f"BEFORE: CurrSceneID={curr} IsInWorld={inw_b} IsInCity={inc_b}")
 
-    if not fire:
-        print("(read-only; pass --fire to ChangeScene(World) when in City)")
-        P.CloseHandle(x.h)
-        return 0
-
-    if curr == WORLD:
-        print("already in World (CurrSceneID==2) — not firing ChangeScene")
-        P.CloseHandle(x.h)
-        return 0
-
-    print(f"firing ChangeScene(SceneID.World={WORLD}) ...")
-    r, exc = x.invoke(change_mi, 0, [("val", WORLD)], "ChangeScene")
-    print(f"  ChangeScene ret=0x{(r or 0):x} exc=0x{exc:x} -> {'OK' if not exc else 'EXC'}")
     import time
-    time.sleep(2.0)
-    curr2, _ = unbox_i32(x, curr_mi, "get_CurrSceneID")
-    inw2, _ = unbox_i32(x, inw_mi, "IsInWorld")
-    print(f"AFTER: CurrSceneID={curr2} IsInWorld={(inw2 & 0xff) if inw2 is not None else None}")
+
+    def change_to(target):
+        print(f"firing ChangeScene(SceneID={target}) ...")
+        r, exc = x.invoke(change_mi, 0, [("val", target)], f"ChangeScene({target})")
+        print(f"  ret=0x{(r or 0):x} exc=0x{exc:x} -> {'OK' if not exc else 'EXC'}")
+        time.sleep(2.0)
+        c, _ = unbox_i32(x, curr_mi, "get_CurrSceneID")
+        w, _ = unbox_i32(x, inw_mi, "IsInWorld")
+        ci, _ = unbox_i32(x, inc_mi, "IsInCity")
+        print(f"  now: CurrSceneID={c} IsInWorld={(w & 0xff) if w is not None else None} "
+              f"IsInCity={(ci & 0xff) if ci is not None else None}")
+        return c, exc
+
+    if roundtrip:
+        other = 1 if curr == 2 else 2
+        print(f"round-trip: {curr} -> {other} -> {curr}")
+        change_to(other)
+        change_to(curr)
+        P.CloseHandle(x.h)
+        return 0
+
+    if not fire:
+        print(f"(read-only; pass --fire to ChangeScene({to}), or --roundtrip)")
+        P.CloseHandle(x.h)
+        return 0
+
+    if curr == to:
+        print(f"already at SceneID={to} — not firing ChangeScene")
+        P.CloseHandle(x.h)
+        return 0
+
+    _, exc = change_to(to)
     P.CloseHandle(x.h)
-    return 0
+    return 0 if not exc else 1
 
 
 if __name__ == "__main__":

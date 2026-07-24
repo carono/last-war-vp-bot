@@ -486,7 +486,34 @@ runtime, so it is not tied to any pid.
 
 **This closes the City→World goal via C#.** The xLua `DoString` route (§8–§10)
 remains parked and unnecessary for scene transitions; pursue it only if arbitrary
-Lua execution is later required. Remaining niceties: confirm `ChangeScene` behaves
-under UI states other than idle City, and prefer the emulator + throwaway account
-for any *irreversible* action (a scene change is reversible — `ChangeScene(1)`
-returns to City).
+Lua execution is later required.
+
+### 11.1 Reproduced as a round-trip — direction asymmetry
+
+Re-ran on the same pid 20404 (already in World) with
+`tools/scene_change.py --roundtrip` (World→City→World):
+
+```
+BEFORE: CurrSceneID=2 IsInWorld=1 IsInCity=0
+World->City:  ChangeScene(1) exc=0x2eccd1f30 (EXC)  -> CurrSceneID=1 IsInCity=1   # transitioned anyway
+City->World:  ChangeScene(2) exc=0x0        (OK)   -> CurrSceneID=2 IsInWorld=1   # clean, the goal
+```
+
+- **`ChangeScene(2)` (City→World) is exception-clean** and reproducible — this is
+  the path the bot needs, confirmed twice.
+- **`ChangeScene(1)` (World→City) raises a non-fatal managed exception** yet still
+  performs the switch (state flips to City, game survives). Reading back the
+  scene confirms the transition; the exception is worth decoding before relying on
+  the reverse direction, but it does not block City→World. Prefer verifying by
+  `get_CurrSceneID`/`IsInWorld`/`IsInCity` rather than by the `exc` slot for the
+  reverse move.
+
+**Launch/path note:** the exe is at
+`%LOCALAPPDATA%\FunFly\Last War-Survival Game\Game\LastWar.exe` (Windows user
+`spame`); the same path is derivable from `tools/extract_hero_icons.py`. Launch it
+by **running the exe from its own directory via WSL interop** —
+`subprocess.Popen`/`cmd /c start` did not spawn a visible process here, but a
+direct interop exec did (the process appears after ~30 s alongside a normal
+`UnityCrashHandler64` watchdog). Do **not** launch a second instance while one is
+already running. `known_commands.txt` and `sniff.md` are protocol/sniff files and
+deliberately do not carry the launch path.
