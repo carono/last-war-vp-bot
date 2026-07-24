@@ -571,6 +571,52 @@ The correct primitive is likely the full world-entry flow (e.g. `CreateWorld()` 
 world-data load, or the in-context UI navigation), not a bare `ChangeScene`. **Left the
 client in the torn-down state; it needs a restart to recover a rendered view.**
 
+### 11.4 Hunt for a high-level C# world-entry function — there isn't one (it's Lua)
+
+Searched `results/il2cpp_dump.json` for the function the «Мир» button calls
+(`EnterWorld`/`GoToWorld`/`OpenWorld`/`OnClickWorld`/…) and tested the strongest C#
+candidate live (fresh session, **pid 38760**, in City):
+
+- **No C# world-entry method exists.** Every hit for those keywords is a *coordinate*
+  helper (`ScreenToWorldPoint`, `TileToWorld`, `CityInputManager.ClickWorld`, etc.),
+  not a scene transition. The UI/button classes that would hold a handler
+  (`GameEntry`, `MainCity*`, `UIManager`) have **0 methods in the dump** and appear
+  only as **XLua bridges** — `LuaScriptInterface.UIManager`,
+  `XLua.CSObjectWrap.GameEntryWrap`, `LuaScriptInterfaceUIManagerBridge`. **So the
+  «Мир» button's handler is a Lua function**, bridged through XLua — not a C# method
+  reachable by `runtime_invoke`.
+- **`SceneManager.CreateWorld()` (0-arg static) tested:** `exc=0`, and it flips the
+  enum City→World (`CurrSceneID 1→2`, `IsInWorld→1`) **non-destructively** — unlike
+  `ChangeScene(2)`, the City base **stayed fully rendered** (screenshot
+  `results/cw_after.png`). But it **did not switch the view to the World map** either:
+  camera/render stayed on the city. So `CreateWorld` only updates scene *state*, not
+  the rendered view.
+- **Clicking «Мир» afterwards did nothing** (`results/world_button_click.png` — still
+  the city). Explanation: `CreateWorld()` had set `IsInWorld=true`, so the Lua
+  go-to-World handler thinks it's *already* in the world and no-ops. I.e. writing the
+  C# scene enum out of band **desynchronises the game state and disables the real UI
+  flow**.
+
+**Conclusion — the world-entry flow lives in Lua, and no C# primitive reproduces it:**
+
+| Primitive | enum | City render | World render | verdict |
+|---|---|---|---|---|
+| `ChangeScene(2)` | →World | **destroyed→black** | no | destructive, incomplete |
+| `CreateWorld()` | →World | preserved | no | non-destructive, still incomplete |
+| «Мир» button (Lua) | — | (drives full flow) | **yes**, on a *consistent* state (proven in `[[project_screenshot_and_map_switch]]`) | **the real path** |
+
+The working City→World transition is the game's own **UI navigation (the «Мир»
+button)**, whose handler is **Lua** — it orchestrates world-data load + scene build +
+camera/view switch, of which the C# `SceneManager` methods are only sub-steps. To
+drive it programmatically you need the **Lua path** (the xLua `DoString`/UIManager
+route — still walled, §8–§10), **not** a bare C# `SceneManager` call. Writing the C#
+scene enum directly is worse than useless: it desyncs state and breaks the button.
+
+> State note: this session (pid 38760) was left **enum-desynced** (`IsInWorld=true`
+> while visually in City) by the `CreateWorld()` probe — the client is visually intact
+> (City renders, playable) but the «Мир» button no-ops until a restart resyncs state.
+> Not relaunched again autonomously (single-session account, kick risk).
+
 ### 11.1 Reproduced as a round-trip — direction asymmetry
 
 Re-ran on the same pid 20404 (already in World) with
