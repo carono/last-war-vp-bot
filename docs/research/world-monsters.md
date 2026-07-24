@@ -222,3 +222,24 @@ gold). Attacking one requires an **active spawn during the invasion's kill phase
 current boss phase there are none on the map, so a live attack can't be demonstrated now — only
 the boss (rally) and non-event small monsters (e.g. lvl-3 «Роковая Элита», whose dispatch UI was
 reached in Follow-up 2). Screenshot of the placement mode: `results/aisilla_point.png`.
+
+### Follow-up 4 — attack EXECUTED (solo march on «Обжора» lvl-19, victory)
+
+With explicit sign-off, a monster attack was launched end-to-end. Key distinction learned:
+- **Rally monsters** (event elites «Роковая Элита», the Zombie Boss) show an **orange rally
+  flag** and a **«Стягивание»** (rally) button — that starts an *alliance rally* (needs the
+  gather/members flow); a lone press did not produce a personal march
+  (`WorldMarchDataManager:IsHaveMarchInWorld()` stayed `false`).
+- **Solo monsters** show a **red crossed-swords «Атаковать»** button and a **«Марш»** (march)
+  button in the dispatch UI — a direct solo attack. The lvl-19 **«Обжора»** (rec. power only
+  **1.08M**, stamina 10) was soloable: tapping it → red-swords → dispatch UI (my heroes Lv.175,
+  **55.59M vs 1.08M → «Лёгкая победа»**, «Марш 00:00:37») → pressing **«Марш»** launched the
+  attack. Verified: `IsHaveMarchInWorld() = true` and a green march path from base to the
+  monster (`results/march_launched.png`); ~50 s later the monster was **gone / killed** and the
+  troops were returning (`IsHaveMarchInWorld = false`, `results/battle_result.png`).
+
+So a fully-driven monster attack works via **map tap → «Атаковать» → «Марш»** for soloable
+monsters. `GoToUtil.GoAttackMonster()` only re-opens the alliance rally boss; the launch itself
+is the map-tap dispatch flow. Screenshots: `results/monster19_popup.png` (the «Обжора» solo
+popup), `results/obzhora_dispatch.png` (dispatch «Лёгкая победа»), `results/march_launched.png`
+(march out), `results/battle_result.png` (monster killed, troops returning).
