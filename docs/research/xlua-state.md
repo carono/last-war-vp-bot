@@ -449,7 +449,12 @@ re-resolved on the new pid):
 
 ---
 
-## 11. City→World fired live — SUCCESS (task #1017, pid 20404)
+## 11. City→World via ChangeScene — engine enum flips, but NOT a working visual transition (task #1017)
+
+> **Verdict up front (see §11.3 for the decisive A/B test):** `ChangeScene(SceneID
+> .World)` flips the engine scene *enum* and returns `exc=0`, but it does **not**
+> render a City→World client transition — it tears the current scene down to black
+> and does not build the target. Treat §11's "success" below as *engine-flag only*.
 
 Full autonomous run: located the install
 (`%LOCALAPPDATA%\FunFly\Last War-Survival Game\Game\LastWar.exe`), launched it via
@@ -522,6 +527,49 @@ it properly needs a *healthy* session: read `UnityEngine…SceneManager.GetActiv
 .name`, and/or drive the known-good visual switch (the toggle-button click) and diff
 the button state. Screenshot intentionally not committed (`results/` is gitignored;
 the HUD carries account-identifying figures).
+
+### 11.3 Definitive A/B visual test — `ChangeScene` flips the enum but does NOT
+render the target scene (it is destructive to the view)
+
+Killed the kicked session, relaunched fresh (**pid 53400**, ~90 s login, healthy —
+**no kick modal**), and ran a controlled before/after test (`tools/_scene_ab_test.py`,
+`results/{before,after}_change.png`). On a healthy session **the 3D DOES capture**
+(the earlier all-black frames were the *kicked/frozen* session, not a capture limit).
+
+| Stage | Engine flags | Screenshot | Bottom-right toggle button |
+|---|---|---|---|
+| **BEFORE** | `CurrSceneID=1` IsInCity | **Full City base rendered** (buildings, tanks, troops) | **«Мир»** (go-to-World) |
+| `ChangeScene(2)` | `exc=0` | — | — |
+| **AFTER** (+4.5 s) | `CurrSceneID=2` IsInWorld | **base GONE → black**, World map **not** rendered | **«Мир»** — UNCHANGED |
+| **+17 s** | — | still black, no world | **«Мир»** — UNCHANGED |
+| `ChangeScene(1)` back | `exc≠0` (non-fatal), `CurrSceneID=1` | base did **not** re-render → still black | **«Мир»** |
+| click «Мир» button | — | still black | **«Мир»** |
+
+`UnityEngine…SceneManager` **active-scene handle was identical before and after**
+(`4294967222`) — City and World are **not** separate Unity scenes; the switch is
+GameObject-level within one scene, so `GetActiveScene` cannot discriminate them.
+
+**Findings (this corrects §11's "works"/"SOLVED" framing):**
+
+- **The toggle button never changed** (stayed «Мир» = client-on-base) — the answer to
+  "did the button flip": **no**.
+- `ChangeScene(2)` is **not a no-op**: it **tore down the City scene** (base vanished →
+  black), a real destructive effect on rendering.
+- **But it did not build/render the World** — no world map ever appeared, and neither
+  `ChangeScene(1)` nor a click on the «Мир» button rebuilt any view. The client is left
+  on a **black, broken screen**; only the 2D HUD overlay remains.
+
+**Conclusion: `SceneManager.ChangeScene(SceneID)` is NOT a working City→World
+transition.** It flips the game's scene *enum* (`CurrSceneID`/`IsInWorld`) and
+*destroys* the current scene, but does **not** construct/render the target scene — so
+calling it out of the normal flow **breaks the client view** (torn down, unrecoverable
+by a repeat `ChangeScene` or a button click; needs a game restart). The earlier
+"City→World works" was true only at the enum-flag level and is **misleading as a
+usable transition**. This vindicates `[[project_screenshot_and_map_switch]]`: the
+reliable *visual* switch is the game's own navigation flow, not a scene/state write.
+The correct primitive is likely the full world-entry flow (e.g. `CreateWorld()` plus
+world-data load, or the in-context UI navigation), not a bare `ChangeScene`. **Left the
+client in the torn-down state; it needs a restart to recover a rendered view.**
 
 ### 11.1 Reproduced as a round-trip — direction asymmetry
 
