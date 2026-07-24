@@ -421,3 +421,28 @@ What is ready for the next live session (game up, user present):
 **Sources:** `Tencent/xLua` (MIT) `Assets/XLua/Src/LuaEnv.cs` and
 `ObjectTranslator.cs`; xLua `LuaBehaviour` example and community notes on the
 "one global LuaEnv, held by a manager" pattern.
+
+---
+
+## 10. Autonomous `ChangeScene` fire attempt — blocked (game still down)
+
+Directive: check the process, and if up, re-resolve `SceneManager` via a **runtime
+resolver** (`il2cpp_class_from_name`, validated by reading the class name back —
+never the dump JSON `addr`, which caused the §8.3 crash), then
+`get_CurrSceneID` → if in City, `ChangeScene(2)` → verify `IsInWorld`.
+
+**Result: not run.** `LastWar.exe` was polled **5 times, 30 s apart (~2 min)** and
+stayed **down** the whole time. The game has not been relaunched since the §8.3
+crash. Steps 2–4 need a live process; I am not autonomously relaunching the client
+or re-authenticating the account.
+
+The procedure is ready to execute the instant the game is up (all addresses must be
+re-resolved on the new pid):
+1. `find_game_pid`; `il2cpp_class_from_name(Assembly-CSharp, "", "SceneManager")` →
+   **validate** by reading the class name back (must equal `SceneManager`).
+2. Enumerate its methods at runtime to re-fetch `get_CurrSceneID`, `IsInWorld`,
+   `IsInCity`, `ChangeScene` MethodInfos (last run's absolutes are dead with pid
+   32136).
+3. `get_CurrSceneID` (unbox at `ret+0x10`): if `!= 2` and `IsInCity`, fire
+   `ChangeScene(('val', 2))` on the gated idle main thread.
+4. Re-read `IsInWorld` — expect it to flip true; confirm the process stays alive.
