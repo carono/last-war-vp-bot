@@ -87,3 +87,47 @@ To read world monsters you do **not** watch `world.get.block` or the scene switc
 - `results/world_firstenter.pcapng` / `world_firstenter_decoded.json` — first `ChangeToWorld` since cold login (no monster bulk load).
 - `results/world_coldload_monsters.jsonl` — warm `ChangeToWorld` sniff (comparison).
 - `results/coldload_decoded.json` — the login snapshot carrying the monster event messages above.
+
+## Attacking a monster programmatically via `GoToUtil` (task follow-up)
+
+Driving the monster-attack flow out-of-process (SafeDoString, `tools/lua_eval.py`),
+in **World**:
+
+- **`GoToUtil.FindMonster(arg)`** — the working entry. Navigates the camera to a world
+  monster and opens its **attack popup**. Proven: `FindMonster(2)` (then `GoAttackMonster()`)
+  centered on and opened the popup for a **lvl-120 «Зомби-Босс»** — rewards (rally-initiator /
+  seeker), `Найдено [TLou]mdw88`, stamina 20, recommended power 70M, and the orange
+  **«Точка сбора альянса»** (alliance rally) flag (`results/attack_monster.png`). The `arg` is
+  **not** the level (`2` → a lvl-120 boss; `1` → nothing) — it behaves like a search
+  category/slot, resolved server-side (the request packs a number via `SFSDataSerializer`;
+  calling `FindMonster()` with no arg errors `bad argument #2 to 'pack' (number expected, got nil)`).
+- **`GoToUtil.GoAttackMonster(monster)`** — the attack-dispatch entry. Called with **no arg it
+  is a no-op** (`ok=true`, early-return on nil); it needs the monster's world-point data object
+  (what a map tap / `OnClickWorldPoint` supplies). We could not synthesize that object from the
+  captures, so the reliable trigger is `FindMonster(arg)` (which resolves + opens the popup).
+- **`GoToUtil.GotoBossMonsterBetweenLv(...)`** — **different signature**: `(1,30)` throws
+  `GoToUtil.lua:1782: attempt to compare number with nil`, so it does not take plain
+  `(minLv,maxLv)` — it reads a param table/field that was nil here.
+
+### Where the monster data lives (live managers)
+
+- **Invasion monsters are not cached** — `monster.invasion.act.info.selfMonsters/aliMonsters`
+  were empty (invasion inactive, `bossStatus=2`). `DataCenter.ActivityMonsterInvasionDataManager`
+  fetches on demand: `RequestGetMonsterInvasionPoint`, `GetInvasionBossInfo`, `JumpToBossPoint`,
+  `GotoInvasionAisillaPoint` (the "Aisilla" invasion monster), `OnInvasionBossPointGot`.
+- **`DataCenter.MonsterLockDataManager`** — land-lock / PvE monsters (the ones blocking land
+  expansion): `allMonster` (empty here), `GetMonsterDataByPointIndex`, `ClickMonsterLockById`,
+  `GetMosnterLockDataByPve`.
+- **`DataCenter.MonsterManager`** — counters/limits: `find_monster_max_level=35`,
+  `GetCurCanAttackMaxLevel`, `daily_kill_boss=20`, `GetRestKillBossNum`.
+
+### Recipe
+
+To open a monster's attack UI programmatically: be in **World**, then
+`GoToUtil.FindMonster(<slot>)` — it resolves the nearest matching monster server-side and
+opens the attack/rally popup. `GoAttackMonster` alone needs the monster-point object (map-tap
+data), so it is not directly callable without first tapping/finding a monster.
+
+Screenshots (git-ignored): `results/attack_monster.png` (lvl-120 Zombie-Boss attack popup
+opened via `FindMonster(2)`), `results/attack_small_monster.png` (the monster field — Behemoths
+lvl 3/33/120, zombie squads lvl 8/9/10/20, alliance rally flag).
