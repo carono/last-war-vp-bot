@@ -332,3 +332,64 @@ popup's action button handler still needs to be invoked (through `w.Ctrl`/`w.Vie
 resolve to a `canAttack == 1` monster (scan neighbouring tiles reading `GetMonsterData().canAttack`
 until one is soloable). Screenshot of the proven no-click popup: `results/goattack.png`
 («Роковая Элита» ур.5 opened purely from Lua).
+
+## Finding 6 — enumerating real monsters & the no-click SELECTION wall
+
+Follow-up to Finding 5 (fully-Lua attack). `GoToUtil.GoAttackMonster(pointId)` opens
+the popup but **ignores its argument** — it always targets the fixed `FindMonster`
+selection (a rally elite «Роковая Элита», `canAttack=0`), never an arbitrary monster.
+`FindMonster(level)` also ignores `level` and never cycles. So neither reaches a chosen
+golden zombie. Determined by scanning ±40 tiles in 8 directions + exact monster tiles —
+**every** call returned the same `pid=528614`.
+
+### What DOES work (no click): enumerate the real monsters
+
+The world controller is the MonoBehaviour **`WorldScene`** (on the `World` GameObject),
+reachable via `CS.UnityEngine.Object.FindObjectsOfType(typeof(MonoBehaviour))` filtered by
+`GetType().Name=="WorldScene"` (cache it in `_G.WS`). It exposes the full point/monster API:
+
+```lua
+local ws = _G.WS
+local center = ws.CurTilePos                        -- Vector2Int camera tile
+local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32,CS.System.Int32)()
+ids:Add(1030000, 1)                                 -- whitelist of monster CONFIG ids (golden zombie = 1030000)
+local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)()
+ws:GetMonsterListInArea(center, 150, ids, res)      -- fills res = { uuid -> tilePos }
+-- each entry: real monster uuid + tile; pointId = ws:TilePosToIndex(tilePos)
+```
+
+`GetMonsterListInArea(Vector2Int center, int size, Dictionary<int,int> monsterIds,
+Dictionary<long,Vector2Int> result)` — `monsterIds` is a **config-id whitelist** (empty ⇒
+0 results); `result` returns **real `uuid → tile`** per monster. This gave 3 live golden
+zombies, e.g. `uuid=1397117504274540388 tile=(613,535) pid=535614`. (Visible level tags are
+`UIWorldLabel` components — 33 in view; a lvl-10 label's parent GameObject is
+`WorldMonster_General_invasion(Clone)`, whose world pos → `WorldToScreenPoint` gives the
+exact screen pixel.) The monsters are **not** in `WorldScene.PointManager`
+(`HasPointInfo(pid)=false`, `GetObjectByPoint/GetPointInfoByUuid=nil`) — invasion monsters
+are a separate render/detail system, consistent with Findings 1–4.
+
+Anchoring the popup on a chosen monster also works: `OpenWindow(UIWindowNames.UIWorldPoint,
+uuid, pointId)` (signature is `(long uuid, int pointId)`) opens `UIWorldPoint` positioned
+over that golden zombie, with `Ctrl.uuid`/`Ctrl.pointId` set correctly.
+
+### The wall: the popup's monster DETAIL never loads out-of-band
+
+The anchored popup renders **incomplete** — a bare "ур.N" header, no rewards, **no
+«Атаковать»/«Марш» button**, and `Ctrl:GetMonsterData()` returns only `{canAttack=0}`. The
+attack UI needs the server-fetched *point detail*, and no Lua call triggers/populates it:
+`Ctrl:RequestWorldPointDetail()` (with `pid`/`uuid`/no args), `Ctrl:InitData(uuid,pid)` and
+variants, `PreProcessPointData()` all run `ok=true` but leave `canAttack=0` and the detail
+uncached (`WorldPointDetailManager:GetDetailByPointId` stays non-table).
+
+The detail-fetch is driven only by the **real tap-resolution path** — `TouchInputController`
+(→ world raycast → resolve monster → request detail → open full popup). Its `FingerDown(Vector3)`
+/`FingerUp()` can be invoked via reflection but **do not** fire the click chain (detection reads
+the real `Input` in `OnUpdate`, not the passed position). So the click is bound to OS input.
+
+**Conclusion:** a *fully* no-click solo march on an arbitrary golden zombie is not reachable
+through the exposed Lua/CS surface — monster SELECTION + attack requires the real tap. The
+proven no-click pieces are: (a) open the popup for the `FindMonster` target
+(`GoAttackMonster()`), and (b) enumerate any monster's exact uuid/tile/**screen pixel**. The
+practical path to attack a *chosen* golden zombie is the **hybrid**: Lua computes its screen
+pixel, one real tap opens the full popup, then launch «Марш» — i.e. exactly the physical-tap
+kill proven in Finding 4, now precisely targeted from Lua.
