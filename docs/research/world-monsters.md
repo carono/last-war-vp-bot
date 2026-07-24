@@ -131,3 +131,31 @@ data), so it is not directly callable without first tapping/finding a monster.
 Screenshots (git-ignored): `results/attack_monster.png` (lvl-120 Zombie-Boss attack popup
 opened via `FindMonster(2)`), `results/attack_small_monster.png` (the monster field — Behemoths
 lvl 3/33/120, zombie squads lvl 8/9/10/20, alliance rally flag).
+
+### Follow-up — the active invasion has NO small monsters; `GoAttackMonster` defaults to the rally boss
+
+Re-checked live with the invasion active. `DataCenter.ActivityMonsterInvasionDataManager`:
+the current invasion is a **Godzilla summon-boss** event (`GetActivityData`: `id=80024`,
+`type=210`, `summonBossId=1030091`, icon `ljq_leida_godzilla`, `summonBossScore=40`), and
+`GetActData().selfMonsters` / `aliMonsters` are **`{}` — empty even after
+`RequestGetMonsterInvasionPoint()` + wait**, `GetInvasionBossInfo()=nil`,
+`GetInvasionSummonProgress()=40`. So this invasion type has **no small per-monster entries** —
+you contribute score to *summon* the boss; the `selfMonsters/aliMonsters` arrays belong to a
+different (spawn-near-base) invasion type. Getters `GetMonsterList` / `GetSelfMonsters` /
+`GetAllianceMonsters` do **not** exist on this manager.
+
+The actual small monsters are the **roaming world zombies** (seen live at lvl 1/3/8/9/20/22/33).
+- `GoToUtil.FindMonster(8)` navigates to and **ring-selects a small lvl-8 monster** (arg does
+  differentiate: `2` → the lvl-120 rally boss, `8` → a small monster), but it does **not** store
+  the found monster in any queryable manager (`MonsterLockDataManager.allMonster` stays `{}` —
+  that manager is land-lock/PvE monsters, unrelated).
+- `GoToUtil.GoAttackMonster()` with no arg always opens the **alliance rally boss** popup
+  (lvl-120, «Найдено [TLou]mdw88», «Точка сбора альянса») — the alliance-shared target, not the
+  `FindMonster`-selected small monster. Attacking a *specific* small monster needs its
+  world-point object as the arg, which the client only produces from a real map tap
+  (`OnClickWorldPoint`); it is not exposed in a live manager we could read.
+
+**Conclusion:** the monster-attack UI opens programmatically (proven for the rally boss), and
+`FindMonster(level)` locates small monsters, but a fully-programmatic *solo* attack on a chosen
+small monster is blocked on obtaining its world-point object without a physical tap. Screenshot
+of the small-monster field + ring-selection: `results/find_monster_lv8.png`.
