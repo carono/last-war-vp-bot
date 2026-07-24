@@ -192,3 +192,33 @@ boss, and the per-monster point object is not exposed by any live manager we cou
 Screenshots (git-ignored): `results/monster_lv10_tapped.png` (the "10" = Iron Mine),
 `results/monster_lv3_tapped.png` (lvl-3 «Роковая Элита» popup),
 `results/monster_attack_dispatch.png` (the dispatch UI, «Лёгкая победа»).
+
+### Follow-up 3 — the "Golden Zombie" identified (it is the event "Invading Zombie")
+
+The small event monster the user calls the *golden zombie* is fully pinned down via
+`DataCenter.MonsterTemplateManager.monsterTemplateDic` + localization:
+
+| what | cfgId | name (loc) | level | size | desc (loc) | notes |
+|---|---|---|---|---|---|---|
+| **Golden / Invading Zombie** | **`1030000`** | `2901011` = **«Вторгшиеся Зомби» / "Invading Zombies"** | **10** | 1 | `2901027` = *"a zombie … prefers gold coins over brains"* | `type=7`, `special=9`, `recommend_power=670000`, `expire=720`, `is_stop=1` |
+| **Zombie Boss** | `1031020…1031027` | `2901012` = «Зомби-Босс» / "Zombie Boss" | 100–135 | 3 | `2901028` (the mastermind) | lvl 120 = `1031024` (the big Behemoth on the map) |
+
+Event mechanic (loc `2901024`/`2901033`/`2901034`): you **kill Invading Zombies on the world
+map (500 pts each)**; enough kills **summon a Lv-N Zombie Boss**. So the "golden zombies" are
+the *pre-boss* phase.
+
+**Why none can be attacked right now:** the event is already in the **boss phase** —
+`ActivityMonsterInvasionDataManager:GetInvasionSummonProgress() = 40` (maxed) and the Lv-120
+Zombie Boss (`1031024`) is present on the map, i.e. the Invading/Golden Zombies were already
+killed to summon it; none are currently spawned. `FindMonster(10)` centres the map but there is
+no live Invading Zombie to select (it landed on an alliance base under a shield bubble, not a
+monster). `GetInvasionBossInfo()` returned `nil` and `GotoInvasionAisillaPoint()` instead opened
+a **placement mode** for the big Aisilla invasion boss (a crystalline Godzilla with a green
+placement grid + ✓/✗) — a leader action to *place* the boss, not attack a small zombie; it was
+cancelled.
+
+**Conclusion:** the Golden/Invading Zombie is `cfgId 1030000` (lvl-10, rec. power 670K, gives
+gold). Attacking one requires an **active spawn during the invasion's kill phase**; in the
+current boss phase there are none on the map, so a live attack can't be demonstrated now — only
+the boss (rally) and non-event small monsters (e.g. lvl-3 «Роковая Элита», whose dispatch UI was
+reached in Follow-up 2). Screenshot of the placement mode: `results/aisilla_point.png`.
