@@ -492,6 +492,37 @@ transition (3D captures black; the visible toggle button hinted the client was s
 on base; the session was later kicked) — see `game-launch-and-scene-control.md`
 §4.1/§5. Confirm the visual side via `GetActiveScene().name` on a healthy session.
 
+### 11.2 Final visual check — did NOT confirm a World render (screenshot)
+
+Captured `results/scene_world_proof.png` (mss, window focused via the Alt-key trick).
+**It does not visually confirm the World map — and the one reliable UI signal points
+the other way.** What the screenshot shows:
+
+- The account **session-kick modal** *«В ваш аккаунт был выполнен вход с другого
+  устройства / Подтвердить»* still occupying the center — the session is frozen/kicked
+  by a concurrent login, so the client is **not in a live playable scene**.
+- The **3D scene area is black** — the Unity DirectX surface does not composite into
+  an mss grab on this window (§4), so no terrain (world or city) is visible.
+- The 2D UI overlay renders fine: resources/HQ/power HUD, and — decisively — the
+  **bottom-right toggle button reads «Мир» (go-to-World)**.
+
+Per the project's established visual method (`[[project_screenshot_and_map_switch]]`),
+world-vs-city on this client is read from **which toggle button is showing**, not from
+terrain: the **go-to-World button is visible only when the client is on base/City**.
+So the screenshot's own evidence indicates the **client view is City/base**, even
+though the engine enum reads World (`CurrSceneID=2`). Two readings are possible and I
+cannot separate them on a kicked session: (a) `ChangeScene(2)` flipped the engine enum
+without driving a full rendered client switch (the exact gap
+`[[project_screenshot_and_map_switch]]` warns about — a state flip ≠ a view flip), or
+(b) the session-kick reverted the HUD to base.
+
+**Net: no visual proof of a World transition was obtained; the readable UI signal
+suggests base.** The transition is confirmed only at the engine-enum level. To settle
+it properly needs a *healthy* session: read `UnityEngine…SceneManager.GetActiveScene()
+.name`, and/or drive the known-good visual switch (the toggle-button click) and diff
+the button state. Screenshot intentionally not committed (`results/` is gitignored;
+the HUD carries account-identifying figures).
+
 ### 11.1 Reproduced as a round-trip — direction asymmetry
 
 Re-ran on the same pid 20404 (already in World) with
