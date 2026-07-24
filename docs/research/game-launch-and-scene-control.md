@@ -114,10 +114,32 @@ Unity DirectX swapchain surface does not composite into a DWM/mss screen grab, s
 world terrain / city base are not visible in the PNG even when focused. Consequence:
 
 > **A screenshot cannot visually confirm World-vs-City by terrain on this client.**
-> The authoritative proof of the transition is the engine flags
-> (`get_CurrSceneID` / `IsInWorld` / `IsInCity`), which are read directly from
-> il2cpp state. UI-overlay elements (e.g. the bottom-right map button) are not a
-> reliable scene indicator, especially under a modal.
+> The only confirmed evidence is the engine scene enum (`get_CurrSceneID` /
+> `IsInWorld` / `IsInCity`), read directly from il2cpp state.
+
+### 4.1 Important caveat — engine flag flipped, full visual transition NOT confirmed
+
+The engine enum reliably reports World after `ChangeScene(2)` (`CurrSceneID=2`,
+`IsInWorld=1`, read twice). **But that is not the same as the client rendering the
+World map**, and the visible UI actually casts doubt:
+
+- The focused screenshot's bottom-right toggle button read **«Мир» (go-to-World)**.
+  Per `[[project_screenshot_and_map_switch]]`, on this client the go-to-World button
+  is visible **only when the client is on base/City** (it names the destination). So
+  the UI suggests the **client view may still be City** even though the engine enum
+  says World.
+- The same prior finding warns that flipping server/engine state does **not**
+  necessarily flip what the Unity client renders — the reliable *visual* switch there
+  was a **toggle-button click**, not a state write.
+- A session-kick modal (§5) was also on screen, which may have reverted the HUD.
+
+So the honest status is: **`SceneManager.ChangeScene(2)` reliably sets the engine's
+current scene enum to World; whether it drives a full, rendered City→World client
+transition is UNCONFIRMED** (3D not capturable, the one readable UI element points at
+base, session was kicked). To settle it, either read `UnityEngine…SceneManager
+.GetActiveScene().name` (the actually-loaded Unity scene, stronger than the game
+enum) on a *healthy* session, or compare against the known-good visual switch
+(toggle-button click) from `[[project_screenshot_and_map_switch]]`.
 
 ## 5. Observed during task #1017 — account session kick
 

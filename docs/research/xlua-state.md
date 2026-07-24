@@ -484,9 +484,13 @@ AFTER:  CurrSceneID=2 IsInWorld=1                            # in World
 transition only when in City). It re-resolves the class and all MethodInfos at
 runtime, so it is not tied to any pid.
 
-**This closes the City→World goal via C#.** The xLua `DoString` route (§8–§10)
-remains parked and unnecessary for scene transitions; pursue it only if arbitrary
-Lua execution is later required.
+**This drives the City→World goal via C# at the engine-flag level.** The xLua
+`DoString` route (§8–§10) remains parked and unnecessary for scene transitions;
+pursue it only if arbitrary Lua execution is later required. **Caveat:** the enum
+flip is confirmed, but a screenshot could not confirm a full *rendered* client
+transition (3D captures black; the visible toggle button hinted the client was still
+on base; the session was later kicked) — see `game-launch-and-scene-control.md`
+§4.1/§5. Confirm the visual side via `GetActiveScene().name` on a healthy session.
 
 ### 11.1 Reproduced as a round-trip — direction asymmetry
 
