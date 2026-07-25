@@ -17,7 +17,8 @@ One place that gathers every working technique from the tools/ directory:
 Run under Windows Python (needs psutil/tkinter; navigation also needs the
 il2cpp toolchain deps of call_go_to_world.py):
 
-    C:\\Python312\\python.exe tools\\inject_panel.py
+    C:\\Python312\\python.exe -m panel
+    C:\\Python312\\python.exe panel\\__main__.py
 """
 from __future__ import annotations
 
