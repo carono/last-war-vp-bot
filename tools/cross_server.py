@@ -26,7 +26,7 @@ Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServ
 """
 import sys, time
 sys.path.insert(0, "tools")
-from lua_eval import LuaEval
+from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 HOME_SERVER = "935"
 
@@ -39,7 +39,7 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__); return
 
-    ev = LuaEval()
+    ev = get_evaluator()
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)

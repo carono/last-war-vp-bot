@@ -18,7 +18,7 @@ The uuid must still resolve to a monster that exists on the server (same monster
 """
 import sys, time
 sys.path.insert(0, "tools")
-from lua_eval import LuaEval
+from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 DEFAULT_FORMATION = "1156814234542394473"
 
@@ -34,7 +34,7 @@ def main():
     srv = a[2] if len(a) > 2 else "935"
     formation = a[3] if len(a) > 3 else DEFAULT_FORMATION
 
-    ev = LuaEval()
+    ev = get_evaluator()
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)

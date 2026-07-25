@@ -1,21 +1,18 @@
-"""Last War control panel — navigation GUI.
+"""Last War control panel — navigation GUI (daemon-backed).
 
-One place for the project's confirmed, no-click navigation tools (all driven by the
-game's own xLua VM through a hijacked thread — see docs/skills/sniff.md §7 and
-docs/research/xlua-state.md):
+Actions run through the warm Lua daemon (tools/lua_daemon.py) so every button dispatches
+in ~0.1 s instead of spawning a fresh process that re-resolves the il2cpp hijack (~5 s).
+The panel auto-starts the daemon if it is not already running. The in-game recipes live in
+tools/lua_actions.py (shared with the standalone scripts, so nothing drifts).
 
-  * Scene switch (Домой / Мир) — tools/scene_change.py
-      Мир   -> SceneUtils.ChangeToWorld()  (--fire)
-      Домой -> SceneUtils.ChangeToCity()   (--to-city)
-    (The C# SceneManager.ChangeScene route tears the view to black; this Lua path
-    is the confirmed one.)
+Navigation group:
+  * Сцена — Домой / Мир  (SceneUtils.ChangeToCity / ChangeToWorld)
+  * Переход по координатам — X / Y / Сервер. Same server -> in-server camera jump; a
+    different server -> the cross-server load recipe (authorize + JumpToServerByServerId +
+    close UIMoveCity), because GotoPos alone does not load a foreign world. The server field
+    defaults to the current server (DataCenter.WorldFavoDataManager.curServerId).
 
-  * Coordinate jump (X, Y, server) — tools/goto_coord.py X Y [serverId]
-      GoToUtil.GotoPos(Vector3(X*2+1,0,Y*2+1),105,nil,nil,serverId,nil)
-    The server field defaults to the current server
-    (DataCenter.WorldFavoDataManager.curServerId).
-
-Run under Windows Python (needs psutil/tkinter and the il2cpp toolchain deps of
+Run under Windows Python (needs psutil/tkinter; the daemon needs the il2cpp deps of
 tools/lua_eval.py):
 
     C:\\Python312\\python.exe -m panel
@@ -25,24 +22,26 @@ from __future__ import annotations
 
 import os
 import queue
-import re
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import scrolledtext, ttk
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
+sys.path.insert(0, TOOLS)
+import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
+import lua_actions      # noqa: E402
+
 WIN_PYTHON = r"C:\Python312\python.exe"
 GAME_PORT = 17935
-DEFAULT_SERVER = "935"
-NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW
+DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
+NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
+DETACHED = 0x00000008         # DETACHED_PROCESS
 
 
-# ---------------------------------------------------------------------------
-# Game-state helpers
-# ---------------------------------------------------------------------------
 def connection_status() -> str:
     """Short human string describing the :17935 TCP state."""
     try:
@@ -52,38 +51,12 @@ def connection_status() -> str:
     try:
         for c in psutil.net_connections(kind="tcp"):
             if c.raddr and c.raddr.port == GAME_PORT and c.status == "ESTABLISHED":
-                return f"ESTABLISHED {c.laddr.ip}:{c.laddr.port} -> {c.raddr.ip}:{c.raddr.port}"
+                return f"ESTABLISHED -> {c.raddr.ip}:{c.raddr.port}"
     except Exception as exc:
         return f"probe error: {exc}"
     return "no :17935 ESTABLISHED (game offline?)"
 
 
-def current_server() -> str:
-    """Read the current world server id from the live game (blocking, best-effort).
-
-    DataCenter.WorldFavoDataManager.curServerId is the viewed server (home = 935);
-    falls back to DEFAULT_SERVER if the game is offline or the field is unavailable.
-    """
-    chunk = ('CS.UnityEngine.Debug.LogError("CURSRV="..tostring('
-             '(DataCenter.WorldFavoDataManager and DataCenter.WorldFavoDataManager.curServerId) or '
-             '(DataCenter.WarFlagDataManager and DataCenter.WarFlagDataManager.curServerId) or %s))'
-             % DEFAULT_SERVER)
-    try:
-        out = subprocess.run(
-            [WIN_PYTHON, os.path.join(TOOLS, "lua_eval.py"), "--marker", "CURSRV", chunk],
-            cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=55, creationflags=NO_WINDOW).stdout
-        m = re.search(r"CURSRV=(\d+)", out)
-        if m:
-            return m.group(1)
-    except Exception:
-        pass
-    return DEFAULT_SERVER
-
-
-# ---------------------------------------------------------------------------
-# Panel
-# ---------------------------------------------------------------------------
 class Panel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -92,37 +65,40 @@ class Panel(tk.Tk):
         self.minsize(600, 440)
         self._log_q: "queue.Queue[str]" = queue.Queue()
         self._busy = False
+        self._client = lua_client.DaemonClient()
         self._build_ui()
         self._pump_log()
         self._refresh_status()
-        self._load_current_server()
+        threading.Thread(target=self._startup, daemon=True).start()
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
         top = ttk.Frame(self, padding=8)
         top.pack(fill="x")
-        ttk.Label(top, text="Соединение :17935:").pack(side="left")
+        ttk.Label(top, text="Игра:").pack(side="left")
         self._status_var = tk.StringVar(value="проверяю…")
         self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
+        ttk.Label(top, text="daemon:").pack(side="left", padx=(12, 0))
+        self._daemon_var = tk.StringVar(value="…")
+        self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
+        self._daemon_lbl.pack(side="left", padx=6)
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
 
         nav = ttk.LabelFrame(self, text="Навигация", padding=8)
         nav.pack(fill="x", padx=8, pady=(0, 6))
 
-        # -- sub-block: scene switch ----------------------------------------
         scene = ttk.LabelFrame(nav, text="Сцена", padding=6)
         scene.pack(fill="x", pady=(0, 6))
         ttk.Button(scene, text="\U0001F3E0  Домой",
-                   command=lambda: self._nav_scene("--to-city", "Домой (ChangeToCity)")
+                   command=lambda: self._act(lua_actions.scene_city(), "scene", "Домой")
                    ).pack(side="left", padx=4, ipadx=8, ipady=6)
         ttk.Button(scene, text="\U0001F30D  Мир",
-                   command=lambda: self._nav_scene("--fire", "Мир (ChangeToWorld)")
+                   command=lambda: self._act(lua_actions.scene_world(), "scene", "Мир")
                    ).pack(side="left", padx=4, ipadx=8, ipady=6)
-        ttk.Label(scene, text="tools/scene_change.py — Lua SceneUtils, без кликов",
+        ttk.Label(scene, text="SceneUtils.ChangeToCity / ChangeToWorld",
                   foreground="#888").pack(side="left", padx=10)
 
-        # -- sub-block: coordinate jump -------------------------------------
         coord = ttk.LabelFrame(nav, text="Переход по координатам", padding=6)
         coord.pack(fill="x")
         self._x_var = tk.StringVar()
@@ -160,91 +136,137 @@ class Panel(tk.Tk):
             pass
         self.after(120, self._pump_log)
 
+    # -- daemon lifecycle ---------------------------------------------------
+    def _startup(self) -> None:
+        self._ensure_daemon()
+        self._load_current_server()
+
+    def _ensure_daemon(self) -> bool:
+        """Start the daemon if it is not already listening; wait until it is warm."""
+        if lua_client.is_running():
+            self.after(0, lambda: self._set_daemon("warm", True))
+            return True
+        self._log_put("[daemon] не запущен — стартую tools/lua_daemon.py…")
+        self.after(0, lambda: self._set_daemon("старт…", None))
+        try:
+            subprocess.Popen(
+                [WIN_PYTHON, os.path.join(TOOLS, "lua_daemon.py")],
+                cwd=REPO, creationflags=NO_WINDOW | DETACHED,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL)
+        except Exception as exc:
+            self._log_put(f"[daemon] не удалось запустить: {exc}")
+            self.after(0, lambda: self._set_daemon("ошибка", False))
+            return False
+        for _ in range(60):                     # up to ~30 s for il2cpp warm-up
+            if lua_client.is_running():
+                self._log_put("[daemon] готов (warm)")
+                self.after(0, lambda: self._set_daemon("warm", True))
+                return True
+            time.sleep(0.5)
+        self._log_put("[daemon] не поднялся за отведённое время")
+        self.after(0, lambda: self._set_daemon("нет", False))
+        return False
+
+    def _set_daemon(self, text: str, ok) -> None:
+        color = "#3c3" if ok else ("#888" if ok is None else "#c33")
+        self._daemon_var.set(text)
+        self._daemon_lbl.configure(foreground=color)
+
     # -- status -------------------------------------------------------------
     def _refresh_status(self) -> None:
         def work() -> None:
             s = connection_status()
             ok = s.startswith("ESTABLISHED")
-            self.after(0, lambda: (self._status_var.set(s),
-                                   self._status_lbl.configure(foreground="#3c3" if ok else "#c33")))
+            warm = lua_client.is_running()
+            self.after(0, lambda: (
+                self._status_var.set(s),
+                self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
+                self._set_daemon("warm" if warm else "нет", warm)))
         threading.Thread(target=work, daemon=True).start()
 
     def _load_current_server(self) -> None:
-        self._log_put("[server] читаю текущий сервер…")
-
         def work() -> None:
-            srv = current_server()
+            srv = self._current_server()
             self.after(0, lambda: (self._srv_var.set(srv),
                                    self._log_put(f"[server] текущий сервер: {srv}")))
         threading.Thread(target=work, daemon=True).start()
 
-    # -- run guard ----------------------------------------------------------
-    def _set_busy(self, busy: bool) -> None:
-        self._busy = busy
-
-    def _stream(self, argv: list[str], tag: str) -> None:
-        """Run a tool under the Windows Python, streaming its output to the log (blocking)."""
-        cmd = [WIN_PYTHON, *argv]
-        self._log_put(f"[{tag}] запуск: {' '.join(cmd)}")
+    def _current_server(self) -> str:
+        """Read the viewed server id via the daemon; fall back to DEFAULT_SERVER."""
         try:
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", bufsize=1,
-                cwd=REPO, creationflags=NO_WINDOW)
-            assert proc.stdout is not None
-            for raw in proc.stdout:
-                self._log_put(raw.rstrip())
-            proc.wait()
-            self._log_put(f"[{tag}] завершён rc={proc.returncode}")
+            for ln in self._client.run(lua_actions.current_server(), marker="ACT", settle=0.5):
+                if "curserver=" in ln:
+                    return ln.split("curserver=")[1].split()[0]
         except Exception as exc:
-            self._log_put(f"[{tag}] ошибка: {exc}")
+            self._log_put(f"[server] ошибка чтения: {exc}")
+        return DEFAULT_SERVER
 
-    def _run_async(self, body) -> None:
-        """Run `body()` (which may call self._stream) on a worker thread, guarding _busy."""
+    # -- run guard ----------------------------------------------------------
+    def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
+        """Dispatch a Lua chunk through the warm daemon on a worker thread."""
         if self._busy:
             self._log_put("[panel] занят — дождись завершения текущего действия")
             return
-        self._set_busy(True)
+        self._busy = True
+        self._log_put(f"[{tag}] {label}")
 
         def work() -> None:
             try:
-                body()
+                if not lua_client.is_running() and not self._ensure_daemon():
+                    self._log_put(f"[{tag}] daemon недоступен")
+                    return
+                out = self._client.run(chunk, marker="ACT", settle=settle)
+                for ln in out:
+                    self._log_put(f"[{tag}] {ln}")
+                self._log_put(f"[{tag}] готово")
+            except Exception as exc:
+                self._log_put(f"[{tag}] ошибка: {exc}")
             finally:
-                self.after(0, lambda: self._set_busy(False))
-                self.after(600, self._refresh_status)
+                self._busy = False
+                self.after(400, self._refresh_status)
 
         threading.Thread(target=work, daemon=True).start()
 
-    # -- actions ------------------------------------------------------------
-    def _nav_scene(self, flag: str, label: str) -> None:
-        self._log_put(f"[scene] {label}")
-        self._run_async(lambda: self._stream([os.path.join(TOOLS, "scene_change.py"), flag], "scene"))
-
+    # -- coordinate jump (routes by server) ---------------------------------
     def _goto_coord(self) -> None:
         x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
         if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
             self._log_put("[coord] X и Y должны быть целыми числами")
             return
         srv = srv if srv.isdigit() else DEFAULT_SERVER
+        xi, yi, si = int(x), int(y), int(srv)
+        if self._busy:
+            self._log_put("[panel] занят — дождись завершения текущего действия")
+            return
+        self._busy = True
 
-        def body() -> None:
-            cur = current_server()
-            if srv != cur:
-                # Different server: GotoPos alone does NOT load a foreign world (it only tags the
-                # request). Use the cross-server recipe — authorize + JumpToServerByServerId + close
-                # UIMoveCity — then pan to (X,Y). tools/cross_server.py does all of that.
-                self._log_put(f"[coord] другой сервер ({srv} != {cur}) — кросс-серверная загрузка + переход в ({x},{y})")
-                self._stream([os.path.join(TOOLS, "cross_server.py"), srv, x, y], "coord")
-            else:
-                # Same server: a plain in-server camera jump is enough.
-                self._log_put(f"[coord] тот же сервер ({srv}) — переход камерой в ({x},{y})")
-                self._stream([os.path.join(TOOLS, "goto_coord.py"), x, y, srv], "coord")
+        def work() -> None:
+            try:
+                if not lua_client.is_running() and not self._ensure_daemon():
+                    self._log_put("[coord] daemon недоступен")
+                    return
+                cur = self._current_server()
+                if str(si) != cur:
+                    self._log_put(f"[coord] другой сервер ({si} != {cur}) — кросс-загрузка + переход в ({xi},{yi})")
+                    chunk, settle = lua_actions.cross_jump(si, x=xi, y=yi), 1.6
+                else:
+                    self._log_put(f"[coord] тот же сервер ({si}) — переход камерой в ({xi},{yi})")
+                    chunk, settle = lua_actions.goto_pos(xi, yi, si), 1.0
+                for ln in self._client.run(chunk, marker="ACT", settle=settle):
+                    self._log_put(f"[coord] {ln}")
+                self._log_put("[coord] готово")
+            except Exception as exc:
+                self._log_put(f"[coord] ошибка: {exc}")
+            finally:
+                self._busy = False
+                self.after(400, self._refresh_status)
 
-        self._run_async(body)
+        threading.Thread(target=work, daemon=True).start()
 
 
 def main() -> int:
-    for tool in ("scene_change.py", "goto_coord.py", "lua_eval.py"):
+    for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py"):
         if not os.path.isfile(os.path.join(TOOLS, tool)):
             print(f"tool not found: tools/{tool}", file=sys.stderr)
     Panel().mainloop()

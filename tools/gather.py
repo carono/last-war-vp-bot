@@ -19,7 +19,7 @@ For a fully-no-click variant (no OnClick, pid read from the clone position) use 
 """
 import sys, time
 sys.path.insert(0, "tools")
-from lua_eval import LuaEval
+from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 DEFAULT_FORMATION = "1156814234542394473"
 COLLECT = "MarchTargetType.COLLECT"  # = 2
@@ -30,7 +30,7 @@ def one(lines, needle):
 
 
 def main():
-    ev = LuaEval()
+    ev = get_evaluator()
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)

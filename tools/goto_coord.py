@@ -16,7 +16,7 @@ jump; GotoPos is the one the magnifier's coordinate search actually uses.)
 """
 import sys, time
 sys.path.insert(0, "tools")
-from lua_eval import LuaEval
+from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 
 def one(lines, needle):
@@ -30,7 +30,7 @@ def main():
     y = int(sys.argv[2])
     srv = sys.argv[3] if len(sys.argv) > 3 else "935"
 
-    ev = LuaEval()
+    ev = get_evaluator()
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)
