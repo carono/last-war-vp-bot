@@ -89,13 +89,17 @@ def connection_status() -> str:
 
 
 class Panel(tk.Tk):
-    def __init__(self) -> None:
+    def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
         self._i18n = i18nmod.I18n()
         self._tr_widgets: list = []   # (widget, option, key, fmt) — retranslated in place
         self._tr_hooks: list = []     # callables run on every language change
         # Profiles: the active profile's config.json drives every panel setting.
         self._profiles = profilemod.ProfileManager()
+        # An explicit --profile overrides the saved last-active profile, creating
+        # it on the fly if it does not exist yet.
+        if active_profile:
+            self._profiles.set_active(active_profile)
         self._settings = self._profiles.load()
         self._loading = True          # suppresses auto-save while we apply settings
         saved_lang = self._settings.get("language")
@@ -798,11 +802,17 @@ class Panel(tk.Tk):
         self.destroy()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(prog="panel", description="Last War control panel")
+    parser.add_argument("--profile", metavar="NAME", default=None,
+                        help="start with the named profile active (created if missing), "
+                             "overriding the saved last-active profile")
+    args = parser.parse_args(argv)
     for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
         if not os.path.isfile(os.path.join(TOOLS, tool)):
             print(f"tool not found: tools/{tool}", file=sys.stderr)
-    Panel().mainloop()
+    Panel(active_profile=args.profile).mainloop()
     return 0
 
 
