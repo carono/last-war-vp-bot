@@ -41,11 +41,17 @@ import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
-try:
+# Support both `python -m panel` (run as a package -> __package__ == "panel") and
+# `python panel/__main__.py` (run as a plain script -> __package__ is None or "").
+# In the script case there is no parent package for `from . import ...`, so put the
+# repo root on sys.path and import via the absolute `panel` package instead. A plain
+# try/except around the relative import would also swallow unrelated ImportErrors
+# raised *inside* i18n/profile, so branch explicitly on __package__.
+if __package__:
     from . import __version__ as APP_VERSION
     from . import i18n as i18nmod
     from . import profile as profilemod
-except ImportError:  # run directly as a script (python panel/__main__.py)
+else:  # run directly as a script (python panel/__main__.py)
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from panel import __version__ as APP_VERSION
     from panel import i18n as i18nmod
@@ -496,11 +502,51 @@ class Panel(tk.Tk):
 
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+        # Left as state="normal" so text can be selected and copied; edits are
+        # blocked with a key filter instead (see _readonly_key). A "disabled" Text
+        # cannot be interactively selected, which is why we do not use it here.
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
-                                              font=("Consolas", 9), state="disabled",
+                                              font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
+        # Read-only-but-selectable: swallow every editing keystroke, keep copy /
+        # select-all / navigation working.
+        self._log.bind("<Key>", self._readonly_key)
+        self._log.bind("<Control-c>", self._copy_selection)
+        self._log.bind("<Control-C>", self._copy_selection)
+        self._log.bind("<Control-a>", self._select_all_log)
+        self._log.bind("<Control-A>", self._select_all_log)
+        self._log.bind("<<Paste>>", lambda e: "break")
+        self._log.bind("<Button-2>", lambda e: "break")  # X11 middle-click paste
+
+    # -- read-only log widget helpers --------------------------------------
+    _RO_ALLOWED_KEYS = frozenset({
+        "Left", "Right", "Up", "Down", "Home", "End", "Prior", "Next",
+        "Shift_L", "Shift_R", "Control_L", "Control_R",
+    })
+
+    def _readonly_key(self, event: "tk.Event") -> str | None:
+        """Block editing keystrokes; let copy / select-all / navigation pass."""
+        ctrl = bool(event.state & 0x4)
+        if ctrl and event.keysym.lower() in ("c", "a"):
+            return None
+        if event.keysym in self._RO_ALLOWED_KEYS:
+            return None
+        return "break"
+
+    def _copy_selection(self, event: "tk.Event | None" = None) -> str:
+        try:
+            sel = self._log.get("sel.first", "sel.last")
+        except tk.TclError:
+            return "break"          # nothing selected
+        self.clipboard_clear()
+        self.clipboard_append(sel)
+        return "break"
+
+    def _select_all_log(self, event: "tk.Event | None" = None) -> str:
+        self._log.tag_add("sel", "1.0", "end-1c")
+        return "break"
 
     # -- logging ------------------------------------------------------------
     def _log_put(self, line: str) -> None:
@@ -509,15 +555,32 @@ class Panel(tk.Tk):
     def _pump_log(self) -> None:
         try:
             while True:
-                self._insert_line(self._log_q.get_nowait() + "\n")
+                line = self._log_q.get_nowait()
+                self._insert_line(line + "\n")
+                self._append_log(line)
         except queue.Empty:
             pass
         self.after(120, self._pump_log)
 
+    def _append_log(self, line: str) -> None:
+        """Mirror a log line to the active profile's panel.log, flushed at once.
+
+        Opened per line in line-buffered append mode and explicitly flushed so the
+        on-disk log is never behind the widget, even if the panel is killed. Writes
+        follow the active profile, so switching profiles redirects the file too.
+        """
+        try:
+            clean = _ANSI.sub("", line)
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with open(self._profiles.panel_log(), "a", encoding="utf-8", buffering=1) as fh:
+                fh.write(f"{stamp} {clean}\n")
+                fh.flush()
+        except Exception:
+            pass                    # logging must never crash the panel
+
     def _insert_line(self, text: str) -> None:
         """Insert a log line, turning any coordinate token into a clickable link."""
         clean = _ANSI.sub("", text)
-        self._log.configure(state="normal")
         pos = 0
         for (s, e, x, y, srv) in coords.parse(clean):
             if s > pos:
@@ -533,7 +596,6 @@ class Panel(tk.Tk):
         if pos < len(clean):
             self._log.insert("end", clean[pos:])
         self._log.see("end")
-        self._log.configure(state="disabled")
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:

@@ -6,6 +6,7 @@ A *profile* is a named set of panel settings plus its own logs, stored under
     config.json             all panel settings (language, checkboxes, filters, coords…)
     rally_log.jsonl         rally-monitor output for this profile
     secret_tasks_log.jsonl  secret-task findings for this profile
+    panel.log               plain-text mirror of the panel log widget
 
 The active profile name lives in ``panel/settings.json`` (global, profile-
 independent), so the last-used profile is restored on the next launch. Switching
@@ -29,6 +30,7 @@ SETTINGS_FILE = os.path.join(PANEL_DIR, "settings.json")
 DEFAULT_PROFILE = "default"
 RALLY_LOG = "rally_log.jsonl"
 SECRET_LOG = "secret_tasks_log.jsonl"
+PANEL_LOG = "panel.log"
 CONFIG_FILE = "config.json"
 
 # Filesystem-hostile characters; profile names are used verbatim as directory
@@ -164,8 +166,15 @@ class ProfileManager:
 
     # -- per-profile log paths ---------------------------------------------
     def dir(self, name: str | None = None) -> str:
+        """Absolute path to a profile directory (created if missing).
+
+        ``_ensure_dir`` returns the *normalised name* (it is also used to resolve
+        the active-profile name), so join it with ``PROFILES_DIR`` here to get an
+        absolute path — otherwise the log files resolve relative to the launch cwd.
+        """
         name = sanitize(name) if name else self._active
-        return self._ensure_dir(name)
+        name = self._ensure_dir(name)
+        return os.path.join(PROFILES_DIR, name)
 
     def rally_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), RALLY_LOG)
@@ -173,8 +182,17 @@ class ProfileManager:
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)
 
+    def panel_log(self, name: str | None = None) -> str:
+        """Plain-text mirror of everything shown in the panel log widget."""
+        return os.path.join(self.dir(name), PANEL_LOG)
+
     # -- helpers ------------------------------------------------------------
     def _ensure_dir(self, name: str) -> str:
+        """Create the profile directory; return the normalised profile *name*.
+
+        Callers (``set_active``/``create``/``_read_active``) rely on getting the
+        name back, so keep returning the name — :meth:`dir` builds the full path.
+        """
         name = sanitize(name) or DEFAULT_PROFILE
         os.makedirs(os.path.join(PROFILES_DIR, name), exist_ok=True)
         return name
