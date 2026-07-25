@@ -30,6 +30,18 @@ tools/lua_eval.py; the capture needs scapy/npcap):
 """
 from __future__ import annotations
 
+# Make relative imports work in BOTH launch modes, before importing anything
+# from the package. `from __future__` must stay first (a language rule), so this
+# is as close to the very top as Python allows.
+#   * `python -m panel`         -> __package__ == "panel"   (already fine)
+#   * `python panel/__main__.py` -> __package__ is None/""   (no parent package)
+# Putting the repo root on sys.path and pinning __package__ = "panel" lets the
+# plain `from . import ...` below resolve identically in either case.
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+if not __package__:
+    __package__ = "panel"
+
 import json
 import os
 import queue
@@ -41,21 +53,9 @@ import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
-# Support both `python -m panel` (run as a package -> __package__ == "panel") and
-# `python panel/__main__.py` (run as a plain script -> __package__ is None or "").
-# In the script case there is no parent package for `from . import ...`, so put the
-# repo root on sys.path and import via the absolute `panel` package instead. A plain
-# try/except around the relative import would also swallow unrelated ImportErrors
-# raised *inside* i18n/profile, so branch explicitly on __package__.
-if __package__:
-    from . import __version__ as APP_VERSION
-    from . import i18n as i18nmod
-    from . import profile as profilemod
-else:  # run directly as a script (python panel/__main__.py)
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from panel import __version__ as APP_VERSION
-    from panel import i18n as i18nmod
-    from panel import profile as profilemod
+from . import __version__ as APP_VERSION
+from . import i18n as i18nmod
+from . import profile as profilemod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -502,48 +502,28 @@ class Panel(tk.Tk):
 
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        # Left as state="normal" so text can be selected and copied; edits are
-        # blocked with a key filter instead (see _readonly_key). A "disabled" Text
-        # cannot be interactively selected, which is why we do not use it here.
+        # Left at state="normal" so text can be selected and copied (a "disabled"
+        # Text cannot be interactively selected); typed edits are filtered below.
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
-        # Read-only-but-selectable: swallow every editing keystroke, keep copy /
-        # select-all / navigation working.
-        self._log.bind("<Key>", self._readonly_key)
-        self._log.bind("<Control-c>", self._copy_selection)
-        self._log.bind("<Control-C>", self._copy_selection)
+        # Read-only-but-selectable. The widget stays state="normal" (a "disabled"
+        # Text cannot be interactively selected). We only swallow *typed* printable
+        # characters so the log can't be edited by typing; everything else is left
+        # to the Text widget's own, well-tested defaults: mouse selection, native
+        # Ctrl+C copy (the built-in <<Copy>> virtual event), and cursor navigation.
+        # The previous custom key-filter + custom clipboard handler regressed copy
+        # on the user's machine, so we deliberately stop reimplementing them.
+        # Backspace/Delete stay live, but stray edits to a log are harmless.
+        self._log.bind("<Key>", lambda e: "break"
+                       if (len(e.char) == 1 and e.char.isprintable()) else None)
+        # Ctrl+A -> select all (Tk's native Ctrl+A is "start of line", not select-all).
         self._log.bind("<Control-a>", self._select_all_log)
         self._log.bind("<Control-A>", self._select_all_log)
-        self._log.bind("<<Paste>>", lambda e: "break")
-        self._log.bind("<Button-2>", lambda e: "break")  # X11 middle-click paste
 
     # -- read-only log widget helpers --------------------------------------
-    _RO_ALLOWED_KEYS = frozenset({
-        "Left", "Right", "Up", "Down", "Home", "End", "Prior", "Next",
-        "Shift_L", "Shift_R", "Control_L", "Control_R",
-    })
-
-    def _readonly_key(self, event: "tk.Event") -> str | None:
-        """Block editing keystrokes; let copy / select-all / navigation pass."""
-        ctrl = bool(event.state & 0x4)
-        if ctrl and event.keysym.lower() in ("c", "a"):
-            return None
-        if event.keysym in self._RO_ALLOWED_KEYS:
-            return None
-        return "break"
-
-    def _copy_selection(self, event: "tk.Event | None" = None) -> str:
-        try:
-            sel = self._log.get("sel.first", "sel.last")
-        except tk.TclError:
-            return "break"          # nothing selected
-        self.clipboard_clear()
-        self.clipboard_append(sel)
-        return "break"
-
     def _select_all_log(self, event: "tk.Event | None" = None) -> str:
         self._log.tag_add("sel", "1.0", "end-1c")
         return "break"
@@ -680,10 +660,11 @@ class Panel(tk.Tk):
             return
         idx = self._mon_combo.current()
         script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
-        self._log_put(f"[secret] старт мониторинга: {script}")
+        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"]
+        self._log_put(f"[secret] запуск захвата: {script} …")
         try:
             self._mon_proc = subprocess.Popen(
-                [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"],
+                cmd,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
                 creationflags=NO_WINDOW)
@@ -692,7 +673,22 @@ class Panel(tk.Tk):
             self._mon_proc = None
             self._mon_var.set(False)
             return
+        # Confirm the child really started (so a silent monitor is never mistaken
+        # for a crash) and stream its stdout+stderr into the log. A passive pcap
+        # only yields tiles while the map is scrolling, so remind the user.
+        self._log_put(f"[secret] захват запущен (pid {self._mon_proc.pid}); "
+                      f"вывод идёт в лог — двигай карту, иначе трафика не будет")
         threading.Thread(target=self._mon_reader, args=(self._mon_proc,), daemon=True).start()
+        # The capture can only name the on-screen server once map traffic arrives,
+        # and never over the game's TCP socket when the VPN is off. Read it straight
+        # from the running game via the warm Lua daemon so the monitor is never
+        # "blind" about which server it is watching.
+        threading.Thread(target=self._log_monitor_server, daemon=True).start()
+
+    def _log_monitor_server(self) -> None:
+        """Report the current server from the game via Lua (VPN-independent)."""
+        srv = self._current_server()
+        self._log_put(f"[secret] текущий сервер (Lua): {srv}")
 
     def _task_passes(self, ln: str) -> bool:
         """Panel-side filters for a secret-task finding line. Non-task lines always pass.
