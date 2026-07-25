@@ -146,14 +146,30 @@ class Panel(tk.Tk):
 
         sec = ttk.LabelFrame(self, text="Секретные задания", padding=8)
         sec.pack(fill="x", padx=8, pady=(0, 6))
+        row1 = ttk.Frame(sec)
+        row1.pack(fill="x")
         self._mon_kind = tk.StringVar(value="Секретные задания")
-        ttk.Combobox(sec, textvariable=self._mon_kind, state="readonly", width=20,
+        ttk.Combobox(row1, textvariable=self._mon_kind, state="readonly", width=20,
                      values=list(CAPTURE_SCRIPTS)).pack(side="left", padx=(0, 8))
         self._mon_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(sec, text="Мониторинг", variable=self._mon_var,
+        ttk.Checkbutton(row1, text="Мониторинг", variable=self._mon_var,
                         command=self._toggle_monitor).pack(side="left")
-        ttk.Label(sec, text="пассивный сниф — панорамируй карту, чтобы шли тайлы",
+        ttk.Label(row1, text="пассивный сниф — панорамируй карту",
                   foreground="#888").pack(side="left", padx=10)
+        # filters (applied live, panel-side, to task findings only)
+        row2 = ttk.Frame(sec)
+        row2.pack(fill="x", pady=(6, 0))
+        ttk.Label(row2, text="Фильтры:").pack(side="left")
+        self._star_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row2, text="Только звёзды", variable=self._star_var).pack(side="left", padx=(6, 0))
+        self._pending_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row2, text="Только пендинг", variable=self._pending_var).pack(side="left", padx=(6, 0))
+        ttk.Label(row2, text="Уровень от").pack(side="left", padx=(12, 2))
+        self._lvl_from_var = tk.StringVar()
+        ttk.Entry(row2, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        ttk.Label(row2, text="до").pack(side="left", padx=(6, 2))
+        self._lvl_to_var = tk.StringVar()
+        ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
 
         rally = ttk.LabelFrame(self, text="Ралли", padding=8)
         rally.pack(fill="x", padx=8, pady=(0, 6))
@@ -294,10 +310,33 @@ class Panel(tk.Tk):
             return
         threading.Thread(target=self._mon_reader, args=(self._mon_proc,), daemon=True).start()
 
+    def _task_passes(self, ln: str) -> bool:
+        """Panel-side filters for a secret-task finding line. Non-task lines always pass.
+
+        A finding looks like `[*] lvl N  @[x,y|server] ... [PENDING]`. Filters are read live
+        from the checkboxes/entries, so toggling one affects subsequent lines immediately.
+        """
+        m = re.search(r"\blvl\s+(\d+)\b", ln)
+        if not m or "@[" not in ln:
+            return True  # header / progress / summary line — never filtered
+        lvl = int(m.group(1))
+        lo, hi = self._lvl_from_var.get().strip(), self._lvl_to_var.get().strip()
+        if lo.isdigit() and lvl < int(lo):
+            return False
+        if hi.isdigit() and lvl > int(hi):
+            return False
+        if self._star_var.get() and not re.match(r"\s*\*", ln):
+            return False
+        if self._pending_var.get() and "PENDING" not in ln:
+            return False
+        return True
+
     def _mon_reader(self, proc) -> None:
         try:
             for raw in proc.stdout:
-                self._log_put(f"[secret] {raw.rstrip()}")
+                ln = raw.rstrip()
+                if self._task_passes(ln):
+                    self._log_put(f"[secret] {ln}")
         except Exception:
             pass
         if self._mon_proc is proc:      # ended on its own, not via _stop_monitor
