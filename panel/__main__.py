@@ -502,31 +502,18 @@ class Panel(tk.Tk):
 
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        # Left at state="normal" so text can be selected and copied (a "disabled"
-        # Text cannot be interactively selected); typed edits are filtered below.
+        # Plain native Text widget: state="normal" (never toggled to "disabled",
+        # which would block interactive selection). We add NO key bindings and NO
+        # custom clipboard handler — Tk's built-in Text defaults already give
+        # mouse selection and native Ctrl+C copy (the <<Copy>> virtual event).
+        # Previous attempts to reimplement read-only/copy regressed copying, so we
+        # leave the widget's well-tested defaults untouched. The log stays
+        # technically editable, but stray typed edits to a log are harmless.
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
-        # Read-only-but-selectable. The widget stays state="normal" (a "disabled"
-        # Text cannot be interactively selected). We only swallow *typed* printable
-        # characters so the log can't be edited by typing; everything else is left
-        # to the Text widget's own, well-tested defaults: mouse selection, native
-        # Ctrl+C copy (the built-in <<Copy>> virtual event), and cursor navigation.
-        # The previous custom key-filter + custom clipboard handler regressed copy
-        # on the user's machine, so we deliberately stop reimplementing them.
-        # Backspace/Delete stay live, but stray edits to a log are harmless.
-        self._log.bind("<Key>", lambda e: "break"
-                       if (len(e.char) == 1 and e.char.isprintable()) else None)
-        # Ctrl+A -> select all (Tk's native Ctrl+A is "start of line", not select-all).
-        self._log.bind("<Control-a>", self._select_all_log)
-        self._log.bind("<Control-A>", self._select_all_log)
-
-    # -- read-only log widget helpers --------------------------------------
-    def _select_all_log(self, event: "tk.Event | None" = None) -> str:
-        self._log.tag_add("sel", "1.0", "end-1c")
-        return "break"
 
     # -- logging ------------------------------------------------------------
     def _log_put(self, line: str) -> None:
