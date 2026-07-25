@@ -86,6 +86,21 @@ _G.__XSTRACE = _G.__XSTRACE or {}
 local T = _G.__XSTRACE
 T.saved = T.saved or {}
 T.counts = T.counts or {}  -- name -> call count; dedup logs only the first hit
+T.shims = T.shims or {}    -- set of shim functions we created (never wrap our own shim)
+
+-- Guard against double-install: if we are already installed, revert to the TRUE originals
+-- first. Wrapping an already-wrapped function would save the shim AS the "original", so a
+-- later restore would leave that inner shim live forever — an orphan that keeps logging to
+-- Player.log and can never be removed (it is no longer in T.saved).
+if T.installed and #T.saved > 0 then
+  for i = #T.saved, 1, -1 do
+    local e = T.saved[i]
+    pcall(function() e.tbl[e.key] = e.orig end)
+  end
+  T.saved = {}
+  T.shims = {}
+end
+T.installed = false
 
 local function MATCH(nm)
   if not FILTER then return true end
@@ -104,6 +119,7 @@ local function argstr(...)
 end
 
 local function wrap(tbl, key, name, fn)
+  if T.shims[fn] then return end  -- fn is already one of our shims: never double-wrap
   local w = function(...)
     if MATCH(name) then
       -- Default logs EVERY call with the full (untruncated) arg list — that is what you
@@ -121,6 +137,7 @@ local function wrap(tbl, key, name, fn)
     end
     return fn(...)
   end
+  T.shims[w] = true
   local ok = pcall(function() tbl[key] = w end)  -- some xLua tables are read-only
   if ok then T.saved[#T.saved + 1] = {tbl = tbl, key = key, orig = fn} end
 end
@@ -245,6 +262,7 @@ if T then
   end
   T.saved = {}
   T.counts = {}
+  T.shims = {}
   T.installed = false
   T.hook = false
   CS.UnityEngine.Debug.LogError('XSTRACE restored '..n)
