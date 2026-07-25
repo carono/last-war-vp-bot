@@ -19,7 +19,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
 
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
   `rally_join.py` (rally listen/join/decline + squad select), `lua_trace.py` (live Lua
-  tracer) and `lua_daemon.py` (the warm Lua evaluator behind them).
+  tracer), `lua_daemon.py` (the warm Lua evaluator behind them) and
+  `extract_hero_icons.py` (pull hero-icon sprites from the bundles).
 - **`tools/lib/`** — shared modules imported by the entrypoints (not run directly): the Lua/
   il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
   `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
@@ -29,8 +30,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
   (`secret_task_capture.py`, `secret_mission_capture.py`, `rally_monitor.py`,
   `watch_rally.py`, `rally_report.py`), world actions (`cross_server.py`, `goto_coord.py`,
   `city_click.py`, `solo_attack_direct.py`, `ghost_recon_tile_dump.py`,
-  `collect_base_resources.py`, `gather*.py`), scanners (`scan_*.py`),
-  `extract_hero_icons.py`. Promote to `tools/` once verified live.
+  `collect_base_resources.py`, `gather*.py`) and scanners (`scan_*.py`).
+  Promote to `tools/` once verified live.
 - **`tools/archive/`** — superseded approaches, one-offs, tests, old probes. Kept for
   reference; not part of the bot.
 - **`tools/scratch/`** — throwaway RE probes (git-ignored).

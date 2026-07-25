@@ -1,7 +1,7 @@
 # Hero icons: mapping `heroId` → icon file
 
 Rally captures (`results/rally/monitor.jsonl`) describe squads with numeric
-`heroId`s only. The extracted icons (`tools/dev/extract_hero_icons.py` →
+`heroId`s only. The extracted icons (`tools/extract_hero_icons.py` →
 `results/hero_icons/{big,small}/hero_icon_<Name>.png`) are keyed by the hero's
 internal *resName*, not by id. `tools/hero_icons_map.py` bridges the two and is wired
 into `tools/dev/rally_report.py` (icon + name shown per confirmed hero).

@@ -13,7 +13,7 @@ C:\Users\spame\AppData\Local\FunFly\Last War-Survival Game\Game\LastWar.exe
 ```
 i.e. `%LOCALAPPDATA%\FunFly\Last War-Survival Game\Game\LastWar.exe` (Windows user
 `spame`). `GameAssembly.dll` and `LastWar_Data` sit next to it. The same path is
-derivable from `tools/dev/extract_hero_icons.py` (`LOCALAPPDATA/FunFly/Last
+derivable from `tools/extract_hero_icons.py` (`LOCALAPPDATA/FunFly/Last
 War-Survival Game/Game/...`). Publisher folder is **FunFly**; a `LastWarLauncher.exe`
 / `LastWarSync.exe` / `LastWarUpdater.exe` live one level up but are not needed to
 start the game directly.
