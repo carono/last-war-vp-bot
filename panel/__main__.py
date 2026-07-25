@@ -1,27 +1,32 @@
-"""Last War control panel — navigation GUI (daemon-backed).
+"""Last War control panel — navigation + secret-task monitoring (daemon-backed).
 
 Actions run through the warm Lua daemon (tools/lua_daemon.py) so every button dispatches
-in ~0.1 s instead of spawning a fresh process that re-resolves the il2cpp hijack (~5 s).
-The panel auto-starts the daemon if it is not already running. The in-game recipes live in
+in ~0.1 s instead of spawning a fresh process that re-resolves the il2cpp hijack (~5 s). The
+panel auto-starts the daemon if it is not already running. In-game recipes live in
 tools/lua_actions.py (shared with the standalone scripts, so nothing drifts).
 
-Navigation group:
-  * Сцена — Домой / Мир  (SceneUtils.ChangeToCity / ChangeToWorld)
-  * Переход по координатам — X / Y / Сервер. Same server -> in-server camera jump; a
-    different server -> the cross-server load recipe (authorize + JumpToServerByServerId +
-    close UIMoveCity), because GotoPos alone does not load a foreign world. The server field
-    defaults to the current server (DataCenter.WorldFavoDataManager.curServerId).
+Blocks:
+  * Навигация — Домой / Мир (SceneUtils.ChangeToCity / ChangeToWorld) and a coordinate jump
+    (X / Y / Сервер). Same server -> in-server camera jump; a different server -> the
+    cross-server load recipe. The server field defaults to the current server
+    (DataCenter.WorldFavoDataManager.curServerId).
+  * Секретные задания — a checkbox that runs the passive capture (tools/secret_task_capture.py
+    or secret_mission_capture.py) in the background and streams findings into the log.
+
+Any coordinate printed in the log — canonical `@[X,Y]` / `@[X,Y|server]` (tools/coords.py) or a
+free-form `X:1 Y:2` / `(1,2)` / `1/2` / `координаты 1 2` — becomes a clickable link that jumps
+there.
 
 Run under Windows Python (needs psutil/tkinter; the daemon needs the il2cpp deps of
-tools/lua_eval.py):
+tools/lua_eval.py; the capture needs scapy/npcap):
 
     C:\\Python312\\python.exe -m panel
-    C:\\Python312\\python.exe panel\\__main__.py
 """
 from __future__ import annotations
 
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -34,16 +39,22 @@ TOOLS = os.path.join(REPO, "tools")
 sys.path.insert(0, TOOLS)
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
+import coords           # noqa: E402
 
 WIN_PYTHON = r"C:\Python312\python.exe"
 GAME_PORT = 17935
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+CAPTURE_SCRIPTS = {
+    "Секретные задания": "secret_task_capture.py",
+    "Операция Призрак": "secret_mission_capture.py",
+}
 
 
 def connection_status() -> str:
-    """Short human string describing the :17935 TCP state."""
     try:
         import psutil
     except Exception:
@@ -61,12 +72,15 @@ class Panel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Last War — навигация")
-        self.geometry("720x520")
-        self.minsize(600, 440)
+        self.geometry("760x600")
+        self.minsize(640, 500)
         self._log_q: "queue.Queue[str]" = queue.Queue()
         self._busy = False
+        self._coord_seq = 0
+        self._mon_proc = None
         self._client = lua_client.DaemonClient()
         self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._refresh_status()
         threading.Thread(target=self._startup, daemon=True).start()
@@ -113,12 +127,24 @@ class Panel(tk.Tk):
         ttk.Button(coord, text="Перейти", command=self._goto_coord).pack(side="left", padx=4, ipady=2)
         ttk.Button(coord, text="↻ сервер", command=self._load_current_server).pack(side="left", padx=4)
 
-        logframe = ttk.LabelFrame(self, text="Лог", padding=4)
+        sec = ttk.LabelFrame(self, text="Секретные задания", padding=8)
+        sec.pack(fill="x", padx=8, pady=(0, 6))
+        self._mon_kind = tk.StringVar(value="Секретные задания")
+        ttk.Combobox(sec, textvariable=self._mon_kind, state="readonly", width=20,
+                     values=list(CAPTURE_SCRIPTS)).pack(side="left", padx=(0, 8))
+        self._mon_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(sec, text="Мониторинг", variable=self._mon_var,
+                        command=self._toggle_monitor).pack(side="left")
+        ttk.Label(sec, text="пассивный сниф — панорамируй карту, чтобы шли тайлы",
+                  foreground="#888").pack(side="left", padx=10)
+
+        logframe = ttk.LabelFrame(self, text="Лог (координаты кликабельны)", padding=4)
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=14,
+        self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9), state="disabled",
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
+        self._log.tag_config("coordlink", foreground="#5cf", underline=True)
 
     # -- logging ------------------------------------------------------------
     def _log_put(self, line: str) -> None:
@@ -127,14 +153,31 @@ class Panel(tk.Tk):
     def _pump_log(self) -> None:
         try:
             while True:
-                line = self._log_q.get_nowait()
-                self._log.configure(state="normal")
-                self._log.insert("end", line + "\n")
-                self._log.see("end")
-                self._log.configure(state="disabled")
+                self._insert_line(self._log_q.get_nowait() + "\n")
         except queue.Empty:
             pass
         self.after(120, self._pump_log)
+
+    def _insert_line(self, text: str) -> None:
+        """Insert a log line, turning any coordinate token into a clickable link."""
+        clean = _ANSI.sub("", text)
+        self._log.configure(state="normal")
+        pos = 0
+        for (s, e, x, y, srv) in coords.parse(clean):
+            if s > pos:
+                self._log.insert("end", clean[pos:s])
+            tag = f"c{self._coord_seq}"
+            self._coord_seq += 1
+            self._log.insert("end", clean[s:e], ("coordlink", tag))
+            self._log.tag_bind(tag, "<Button-1>",
+                               lambda ev, x=x, y=y, srv=srv: self._on_coord_click(x, y, srv))
+            self._log.tag_bind(tag, "<Enter>", lambda ev: self._log.configure(cursor="hand2"))
+            self._log.tag_bind(tag, "<Leave>", lambda ev: self._log.configure(cursor=""))
+            pos = e
+        if pos < len(clean):
+            self._log.insert("end", clean[pos:])
+        self._log.see("end")
+        self._log.configure(state="disabled")
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
@@ -142,7 +185,6 @@ class Panel(tk.Tk):
         self._load_current_server()
 
     def _ensure_daemon(self) -> bool:
-        """Start the daemon if it is not already listening; wait until it is warm."""
         if lua_client.is_running():
             self.after(0, lambda: self._set_daemon("warm", True))
             return True
@@ -152,13 +194,12 @@ class Panel(tk.Tk):
             subprocess.Popen(
                 [WIN_PYTHON, os.path.join(TOOLS, "lua_daemon.py")],
                 cwd=REPO, creationflags=NO_WINDOW | DETACHED,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL)
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         except Exception as exc:
             self._log_put(f"[daemon] не удалось запустить: {exc}")
             self.after(0, lambda: self._set_daemon("ошибка", False))
             return False
-        for _ in range(60):                     # up to ~30 s for il2cpp warm-up
+        for _ in range(60):
             if lua_client.is_running():
                 self._log_put("[daemon] готов (warm)")
                 self.after(0, lambda: self._set_daemon("warm", True))
@@ -193,7 +234,6 @@ class Panel(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     def _current_server(self) -> str:
-        """Read the viewed server id via the daemon; fall back to DEFAULT_SERVER."""
         try:
             for ln in self._client.run(lua_actions.current_server(), marker="ACT", settle=0.5):
                 if "curserver=" in ln:
@@ -202,40 +242,53 @@ class Panel(tk.Tk):
             self._log_put(f"[server] ошибка чтения: {exc}")
         return DEFAULT_SERVER
 
-    # -- run guard ----------------------------------------------------------
-    def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
-        """Dispatch a Lua chunk through the warm daemon on a worker thread."""
-        if self._busy:
-            self._log_put("[panel] занят — дождись завершения текущего действия")
-            return
-        self._busy = True
-        self._log_put(f"[{tag}] {label}")
+    # -- secret-task monitoring ---------------------------------------------
+    def _toggle_monitor(self) -> None:
+        if self._mon_var.get():
+            self._start_monitor()
+        else:
+            self._stop_monitor()
 
-        def work() -> None:
+    def _start_monitor(self) -> None:
+        if self._mon_proc is not None:
+            return
+        script = CAPTURE_SCRIPTS.get(self._mon_kind.get(), "secret_task_capture.py")
+        self._log_put(f"[secret] старт мониторинга: {script}")
+        try:
+            self._mon_proc = subprocess.Popen(
+                [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
+                creationflags=NO_WINDOW)
+        except Exception as exc:
+            self._log_put(f"[secret] ошибка запуска: {exc}")
+            self._mon_proc = None
+            self._mon_var.set(False)
+            return
+        threading.Thread(target=self._mon_reader, args=(self._mon_proc,), daemon=True).start()
+
+    def _mon_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[secret] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._mon_proc is proc:      # ended on its own, not via _stop_monitor
+            self._log_put("[secret] поток мониторинга завершён")
+            self._mon_proc = None
+            self.after(0, lambda: self._mon_var.set(False))
+
+    def _stop_monitor(self) -> None:
+        proc, self._mon_proc = self._mon_proc, None
+        if proc is not None:
+            self._log_put("[secret] стоп мониторинга")
             try:
-                if not lua_client.is_running() and not self._ensure_daemon():
-                    self._log_put(f"[{tag}] daemon недоступен")
-                    return
-                out = self._client.run(chunk, marker="ACT", settle=settle)
-                for ln in out:
-                    self._log_put(f"[{tag}] {ln}")
-                self._log_put(f"[{tag}] готово")
-            except Exception as exc:
-                self._log_put(f"[{tag}] ошибка: {exc}")
-            finally:
-                self._busy = False
-                self.after(400, self._refresh_status)
+                proc.terminate()
+            except Exception:
+                pass
 
-        threading.Thread(target=work, daemon=True).start()
-
-    # -- coordinate jump (routes by server) ---------------------------------
-    def _goto_coord(self) -> None:
-        x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
-        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
-            self._log_put("[coord] X и Y должны быть целыми числами")
-            return
-        srv = srv if srv.isdigit() else DEFAULT_SERVER
-        xi, yi, si = int(x), int(y), int(srv)
+    # -- jump routing (shared by the entry button and clickable coords) -----
+    def _jump(self, x: int, y: int, server) -> None:
         if self._busy:
             self._log_put("[panel] занят — дождись завершения текущего действия")
             return
@@ -247,12 +300,13 @@ class Panel(tk.Tk):
                     self._log_put("[coord] daemon недоступен")
                     return
                 cur = self._current_server()
-                if str(si) != cur:
-                    self._log_put(f"[coord] другой сервер ({si} != {cur}) — кросс-загрузка + переход в ({xi},{yi})")
-                    chunk, settle = lua_actions.cross_jump(si, x=xi, y=yi), 1.6
+                target = str(server) if server is not None else cur
+                if target != cur:
+                    self._log_put(f"[coord] другой сервер ({target} != {cur}) — кросс-загрузка + переход в ({x},{y})")
+                    chunk, settle = lua_actions.cross_jump(int(target), x=x, y=y), 1.6
                 else:
-                    self._log_put(f"[coord] тот же сервер ({si}) — переход камерой в ({xi},{yi})")
-                    chunk, settle = lua_actions.goto_pos(xi, yi, si), 1.0
+                    self._log_put(f"[coord] переход камерой в ({x},{y}) [сервер {target}]")
+                    chunk, settle = lua_actions.goto_pos(x, y, int(target)), 1.0
                 for ln in self._client.run(chunk, marker="ACT", settle=settle):
                     self._log_put(f"[coord] {ln}")
                 self._log_put("[coord] готово")
@@ -264,9 +318,49 @@ class Panel(tk.Tk):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _on_coord_click(self, x: int, y: int, server) -> None:
+        self._log_put(f"[coord] клик → ({x},{y})" + (f" сервер {server}" if server is not None else ""))
+        self._jump(x, y, server)
+
+    def _goto_coord(self) -> None:
+        x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
+        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+            self._log_put("[coord] X и Y должны быть целыми числами")
+            return
+        srv = srv if srv.isdigit() else DEFAULT_SERVER
+        self._jump(int(x), int(y), int(srv))
+
+    # -- generic action -----------------------------------------------------
+    def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
+        if self._busy:
+            self._log_put("[panel] занят — дождись завершения текущего действия")
+            return
+        self._busy = True
+        self._log_put(f"[{tag}] {label}")
+
+        def work() -> None:
+            try:
+                if not lua_client.is_running() and not self._ensure_daemon():
+                    self._log_put(f"[{tag}] daemon недоступен")
+                    return
+                for ln in self._client.run(chunk, marker="ACT", settle=settle):
+                    self._log_put(f"[{tag}] {ln}")
+                self._log_put(f"[{tag}] готово")
+            except Exception as exc:
+                self._log_put(f"[{tag}] ошибка: {exc}")
+            finally:
+                self._busy = False
+                self.after(400, self._refresh_status)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_close(self) -> None:
+        self._stop_monitor()
+        self.destroy()
+
 
 def main() -> int:
-    for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py"):
+    for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
         if not os.path.isfile(os.path.join(TOOLS, tool)):
             print(f"tool not found: tools/{tool}", file=sys.stderr)
     Panel().mainloop()

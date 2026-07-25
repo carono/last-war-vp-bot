@@ -55,6 +55,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import coords  # noqa: E402  (canonical @[X,Y|server] token — one format for every script)
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
@@ -327,8 +328,8 @@ def main() -> int:
                     tag = f"  {C_OK}LOOTABLE{C_RESET}"
                 else:
                     tag = ""
-                print(f"{star} lvl {task.level:>2}  ({task.x:>4},{task.y:>4})"
-                      f"  server {task.server_id}  steal {task.loot_count}/3"
+                print(f"{star} lvl {task.level:>2}  {coords.fmt(task.x, task.y, task.server_id)}"
+                      f"  steal {task.loot_count}/3"
                       f"  family {task.family}  cfg {task.cfg_id}{owner}{tag}")
     except KeyboardInterrupt:
         pass
