@@ -4,20 +4,20 @@ Wraps every function reachable from `_G` (and nested tables up to a small depth)
 logging shim that writes `XSCALL <table.fn> <- <args>` to Player.log, which this tool tails
 to the terminal in real time. Everything the game does through those Lua functions shows up.
 
-To stay usable on a live game the tracer is DEDUP'd by default: each function name logs only
-its first call (the rest are counted and summarised on exit). Without this, logging every
-call writes thousands of lines per frame to Player.log and freezes the game. A bare run is
-therefore a safe "which functions fire" discovery pass; `--filter` narrows both what is
-wrapped and what is logged; `--every` restores full per-call logging (use with a filter).
+By default every call is logged with its FULL (untruncated) argument list — the real trace
+you usually want. Because logging every call unfiltered writes thousands of lines per frame
+to Player.log and freezes the game, pair a broad run with a narrow `--filter`. For a
+filterless overview use `--dedup`: it logs only the first call of each name (the rest are
+counted and summarised on exit) — a safe "which functions fire" discovery pass.
 
 There is NO action-specific logic here — it is a raw tracer, useful while reverse
 engineering ANY behaviour (march, rally, scene switch, UI, ...).
 
 Single command, self-restoring::
 
-    C:\Python312\python.exe tools\lua_trace.py                 # discover: first hit of each fn
-    C:\Python312\python.exe tools\lua_trace.py --filter March  # only names containing "March"
-    C:\Python312\python.exe tools\lua_trace.py --filter March --every   # every March call
+    C:\Python312\python.exe tools\lua_trace.py --filter March  # every March call, full args
+    C:\Python312\python.exe tools\lua_trace.py --dedup         # filterless overview (safe)
+    C:\Python312\python.exe tools\lua_trace.py                 # every call of everything (floods!)
     C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all     # + call-level hook (heavy)
 
 Patches install immediately on start. On Ctrl+C (or any exit) the original functions are
@@ -49,7 +49,7 @@ def _lua_str(s):
     return "'" + esc + "'"
 
 
-def install_chunk(filter_kw, depth, hook_all, dedup=True):
+def install_chunk(filter_kw, depth, hook_all, dedup=False):
     r"""Build the Lua chunk that wraps functions and arms the call hook.
 
     State lives in `_G.__XSTRACE.saved` = list of {tbl, key, orig} so restore can put every
@@ -58,9 +58,10 @@ def install_chunk(filter_kw, depth, hook_all, dedup=True):
     shim itself uses — would recurse or break the game), and the `CS` bridge is never
     descended into.
 
-    With `dedup` (the default) each wrapped name logs only its FIRST call — the rest are just
-    counted — so even a filterless "trace everything" run shows which functions fire without
-    flooding Player.log and freezing the game. `dedup=False` logs every call.
+    By default every call is logged with its full argument list. `dedup=True` logs only the
+    FIRST call of each name (the rest are counted) — a safe discovery pass for a filterless
+    run, which otherwise floods Player.log and freezes the game. Pair the default (every)
+    mode with a narrow `filter_kw` to keep it safe.
     """
     return r"""
 local FILTER = %(filter)s
@@ -93,25 +94,23 @@ end
 
 local function argstr(...)
   local n = select('#', ...)
-  local lim = n < 6 and n or 6
   local parts = {}
-  for i = 1, lim do
+  for i = 1, n do
     local v = select(i, ...)
     local ok, s = pcall(tostring, v)
     parts[i] = ok and s or ('<'..type(v)..'>')
   end
-  local out = concat(parts, ', ')
-  if n > lim then out = out..' ...(+'..(n - lim)..')' end
-  return out
+  return concat(parts, ', ')  -- full arg list, never truncated
 end
 
 local function wrap(tbl, key, name, fn)
   local w = function(...)
     if MATCH(name) then
-      -- Dedup is what keeps a broad trace usable: logging EVERY call writes thousands of
-      -- Debug.LogError lines per frame to Player.log and freezes the game. We count every
-      -- call but only log the first hit of each name, so the output is "which functions
-      -- fired" (+ totals on restore) instead of an endless flood. --every disables this.
+      -- Default logs EVERY call with the full (untruncated) arg list — that is what you
+      -- want for a real trace. --dedup collapses to the first hit of each name (the rest
+      -- are only counted): a safe discovery pass for a filterless run, since logging every
+      -- call unfiltered writes thousands of Debug.LogError lines per frame and freezes the
+      -- game. Use a narrow --filter to keep the default (--every) mode safe.
       local c = (T.counts[name] or 0) + 1
       T.counts[name] = c
       if (not DEDUP) or c == 1 then
@@ -286,12 +285,12 @@ def main():
     ap.add_argument("--depth", type=int, default=2, help="how deep to descend nested tables (default 2)")
     ap.add_argument("--hook-all", action="store_true",
                     help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")
-    ap.add_argument("--every", action="store_true",
-                    help="log every call, not just the first hit of each name (floods; use with a narrow --filter)")
+    ap.add_argument("--dedup", action="store_true",
+                    help="log only the FIRST call of each name (safe discovery pass; default logs every call)")
     ap.add_argument("--all", action="store_true", help="print every Player.log line, not just XSCALL/XSTRACE")
     args = ap.parse_args()
 
-    dedup = not args.every
+    dedup = args.dedup
 
     log = player_log_path()
     ev = lua_client.get_evaluator()
@@ -302,11 +301,20 @@ def main():
         if restored["done"]:
             return
         restored["done"] = True
-        try:
-            ev.run(RESTORE_CHUNK, marker="XSTRACE", settle=1.2)
-            print("[lua_trace] restored original functions + cleared hook")
-        except Exception as e:  # never let teardown crash
-            print("[lua_trace] restore failed: %s" % e, file=sys.stderr)
+        # Under the default (every) mode the game floods Player.log, and a single restore
+        # can miss its confirmation window — leaving wraps live. Retry (idempotent: a second
+        # restore just reports "nothing installed") until Player.log confirms it ran.
+        for attempt in range(5):
+            try:
+                out = ev.run(RESTORE_CHUNK, marker="XSTRACE", settle=1.2 + attempt)
+            except Exception as e:  # never let teardown crash
+                print("[lua_trace] restore attempt %d failed: %s" % (attempt, e), file=sys.stderr)
+                continue
+            if any("XSTRACE restored" in ln for ln in out):
+                print("[lua_trace] %s" % "; ".join(out))
+                return
+        print("[lua_trace] WARNING: restore not confirmed after retries — "
+              "rerun tools/lua_trace.py or restart the game to be safe", file=sys.stderr)
 
     atexit.register(restore)
 
