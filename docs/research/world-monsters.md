@@ -393,3 +393,607 @@ proven no-click pieces are: (a) open the popup for the `FindMonster` target
 practical path to attack a *chosen* golden zombie is the **hybrid**: Lua computes its screen
 pixel, one real tap opens the full popup, then launch «Марш» — i.e. exactly the physical-tap
 kill proven in Finding 4, now precisely targeted from Lua.
+
+> **⚠ Superseded by Finding 7.** The "selection wall" above was wrong about the *reason*:
+> the wall was calling `GoAttackMonster(pointId)` (which has **0 parameters**, so the arg is
+> discarded) and `OpenWindow(UIWorldPoint, ...)` (which anchors the popup but never resolves
+> the point). The **right** selection entry — `GoToUtil.OnClickWorldPoint(pointId, type, uuid)`
+> — was not tried. It is arg-routed and opens the exact chosen point/monster. See below.
+
+## Finding 7 — the RIGHT no-click monster-select function: `GoToUtil.OnClickWorldPoint`
+
+Task #1031. A full sweep of the live xLua `_G` (dump every `GoToUtil` / `SceneUtils` /
+`MarchUtil` method + `debug.getinfo`/`getlocal`/`getupvalue` signatures — tools
+`_dump_lua_globals.py`, `_probe_monster_fns.py`, `_probe_fn_params.py`) pinned down both the
+root cause and the fix.
+
+### Root cause — why `GoAttackMonster` "ignores its argument"
+
+`debug.getinfo(GoToUtil.GoAttackMonster,"u")` → **`nparams=0`**, `params=[]`,
+`ups=[_ENV, GoToUtil]` (defined `GoToUtil.lua:1751`). It structurally **takes no argument**;
+it reads the current selection from `GoToUtil` state (set by `FindMonster`) and re-opens that
+one fixed popup. So `GoAttackMonster(pid)` was never selection — the `pid` was dropped by Lua.
+`FindMonster` is `nparams=1` but also never cycles (Finding 6).
+
+### The fix — `GoToUtil.OnClickWorldPoint(pointId, type, uuid)`
+
+The real map-tap handler, found in the sweep (defined `GoToUtil.lua:467`):
+
+```lua
+GoToUtil.OnClickWorldPoint(pointId, type, uuid)   -- params: [pointId, type, uuid]
+```
+
+It is **arg-routed** and does the full tap-resolution (server point-detail fetch + open the
+populated `UIWorldPoint` popup) for the **exact point you pass** — the selection primitive the
+whole flow needed. Verified live (`_verify_onclickworldpoint.py`), three distinct pids → three
+distinct monsters, none the `FindMonster` default:
+
+| call | resulting popup `Ctrl.pointId` (x,y) | `Ctrl.type` (`WorldPointType`) | `GetMonsterData()` |
+|---|---|---|---|
+| `GoAttackMonster()` (default) | `528614` (614,528) | `2` | `canAttack=0`, `GetMonsterRewardData()`≠nil |
+| `OnClickWorldPoint(517628, …)` | `518629` (629,518) — nearest monster | `22` INVASION_WORLD_MONSTER | `canAttack=0`, reward≠nil |
+| `OnClickWorldPoint(513593, 7, 0)` | `513593` (593,513) — **exact** | `5` WorldBoss | popup populated |
+
+Notes:
+- **`pointId` is the driver.** `type`/`uuid` are hints — passing `type=7, uuid=0` for a
+  `WorldBoss` still opened it and `Ctrl.type` resolved to the true `5` server-side. Passing the
+  real triple (e.g. from `GoAttackMonster`'s own popup: `528614, 2, uuid`) reproduces that
+  popup exactly (`hasMonsterData=yes`).
+- It **snaps to the nearest interactable point** when the exact tile has none (`517628` →
+  monster at `518629`); pass the monster's own `pointId` (from `GetMonsterListInArea`, Finding 6)
+  to hit it precisely.
+- `WorldPointType` monster kinds: `WorldMonster=4`, `WorldBoss=5`, `EXPLORE_POINT=8`,
+  `INVASION_WORLD_MONSTER=22` (full enum dumped in `_verify_onclickworldpoint.py`).
+
+### End-to-end no-click attack pipeline
+
+1. Be in **World** (`SceneUtils.GetIsInWorld()==true`).
+2. Get the target monster's `uuid` + `tile` → `pointId = ws:TilePosToIndex(tile)` via
+   `WorldScene:GetMonsterListInArea(center, size, cfgIdWhitelist, result)` (Finding 6).
+3. **`GoToUtil.OnClickWorldPoint(pointId, type, uuid)`** — selects it, opens the populated popup.
+4. Read `w.Ctrl:GetMonsterData().canAttack`: `1` = soloable, `0` = rally-only.
+5. Launch: for a **soloable** monster the dispatch is `MarchUtil.OnAttackMonster(selfMarchUuid,
+   targetMarchInfo, curStamina, isFormation, autoBackHome, isDirectionMarch)` /
+   `MarchUtil.StartMarch` (`MarchUtil.lua:430/1828`). **Rally (`canAttack=0`) is an
+   alliance-wide outward action → needs explicit user sign-off; do not auto-launch.**
+
+**Bottom line:** the no-click monster **SELECTION** is solved — `GoToUtil.OnClickWorldPoint(pointId,
+type, uuid)`, not `GoAttackMonster` (which is a 0-arg re-open of the fixed `FindMonster` target).
+The only piece still gated on authorization is pressing the launch on a *rally* monster.
+
+(Lua source lives in the encrypted `LWLF` archive `…/LocalLow/FunFly/…/lwScripts/LWScripts.data`
+— per-file `*.luac` bytecode with an `ENC` marker; signatures here come from the live VM via
+`debug.*`, not from decrypting it.)
+
+## Finding 8 — the Finding-6 "detail wall" was a READ BUG; no-click select loads full detail
+
+Deep follow-up (tools `_dump_worldpoint_api.py`, `_probe_detail_march.py`, `_test_request_detail.py`,
+`_hunt_solo_monster.py`, `_probe_solo_correct.py`). **The "popup opens without attack data
+(`canAttack=0`, no button)" wall of Finding 6 was never real — it was the wrong read.**
+
+### The bug: `GetMonsterData` needs the uuid argument
+
+`UIWorldPointCtrl:GetMonsterData` has signature **`(self, uuid)`** (`debug.getlocal` →
+`params=[self, uuid]`). Every earlier check called `Ctrl:GetMonsterData()` with **no uuid**,
+which returns a stub **`{canAttack=0}`** (1 field). Passing the monster's uuid —
+`Ctrl:GetMonsterData(Ctrl.uuid)` — returns the **full, server-loaded detail**:
+
+```
+canAttack=1  level=19  recommend_power="…1,084,500"  marchType=2  monsterType=2
+srcServer=935  restNum=20  attackMaxLv=35  needArmyDesc="Требуется юнитов 4 ур.: 700"
+name=2000003  point=507599  special=0  refreshTime=…  createTime=…  (20+ fields)
+```
+
+So `GoToUtil.OnClickWorldPoint(pointId, 0, uuid)` **does** fetch and load the full point detail
+(no tap). `WorldPointDetailManager:GetDetailByPointId(pid)` staying `nil` was a red herring —
+invasion/world monsters cache their detail on the Ctrl, not in that manager.
+
+### Proven: 16/16 enumerated monsters selected + fully loaded, all soloable
+
+`WorldScene:GetMonsterListInArea(CurTilePos, 300, whitelist, result)` with `whitelist` = every
+cfgId in `DataCenter.MonsterTemplateManager.monsterTemplateDic` (a **Lua table**, iterate with
+`pairs`; ~41 ids) returned **32** live monsters. Feeding each `(pointId, 0, uuid)` to
+`OnClickWorldPoint` opened the **exact** monster (popup `Ctrl.pointId` == passed pid, every time)
+and `GetMonsterData(uuid)` read **`canAttack=1`** for all 16 sampled — levels **8–27**, powers
+**159,500–1,948,500** (e.g. pid `507599` = the lvl-19 «Обжора» of Finding 4). The no-click
+selection + solo/rally classification of an **arbitrary chosen monster** is fully solved.
+
+### The launch chain (dispatch UI opens fully pre-filled)
+
+- `MarchUtil.OnClickStartMarch(targetType, pointIndex, uuid, index, backHome, rallyType,
+  targetServerId, targetWorldId, monsterSpecialType, ignoreNotice)` — called with
+  `targetType = MarchTargetType.ATTACK_MONSTER (=1)`, `pointIndex=pid`, `uuid`, opens the troop
+  UI **`UIFormationSelectListV2`** with everything pre-set: `targetPoint`, `targetUuid`,
+  `targetType=1`, `targetServerId=935`, **`selectFormationUuid` already chosen**, `timeIndex=1`,
+  `autoBackHome=1`. No tap needed to reach the dispatch screen.
+- The dispatch-confirm handlers on that window's Ctrl are **`OnAtkClick`** and **`OnCreateClick`**
+  (also `OnEditClick`, `StartInvestigate`). Direct-send primitives exist too:
+  `MarchUtil.StartMarch(targetType, targetPoint, targetUuid, timeIndex, mUuid, fUuid, autoBackHome,
+  dataObj, pos, targetServer, desTimeIndex, extraParam)` and
+  `MarchUtil.SendCreateMarchToServer(formationUuid, targetType, targetPoint, targetUuid, timeIndex,
+  formationData, startPos, backHome, targetServerId, destroyTimeIndex, extraParam)`.
+- **Not yet confirmed which confirm-call actually launches:** `OnAtkClick()` ran `ok=true` but
+  closed the dispatch back to the popup with `IsHaveMarchInWorld()==false` (no march); the next
+  attempt (`OnCreateClick` + auto-accept any confirm dialog) was **not completed — the game
+  process crashed twice on relaunch** and the launcher hung, so the final launch step is
+  documented but unverified. Enums for the call: `MarchTargetType.ATTACK_MONSTER=1`,
+  `WorldMonsterSpecialType.Normal=0 / MonsterInvasion=9`, `NewMarchType.MONSTER=2`.
+
+`WorldScene` has **no** `OnTapTile`/`OnClickTile`/`SelectMonster` (all `nil`; its CS `__index` is
+a C function so `pairs` can't enumerate it — probe names directly). Tap routing lives in
+`TouchInputController` → `GoToUtil.OnClickWorldPoint`, which is exactly the Lua entry above.
+
+### Corrected end-to-end recipe
+
+```lua
+-- in World:
+local ws = _G.WS                                    -- WorldScene MonoBehaviour (cache)
+local ids = CS.System.Collections.Generic.Dictionary(CS.System.Int32,CS.System.Int32)()
+for k in pairs(DataCenter.MonsterTemplateManager.monsterTemplateDic) do
+  if type(k)=="number" then pcall(function() ids:Add(k,1) end) end end
+local res = CS.System.Collections.Generic.Dictionary(CS.System.Int64, CS.UnityEngine.Vector2Int)()
+ws:GetMonsterListInArea(ws.CurTilePos, 300, ids, res)     -- uuid -> tile
+-- pick a uuid/tile, pointId = ws:TilePosToIndex(tile)
+GoToUtil.OnClickWorldPoint(pointId, 0, uuid)              -- select + load detail, NO click
+local c = UIManager.Instance:GetStackTopWindow().Ctrl
+local md = c:GetMonsterData(uuid)                          -- MUST pass uuid → full detail
+if md.canAttack == 1 then                                  -- soloable
+  MarchUtil.OnClickStartMarch(MarchTargetType.ATTACK_MONSTER, pointId, uuid, 0, true, nil,
+                              md.srcServer, 0, md.special, true)   -- opens UIFormationSelectListV2
+  -- then the dispatch-confirm handler (OnAtkClick / OnCreateClick) — final launch TBD
+end
+```
+
+## Finding 9 — camera-move API scale + the launcher-restart wall (follow-up)
+
+Re-run of the Finding-8 pipeline to verify the golden-zombie (`cfgId 1030000`) case and the
+final launch. Two durable facts, and the same crash wall.
+
+### The camera-move API takes WORLD units, not a tile index
+
+If a scan needs to *pan* (e.g. hunt a monster type not loaded at the current camera), use the
+right entry — they are on **different scales**:
+
+- **`GoToUtil.MoveToWorldPoint(pointId)`** — tile-accurate. `pointId = ws:TilePosToIndex(tile)`.
+  Proven: `MoveToWorldPoint` of tile `(661,570)` lands `CurTilePos` on `(661,570)`.
+- **`GoToUtil.GotoWorldPos(Vector2Int(wx,wy))`** / **`SceneUtils` world-pos calls** take **world
+  coordinates**, and `tile = world/2` (`TileSize=2`). Passing a *tile* number here lands the
+  camera at **half** that tile: `GotoWorldPos(Vector2Int(700,600))` → `CurTilePos (350,300)`.
+  A grid scan that feeds tile numbers to `GotoWorldPos` silently explores the **wrong region**
+  (a prior scan of the up-right region was invalid for exactly this reason).
+
+Note: with the correct whitelist (all `monsterTemplateDic` ids via `pairs`, Finding 8) a
+`GetMonsterListInArea(CurTilePos, 300, …)` at the base already returns dozens of monsters, so
+panning is usually unnecessary. **Golden/Invading Zombies (`cfgId 1030000`) specifically returned
+0** in this session because the invasion was in its **summon-boss phase**
+(`ActivityMonsterInvasionDataManager:GetActivityData().summonBossId=1030091`,
+`GetInvasionSummonProgress()=40` maxed, `GetInvasionBossInfo()=nil`) — they only spawn in the
+**kill phase** (Follow-up 3). Other soloable monsters (lvl 8–27) remain enumerable/attackable.
+
+### Re-confirmed live, and the same wall
+
+- `GoToUtil.OnClickWorldPoint(528614, 2, uuid)` reproduced the populated `UIWorldPoint` popup
+  (`hasMonsterData=yes`) — Finding-7/8 selection re-verified on a fresh session.
+- `GoAttackMonster(pid)` re-confirmed to **ignore its arg** (always `528614`), per #1031.
+- The **final launch confirm still could not be verified**: heavy probing crashed the
+  single-session ACE client, and a direct `LastWar.exe` start self-exits via
+  `ApplicationLaunch.RelaunchApplicationPC` (the game detects it wasn't started by the launcher).
+  Recovery needs a **manual "Play" click in `LastWarLauncher.exe`** (it does not auto-start the
+  game). So the last step (`OnAtkClick`/`OnCreateClick` → `IsHaveMarchInWorld==true`) stays TBD
+  until a launcher-started session with a soloable target is available.
+
+## Finding 10 — EXECUTED: full no-click-select + launch solo attack (post-invasion roaming monster)
+
+The invasion event ended (no golden zombies). A **solo march on a roaming lvl-22 monster
+«Скупой» was launched and the monster killed**, end-to-end. Two decisive discoveries closed the
+gaps from Findings 6–9.
+
+### `GetMonsterListInArea` is INVASION-only — empty after the event ends
+
+`WorldScene:GetMonsterListInArea(center, size, whitelist, result)` enumerates only
+**invasion-area** monsters. Post-event it returns **0** for every whitelist tried (golden `1030000`,
+the small `monsterTemplateDic` ids, dense ranges `1..300`, `1030000..1032000`). Note
+`MonsterTemplateManager.monsterTemplateDic` is **lazily populated** (empty at world entry; each
+opened monster adds its template — keys are small ints like `38`, not the `1030000` cfgId). So the
+roaming monsters present after the event are **not** reachable through `GetMonsterListInArea`.
+
+### THE no-click SELECT primitive for roaming monsters — `TouchObjectEventTrigger:OnClick()`
+
+Every roaming monster's clone (`WorldMonster0N(Clone)`, non-Boss) has a child GameObject carrying a
+**`TouchObjectEventTrigger`** MonoBehaviour whose **`OnClick` is a plain Lua function**. Invoking it
+directly runs the genuine tap-resolution and opens the **fully populated** `UIWorldPoint` popup for
+that exact monster — no physical click, no uuid needed up front:
+
+```lua
+local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
+for i=0,arr.Length-1 do local mb=arr[i]
+  if mb and mb:GetType().Name=='TouchObjectEventTrigger' then
+    local go=mb.gameObject local p=go
+    while p and not string.find(p.name,'WorldMonster') and p.transform.parent do p=p.transform.parent.gameObject end
+    if p and string.find(p.name,'WorldMonster') and not string.find(p.name,'Boss') then
+      mb:OnClick()                                   -- opens the real attack popup, NO physical tap
+      break
+    end
+  end
+end
+local c = UIManager.Instance:GetStackTopWindow().Ctrl  -- UIWorldPointCtrl
+local md = c:GetMonsterData(c.uuid)                    -- MUST pass uuid → full detail (Finding 8)
+-- md.canAttack==1 → soloable; c.pointId / c.uuid / c.type = the real triple
+```
+
+Proven: this opened «Скупой» **pid=528560, type=1, uuid=1397117505394419512, canAttack=1, level=22**.
+With the real uuid in hand, `GoToUtil.OnClickWorldPoint(pid, type, uuid)` reopens it deterministically
+(**uuid is required — `uuid=0` returns no-popup even for a valid point**, at any `type`).
+
+### The programmatic LAUNCH is walled by `canMarch=false`; the real dispatch UI recomputes it
+
+`MarchUtil.OnClickStartMarch(ATTACK_MONSTER, pid, uuid, 0, true, nil, srv, 0, special, true)` opens
+`UIFormationSelectListV2`, but **`Ctrl:CheckCanBattle()==false`** so `OnAtkClick()` closes without
+marching. Root cause: **every `ArmyFormationDataManager.ArmyFormationList` entry has
+`canMarch=false`** even though the garrison formations hold real troops (`totalSoldierNum` 3123/2565/
+2610), so `GetFormationListData()` returns 0 and `GetCurSoldierNum()`=0. It is **not** a free-slot
+problem (`WorldMarchDataManager:GetOwnerMarches()`=0, queues free) — `canMarch` is a flag the **real
+dispatch render recomputes** and a headless programmatic open does not. `BestSelect()` /
+`SetSelectFormationUuid()` did not flip it. **Fully-programmatic launch remains blocked here.**
+
+### What worked — hybrid: no-click SELECT + physical-tap dispatch
+
+The reliable end-to-end (this session renders the 3D world fine — screenshots are usable):
+1. **No-click select** the soloable monster (`TouchObjectEventTrigger:OnClick()` above) → popup with
+   the red crossed-swords **«Атаковать»** button.
+2. **Physically tap «Атаковать»** → the real `UIFormationSelectListV2` renders with formations loaded
+   (`canMarch` recomputed): 6 heroes Lv.175, **3,123/3,123 units, 55.62M vs 1.32M → «Лёгкая победа»**.
+3. **Physically tap «Марш»** → **march launched**: `IsHaveMarchInWorld()==true`, `GetOwnerMarches()==1`,
+   green march path base→monster (`results/after_march.png`).
+4. ~40 s later the march returned (`IsHaveMarchInWorld` true→false) and **«Скупой» was gone from the
+   map** — killed (`results/battle_done.png`).
+
+**Bottom line:** no-click SELECTION of an arbitrary roaming monster is fully solved via
+`TouchObjectEventTrigger:OnClick()`. The **launch** still needs the real dispatch render (physical
+tap of «Атаковать»→«Марш») because `canMarch` is not computed for a headless `OnClickStartMarch`; a
+purely-programmatic launch is the one remaining gap.
+
+## Finding 11 — FULLY no-click launch SOLVED: `MarchUtil.TryStartMarch`
+
+The dispatch-UI wall (Finding 10) is bypassed entirely. `canMarch` turned out to be a **red
+herring** — it is a plain boolean field on the `FormationData` object with no setter, and forcing
+`v.canMarch=true` does **not** make `Ctrl:CheckCanBattle()` pass. The real blocker was that the
+dispatch (`UIFormationSelectListV2`) only loads its formation soldier state through the physical
+«Атаковать» button's runtime handler; `MarchUtil.OnClickStartMarch` opens the window with
+`GetCurSoldierNum()=0`, and `OnAtkClick` then aborts.
+
+The fix skips the dispatch UI completely — a direct server-send primitive:
+
+```lua
+-- selfMarchUuid = the ARMY FORMATION uuid (from ArmyFormationDataManager.ArmyFormationList)
+MarchUtil.TryStartMarch(
+  formationUuid,                    -- selfMarchUuid  (e.g. 1156814234542394473)
+  MarchTargetType.ATTACK_MONSTER,   -- theMarchTargetType  (=1)
+  curStamina,                       -- e.g. 10
+  true,                             -- isFormation
+  monsterUuid,                      -- targetUuid  (from the popup Ctrl.uuid)
+  monsterPointId,                   -- pointId
+  true,                             -- backHome
+  needSoldier,                      -- e.g. totalSoldierNum 3123
+  0,                                -- destroyTimeIndex
+  targetServerId)                   -- e.g. 935
+```
+
+Signature (via `debug.getlocal`): `TryStartMarch(selfMarchUuid, theMarchTargetType, curStamina,
+isFormation, targetUuid, pointId, backHome, needSoldier, destroyTimeIndex, targetServerId)`.
+
+**Proven live, no physical clicks at all:** monster selected via `TouchObjectEventTrigger:OnClick()`
+(Finding 10), then `TryStartMarch(1156814234542394473, 1, 10, true, uuid, pid, true, 3123, 0, 935)`
+→ `ok=true`, **`IsHaveMarchInWorld()==true`, `GetOwnerMarches()==1`**, and ~50 s later the march
+returned (`true→false`) with the monster killed. This is the complete end-to-end no-click solo
+attack — `TouchObjectEventTrigger:OnClick()` (select) + `MarchUtil.TryStartMarch(...)` (launch),
+zero `pydirectinput`, zero dispatch-UI rendering.
+
+Notes: `selfMarchUuid` is the **formation** uuid when `isFormation=true` (not a march uuid; `0`
+also failed — pass a real army-formation uuid with troops). `needSoldier` = the formation's
+`totalSoldierNum`. `MarchUtil.SendCreateMarchToServer(...)` needs a real `formationData`/`startPos`
+object and did not fire with nils — `TryStartMarch` is the clean entry.
+
+## Finding 12 — CORRECTION to Finding 11: `TryStartMarch` silently validates preconditions
+
+Reproducing Finding 11 in a fresh state exposed that `MarchUtil.TryStartMarch(...)` returns
+`ok=true` (no Lua error — SafeDoString swallows) but **does NOT always create a march**. It
+silently validates preconditions and no-ops when they fail. Verified across many runs
+(`tools/mini_kill_rally.py` + probes): the same call that "worked" in Finding 11 now returns
+`ok=true` with `IsHaveMarchInWorld()` staying **false**. Two gates found:
+
+1. **Formation must be loaded** — `ArmyFormationDataManager.ArmyFormationList[i].totalSoldierNum`
+   must be > 0. In a cold headless session it is **0** (`GetAllTotalSoldierNum()=0`,
+   `GetArmyList()=0`); a **physical «Атаковать» dispatch tap loads it to 3123** and it **persists
+   after the dispatch closes**. No pure-Lua loader found (`SendFormToServer`/`AutoInitFormationData`
+   no-op; `RefreshFormationSoldier`/`InitData`/`UpdateArmyFormationListData` are server-message
+   handlers needing a `message` arg).
+2. **Stamina/readiness** — `ArmyFormationDataManager:HasStaminaEnoughFormation(formationUuid)` must
+   be **true**. After a run of test kills it went **false** for every formation
+   (`GetCurStaminaByUuid=52` but `stamEnough=false`), and `TryStartMarch` then no-ops.
+
+So Finding 11's one-off success happened only because a **prior physical dispatch had loaded the
+formation** and stamina was still available. `TryStartMarch` is a genuine send primitive but is
+**not a reliable cold-start pure-Lua launch** — it depends on formation-load (currently only a
+physical dispatch does this) and `HasStaminaEnoughFormation`. Preflight both before calling:
+
+```lua
+local afd = DataCenter.ArmyFormationDataManager
+-- pick a formation with totalSoldierNum>0 AND HasStaminaEnoughFormation(uuid)==true, else TryStartMarch no-ops
+```
+
+**Net status of the no-click attack:** SELECT is fully solved (`TouchObjectEventTrigger:OnClick()`).
+LAUNCH via `TryStartMarch` works **only when the formation is loaded and stamina-ready**; loading
+the formation still needs a physical dispatch tap, so a *fully cold* no-click launch is not proven.
+The reliable end-to-end remains the hybrid (Finding 10): no-click select + physical «Атаковать»→«Марш».
+
+## Finding 13 — DEFINITIVE: `TryStartMarch` does NOT launch; Finding 11 was a false positive
+
+Re-ran `tools/mini_kill_rally.py` with formations **loaded** (`totalSoldierNum` 3123/2565/2610) and
+stamina **available** (user-confirmed). Both calls —
+`MarchUtil.TryStartMarch(formationUuid, ATTACK_MONSTER, ...)` and `... RALLY_FOR_BOSS, ...)` —
+returned `ok=true` but created **no march**: `IsHaveMarchInWorld()==false`, `GetOwnerMarches()==0`,
+alliance team-marches `0→0`. Repeated across many states (cold/loaded formation, popup/dispatch open,
+various `curStamina`). **`TryStartMarch` silently no-ops — it is NOT the march-launch function.**
+
+Finding 11's single `HV=true` was a **leftover/pre-existing march** from the physical-hybrid attack
+run just before it (no baseline was logged) — a false positive. `HasStaminaEnoughFormation` is also
+not the gate (it stays false at stamina levels where the physical «Марш» launches fine, so it means
+something else). No pure-Lua send primitive found that launches: `TryStartMarch`,
+`SendCreateMarchToServer` (needs real formationData/startPos), `OnClickStartMarch`+`OnAtkClick` (Ctrl
+soldier state 0) all fail.
+
+**Standing conclusion.** No-click **SELECT** is solved (`TouchObjectEventTrigger:OnClick()`). A fully
+no-click **LAUNCH is NOT achieved** — the only reliable launch is the real dispatch «Марш» button,
+whose handler is a runtime `NewButton` callback not reachable through the exposed Lua/CS surface
+(`ExecuteEvents.Execute<T>` unbound; `onClick` has 0 persistent listeners; `OnMarkClick` is the
+"place marker" button → `UIPositionAdd`, not attack). So the working end-to-end stays the **hybrid**
+(Finding 10): `TouchObjectEventTrigger:OnClick()` select + **physical** «Атаковать»→«Марш» tap
+(button position varies per monster → locate it dynamically, don't hardcode screen coords).
+
+## Finding 14 — the REAL «Марш» handler caught via monkey-patch: `OnCreateClick` → `SendCreateMarchMessage`
+
+Instead of guessing, the exact call chain was captured by **monkey-patching** — wrapping every
+`MarchUtil.*` function AND the open `UIFormationSelectListV2` Ctrl's 55 methods with a logging
+shim (`_G.__MP_ORIG`/`_G.__DC_ORIG`; each wrapper does `Debug.LogError('MPCALL/DCALL '..name)` then
+calls the original), then pressing «Марш» physically once and reading `Player.log`. Safe (fires only
+on the wrapped calls, no global `debug.sethook` overhead).
+
+**The «Марш» button = `Ctrl:OnCreateClick()`** (NOT `OnAtkClick` — that was the wrong guess behind
+every earlier failed launch). Full ordered chain on press:
+
+```
+Ctrl:OnCreateClick()
+  → Ctrl:CheckCanBattle()
+  → Ctrl:GetCostStaminaByTargetType()
+  → MarchUtil.GetCanAddHeroNum()
+  → Ctrl:NeedTakeArmy()
+  → MarchUtil.SendCreateMarchMessage(formationUuid, 1, targetPoint, targetUuid, 1, 1, false, serverId, nil)
+  → MarchUtil.IsScoutMarch()
+  → Ctrl:CloseSelf() / TargetSpDeal() / Delete()
+```
+
+**Exact `SendCreateMarchMessage` args** (args-logger on the wrapper, from a real «Марш»):
+`n=9 [formationUuid=1156814234542394473 | targetType=1 | targetPoint | targetUuid | timeIndex=1 |
+autoBackHome=1 | needSoldier=false | targetServerId=935 | destroyTimeIndex=nil]`. Note
+**`needSoldier=false`** (boolean, not a soldier count) and **`destroyTimeIndex=nil`** — the values
+earlier guesses got wrong.
+
+**Reproduction status.** Calling `SendCreateMarchMessage` (or `Ctrl:OnCreateClick()`) cold via Lua
+with these exact args returns `ok=true` but launches nothing — AND at this point the **physical**
+«Марш» (same `OnCreateClick`→`SendCreateMarchMessage` chain, confirmed by the trace) **also** stopped
+launching. Cause: `ArmyFormationDataManager:HasStaminaEnoughFormation(F)==false` even at
+`GetCurStaminaByUuid=59` — i.e. the gate is **per-hero energy**, depleted by the session's ~8 test
+kills; the server rejects the march regardless of caller. So the mechanism is correct
+(`OnCreateClick`/`SendCreateMarchMessage`), but a launch can't be demonstrated until hero energy
+regenerates. `TryStartMarch` (Findings 11–13) was simply the wrong function.
+
+**Remaining for fully no-click:** (a) open the dispatch **with troops** without a physical
+«Атаковать» (the formation-load-into-Ctrl problem, Finding 12 — still unsolved via Lua), then (b)
+`Ctrl:OnCreateClick()` (now known) instead of a physical «Марш». With hero energy available, the
+hybrid drops to a single physical «Атаковать» tap + Lua `OnCreateClick()`.
+
+## Finding 15 — the chain re-traced with a `debug.sethook` frame-hook: reconciles the UI entry vs the logic call, and the stamina gate blocks the PHYSICAL button too
+
+Re-ran the trace (task #1032) with a complementary instrument: `tools/_march_trace.py` wraps every
+`MarchUtil.*` (args-logging, marker `MTR`/`MDUMP A`) **and** arms a gated `debug.sethook(fn,'c')`
+call-hook (marker `MDUMP B`) filtered to march keywords, then fired **one physical** «Атаковать»→«Марш»
+on a solo monster («Скупой» pid=502558 type=1 srv=935 canAttack=1, launched successfully — both army
+formations visibly marched out). Captured 814 wrapped calls + 313 hook frames. The hook exposes the
+**real Lua source paths** (`…/aps_client/…/Assets/Main/LuaScripts/UI/UIFormation/UIFormationSelectListV2/…`).
+
+**The two taps, exactly:**
+- **«Атаковать»** (round red crossed-swords on `UIWorldPoint`) →
+  `MarchUtil.OnClickStartMarch(1, pointId, uuid, -1, 1, nil, 935, nil, 0)` — arg #1 = `MarchTargetType.ATTACK_MONSTER`,
+  #4 `ownerUid=-1`, #5 `type=1`, #7 `srcServer=935`. This opens **and fully initialises**
+  `UIFormationSelectListV2` (`Ctrl:InitData → RefreshTargetPoint → BestSelect → SetSelectFormationUuid`,
+  loads the formation, computes `CheckBattleState`/`RefreshStaminaState`, `CalcMarchSpeedByConfig`).
+- **«Марж»** (blue confirm on the selected formation cell) → hook caught
+  **`FormationSelectListCellNewV2.lua:337:OnAtkClick`** — i.e. the button's UI `onClick` is the **cell**
+  component's `OnAtkClick`, *not* a `Ctrl` method.
+
+**Reconciles Finding 14.** Finding 14 (Ctrl-method monkey-patch) named `Ctrl:OnCreateClick` → `SendCreateMarchMessage`.
+Both are correct and sequential: the blue button →
+`FormationSelectListCellNewV2:OnAtkClick()` (cell UI handler, this finding) →
+`Ctrl:OnCreateClick()` (logic, Finding 14) →
+`Ctrl:CheckCanBattle` + `GetCostStaminaByTargetType` + `MarchUtil.GetCanAddHeroNum` + `Ctrl:NeedTakeArmy` →
+`MarchUtil.SendCreateMarchMessage(formationUuid, 1, targetPoint, targetUuid, 1, 1, false, serverId, nil)` →
+`Ctrl:CloseSelf`. The actual send is invisible to the `MarchUtil.*` table-wrappers because callers hold
+the send fns as **module upvalues** captured at load time (seen only as anonymous `Util/MarchUtil.lua:2046/2297/2553:?`
+frames), which is why Findings 11–13's table-level replays never intercepted it.
+
+**Reproduction — all three confirm entries no-op via Lua, AND so does the physical button once energy is spent.**
+With the dispatch opened by the *real* `OnClickStartMarch` (warm formation, `selectFormationUuid=1156814234542394473`,
+`targetType=1`, `targetPoint` set) I called, in turn: `Ctrl:OnAtkClick()`, the exact selected
+**cell** `FormationSelectListCellNewV2:OnAtkClick()` (found via `View.formationList`, 4 cells, matched the
+selected uuid), and `Ctrl:OnCreateClick()`. **Every one returned `ok=true` but created no march**
+(`GetOwnerMarches()` 0→0, `IsHaveMarchInWorld=false`). Crucially, a **physical** «Атаковать»→«Марж» on a
+fresh monster («Обжора» pid≈, «Лёгкая победа» 55.62M vs 9.28M) at this same moment **also** closed the
+dispatch **without launching** (monster stayed on the map, `GetOwnerMarches()`=0). The distinguishing
+state: `ArmyFormationDataManager:HasStaminaEnoughFormation(F)==false` (at `GetCurStaminaByUuid=60`) — hero
+**energy** was drained by the session's earlier test kills. So the gate that aborts the confirm is the
+**stamina/energy check, and it blocks the physical button identically to a Lua call** — it is *not* an
+execution-context (SafeDoString-thread) problem. This **confirms Finding 14's stamina conclusion** and
+removes the "maybe Lua just can't reach the handler" doubt: the handler runs fine; the march is
+server-gated on energy.
+
+**Net for #1032:** the real «Марж» Lua chain is now fully mapped and cross-validated
+(`OnClickStartMarch` init → cell `OnAtkClick` → `Ctrl:OnCreateClick` → `SendCreateMarchMessage`, exact
+args). A fully no-click launch stays blocked **only** by hero-energy regen (untestable while depleted);
+when energy is available, `Ctrl:OnCreateClick()` on a physically-opened (troops-loaded) dispatch is the
+one Lua call to try. Tools: `tools/_march_trace.py` (install/gateon/gateoff/dump/restore), `tools/_trace_march.py`.
+
+## Finding 15 — pure-Lua «Марш» is walled at `CheckCanBattle`, which is UI-interaction-bound
+
+Deep dig (monkey-patch the whole `UIFormationSelectListV2` Ctrl class, trace both a physical «Марш»
+press and a Lua `c:OnCreateClick()` call). Definitive:
+
+- **Physical «Марш»** → `OnCreateClick` → `CheckCanBattle`==**true** → `GetCostStaminaByTargetType` →
+  `MarchUtil.GetCanAddHeroNum` → `NeedTakeArmy` → `MarchUtil.SendCreateMarchMessage(...)` → march
+  created (verified live this session: `IsHaveMarchInWorld==true`, green path base→monster).
+- **Lua `c:OnCreateClick()`** → `OnCreateClick` → `CheckCanBattle`==**false** → immediate
+  `CloseSelf`/`Delete`; it never reaches `SendCreateMarchMessage`. So `CheckCanBattle` is the exact
+  gate.
+
+`CheckCanBattle` is genuinely false in a headless Lua call and **not** a monkey-patch artifact:
+after **unwrapping all 55 Ctrl methods** (restoring originals), `c:CheckCanBattle()` still returns
+`false`, `GetCurSoldierNum()==0`, `currentFormationUuid==0` — while the dispatch **View** shows the
+formation fully loaded («Юниты 3,123/3,123», «Лёгкая победа», active «Марш»). Neither
+`SetSelectFormationUuid`, `BestSelect`, direct `currentFormationUuid=` assignment, nor a **physical
+tap on a formation cell** (which fires `SetSelectFormationUuid`+`SetTimeIndex`+`InitRallyTime` but
+leaves `currentFormationUuid==0`/`CheckCanBattle==false`) makes it true. Only a real **physical
+«Марш» button press** flips `CheckCanBattle` to true — it reads march-ready state established by the
+Unity EventSystem/View interaction that a Lua method call does not reproduce.
+
+**Conclusion.** The full no-click attack decomposes as: no-click SELECT
+(`TouchObjectEventTrigger:OnClick()`, solved) + physical «Атаковать» + physical «Марш». The launch
+**works** (real march confirmed), but the final «Марш» **cannot** be replaced by Lua
+`Ctrl:OnCreateClick()` / `SendCreateMarchMessage` — the `CheckCanBattle` gate is bound to real
+UI-input state, not reachable from the exposed Lua/CS surface. Minimum = 2 physical taps
+(«Атаковать» + «Марш»); the monster SELECTION is the only fully-no-click half.
+
+## Finding 16 — the EXACT send captured from the live button; pure-Lua `SendCreateMarchMessage` is sent but NOT honored by the server
+
+New session, deeper instrumentation. Two corrections to Finding 15, and a definitive result.
+
+**(1) `CheckCanBattle` takes the formation uuid as a PARAMETER.** Prior findings called
+`c:CheckCanBattle()` with no arg and got `false`; a `debug.sethook('l')` line-watch of the function
+body shows the first local `uuid` is that parameter — nil when unpassed, so `formation=nil` →
+`UIUtil.ShowTipsId(300007)` → returns false. **`c:CheckCanBattle(formationUuid)` returns `true`** on a
+warm formation. So Finding-15's "CheckCanBattle can't be made true from Lua" was an arg bug, not a
+UI-state wall. (`ShowTipsId(300007)` is a missing-translation tip → shows `<300007>`; earlier read as
+a stamina/version gate — it is just "no formation selected".)
+
+**(2) The exact send, captured live.** Wrapping `MarchUtil.SendCreateMarchMessage` to store its args in
+a global, then pressing the physical «Марш» once (verified launch: `GetOwnerMarches` 0→1 + green
+march path), captured the byte-exact call:
+```
+MarchUtil.SendCreateMarchMessage(formationUuid, 1, pointId, uuid, 1, 1, false, serverId, nil)
+--   (formationUuid, MarchTargetType.ATTACK_MONSTER=1, targetPoint, targetUuid, timeIndex=1,
+--    autoBackHome=1, needSoldier=false, targetServerId, destroyTimeIndex=nil)
+```
+Traced end-to-end: `SendCreateMarchMessage → SendCreateMarchToServer → SFSNetwork:SendMessage` → builds
+`Net/Msgs/WorldMarchFormationNewMessage` (SmartFoxServer; serializes every hero via
+`GenerateServerHeroArray`) → `ToBinary` → native `[C]:SendLuaMessage`. So a Lua call **does** reach the
+socket-send.
+
+**(3) DEFINITIVE: calling that exact function from SafeDoString does NOT create a march.** Across
+~8 clean-baseline runs (`GetOwnerMarches().Count` confirmed 0 and stable before each; fresh
+soloable target with `canAttack==1`; all 3 formations tried; with/without a preceding
+`OnClickStartMarch` handshake), `SendCreateMarchMessage(...)` returns `ok=true` but `ownerMarches`
+stays 0 and no march appears. The **physical** «Марш» with the **same args** launches every time
+(fast one-process «Атаковать»→«Марш» double-tap; several green paths confirmed). The one apparent
+pure-Lua success earlier in the session was a **false positive** — a leftover physical march still
+traveling when the delayed `ownerMarches=1` was read (the exact Finding-13 trap).
+
+**Root cause of the gap.** The message is structurally identical, reaches `SendLuaMessage`, but the
+server does not honor a march request originated from `XLuaManager.SafeDoString` (which runs on a
+hijacked thread outside the normal `LuaUpdater:Update` tick). The genuine dispatch flow attaches
+session/sequence state on the main loop (and/or a required preceding in-session handshake) that the
+off-loop call lacks; the server silently drops the request. This is not an args problem, not a
+`CheckCanBattle` problem, and not stamina (`GetCurStaminaByUuid`≈66, plenty).
+
+**Standing conclusion (unchanged from Finding 13/15, now with the exact primitive named).** No-click
+**SELECT** is solved (`TouchObjectEventTrigger:OnClick()`). No-click **LAUNCH via pure Lua is NOT
+achievable** with the current out-of-process SafeDoString technique — the launch function and exact
+args are fully identified (`SendCreateMarchMessage`), but only the real UI flow's send is honored.
+Reliable launch = HYBRID: no-click select + a fast physical «Атаковать»→«Марш» (both taps in one
+process so the dispatch doesn't auto-close between them — that timing, not the button position, is
+what made earlier physical attempts "miss"). TryStartMarch remains a red herring (never launches).
+
+## Finding 16 — SOLVED: fully-automated no-hang march via main-thread timer + clean popup close
+
+The pure-Lua launch (Findings 11–15) is finally solved by two fixes, no physical «Марш» tap:
+
+1. **Send on the MAIN THREAD, not the SafeDoString hijack thread.** A cold
+   `MarchUtil.SendCreateMarchMessage(...)` on the hijacked thread returns `ok=true` but the server
+   drops it (no march). Schedule it on the game's own Lua scheduler instead:
+   **`TimerManager:GetInstance():DelayInvoke(callback, delaySeconds)`** — a one-shot deferred call
+   that runs the callback during the main-thread update loop. Verified: a `DelayInvoke` marker fires
+   in Player.log, and `SendCreateMarchMessage` invoked from inside it **creates the march**
+   (`IsHaveMarchInWorld()` false→true, `GetOwnerMarches()==1`).
+2. **Close the monster popup with `Ctrl:CloseSelf()`, NEVER `DestroyAllWindow()`.** The UI "hang"
+   (HUD vanishes, elements don't return) was caused by `UIManager.Instance:DestroyAllWindow()` —
+   it destroys the persistent main HUD (which is not recreated; `ChangeToWorld`/`OpenWindow(UIMain)`
+   did not restore it). Closing only the `UIWorldPoint` popup via its own `Ctrl:CloseSelf()` leaves
+   the HUD fully intact.
+
+**Working recipe (no physical march tap, no hang):**
+```lua
+-- monster uuid is NOT stored client-side (clone has only ModelHeight/AutoAdjustLod/UIWorldLabel/
+-- TouchObjectEventTrigger; OnClick's upvalues are a C-binding; uuid=0 → server rejects). So a
+-- server query is required to get uuid — TouchObjectEventTrigger:OnClick() (opens UIWorldPoint):
+trig:OnClick()
+local c = UIManager.Instance:GetStackTopWindow().Ctrl      -- UIWorldPointCtrl
+local pid, uuid, srv = c.pointId, c.uuid, c.serverId
+c:CloseSelf()                                              -- close ONLY the popup, keep the HUD
+TimerManager:GetInstance():DelayInvoke(function()
+  MarchUtil.SendCreateMarchMessage(formationUuid, MarchTargetType.ATTACK_MONSTER,
+                                   pid, uuid, 1, 1, false, srv, nil)  -- needSoldier=false, destroyTimeIndex=nil
+end, 0.5)
+```
+Proven live (HUD intact, «Очередь походов 1/3», «В пути», green march path base→monster). This
+bypasses the `UIFormationSelectListV2`/`OnCreateClick`/`CheckCanBattle` dispatch entirely (Finding 15
+wall) — the march is created straight from `SendCreateMarchMessage` on the main thread. `pid` is also
+readable no-click from the clone position (`SceneUtils.WorldToTileIndex(clone.transform.position)`),
+but `uuid` still needs the one `OnClick` server fetch.
+
+## Finding 17 — FINAL, CONFIRMED: no-click solo attack, two modes (retracts Findings 11–13)
+
+The no-click solo monster attack is solved and confirmed live (user-verified: HUD intact, march
+created). Two reusable scripts:
+
+- **`tools/solo_attack.py`** — MODE 1 (uuid unknown): find a `WorldMonster0N(Clone)` →
+  `trig:OnClick()` (opens `UIWorldPoint`; the **server returns the uuid**) → read pid/uuid/serverId
+  from the popup `Ctrl` → **`Ctrl:CloseSelf()`** (close ONLY the popup) → main-thread send.
+- **`tools/solo_attack_direct.py <pid> <uuid> [serverId]`** — MODE 2 (uuid known): **just** the
+  main-thread send, **zero UI touch** (no OnClick, no popup, no CloseSelf). `OnClick` exists only to
+  FETCH the uuid; with it in hand the march is created directly. Verified false→true from a clean
+  `om=0` baseline, twice.
+
+Both modes converge on the same two mechanisms:
+
+1. **Send on the MAIN THREAD.** A cold `MarchUtil.SendCreateMarchMessage(...)` from the SafeDoString
+   hijack thread returns `ok=true` but the server drops it. Schedule it on the game's own scheduler:
+   **`TimerManager:GetInstance():DelayInvoke(fn, 0.5)`** (one-shot). Called from inside it, the send
+   creates the march. Exact call:
+   ```lua
+   MarchUtil.SendCreateMarchMessage(formationUuid, MarchTargetType.ATTACK_MONSTER,
+                                    pid, uuid, 1, 1, false, serverId, nil)
+   -- args: formationUuid, targetType=1, targetPoint, targetUuid, timeIndex=1,
+   --       autoBackHome=1, needSoldier=false, targetServerId, destroyTimeIndex=nil
+   ```
+2. **Never `UIManager:DestroyAllWindow()`** — it destroys the persistent HUD (the "UI hang";
+   `ChangeToWorld`/`OpenWindow(UIMain)` do not restore it). Use `Ctrl:CloseSelf()` on the popup only.
+
+Notes: the monster **uuid is not stored client-side** (the clone has only `ModelHeight`/
+`AutoAdjustLod`/`UIWorldLabel`/`TouchObjectEventTrigger`; `OnClick`'s upvalue is a C-binding;
+`uuid=0` is rejected) — MODE 1's single `OnClick` server fetch is the only way to obtain it. `pid`
+alone is readable no-click via `SceneUtils.WorldToTileIndex(clone.transform.position)`. This path
+bypasses the whole `UIFormationSelectListV2`/`OnCreateClick`/`CheckCanBattle` dispatch (Finding 15).
+
+**RETRACTION — Findings 11, 12, 13 (`MarchUtil.TryStartMarch`) were WRONG.** `TryStartMarch` is
+**not** the launch function; it returns `ok=true` but never creates a march. Finding 11's single
+`HV=true` was a leftover/pre-existing march (no baseline was logged) — a false positive, and
+Findings 12–13 chased the resulting phantom `HasStaminaEnoughFormation`/`canMarch` gates. The real
+launch primitive is **`MarchUtil.SendCreateMarchMessage`** invoked on the main thread (this Finding).
