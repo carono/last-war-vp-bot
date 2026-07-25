@@ -34,6 +34,9 @@ import time
 import tkinter as tk
 from tkinter import scrolledtext, ttk
 
+from . import __version__ as APP_VERSION
+from . import i18n as i18nmod
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
 sys.path.insert(0, TOOLS)
@@ -54,10 +57,13 @@ GAME_DIR = os.path.join(_LOCALAPPDATA, "FunFly", "Last War-Survival Game")
 LAUNCHER = os.path.join(GAME_DIR, "LastWarLauncher.exe")
 GAME_EXE = "LastWar.exe"
 
-CAPTURE_SCRIPTS = {
-    "Секретные задания": "secret_task_capture.py",
-    "Операция Призрак": "secret_mission_capture.py",
-}
+# Capture options: a stable i18n key (combobox label) paired with its capture script.
+# The selected script is resolved by combobox index, so the visible label can be
+# translated freely without breaking the lookup.
+CAPTURE_OPTIONS = [
+    {"key": "capture.secret_tasks", "script": "secret_task_capture.py"},
+    {"key": "capture.ghost_op", "script": "secret_mission_capture.py"},
+]
 RALLY_OUT_REL = os.path.join("results", "rally_log.jsonl")
 RALLY_OUT = os.path.join(REPO, RALLY_OUT_REL)
 
@@ -79,7 +85,10 @@ def connection_status() -> str:
 class Panel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Last War — навигация")
+        self._i18n = i18nmod.I18n()
+        self._tr_widgets: list = []   # (widget, option, key, fmt) — retranslated in place
+        self._tr_hooks: list = []     # callables run on every language change
+        self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
         self._log_q: "queue.Queue[str]" = queue.Queue()
@@ -88,11 +97,74 @@ class Panel(tk.Tk):
         self._mon_proc = None
         self._rally_proc = None
         self._client = lua_client.DaemonClient()
+        self._build_menu()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._refresh_status()
         threading.Thread(target=self._startup, daemon=True).start()
+
+    # -- i18n ---------------------------------------------------------------
+    def _t(self, key: str, **fmt) -> str:
+        return self._i18n.t(key, **fmt)
+
+    def _tr(self, widget, key: str, option: str = "text", **fmt):
+        """Set ``widget[option]`` from a locale key and remember it for retranslation."""
+        widget.configure(**{option: self._t(key, **fmt)})
+        self._tr_widgets.append((widget, option, key, fmt))
+        return widget
+
+    def _set_language(self, lang: str) -> None:
+        if self._i18n.set_lang(lang):
+            self._apply_language()
+
+    def _apply_language(self) -> None:
+        self.title(self._t("app.title"))
+        for widget, option, key, fmt in self._tr_widgets:
+            try:
+                widget.configure(**{option: self._t(key, **fmt)})
+            except tk.TclError:
+                pass
+        for hook in self._tr_hooks:
+            hook()
+        self._refresh_status()   # re-render translated daemon/status words
+
+    def _build_menu(self) -> None:
+        menubar = tk.Menu(self)
+
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        self._lang_var = getattr(self, "_lang_var", tk.StringVar())
+        self._lang_var.set(self._i18n.lang)
+        for lang in i18nmod.available_langs():
+            lang_menu.add_radiobutton(
+                label=i18nmod.LANG_NAMES.get(lang, lang), value=lang,
+                variable=self._lang_var, command=lambda l=lang: self._set_language(l))
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
+
+        menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
+        menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
+        self.config(menu=menubar)
+        if self._build_menu not in self._tr_hooks:
+            self._tr_hooks.append(self._build_menu)
+
+    def _show_about(self) -> None:
+        win = tk.Toplevel(self)
+        win.title(self._t("about.title"))
+        win.resizable(False, False)
+        win.transient(self)
+        frm = ttk.Frame(win, padding=16)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text=self._t("about.name"),
+                  font=("", 12, "bold")).pack(anchor="w")
+        ttk.Label(frm, text=self._t("about.version", version=APP_VERSION),
+                  foreground="#888").pack(anchor="w", pady=(2, 8))
+        ttk.Label(frm, text=self._t("about.description"), wraplength=360,
+                  justify="left").pack(anchor="w")
+        ttk.Button(frm, text=self._t("about.ok"),
+                   command=win.destroy).pack(anchor="e", pady=(12, 0))
+        win.grab_set()
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -100,95 +172,103 @@ class Panel(tk.Tk):
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
         scenarios = ttk.Frame(nb)
-        nb.add(main, text="Основные")
-        nb.add(scenarios, text="Сценарии")
-        ttk.Label(scenarios, text="Сценарии — скоро", foreground="#888",
-                  padding=20).pack(expand=True)
+        nb.add(main, text=self._t("tab.main"))
+        nb.add(scenarios, text=self._t("tab.scenarios"))
+        self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
+                                       nb.tab(scenarios, text=self._t("tab.scenarios"))))
+        self._tr(ttk.Label(scenarios, foreground="#888", padding=20),
+                 "scenarios.placeholder").pack(expand=True)
 
         top = ttk.Frame(main, padding=8)
         top.pack(fill="x")
-        ttk.Label(top, text="Игра:").pack(side="left")
-        self._status_var = tk.StringVar(value="проверяю…")
+        self._tr(ttk.Label(top), "top.game").pack(side="left")
+        self._status_var = tk.StringVar(value=self._t("status.checking"))
         self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
-        ttk.Label(top, text="daemon:").pack(side="left", padx=(12, 0))
-        self._daemon_var = tk.StringVar(value="…")
+        self._tr(ttk.Label(top), "top.daemon").pack(side="left", padx=(12, 0))
+        self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
         self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
 
-        game = ttk.LabelFrame(main, text="Игра", padding=8)
+        game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
-        ttk.Button(game, text="▶  Запустить игру",
-                   command=self._launch_game).pack(side="left", padx=4, ipady=3)
-        ttk.Button(game, text="⟳  Перезапустить игру",
-                   command=self._restart_game).pack(side="left", padx=4, ipady=3)
-        ttk.Label(game, text="LastWarLauncher.exe", foreground="#888").pack(side="left", padx=10)
+        self._tr(ttk.Button(game, command=self._launch_game),
+                 "game.launch").pack(side="left", padx=4, ipady=3)
+        self._tr(ttk.Button(game, command=self._restart_game),
+                 "game.restart").pack(side="left", padx=4, ipady=3)
+        self._tr(ttk.Label(game, foreground="#888"),
+                 "game.launcher_hint").pack(side="left", padx=10)
 
-        nav = ttk.LabelFrame(main, text="Навигация", padding=8)
+        nav = self._tr(ttk.LabelFrame(main, padding=8), "nav.frame")
         nav.pack(fill="x", padx=8, pady=(0, 6))
 
-        scene = ttk.LabelFrame(nav, text="Сцена", padding=6)
+        scene = self._tr(ttk.LabelFrame(nav, padding=6), "nav.scene")
         scene.pack(fill="x", pady=(0, 6))
-        ttk.Button(scene, text="\U0001F3E0  Домой",
-                   command=lambda: self._act(lua_actions.scene_city(), "scene", "Домой")
-                   ).pack(side="left", padx=4, ipadx=8, ipady=6)
-        ttk.Button(scene, text="\U0001F30D  Мир",
-                   command=lambda: self._act(lua_actions.scene_world(), "scene", "Мир")
-                   ).pack(side="left", padx=4, ipadx=8, ipady=6)
-        ttk.Label(scene, text="SceneUtils.ChangeToCity / ChangeToWorld",
-                  foreground="#888").pack(side="left", padx=10)
+        self._tr(ttk.Button(scene,
+                 command=lambda: self._act(lua_actions.scene_city(), "scene", "Домой")),
+                 "nav.home").pack(side="left", padx=4, ipadx=8, ipady=6)
+        self._tr(ttk.Button(scene,
+                 command=lambda: self._act(lua_actions.scene_world(), "scene", "Мир")),
+                 "nav.world").pack(side="left", padx=4, ipadx=8, ipady=6)
+        self._tr(ttk.Label(scene, foreground="#888"),
+                 "nav.scene_hint").pack(side="left", padx=10)
 
-        coord = ttk.LabelFrame(nav, text="Переход по координатам", padding=6)
+        coord = self._tr(ttk.LabelFrame(nav, padding=6), "coord.frame")
         coord.pack(fill="x")
         self._x_var = tk.StringVar()
         self._y_var = tk.StringVar()
         self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
-        ttk.Label(coord, text="X").pack(side="left")
+        self._tr(ttk.Label(coord), "coord.x").pack(side="left")
         ttk.Entry(coord, textvariable=self._x_var, width=7).pack(side="left", padx=(2, 8))
-        ttk.Label(coord, text="Y").pack(side="left")
+        self._tr(ttk.Label(coord), "coord.y").pack(side="left")
         ttk.Entry(coord, textvariable=self._y_var, width=7).pack(side="left", padx=(2, 8))
-        ttk.Label(coord, text="Сервер").pack(side="left")
+        self._tr(ttk.Label(coord), "coord.server").pack(side="left")
         ttk.Entry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
-        ttk.Button(coord, text="Перейти", command=self._goto_coord).pack(side="left", padx=4, ipady=2)
-        ttk.Button(coord, text="↻ сервер", command=self._load_current_server).pack(side="left", padx=4)
+        self._tr(ttk.Button(coord, command=self._goto_coord),
+                 "coord.jump").pack(side="left", padx=4, ipady=2)
+        self._tr(ttk.Button(coord, command=self._load_current_server),
+                 "coord.reload_server").pack(side="left", padx=4)
 
-        sec = ttk.LabelFrame(main, text="Секретные задания", padding=8)
+        sec = self._tr(ttk.LabelFrame(main, padding=8), "secret.frame")
         sec.pack(fill="x", padx=8, pady=(0, 6))
         row1 = ttk.Frame(sec)
         row1.pack(fill="x")
-        self._mon_kind = tk.StringVar(value="Секретные задания")
-        ttk.Combobox(row1, textvariable=self._mon_kind, state="readonly", width=20,
-                     values=list(CAPTURE_SCRIPTS)).pack(side="left", padx=(0, 8))
+        self._mon_combo = ttk.Combobox(row1, state="readonly", width=20,
+                                       values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
+        self._mon_combo.current(0)
+        self._mon_combo.pack(side="left", padx=(0, 8))
+        self._tr_hooks.append(self._retranslate_capture_combo)
         self._mon_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row1, text="Мониторинг", variable=self._mon_var,
-                        command=self._toggle_monitor).pack(side="left")
-        ttk.Label(row1, text="пассивный сниф — панорамируй карту",
-                  foreground="#888").pack(side="left", padx=10)
+        self._tr(ttk.Checkbutton(row1, variable=self._mon_var, command=self._toggle_monitor),
+                 "secret.monitoring").pack(side="left")
+        self._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
         # filters (applied live, panel-side, to task findings only)
         row2 = ttk.Frame(sec)
         row2.pack(fill="x", pady=(6, 0))
-        ttk.Label(row2, text="Фильтры:").pack(side="left")
+        self._tr(ttk.Label(row2), "secret.filters").pack(side="left")
         self._star_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row2, text="Только звёзды", variable=self._star_var).pack(side="left", padx=(6, 0))
+        self._tr(ttk.Checkbutton(row2, variable=self._star_var),
+                 "secret.stars_only").pack(side="left", padx=(6, 0))
         self._pending_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row2, text="Только пендинг", variable=self._pending_var).pack(side="left", padx=(6, 0))
-        ttk.Label(row2, text="Уровень от").pack(side="left", padx=(12, 2))
+        self._tr(ttk.Checkbutton(row2, variable=self._pending_var),
+                 "secret.pending_only").pack(side="left", padx=(6, 0))
+        self._tr(ttk.Label(row2), "secret.level_from").pack(side="left", padx=(12, 2))
         self._lvl_from_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_from_var, width=4).pack(side="left")
-        ttk.Label(row2, text="до").pack(side="left", padx=(6, 2))
+        self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
 
-        rally = ttk.LabelFrame(main, text="Ралли", padding=8)
+        rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
         self._rally_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(rally, text="Монитор ралли", variable=self._rally_var,
-                        command=self._toggle_rally).pack(side="left")
-        ttk.Label(rally, text=f"push.alliance.march.* → лог + {RALLY_OUT_REL}",
-                  foreground="#888").pack(side="left", padx=10)
+        self._tr(ttk.Checkbutton(rally, variable=self._rally_var, command=self._toggle_rally),
+                 "rally.monitor").pack(side="left")
+        self._tr(ttk.Label(rally, foreground="#888"),
+                 "rally.hint", path=RALLY_OUT_REL).pack(side="left", padx=10)
 
-        logframe = ttk.LabelFrame(main, text="Лог (координаты кликабельны)", padding=4)
+        logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9), state="disabled",
@@ -238,10 +318,10 @@ class Panel(tk.Tk):
 
     def _ensure_daemon(self) -> bool:
         if lua_client.is_running():
-            self.after(0, lambda: self._set_daemon("warm", True))
+            self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
             return True
         self._log_put("[daemon] не запущен — стартую tools/lua_daemon.py…")
-        self.after(0, lambda: self._set_daemon("старт…", None))
+        self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
         try:
             subprocess.Popen(
                 [WIN_PYTHON, os.path.join(TOOLS, "lua_daemon.py")],
@@ -249,16 +329,16 @@ class Panel(tk.Tk):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         except Exception as exc:
             self._log_put(f"[daemon] не удалось запустить: {exc}")
-            self.after(0, lambda: self._set_daemon("ошибка", False))
+            self.after(0, lambda: self._set_daemon(self._t("daemon.error"), False))
             return False
         for _ in range(60):
             if lua_client.is_running():
                 self._log_put("[daemon] готов (warm)")
-                self.after(0, lambda: self._set_daemon("warm", True))
+                self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
                 return True
             time.sleep(0.5)
         self._log_put("[daemon] не поднялся за отведённое время")
-        self.after(0, lambda: self._set_daemon("нет", False))
+        self.after(0, lambda: self._set_daemon(self._t("daemon.none"), False))
         return False
 
     def _set_daemon(self, text: str, ok) -> None:
@@ -275,7 +355,7 @@ class Panel(tk.Tk):
             self.after(0, lambda: (
                 self._status_var.set(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
-                self._set_daemon("warm" if warm else "нет", warm)))
+                self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm)))
         threading.Thread(target=work, daemon=True).start()
 
     def _load_current_server(self) -> None:
@@ -294,6 +374,11 @@ class Panel(tk.Tk):
             self._log_put(f"[server] ошибка чтения: {exc}")
         return DEFAULT_SERVER
 
+    def _retranslate_capture_combo(self) -> None:
+        idx = self._mon_combo.current()
+        self._mon_combo.configure(values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
+        self._mon_combo.current(idx if idx >= 0 else 0)
+
     # -- secret-task monitoring ---------------------------------------------
     def _toggle_monitor(self) -> None:
         if self._mon_var.get():
@@ -304,7 +389,8 @@ class Panel(tk.Tk):
     def _start_monitor(self) -> None:
         if self._mon_proc is not None:
             return
-        script = CAPTURE_SCRIPTS.get(self._mon_kind.get(), "secret_task_capture.py")
+        idx = self._mon_combo.current()
+        script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
         self._log_put(f"[secret] старт мониторинга: {script}")
         try:
             self._mon_proc = subprocess.Popen(

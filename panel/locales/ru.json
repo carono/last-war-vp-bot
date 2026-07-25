@@ -1,0 +1,63 @@
+{
+  "app.title": "Last War — навигация",
+
+  "menu.help": "Справка",
+  "menu.help.about": "О программе",
+  "menu.language": "Язык",
+
+  "about.title": "О программе",
+  "about.name": "Last War — панель управления",
+  "about.version": "Версия {version}",
+  "about.description": "Навигация и мониторинг секретных заданий в Last War через тёплый Lua-демон.",
+  "about.ok": "ОК",
+
+  "tab.main": "Основные",
+  "tab.scenarios": "Сценарии",
+  "scenarios.placeholder": "Сценарии — скоро",
+
+  "top.game": "Игра:",
+  "top.daemon": "демон:",
+  "status.checking": "проверяю…",
+
+  "daemon.pending": "…",
+  "daemon.warm": "тёплый",
+  "daemon.starting": "старт…",
+  "daemon.error": "ошибка",
+  "daemon.none": "нет",
+
+  "game.frame": "Игра",
+  "game.launch": "▶  Запустить игру",
+  "game.restart": "⟳  Перезапустить игру",
+  "game.launcher_hint": "LastWarLauncher.exe",
+
+  "nav.frame": "Навигация",
+  "nav.scene": "Сцена",
+  "nav.home": "🏠  Домой",
+  "nav.world": "🌍  Мир",
+  "nav.scene_hint": "SceneUtils.ChangeToCity / ChangeToWorld",
+
+  "coord.frame": "Переход по координатам",
+  "coord.x": "X",
+  "coord.y": "Y",
+  "coord.server": "Сервер",
+  "coord.jump": "Перейти",
+  "coord.reload_server": "↻ сервер",
+
+  "secret.frame": "Секретные задания",
+  "secret.monitoring": "Мониторинг",
+  "secret.hint": "пассивный сниф — панорамируй карту",
+  "secret.filters": "Фильтры:",
+  "secret.stars_only": "Только звёзды",
+  "secret.pending_only": "Только пендинг",
+  "secret.level_from": "Уровень от",
+  "secret.level_to": "до",
+
+  "capture.secret_tasks": "Секретные задания",
+  "capture.ghost_op": "Операция Призрак",
+
+  "rally.frame": "Ралли",
+  "rally.monitor": "Монитор ралли",
+  "rally.hint": "push.alliance.march.* → лог + {path}",
+
+  "log.frame": "Лог (координаты кликабельны)"
+}

@@ -1,0 +1,63 @@
+{
+  "app.title": "Last War — Navigation",
+
+  "menu.help": "Help",
+  "menu.help.about": "About",
+  "menu.language": "Language",
+
+  "about.title": "About",
+  "about.name": "Last War Control Panel",
+  "about.version": "Version {version}",
+  "about.description": "Navigation and secret-task monitoring for Last War, driven through the warm Lua daemon.",
+  "about.ok": "OK",
+
+  "tab.main": "Main",
+  "tab.scenarios": "Scenarios",
+  "scenarios.placeholder": "Scenarios — coming soon",
+
+  "top.game": "Game:",
+  "top.daemon": "daemon:",
+  "status.checking": "checking…",
+
+  "daemon.pending": "…",
+  "daemon.warm": "warm",
+  "daemon.starting": "starting…",
+  "daemon.error": "error",
+  "daemon.none": "none",
+
+  "game.frame": "Game",
+  "game.launch": "▶  Launch game",
+  "game.restart": "⟳  Restart game",
+  "game.launcher_hint": "LastWarLauncher.exe",
+
+  "nav.frame": "Navigation",
+  "nav.scene": "Scene",
+  "nav.home": "🏠  Home",
+  "nav.world": "🌍  World",
+  "nav.scene_hint": "SceneUtils.ChangeToCity / ChangeToWorld",
+
+  "coord.frame": "Jump to coordinates",
+  "coord.x": "X",
+  "coord.y": "Y",
+  "coord.server": "Server",
+  "coord.jump": "Jump",
+  "coord.reload_server": "↻ server",
+
+  "secret.frame": "Secret tasks",
+  "secret.monitoring": "Monitoring",
+  "secret.hint": "passive sniff — pan the map",
+  "secret.filters": "Filters:",
+  "secret.stars_only": "Stars only",
+  "secret.pending_only": "Pending only",
+  "secret.level_from": "Level from",
+  "secret.level_to": "to",
+
+  "capture.secret_tasks": "Secret tasks",
+  "capture.ghost_op": "Operation Ghost",
+
+  "rally.frame": "Rally",
+  "rally.monitor": "Rally monitor",
+  "rally.hint": "push.alliance.march.* → log + {path}",
+
+  "log.frame": "Log (coordinates are clickable)"
+}
