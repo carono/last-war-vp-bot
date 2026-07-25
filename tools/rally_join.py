@@ -36,8 +36,9 @@ Usage:
     # listen
     ...\python.exe tools\rally_join.py --list [--me <yourName>]
     ...\python.exe tools\rally_join.py --watch [--auto-join] [--me <yourName>]
-    # join
-    ...\python.exe tools\rally_join.py --leader <name-or-mask> --me <yourName>
+    # join (--leader optional: omit to take the first available rally; --squad N picks the squad)
+    ...\python.exe tools\rally_join.py --me <yourName> [--squad N]
+    ...\python.exe tools\rally_join.py --leader <name-or-mask> --me <yourName> [--squad N]
     ...\python.exe tools\rally_join.py --team <teamUuid> --point <targetPointId> --server <serverId>
     # decline / leave
     ...\python.exe tools\rally_join.py --cancel --leader <name-or-mask> --me <yourName>
@@ -60,8 +61,19 @@ from lua_client import get_evaluator  # daemon-backed when running, else a fresh
 
 # Rally target type for joining an existing alliance rally (confirmed via lua_trace).
 RALLY_TARGET_TYPE = 6
-# Fallback if no loaded formation can be resolved and none is passed on the CLI.
-DEFAULT_FORMATION = "1156814234542394473"
+
+# Squad slot (the 1/2/3 the player sees) -> formation UUID, confirmed live: each entry of
+# DataCenter.ArmyFormationDataManager.ArmyFormationList carries `index` = the slot, and its
+# `uuid` is SendCreateMarchMessage's first argument (which squad is sent). This ready mapping
+# lets callers send "squad N" immediately; formation_by_squad() still prefers the live `index`
+# (authoritative if the player restructures squads) and falls back to this table.
+SQUAD_FORMATIONS = {
+    1: "1156814234542394473",
+    2: "1156814435164343487",
+    3: "1166270764383718422",
+}
+# Fallback if no loaded formation can be resolved and none is passed on the CLI (squad 1).
+DEFAULT_FORMATION = SQUAD_FORMATIONS[1]
 
 
 def one(lines, needle):
@@ -104,9 +116,9 @@ for k,v in pairs(afd.ArmyFormationList) do if type(v)=='table' or type(v)=='user
 end end
 CS.UnityEngine.Debug.LogError('SQUAD end')''' % squad, "SQUAD", 1.2)
     line = one(rows, "SQUAD uuid=")
-    if "uuid=" not in line:
-        return None
-    return line.split("uuid=")[1].split()[0]
+    if "uuid=" in line:
+        return line.split("uuid=")[1].split()[0]
+    return SQUAD_FORMATIONS.get(squad)  # fall back to the known mapping
 
 
 def list_squads(run):
@@ -332,7 +344,8 @@ def main():
     ap.add_argument("--interval", type=int, default=5,
                     help="--watch poll interval in seconds (default 5)")
     ap.add_argument("--me", help="your own handle — rallies you lead are skipped (can't self-join)")
-    ap.add_argument("--leader", help="join the rally led by this player (resolves team/point/server)")
+    ap.add_argument("--leader", help="target the rally led by this player (name/mask); "
+                                     "omit to take the first available rally")
     ap.add_argument("--cancel", action="store_true",
                     help="leave/decline a rally instead of joining")
     ap.add_argument("--team", help="rally teamUuid (join/cancel a specific rally)")
@@ -348,25 +361,27 @@ def main():
                     help="print your squad slots (index -> uuid, soldiers), then exit")
     args = ap.parse_args()
 
-    if not (args.list or args.watch or args.list_squads):
-        if args.cancel:
-            if not (args.team or args.leader):
-                ap.error("--cancel requires --team or --leader (plus --member or --me)")
-            if not (args.member or args.me):
-                ap.error("--cancel requires --member, or --me to auto-resolve it")
-        elif not (args.leader or (args.team and args.point and args.server)):
-            ap.error("join requires --team, --point and --server "
-                     "(or --leader NAME / --list / --watch)")
+    if args.cancel:
+        if not (args.member or args.me):
+            ap.error("--cancel requires --member, or --me to auto-resolve it")
+    # join needs no required target: --leader / explicit team+point+server / else first rally
 
     ev = get_evaluator()
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)
 
-    def resolve_leader():
-        needle = args.leader.lower()
-        return next((r for r in list_rallies(run)
-                     if needle in (r.get("leader") or "").lower()), None)  # substring / mask
+    def joinable_rallies():
+        """Rallies I could join: everything visible minus the ones I lead (--me)."""
+        return [r for r in list_rallies(run) if not (args.me and r.get("leader") == args.me)]
+
+    def resolve_target():
+        """The rally to act on: --leader mask, else the first joinable rally. None if none."""
+        rallies = joinable_rallies()
+        if args.leader:
+            needle = args.leader.lower()
+            return next((r for r in rallies if needle in (r.get("leader") or "").lower()), None)
+        return rallies[0] if rallies else None
 
     def formation_arg():
         """Resolve the formation UUID from --formation / --squad (None = auto-pick first loaded)."""
@@ -398,25 +413,25 @@ def main():
             do_watch(run, ev, args.interval, args.auto_join, args.me, formation_arg())
         elif args.cancel:
             team = args.team
-            if not team and args.leader:
-                m = resolve_leader()
+            if not team:
+                m = resolve_target()  # --leader mask, else first joinable rally
                 if not m:
-                    print("no rally whose leader matches %r is visible" % args.leader, flush=True)
+                    print("no rally to decline (pass --team/--leader)", flush=True)
                     return
                 team = m["team"]
             do_cancel(run, ev, team, args.member, args.me)
-        elif args.leader:
-            match = resolve_leader()
+        elif args.team and args.point and args.server:
+            do_join(run, ev, args.team, args.point, args.server, formation_arg())
+        else:
+            match = resolve_target()  # --leader mask, else the FIRST joinable rally
             if not match:
-                print("no rally whose leader matches %r is visible right now" % args.leader,
-                      flush=True)
+                where = ("whose leader matches %r" % args.leader) if args.leader else "available"
+                print("no rally %s is visible right now" % where, flush=True)
             else:
-                print("resolved leader %s -> team=%s point=%s server=%s members=%s"
-                      % (args.leader, match["team"], match["point"], match["server"],
+                print("target rally: leader=%s team=%s point=%s server=%s members=%s"
+                      % (match.get("leader"), match["team"], match["point"], match["server"],
                          match.get("members")), flush=True)
                 do_join(run, ev, match["team"], match["point"], match["server"], formation_arg())
-        else:
-            do_join(run, ev, args.team, args.point, args.server, formation_arg())
     finally:
         ev.close()
 

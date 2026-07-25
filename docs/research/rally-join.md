@@ -47,6 +47,19 @@ live in `DataCenter.ArmyFormationDataManager.ArmyFormationList` keyed by uuid; e
 `index` is the wanted slot (`rally_join.py --squad N`, or `--list-squads` to see them). The
 march object does not expose its formation back, so which squad was sent is confirmed visually.
 
+Ready squad → formation mapping (this account), also kept as `SQUAD_FORMATIONS` in
+`tools/rally_join.py` so callers can send by number immediately (verified live: squad 2 → the
+right march):
+
+| squad (index) | formationUuid          |
+|---------------|------------------------|
+| 1             | `1156814234542394473`  |
+| 2             | `1156814435164343487`  |
+| 3             | `1166270764383718422`  |
+
+`formation_by_squad()` still reads the live `index` first (authoritative if squads are
+restructured) and falls back to this table.
+
 **Cold-formation wall:** the send silently no-ops unless a formation is loaded
 (`ArmyFormationDataManager.ArmyFormationList[*].totalSoldierNum > 0`). Formations start cold
 (soldiers=0). `MarchUtil.OnClickStartMarch(6, targetPointId, teamUuid, -1, 1, 7, server, 0, 0)` —
@@ -81,6 +94,7 @@ to avoid the popup. Verify by re-checking the team members — your entry is gon
 ```
 rally_join.py --list [--me NAME]              # print live rallies (leader/point/server/members)
 rally_join.py --watch [--auto-join] [--me NAME]
+rally_join.py --me NAME [--squad N]           # join the FIRST available rally (leader optional)
 rally_join.py --leader <name|mask> --me NAME  # resolve + join a leader's rally
 rally_join.py --team T --point P --server S   # join by explicit params
 rally_join.py --cancel --leader <name|mask> --me NAME   # leave (auto-resolves memberUuid)
