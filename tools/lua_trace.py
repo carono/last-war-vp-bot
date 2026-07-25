@@ -1,19 +1,24 @@
 r"""General-purpose live Lua function tracer for the game.
 
 Wraps every function reachable from `_G` (and nested tables up to a small depth) with a
-logging shim that writes `XSCALL <table.fn> <- <args>` to Player.log, and installs a
-`debug.sethook('c')` call-level hook as well. Everything the game does through those Lua
-functions then shows up in Player.log, which this tool tails to the terminal in real time.
+logging shim that writes `XSCALL <table.fn> <- <args>` to Player.log, which this tool tails
+to the terminal in real time. Everything the game does through those Lua functions shows up.
+
+To stay usable on a live game the tracer is DEDUP'd by default: each function name logs only
+its first call (the rest are counted and summarised on exit). Without this, logging every
+call writes thousands of lines per frame to Player.log and freezes the game. A bare run is
+therefore a safe "which functions fire" discovery pass; `--filter` narrows both what is
+wrapped and what is logged; `--every` restores full per-call logging (use with a filter).
 
 There is NO action-specific logic here — it is a raw tracer, useful while reverse
-engineering ANY behaviour (march, rally, scene switch, UI, ...). Narrow the noise with
-`--filter <keyword>`.
+engineering ANY behaviour (march, rally, scene switch, UI, ...).
 
 Single command, self-restoring::
 
-    C:\Python312\python.exe tools\lua_trace.py                 # trace everything
+    C:\Python312\python.exe tools\lua_trace.py                 # discover: first hit of each fn
     C:\Python312\python.exe tools\lua_trace.py --filter March  # only names containing "March"
-    C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all
+    C:\Python312\python.exe tools\lua_trace.py --filter March --every   # every March call
+    C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all     # + call-level hook (heavy)
 
 Patches install immediately on start. On Ctrl+C (or any exit) the original functions are
 restored and the hook is cleared automatically via atexit + a finally block — there is no
@@ -44,18 +49,24 @@ def _lua_str(s):
     return "'" + esc + "'"
 
 
-def install_chunk(filter_kw, depth, hook_all):
+def install_chunk(filter_kw, depth, hook_all, dedup=True):
     r"""Build the Lua chunk that wraps functions and arms the call hook.
 
     State lives in `_G.__XSTRACE.saved` = list of {tbl, key, orig} so restore can put every
-    original function back. Core Lua funcs and standard libraries are skipped (wrapping
-    `pcall`/`string.find`/`tostring` — which the shim itself uses — would recurse or break
-    the game), and the `CS` bridge is never descended into.
+    original function back, and `_G.__XSTRACE.counts` = per-name call counts. Core Lua funcs
+    and standard libraries are skipped (wrapping `pcall`/`string.find`/`tostring` — which the
+    shim itself uses — would recurse or break the game), and the `CS` bridge is never
+    descended into.
+
+    With `dedup` (the default) each wrapped name logs only its FIRST call — the rest are just
+    counted — so even a filterless "trace everything" run shows which functions fire without
+    flooding Player.log and freezing the game. `dedup=False` logs every call.
     """
     return r"""
 local FILTER = %(filter)s
 local MAXDEPTH = %(depth)d
 local HOOKALL = %(hookall)s
+local DEDUP = %(dedup)s
 
 -- capture Log first, outside the pcall, so the error handler can always report.
 local Log = CS.UnityEngine.Debug.LogError
@@ -73,6 +84,7 @@ local pairs, ipairs = pairs, ipairs
 _G.__XSTRACE = _G.__XSTRACE or {}
 local T = _G.__XSTRACE
 T.saved = T.saved or {}
+T.counts = T.counts or {}  -- name -> call count; dedup logs only the first hit
 
 local function MATCH(nm)
   if not FILTER then return true end
@@ -96,9 +108,17 @@ end
 local function wrap(tbl, key, name, fn)
   local w = function(...)
     if MATCH(name) then
-      -- build the arg string here, in w's vararg scope; a nested closure cannot see `...`
-      local a = argstr(...)
-      pcall(function() Log('XSCALL '..name..' <- '..a) end)
+      -- Dedup is what keeps a broad trace usable: logging EVERY call writes thousands of
+      -- Debug.LogError lines per frame to Player.log and freezes the game. We count every
+      -- call but only log the first hit of each name, so the output is "which functions
+      -- fired" (+ totals on restore) instead of an endless flood. --every disables this.
+      local c = (T.counts[name] or 0) + 1
+      T.counts[name] = c
+      if (not DEDUP) or c == 1 then
+        -- build the arg string here, in w's vararg scope; a nested closure cannot see `...`
+        local a = argstr(...)
+        pcall(function() Log('XSCALL '..name..' <- '..a) end)
+      end
     end
     return fn(...)
   end
@@ -117,6 +137,16 @@ for _, k in ipairs({
   'setmetatable', 'getmetatable', 'print', 'require', 'load', 'loadstring',
   'dofile', 'loadfile', 'collectgarbage', 'unpack', 'module', 'setfenv', 'getfenv',
 }) do SKIP[k] = true end
+
+-- Broad mode (no filter): also skip per-frame / hot method names. Even with dedup these
+-- add pure call overhead to the game's frame loop and rarely tell you anything. A filter
+-- means the user is targeting on purpose, so honour it fully and skip nothing extra.
+if not FILTER then
+  for _, k in ipairs({
+    'Update', 'LateUpdate', 'FixedUpdate', 'OnGUI', 'OnUpdate', 'OnLateUpdate',
+    'Tick', 'OnTick', 'OnFrame', 'OnRender', 'OnDrawGizmos', 'DoUpdate',
+  }) do SKIP[k] = true end
+end
 
 local visited = {}
 local nwrap = 0
@@ -153,18 +183,24 @@ local function walk(tbl, prefix, depth)
 end
 walk(_G, '', 0)
 
--- call-level hook: fires on every Lua call. Unfiltered it would flood Player.log and stall
--- the game, so only arm it when a filter is set or --hook-all was explicitly requested.
-if FILTER or HOOKALL then
+-- call-level hook: fires on EVERY Lua call — the heaviest mechanism here and the surest
+-- way to stall the game. Wrapping already covers everything reachable from _G, so the hook
+-- is opt-in only (--hook-all). It is dedup'd too so it does not flood on its own.
+if HOOKALL then
   pcall(function()
     debug.sethook(function()
       local info = debug.getinfo(2, 'nS')
       if info then
         local nm = info.name or '?'
         if MATCH(nm) then
-          pcall(function()
-            Log('XSCALL[hook] '..nm..' @'..(info.short_src or '?')..':'..(info.linedefined or -1))
-          end)
+          local key = 'hook:'..nm
+          local c = (T.counts[key] or 0) + 1
+          T.counts[key] = c
+          if (not DEDUP) or c == 1 then
+            pcall(function()
+              Log('XSCALL[hook] '..nm..' @'..(info.short_src or '?')..':'..(info.linedefined or -1))
+            end)
+          end
         end
       end
     end, 'c')
@@ -175,7 +211,7 @@ end
 T.installed = true
 Log('XSTRACE installed wrapped='..nwrap..' depth='..MAXDEPTH
     ..' filter='..(FILTER and ('"'..FILTER..'"') or 'none')
-    ..' hook='..tostring(FILTER ~= nil or HOOKALL))
+    ..' dedup='..tostring(DEDUP)..' hook='..tostring(HOOKALL))
 
 end)  -- end of install-body pcall
 if not __ok then
@@ -185,6 +221,7 @@ end
         "filter": _lua_str(filter_kw),
         "depth": depth,
         "hookall": "true" if hook_all else "false",
+        "dedup": "true" if dedup else "false",
     }
 
 
@@ -192,6 +229,13 @@ RESTORE_CHUNK = r"""
 local T = _G.__XSTRACE
 if T then
   if T.hook then pcall(function() debug.sethook() end) end
+  -- summarise what actually fired: dedup only logged first hits, so the counts are the
+  -- only record of how often each name ran (and which fired at all).
+  if T.counts then
+    local distinct, total = 0, 0
+    for _, c in pairs(T.counts) do distinct = distinct + 1 total = total + c end
+    CS.UnityEngine.Debug.LogError('XSTRACE traced distinct='..distinct..' calls='..total)
+  end
   local n = 0
   if T.saved then
     for i = #T.saved, 1, -1 do
@@ -201,6 +245,7 @@ if T then
     end
   end
   T.saved = {}
+  T.counts = {}
   T.installed = false
   T.hook = false
   CS.UnityEngine.Debug.LogError('XSTRACE restored '..n)
@@ -240,9 +285,13 @@ def main():
     ap.add_argument("--filter", help="only log calls whose name contains this keyword")
     ap.add_argument("--depth", type=int, default=2, help="how deep to descend nested tables (default 2)")
     ap.add_argument("--hook-all", action="store_true",
-                    help="arm debug.sethook even without a filter (very noisy — may stall the game)")
+                    help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")
+    ap.add_argument("--every", action="store_true",
+                    help="log every call, not just the first hit of each name (floods; use with a narrow --filter)")
     ap.add_argument("--all", action="store_true", help="print every Player.log line, not just XSCALL/XSTRACE")
     args = ap.parse_args()
+
+    dedup = not args.every
 
     log = player_log_path()
     ev = lua_client.get_evaluator()
@@ -261,9 +310,9 @@ def main():
 
     atexit.register(restore)
 
-    print("[lua_trace] installing patches (filter=%s depth=%d hook=%s) ..."
-          % (args.filter or "none", args.depth, bool(args.filter) or args.hook_all))
-    lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all), marker="XSTRACE", settle=1.5)
+    print("[lua_trace] installing patches (filter=%s depth=%d dedup=%s hook=%s) ..."
+          % (args.filter or "none", args.depth, dedup, args.hook_all))
+    lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all, dedup), marker="XSTRACE", settle=1.5)
     for ln in lines:
         print(ln)
     print("[lua_trace] tailing %s — Ctrl+C to stop and restore\n" % log)
