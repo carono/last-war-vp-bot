@@ -157,16 +157,54 @@ different API — `CrossServerUtil.JumpToServerByServerId(...)` — see the sect
 **Discipline for further probing: return to the home server 935 before each new hypothesis** (a
 foreign-server `GotoPos` view is a stuck/empty state).
 
-### Why foreign-server view via GotoPos is empty — the real cross-server entry is elsewhere
+## Viewing another server's world — full load, no teleport UI (tools/cross_server.py)
 
-`GotoPos`'s `serverId` argument only *tags* the world request; it does **not** enter a cross-server
-context, so aiming it at a foreign id (500/972) just moves the camera over an unpopulated map.
+Goal: browse a foreign server's map (e.g. 972) programmatically, with the map fully populated and
+**without** the base-relocation ("teleport") UI. Solved live — recipe below, confirmed repeatedly
+(~340-390 world clones load, `UIMoveCity` closed, HUD intact).
 
-The actual standard cross-server switch is **`CrossServerUtil.JumpToServerByServerId(...)`** (with
-companions `CrossServerUtil.OnCrossServer`, `IsInOtherServer`, `GetIsCrossServer`,
-`TryGetCrossEnableServerList`, `GetCrossEnableReason`, and `GoToUtil.GotoServerZone` /
-`GoToServerPreCheck`). Switching servers by normal in-game means works fine; it goes through that
-API, not through `GotoPos`. This cross-server path was **not** pursued further (out of scope for the
-coordinate-jump task). The coordinate jump documented above is confirmed only for the **home
-server**; use `CrossServerUtil.JumpToServerByServerId` (not `GotoPos` with a foreign `serverId`) as
-the starting point if cross-server navigation is ever needed.
+### The two dead ends (measured, not assumed)
+
+- **`GotoPos` with a foreign `serverId`** only *tags* the world request; it does not enter a
+  cross-server context, so the camera moves over an empty map (~17 stale clones).
+- **`CrossServerUtil.OnCrossServer(serverId)`** enters a *clean* cross-server mode
+  (`GetLastJumpToParam()` mode `nil`, no teleport UI) but does **NOT** bulk-load the world — the map
+  stays empty (~17-79). `GotoServerZone`, `WorldSendGetALPointsRequest`, `ChangeToWorld(cb,true)`,
+  and re-entering the world scene do not fill it either. (A one-off 277-clone reading was **residual**
+  clones left over from a prior `JumpToServerByServerId` load, not a fresh clean load.)
+
+**Only `CrossServerUtil.JumpToServerByServerId(...)` bulk-loads a foreign world**, and outside an
+active event it *always* enters **move-city mode** (`GetLastJumpToParam().mode = CrossServerMoveCity`)
+— which opens the base-relocation window **`UIMoveCity`**. The mode does not depend on the `type`
+argument (`BigMap3000`, `BackToSrcServerBigMap` both → move-city) nor on the enable-reason;
+`JumpToKingdomAround` funnels into the same jump. So full-load and the teleport UI are bundled.
+
+### The fix — jump, then close only the `UIMoveCity` window
+
+```lua
+-- 1) authorize the target (flips GetCrossEnableReason(serverId): -2 Disable -> positive/enabled)
+CrossServerUtil.SetCrossEnableList({[0]={homeServerId}, [1]={serverId}})   -- entries are {serverId}, 0-indexed
+-- 2) full bulk load (opens UIMoveCity):
+CrossServerUtil.JumpToServerByServerId(serverId, MoveCrossServerType.BigMap3000, nil, 105, false)
+-- 3) close ONLY the teleport window — NEVER UIManager:DestroyAllWindow() (it kills the HUD):
+UIManager.Instance:GetWindow("UIMoveCity").Ctrl:CloseSelf()
+-- 4) (optional) pan to fill more of the map:
+GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1,0,Y*2+1),105,nil,nil,serverId,nil)
+```
+
+`UIMoveCity` is the window that renders the base-relocation ghost/confirm bar; closing it via its own
+`Ctrl:CloseSelf()` leaves the fully-loaded foreign world and the HUD untouched. Window-name constants
+live in the global `UIWindowNames` (companions: `UIMoveCityTip`, `LWUIMoveCityTip`). Return home with
+`CrossServerUtil.BackToSrcServer()` + `OnBackSelfServer()`.
+
+`tools/cross_server.py <serverId> [X Y]` wraps the whole recipe; `tools/cross_server.py --home`
+returns to the home server. (`SetCrossEnableList` is transient — the client re-syncs and clears it
+after a few seconds; the jump must follow immediately, which the tool does.)
+
+### How the recipe was found
+
+The move-city-vs-clean distinction and the `SetCrossEnableList` gate were caught by monkey-patching
+`CrossServerUtil.*` / `SceneUtils.*` (logging args to `Player.log`) while the player performed the
+normal in-game switch: the trace showed `OnCrossServer(serverId)` + `SetCrossEnableList(table)` for
+the outbound view and `JumpToServerByServerId(homeServer, BackToSrcServer, pos)` for the return. The
+`UIMoveCity` window was then located via the `UIWindowNames` constants and `UIManager:IsWindowOpen`.
