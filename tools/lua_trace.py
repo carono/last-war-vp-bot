@@ -57,8 +57,15 @@ local FILTER = %(filter)s
 local MAXDEPTH = %(depth)d
 local HOOKALL = %(hookall)s
 
--- capture core funcs as locals so a wrapped global can never break the shim
+-- capture Log first, outside the pcall, so the error handler can always report.
 local Log = CS.UnityEngine.Debug.LogError
+
+-- The whole install body runs inside pcall: SafeDoString swallows Lua errors, so any
+-- failure here would otherwise be invisible (the classic "wrapped=0 / nothing installed").
+-- On error we log XSTRACE INSTALL ERROR before returning, so the cause shows in Player.log.
+local __ok, __err = pcall(function()
+
+-- capture core funcs as locals so a wrapped global can never break the shim
 local pcall, select, tostring, type = pcall, select, tostring, type
 local sfind, concat, tinsert = string.find, table.concat, table.insert
 local pairs, ipairs = pairs, ipairs
@@ -89,7 +96,9 @@ end
 local function wrap(tbl, key, name, fn)
   local w = function(...)
     if MATCH(name) then
-      pcall(function() Log('XSCALL '..name..' <- '..argstr(...)) end)
+      -- build the arg string here, in w's vararg scope; a nested closure cannot see `...`
+      local a = argstr(...)
+      pcall(function() Log('XSCALL '..name..' <- '..a) end)
     end
     return fn(...)
   end
@@ -127,8 +136,14 @@ local function walk(tbl, prefix, depth)
         local name = (prefix == '' and k) or (prefix..'.'..k)
         local tv = type(v)
         if tv == 'function' then
-          wrap(tbl, k, name, v)
-          nwrap = nwrap + 1
+          -- only wrap names that pass the filter: wrapping ALL ~9k game functions and
+          -- then MATCH-checking every call is what floods Player.log and freezes the
+          -- game. With a filter we wrap just the targets; MATCH inside the shim then
+          -- always passes. No filter still wraps everything (the explicit noisy mode).
+          if MATCH(name) then
+            wrap(tbl, k, name, v)
+            nwrap = nwrap + 1
+          end
         elseif tv == 'table' and depth < MAXDEPTH then
           walk(v, name, depth + 1)
         end
@@ -161,6 +176,11 @@ T.installed = true
 Log('XSTRACE installed wrapped='..nwrap..' depth='..MAXDEPTH
     ..' filter='..(FILTER and ('"'..FILTER..'"') or 'none')
     ..' hook='..tostring(FILTER ~= nil or HOOKALL))
+
+end)  -- end of install-body pcall
+if not __ok then
+  pcall(function() Log('XSTRACE INSTALL ERROR: '..tostring(__err)) end)
+end
 """ % {
         "filter": _lua_str(filter_kw),
         "depth": depth,
