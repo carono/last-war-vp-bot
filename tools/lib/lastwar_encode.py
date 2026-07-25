@@ -24,6 +24,7 @@ import zlib
 from pathlib import Path
 from typing import Any, NamedTuple
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lastwar_proto import (  # noqa: E402

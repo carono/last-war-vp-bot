@@ -6,7 +6,7 @@ from __future__ import annotations
 import ctypes as C
 import sys
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import il2cpp_probe as P
 import il2cpp_dump as D
 

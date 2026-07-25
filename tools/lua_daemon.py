@@ -24,7 +24,7 @@ import socket
 import sys
 import threading
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import lua_client  # HOST/PORT only — lightweight
 from lua_eval import LuaEval
 

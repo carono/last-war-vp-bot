@@ -28,7 +28,7 @@ import sys
 import time
 from ctypes import wintypes
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import il2cpp_probe as P  # module_base, parse_exports, rpm, VM helpers, handles
 
 k32 = C.WinDLL("kernel32", use_last_error=True)

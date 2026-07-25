@@ -44,7 +44,9 @@ import base64
 import html
 import json
 import os
+import sys
 
+sys.path.insert(0, "tools/lib")
 import hero_icons_map as hero_map
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

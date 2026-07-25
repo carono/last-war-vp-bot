@@ -27,6 +27,7 @@ import threading
 import time
 from collections import Counter, deque
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402

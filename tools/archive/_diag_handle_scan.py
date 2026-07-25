@@ -5,6 +5,7 @@ Run:
 """
 import sys, os, time, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(__file__))
 
 import steal_via_socket as steal

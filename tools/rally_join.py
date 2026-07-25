@@ -56,7 +56,7 @@ import argparse
 import sys
 import time
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 # Rally target type for joining an existing alliance rally (confirmed via lua_trace).

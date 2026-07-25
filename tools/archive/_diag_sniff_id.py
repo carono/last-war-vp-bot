@@ -11,6 +11,7 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
+    sys.path.insert(0, "tools/lib")
     sys.path.insert(0, str(TOOLS))
 
 GAME_PORT = 17935

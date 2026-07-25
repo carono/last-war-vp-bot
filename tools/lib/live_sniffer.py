@@ -36,6 +36,7 @@ import time
 from collections import Counter
 from datetime import datetime
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402  (path must be set first)

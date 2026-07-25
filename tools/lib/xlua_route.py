@@ -20,7 +20,7 @@ import ctypes as C
 import struct
 import sys
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import il2cpp_probe as P
 import il2cpp_dump as D
 import hijack_call as H

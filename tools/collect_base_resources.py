@@ -141,7 +141,7 @@ def find_collect_bubbles(img, debug_out=None):
 
 def run_inject(command, req_id, label, extra_args=()):
     """Run steal_via_socket.py and stream output until ws2.send or error."""
-    cmd = [WIN_PYTHON, os.path.join(TOOLS, 'steal_via_socket.py'),
+    cmd = [WIN_PYTHON, os.path.join(TOOLS, 'lib', 'steal_via_socket.py'),
            '--sniff-and-inject', '--force',
            '--command', command,
            '--server-id', '935',

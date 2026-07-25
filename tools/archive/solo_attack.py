@@ -18,7 +18,7 @@ Prints the pid/uuid/serverId it used — reuse them with solo_attack_direct.py (
     C:\Python312\python.exe tools\solo_attack.py
 """
 import sys, time
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 DEFAULT_FORMATION = "1156814234542394473"

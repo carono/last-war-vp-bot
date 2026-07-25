@@ -43,7 +43,7 @@ import struct
 import sys
 import time
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import il2cpp_probe as P
 import hijack_call as H
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 import time
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_eval import LuaEval
 import win32gui
 import win32process

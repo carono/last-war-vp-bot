@@ -25,7 +25,7 @@ Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServ
     C:\Python312\python.exe tools\cross_server.py --home        # return to the home server
 """
 import sys, time
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 HOME_SERVER = "935"

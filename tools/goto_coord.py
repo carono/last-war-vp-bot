@@ -15,7 +15,7 @@ jump; GotoPos is the one the magnifier's coordinate search actually uses.)
     C:\Python312\python.exe tools\goto_coord.py 650 480 935
 """
 import sys, time
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 

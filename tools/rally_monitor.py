@@ -56,6 +56,7 @@ import signal
 import sys
 import time
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import coords  # noqa: E402  (canonical @[X,Y|server] token — clickable in the panel log)

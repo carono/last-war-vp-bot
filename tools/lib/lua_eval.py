@@ -16,7 +16,7 @@ import os
 import sys
 import time
 
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import xlua_route as XR
 import il2cpp_probe as P
 

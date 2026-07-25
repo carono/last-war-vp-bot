@@ -22,6 +22,7 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 VOCAB = Path(__file__).resolve().parent / "known_commands.txt"

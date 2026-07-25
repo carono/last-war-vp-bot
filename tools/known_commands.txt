@@ -83,6 +83,7 @@ down get.kingdom.present.info
 down get.mine.cave.record
 down get.new.user.info
 down get.notice.list
+down get.other.server.info
 down get.parkour.activity.info
 down get.parkour.alliance.battlepass
 down get.player.cross.server.list
@@ -95,6 +96,8 @@ down get.world.news.info
 down get.zone.mobilization.info
 down ghost.recon.get.alliance.task.list
 down ghost.recon.get.task.list
+down ghost.recon.leave.message
+down ghost.recon.steal
 down go.to.world
 down hero.dispatch.alliance.list
 down hero.dispatch.list
@@ -117,15 +120,19 @@ down lw.season.rq.info
 down lw.user.push.chat.msg
 down lw.worldTip.get
 down meteorite.enter.world
+down monster.invasion.boss.detail
 down new.get.info
 down news.center.init
+down open.red.packet
 down parkour.accept.invite
 down plane.feature.user.info
 down player.pay.tag.info
 down push.al.help.new
 down push.al.help.update
 down push.al.sign
+down push.al.zombieRushPoint.change
 down push.all.notice
+down push.alliance.march.create
 down push.alliance.march.refresh
 down push.alliance.march.remove
 down push.alliance.reward.new
@@ -133,6 +140,7 @@ down push.alliance.share.mission.add
 down push.chat.get.system.mails
 down push.exchange.info
 down push.formation.preset
+down push.ghost.recon.alliance.single
 down push.hero.dispatch.mission.steal
 down push.item.use
 down push.lw.alliance.alert.info.remove
@@ -142,6 +150,7 @@ down push.off.season.skip.cd
 down push.refresh.hero.lottery
 down push.refresh.hero.switch
 down push.resource.item.update
+down push.running.boss.del
 down push.science.group
 down push.setting
 down push.utc.time
@@ -186,6 +195,7 @@ down world.get.alliance.city.detail
 down world.get.alliance.city.effect
 down world.get.block
 down world.get.city.stronghold.effect
+down world.get.detail.new
 down world.get.march.infos
 down world.trends.event.activity
 down zombie.rush.act.info
@@ -272,6 +282,7 @@ up get.kingdom.present.info
 up get.mine.cave.record
 up get.new.user.info
 up get.notice.list
+up get.other.server.info
 up get.parkour.activity.info
 up get.parkour.alliance.battlepass
 up get.player.cross.server.list
@@ -284,6 +295,8 @@ up get.world.news.info
 up get.zone.mobilization.info
 up ghost.recon.get.alliance.task.list
 up ghost.recon.get.task.list
+up ghost.recon.leave.message
+up ghost.recon.steal
 up gm.gain.item
 up go.to.world
 up hero.dispatch.alliance.list
@@ -307,8 +320,10 @@ up lw.season.rq.info
 up lw.user.push.chat.msg
 up lw.worldTip.get
 up meteorite.enter.world
+up monster.invasion.boss.detail
 up new.get.info
 up news.center.init
+up open.red.packet
 up parkour.accept.invite
 up plane.feature.user.info
 up player.pay.tag.info

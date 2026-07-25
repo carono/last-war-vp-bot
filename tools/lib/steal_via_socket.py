@@ -72,6 +72,7 @@ import sys
 from ctypes import wintypes
 from pathlib import Path
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 GAME_PORT = 17935

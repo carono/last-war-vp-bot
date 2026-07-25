@@ -16,6 +16,9 @@ This module imports NOTHING heavy (no il2cpp deps) — safe to import anywhere. 
 from __future__ import annotations
 import json
 import socket
+import sys
+
+sys.path.insert(0, "tools/lib")
 
 HOST = "127.0.0.1"
 PORT = 47654

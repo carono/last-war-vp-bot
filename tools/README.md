@@ -12,6 +12,26 @@ Background and the go/no-go reasoning live in
 > Android emulator build with a throwaway account**, never on the official
 > client or Carono's main account (server #972).
 
+## Layout
+
+The directory is split by role. **Run every script from the repo root** (paths like
+`tools/rally_join.py` and the `tools/lib` import path are resolved relative to the CWD).
+
+- **`tools/`** — production bot entrypoints (the scripts you actually run): rally control
+  (`rally_join.py`, `rally_monitor.py`, `rally_report.py`, `watch_rally.py`), the live Lua
+  tracer/daemon (`lua_trace.py`, `lua_daemon.py`), captures (`secret_task_capture.py`,
+  `secret_mission_capture.py`), world actions (`cross_server.py`, `goto_coord.py`,
+  `city_click.py`, `solo_attack_direct.py`, `ghost_recon_tile_dump.py`,
+  `collect_base_resources.py`, `gather*.py`), scanners (`scan_*.py`), `extract_hero_icons.py`.
+- **`tools/lib/`** — shared modules imported by the entrypoints (not run directly): the Lua/
+  il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
+  `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
+  capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
+  `lastwar_encode`), and helpers (`coords`, `hero_icons_map`, `steal_via_socket`).
+- **`tools/archive/`** — superseded approaches, one-offs, tests, old probes. Kept for
+  reference; not part of the bot.
+- **`tools/scratch/`** — throwaway RE probes (git-ignored).
+
 ## Which side runs what
 
 | Script | Side | Purpose |
@@ -30,6 +50,7 @@ Background and the go/no-go reasoning live in
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks (raidable map tiles) live via scapy/npcap, no Wireshark binaries spawned |
 | `secret_mission_capture.py` | **Windows** (Python) | stream **secret missions** — "Операция Призрак" / ghost recon (`ghost.recon.*`) live via scapy/npcap, no Wireshark binaries spawned; `--discover` catches a new command family when the seasonal feature shifts |
+| `ghost_recon_tile_dump.py` | **Windows** (Python) | dump **every** `world.get.block` tile of **every** `f2` kind (no filter), learn active ghost-recon missions off the same connection, and cross-reference the two by uuid and by coordinate — the test of whether a ghost-recon mission shows up as a map tile at all (task #1010) |
 | `scan_players.py` | **Windows** (Python) | sweep player bases (name / HQ level / alliance) off the map into JSON |
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |

@@ -9,7 +9,7 @@ and logs state again. Read output markers from the Unity Player.log.
 """
 from __future__ import annotations
 import sys, time, ctypes as C
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 import xlua_route as XR
 import il2cpp_dump as D
 import il2cpp_probe as P

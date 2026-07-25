@@ -42,3 +42,8 @@ results/
 *.pcap
 *.pcapng
 sslkeys.log
+
+# extracted game art (see tools/extract_hero_icons.py) → results/hero_icons/ (results/ above already covers it).
+
+# tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
+tools/scratch/

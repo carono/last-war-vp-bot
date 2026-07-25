@@ -63,6 +63,7 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import lastwar_proto as proto  # noqa: E402

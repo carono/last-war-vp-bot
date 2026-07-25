@@ -17,7 +17,7 @@ The uuid must still resolve to a monster that exists on the server (same monster
     C:\Python312\python.exe tools\solo_attack_direct.py 507564 1397117506875008800 935
 """
 import sys, time
-sys.path.insert(0, "tools")
+sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 
 DEFAULT_FORMATION = "1156814234542394473"
