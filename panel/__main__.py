@@ -96,7 +96,16 @@ class Panel(tk.Tk):
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
-        top = ttk.Frame(self, padding=8)
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True)
+        main = ttk.Frame(nb)
+        scenarios = ttk.Frame(nb)
+        nb.add(main, text="Основные")
+        nb.add(scenarios, text="Сценарии")
+        ttk.Label(scenarios, text="Сценарии — скоро", foreground="#888",
+                  padding=20).pack(expand=True)
+
+        top = ttk.Frame(main, padding=8)
         top.pack(fill="x")
         ttk.Label(top, text="Игра:").pack(side="left")
         self._status_var = tk.StringVar(value="проверяю…")
@@ -108,7 +117,7 @@ class Panel(tk.Tk):
         self._daemon_lbl.pack(side="left", padx=6)
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
 
-        game = ttk.LabelFrame(self, text="Игра", padding=8)
+        game = ttk.LabelFrame(main, text="Игра", padding=8)
         game.pack(fill="x", padx=8, pady=(0, 6))
         ttk.Button(game, text="▶  Запустить игру",
                    command=self._launch_game).pack(side="left", padx=4, ipady=3)
@@ -116,7 +125,7 @@ class Panel(tk.Tk):
                    command=self._restart_game).pack(side="left", padx=4, ipady=3)
         ttk.Label(game, text="LastWarLauncher.exe", foreground="#888").pack(side="left", padx=10)
 
-        nav = ttk.LabelFrame(self, text="Навигация", padding=8)
+        nav = ttk.LabelFrame(main, text="Навигация", padding=8)
         nav.pack(fill="x", padx=8, pady=(0, 6))
 
         scene = ttk.LabelFrame(nav, text="Сцена", padding=6)
@@ -144,7 +153,7 @@ class Panel(tk.Tk):
         ttk.Button(coord, text="Перейти", command=self._goto_coord).pack(side="left", padx=4, ipady=2)
         ttk.Button(coord, text="↻ сервер", command=self._load_current_server).pack(side="left", padx=4)
 
-        sec = ttk.LabelFrame(self, text="Секретные задания", padding=8)
+        sec = ttk.LabelFrame(main, text="Секретные задания", padding=8)
         sec.pack(fill="x", padx=8, pady=(0, 6))
         row1 = ttk.Frame(sec)
         row1.pack(fill="x")
@@ -171,7 +180,7 @@ class Panel(tk.Tk):
         self._lvl_to_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
 
-        rally = ttk.LabelFrame(self, text="Ралли", padding=8)
+        rally = ttk.LabelFrame(main, text="Ралли", padding=8)
         rally.pack(fill="x", padx=8, pady=(0, 6))
         self._rally_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(rally, text="Монитор ралли", variable=self._rally_var,
@@ -179,7 +188,7 @@ class Panel(tk.Tk):
         ttk.Label(rally, text=f"push.alliance.march.* → лог + {RALLY_OUT_REL}",
                   foreground="#888").pack(side="left", padx=10)
 
-        logframe = ttk.LabelFrame(self, text="Лог (координаты кликабельны)", padding=4)
+        logframe = ttk.LabelFrame(main, text="Лог (координаты кликабельны)", padding=4)
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9), state="disabled",
