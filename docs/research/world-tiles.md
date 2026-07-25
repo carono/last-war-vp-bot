@@ -127,3 +127,52 @@ Both proven live: mine `CollectResourceWood_world(Clone)` pid=497565, uuid=0,
 (own resource node), `ATTACK_ARMY_COLLECT=10`, `ALLIANCE_RESOURCE_COLLECT=75`,
 `COLLECT_ALLIANCE_BUILD_RESOURCE=35`. Compare monsters, which need the real server-fetched uuid
 (Finding 17) — resource tiles never do.
+
+## Programmatic coordinate jump — no UI (tools/goto_coord.py)
+
+The in-game magnifier ("лупа" → enter X/Y → jump) is `UISearchCtrl:OnJumpClick(server, x, y)`, which
+internally calls **`GoToUtil.GotoPos(worldPos, zoom, time, onComplete, serverId, worldId)`**. Captured
+the exact worldPos it passes: for tile (X, Y) it is **`Vector3(X*2+1, 0, Y*2+1)`** (TileSize=2, +1 =
+tile centre) with `zoom=105`. So the coordinate jump needs no window at all:
+
+```lua
+GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1, 0, Y*2+1), 105, nil, nil, serverId, nil)
+```
+
+Verified live: `WorldScene.CurTilePos` moved exactly to (X, Y) with `UIManager` stack empty
+(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/goto_coord.py <X> <Y> [serverId]`
+wraps it. (`GoToUtil.MoveToWorldPoint(SceneUtils.TilePosToIndex(Vector2Int(X,Y)))` is an equivalent
+pid-based jump; `GotoPos` is what the magnifier's coordinate search actually uses.)
+
+**Cross-server (different `serverId`) — camera moves but world data does NOT load.** On the home
+server the jump loads the map fully (jumping to (563,508) on server 935 → 93 world clones appear:
+bases/mines). Passing a foreign `serverId` (500, 972) moves the camera but the world stays empty
+(~17 stale clones) — the client cannot fetch another server's `world.get.block` in the normal world
+scene. None of these repopulate it: `SceneUtils.WorldSendGetALPointsRequest()` (+ its throttle reset
+`SceneUtils.ClearLastRequestALPointsTime()`), `GoToUtil.GotoServerZone(serverId, isInMoveToState)`,
+`DataCenter.WorldAllianceCityDataManager:InitAllCityDataRequest()` / `:UpdateAllCityDataRequest(type,
+serverId, seasonType)`, `GoToUtil.GoToServerPreCheck(serverId)`. So `serverId` in `GotoPos` only tags
+the request; foreign-server world viewing appears to need a real cross-server event/mode, not a call.
+The magnifier's own `OnJumpClick(server, x, y)` chain is identical for foreign servers (just
+`GotoPos → CloseSelf`), i.e. it doesn't do anything extra either. **Discipline for further probing:
+return to the home server 935 before each new hypothesis** (a foreign-server view is a stuck/empty
+state).
+
+### Why foreign-server view is empty — it is EVENT-gated
+
+Cross-server world viewing is not a free navigation feature; it is unlocked only by specific
+**events**, and each grants viewing of one *specific* target server, not an arbitrary id:
+
+- **Zone War** (`DataCenter.ZoneWarManager`) — during the battle phase you can view the enemy
+  server: `IsInBattlePhase()`, `GetBattleServer()`, `GetFightServerNow()`, `GetMyEnemyServerNow()`,
+  `GetDefenderServerId()`. Checked live: `IsInBattlePhase=false`, `GetMyEnemyServerNow=0`,
+  `GetFightServerNow=935` (=home) — **no battle active**, so no foreign server is viewable.
+- **Migration preview** (`DataCenter.ActMigrationManager`) — `SendServerStarListRequest()` /
+  `GoToView` let you preview candidate servers before migrating.
+- **Zone Mobilization** (`DataCenter.ZoneMobilizationCtrlManager:EnterWorld()`).
+
+So passing `serverId=500/972` to `GotoPos` shows an empty map because no event authorizes those
+servers — the client has no data for them and cannot request it. `GotoPos`'s `serverId` only tags the
+world request; it does not enter a cross-server context. Foreign-server viewing needs one of the
+events above to be live (and only for that event's target server). Within the home server the
+coordinate jump works fully.
