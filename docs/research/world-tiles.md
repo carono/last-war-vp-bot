@@ -208,3 +208,22 @@ The move-city-vs-clean distinction and the `SetCrossEnableList` gate were caught
 normal in-game switch: the trace showed `OnCrossServer(serverId)` + `SetCrossEnableList(table)` for
 the outbound view and `JumpToServerByServerId(homeServer, BackToSrcServer, pos)` for the return. The
 `UIMoveCity` window was then located via the `UIWindowNames` constants and `UIManager:IsWindowOpen`.
+
+### Near vs far / cross-season servers
+
+A **near, same-season** server (e.g. 972 relative to home 935) loads stable and full — ~340-390 world
+clones, `IsInOther=true`.
+
+A **very far / different-season** server (tested: server 5) is still reachable — the same recipe sets
+`IsInOther=true` and the world does populate — but with two caveats:
+
+- **One-time season-data download.** On the first entry to a server on a different season the client
+  shows a season-data-download popup (a `UIWindowNames` migration/loading window). It is transient;
+  after the data downloads the view works.
+- **Sparser, fluctuating load.** The far/cross-season world streams less predictably — clone counts
+  bounced 208 → 140 → 72 across reads rather than settling at a stable full map, and
+  `GetCrossEnableReason(serverId)` reverted to `-2` (the transient enable list re-cleared). The view
+  is usable but do not expect the same density/stability as a near same-season server.
+
+So the mechanism generalizes to arbitrary server ids; the limits are content-availability (season
+data) and load stability, not the jump itself.
