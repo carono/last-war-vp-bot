@@ -44,6 +44,64 @@ cards, honor currency, refresh timer) — `results/alliance_shop_open.png`. This
 alliance menu opened programmatically. Siblings: `GoToAllianceMemberBase`,
 `GoToNewAllianceSkill`, `GoToAllianceFurnace`.
 
+## Worked example — the Shop (`UICommonShop`): open → switch tabs → close
+
+The generic in-game **Shop** («Магазин») is `UIWindowNames.UICommonShop`. It is
+data-independent enough to open cold via `OpenWindow` (unlike the alliance *detail* panel
+below), it carries the full tab bar, and it closes via `CloseSelf`. Full flow verified live
+with screenshots (`results/shop_*.png`); driven out-of-process through the warm Lua daemon
+(`tools/lib/lua_client.get_evaluator()`), reusable script `tools/dev/ui_shop.py`.
+
+### 1. Open
+
+```lua
+UIManager.Instance:OpenWindow(UIWindowNames.UICommonShop)
+```
+
+Renders the Shop on the diamonds tab. Confirm with
+`UIManager.Instance:IsWindowOpen("UICommonShop")` → `true` and
+`UIManager.Instance:IsPanelLoadingComplete("UICommonShop")` → `true` (both true ~2 s after).
+
+### 2. Switch tabs
+
+The window object exposes the view at `w.View`. Tabs are keyed by a **shop-type** number,
+not an index:
+
+- `w.View.curShopType` — the currently shown tab (starts at `1`).
+- `w.View.shopTabTypeList` — ordered list of tab types: `{1, 2, 7, 8, 100, 200, 150, 10}`.
+- `w.View.togglesTb[<type>]` — the toggle sub-view for each type; each holds `shopType`,
+  `selecting`, the `__onvaluechanged` callback, and the real `unity_uitoggle` (a
+  `CS.UnityEngine.UI.Toggle`).
+
+Observed types → tab: `1` = Магазин бриллиантов (diamonds), `2` = VIP-магазин,
+`7` = Магазин Альянса (honor currency), `100` = star-currency shop (training/expedition).
+
+**Faithful switch — drive the real toggle** (fires the registered `onValueChanged`, which
+changes the visible content + top-bar currency and updates `curShopType`):
+
+```lua
+local w = UIManager.Instance:GetWindow("UICommonShop")
+w.View.togglesTb[7].unity_uitoggle.isOn = true   -- -> Магазин Альянса
+```
+
+`onValueChanged` runs on the **next frame**, so `curShopType` reflects the new tab only on a
+*subsequent* call — reading it in the same `SafeDoString` chunk still sees the old value
+(verified: separate-chunk reads returned `7` then `100` correctly). There is also a direct
+view method `w.View:ChangeShowType(<type>)`, but it updates `curShopType` later still (a
+server round-trip) and does **not** mark the toggle selected — prefer
+`unity_uitoggle.isOn = true` for a click-equivalent switch.
+
+### 3. Close
+
+```lua
+UIManager.Instance:GetWindow("UICommonShop").Ctrl:CloseSelf()
+```
+
+`w.Ctrl:CloseSelf()` is the base-controller close (inherited — `pairs(w.Ctrl)` only shows
+`__ctype`/`_class_type`, but `type(w.Ctrl.CloseSelf) == "function"`). After it,
+`IsWindowOpen("UICommonShop")` → `false` and the view returns to the city. Do **not** use
+`DestroyAllWindow` (kills the HUD, see [[feedback_no_destroyallwindow]]).
+
 ## Why the bare alliance *main* window fails (and how to fix it)
 
 `UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceDetail)` registers the window
