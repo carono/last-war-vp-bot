@@ -41,9 +41,15 @@ import time
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
-from . import __version__ as APP_VERSION
-from . import i18n as i18nmod
-from . import profile as profilemod
+try:
+    from . import __version__ as APP_VERSION
+    from . import i18n as i18nmod
+    from . import profile as profilemod
+except ImportError:  # run directly as a script (python panel/__main__.py)
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from panel import __version__ as APP_VERSION
+    from panel import i18n as i18nmod
+    from panel import profile as profilemod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
