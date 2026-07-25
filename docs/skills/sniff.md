@@ -6,9 +6,10 @@ format) lives in [`../research/protocol.md`](../research/protocol.md),
 [`../research/sniffing-playbook.md`](../research/sniffing-playbook.md) and
 [`../../tools/README.md`](../../tools/README.md).
 
-> **ACE rule.** Everything here is **passive capture** — transparent to the
-> anti-cheat. MITM / Frida / socket injection is not; emulator + throwaway
-> account only. This page is passive-only.
+> **ACE rule.** §1-§6 are **passive capture** — transparent to the anti-cheat.
+> MITM / Frida / socket injection is not; emulator + throwaway account only.
+> §7 (Lua-function tracing) is the **in-process, active** exception — it injects
+> Lua by thread-hijacking; same emulator + throwaway-account rule applies.
 
 ---
 
@@ -198,3 +199,71 @@ the same socket. `_id` in a payload pairs a request with its reply; server
 - Saved `.pcapng` → `python3 tools/lastwar_proto.py <file>`.
 - Command never captured → `python3 tools/trap_command.py --match <x>`, then do it by hand.
 - Active work (inject/MITM) → stop; read the ACE rule and `sniffing-playbook.md` first.
+- Need *which Lua function* an in-game action calls (not the wire) → §7.
+
+---
+
+## 7. Lua-function tracing (in-process — NOT passive wire)
+
+The wire tells you *what bytes* cross the socket. Sometimes you instead need
+*which client Lua function* fires for an in-game action, and with what arguments
+— e.g. to learn that the "switch server" button calls
+`CrossServerUtil.SetCrossEnableList(...)`. That is done by **monkey-patching**
+the Lua function live through `tools/lua_eval.py` and reading `Player.log`.
+
+> **Not passive.** `lua_eval.py` injects Lua by thread-hijacking the running
+> process (see `../research/game-launch-and-scene-control.md`). It is the
+> *active* side of the toolkit — emulator + throwaway account only, never a real
+> account. The ACE rule at the top still applies.
+
+**How it works.** Wrap the target with a shim that logs its args via
+`CS.UnityEngine.Debug.LogError(...)` (which lands in `Player.log`), keep the
+original in a global so you can restore it, perform the action in-game, then
+grep the log.
+
+**Arm** the trace (one or many functions — add `wrap(...)` lines as needed):
+```bash
+/mnt/c/Python312/python.exe tools/lua_eval.py --marker MP "
+_G.__TRACE = _G.__TRACE or {}
+local function argstr(...) local n=select('#',...) local s='' for i=1,n do s=s..i..':'..tostring(select(i,...))..' ' end return s end
+local function wrap(tbl,name,tag)
+  if not tbl or type(tbl[name])~='function' then return end
+  local key=tag..'.'..name if _G.__TRACE[key] then return end
+  local orig=tbl[name] _G.__TRACE[key]=orig
+  tbl[name]=function(...) CS.UnityEngine.Debug.LogError('TRACE '..key..' <- '..argstr(...)) return orig(...) end
+end
+wrap(CrossServerUtil,'SetCrossEnableList','CSU')
+wrap(CrossServerUtil,'OnCrossServer','CSU')
+CS.UnityEngine.Debug.LogError('MP armed')"
+```
+`argstr` uses `select('#',...)` (not `ipairs`) so a `nil` in the middle of the
+argument list is still logged. To capture a **table argument's contents** (only
+its address prints otherwise), store it and dump it in the shim:
+`_G.__CAP = arg` + a small `dump(t,depth)` walker that recurses to depth ~3 —
+this is how the `{[0]={935},[1]={972}}` shape of the enable list was recovered.
+
+**Read** the trace — the game appends to `Player.log`:
+```bash
+LOG=$(ls -t "/mnt/c/Users/"*"/AppData/LocalLow/FunFly/Last War-Survival Game/Player.log" | head -1)
+grep -aE "TRACE " "$LOG" | tail -40
+```
+
+**Restore** — always, when done. The shims live in the running Lua state until
+the game restarts; leaving them wrapped spams the log and slows hot functions:
+```bash
+/mnt/c/Python312/python.exe tools/lua_eval.py --marker UN "
+local n=0
+if _G.__TRACE then for key,orig in pairs(_G.__TRACE) do
+  local tag,name=key:match('([^.]+)%.(.+)')
+  local tbl=(tag=='CSU' and CrossServerUtil) or (tag=='GTU' and GoToUtil) or (tag=='SU' and SceneUtils)
+  if tbl then tbl[name]=orig n=n+1 end
+end _G.__TRACE=nil end
+CS.UnityEngine.Debug.LogError('UN restored='..n)"
+```
+(Extend the `tag`→table map for any other holder table you wrap.)
+
+**Workflow:** arm → perform the normal in-game action (you or the player) →
+grep `Player.log` for `TRACE` → restore. This trace is what exposed the
+cross-server `SetCrossEnableList` gate and its table shape
+(`../research/world-tiles.md`). It is an ad-hoc technique, not a committed
+script — re-arm it each session.
