@@ -80,18 +80,54 @@ CAPTURE_OPTIONS = [
 ]
 
 
-def connection_status() -> str:
+def _server_connection() -> str | None:
+    """The game-server TCP endpoint, if a connection is currently ESTABLISHED.
+
+    Purely supplementary detail. Its absence (VPN off, mid-reconnect, or the OS
+    withholding foreign-owned sockets) must NOT be read as "game not running" —
+    that is decided by :func:`game_status` from the process list alone.
+    """
+    try:
+        import psutil
+        for c in psutil.net_connections(kind="tcp"):
+            if c.raddr and c.raddr.port == GAME_PORT and c.status == "ESTABLISHED":
+                return f"{c.raddr.ip}:{c.raddr.port}"
+    except Exception:
+        return None
+    return None
+
+
+def game_status() -> tuple[bool, str]:
+    """Whether the game is running, detected by process name only.
+
+    Detection is deliberately independent of network state: the game is "found"
+    whenever its process exists, regardless of VPN presence or whether a TCP
+    connection to the game server is currently established. The connection state,
+    when available, is appended as supplementary detail.
+
+    Returns ``(running, label)``.
+    """
     try:
         import psutil
     except Exception:
-        return "psutil missing"
+        return False, "psutil missing"
+
+    pid = None
     try:
-        for c in psutil.net_connections(kind="tcp"):
-            if c.raddr and c.raddr.port == GAME_PORT and c.status == "ESTABLISHED":
-                return f"ESTABLISHED -> {c.raddr.ip}:{c.raddr.port}"
+        for proc in psutil.process_iter(["name"]):
+            if (proc.info["name"] or "").lower() == GAME_EXE.lower():
+                pid = proc.pid
+                break
     except Exception as exc:
-        return f"probe error: {exc}"
-    return "no :17935 ESTABLISHED (game offline?)"
+        return False, f"probe error: {exc}"
+
+    if pid is None:
+        return False, "game not found"
+
+    conn = _server_connection()
+    if conn:
+        return True, f"running (pid {pid}) -> {conn}"
+    return True, f"running (pid {pid})"
 
 
 class Panel(tk.Tk):
@@ -541,8 +577,7 @@ class Panel(tk.Tk):
     # -- status -------------------------------------------------------------
     def _refresh_status(self) -> None:
         def work() -> None:
-            s = connection_status()
-            ok = s.startswith("ESTABLISHED")
+            ok, s = game_status()
             warm = lua_client.is_running()
             self.after(0, lambda: (
                 self._status_var.set(s),
