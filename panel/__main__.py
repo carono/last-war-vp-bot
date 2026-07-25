@@ -13,6 +13,12 @@ Blocks:
   * Секретные задания — a checkbox that runs the passive capture (tools/secret_task_capture.py
     or secret_mission_capture.py) in the background and streams findings into the log.
 
+All panel settings (language, checkboxes, filters, coordinates, monitor state) live in a named
+*profile*; the switcher bar above the tabs creates / renames / deletes / selects one. Each profile
+is a directory under panel/profiles/<name>/ holding config.json plus its own rally_log.jsonl and
+secret_tasks_log.jsonl; the active profile is remembered in panel/settings.json (see panel/profile.py).
+Every change auto-saves, and switching a profile re-applies all of its settings.
+
 Any coordinate printed in the log — canonical `@[X,Y]` / `@[X,Y|server]` (tools/coords.py) or a
 free-form `X:1 Y:2` / `(1,2)` / `1/2` / `координаты 1 2` — becomes a clickable link that jumps
 there.
@@ -24,6 +30,7 @@ tools/lua_eval.py; the capture needs scapy/npcap):
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import re
@@ -32,10 +39,11 @@ import sys
 import threading
 import time
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 from . import __version__ as APP_VERSION
 from . import i18n as i18nmod
+from . import profile as profilemod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -64,8 +72,6 @@ CAPTURE_OPTIONS = [
     {"key": "capture.secret_tasks", "script": "secret_task_capture.py"},
     {"key": "capture.ghost_op", "script": "secret_mission_capture.py"},
 ]
-RALLY_OUT_REL = os.path.join("results", "rally_log.jsonl")
-RALLY_OUT = os.path.join(REPO, RALLY_OUT_REL)
 
 
 def connection_status() -> str:
@@ -88,6 +94,13 @@ class Panel(tk.Tk):
         self._i18n = i18nmod.I18n()
         self._tr_widgets: list = []   # (widget, option, key, fmt) — retranslated in place
         self._tr_hooks: list = []     # callables run on every language change
+        # Profiles: the active profile's config.json drives every panel setting.
+        self._profiles = profilemod.ProfileManager()
+        self._settings = self._profiles.load()
+        self._loading = True          # suppresses auto-save while we apply settings
+        saved_lang = self._settings.get("language")
+        if saved_lang:                # profile is the source of truth for language
+            self._i18n.set_lang(saved_lang)
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
@@ -98,7 +111,11 @@ class Panel(tk.Tk):
         self._rally_proc = None
         self._client = lua_client.DaemonClient()
         self._build_menu()
+        self._build_profile_bar()
         self._build_ui()
+        self._apply_settings_to_ui()  # restore this profile's saved values
+        self._loading = False
+        self._install_autosave()      # persist every subsequent change immediately
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._refresh_status()
@@ -117,6 +134,7 @@ class Panel(tk.Tk):
     def _set_language(self, lang: str) -> None:
         if self._i18n.set_lang(lang):
             self._apply_language()
+            self._save_settings()   # language is a per-profile setting
 
     def _apply_language(self) -> None:
         self.title(self._t("app.title"))
@@ -165,6 +183,166 @@ class Panel(tk.Tk):
         ttk.Button(frm, text=self._t("about.ok"),
                    command=win.destroy).pack(anchor="e", pady=(12, 0))
         win.grab_set()
+
+    # -- profiles -----------------------------------------------------------
+    def _build_profile_bar(self) -> None:
+        """A switcher bar (create / rename / delete / select) above the tabs."""
+        bar = ttk.Frame(self, padding=(8, 6, 8, 0))
+        bar.pack(fill="x", side="top")
+        self._tr(ttk.Label(bar), "profile.label").pack(side="left")
+        self._profile_var = tk.StringVar(value=self._profiles.active)
+        self._profile_combo = ttk.Combobox(bar, textvariable=self._profile_var,
+                                            state="readonly", width=20,
+                                            values=self._profiles.list())
+        self._profile_combo.pack(side="left", padx=(6, 8))
+        self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
+        self._tr(ttk.Button(bar, command=self._create_profile),
+                 "profile.new").pack(side="left", padx=2)
+        self._tr(ttk.Button(bar, command=self._rename_profile),
+                 "profile.rename").pack(side="left", padx=2)
+        self._tr(ttk.Button(bar, command=self._delete_profile),
+                 "profile.delete").pack(side="left", padx=2)
+
+    def _refresh_profile_combo(self, select: str | None = None) -> None:
+        self._profile_combo.configure(values=self._profiles.list())
+        self._profile_var.set(select or self._profiles.active)
+
+    def _switch_profile(self, name: str | None = None) -> None:
+        name = name or self._profile_var.get()
+        if name == self._profiles.active:
+            return
+        self._save_settings()                 # flush the profile we are leaving
+        self._profiles.set_active(name)
+        self._settings = self._profiles.load()
+        self._reload_active_profile()
+        self._log_put(f"[profile] активный профиль: {name}")
+
+    def _reload_active_profile(self) -> None:
+        """Re-apply language, all UI values, and monitor state from self._settings."""
+        lang = self._settings.get("language")
+        if lang and lang != self._i18n.lang and self._i18n.set_lang(lang):
+            self._apply_language()
+        self._apply_settings_to_ui()
+        self._sync_monitors()                 # restart captures into the new profile's logs
+
+    def _create_profile(self) -> None:
+        name = simpledialog.askstring(self._t("profile.new"),
+                                      self._t("profile.prompt_name"), parent=self)
+        if not name:
+            return
+        try:
+            created = self._profiles.create(name)
+        except ValueError as exc:
+            messagebox.showerror(self._t("profile.new"), str(exc), parent=self)
+            return
+        # Seed the new profile with the current settings so it starts from a sane state.
+        self._profiles.save(self._collect_settings(), created)
+        self._refresh_profile_combo(select=created)
+        self._switch_profile(created)
+
+    def _rename_profile(self) -> None:
+        cur = self._profiles.active
+        name = simpledialog.askstring(self._t("profile.rename"),
+                                      self._t("profile.prompt_name"),
+                                      initialvalue=cur, parent=self)
+        if not name:
+            return
+        try:
+            newn = self._profiles.rename(cur, name)
+        except ValueError as exc:
+            messagebox.showerror(self._t("profile.rename"), str(exc), parent=self)
+            return
+        self._refresh_profile_combo(select=newn)
+        self._log_put(f"[profile] переименован: {cur} → {newn}")
+
+    def _delete_profile(self) -> None:
+        cur = self._profiles.active
+        if not messagebox.askyesno(self._t("profile.delete"),
+                                   self._t("profile.confirm_delete", name=cur), parent=self):
+            return
+        try:
+            now_active = self._profiles.delete(cur)
+        except ValueError as exc:
+            messagebox.showerror(self._t("profile.delete"), str(exc), parent=self)
+            return
+        self._refresh_profile_combo(select=now_active)
+        self._settings = self._profiles.load()
+        self._reload_active_profile()
+        self._log_put(f"[profile] удалён {cur}; активный → {now_active}")
+
+    # -- persistent settings ------------------------------------------------
+    def _collect_settings(self) -> dict:
+        """Snapshot every persisted panel setting into a plain dict."""
+        return {
+            "language": self._i18n.lang,
+            "coord_x": self._x_var.get(),
+            "coord_y": self._y_var.get(),
+            "coord_server": self._srv_var.get(),
+            "monitor_kind": self._mon_combo.current(),
+            "filter_star": self._star_var.get(),
+            "filter_pending": self._pending_var.get(),
+            "filter_level_from": self._lvl_from_var.get(),
+            "filter_level_to": self._lvl_to_var.get(),
+            "rally_monitor": self._rally_var.get(),
+            "secret_monitor": self._mon_var.get(),
+        }
+
+    def _apply_settings_to_ui(self) -> None:
+        """Push self._settings into the widgets without triggering auto-save."""
+        s = self._settings
+        self._loading = True
+        try:
+            self._x_var.set(s.get("coord_x", ""))
+            self._y_var.set(s.get("coord_y", ""))
+            self._srv_var.set(s.get("coord_server", DEFAULT_SERVER))
+            idx = s.get("monitor_kind", 0)
+            if isinstance(idx, int) and 0 <= idx < len(CAPTURE_OPTIONS):
+                self._mon_combo.current(idx)
+            self._star_var.set(bool(s.get("filter_star", False)))
+            self._pending_var.set(bool(s.get("filter_pending", False)))
+            self._lvl_from_var.set(s.get("filter_level_from", ""))
+            self._lvl_to_var.set(s.get("filter_level_to", ""))
+            self._rally_var.set(bool(s.get("rally_monitor", True)))
+            self._mon_var.set(bool(s.get("secret_monitor", False)))
+        finally:
+            self._loading = False
+        self._update_path_hints()
+
+    def _install_autosave(self) -> None:
+        """Persist to the active profile whenever any bound setting changes."""
+        for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
+                    self._pending_var, self._lvl_from_var, self._lvl_to_var,
+                    self._rally_var, self._mon_var):
+            var.trace_add("write", lambda *a: self._save_settings())
+        self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
+
+    def _save_settings(self) -> None:
+        if getattr(self, "_loading", False):
+            return
+        self._settings = self._collect_settings()
+        self._profiles.save(self._settings)
+
+    def _sync_monitors(self) -> None:
+        """Start/stop (restart) the rally & secret captures to match the checkboxes.
+
+        Restarting is deliberate: a running capture keeps writing to the *old* profile's
+        log, so on a profile switch we bounce it to redirect output to the new directory.
+        """
+        self._stop_rally()
+        if self._rally_var.get():
+            self._start_rally()
+        self._stop_monitor()
+        if self._mon_var.get():
+            self._start_monitor()
+
+    def _update_path_hints(self) -> None:
+        """Refresh labels that show the active profile's log path (rally hint)."""
+        if hasattr(self, "_rally_hint"):
+            try:
+                rel = os.path.relpath(self._profiles.rally_log(), REPO)
+                self._rally_hint.configure(text=self._t("rally.hint", path=rel))
+            except tk.TclError:
+                pass
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -265,8 +443,10 @@ class Panel(tk.Tk):
         self._rally_var = tk.BooleanVar(value=True)
         self._tr(ttk.Checkbutton(rally, variable=self._rally_var, command=self._toggle_rally),
                  "rally.monitor").pack(side="left")
-        self._tr(ttk.Label(rally, foreground="#888"),
-                 "rally.hint", path=RALLY_OUT_REL).pack(side="left", padx=10)
+        # Hint shows the active profile's rally log; refreshed on language/profile change.
+        self._rally_hint = ttk.Label(rally, foreground="#888")
+        self._rally_hint.pack(side="left", padx=10)
+        self._tr_hooks.append(self._update_path_hints)
 
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
@@ -313,6 +493,8 @@ class Panel(tk.Tk):
     def _startup(self) -> None:
         if self._rally_var.get():           # rally monitor is on by default
             self._start_rally()
+        if self._mon_var.get():             # secret-task monitor, if the profile had it on
+            self._start_monitor()
         self._ensure_daemon()
         self._load_current_server()
 
@@ -432,12 +614,22 @@ class Panel(tk.Tk):
                 ln = raw.rstrip()
                 if self._task_passes(ln):
                     self._log_put(f"[secret] {ln}")
+                    if "@[" in ln:      # an actual finding — record it for this profile
+                        self._append_secret(ln)
         except Exception:
             pass
         if self._mon_proc is proc:      # ended on its own, not via _stop_monitor
             self._log_put("[secret] поток мониторинга завершён")
             self._mon_proc = None
             self.after(0, lambda: self._mon_var.set(False))
+
+    def _append_secret(self, line: str) -> None:
+        """Append a secret-task finding to the active profile's log (best-effort)."""
+        try:
+            with open(self._profiles.secret_log(), "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"ts": time.time(), "line": line}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     def _stop_monitor(self) -> None:
         proc, self._mon_proc = self._mon_proc, None
@@ -458,15 +650,17 @@ class Panel(tk.Tk):
     def _start_rally(self) -> None:
         if self._rally_proc is not None:
             return
+        out = self._profiles.rally_log()   # per-profile log
+        rel = os.path.relpath(out, REPO)
         try:
-            os.makedirs(os.path.dirname(RALLY_OUT), exist_ok=True)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
         except Exception:
             pass
-        self._log_put(f"[rally] старт мониторинга ралли → {RALLY_OUT_REL}")
+        self._log_put(f"[rally] старт мониторинга ралли → {rel}")
         try:
             self._rally_proc = subprocess.Popen(
                 [WIN_PYTHON, "-u", os.path.join(TOOLS, "rally_monitor.py"),
-                 "--all-tcp", "--out", RALLY_OUT],
+                 "--all-tcp", "--out", out],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
                 creationflags=NO_WINDOW)

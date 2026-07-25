@@ -34,6 +34,7 @@ screenshots/
 models_cache/
 *.log
 profiles/
+panel/settings.json
 
 # Local artefacts: captures (may hold session tokens), decoded transcripts,
 # benchmark output — never source, kept on disk but out of git.

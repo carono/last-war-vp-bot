@@ -59,5 +59,12 @@
   "rally.monitor": "Монитор ралли",
   "rally.hint": "push.alliance.march.* → лог + {path}",
 
-  "log.frame": "Лог (координаты кликабельны)"
+  "log.frame": "Лог (координаты кликабельны)",
+
+  "profile.label": "Профиль:",
+  "profile.new": "Создать",
+  "profile.rename": "Переименовать",
+  "profile.delete": "Удалить",
+  "profile.prompt_name": "Имя профиля:",
+  "profile.confirm_delete": "Удалить профиль «{name}»?"
 }

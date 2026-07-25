@@ -59,5 +59,12 @@
   "rally.monitor": "Rally monitor",
   "rally.hint": "push.alliance.march.* → log + {path}",
 
-  "log.frame": "Log (coordinates are clickable)"
+  "log.frame": "Log (coordinates are clickable)",
+
+  "profile.label": "Profile:",
+  "profile.new": "New",
+  "profile.rename": "Rename",
+  "profile.delete": "Delete",
+  "profile.prompt_name": "Profile name:",
+  "profile.confirm_delete": "Delete profile \"{name}\"?"
 }
