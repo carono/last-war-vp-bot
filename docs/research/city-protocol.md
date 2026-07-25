@@ -20,7 +20,7 @@ This is a companion to `protocol.md` (framing/transport) and
 1. Game already running and logged in (pid 35688), scene = **World**.
 2. Started a passive sniffer, then switched to City *during* the capture, then waited
    for the client to settle. Two capture passes:
-   - **Pass A** — `tools/dev/secret_task_capture.py --seconds 60 --dump results/city_capture.jsonl`
+   - **Pass A** — `tools/secret_task_capture.py --seconds 60 --dump results/city_capture.jsonl`
      (scapy/npcap, `--dump` = full decoded transcript, both directions) while firing
      `tools/lua_goto_world.py --to-city` (World→City).
    - **Pass B** — `dumpcap.exe -i 1 -i 2 -i 13 -f "tcp port 17935" -a duration:50 -w

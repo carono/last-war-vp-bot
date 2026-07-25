@@ -2,7 +2,7 @@
 
 Goal: enumerate world-map tile kinds (`world.get.block` `f2`) beyond the known
 `6/7/17/29`, and find the monster tiles. Method (strict): passive sniff first
-(`tools/dev/secret_task_capture.py --seconds N --dump`), then `SceneUtils.ChangeToWorld()`
+(`tools/secret_task_capture.py --seconds N --dump`), then `SceneUtils.ChangeToWorld()`
 via `tools/lua_goto_world.py`, then pan the map with `pydirectinput` drags to force new
 `world.get.block` fetches. Three captures (120 s + 90 s wide sweep + 70 s over a
 monster-containing view), 242 tiles total.
@@ -128,7 +128,7 @@ Both proven live: mine `CollectResourceWood_world(Clone)` pid=497565, uuid=0,
 `COLLECT_ALLIANCE_BUILD_RESOURCE=35`. Compare monsters, which need the real server-fetched uuid
 (Finding 17) — resource tiles never do.
 
-## Programmatic coordinate jump — no UI (tools/dev/goto_coord.py)
+## Programmatic coordinate jump — no UI (tools/goto_coord.py)
 
 The in-game magnifier ("лупа" → enter X/Y → jump) is `UISearchCtrl:OnJumpClick(server, x, y)`, which
 internally calls **`GoToUtil.GotoPos(worldPos, zoom, time, onComplete, serverId, worldId)`**. Captured
@@ -140,7 +140,7 @@ GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1, 0, Y*2+1), 105, nil, nil, serverI
 ```
 
 Verified live: `WorldScene.CurTilePos` moved exactly to (X, Y) with `UIManager` stack empty
-(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/dev/goto_coord.py <X> <Y> [serverId]`
+(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/goto_coord.py <X> <Y> [serverId]`
 wraps it. (`GoToUtil.MoveToWorldPoint(SceneUtils.TilePosToIndex(Vector2Int(X,Y)))` is an equivalent
 pid-based jump; `GotoPos` is what the magnifier's coordinate search actually uses.)
 

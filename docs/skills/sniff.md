@@ -42,9 +42,9 @@ scapy** — no Wireshark, nothing spawned. Every tool takes `--list-ifaces`,
 
 ### `secret_task_capture.py` — secret tasks (map tiles `f2 = 17`)
 ```bash
-/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py                  # stream, print
-/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py --seconds 300 --json out.json
-/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py --level 7 --can-loot
+/mnt/c/Python312/python.exe tools/secret_task_capture.py                  # stream, print
+/mnt/c/Python312/python.exe tools/secret_task_capture.py --seconds 300 --json out.json
+/mnt/c/Python312/python.exe tools/secret_task_capture.py --level 7 --can-loot
 ```
 
 ### `secret_mission_capture.py` — ghost-recon missions (tiles `f2 = 29`)
@@ -71,7 +71,7 @@ listens on the `push.alliance.march.*` push stream instead of `world.get.block`,
 so **no map panning is needed** — a rally arrives the moment it is launched or
 refreshed.
 ```bash
-/mnt/c/Python312/python.exe tools/dev/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
+/mnt/c/Python312/python.exe tools/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
 ```
 
 **Map tiles need the map moving.** Secret tasks, missions and ghost tiles ride

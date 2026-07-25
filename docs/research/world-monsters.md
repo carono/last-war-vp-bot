@@ -13,7 +13,7 @@ physical interfaces), then `taskkill /F /IM LastWar.exe` + relaunch, wait for au
 (~120 s, lands in **City**), then the **first `SceneUtils.ChangeToWorld()` since the cold
 login** (`tools/lua_goto_world.py`) — the client has no cached world data yet, so this is
 the genuine world cold-load. Decoded offline with `tools/lastwar_proto.py`. Also a warm
-`ChangeToWorld` sniff (`tools/dev/secret_task_capture.py --dump`) for comparison.
+`ChangeToWorld` sniff (`tools/secret_task_capture.py --dump`) for comparison.
 
 ## Finding 1 — nothing monster-shaped loads at world entry
 

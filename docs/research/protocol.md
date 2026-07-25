@@ -347,7 +347,7 @@ back in a single reply — a list of dicts, one per player, each carrying at
 least a `uid` and a `name`. No paging was seen: `al.rank` returned all 99
 members and `champion.duel.result.show.rank.list` all 32 duellists in one
 frame. Nothing pushes a board; it crosses the wire only when the screen is
-opened, which is why `tools/dev/scan_leaderboard.py` cannot make one arrive.
+opened, which is why `tools/scan_leaderboard.py` cannot make one arrive.
 
 | Command | Request | List | Per entry |
 |---|---|---|---|
@@ -736,7 +736,7 @@ while the reply's is a list of objects, so a decoder must not assume either.
 Where a player appeared as both a map tile and a profile (59 uids), the two
 sources agreed **59/59** on level, server, name, `allianceId` and
 `allianceAbbrName` — so a profile merges onto a tile's record by
-`(serverId, uid)` with neither contradicting the other. `tools/dev/scan_players.py`
+`(serverId, uid)` with neither contradicting the other. `tools/scan_players.py`
 does exactly this.
 
 ### Player notes (`user.remark.list`)
@@ -773,7 +773,7 @@ capture was last edited 17 hours before it started, and no client frame in it
 mentions one. To find it, run a scan with `--dump` while setting a note and
 grep the transcript for up-frames.
 
-`tools/dev/scan_players.py` merges these into its records as `remark`, keyed by
+`tools/scan_players.py` merges these into its records as `remark`, keyed by
 `targetUid`. Because the list only arrives at login, the scan has to be
 started **before** logging in.
 

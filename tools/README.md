@@ -18,8 +18,10 @@ The directory is split by role. **Run every script from the repo root** (paths l
 `tools/rally_join.py` and the `tools/lib` import path are resolved relative to the CWD).
 
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
-  `rally_join.py` (rally listen/join/decline + squad select), `lua_trace.py` (live Lua
-  tracer), `lua_daemon.py` (the warm Lua evaluator behind them) and
+  `rally_join.py` (rally listen/join/decline + squad select), `rally_monitor.py` (live
+  rally capture), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
+  evaluator behind them), `goto_coord.py` (jump to a tile), `secret_task_capture.py`
+  (find secret tasks), `scan_leaderboard.py`, `scan_players.py` and
   `extract_hero_icons.py` (pull hero-icon sprites from the bundles).
 - **`tools/lib/`** — shared modules imported by the entrypoints (not run directly): the Lua/
   il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
@@ -27,11 +29,10 @@ The directory is split by role. **Run every script from the repo root** (paths l
   capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
   `lastwar_encode`), and helpers (`coords`, `hero_icons_map`, `steal_via_socket`).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
-  (`secret_task_capture.py`, `secret_mission_capture.py`, `rally_monitor.py`,
-  `watch_rally.py`, `rally_report.py`), world actions (`cross_server.py`, `goto_coord.py`,
-  `city_click.py`, `solo_attack_direct.py`, `ghost_recon_tile_dump.py`,
-  `collect_base_resources.py`, `gather*.py`) and scanners (`scan_*.py`).
-  Promote to `tools/` once verified live.
+  (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
+  (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
+  `ghost_recon_tile_dump.py`, `collect_base_resources.py`, `gather*.py`) and scanners
+  (`scan_resources.py`, `scan_trucks.py`). Promote to `tools/` once verified live.
 - **`tools/archive/`** — superseded approaches, one-offs, tests, old probes. Kept for
   reference; not part of the bot.
 - **`tools/scratch/`** — throwaway RE probes (git-ignored).
