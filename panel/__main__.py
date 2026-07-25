@@ -58,6 +58,8 @@ CAPTURE_SCRIPTS = {
     "Секретные задания": "secret_task_capture.py",
     "Операция Призрак": "secret_mission_capture.py",
 }
+RALLY_OUT_REL = os.path.join("results", "rally_log.jsonl")
+RALLY_OUT = os.path.join(REPO, RALLY_OUT_REL)
 
 
 def connection_status() -> str:
@@ -84,6 +86,7 @@ class Panel(tk.Tk):
         self._busy = False
         self._coord_seq = 0
         self._mon_proc = None
+        self._rally_proc = None
         self._client = lua_client.DaemonClient()
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -152,6 +155,14 @@ class Panel(tk.Tk):
         ttk.Label(sec, text="пассивный сниф — панорамируй карту, чтобы шли тайлы",
                   foreground="#888").pack(side="left", padx=10)
 
+        rally = ttk.LabelFrame(self, text="Ралли", padding=8)
+        rally.pack(fill="x", padx=8, pady=(0, 6))
+        self._rally_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(rally, text="Монитор ралли", variable=self._rally_var,
+                        command=self._toggle_rally).pack(side="left")
+        ttk.Label(rally, text=f"push.alliance.march.* → лог + {RALLY_OUT_REL}",
+                  foreground="#888").pack(side="left", padx=10)
+
         logframe = ttk.LabelFrame(self, text="Лог (координаты кликабельны)", padding=4)
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
@@ -195,6 +206,8 @@ class Panel(tk.Tk):
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
+        if self._rally_var.get():           # rally monitor is on by default
+            self._start_rally()
         self._ensure_daemon()
         self._load_current_server()
 
@@ -296,6 +309,55 @@ class Panel(tk.Tk):
         proc, self._mon_proc = self._mon_proc, None
         if proc is not None:
             self._log_put("[secret] стоп мониторинга")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    # -- rally monitoring ---------------------------------------------------
+    def _toggle_rally(self) -> None:
+        if self._rally_var.get():
+            self._start_rally()
+        else:
+            self._stop_rally()
+
+    def _start_rally(self) -> None:
+        if self._rally_proc is not None:
+            return
+        try:
+            os.makedirs(os.path.dirname(RALLY_OUT), exist_ok=True)
+        except Exception:
+            pass
+        self._log_put(f"[rally] старт мониторинга ралли → {RALLY_OUT_REL}")
+        try:
+            self._rally_proc = subprocess.Popen(
+                [WIN_PYTHON, "-u", os.path.join(TOOLS, "rally_monitor.py"),
+                 "--all-tcp", "--out", RALLY_OUT],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
+                creationflags=NO_WINDOW)
+        except Exception as exc:
+            self._log_put(f"[rally] ошибка запуска: {exc}")
+            self._rally_proc = None
+            self._rally_var.set(False)
+            return
+        threading.Thread(target=self._rally_reader, args=(self._rally_proc,), daemon=True).start()
+
+    def _rally_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[rally] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._rally_proc is proc:      # ended on its own, not via _stop_rally
+            self._log_put("[rally] поток мониторинга завершён")
+            self._rally_proc = None
+            self.after(0, lambda: self._rally_var.set(False))
+
+    def _stop_rally(self) -> None:
+        proc, self._rally_proc = self._rally_proc, None
+        if proc is not None:
+            self._log_put("[rally] стоп мониторинга")
             try:
                 proc.terminate()
             except Exception:
@@ -404,6 +466,7 @@ class Panel(tk.Tk):
 
     def _on_close(self) -> None:
         self._stop_monitor()
+        self._stop_rally()
         self.destroy()
 
 
