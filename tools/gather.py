@@ -1,16 +1,19 @@
-r"""No-click resource GATHER march — send troops to the nearest mine, zero UI touch.
+r"""No-click resource GATHER march — MODE 1 (OnClick): find a mine, read pid via its popup, send.
 
-Same main-thread-timer mechanism as tools/solo_attack.py (docs/research/world-tiles.md), but for
-resource nodes. Resource tiles ("mines": CollectResourceWood_world / CollectResourceStone_world
-clones) have **uuid=0** — they are identified by pointId alone, so NO OnClick/popup is needed at
-all: read the pid straight from the clone's world position and send.
+Mirrors tools/solo_attack.py but for resource tiles ("mines": CollectResourceWood_world /
+CollectResourceStone_world clones). Resource tiles have **uuid=0** (identified by pointId alone),
+so unlike monsters no server uuid-fetch is required — but this MODE still uses the map-tap popup to
+read the pid, then closes it cleanly and sends:
 
-  MarchUtil.SendCreateMarchMessage(formationUuid, MarchTargetType.COLLECT, pid, 0, 1, 1, false, serverId, nil)
-  -- COLLECT = 2 ; targetUuid = 0 (resource tile) ; scheduled on the MAIN THREAD via
-  --    TimerManager:GetInstance():DelayInvoke(fn, 0.5)  (a hijack-thread send is dropped by the server)
+  1. find a CollectResource*_world(Clone) via its TouchObjectEventTrigger
+  2. trig:OnClick()          -- opens UIWorldPoint for the mine
+  3. read pid / serverId from the popup Ctrl (uuid is 0 for a resource tile)
+  4. Ctrl:CloseSelf()        -- close ONLY the popup. NEVER UIManager:DestroyAllWindow() (kills the HUD)
+  5. TimerManager:GetInstance():DelayInvoke(fn, 0.5)   -- send on the MAIN THREAD
+  6. MarchUtil.SendCreateMarchMessage(formationUuid, COLLECT, pid, 0, 1, 1, false, serverId, nil)
 
-Verified live: IsHaveMarchInWorld() false->true, GetOwnerMarches() 0->1, HUD untouched.
-Run in World with a mine in view (pan with GoToUtil.MoveToWorldPoint if needed).
+Verified live: IsHaveMarchInWorld() false->true, GetOwnerMarches() 0->1, HUD intact.
+For a fully-no-click variant (no OnClick, pid read from the clone position) use gather_direct.py.
 
     C:\Python312\python.exe tools\gather.py
 """
@@ -49,23 +52,37 @@ def main():
 
     print("baseline:", march_state(), flush=True)
 
-    # find the nearest mine clone; read pid straight from its world position (NO OnClick)
-    d = one(run(r'''local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
-local mine=nil
-for i=0,arr.Length-1 do local mb=arr[i] if mb then local ok,go=pcall(function() return mb.gameObject end)
-  if ok and go and string.find(go.name,'CollectResource') and string.find(go.name,'Clone') then mine=go break end end end
-if not mine then CS.UnityEngine.Debug.LogError("M NO_MINE") return end
-local pid=SceneUtils.WorldToTileIndex(mine.transform.position)
-local srv=935 pcall(function() srv=DataCenter.WorldMarchDataManager.serverId or 935 end)
-CS.UnityEngine.Debug.LogError("M mine="..mine.name.." pid="..tostring(pid).." srv="..tostring(srv))''', "M", 1.4), "M ")
+    # 1) find a mine clone + OnClick (opens UIWorldPoint)
+    clicked = one(run(r'''_G.TRIG=nil _G.CN=nil
+local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
+for i=0,arr.Length-1 do local mb=arr[i] if mb and mb:GetType().Name=='TouchObjectEventTrigger' then
+  local ok,go=pcall(function() return mb.gameObject end)
+  if ok and go then local p=go while p and not string.find(p.name,'CollectResource') and p.transform.parent do p=p.transform.parent.gameObject end
+    if p and string.find(p.name,'CollectResource') and string.find(p.name,'Clone') then _G.TRIG=mb _G.CN=p.name break end end end end
+if _G.TRIG then pcall(function() _G.TRIG:OnClick() end) CS.UnityEngine.Debug.LogError("SEL mine="..tostring(_G.CN)) else CS.UnityEngine.Debug.LogError("SEL NO_MINE") end''', "SEL", 1.2), "SEL ")
+    print(clicked, flush=True)
+    if "NO_MINE" in clicked:
+        print("no mine with a trigger in view (pan the camera first)", flush=True)
+        ev.close(); return
+    time.sleep(2.0)
+
+    # 2) read pid/serverId from the popup Ctrl (uuid=0 for a resource tile)
+    d = one(run(r'''local w=UIManager.Instance:GetStackTopWindow() local c=w and w.Ctrl
+if not c then CS.UnityEngine.Debug.LogError("P no-popup top="..tostring(w and w.Name)) return end
+CS.UnityEngine.Debug.LogError("P pid="..tostring(c.pointId).." uuid="..tostring(c.uuid).." srv="..tostring(c.serverId))''', "P", 1.4), "P ")
     print(d, flush=True)
-    if "NO_MINE" in d:
-        print("no mine in view (pan the camera first)", flush=True); ev.close(); return
+    if "pid=nil" in d or "no-popup" in d:
+        print("popup did not open", flush=True); ev.close(); return
     pid = d.split("pid=")[1].split()[0]
     srv = d.split("srv=")[1].split()[0]
     srv = srv if srv not in ("nil", "") else "935"
 
-    # main-thread send (uuid=0 for a resource tile), no UI touch at all
+    # 3) close ONLY the popup (keep the HUD)
+    run(r'''local w=UIManager.Instance:GetStackTopWindow() local c=w and w.Ctrl
+if c and c.CloseSelf then pcall(function() c:CloseSelf() end) end
+CS.UnityEngine.Debug.LogError("CLOSED stack="..tostring(UIManager.Instance:GetStackWindowCount()))''', "CLOSED", 1.2)
+
+    # 4) main-thread send (uuid=0 for a resource tile)
     run((r'''TimerManager:GetInstance():DelayInvoke(function()
   local ok,err=pcall(function() MarchUtil.SendCreateMarchMessage(%s, %s, %s, 0, 1, 1, false, %s, nil) end)
   CS.UnityEngine.Debug.LogError("SEND ok="..tostring(ok).." err="..tostring(err))

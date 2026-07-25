@@ -95,15 +95,22 @@ read it live from the managers above.
 - `results/world_tiles_capture.jsonl`, `world_tiles_capture2.jsonl`, `world_monsters3.jsonl` — the three decoded captures.
 - `results/world_view.png` — world map screenshot showing the lvl-19/22 roaming monsters absent from the block tiles.
 
-## Sending a GATHER march to a mine — no-click (tools/gather.py)
+## Sending a GATHER march to a mine — no-click (tools/gather.py, gather_direct.py)
 
 Same main-thread-timer mechanism as the solo monster attack (docs/research/world-monsters.md
 Finding 17), but for resource tiles ("mines"). Confirmed live: `IsHaveMarchInWorld()` false→true,
 `GetOwnerMarches()` 0→1, HUD untouched.
 
 Mines render as **`CollectResourceWood_world(Clone)` / `CollectResourceStone_world(Clone)`**. Unlike
-monsters, a resource tile has **`uuid=0`** — it is identified by `pointId` alone, so **no OnClick /
-popup is needed at all**: read the pid straight from the clone's world position and send.
+monsters, a resource tile has **`uuid=0`** — it is identified by `pointId` alone. The march type is
+**`MarchTargetType.COLLECT` (2)**. Two scripts, mirroring the monster pair:
+
+- **`tools/gather.py`** — MODE 1 (OnClick): find a `CollectResource*_world(Clone)` via its
+  `TouchObjectEventTrigger` → `trig:OnClick()` → read `pid` from the popup `Ctrl` (its `uuid` is 0) →
+  **`Ctrl:CloseSelf()`** (close ONLY the popup; NEVER `UIManager:DestroyAllWindow()`, which kills the
+  HUD) → main-thread send.
+- **`tools/gather_direct.py`** — MODE 2 (fully no-click): resource tiles need no server uuid-fetch, so
+  skip OnClick entirely — read `pid` straight from the clone's world position and send:
 
 ```lua
 -- in World, mine in view:
@@ -115,7 +122,8 @@ end, 0.5)
 -- (a send from the SafeDoString hijack thread is dropped by the server).
 ```
 
-Proven: mine `CollectResourceWood_world(Clone)` pid=497565, uuid=0, `MarchTargetType.COLLECT`(2) →
-`om` 0→1. Other collect-family `MarchTargetType`s: `COLLECT=2` (own resource node), `ATTACK_ARMY_COLLECT=10`,
-`ALLIANCE_RESOURCE_COLLECT=75`, `COLLECT_ALLIANCE_BUILD_RESOURCE=35`. Compare monsters, which need the
-real server-fetched uuid (Finding 17) — resource tiles never do.
+Both proven live: mine `CollectResourceWood_world(Clone)` pid=497565, uuid=0,
+`MarchTargetType.COLLECT`(2) → `om` 0→1. Other collect-family `MarchTargetType`s: `COLLECT=2`
+(own resource node), `ATTACK_ARMY_COLLECT=10`, `ALLIANCE_RESOURCE_COLLECT=75`,
+`COLLECT_ALLIANCE_BUILD_RESOURCE=35`. Compare monsters, which need the real server-fetched uuid
+(Finding 17) — resource tiles never do.
