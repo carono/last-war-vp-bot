@@ -48,6 +48,12 @@ NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+# Game lifecycle (paths derived from %LOCALAPPDATA%, no hardcoded username)
+_LOCALAPPDATA = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
+GAME_DIR = os.path.join(_LOCALAPPDATA, "FunFly", "Last War-Survival Game")
+LAUNCHER = os.path.join(GAME_DIR, "LastWarLauncher.exe")
+GAME_EXE = "LastWar.exe"
+
 CAPTURE_SCRIPTS = {
     "Секретные задания": "secret_task_capture.py",
     "Операция Призрак": "secret_mission_capture.py",
@@ -98,6 +104,14 @@ class Panel(tk.Tk):
         self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
+
+        game = ttk.LabelFrame(self, text="Игра", padding=8)
+        game.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Button(game, text="▶  Запустить игру",
+                   command=self._launch_game).pack(side="left", padx=4, ipady=3)
+        ttk.Button(game, text="⟳  Перезапустить игру",
+                   command=self._restart_game).pack(side="left", padx=4, ipady=3)
+        ttk.Label(game, text="LastWarLauncher.exe", foreground="#888").pack(side="left", padx=10)
 
         nav = ttk.LabelFrame(self, text="Навигация", padding=8)
         nav.pack(fill="x", padx=8, pady=(0, 6))
@@ -352,6 +366,40 @@ class Panel(tk.Tk):
                 self._busy = False
                 self.after(400, self._refresh_status)
 
+        threading.Thread(target=work, daemon=True).start()
+
+    # -- game lifecycle -----------------------------------------------------
+    def _start_launcher(self) -> bool:
+        if not os.path.isfile(LAUNCHER):
+            self._log_put(f"[game] лаунчер не найден: {LAUNCHER}")
+            return False
+        try:
+            subprocess.Popen([LAUNCHER], cwd=GAME_DIR, creationflags=NO_WINDOW | DETACHED,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL)
+            self._log_put("[game] лаунчер запущен")
+            return True
+        except Exception as exc:
+            self._log_put(f"[game] ошибка запуска: {exc}")
+            return False
+
+    def _launch_game(self) -> None:
+        self._log_put("[game] запуск LastWarLauncher.exe…")
+        threading.Thread(target=self._start_launcher, daemon=True).start()
+
+    def _restart_game(self) -> None:
+        def work() -> None:
+            self._log_put(f"[game] убиваю {GAME_EXE}…")
+            try:
+                r = subprocess.run(["taskkill", "/F", "/IM", GAME_EXE],
+                                   capture_output=True, text=True, creationflags=NO_WINDOW)
+                self._log_put(f"[game] taskkill: {(r.stdout or r.stderr).strip() or 'ok'}")
+            except Exception as exc:
+                self._log_put(f"[game] ошибка kill: {exc}")
+            time.sleep(1.0)
+            if self._start_launcher():
+                self._log_put("[game] перезапуск: жди загрузки игры; daemon сам переинициализируется "
+                              "при следующем действии")
         threading.Thread(target=work, daemon=True).start()
 
     def _on_close(self) -> None:
