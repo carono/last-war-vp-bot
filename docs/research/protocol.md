@@ -347,7 +347,7 @@ back in a single reply — a list of dicts, one per player, each carrying at
 least a `uid` and a `name`. No paging was seen: `al.rank` returned all 99
 members and `champion.duel.result.show.rank.list` all 32 duellists in one
 frame. Nothing pushes a board; it crosses the wire only when the screen is
-opened, which is why `tools/scan_leaderboard.py` cannot make one arrive.
+opened, which is why `tools/dev/scan_leaderboard.py` cannot make one arrive.
 
 | Command | Request | List | Per entry |
 |---|---|---|---|
@@ -736,7 +736,7 @@ while the reply's is a list of objects, so a decoder must not assume either.
 Where a player appeared as both a map tile and a profile (59 uids), the two
 sources agreed **59/59** on level, server, name, `allianceId` and
 `allianceAbbrName` — so a profile merges onto a tile's record by
-`(serverId, uid)` with neither contradicting the other. `tools/scan_players.py`
+`(serverId, uid)` with neither contradicting the other. `tools/dev/scan_players.py`
 does exactly this.
 
 ### Player notes (`user.remark.list`)
@@ -773,7 +773,7 @@ capture was last edited 17 hours before it started, and no client frame in it
 mentions one. To find it, run a scan with `--dump` while setting a note and
 grep the transcript for up-frames.
 
-`tools/scan_players.py` merges these into its records as `remark`, keyed by
+`tools/dev/scan_players.py` merges these into its records as `remark`, keyed by
 `targetUid`. Because the list only arrives at login, the scan has to be
 started **before** logging in.
 
@@ -1123,7 +1123,7 @@ Per task (all fields observed in `results/task1004/ghost_recon_task_list.json`,
 | `teamStartTime` / `completionTime` / `taskExpireTime` / `actEndTime` | epoch-ms timers |
 
 Decoded by `lastwar_proto.ghost_recon_missions` / `GhostReconMission`; streamed
-live by `tools/secret_mission_capture.py` (its `--discover` mode is what found
+live by `tools/dev/secret_mission_capture.py` (its `--discover` mode is what found
 `ghost.recon.*` in the first place, and re-finds a renamed family when the
 seasonal feature shifts).
 
@@ -1147,7 +1147,7 @@ uuids were disjoint (`tools/_ghost_uuid_crosscheck.py`). That is expected, not
 contradictory: the poll/push lists **your own alliance's** missions, while the
 map shows **other players'** squads wherever you pan, so they coincide only if
 you pan over your alliance's own squad with the panel open. Closing this is a
-one-run job: `tools/ghost_recon_tile_dump.py` already matches tile↔mission by
+one-run job: `tools/dev/ghost_recon_tile_dump.py` already matches tile↔mission by
 uuid live — open the panel, pan over a known mission, and the uuid link prints.
 
 The tile carries the same mission the poll does, in protobuf field numbers under
@@ -1170,7 +1170,7 @@ The tile carries the same mission the poll does, in protobuf field numbers under
 attacks is `f14.f6`, a different id. Decoded by `lastwar_proto.ghost_recon_tiles`
 (the tile analogue of `secret_tasks`), so ghost recon can now be found by a
 **tile scan** — panning the map, exactly like a secret task — not only through
-the `ghost.recon.*` poll. `tools/ghost_recon_tile_dump.py` dumps every tile kind
+the `ghost.recon.*` poll. `tools/dev/ghost_recon_tile_dump.py` dumps every tile kind
 and labels `f2 = 29`.
 
 ### Trucks (march type 37)
@@ -1241,7 +1241,7 @@ the tier digit means the same thing in both.
 **The colour names are an inference and have never been checked by eye** — the
 same standing as the star in §7's task families. What the evidence establishes
 is the *order*; which colour the client paints each rank is not on the wire.
-`tools/scan_trucks.py --type` accepts tier numbers for exactly that reason.
+`tools/dev/scan_trucks.py --type` accepts tier numbers for exactly that reason.
 To settle it, run the scanner beside the map and compare a named truck against
 the one drawn on screen.
 
@@ -1386,7 +1386,7 @@ response:   gather.collect.reward  {reward:[...], collect_reward:[], _id:N}
 ```
 
 `uuidArr` contains the UUIDs of completed gathering marches (troops that
-returned from a resource node). Obtain UUIDs from `tools/scan_trucks.py` or
+returned from a resource node). Obtain UUIDs from `tools/dev/scan_trucks.py` or
 by sniffing live march data (`tools/live_tshark.py`).
 
 Orchestrator: `tools/run_gather_inject.py`

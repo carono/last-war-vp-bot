@@ -42,17 +42,17 @@ scapy** — no Wireshark, nothing spawned. Every tool takes `--list-ifaces`,
 
 ### `secret_task_capture.py` — secret tasks (map tiles `f2 = 17`)
 ```bash
-/mnt/c/Python312/python.exe tools/secret_task_capture.py                  # stream, print
-/mnt/c/Python312/python.exe tools/secret_task_capture.py --seconds 300 --json out.json
-/mnt/c/Python312/python.exe tools/secret_task_capture.py --level 7 --can-loot
+/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py                  # stream, print
+/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py --seconds 300 --json out.json
+/mnt/c/Python312/python.exe tools/dev/secret_task_capture.py --level 7 --can-loot
 ```
 
 ### `secret_mission_capture.py` — ghost-recon missions (tiles `f2 = 29`)
 "Операция Призрак" / Secret Command Post co-op weekly.
 ```bash
-/mnt/c/Python312/python.exe tools/secret_mission_capture.py              # stream, print
-/mnt/c/Python312/python.exe tools/secret_mission_capture.py --done       # only lootable-now
-/mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992 --json out.json
+/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py              # stream, print
+/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py --done       # only lootable-now
+/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py --server 991,992 --json out.json
 ```
 
 ### `ghost_recon_tile_dump.py` — every `f2 = 29` tile, no filter
@@ -61,7 +61,7 @@ off-map ghost-recon polls, and cross-references them by uuid/coordinate. Use it
 when the mission scanner shows nothing and you need to know whether the tile is
 on the wire at all.
 ```bash
-/mnt/c/Python312/python.exe tools/ghost_recon_tile_dump.py --seconds 300 --json out.json
+/mnt/c/Python312/python.exe tools/dev/ghost_recon_tile_dump.py --seconds 300 --json out.json
 ```
 
 ### `rally_monitor.py` — alliance rallies / стяги
@@ -71,7 +71,7 @@ listens on the `push.alliance.march.*` push stream instead of `world.get.block`,
 so **no map panning is needed** — a rally arrives the moment it is launched or
 refreshed.
 ```bash
-/mnt/c/Python312/python.exe tools/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
+/mnt/c/Python312/python.exe tools/dev/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
 ```
 
 **Map tiles need the map moving.** Secret tasks, missions and ghost tiles ride

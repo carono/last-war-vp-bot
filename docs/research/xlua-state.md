@@ -770,7 +770,7 @@ City->World:  ChangeScene(2) exc=0x0        (OK)   -> CurrSceneID=2 IsInWorld=1 
 
 **Launch/path note:** the exe is at
 `%LOCALAPPDATA%\FunFly\Last War-Survival Game\Game\LastWar.exe` (Windows user
-`spame`); the same path is derivable from `tools/extract_hero_icons.py`. Launch it
+`spame`); the same path is derivable from `tools/dev/extract_hero_icons.py`. Launch it
 by **running the exe from its own directory via WSL interop** —
 `subprocess.Popen`/`cmd /c start` did not spawn a visible process here, but a
 direct interop exec did (the process appears after ~30 s alongside a normal

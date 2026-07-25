@@ -3,7 +3,7 @@
 Turn a building's `pId` (from the login snapshot, `docs/research/city-protocol.md`) into a
 screen pixel you can click. Three parts: decode `pId` → grid, read the live camera, project
 grid → world → screen → desktop-pixel. Validated against a screenshot; a reusable clicker is
-`tools/city_click.py`.
+`tools/dev/city_click.py`.
 
 ## 1. `pId` → grid — base is a 100-wide grid, `TileSize == 2`
 
@@ -137,7 +137,7 @@ axis mapping (`gx→+worldX`, `gy→+worldZ`, no mirror/rotation) and the whole 
 unlike the black-3D caveat in `game-launch-and-scene-control.md §4`, which stands for the
 World view / unfocused grabs.)
 
-## Clicking — `tools/city_click.py`
+## Clicking — `tools/dev/city_click.py`
 
 Input the base needs **foreground `pydirectinput`** (PostMessage is ignored —
 `[[project_input_model]]`), so the tool focuses the window (Alt-key trick) and clicks the
@@ -319,7 +319,7 @@ locate or click a building. Everything else — position, name, level, and click
 ## Tools & artifacts
 
 - `tools/lua_eval.py` — run a Lua chunk via SafeDoString, read markers back from Player.log.
-- `tools/city_click.py` — `pId`/grid → live projection → desktop pixel → optional click.
+- `tools/dev/city_click.py` — `pId`/grid → live projection → desktop pixel → optional click.
 - `results/building_screen.json` — every building's `pId`, grid, render-screen coords, depth (git-ignored).
 - `results/city_grid_overlay.png` — the validation screenshot (markers on buildings, git-ignored).
 - `results/locale_strings.json` — full decoded `en`/`ru` localization (~52k keys each) from `locale/23126/<lang>.bin` (git-ignored).

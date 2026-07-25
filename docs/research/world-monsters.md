@@ -13,7 +13,7 @@ physical interfaces), then `taskkill /F /IM LastWar.exe` + relaunch, wait for au
 (~120 s, lands in **City**), then the **first `SceneUtils.ChangeToWorld()` since the cold
 login** (`tools/lua_goto_world.py`) — the client has no cached world data yet, so this is
 the genuine world cold-load. Decoded offline with `tools/lastwar_proto.py`. Also a warm
-`ChangeToWorld` sniff (`tools/secret_task_capture.py --dump`) for comparison.
+`ChangeToWorld` sniff (`tools/dev/secret_task_capture.py --dump`) for comparison.
 
 ## Finding 1 — nothing monster-shaped loads at world entry
 
@@ -966,7 +966,7 @@ created). Two reusable scripts:
 - **`tools/solo_attack.py`** — MODE 1 (uuid unknown): find a `WorldMonster0N(Clone)` →
   `trig:OnClick()` (opens `UIWorldPoint`; the **server returns the uuid**) → read pid/uuid/serverId
   from the popup `Ctrl` → **`Ctrl:CloseSelf()`** (close ONLY the popup) → main-thread send.
-- **`tools/solo_attack_direct.py <pid> <uuid> [serverId]`** — MODE 2 (uuid known): **just** the
+- **`tools/dev/solo_attack_direct.py <pid> <uuid> [serverId]`** — MODE 2 (uuid known): **just** the
   main-thread send, **zero UI touch** (no OnClick, no popup, no CloseSelf). `OnClick` exists only to
   FETCH the uuid; with it in hand the march is created directly. Verified false→true from a clean
   `om=0` baseline, twice.

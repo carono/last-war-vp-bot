@@ -2,7 +2,7 @@
 
 Goal: enumerate world-map tile kinds (`world.get.block` `f2`) beyond the known
 `6/7/17/29`, and find the monster tiles. Method (strict): passive sniff first
-(`tools/secret_task_capture.py --seconds N --dump`), then `SceneUtils.ChangeToWorld()`
+(`tools/dev/secret_task_capture.py --seconds N --dump`), then `SceneUtils.ChangeToWorld()`
 via `tools/lua_goto_world.py`, then pan the map with `pydirectinput` drags to force new
 `world.get.block` fetches. Three captures (120 s + 90 s wide sweep + 70 s over a
 monster-containing view), 242 tiles total.
@@ -95,7 +95,7 @@ read it live from the managers above.
 - `results/world_tiles_capture.jsonl`, `world_tiles_capture2.jsonl`, `world_monsters3.jsonl` — the three decoded captures.
 - `results/world_view.png` — world map screenshot showing the lvl-19/22 roaming monsters absent from the block tiles.
 
-## Sending a GATHER march to a mine — no-click (tools/gather.py, gather_direct.py)
+## Sending a GATHER march to a mine — no-click (tools/dev/gather.py, gather_direct.py)
 
 Same main-thread-timer mechanism as the solo monster attack (docs/research/world-monsters.md
 Finding 17), but for resource tiles ("mines"). Confirmed live: `IsHaveMarchInWorld()` false→true,
@@ -105,11 +105,11 @@ Mines render as **`CollectResourceWood_world(Clone)` / `CollectResourceStone_wor
 monsters, a resource tile has **`uuid=0`** — it is identified by `pointId` alone. The march type is
 **`MarchTargetType.COLLECT` (2)**. Two scripts, mirroring the monster pair:
 
-- **`tools/gather.py`** — MODE 1 (OnClick): find a `CollectResource*_world(Clone)` via its
+- **`tools/dev/gather.py`** — MODE 1 (OnClick): find a `CollectResource*_world(Clone)` via its
   `TouchObjectEventTrigger` → `trig:OnClick()` → read `pid` from the popup `Ctrl` (its `uuid` is 0) →
   **`Ctrl:CloseSelf()`** (close ONLY the popup; NEVER `UIManager:DestroyAllWindow()`, which kills the
   HUD) → main-thread send.
-- **`tools/gather_direct.py`** — MODE 2 (fully no-click): resource tiles need no server uuid-fetch, so
+- **`tools/dev/gather_direct.py`** — MODE 2 (fully no-click): resource tiles need no server uuid-fetch, so
   skip OnClick entirely — read `pid` straight from the clone's world position and send:
 
 ```lua
@@ -128,7 +128,7 @@ Both proven live: mine `CollectResourceWood_world(Clone)` pid=497565, uuid=0,
 `COLLECT_ALLIANCE_BUILD_RESOURCE=35`. Compare monsters, which need the real server-fetched uuid
 (Finding 17) — resource tiles never do.
 
-## Programmatic coordinate jump — no UI (tools/goto_coord.py)
+## Programmatic coordinate jump — no UI (tools/dev/goto_coord.py)
 
 The in-game magnifier ("лупа" → enter X/Y → jump) is `UISearchCtrl:OnJumpClick(server, x, y)`, which
 internally calls **`GoToUtil.GotoPos(worldPos, zoom, time, onComplete, serverId, worldId)`**. Captured
@@ -140,7 +140,7 @@ GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1, 0, Y*2+1), 105, nil, nil, serverI
 ```
 
 Verified live: `WorldScene.CurTilePos` moved exactly to (X, Y) with `UIManager` stack empty
-(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/goto_coord.py <X> <Y> [serverId]`
+(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/dev/goto_coord.py <X> <Y> [serverId]`
 wraps it. (`GoToUtil.MoveToWorldPoint(SceneUtils.TilePosToIndex(Vector2Int(X,Y)))` is an equivalent
 pid-based jump; `GotoPos` is what the magnifier's coordinate search actually uses.)
 
@@ -157,7 +157,7 @@ different API — `CrossServerUtil.JumpToServerByServerId(...)` — see the sect
 **Discipline for further probing: return to the home server 935 before each new hypothesis** (a
 foreign-server `GotoPos` view is a stuck/empty state).
 
-## Viewing another server's world — full load, no teleport UI (tools/cross_server.py)
+## Viewing another server's world — full load, no teleport UI (tools/dev/cross_server.py)
 
 Goal: browse a foreign server's map (e.g. 972) programmatically, with the map fully populated and
 **without** the base-relocation ("teleport") UI. Solved live — recipe below, confirmed repeatedly
@@ -197,7 +197,7 @@ GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1,0,Y*2+1),105,nil,nil,serverId,nil)
 live in the global `UIWindowNames` (companions: `UIMoveCityTip`, `LWUIMoveCityTip`). Return home with
 `CrossServerUtil.BackToSrcServer()` + `OnBackSelfServer()`.
 
-`tools/cross_server.py <serverId> [X Y]` wraps the whole recipe; `tools/cross_server.py --home`
+`tools/dev/cross_server.py <serverId> [X Y]` wraps the whole recipe; `tools/dev/cross_server.py --home`
 returns to the home server. (`SetCrossEnableList` is transient — the client re-syncs and clears it
 after a few seconds; the jump must follow immediately, which the tool does.)
 
