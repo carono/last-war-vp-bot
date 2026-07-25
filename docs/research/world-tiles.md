@@ -152,27 +152,21 @@ scene. None of these repopulate it: `SceneUtils.WorldSendGetALPointsRequest()` (
 `SceneUtils.ClearLastRequestALPointsTime()`), `GoToUtil.GotoServerZone(serverId, isInMoveToState)`,
 `DataCenter.WorldAllianceCityDataManager:InitAllCityDataRequest()` / `:UpdateAllCityDataRequest(type,
 serverId, seasonType)`, `GoToUtil.GoToServerPreCheck(serverId)`. So `serverId` in `GotoPos` only tags
-the request; foreign-server world viewing appears to need a real cross-server event/mode, not a call.
-The magnifier's own `OnJumpClick(server, x, y)` chain is identical for foreign servers (just
-`GotoPos → CloseSelf`), i.e. it doesn't do anything extra either. **Discipline for further probing:
-return to the home server 935 before each new hypothesis** (a foreign-server view is a stuck/empty
-state).
+the request; it does not enter a cross-server context. The real standard cross-server switch is a
+different API — `CrossServerUtil.JumpToServerByServerId(...)` — see the section below.
+**Discipline for further probing: return to the home server 935 before each new hypothesis** (a
+foreign-server `GotoPos` view is a stuck/empty state).
 
-### Why foreign-server view is empty — it is EVENT-gated
+### Why foreign-server view via GotoPos is empty — the real cross-server entry is elsewhere
 
-Cross-server world viewing is not a free navigation feature; it is unlocked only by specific
-**events**, and each grants viewing of one *specific* target server, not an arbitrary id:
+`GotoPos`'s `serverId` argument only *tags* the world request; it does **not** enter a cross-server
+context, so aiming it at a foreign id (500/972) just moves the camera over an unpopulated map.
 
-- **Zone War** (`DataCenter.ZoneWarManager`) — during the battle phase you can view the enemy
-  server: `IsInBattlePhase()`, `GetBattleServer()`, `GetFightServerNow()`, `GetMyEnemyServerNow()`,
-  `GetDefenderServerId()`. Checked live: `IsInBattlePhase=false`, `GetMyEnemyServerNow=0`,
-  `GetFightServerNow=935` (=home) — **no battle active**, so no foreign server is viewable.
-- **Migration preview** (`DataCenter.ActMigrationManager`) — `SendServerStarListRequest()` /
-  `GoToView` let you preview candidate servers before migrating.
-- **Zone Mobilization** (`DataCenter.ZoneMobilizationCtrlManager:EnterWorld()`).
-
-So passing `serverId=500/972` to `GotoPos` shows an empty map because no event authorizes those
-servers — the client has no data for them and cannot request it. `GotoPos`'s `serverId` only tags the
-world request; it does not enter a cross-server context. Foreign-server viewing needs one of the
-events above to be live (and only for that event's target server). Within the home server the
-coordinate jump works fully.
+The actual standard cross-server switch is **`CrossServerUtil.JumpToServerByServerId(...)`** (with
+companions `CrossServerUtil.OnCrossServer`, `IsInOtherServer`, `GetIsCrossServer`,
+`TryGetCrossEnableServerList`, `GetCrossEnableReason`, and `GoToUtil.GotoServerZone` /
+`GoToServerPreCheck`). Switching servers by normal in-game means works fine; it goes through that
+API, not through `GotoPos`. This cross-server path was **not** pursued further (out of scope for the
+coordinate-jump task). The coordinate jump documented above is confirmed only for the **home
+server**; use `CrossServerUtil.JumpToServerByServerId` (not `GotoPos` with a foreign `serverId`) as
+the starting point if cross-server navigation is ever needed.
