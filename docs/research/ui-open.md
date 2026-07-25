@@ -125,6 +125,114 @@ UIManager.Instance:GetWindow("UICommonShop").Ctrl:CloseSelf()
 `IsWindowOpen("UICommonShop")` → `false` and the view returns to the city. Do **not** use
 `DestroyAllWindow` (kills the HUD, see [[feedback_no_destroyallwindow]]).
 
+## Left panel buttons
+
+The vertical button column on the left edge of the **city** view drives several data-heavy
+features. Entry points were resolved live with the warm Lua daemon
+(`tools/lib/lua_client.get_evaluator()`); probe/inspect helpers are `tools/scratch/_ui_probe.py`
+(open + screenshot) and `tools/scratch/_ui_inspect.py` (open + dump the window's on-screen TMP
+text to a UTF-8 file — works even when the Windows session is locked and BitBlt screenshots
+fail). Every entry below opens and renders from the city. **A ready-made launcher is
+`tools/dev/ui_left_panel.py`** (`--list`, `--open <button>`, `--close`, `--close-all`).
+
+Which icon is which was pinned down by reading the `UnityEngine.UI.Image` sprite names on the
+`UIMain` HUD buttons (the buttons' GameObjects are generically named `btn`; the sprite name
+carries the feature). Left-column sprites → feature:
+
+| sprite (Image on the button) | feature | entry point |
+|---|---|---|
+| `zyf_chengjian_rukou_icon` | 城建 city-build queue entrance | build UI |
+| `lyp_..._kejishu` | 科技树 tech/science queue entrance | `GoToUtil.GotoScience()` / `OpenScienceTree()` |
+| `lrb_chengjimaoyi_...` | 城际贸易 inter-city trade | **trucks** → `TradeStationCity` (below) |
+| (radar / secret-missions / quest icons — generic sprites) | radar / ghost recon / quests | see below |
+
+Summary of the verified feature windows (all `IsWindowOpen` → `true`):
+
+| button | Lua | window |
+|---|---|---|
+| Radar / recon | `GoToUtil.GoRadarProbe()` | `UIDetectEvent` |
+| Secret missions (ghost recon) | `OpenWindow(UIWindowNames.UIDispatchTaskMain)` | `UIDispatchTaskMain` |
+| Trucks (Trade Station) | `OpenWindow(UIWindowNames.TradeStationCity)` | `TradeStationCity` |
+| — truck dispatch | `OpenWindow(UIWindowNames.UILWTruckSuperDeparture)` | `UILWTruckSuperDeparture` |
+| — truck rob log | `OpenWindow(UIWindowNames.UILWTruckRecord)` | `UILWTruckRecord` |
+| Quests | `OpenWindow(UIWindowNames.UILWQuestList)` | `UILWQuestList` |
+
+### Radar (satellite-dish icon) — `GoToUtil.GoRadarProbe()`
+
+```lua
+GoToUtil.GoRadarProbe()
+```
+
+Opens **`UIWindowNames.UIDetectEvent`** — the radar mission map («задания радара»: a scatter
+of task pins over the mini-map, a stamina cost, «Через HH:MM:SS восстановится N заданий
+радара», «Действуйте быстро»). Visually confirmed (`results/lp_01_radar_goradarprobe.png`).
+A bare `OpenWindow(UIWindowNames.UIDetectEvent)` is *not* the reliable path — use the
+`GoToUtil` route, which runs the fetch+open flow. Close with
+`UIManager.Instance:GetWindow("UIDetectEvent").Ctrl:CloseSelf()`.
+
+### Secret missions / ghost recon / «Операция Призрак» — `UIDispatchTaskMain`
+
+```lua
+UIManager.Instance:OpenWindow(UIWindowNames.UIDispatchTaskMain)
+```
+
+Opens the **«Секретный командный пункт»** (Secret Command Post) — this is the ghost-recon
+secret-missions hub (see [[project_ghost_recon_missions]]). Opens cold via `OpenWindow`
+(`IsWindowOpen` → `true`). On-screen text confirms it: tabs **«Индивидуальные Задания»**,
+**«Задания Альянса»**, **«Задания других»**; mission cards («Спасти учёного», «Разрушить
+энергосистему» …); **«Секретный мобильный отряд — Отправляйте героев выполнять секретные
+задания…»**; **«Операция Призрак»**, **«Скрытые Сокровища»**, «Грабить других», «Записи».
+Close with `GetWindow("UIDispatchTaskMain").Ctrl:CloseSelf()` (or `GoToUtil.CloseAllWindows()`).
+
+### Trucks / Trade Station (truck icon) — `TradeStationCity` + truck sub-windows
+
+The truck feature is the Trade-Station convoy system whose trucks are the ones tracked by
+`tools/dev/scan_trucks.py` and the `can_loot` rule ([[project_can_loot_rule]]). Three
+windows make it up; all open cold via `OpenWindow` and were text-confirmed:
+
+```lua
+UIManager.Instance:OpenWindow(UIWindowNames.TradeStationCity)          -- trade-post hub
+UIManager.Instance:OpenWindow(UIWindowNames.UILWTruckSuperDeparture)   -- dispatch a truck
+UIManager.Instance:OpenWindow(UIWindowNames.UILWTruckRecord)           -- rob / robbed log
+```
+
+- **`TradeStationCity`** — the trade-post overview: **«Ваш торговый пост: 0/5»**, a grid of
+  posts by coordinate (`#935 X:49 Y:349`, «Ещё не открыт», «Ур.1…4»).
+- **`UILWTruckSuperDeparture`** — the truck-dispatch panel: tabs **«Супер режим / Супер
+  обновление / Супер отправка»**, the truck fleet as `No.1 … No.4` each with a countdown
+  and a haul value. (Renders "super" mode when a super buff is active.)
+- **`UILWTruckRecord`** — the battle log of trucks robbed / robbing others («Победа
+  атакующей стороны», «Поражение в бою с #946 [OTER]…», «Nч назад»). Detail:
+  `UILWTruckRecordDetail`. Rewards/insurance popups: `UILWTruckRewardGet`,
+  `UITruckRewardInsurance`, `UITruckRewardInsuranceTips`. Data manager:
+  `DataCenter.LWGateTruckGoodsManager`.
+
+### Quests (task-list icon) — `UILWQuestList`
+
+```lua
+UIManager.Instance:OpenWindow(UIWindowNames.UILWQuestList)
+```
+
+Opens **«Задание»** — the quest list with **«Основные задания»** (main) and **«Дополнительные
+задания»** (side) sections («Улучшить "Хижина строителя" до 30-го уровня (0/1)», «Вперёд» …).
+Opens cold via `OpenWindow`; text-confirmed.
+
+Note (2026-07-25): screenshots for the secret-missions, trucks and quest windows are pending —
+the Windows session locked mid-session (`OpenInputDesktop`→0), which kills BitBlt capture while
+leaving the Lua daemon fully functional; identification of those is by each window's rendered
+on-screen text (radar additionally by screenshot). Re-run `tools/dev/ui_left_panel.py --open
+<button>` + `tools/scratch/_ui_probe.py` once the desktop is unlocked to capture them.
+
+### Nearby "other buttons" mapped along the way (guard against confusables)
+
+- **«Экономика» (city building index)** — `GoToUtil.GoBusinessCenterWindow()` (also
+  `UIWindowNames.UIBusinessCenter`, but that one needs the fetch flow). Renders the building
+  catalogue («Производство еды», «Железный рудник», «Хранилище», «Учебная база» …). This is
+  **not** the trucks/Trade-Center panel despite the "Business Center" name.
+- **Battlefield teleport** — `UIWindowNames.UILLWorldMapTransport` («Телепортироваться»,
+  «перемещение на поле боя», «центральная зона»). Opens cold but is the season/battlefield
+  teleport, **not** a transport/trucks window — the name is a trap.
+
 ## Why the bare alliance *main* window fails (and how to fix it)
 
 `UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceDetail)` registers the window
@@ -159,6 +267,7 @@ but does not open the panel by itself either.
 - `results/settings_test.png` — `OpenWindow(UISettingSet)` rendering the Settings panel.
 - `results/alliance_shop_open.png` — `GoToUtil.GotoAllianceShop()` rendering the Alliance Shop.
 - `results/alliance_panel_open.png` — bare `OpenWindow(UIAllianceDetail)` (no render; aborts in OnCreate).
+- `results/lp_01_radar_goradarprobe.png` — `GoToUtil.GoRadarProbe()` rendering the radar mission map (`UIDetectEvent`).
 
 ---
 
