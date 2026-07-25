@@ -182,28 +182,33 @@ class Panel(tk.Tk):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
 
-    def _run_tool(self, argv: list[str], tag: str) -> None:
-        """Shell out to a tool under the Windows Python, streaming its output to the log."""
+    def _stream(self, argv: list[str], tag: str) -> None:
+        """Run a tool under the Windows Python, streaming its output to the log (blocking)."""
+        cmd = [WIN_PYTHON, *argv]
+        self._log_put(f"[{tag}] запуск: {' '.join(cmd)}")
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
+                cwd=REPO, creationflags=NO_WINDOW)
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                self._log_put(raw.rstrip())
+            proc.wait()
+            self._log_put(f"[{tag}] завершён rc={proc.returncode}")
+        except Exception as exc:
+            self._log_put(f"[{tag}] ошибка: {exc}")
+
+    def _run_async(self, body) -> None:
+        """Run `body()` (which may call self._stream) on a worker thread, guarding _busy."""
         if self._busy:
             self._log_put("[panel] занят — дождись завершения текущего действия")
             return
         self._set_busy(True)
-        cmd = [WIN_PYTHON, *argv]
-        self._log_put(f"[{tag}] запуск: {' '.join(cmd)}")
 
         def work() -> None:
             try:
-                proc = subprocess.Popen(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, encoding="utf-8", errors="replace", bufsize=1,
-                    cwd=REPO, creationflags=NO_WINDOW)
-                assert proc.stdout is not None
-                for raw in proc.stdout:
-                    self._log_put(raw.rstrip())
-                proc.wait()
-                self._log_put(f"[{tag}] завершён rc={proc.returncode}")
-            except Exception as exc:
-                self._log_put(f"[{tag}] ошибка: {exc}")
+                body()
             finally:
                 self.after(0, lambda: self._set_busy(False))
                 self.after(600, self._refresh_status)
@@ -213,7 +218,7 @@ class Panel(tk.Tk):
     # -- actions ------------------------------------------------------------
     def _nav_scene(self, flag: str, label: str) -> None:
         self._log_put(f"[scene] {label}")
-        self._run_tool([os.path.join(TOOLS, "scene_change.py"), flag], "scene")
+        self._run_async(lambda: self._stream([os.path.join(TOOLS, "scene_change.py"), flag], "scene"))
 
     def _goto_coord(self) -> None:
         x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
@@ -221,8 +226,21 @@ class Panel(tk.Tk):
             self._log_put("[coord] X и Y должны быть целыми числами")
             return
         srv = srv if srv.isdigit() else DEFAULT_SERVER
-        self._log_put(f"[coord] переход в ({x},{y}) на сервере {srv}")
-        self._run_tool([os.path.join(TOOLS, "goto_coord.py"), x, y, srv], "coord")
+
+        def body() -> None:
+            cur = current_server()
+            if srv != cur:
+                # Different server: GotoPos alone does NOT load a foreign world (it only tags the
+                # request). Use the cross-server recipe — authorize + JumpToServerByServerId + close
+                # UIMoveCity — then pan to (X,Y). tools/cross_server.py does all of that.
+                self._log_put(f"[coord] другой сервер ({srv} != {cur}) — кросс-серверная загрузка + переход в ({x},{y})")
+                self._stream([os.path.join(TOOLS, "cross_server.py"), srv, x, y], "coord")
+            else:
+                # Same server: a plain in-server camera jump is enough.
+                self._log_put(f"[coord] тот же сервер ({srv}) — переход камерой в ({x},{y})")
+                self._stream([os.path.join(TOOLS, "goto_coord.py"), x, y, srv], "coord")
+
+        self._run_async(body)
 
 
 def main() -> int:
