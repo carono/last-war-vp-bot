@@ -73,8 +73,31 @@ not an index:
   `selecting`, the `__onvaluechanged` callback, and the real `unity_uitoggle` (a
   `CS.UnityEngine.UI.Toggle`).
 
-Observed types → tab: `1` = Магазин бриллиантов (diamonds), `2` = VIP-магазин,
-`7` = Магазин Альянса (honor currency), `100` = star-currency shop (training/expedition).
+Read a tab's display name programmatically from its toggle sub-view — the title is a
+TextMeshPro component wrapped at `txt_title.unity_tmpro`:
+
+```lua
+w.View.togglesTb[<type>].txt_title.unity_tmpro.text
+```
+
+The full tab map (read live via that path — the numbers are the `shopTabTypeList` order):
+
+| # | type | title |
+|--:|--:|---|
+| 1 | 1   | Магазин бриллиантов (diamonds) |
+| 2 | 2   | VIP-магазин |
+| 3 | 7   | Магазин Альянса (honor) |
+| 4 | 8   | Магазин чести |
+| 5 | 100 | Магазин Экспедиции |
+| 6 | 200 | Магазин Сезона |
+| 7 | 150 | Магазин обликов |
+| 8 | 10  | Магазин купонов |
+
+> **Encoding gotcha:** on this install `Player.log` is written in **cp1251**, so Cyrillic
+> logged via `Debug.LogError` comes back mojibake through `lua_eval` (which decodes UTF-8).
+> To read Unicode strings cleanly, have Lua write straight to a file as UTF-8 —
+> `CS.System.IO.File.WriteAllText(path, text)` — and read that file (this is how the table
+> above was captured).
 
 **Faithful switch — drive the real toggle** (fires the registered `onValueChanged`, which
 changes the visible content + top-bar currency and updates `curShopType`):
