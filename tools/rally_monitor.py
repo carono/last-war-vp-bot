@@ -58,6 +58,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import coords  # noqa: E402  (canonical @[X,Y|server] token — clickable in the panel log)
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_OK, C_RESET, LiveDecoder  # noqa: E402
 from map_capture import (  # noqa: E402
@@ -159,6 +160,33 @@ def _iter_marches(obj):
             yield from _iter_marches(val)
 
 
+def _march_target(march):
+    """Best-effort (x, y, server|None) of a rally's target from a march dict.
+
+    Rally participants all march to the same point, so any one march yields it. Covers the
+    known march-position encodings: a named packed point id, explicit x/y, or the raw
+    protobuf `f9`/`f10` legs (as trucks / world marches carry them; `_unpack_march_pos`
+    decodes `y*1000+x`). Returns None when no coordinate is present.
+    """
+    if not isinstance(march, dict):
+        return None
+    for key in ("pointId", "point", "targetPoint", "targetPointId"):
+        pos = proto._unpack_march_pos(march.get(key))
+        if pos and pos != (0, 0):
+            return pos[0], pos[1], march.get("targetServer") or march.get("serverId")
+    x = march.get("targetX", march.get("x"))
+    y = march.get("targetY", march.get("y"))
+    if isinstance(x, int) and isinstance(y, int) and (x or y):
+        return x, y, march.get("targetServer") or march.get("serverId")
+    raw = march.get("_proto")
+    info = getattr(raw, "_protobuf", None) if raw is not None else None
+    if isinstance(info, dict):
+        pos = proto._unpack_march_pos(info.get("f10")) or proto._unpack_march_pos(info.get("f9"))
+        if pos and pos != (0, 0):
+            return pos[0], pos[1], info.get("f26") or march.get("serverId")
+    return None
+
+
 class RallyMonitor(LiveDecoder):
     """LiveDecoder that harvests + archives the armies behind every rally.
 
@@ -191,6 +219,7 @@ class RallyMonitor(LiveDecoder):
         ts = time.time()
         team_here = None
         names = []
+        target = None
         for march in marches:
             army_pb = _decode_b64_proto(march.get("armyInfo"))
             team = march.get("teamUuid")
@@ -200,6 +229,8 @@ class RallyMonitor(LiveDecoder):
                 team_here = str(team)
             if owner is not None:
                 self.participants.add(str(owner))
+            mt = _march_target(march)
+            target = target or mt
             record = {
                 "timestamp": ts,
                 "teamUuid": str(team) if team is not None else None,
@@ -207,6 +238,9 @@ class RallyMonitor(LiveDecoder):
                 "ownerName": march.get("ownerName"),
                 "power": march.get("power"),
                 "curHp": march.get("curHp"),
+                "x": mt[0] if mt else None,
+                "y": mt[1] if mt else None,
+                "targetServer": mt[2] if mt else None,
                 "heroes": _heroes(army_pb),
                 "formation": _formation(army_pb),
                 "armyInfoRaw": army_pb,
@@ -219,8 +253,9 @@ class RallyMonitor(LiveDecoder):
         who = ", ".join(str(n) for n in names if n) or "-"
         tag = (f"{C_RALLY}team={team_here}{C_RESET}" if team_here
                else f"{C_DIM}solo{C_RESET}")
+        where = f"  {coords.fmt(target[0], target[1], target[2])}" if target else ""
         print(f"{_stamp()} {command}  {tag}  "
-              f"participants={len(marches)} [{who}]", flush=True)
+              f"participants={len(marches)} [{who}]{where}", flush=True)
 
     def report(self):
         print(f"\n{C_DIM}{'-' * 64}{C_RESET}")
