@@ -353,6 +353,7 @@ class Panel(tk.Tk):
             "monitor_interval": self._interval_var.get(),
             "filter_star": self._star_var.get(),
             "filter_pending": self._pending_var.get(),
+            "filter_can_loot": self._can_loot_var.get(),
             "filter_level_from": self._lvl_from_var.get(),
             "filter_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
@@ -373,6 +374,7 @@ class Panel(tk.Tk):
             self._interval_var.set(str(s.get("monitor_interval", "15")))
             self._star_var.set(bool(s.get("filter_star", False)))
             self._pending_var.set(bool(s.get("filter_pending", False)))
+            self._can_loot_var.set(bool(s.get("filter_can_loot", False)))
             self._lvl_from_var.set(s.get("filter_level_from", ""))
             self._lvl_to_var.set(s.get("filter_level_to", ""))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
@@ -384,8 +386,8 @@ class Panel(tk.Tk):
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
-                    self._pending_var, self._lvl_from_var, self._lvl_to_var,
-                    self._rally_var, self._mon_var):
+                    self._pending_var, self._can_loot_var, self._lvl_from_var,
+                    self._lvl_to_var, self._rally_var, self._mon_var):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
@@ -526,6 +528,9 @@ class Panel(tk.Tk):
         self._pending_var = tk.BooleanVar(value=False)
         self._tr(ttk.Checkbutton(row2, variable=self._pending_var),
                  "secret.pending_only").pack(side="left", padx=(6, 0))
+        self._can_loot_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(row2, variable=self._can_loot_var),
+                 "secret.can_loot_only").pack(side="left", padx=(6, 0))
         self._tr(ttk.Label(row2), "secret.level_from").pack(side="left", padx=(12, 2))
         self._lvl_from_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_from_var, width=4).pack(side="left")
@@ -821,6 +826,10 @@ class Panel(tk.Tk):
         if self._star_var.get() and not re.match(r"\s*\*", ln):
             return False
         if self._pending_var.get() and "PENDING" not in ln:
+            return False
+        # A raidable tile is tagged LOOTABLE by the capture (dispatch done, not
+        # expired, slot free). Same panel-side substring test as PENDING above.
+        if self._can_loot_var.get() and "LOOTABLE" not in ln:
             return False
         return True
 

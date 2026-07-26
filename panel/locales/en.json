@@ -50,6 +50,7 @@
   "secret.filters": "Filters:",
   "secret.stars_only": "Stars only",
   "secret.pending_only": "Pending only",
+  "secret.can_loot_only": "Lootable only",
   "secret.level_from": "Level from",
   "secret.level_to": "to",
 

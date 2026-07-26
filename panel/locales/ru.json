@@ -50,6 +50,7 @@
   "secret.filters": "Фильтры:",
   "secret.stars_only": "Только звёзды",
   "secret.pending_only": "Только пендинг",
+  "secret.can_loot_only": "Только доступные",
   "secret.level_from": "Уровень от",
   "secret.level_to": "до",
 
