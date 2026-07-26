@@ -522,17 +522,82 @@ class Panel(tk.Tk):
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         # Plain native Text widget: state="normal" (never toggled to "disabled",
-        # which would block interactive selection). We add NO key bindings and NO
-        # custom clipboard handler — Tk's built-in Text defaults already give
-        # mouse selection and native Ctrl+C copy (the <<Copy>> virtual event).
-        # Previous attempts to reimplement read-only/copy regressed copying, so we
-        # leave the widget's well-tested defaults untouched. The log stays
-        # technically editable, but stray typed edits to a log are harmless.
+        # which would block interactive selection). The log stays technically
+        # editable, but stray typed edits to a log are harmless. Mouse selection
+        # comes for free from Tk's Text defaults; copy needs help, though — Tk's
+        # built-in <Control-c> binding matches only the Latin 'c' keysym, so with
+        # a non-Latin keyboard layout (e.g. Cyrillic) Ctrl+C never fires. We add
+        # layout-independent copy/select-all: explicit key bindings that cover the
+        # Cyrillic keysyms plus a right-click context menu (Copy / Select All).
         self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
+        self._install_log_copy(self._log)
+
+    # -- log copy support ---------------------------------------------------
+    def _install_log_copy(self, widget: tk.Text) -> None:
+        """Make the log copyable regardless of keyboard layout.
+
+        Tk's default Text bindings copy on the Latin ``<Control-c>`` only, so a
+        Cyrillic (or any non-Latin) layout leaves Ctrl+C dead. We add explicit
+        bindings for the Cyrillic keysyms and a right-click context menu, which
+        is fully layout-independent. Handlers return ``"break"`` so the default
+        binding (when it does fire) doesn't run twice.
+        """
+        # One dispatcher for all Ctrl+<letter> presses. It matches on the
+        # physical key (Windows VK code — layout-invariant: C=67, A=65) first,
+        # then falls back to the keysym so Latin and named Cyrillic keysyms work
+        # cross-platform. This is what makes copy work under a Cyrillic layout,
+        # where Tk's default <Control-c> (Latin-only) never fires.
+        widget.bind("<Control-KeyPress>", self._on_log_ctrl_key)
+
+        menu = tk.Menu(widget, tearoff=0)
+        menu.add_command(command=self._copy_log_selection)        # idx 0: Copy
+        menu.add_command(command=self._select_all_log)            # idx 1: Select All
+        self._log_menu = menu
+        self._retranslate_log_menu()
+        self._tr_hooks.append(self._retranslate_log_menu)
+        # Button-3 is right-click on Windows/X11; Button-2 covers macOS.
+        widget.bind("<Button-3>", self._popup_log_menu)
+        widget.bind("<Button-2>", self._popup_log_menu)
+
+    def _retranslate_log_menu(self) -> None:
+        self._log_menu.entryconfigure(0, label=self._t("log.copy"))
+        self._log_menu.entryconfigure(1, label=self._t("log.select_all"))
+
+    def _on_log_ctrl_key(self, event):
+        """Route Ctrl+C / Ctrl+A independently of keyboard layout."""
+        keysym = (event.keysym or "").lower()
+        # keycode: Windows VK code (physical key). Cyrillic_es/ef cover X11.
+        if event.keycode == 67 or keysym in ("c", "cyrillic_es"):
+            return self._copy_log_selection()
+        if event.keycode == 65 or keysym in ("a", "cyrillic_ef"):
+            return self._select_all_log()
+        return None                        # let other Ctrl+combos pass through
+
+    def _copy_log_selection(self, _event=None) -> str:
+        try:
+            sel = self._log.get("sel.first", "sel.last")
+        except tk.TclError:
+            return "break"                 # nothing selected
+        if sel:
+            self.clipboard_clear()
+            self.clipboard_append(sel)
+        return "break"
+
+    def _select_all_log(self, _event=None) -> str:
+        self._log.tag_remove("sel", "1.0", "end")
+        self._log.tag_add("sel", "1.0", "end-1c")
+        return "break"
+
+    def _popup_log_menu(self, event) -> str:
+        try:
+            self._log_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._log_menu.grab_release()
+        return "break"
 
     # -- logging ------------------------------------------------------------
     def _log_put(self, line: str) -> None:

@@ -60,6 +60,8 @@
   "rally.hint": "push.alliance.march.* → log + {path}",
 
   "log.frame": "Log (coordinates are clickable)",
+  "log.copy": "Copy",
+  "log.select_all": "Select All",
 
   "profile.label": "Profile:",
   "profile.new": "New",
