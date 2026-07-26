@@ -59,7 +59,13 @@ from . import profile as profilemod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
-sys.path.insert(0, TOOLS)
+# The production entrypoints live in tools/ and the shared library modules
+# (lua_client, lua_actions, coords, …) in tools/lib/ since the split. Both must
+# be importable by bare name — the same fix bot/__init__.py already carries.
+TOOLS_LIB = os.path.join(TOOLS, "lib")
+for _tp in (TOOLS, TOOLS_LIB):
+    if _tp not in sys.path:
+        sys.path.insert(0, _tp)
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
@@ -895,9 +901,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="start with the named profile active (created if missing), "
                              "overriding the saved last-active profile")
     args = parser.parse_args(argv)
+    # lua_daemon lives in tools/, the shared modules in tools/lib/ — look in both.
     for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
-        if not os.path.isfile(os.path.join(TOOLS, tool)):
-            print(f"tool not found: tools/{tool}", file=sys.stderr)
+        if not any(os.path.isfile(os.path.join(d, tool)) for d in (TOOLS, TOOLS_LIB)):
+            print(f"tool not found: {tool}", file=sys.stderr)
     Panel(active_profile=args.profile).mainloop()
     return 0
 
