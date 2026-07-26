@@ -755,7 +755,15 @@ class Panel(tk.Tk):
             return
         idx = self._mon_combo.current()
         script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
-        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"]
+        # NO --all-tcp. It sets the BPF to a bare "tcp", so on a busy adapter
+        # (this box sees ~280 tcp frames/s) scapy's Python callback can't keep up
+        # and npcap's ring overflows — ~98% of packets, the game's map frames
+        # among them, are dropped before decode. That is exactly why the capture
+        # works when run by hand (auto-detect → "tcp port 17935", filtered in the
+        # kernel, no flood) but found nothing when the panel forced --all-tcp.
+        # Let the capture auto-detect the game's live port; --all-tcp stays a
+        # manual last resort for when detection genuinely fails.
+        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script)]
         # Capture tick interval from the panel (falls back to the child's own
         # default if the field is blank or non-numeric).
         interval = self._interval_var.get().strip()
@@ -869,7 +877,7 @@ class Panel(tk.Tk):
         try:
             self._rally_proc = subprocess.Popen(
                 [WIN_PYTHON, "-u", os.path.join(TOOLS, "rally_monitor.py"),
-                 "--all-tcp", "--out", out],
+                 "--out", out],   # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
                 env=env, creationflags=NO_WINDOW)
