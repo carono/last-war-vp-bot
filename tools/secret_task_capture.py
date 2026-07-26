@@ -59,7 +59,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
 sys.path.insert(0, _HERE)
 
-import coords  # noqa: E402  (canonical @[X,Y|server] token — one format for every script)
+import coords  # noqa: E402  (canonical #server X:x Y:y token — one format for every script)
 import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402

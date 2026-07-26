@@ -19,8 +19,8 @@ is a directory under panel/profiles/<name>/ holding config.json plus its own ral
 secret_tasks_log.jsonl; the active profile is remembered in panel/settings.json (see panel/profile.py).
 Every change auto-saves, and switching a profile re-applies all of its settings.
 
-Any coordinate printed in the log — canonical `@[X,Y]` / `@[X,Y|server]` (tools/coords.py) or a
-free-form `X:1 Y:2` / `(1,2)` / `1/2` / `координаты 1 2` — becomes a clickable link that jumps
+Any coordinate printed in the log — canonical `X:1 Y:2` / `#server X:1 Y:2` (tools/coords.py) or a
+free-form `(1,2)` / `1/2` / `координаты 1 2` / legacy `@[1,2]` — becomes a clickable link that jumps
 there.
 
 Run under Windows Python (needs psutil/tkinter; the daemon needs the il2cpp deps of
@@ -811,11 +811,12 @@ class Panel(tk.Tk):
     def _task_passes(self, ln: str) -> bool:
         """Panel-side filters for a secret-task finding line. Non-task lines always pass.
 
-        A finding looks like `[*] lvl N  @[x,y|server] ... [PENDING]`. Filters are read live
+        A finding looks like `[*] lvl N  #server X:x Y:y ... [PENDING]`. Filters are read live
         from the checkboxes/entries, so toggling one affects subsequent lines immediately.
+        A line counts as a finding when it has both a `lvl N` and a parseable coordinate.
         """
         m = re.search(r"\blvl\s+(\d+)\b", ln)
-        if not m or "@[" not in ln:
+        if not m or not coords.parse(ln):
             return True  # header / progress / summary line — never filtered
         lvl = int(m.group(1))
         lo, hi = self._lvl_from_var.get().strip(), self._lvl_to_var.get().strip()
@@ -839,7 +840,7 @@ class Panel(tk.Tk):
                 ln = raw.rstrip()
                 if self._task_passes(ln):
                     self._log_put(f"[secret] {ln}")
-                    if "@[" in ln:      # an actual finding — record it for this profile
+                    if coords.parse(ln):   # a coordinate present -> an actual finding; record it
                         self._append_secret(ln)
         except Exception:
             pass
