@@ -252,6 +252,13 @@ def main() -> int:
     # user set. Splitting these apart is what made --interval look broken: the
     # file honoured it while the progress line stayed on its own hardcoded 10s.
     last_tick = time.time()
+    # The progress line repeats every tick even when nothing moved, which is
+    # pure noise in a log (and floods the panel). Print it only when the data
+    # it reports actually changed — the countdown is deliberately NOT part of
+    # the signature, since it changes every tick and would defeat the dedup.
+    # The checkpoint/transcript flushes below still run every tick regardless;
+    # only the console line is suppressed.
+    last_progress_sig = None
     try:
         while deadline is None or time.time() < deadline:
             time.sleep(1.0)
@@ -271,17 +278,25 @@ def main() -> int:
                     reported.clear()
             if time.time() - last_tick >= args.interval:
                 last_tick = time.time()
-                left = (f"…{int(deadline - time.time())}s left"
-                        if deadline is not None else "…running")
-                where = (f"server {index.current_server}"
-                         if index.current_server is not None
-                         else "server unknown yet")
-                print(f"{C_DIM}  {left} — {where}, "
-                      f"{index.blocks_seen} map response(s), "
-                      f"{index.tiles_seen} tile(s), "
-                      f"{len(index.current_tasks)} task(s), "
-                      f"{index.starred_awaiting} star(s) still on "
-                      f"timer{C_RESET}")
+                # Signature of the reported data, sans the countdown, so an
+                # unchanged tick stays silent.
+                sig = (index.current_server, index.blocks_seen,
+                       index.tiles_seen, len(index.current_tasks),
+                       index.starred_awaiting)
+                changed = sig != last_progress_sig
+                last_progress_sig = sig
+                if changed:
+                    left = (f"…{int(deadline - time.time())}s left"
+                            if deadline is not None else "…running")
+                    where = (f"server {index.current_server}"
+                             if index.current_server is not None
+                             else "server unknown yet")
+                    print(f"{C_DIM}  {left} — {where}, "
+                          f"{index.blocks_seen} map response(s), "
+                          f"{index.tiles_seen} tile(s), "
+                          f"{len(index.current_tasks)} task(s), "
+                          f"{index.starred_awaiting} star(s) still on "
+                          f"timer{C_RESET}")
                 if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
@@ -290,9 +305,12 @@ def main() -> int:
                     # the transcript is one tick behind at worst and the
                     # sniffer thread is never blocked on the disk.
                     index.transcript.flush()
-                    print(f"{C_DIM}  transcript: "
-                          f"{index.transcript.frames} frame(s), "
-                          f"{human_size(index.transcript.size())}{C_RESET}")
+                    # Only report transcript growth when the progress line
+                    # itself printed, so a quiet capture stays quiet.
+                    if changed:
+                        print(f"{C_DIM}  transcript: "
+                              f"{index.transcript.frames} frame(s), "
+                              f"{human_size(index.transcript.size())}{C_RESET}")
             for task in index.find(level=args.level, star_only=args.star,
                                    can_loot=args.can_loot, pending=args.pending):
                 tile = (task.server_id, task.uuid)
