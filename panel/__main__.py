@@ -71,7 +71,6 @@ import lua_actions      # noqa: E402
 import coords           # noqa: E402
 
 WIN_PYTHON = r"C:\Python312\python.exe"
-GAME_PORT = 17935
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
@@ -94,17 +93,29 @@ CAPTURE_OPTIONS = [
 ]
 
 
+_NON_GAME_PORTS = frozenset({80, 443})
+
+
 def _server_connection() -> str | None:
     """The game-server TCP endpoint, if a connection is currently ESTABLISHED.
 
     Purely supplementary detail. Its absence (VPN off, mid-reconnect, or the OS
     withholding foreign-owned sockets) must NOT be read as "game not running" —
     that is decided by :func:`game_status` from the process list alone.
+
+    The remote port is not stable across builds (:17935 historically, :10012 on
+    the current client), so the check is port-agnostic: find lastwar.exe's PIDs,
+    then return the first ESTABLISHED remote address that is not a web port.
     """
     try:
         import psutil
+        pids = {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
+                if (p.info["name"] or "").lower() == GAME_EXE.lower()}
+        if not pids:
+            return None
         for c in psutil.net_connections(kind="tcp"):
-            if c.raddr and c.raddr.port == GAME_PORT and c.status == "ESTABLISHED":
+            if (c.pid in pids and c.raddr and c.status == "ESTABLISHED"
+                    and c.raddr.port not in _NON_GAME_PORTS):
                 return f"{c.raddr.ip}:{c.raddr.port}"
     except Exception:
         return None
