@@ -24,7 +24,8 @@ import socket
 import sys
 import threading
 
-sys.path.insert(0, "tools/lib")
+# Absolute, not "tools/lib": resolve regardless of the launcher's cwd.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import lua_client  # HOST/PORT only — lightweight
 from lua_eval import LuaEval
 

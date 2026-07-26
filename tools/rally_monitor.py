@@ -56,8 +56,11 @@ import signal
 import sys
 import time
 
-sys.path.insert(0, "tools/lib")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Absolute, not "tools/lib": the shared modules resolve the same no matter what
+# cwd the launcher (panel, daemon, shell) started us in.
+sys.path.insert(0, os.path.join(_HERE, "lib"))
+sys.path.insert(0, _HERE)
 
 import coords  # noqa: E402  (canonical @[X,Y|server] token — clickable in the panel log)
 import lastwar_proto as proto  # noqa: E402

@@ -86,9 +86,11 @@ GAME_EXE = "LastWar.exe"
 # Capture options: a stable i18n key (combobox label) paired with its capture script.
 # The selected script is resolved by combobox index, so the visible label can be
 # translated freely without breaking the lookup.
+# `script` is a path relative to tools/ — secret_mission_capture.py lives under
+# tools/dev/, so the subdir must travel with the name or the launch FileNotFounds.
 CAPTURE_OPTIONS = [
     {"key": "capture.secret_tasks", "script": "secret_task_capture.py"},
-    {"key": "capture.ghost_op", "script": "secret_mission_capture.py"},
+    {"key": "capture.ghost_op", "script": os.path.join("dev", "secret_mission_capture.py")},
 ]
 
 
