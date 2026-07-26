@@ -46,6 +46,7 @@
   "secret.frame": "Секретные задания",
   "secret.monitoring": "Мониторинг",
   "secret.hint": "пассивный сниф — панорамируй карту",
+  "secret.interval": "Интервал, с",
   "secret.filters": "Фильтры:",
   "secret.stars_only": "Только звёзды",
   "secret.pending_only": "Только пендинг",

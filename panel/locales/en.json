@@ -46,6 +46,7 @@
   "secret.frame": "Secret tasks",
   "secret.monitoring": "Monitoring",
   "secret.hint": "passive sniff — pan the map",
+  "secret.interval": "Interval, s",
   "secret.filters": "Filters:",
   "secret.stars_only": "Stars only",
   "secret.pending_only": "Pending only",

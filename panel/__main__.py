@@ -350,6 +350,7 @@ class Panel(tk.Tk):
             "coord_y": self._y_var.get(),
             "coord_server": self._srv_var.get(),
             "monitor_kind": self._mon_combo.current(),
+            "monitor_interval": self._interval_var.get(),
             "filter_star": self._star_var.get(),
             "filter_pending": self._pending_var.get(),
             "filter_level_from": self._lvl_from_var.get(),
@@ -369,6 +370,7 @@ class Panel(tk.Tk):
             idx = s.get("monitor_kind", 0)
             if isinstance(idx, int) and 0 <= idx < len(CAPTURE_OPTIONS):
                 self._mon_combo.current(idx)
+            self._interval_var.set(str(s.get("monitor_interval", "15")))
             self._star_var.set(bool(s.get("filter_star", False)))
             self._pending_var.set(bool(s.get("filter_pending", False)))
             self._lvl_from_var.set(s.get("filter_level_from", ""))
@@ -386,6 +388,21 @@ class Panel(tk.Tk):
                     self._rally_var, self._mon_var):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
+        # The interval is a child-process argument, not a live panel-side filter,
+        # so a change only takes effect on the next capture launch. Bounce a
+        # running monitor so a new value applies at once instead of on the next
+        # manual toggle. Saved too (via _save_settings inside _restart_monitor).
+        self._interval_var.trace_add("write", lambda *a: self._on_interval_change())
+
+    def _on_interval_change(self) -> None:
+        self._save_settings()
+        if not self._loading and self._mon_proc is not None:
+            self._restart_monitor()
+
+    def _restart_monitor(self) -> None:
+        """Bounce the secret capture so a changed --interval/server seed applies."""
+        self._stop_monitor()
+        self._start_monitor()
 
     def _save_settings(self) -> None:
         if getattr(self, "_loading", False):
@@ -491,6 +508,13 @@ class Panel(tk.Tk):
         self._mon_var = tk.BooleanVar(value=False)
         self._tr(ttk.Checkbutton(row1, variable=self._mon_var, command=self._toggle_monitor),
                  "secret.monitoring").pack(side="left")
+        # Capture tick interval (the child's --interval): how often the progress
+        # line prints and the checkpoint flushes. A Spinbox so it is bounded and
+        # obviously numeric; a change while the monitor runs restarts it (below).
+        self._tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
+        self._interval_var = tk.StringVar(value="15")
+        ttk.Spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
+                    ).pack(side="left")
         self._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
         # filters (applied live, panel-side, to task findings only)
         row2 = ttk.Frame(sec)
@@ -732,6 +756,11 @@ class Panel(tk.Tk):
         idx = self._mon_combo.current()
         script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
         cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"]
+        # Capture tick interval from the panel (falls back to the child's own
+        # default if the field is blank or non-numeric).
+        interval = self._interval_var.get().strip()
+        if interval.isdigit() and int(interval) > 0:
+            cmd += ["--interval", interval]
         # Seed the on-screen server from the running game via the warm Lua daemon,
         # so the capture prints "server N" from its first line instead of sitting
         # on "server unknown yet" until the map is scrolled (the passive capture
@@ -741,7 +770,7 @@ class Panel(tk.Tk):
         if lua_client.is_running():
             srv = self._current_server()
             if srv and str(srv).isdigit():
-                cmd += ["--server", str(srv)]
+                cmd += ["--seed-server", str(srv)]
                 self._log_put(f"[secret] сервер из игры (Lua): {srv}")
         # The child is Windows Python whose piped stdout defaults to the ANSI code
         # page (cp1251/cp1252), so its em-dash / ellipsis progress glyphs arrived
