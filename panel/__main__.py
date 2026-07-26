@@ -732,13 +732,28 @@ class Panel(tk.Tk):
         idx = self._mon_combo.current()
         script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
         cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script), "--all-tcp"]
+        # Seed the on-screen server from the running game via the warm Lua daemon,
+        # so the capture prints "server N" from its first line instead of sitting
+        # on "server unknown yet" until the map is scrolled (the passive capture
+        # only learns the server from a map response, which arrives only while the
+        # map moves). VPN-independent; the capture's own weight-of-traffic election
+        # still overrides this seed the moment real map data disagrees.
+        if lua_client.is_running():
+            srv = self._current_server()
+            if srv and str(srv).isdigit():
+                cmd += ["--server", str(srv)]
+                self._log_put(f"[secret] сервер из игры (Lua): {srv}")
+        # The child is Windows Python whose piped stdout defaults to the ANSI code
+        # page (cp1251/cp1252), so its em-dash / ellipsis progress glyphs arrived
+        # here as � under our utf-8 decode. Force the child to emit utf-8 to match.
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
         self._log_put(f"[secret] запуск захвата: {script} …")
         try:
             self._mon_proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                creationflags=NO_WINDOW)
+                env=env, creationflags=NO_WINDOW)
         except Exception as exc:
             self._log_put(f"[secret] ошибка запуска: {exc}")
             self._mon_proc = None
@@ -750,16 +765,6 @@ class Panel(tk.Tk):
         self._log_put(f"[secret] захват запущен (pid {self._mon_proc.pid}); "
                       f"вывод идёт в лог — двигай карту, иначе трафика не будет")
         threading.Thread(target=self._mon_reader, args=(self._mon_proc,), daemon=True).start()
-        # The capture can only name the on-screen server once map traffic arrives,
-        # and never over the game's TCP socket when the VPN is off. Read it straight
-        # from the running game via the warm Lua daemon so the monitor is never
-        # "blind" about which server it is watching.
-        threading.Thread(target=self._log_monitor_server, daemon=True).start()
-
-    def _log_monitor_server(self) -> None:
-        """Report the current server from the game via Lua (VPN-independent)."""
-        srv = self._current_server()
-        self._log_put(f"[secret] текущий сервер (Lua): {srv}")
 
     def _task_passes(self, ln: str) -> bool:
         """Panel-side filters for a secret-task finding line. Non-task lines always pass.
@@ -831,13 +836,14 @@ class Panel(tk.Tk):
         except Exception:
             pass
         self._log_put(f"[rally] старт мониторинга ралли → {rel}")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")   # utf-8 to match our decode
         try:
             self._rally_proc = subprocess.Popen(
                 [WIN_PYTHON, "-u", os.path.join(TOOLS, "rally_monitor.py"),
                  "--all-tcp", "--out", out],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                creationflags=NO_WINDOW)
+                env=env, creationflags=NO_WINDOW)
         except Exception as exc:
             self._log_put(f"[rally] ошибка запуска: {exc}")
             self._rally_proc = None

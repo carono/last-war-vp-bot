@@ -540,6 +540,13 @@ def add_capture_arguments(ap: argparse.ArgumentParser,
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just the game's — the "
                          "catch-all if port auto-detection ever fails")
+    ap.add_argument("--server", type=int, default=None, metavar="N",
+                    help="seed the on-screen server id (from the running game, "
+                         "e.g. read live via the Lua daemon). Without it the "
+                         "server stays 'unknown yet' until the map is scrolled "
+                         "and the first map response elects one; the weight-of-"
+                         "traffic election still overrides this the moment real "
+                         "map data disagrees.")
 
 
 def start_capture(index: MapIndex, args) -> tuple:
@@ -590,6 +597,14 @@ def start_capture(index: MapIndex, args) -> tuple:
             print(f"{C_ERR}cannot write the transcript to {args.dump}: "
                   f"{exc}{C_RESET}", file=sys.stderr)
             raise SystemExit(1)
+    # Seed the on-screen server before the sniffer threads run, so a scan that
+    # has not panned the map yet still attributes tiles and prints "server N"
+    # instead of "server unknown yet". This is only a starting value: the first
+    # real map response re-elects by weight of traffic (see MapIndex._elect),
+    # so a seed that is stale the moment the player is actually elsewhere is
+    # corrected as soon as the map moves.
+    if getattr(args, "server", None):
+        index.current_server = args.server
     stop = threading.Event()
     for iface in ([args.iface] if args.iface else [None]):
         threading.Thread(target=sniff_forever, args=(index, iface, bpf, stop),
