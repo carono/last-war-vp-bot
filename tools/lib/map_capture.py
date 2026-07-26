@@ -34,6 +34,47 @@ import lastwar_proto as proto  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_RESET, LiveDecoder  # noqa: E402
 
 GAME_PORT = 17935
+GAME_PROCESS = "lastwar.exe"
+# Outbound web ports the client also opens (translation is TLS on :443,
+# see docs/research/chat.md) and which are never the game stream. Dropped from
+# auto-detection so a capture narrows to the game connection, not the noise.
+NON_GAME_PORTS = frozenset({80, 443})
+
+
+def detect_game_ports() -> set:
+    """The remote TCP port(s) the game is currently connected out on.
+
+    The endpoint IP is dialled without DNS and the port is not stable across
+    builds — it was :17935 historically and is :10012 on the current client —
+    so a hard-coded port is a standing way for a capture to sniff the right
+    interface and hear nothing while looking exactly like "nobody was panning".
+    Read the live port straight off the game's own ESTABLISHED connections
+    instead: the same TCP table Task Manager shows, no handle opened. Falls back
+    to an empty set (caller then uses GAME_PORT) when the process is gone or
+    psutil is not installed.
+
+    Web ports (see NON_GAME_PORTS) are excluded — the client keeps HTTP/TLS
+    connections open for translation and assets that are not the game stream.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return set()
+    try:
+        pids = {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
+                if (p.info["name"] or "").lower() == GAME_PROCESS}
+        if not pids:
+            return set()
+        ports = set()
+        for c in psutil.net_connections(kind="tcp"):
+            if (c.pid in pids and c.raddr and c.status == "ESTABLISHED"
+                    and c.raddr.port not in NON_GAME_PORTS):
+                ports.add(c.raddr.port)
+        return ports
+    except Exception:
+        # psutil raises AccessDenied / OSError on some Windows setups; a failed
+        # probe must degrade to the fallback port, not take down the capture.
+        return set()
 
 
 def check_platform() -> None:
@@ -493,9 +534,12 @@ def add_capture_arguments(ap: argparse.ArgumentParser,
                              "finding out what else the client and server say. "
                              "Map traffic is ~3/4 of the bytes; filter it out "
                              "with jq afterwards")
+    ap.add_argument("--port", type=int, default=None, metavar="N",
+                    help="capture this TCP port instead of auto-detecting the "
+                         "game's live port from its own connections")
     ap.add_argument("--all-tcp", action="store_true",
-                    help="capture every TCP port, not just %d — use if the "
-                         "game ever moves off it" % GAME_PORT)
+                    help="capture every TCP port, not just the game's — the "
+                         "catch-all if port auto-detection ever fails")
 
 
 def start_capture(index: MapIndex, args) -> tuple:
@@ -517,9 +561,26 @@ def start_capture(index: MapIndex, args) -> tuple:
         raise SystemExit(0)
 
     # The endpoint IP is not stable and is dialled without DNS (protocol.md
-    # §1), so the port is the only durable narrowing available; --all-tcp is
-    # the escape hatch if even that changes.
-    bpf = "tcp" if args.all_tcp else f"tcp port {GAME_PORT}"
+    # §1), so the port is the only durable narrowing available — but the port
+    # itself moves between builds (:17935 → :10012), so it is read live off the
+    # running game rather than hard-coded. Precedence: an explicit --port wins,
+    # then --all-tcp, then auto-detection, then the historical GAME_PORT as a
+    # last resort (with a warning, since a silent capture on the wrong port is
+    # this tool's worst failure mode).
+    if getattr(args, "port", None):
+        bpf = f"tcp port {args.port}"
+    elif args.all_tcp:
+        bpf = "tcp"
+    else:
+        ports = detect_game_ports()
+        if ports:
+            bpf = " or ".join(f"tcp port {p}" for p in sorted(ports))
+        else:
+            bpf = f"tcp port {GAME_PORT}"
+            print(f"{C_DIM}could not auto-detect the game's port "
+                  f"(is {GAME_PROCESS} running, and psutil installed?) — "
+                  f"falling back to :{GAME_PORT}. Pass --port N or --all-tcp "
+                  f"if the capture stays silent.{C_RESET}", file=sys.stderr)
     if getattr(args, "dump", None):
         try:
             index.transcript = FrameLog(args.dump)
