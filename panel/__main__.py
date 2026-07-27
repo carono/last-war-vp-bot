@@ -851,12 +851,18 @@ class Panel(tk.Tk):
             return False
         if self._star_var.get() and not re.match(r"\s*\*", ln):
             return False
-        if self._pending_var.get() and "PENDING" not in ln:
-            return False
-        # A raidable tile is tagged LOOTABLE by the capture (dispatch done, not
-        # expired, slot free). Same panel-side substring test as PENDING above.
-        if self._can_loot_var.get() and "LOOTABLE" not in ln:
-            return False
+        # PENDING and LOOTABLE are two values of one dimension — raid readiness —
+        # and the capture tags a line with exactly one of them (a tile walks
+        # PENDING -> LOOTABLE, never both at once). So enabling both checkboxes
+        # reads as "either", matching `filter_tasks` in lastwar_proto: ANDing the
+        # two substrings could never match and the panel simply went blank.
+        want_pending, want_loot = self._pending_var.get(), self._can_loot_var.get()
+        if want_pending or want_loot:
+            tags = ("PENDING",) if want_pending and not want_loot else \
+                   ("LOOTABLE",) if want_loot and not want_pending else \
+                   ("PENDING", "LOOTABLE")
+            if not any(t in ln for t in tags):
+                return False
         return True
 
     def _mon_reader(self, proc) -> None:
