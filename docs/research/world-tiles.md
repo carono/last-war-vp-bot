@@ -140,9 +140,33 @@ GoToUtil.GotoPos(CS.UnityEngine.Vector3(X*2+1, 0, Y*2+1), 105, nil, nil, serverI
 ```
 
 Verified live: `WorldScene.CurTilePos` moved exactly to (X, Y) with `UIManager` stack empty
-(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`). `tools/goto_coord.py <X> <Y> [serverId]`
-wraps it. (`GoToUtil.MoveToWorldPoint(SceneUtils.TilePosToIndex(Vector2Int(X,Y)))` is an equivalent
-pid-based jump; `GotoPos` is what the magnifier's coordinate search actually uses.)
+(`(588,522)→(600,550)`, `(600,550)→(650,480)`, `→(0,0)`).
+
+### The real method — move-to-tile / in-engine click, NOT the camera crutch (task #1060)
+
+`GotoPos` is a **camera-only tween** (the magnifier's internal call). It moves the view but is
+not the client's own move-to-tile, so after it a following *map tap* can fail to land / under-send.
+The real coordinate navigation is by tile `pointId` (`pid = SceneUtils.TilePosToIndex(Vector2Int(X,Y))`),
+and it comes in two flavours — both verified live this session:
+
+```lua
+local pid = SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(X, Y))
+GoToUtil.MoveToWorldPoint(pid)              -- centre the camera on (X,Y); the game's own move-to-tile
+GoToUtil.OnClickWorldPoint(pid, type, uuid) -- navigate AND select — exactly what a real tap does
+```
+
+`OnClickWorldPoint(pid, type, uuid)` is what a real tap on the map triggers: it moves to the tile
+and opens its `UIWorldPoint` popup with the detail loaded — proven live (`pid=492577 type=2` →
+`stack=1 top=UIWorldPoint`, tile (576,492)). Using it **replaces the "camera-jump + pydirectinput
+pixel tap" crutch**: the click happens inside the engine, so there is no tap to miss and nothing
+under-sent. `type` = `MarchTargetType`, `uuid` = the tile's server uuid (both from its
+world.get.block data; own resource/base tiles accept `uuid=0`, monsters need the real server uuid —
+Finding 17). When you only have coordinates, `MoveToWorldPoint` centres the view first, then read
+the tile, then `OnClickWorldPoint` with its real `(type, uuid)`.
+
+`tools/goto_coord.py <X> <Y>` now uses `MoveToWorldPoint` (real); `--click <type> <uuid>` uses
+`OnClickWorldPoint`; `--gotopos [serverId]` keeps the legacy camera pan. Recipes live in
+`tools/lib/lua_actions.py` (`move_to_coord`, `click_world_point`).
 
 **Cross-server (different `serverId`) — camera moves but world data does NOT load.** On the home
 server the jump loads the map fully (jumping to (563,508) on server 935 → 93 world clones appear:

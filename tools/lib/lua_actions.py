@@ -36,6 +36,43 @@ def goto_pos(x: int, y: int, server: int) -> str:
             'CS.UnityEngine.Debug.LogError("ACT goto=%d,%d,%d")' % (x, y, server, x, y, server))
 
 
+def _pid(x: int, y: int) -> str:
+    """Lua expression: tile index (pointId) for tile (x, y)."""
+    return 'SceneUtils.TilePosToIndex(CS.UnityEngine.Vector2Int(%d,%d))' % (x, y)
+
+
+def move_to_coord(x: int, y: int) -> str:
+    """In-server move to tile (x, y) by its pointId — the game's OWN move-to-tile.
+
+    This is the real coordinate jump, not the `GotoPos` camera-only tween (see
+    `goto_pos`). `GoToUtil.MoveToWorldPoint(pid)` is the path the client itself uses
+    to centre on a tile, so it leaves the world/input state consistent — unlike a raw
+    camera pan, after which a following map tap can fail to land. Verified live: camera
+    centres on (x, y), UIManager stack stays empty. No `serverId` arg — same-server only.
+    """
+    return ('pcall(function() GoToUtil.MoveToWorldPoint(%s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT moveto=%d,%d")' % (_pid(x, y), x, y))
+
+
+def click_world_point(x: int, y: int, ptype: int = 0, uuid: int = 0) -> str:
+    """Perform the in-engine map CLICK on tile (x, y) — navigate AND select in one call.
+
+    `GoToUtil.OnClickWorldPoint(pid, type, uuid)` is exactly what a real tap on the map
+    triggers: it moves to the tile and opens its `UIWorldPoint` interaction popup with the
+    detail loaded. Using it replaces the fragile "camera-jump + pydirectinput pixel tap"
+    crutch (whose tap "doesn't land" / under-sends) — the click happens inside the game, so
+    there is nothing to miss. Verified live: reopens UIWorldPoint for the target tile.
+
+    `ptype` = MarchTargetType and `uuid` = the tile's server uuid, both from the tile's
+    world.get.block data. Monsters need the real server uuid; own resource/base tiles
+    accept uuid=0. When you only have coordinates (no tile data), prefer `move_to_coord`
+    to centre the view, then read the tile, then click with its real (type, uuid).
+    """
+    return ('pcall(function() GoToUtil.OnClickWorldPoint(%s,%d,%s) end) '
+            'CS.UnityEngine.Debug.LogError("ACT click=%d,%d type=%d")'
+            % (_pid(x, y), ptype, uuid, x, y, ptype))
+
+
 def cross_jump(server: int, home: int = HOME_SERVER, x=None, y=None) -> str:
     """Enter a FOREIGN server's world, fully loaded, with no teleport UI.
 
