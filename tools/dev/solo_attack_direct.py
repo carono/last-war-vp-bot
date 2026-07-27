@@ -12,15 +12,17 @@ no CloseSelf, no HUD risk at all:
 Verified live: IsHaveMarchInWorld() false->true, GetOwnerMarches() 0->1, nothing on screen touched.
 The uuid must still resolve to a monster that exists on the server (same monster, alive).
 
-    C:\Python312\python.exe tools\solo_attack_direct.py <pid> <uuid> [serverId] [formationUuid]
-    # defaults reproduce the confirmed live shot:
-    C:\Python312\python.exe tools\solo_attack_direct.py 507564 1397117506875008800 935
+    python tools/dev/solo_attack_direct.py <pid> <uuid> [serverId] [formationUuid]
+
+serverId / formationUuid default to env LW_DEFAULT_SERVER / LW_DEFAULT_FORMATION
+(see .env.example); pid and uuid are required (captured from the map earlier).
 """
 import sys, time
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_formation, default_server
 
-DEFAULT_FORMATION = "1156814234542394473"
+DEFAULT_FORMATION = default_formation()
 
 
 def one(lines, needle):
@@ -29,10 +31,16 @@ def one(lines, needle):
 
 def main():
     a = sys.argv[1:]
-    pid = a[0] if len(a) > 0 else "507564"
-    uuid = a[1] if len(a) > 1 else "1397117506875008800"
-    srv = a[2] if len(a) > 2 else "935"
+    if len(a) < 2:
+        sys.exit("usage: solo_attack_direct.py <pid> <uuid> [serverId] [formationUuid]")
+    pid = a[0]
+    uuid = a[1]
+    srv = a[2] if len(a) > 2 else default_server()
     formation = a[3] if len(a) > 3 else DEFAULT_FORMATION
+    if not srv:
+        sys.exit("no serverId: pass it on the CLI or set LW_DEFAULT_SERVER (.env)")
+    if not formation:
+        sys.exit("no formationUuid: pass it on the CLI or set LW_DEFAULT_FORMATION (.env)")
 
     ev = get_evaluator()
 

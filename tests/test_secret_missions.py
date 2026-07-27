@@ -166,17 +166,17 @@ def _push(kind, **info):
 def test_ghost_alliance_push_decode():
     """add/change decode a mission from `info`; remove carries just the uuid."""
     add = _push("add", targetServer=992, pointId=16284, cfgId=50307,
-                ownerId="1587394824000972", uuid=1397117489703528332,
+                ownerId="1000000000000002", uuid=1397117489703528332,
                 memberList=[{}], teamStartTime=1784801597335)
     kind, m = proto.ghost_recon_alliance_push(add)
     assert kind == "add"
     assert m.uuid == 1397117489703528332 and m.target_server == 992
     assert m.cfg_id == 50307 and m.family == "5"
     assert m.x == 284 and m.y == 16          # pointId 16284 -> y*1000+x
-    assert m.member_count == 1 and m.owner_id == "1587394824000972"
+    assert m.member_count == 1 and m.owner_id == "1000000000000002"
 
     change = _push("change", targetServer=992, pointId=16284, cfgId=50307,
-                   ownerId="1587394824000972", uuid=1397117489703528332,
+                   ownerId="1000000000000002", uuid=1397117489703528332,
                    memberList=[{}, {}, {}])
     kind, m = proto.ghost_recon_alliance_push(change)
     assert kind == "change" and m.member_count == 3
@@ -196,8 +196,8 @@ def test_ghost_alliance_push_decode():
 
 def test_share_decode_push_add():
     payload = {"missionCfgId": 60000701, "missionUuid": 1394584906709054020,
-               "missionCurrentServerId": 946, "shareUid": "1522777203000972",
-               "shareAllianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+               "missionCurrentServerId": 946, "shareUid": "1000000000000001",
+               "shareAllianceId": "00000000000000000000000000000000",
                "missionPlayerServerId": 946}
     missions = list(proto.share_missions("push.alliance.share.mission.add",
                                          payload))

@@ -22,19 +22,24 @@ reader. See docs/research/attack-and-scout.md.
 
 Usage::
 
-    C:\Python312\python.exe tools\attack.py attack <pid> <uuid> [serverId] [formationUuid]
-    C:\Python312\python.exe tools\attack.py scout  <pid> <uuid> [serverId] [formationUuid]
-    C:\Python312\python.exe tools\attack.py scout-report [--open]
+    python tools/attack.py attack <pid> <uuid> [serverId] [formationUuid]
+    python tools/attack.py scout  <pid> <uuid> [serverId] [formationUuid]
+    python tools/attack.py scout-report [--open]
+
+serverId / formationUuid default to env LW_DEFAULT_SERVER / LW_DEFAULT_FORMATION
+(see .env.example); the game VM is the authoritative source for the live squad.
 """
 import sys
 import time
 
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_formation, default_server
 
-# First loaded squad; overridable on the CLI. Same default as solo_attack_direct.py.
-DEFAULT_FORMATION = "1156814234542394473"
-DEFAULT_SERVER = "935"
+# Account-specific defaults come from the environment (empty unless configured);
+# both are overridable on the CLI.
+DEFAULT_FORMATION = default_formation()
+DEFAULT_SERVER = default_server()
 
 TARGET_TYPES = {"attack": "ATTACK_CITY", "scout": "SCOUT_CITY"}
 
@@ -114,6 +119,12 @@ def main():
     pid, uuid = a[1], a[2]
     srv = a[3] if len(a) > 3 else DEFAULT_SERVER
     formation = a[4] if len(a) > 4 else DEFAULT_FORMATION
+    if not srv:
+        print("no serverId: pass it on the CLI or set LW_DEFAULT_SERVER (.env)")
+        sys.exit(2)
+    if not formation:
+        print("no formationUuid: pass it on the CLI or set LW_DEFAULT_FORMATION (.env)")
+        sys.exit(2)
     launch(cmd, pid, uuid, srv, formation)
 
 

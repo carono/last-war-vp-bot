@@ -1,6 +1,6 @@
 # Sniff skill
 When asked to capture/sniff/collect traffic:
-1. IMMEDIATELY run without thinking: /mnt/c/Python312/python.exe "/mnt/p/projects abandoned/carono/last-war-vp-bot/tools/secret_task_capture.py" --seconds 60
+1. IMMEDIATELY run without thinking (from the repo root, with the Windows Python that has scapy/npcap): /mnt/c/Python312/python.exe tools/secret_task_capture.py --seconds 60
 2. Wait for output
 3. Analyze results
 

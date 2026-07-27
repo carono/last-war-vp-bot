@@ -2,7 +2,8 @@
 import io, os, sys, time
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
-REPO = r'P:\projects abandoned\carono\last-war-vp-bot'
+# Repo root derived from this file's location (tools/archive/…) — no hardcoded machine path.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TEMPLATES = os.path.join(REPO, 'src', 'lastwar_bot', 'game', 'templates')
 RESULTS   = os.path.join(REPO, 'results')
 GAME_TITLE = "Last War-Survival Game"

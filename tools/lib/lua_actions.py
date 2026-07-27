@@ -9,7 +9,11 @@ docs/skills/sniff.md §7.
 """
 from __future__ import annotations
 
-HOME_SERVER = 935
+import os
+
+# Home/world server id fallback, from env LW_DEFAULT_SERVER (0 = unknown; the live
+# curServerId is preferred at call time, this is only used when it is missing).
+HOME_SERVER = int(os.environ.get("LW_DEFAULT_SERVER") or 0)
 
 
 def scene_world() -> str:
@@ -23,7 +27,7 @@ def scene_city() -> str:
 
 
 def current_server() -> str:
-    """Log `ACT curserver=<id>` — the viewed world server (home = 935)."""
+    """Log `ACT curserver=<id>` — the viewed world server (falls back to HOME_SERVER)."""
     return ('CS.UnityEngine.Debug.LogError("ACT curserver="..tostring('
             '(DataCenter.WorldFavoDataManager and DataCenter.WorldFavoDataManager.curServerId) or '
             '(DataCenter.WarFlagDataManager and DataCenter.WarFlagDataManager.curServerId) or %d))'

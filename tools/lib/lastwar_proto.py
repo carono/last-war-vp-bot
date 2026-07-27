@@ -773,8 +773,8 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 #   * `push.alliance.share.mission.add` — the live broadcast, one mission per
 #     frame. Confirmed on the wire (`results/rob_trap.jsonl`):
 #         {missionCfgId: 60000701, missionUuid: 1394584906709054020,
-#          missionCurrentServerId: 946, shareUid: "1522777203000972",
-#          shareAllianceId: "3d4b...", missionPlayerServerId: 946}
+#          missionCurrentServerId: 946, shareUid: "<uid>",
+#          shareAllianceId: "<allianceId>", missionPlayerServerId: 946}
 #     `missionCfgId 60000701` is family "6000" level 7 — a *starred* mission,
 #     which is exactly what a player bothers to share.
 #   * `get.alliance.share.mission.list` → `shareMissionArr[]` — the snapshot the

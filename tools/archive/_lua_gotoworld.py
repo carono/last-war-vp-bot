@@ -8,14 +8,17 @@ This logs state, screenshots BEFORE, runs the chosen chunk, screenshots AFTER,
 and logs state again. Read output markers from the Unity Player.log.
 """
 from __future__ import annotations
-import sys, time, ctypes as C
+import os, sys, time, ctypes as C
 sys.path.insert(0, "tools/lib")
 import xlua_route as XR
 import il2cpp_dump as D
 import il2cpp_probe as P
 import mss, win32gui, win32process, win32con, win32api
 
-RES = r"P:\projects abandoned\carono\last-war-vp-bot\results"
+# Results dir under the repo root (tools/archive/… → repo) — no hardcoded machine path.
+RES = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "results")
 GET_LUA = 0x129eaa8e8      # GameEntry.get_Lua (static) -> XLuaManager
 SAFEDO = 0x13d0e4830       # XLuaManager.SafeDoString(string)
 

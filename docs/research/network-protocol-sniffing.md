@@ -116,7 +116,7 @@ protocol path is not worth it for a bot.
    **Android emulator build** in a throwaway/farm account (the emulator route is
    explicitly the "macros & farming" route per the PC-client comparisons), where
    Frida-on-Android + `frida-gadget` + Il2CppDumper is a well-trodden path and a
-   ban costs nothing. Never against Carono's main account on server #972.
+   ban costs nothing. Never against the operator's own main account.
 
 ---
 

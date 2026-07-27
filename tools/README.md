@@ -10,7 +10,7 @@ Background and the go/no-go reasoning live in
 > it. **Active** work (mitmproxy MITM + CA install, `unity_ssl_unpin.js` /
 > Frida) is exactly what ACE detects → crash/ban. Run active steps **only on an
 > Android emulator build with a throwaway account**, never on the official
-> client or Carono's main account (server #972).
+> client or the operator's own main account.
 
 ## Layout
 
@@ -344,7 +344,7 @@ tier numbers 1-5 as well as names, which is what the wire actually says.
 
 ### 0. Python env (WSL, one-time)
 ```bash
-cd "/mnt/p/projects abandoned/carono/last-war-vp-bot"
+cd /path/to/last-war-vp-bot   # the repo root
 python3 -m venv .venv
 .venv/bin/pip install mitmproxy blackboxprotobuf pyshark scapy
 # pyshark also needs tshark:  sudo apt install -y tshark

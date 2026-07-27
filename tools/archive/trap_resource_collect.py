@@ -22,7 +22,7 @@ After trapping gather.collect.reward, inject it:
     /mnt/c/Python312/python.exe tools/steal_via_socket.py \\
         --command gather.collect.reward \\
         --uuid-arr <uuid1,uuid2,...> \\
-        --sniff-and-inject --force --server-id 935
+        --sniff-and-inject --force --server-id <serverId>
 """
 
 from __future__ import annotations

@@ -667,7 +667,7 @@ The fix skips the dispatch UI completely — a direct server-send primitive:
 ```lua
 -- selfMarchUuid = the ARMY FORMATION uuid (from ArmyFormationDataManager.ArmyFormationList)
 MarchUtil.TryStartMarch(
-  formationUuid,                    -- selfMarchUuid  (e.g. 1156814234542394473)
+  formationUuid,                    -- selfMarchUuid  (e.g. <formationUuid>)
   MarchTargetType.ATTACK_MONSTER,   -- theMarchTargetType  (=1)
   curStamina,                       -- e.g. 10
   true,                             -- isFormation
@@ -683,7 +683,7 @@ Signature (via `debug.getlocal`): `TryStartMarch(selfMarchUuid, theMarchTargetTy
 isFormation, targetUuid, pointId, backHome, needSoldier, destroyTimeIndex, targetServerId)`.
 
 **Proven live, no physical clicks at all:** monster selected via `TouchObjectEventTrigger:OnClick()`
-(Finding 10), then `TryStartMarch(1156814234542394473, 1, 10, true, uuid, pid, true, 3123, 0, 935)`
+(Finding 10), then `TryStartMarch(<formationUuid>, 1, 10, true, uuid, pid, true, 3123, 0, 935)`
 → `ok=true`, **`IsHaveMarchInWorld()==true`, `GetOwnerMarches()==1`**, and ~50 s later the march
 returned (`true→false`) with the monster killed. This is the complete end-to-end no-click solo
 attack — `TouchObjectEventTrigger:OnClick()` (select) + `MarchUtil.TryStartMarch(...)` (launch),
@@ -774,7 +774,7 @@ Ctrl:OnCreateClick()
 ```
 
 **Exact `SendCreateMarchMessage` args** (args-logger on the wrapper, from a real «Марш»):
-`n=9 [formationUuid=1156814234542394473 | targetType=1 | targetPoint | targetUuid | timeIndex=1 |
+`n=9 [formationUuid=<formationUuid> | targetType=1 | targetPoint | targetUuid | timeIndex=1 |
 autoBackHome=1 | needSoldier=false | targetServerId=935 | destroyTimeIndex=nil]`. Note
 **`needSoldier=false`** (boolean, not a soldier count) and **`destroyTimeIndex=nil`** — the values
 earlier guesses got wrong.
@@ -823,7 +823,7 @@ the send fns as **module upvalues** captured at load time (seen only as anonymou
 frames), which is why Findings 11–13's table-level replays never intercepted it.
 
 **Reproduction — all three confirm entries no-op via Lua, AND so does the physical button once energy is spent.**
-With the dispatch opened by the *real* `OnClickStartMarch` (warm formation, `selectFormationUuid=1156814234542394473`,
+With the dispatch opened by the *real* `OnClickStartMarch` (warm formation, `selectFormationUuid=<formationUuid>`,
 `targetType=1`, `targetPoint` set) I called, in turn: `Ctrl:OnAtkClick()`, the exact selected
 **cell** `FormationSelectListCellNewV2:OnAtkClick()` (found via `View.formationList`, 4 cells, matched the
 selected uuid), and `Ctrl:OnCreateClick()`. **Every one returned `ok=true` but created no march**

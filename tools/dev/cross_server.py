@@ -27,8 +27,10 @@ Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServ
 import sys, time
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_server
 
-HOME_SERVER = "935"
+# Home server id, from env LW_DEFAULT_SERVER (see .env.example); empty unless configured.
+HOME_SERVER = default_server()
 
 
 def one(lines, needle):

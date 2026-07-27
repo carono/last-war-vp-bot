@@ -14,13 +14,15 @@ from the nearest mine clone's world position and send on the main thread:
 Verified live: IsHaveMarchInWorld() false->true, GetOwnerMarches() 0->1, HUD untouched.
 Run in World with a mine in view (pan with GoToUtil.MoveToWorldPoint if needed).
 
-    C:\Python312\python.exe tools\gather_direct.py
+    python tools/dev/gather_direct.py
 """
 import sys, time
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_formation, default_server
 
-DEFAULT_FORMATION = "1156814234542394473"
+# Fallback only — the loaded squad is read live off ArmyFormationDataManager below.
+DEFAULT_FORMATION = default_formation()
 COLLECT = "MarchTargetType.COLLECT"  # = 2
 
 
@@ -58,14 +60,14 @@ for i=0,arr.Length-1 do local mb=arr[i] if mb then local ok,go=pcall(function() 
   if ok and go and string.find(go.name,'CollectResource') and string.find(go.name,'Clone') then mine=go break end end end
 if not mine then CS.UnityEngine.Debug.LogError("M NO_MINE") return end
 local pid=SceneUtils.WorldToTileIndex(mine.transform.position)
-local srv=935 pcall(function() srv=DataCenter.WorldMarchDataManager.serverId or 935 end)
+local srv=0 pcall(function() srv=DataCenter.WorldMarchDataManager.serverId or 0 end)
 CS.UnityEngine.Debug.LogError("M mine="..mine.name.." pid="..tostring(pid).." srv="..tostring(srv))''', "M", 1.4), "M ")
     print(d, flush=True)
     if "NO_MINE" in d:
         print("no mine in view (pan the camera first)", flush=True); ev.close(); return
     pid = d.split("pid=")[1].split()[0]
     srv = d.split("srv=")[1].split()[0]
-    srv = srv if srv not in ("nil", "") else "935"
+    srv = srv if srv not in ("nil", "0", "") else default_server()
 
     # main-thread send (uuid=0 for a resource tile), no UI touch at all
     run((r'''TimerManager:GetInstance():DelayInvoke(function()

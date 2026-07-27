@@ -15,13 +15,15 @@ read the pid, then closes it cleanly and sends:
 Verified live: IsHaveMarchInWorld() false->true, GetOwnerMarches() 0->1, HUD intact.
 For a fully-no-click variant (no OnClick, pid read from the clone position) use gather_direct.py.
 
-    C:\Python312\python.exe tools\gather.py
+    python tools/dev/gather.py
 """
 import sys, time
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_formation, default_server
 
-DEFAULT_FORMATION = "1156814234542394473"
+# Fallback only — the loaded squad is read live off ArmyFormationDataManager below.
+DEFAULT_FORMATION = default_formation()
 COLLECT = "MarchTargetType.COLLECT"  # = 2
 
 
@@ -75,7 +77,7 @@ CS.UnityEngine.Debug.LogError("P pid="..tostring(c.pointId).." uuid="..tostring(
         print("popup did not open", flush=True); ev.close(); return
     pid = d.split("pid=")[1].split()[0]
     srv = d.split("srv=")[1].split()[0]
-    srv = srv if srv not in ("nil", "") else "935"
+    srv = srv if srv not in ("nil", "") else default_server()
 
     # 3) close ONLY the popup (keep the HUD)
     run(r'''local w=UIManager.Instance:GetStackTopWindow() local c=w and w.Ctrl

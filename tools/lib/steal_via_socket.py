@@ -9,7 +9,7 @@ correct sequence numbers for free — no WinDivert, no raw sockets, no driver.
 That is the appeal, and — measured on the PC client 2026-07-19 — the mechanic
 actually works. This file runs the safe reconnaissance for real and gates every
 step that touches the game behind an explicit flag, because the target is
-Carono's main account on server #972 and the failure mode is a ban.
+the operator's own main account and the failure mode is a ban.
 
 Read `docs/research/socket-duplication.md` for the write-up. What was measured
 (each point overturned an earlier theoretical "no"):
@@ -47,15 +47,15 @@ Usage (default is safe recon; nothing below --probe touches the game):
     python tools/steal_via_socket.py                 # recon + verdict
     python tools/steal_via_socket.py --sniff-id       # next _id off the wire (passive)
     python tools/steal_via_socket.py --build \
-        --server-id 935 --k1 0x5a --k2 0x00 --id 181  # build go.to.world test frame
+        --server-id <serverId> --k1 0x5a --k2 0x00 --id 181  # build go.to.world test frame
     python tools/steal_via_socket.py --command steal --build \
         --uuid 1394584906709054020 --target-server 946 \
-        --server-id 935 --k1 0x5a --k2 0x00 --id 9159 # build the steal frame
+        --server-id <serverId> --k1 0x5a --k2 0x00 --id 9159 # build the steal frame
     python tools/steal_via_socket.py --probe-access    # ACE access probe (touches game)
     python tools/steal_via_socket.py --find-handle      # needs PROCESS_DUP_HANDLE
     python tools/steal_via_socket.py --sniff-and-inject --force          # live-sniff _id → inject
     python tools/steal_via_socket.py --send --command go.to.world --force \
-        --server-id 935 --k1 0x11 --k2 0x22 --id 181   # manual send (need --id)
+        --server-id <serverId> --k1 0x11 --k2 0x22 --id 181   # manual send (need --id)
     python tools/steal_via_socket.py --command steal --send \
         --force --i-understand-ban-risk ...             # send steal (gated harder)
 
@@ -173,7 +173,7 @@ def build_command_frame(command: str, params: dict, server_id: int,
     order. There is no way to read that counter from outside the process, so a
     real send has to snoop the last upstream frame's `_id` off the wire and add
     one (see `sniff_live_params`). `k1`/`k2` are free per-frame key bytes;
-    `server_id` is the home server in the header (935 here).
+    `server_id` is the home server in the header.
     """
     from lastwar_encode import build_request
 

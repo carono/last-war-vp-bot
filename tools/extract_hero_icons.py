@@ -117,15 +117,19 @@ def build_targets(sections, categories):
 
 
 def main() -> int:
-    home = os.environ.get("LOCALAPPDATA", r"C:\Users\spame\AppData\Local")
-    default_gameres = Path(home) / "FunFly" / "Last War-Survival Game" / "Game" / \
-        "LastWar_Data" / "StreamingAssets" / "AssetBundles" / "gameres"
+    # No hardcoded username: derive %LOCALAPPDATA% (or the running user's home).
+    home = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    default_gameres = os.environ.get("LW_GAMERES") or Path(home) / "FunFly" / \
+        "Last War-Survival Game" / "Game" / "LastWar_Data" / "StreamingAssets" / \
+        "AssetBundles" / "gameres"
+    # Cache dir is machine-specific (any drive) — override with --cache or LW_ASSET_CACHE.
+    default_cache = os.environ.get("LW_ASSET_CACHE") or \
+        Path(home) / "FunFly" / "Last War-Survival Game" / "Cache" / "AssetBundles"
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gameres", type=Path, default=default_gameres)
-    ap.add_argument("--cache", type=Path,
-                    default=Path(r"D:\FunFly\Last War-Survival Game\Cache\AssetBundles"))
+    ap.add_argument("--cache", type=Path, default=default_cache)
     ap.add_argument("--out", type=Path,
                     default=Path(__file__).resolve().parent.parent / "results" / "hero_icons")
     ap.add_argument("--body", action="store_true",

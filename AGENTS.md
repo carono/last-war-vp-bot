@@ -19,7 +19,7 @@ It replaces a legacy Lua / UOPilot project (`master` branch, kept as
 read-only reference). The current branch is `v2`.
 
 User profile / context (from project memory):
-- The user (Carono) plays on **server #972**.
+- The user plays on their own home server.
 - Chat language: **Russian**. Repo artefacts (code, docs, YAML, commit
   messages): **English**. The archived `docs/legacy-*/` folders stay
   Russian — they're an archive, not a living document.

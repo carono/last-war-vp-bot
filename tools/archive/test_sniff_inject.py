@@ -273,8 +273,9 @@ def main() -> int:
     result: dict[str, object] = {}
 
     class _Args:
-        # server_id confirmed from Events leaderboard: "#935 [TLou]Carono"
-        server_id = 935
+        # server_id is the player's home server (read from the Events leaderboard entry);
+        # override via LW_DEFAULT_SERVER (.env).
+        server_id = int(os.environ.get("LW_DEFAULT_SERVER") or 0)
         k1 = 0x11
         k2 = 0x22
 

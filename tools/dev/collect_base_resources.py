@@ -10,10 +10,12 @@ Steps:
 import io, os, sys, time, subprocess, json, threading
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
-REPO = r'P:\projects abandoned\carono\last-war-vp-bot'
+# Repo root derived from this file's location (tools/dev/…) — no hardcoded machine path.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOLS = os.path.join(REPO, 'tools')
 RESULTS = os.path.join(REPO, 'results')
-WIN_PYTHON = r'C:\Python312\python.exe'
+# Windows Python (has scapy/npcap/win32); override with LW_WIN_PYTHON if installed elsewhere.
+WIN_PYTHON = os.environ.get('LW_WIN_PYTHON', r'C:\Python312\python.exe')
 GAME_TITLE = 'Last War-Survival Game'
 
 import win32api, win32con, win32gui, win32ui
@@ -144,7 +146,7 @@ def run_inject(command, req_id, label, extra_args=()):
     cmd = [WIN_PYTHON, os.path.join(TOOLS, 'lib', 'steal_via_socket.py'),
            '--sniff-and-inject', '--force',
            '--command', command,
-           '--server-id', '935',
+           '--server-id', os.environ.get('LW_DEFAULT_SERVER', ''),
            '--req-id', str(req_id)] + list(extra_args)
     print(f'\n[{label}] launching inject: {" ".join(cmd[-6:])}')
     proc = subprocess.Popen(

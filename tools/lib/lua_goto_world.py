@@ -10,13 +10,14 @@ LuaEnv.DoString does NOT swallow Lua errors, so a bad chunk surfaces in the il2c
 exc slot. Scene state is confirmed from Lua via SceneUtils.GetIsInWorld/GetIsInCity
 (logged to the Unity Player.log as LUAENV_1024 markers) and, optionally, a screenshot.
 
-    C:\Python312\python.exe tools\lua_goto_world.py            # City -> World
-    C:\Python312\python.exe tools\lua_goto_world.py --to-city  # World -> City
-    C:\Python312\python.exe tools\lua_goto_world.py --shot     # also screenshot after
+    python tools/lib/lua_goto_world.py            # City -> World
+    python tools/lib/lua_goto_world.py --to-city  # World -> City
+    python tools/lib/lua_goto_world.py --shot     # also screenshot after
 
 Player.log: %LOCALAPPDATA%Low\FunFly\Last War-Survival Game\Player.log
 """
 from __future__ import annotations
+import os
 import sys
 import time
 
@@ -24,7 +25,10 @@ sys.path.insert(0, "tools/lib")
 import xlua_route as XR
 import il2cpp_probe as P
 
-RES = r"P:\projects abandoned\carono\last-war-vp-bot\results"
+# Results dir under the repo root (tools/lib/… → repo) — no hardcoded machine path.
+RES = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "results")
 
 
 def shot(pid, name):

@@ -58,22 +58,19 @@ import time
 
 sys.path.insert(0, "tools/lib")
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
+from tool_config import default_formation, squad_formations
 
 # Rally target type for joining an existing alliance rally (confirmed via lua_trace).
 RALLY_TARGET_TYPE = 6
 
-# Squad slot (the 1/2/3 the player sees) -> formation UUID, confirmed live: each entry of
+# Squad slot (the 1/2/3 the player sees) -> formation UUID. Each entry of
 # DataCenter.ArmyFormationDataManager.ArmyFormationList carries `index` = the slot, and its
-# `uuid` is SendCreateMarchMessage's first argument (which squad is sent). This ready mapping
-# lets callers send "squad N" immediately; formation_by_squad() still prefers the live `index`
-# (authoritative if the player restructures squads) and falls back to this table.
-SQUAD_FORMATIONS = {
-    1: "1156814234542394473",
-    2: "1156814435164343487",
-    3: "1166270764383718422",
-}
-# Fallback if no loaded formation can be resolved and none is passed on the CLI (squad 1).
-DEFAULT_FORMATION = SQUAD_FORMATIONS[1]
+# `uuid` is SendCreateMarchMessage's first argument (which squad is sent). formation_by_squad()
+# reads this live off the game (authoritative); the map below is only an optional env fallback
+# (LW_SQUAD_FORMATIONS, see .env.example) for callers that want a fixed default without the VM.
+SQUAD_FORMATIONS = squad_formations()
+# Fallback if no loaded formation can be resolved and none is passed on the CLI.
+DEFAULT_FORMATION = default_formation() or SQUAD_FORMATIONS.get(1, "")
 
 
 def one(lines, needle):

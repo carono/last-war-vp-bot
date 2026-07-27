@@ -10,10 +10,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 1,
-    "ownerId": "1642290567000935",
+    "ownerId": "1000000000000935",
     "uuid": 1397117488331990837,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 1784777520022,
     "remindTime": 0,
     "memberList": [
@@ -44,15 +44,15 @@
         "uuid": 1178946935512606694
        }
       ],
-      "uid": "1642290567000935",
+      "uid": "1000000000000935",
       "memberInfo": {
-       "uid": "1642290567000935",
+       "uid": "1000000000000935",
        "country": "GB",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Vèŕty",
+       "name": "Player1",
        "headPicVer": 1075,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -86,15 +86,15 @@
         "uuid": 1171336699935181935
        }
       ],
-      "uid": "1522777203000972",
+      "uid": "1000000000001972",
       "memberInfo": {
-       "uid": "1522777203000972",
+       "uid": "1000000000001972",
        "country": "UN",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Carono",
+       "name": "Player2",
        "headPicVer": 273,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 0,
@@ -128,15 +128,15 @@
         "uuid": 1163729240110386238
        }
       ],
-      "uid": "1569320060000972",
+      "uid": "1000000000002972",
       "memberInfo": {
-       "uid": "1569320060000972",
+       "uid": "1000000000002972",
        "country": "EU",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "8888 Rock 8888",
+       "name": "Player3",
        "headPicVer": 1087,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 0,
@@ -156,10 +156,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 1,
-    "ownerId": "1592841643001032",
+    "ownerId": "1000000000003032",
     "uuid": 1397117488432654179,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 1784776082152,
     "remindTime": 0,
     "memberList": [
@@ -190,15 +190,15 @@
         "uuid": 1196706509581715491
        }
       ],
-      "uid": "1592841643001032",
+      "uid": "1000000000003032",
       "memberInfo": {
-       "uid": "1592841643001032",
+       "uid": "1000000000003032",
        "country": "US",
        "headSkinET": 1786857481772,
        "headSkinId": 25015,
-       "name": "Stew1010",
+       "name": "Player4",
        "headPicVer": 41,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -232,15 +232,15 @@
         "uuid": 1156119182073636831
        }
       ],
-      "uid": "1464970648000935",
+      "uid": "1000000000004935",
       "memberInfo": {
-       "uid": "1464970648000935",
+       "uid": "1000000000004935",
        "country": "UKL",
        "headSkinET": 1786535205821,
        "headSkinId": 21016,
-       "name": "CallMeCurly",
+       "name": "Player5",
        "headPicVer": 2084,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -274,15 +274,15 @@
         "uuid": 1189464893129215019
        }
       ],
-      "uid": "1522777203000972",
+      "uid": "1000000000001972",
       "memberInfo": {
-       "uid": "1522777203000972",
+       "uid": "1000000000001972",
        "country": "UN",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Carono",
+       "name": "Player2",
        "headPicVer": 273,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -316,13 +316,13 @@
         "uuid": 1156118979258066820
        }
       ],
-      "uid": "1312909737000935",
+      "uid": "1000000000005935",
       "memberInfo": {
-       "uid": "1312909737000935",
+       "uid": "1000000000005935",
        "country": "PL",
-       "name": "BadAnni",
+       "name": "Player6",
        "headPicVer": 439,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -356,15 +356,15 @@
         "uuid": 1178947101766437899
        }
       ],
-      "uid": "1346176402000972",
+      "uid": "1000000000006972",
       "memberInfo": {
-       "uid": "1346176402000972",
+       "uid": "1000000000006972",
        "country": "DE",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Just4FunPlaya",
+       "name": "Player7",
        "headPicVer": 71,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -406,15 +406,15 @@
         }
        }
       ],
-      "uid": "1345469874000986",
+      "uid": "1000000000007986",
       "headSkinET": 0,
       "isLike": 0,
       "headSkinId": 0,
-      "name": "Mrongos",
+      "name": "Player8",
       "headPicVer": 55,
       "msgId": 0,
       "time": 1784776082600,
-      "abbr": "UCON",
+      "abbr": "AL2",
       "headPic": "",
       "mark": 0
      },
@@ -449,15 +449,15 @@
         }
        }
       ],
-      "uid": "1301817333000980",
+      "uid": "1000000000008980",
       "headSkinET": 1786189997866,
       "isLike": 0,
       "headSkinId": 25015,
-      "name": "どれみ Doremiღ",
+      "name": "Player9",
       "headPicVer": 771,
       "msgId": 0,
       "time": 1784776083028,
-      "abbr": "n0Va",
+      "abbr": "AL3",
       "headPic": "",
       "mark": 0
      }
@@ -471,10 +471,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 0,
-    "ownerId": "1522777203000972",
+    "ownerId": "1000000000001972",
     "uuid": 1397117488327796668,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 0,
     "remindTime": 0,
     "memberList": [],
@@ -490,10 +490,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 0,
-    "ownerId": "1522777203000972",
+    "ownerId": "1000000000001972",
     "uuid": 1397117488327796669,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 0,
     "remindTime": 0,
     "memberList": [],
@@ -509,10 +509,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 0,
-    "ownerId": "1522777203000972",
+    "ownerId": "1000000000001972",
     "uuid": 1397117488327796670,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 0,
     "remindTime": 0,
     "memberList": [],
@@ -528,10 +528,10 @@
     "taskExpireTime": 1784858399999,
     "actEndTime": 2147483647000,
     "allianceShow": 1,
-    "ownerId": "1508426726000972",
+    "ownerId": "1000000000009972",
     "uuid": 1397117488491374409,
     "ownerServer": 935,
-    "allianceId": "3d4b9dee7b854f4a94810f7bb8b43089",
+    "allianceId": "00000000000000000000000000000000",
     "completionTime": 1784776506383,
     "remindTime": 0,
     "memberList": [
@@ -562,13 +562,13 @@
         "uuid": 1161210188385209569
        }
       ],
-      "uid": "1508426726000972",
+      "uid": "1000000000009972",
       "memberInfo": {
-       "uid": "1508426726000972",
+       "uid": "1000000000009972",
        "country": "DE",
-       "name": "7777 Woduk 7777",
+       "name": "Player10",
        "headPicVer": 242,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -602,15 +602,15 @@
         "uuid": 1164811328377063502
        }
       ],
-      "uid": "1470415541001032",
+      "uid": "1000000000010032",
       "memberInfo": {
-       "uid": "1470415541001032",
+       "uid": "1000000000010032",
        "country": "US",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Truecrip",
+       "name": "Player11",
        "headPicVer": 982,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 1,
@@ -644,15 +644,15 @@
         "uuid": 1161210309919356515
        }
       ],
-      "uid": "1739345346000950",
+      "uid": "1000000000011950",
       "memberInfo": {
-       "uid": "1739345346000950",
+       "uid": "1000000000011950",
        "country": "TR",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Cyberlexsus",
+       "name": "Player12",
        "headPicVer": 113,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 0,
@@ -686,15 +686,15 @@
         "uuid": 1161210323819285587
        }
       ],
-      "uid": "1266172685000972",
+      "uid": "1000000000012972",
       "memberInfo": {
-       "uid": "1266172685000972",
+       "uid": "1000000000012972",
        "country": "UN",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Gia ni",
+       "name": "Player13",
        "headPicVer": 8,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 0,
@@ -728,15 +728,15 @@
         "uuid": 1199633394401791032
        }
       ],
-      "uid": "1522777203000972",
+      "uid": "1000000000001972",
       "memberInfo": {
-       "uid": "1522777203000972",
+       "uid": "1000000000001972",
        "country": "UN",
        "headSkinET": 0,
        "headSkinId": 25000,
-       "name": "Carono",
+       "name": "Player2",
        "headPicVer": 273,
-       "abbr": "TLou",
+       "abbr": "AL1",
        "headPic": ""
       },
       "canReward": 0,

@@ -47,18 +47,16 @@ live in `DataCenter.ArmyFormationDataManager.ArmyFormationList` keyed by uuid; e
 `index` is the wanted slot (`rally_join.py --squad N`, or `--list-squads` to see them). The
 march object does not expose its formation back, so which squad was sent is confirmed visually.
 
-Ready squad → formation mapping (this account), also kept as `SQUAD_FORMATIONS` in
-`tools/rally_join.py` so callers can send by number immediately (verified live: squad 2 → the
-right march):
+Squad → formation mapping is account-specific. `formation_by_squad()` in
+`tools/rally_join.py` reads the live `index` off `ArmyFormationDataManager` (authoritative),
+and only falls back to an optional env-provided table (`LW_SQUAD_FORMATIONS`, see
+`.env.example`):
 
-| squad (index) | formationUuid          |
-|---------------|------------------------|
-| 1             | `1156814234542394473`  |
-| 2             | `1156814435164343487`  |
-| 3             | `1166270764383718422`  |
-
-`formation_by_squad()` still reads the live `index` first (authoritative if squads are
-restructured) and falls back to this table.
+| squad (index) | formationUuid       |
+|---------------|---------------------|
+| 1             | `<formationUuid-1>` |
+| 2             | `<formationUuid-2>` |
+| 3             | `<formationUuid-3>` |
 
 **Cold-formation wall:** the send silently no-ops unless a formation is loaded
 (`ArmyFormationDataManager.ArmyFormationList[*].totalSoldierNum > 0`). Formations start cold

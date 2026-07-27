@@ -29,7 +29,7 @@ if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
 GAME_TITLE = "Last War-Survival Game"
-WIN_PYTHON = r"C:\Python312\python.exe"
+WIN_PYTHON = os.environ.get("LW_WIN_PYTHON", r"C:\Python312\python.exe")  # Windows Python (scapy/npcap); override with LW_WIN_PYTHON
 GAME_PORT = 17935
 TEMPLATES = os.path.join(REPO, "src", "lastwar_bot", "game", "templates")
 
@@ -261,7 +261,8 @@ def main() -> int:
     # 3. Popen steal_via_socket.py --sniff-and-inject --force  (non-blocking)
     script = os.path.join(TOOLS, "steal_via_socket.py")
     cmd = [WIN_PYTHON, script, "--sniff-and-inject", "--force",
-           "--server-id", "935"]  # server #972 home server_id; fallback when wire misses it
+           # home server_id fallback when the wire misses it; set via LW_DEFAULT_SERVER
+           "--server-id", os.environ.get("LW_DEFAULT_SERVER", "")]
     print(f"[orch] launching: {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd,

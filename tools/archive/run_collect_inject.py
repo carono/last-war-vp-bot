@@ -37,7 +37,7 @@ TOOLS = os.path.join(REPO, "tools")
 if TOOLS not in sys.path:
     sys.path.insert(0, TOOLS)
 
-WIN_PYTHON = r"C:\Python312\python.exe"
+WIN_PYTHON = os.environ.get("LW_WIN_PYTHON", r"C:\Python312\python.exe")  # Windows Python (scapy/npcap); override with LW_WIN_PYTHON
 GAME_TITLE = "Last War-Survival Game"
 GAME_PORT = 17935
 
@@ -159,8 +159,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--uuid", action="append", required=True,
                     help="building UUID to collect (repeatable for several buildings)")
-    ap.add_argument("--server-id", type=int, default=935,
-                    help="home server ID (default: 935)")
+    ap.add_argument("--server-id", type=int,
+                    default=int(os.environ.get("LW_DEFAULT_SERVER") or 0),
+                    help="home server ID (default: env LW_DEFAULT_SERVER)")
     args = ap.parse_args()
 
     conn = check_connection()

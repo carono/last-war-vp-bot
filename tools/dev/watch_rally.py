@@ -172,8 +172,9 @@ def main() -> int:
     ap.add_argument("--iface", help="interface number from `tshark.exe -D`; omitted = all")
     ap.add_argument("--duration", type=int, default=600,
                     help="stop after N seconds (default 600 = 10 min)")
-    ap.add_argument("--filter", default="host 3.33.246.23 and port 17935",
-                    help="capture BPF (default pins the game endpoint)")
+    ap.add_argument("--filter", default="port 17935",
+                    help="capture BPF (default matches the game port; the gateway IP "
+                         "changes per session, so match by port, not host)")
     ap.add_argument("--log", help="append every matched message as JSONL here")
     ap.add_argument("--tshark", help="path to tshark.exe")
     ap.add_argument("--dumpcap", help="path to dumpcap.exe")
