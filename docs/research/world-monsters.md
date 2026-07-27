@@ -20,8 +20,8 @@ the genuine world cold-load. Decoded offline with `tools/lastwar_proto.py`. Also
 The first-world-enter capture (fresh login, server `34.145.128.94`, 134 down msgs) contained
 **no** `push.running.boss.*`, **no** `monster.invasion.boss.detail`, **no** bulk monster list.
 The single `world.get.block` had only `f2 ∈ {6 base, 7 mine, 17 secret_task}` and empty
-`triggers`. The 29 `push.world.march.new` are **player marches** (e.g. `Blanche de Namur`,
-`Bucknaked` of `[TLou] THE LAST 0F US`, target coord `471553;339547`, difficulty `Normal`) —
+`triggers`. The 29 `push.world.march.new` are **player marches** (e.g. `<player>`
+of `[<abbr>] <alliance>`, target coord `<x>;<y>`, difficulty `Normal`) —
 troops moving toward monsters, **not monsters**. A warm `ChangeToWorld` is identical (the
 switch is a client-side render; nothing re-fetches). So: **the World scene switch carries no
 monster data**, exactly like the base scene switch in `city-protocol.md`.
