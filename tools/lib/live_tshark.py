@@ -40,6 +40,7 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402
+import run_output  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 
 WIRESHARK_DIRS = (
@@ -576,6 +577,10 @@ def main() -> int:
                          "(dispatch finishing within ~10 min); combine with "
                          "--can-loot for either")
     ap.add_argument("--json", help="with --tasks: write every task seen to this file")
+    ap.add_argument("--out", help="JSONL transcript path (default: a new "
+                                  "results/traffic/<timestamp>_traffic.jsonl per run)")
+    ap.add_argument("--no-out", action="store_true",
+                    help="decode to the terminal only, write no transcript")
     args = ap.parse_args()
 
     if args.tasks:
@@ -608,12 +613,29 @@ def main() -> int:
 
     targets = ([(args.iface, f"iface {args.iface}")] if args.iface else ifaces)
 
-    decoder = LiveDecoder(discover=args.discover, show_raw=args.raw)
+    # One fresh transcript per run, exactly as live_sniffer.py does — the two
+    # tools are the same decoder behind different capture transports, so a run
+    # of either leaves the same kind of record under results/traffic/.
+    transcript = out_path = None
+    if not args.no_out:
+        try:
+            if args.out:
+                os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+                transcript, out_path = open(args.out, "w", encoding="utf-8", buffering=1), args.out
+            else:
+                transcript, out_path = run_output.open_run_file("traffic", "traffic.jsonl")
+        except OSError as exc:
+            print(f"{C_ERR}cannot open transcript ({exc}) — decoding to the terminal only{C_RESET}",
+                  file=sys.stderr)
+
+    decoder = LiveDecoder(discover=args.discover, show_raw=args.raw, transcript=transcript)
     stop = threading.Event()
 
     mode = "DISCOVER — listing every TCP flow" if args.discover else "decoding by frame shape"
     print(f"Last War live decoder via {os.path.basename(dumpcap)} — {mode}")
     print(f"interfaces: {len(targets)}   filter: {args.filter or 'none'}")
+    if out_path:
+        print(f"transcript: {out_path}")
     deadline = time.time() + args.duration if args.duration else 0
     stop_hint = f"stopping after {args.duration}s" if args.duration else "Ctrl+C to stop"
     print(f"{C_DIM}{stop_hint}{C_RESET}\n")
@@ -650,6 +672,9 @@ def main() -> int:
             thread.join(timeout=2)
 
     decoder.report()
+    decoder.close_transcript()
+    if out_path:
+        print(f"\ntranscript written to {out_path}")
     return 0
 
 

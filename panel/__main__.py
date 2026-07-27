@@ -100,6 +100,10 @@ CAPTURE_OPTIONS = [
 #     and logs the FIRST call of each name only. The unfiltered tracer floods
 #     Player.log and freezes the game, so --dedup is the safe discovery default
 #     (per task #1060: the monkey-patch tool is tools/lua_trace.py).
+# Each Start spawns a fresh child, and each child opens its own timestamped file
+# under results/traffic/ resp. results/traces/ — so a stop/start cycle never
+# overwrites the previous session. The child prints the path it chose, which
+# lands in the panel log like the rest of its output.
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
 
@@ -1006,7 +1010,7 @@ class Panel(tk.Tk):
             self._sniff_var.set(False)
             return
         self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
-                      f"вывод идёт в лог")
+                      f"вывод идёт в лог, запись — в results/traffic/")
         threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
                          daemon=True).start()
 
@@ -1050,7 +1054,7 @@ class Panel(tk.Tk):
             self._trace_var.set(False)
             return
         self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
-                      f"вывод идёт в лог")
+                      f"вывод идёт в лог, запись — в results/traces/")
         threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
                          daemon=True).start()
 

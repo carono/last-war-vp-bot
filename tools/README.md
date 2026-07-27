@@ -27,7 +27,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
   il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
   `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
   capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
-  `lastwar_encode`), and helpers (`coords`, `hero_icons_map`, `steal_via_socket`).
+  `lastwar_encode`), and helpers (`coords`, `hero_icons_map`, `steal_via_socket`,
+  `run_output` — the per-run timestamped file under `results/`).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
   (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
@@ -88,6 +89,13 @@ No Administrator prompt is needed as long as npcap was installed with the
 Wireshark is found automatically under `/mnt/c/Program Files/Wireshark`;
 override with `--tshark` / `--dumpcap`.
 
+Every run also saves what it decodes to its **own** file,
+`results/traffic/<YYYYMMDD_HHMMSS>_traffic.jsonl` — one JSON object per message
+(`{ts, dir, cmd, payload}`, full payload regardless of `--raw`). Restarting the
+sniffer therefore never overwrites the previous session, and two sessions never
+end up interleaved in one file. `--out PATH` picks the file, `--no-out` decodes
+to the terminal only. Same flags, same layout in `live_sniffer.py`.
+
 **Note on interfaces.** The game's traffic showed up on both the wireless
 adapter and the network bridge, and *not* on the OpenVPN adapter — so an active
 VPN does not necessarily mean the traffic is on its virtual interface. Run
@@ -117,7 +125,8 @@ python tools\live_sniffer.py
 it. The script warns and keeps going if it is missing.
 
 Useful flags: `--iface "Ethernet"` to pin an interface, `--list-ifaces`,
-`--raw` to dump full payloads, `--port` to narrow the capture filter.
+`--raw` to dump full payloads, `--port` to narrow the capture filter,
+`--out` / `--no-out` for the per-run JSONL transcript (see above).
 
 There is deliberately **no port or IP filter**. The game's address changes
 between sessions, and the client races several gateways at login, so anything
@@ -493,6 +502,10 @@ results/
 ├── trap.jsonl              # trapped envelopes (trap_command.py)
 ├── traffic_<ts>.jsonl      # one JSON record per HTTP flow / WS frame (mitm addon)
 ├── analysis_<ts>.json      # offline pcap analysis
+├── traffic/<ts>_traffic.jsonl  # one file per sniffer run (live_tshark / live_sniffer)
+├── traces/<ts>_trace.log       # one file per Lua tracer run (lua_trace.py)
 └── raw/                     # raw request/response bodies (*.bin)
 ```
+`<ts>` is `YYYYMMDD_HHMMSS` taken when the run starts, so a restart always
+lands in a new file (`_2`, `_3`, … disambiguate the same second).
 Traffic dumps can contain session tokens — they are gitignored; do not commit them.

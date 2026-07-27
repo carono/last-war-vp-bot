@@ -24,6 +24,11 @@ Patches install immediately on start. On Ctrl+C (or any exit) the original funct
 restored and the hook is cleared automatically via atexit + a finally block — there is no
 separate install/restore step to remember.
 
+Every run also saves its trace to its own timestamped file,
+``results/traces/YYYYMMDD_HHMMSS_trace.log`` — the same lines that reach the terminal, so a
+restart never overwrites the previous session (``--out`` to pick the path, ``--no-out`` to
+keep it terminal-only).
+
 The tracer talks to the game through `get_evaluator()` (the warm Lua daemon when it is up,
 otherwise a fresh local `LuaEval`), exactly like the other tools/ scripts.
 """
@@ -35,10 +40,14 @@ import os
 import sys
 import time
 
-sys.path.insert(0, "tools/lib")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Absolute, not "tools/lib": the shared modules resolve the same no matter what
+# cwd the launcher (panel, daemon, shell) started us in.
+sys.path.insert(0, os.path.join(_HERE, "lib"))
+sys.path.insert(0, _HERE)
 
 import lua_client
+import run_output
 from lua_eval import player_log_path
 
 
@@ -307,11 +316,40 @@ def main():
     ap.add_argument("--dedup", action="store_true",
                     help="log only the FIRST call of each name (safe discovery pass; default logs every call)")
     ap.add_argument("--all", action="store_true", help="print every Player.log line, not just XSCALL/XSTRACE")
+    ap.add_argument("--out", help="trace file path (default: a new "
+                                  "results/traces/<timestamp>_trace.log per run)")
+    ap.add_argument("--no-out", action="store_true",
+                    help="print to the terminal only, save no trace file")
     args = ap.parse_args()
 
     dedup = args.dedup
 
     log = player_log_path()
+
+    # One fresh file per run: restarting the tracer must not overwrite the
+    # previous session's trace nor append into it. Line-buffered, because a run
+    # normally ends by being killed (the panel's Stop is TerminateProcess, which
+    # flushes nothing) and because the file is usually tailed while it grows.
+    trace_file = trace_path = None
+    if not args.no_out:
+        try:
+            if args.out:
+                os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+                trace_file, trace_path = open(args.out, "w", encoding="utf-8", buffering=1), args.out
+            else:
+                trace_file, trace_path = run_output.open_run_file("traces", "trace.log")
+        except OSError as exc:
+            print("[lua_trace] cannot open trace file (%s) — printing only" % exc, file=sys.stderr)
+
+    def emit(line):
+        """Print a line and mirror it into this run's trace file."""
+        print(line)
+        if trace_file is not None and not trace_file.closed:
+            try:
+                trace_file.write(line + "\n")
+            except Exception:
+                pass  # a failed write must never interrupt the trace
+
     ev = lua_client.get_evaluator()
 
     restored = {"done": False}
@@ -330,19 +368,21 @@ def main():
                 print("[lua_trace] restore attempt %d failed: %s" % (attempt, e), file=sys.stderr)
                 continue
             if any("XSTRACE restored" in ln for ln in out):
-                print("[lua_trace] %s" % "; ".join(out))
+                emit("[lua_trace] %s" % "; ".join(out))
                 return
         print("[lua_trace] WARNING: restore not confirmed after retries — "
               "rerun tools/lua_trace.py or restart the game to be safe", file=sys.stderr)
 
     atexit.register(restore)
 
-    print("[lua_trace] installing patches (filter=%s depth=%d dedup=%s hook=%s) ..."
-          % (args.filter or "none", args.depth, dedup, args.hook_all))
+    emit("[lua_trace] installing patches (filter=%s depth=%d dedup=%s hook=%s) ..."
+         % (args.filter or "none", args.depth, dedup, args.hook_all))
+    if trace_path:
+        emit("[lua_trace] trace file: %s" % trace_path)
     lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all, dedup), marker="XSTRACE", settle=1.5)
     for ln in lines:
-        print(ln)
-    print("[lua_trace] tailing %s — Ctrl+C to stop and restore\n" % log)
+        emit(ln)
+    emit("[lua_trace] tailing %s — Ctrl+C to stop and restore\n" % log)
 
     offset = os.path.getsize(log) if os.path.exists(log) else 0
     try:
@@ -351,16 +391,22 @@ def main():
             for ln in new:
                 ln = ln.rstrip("\r")
                 if args.all or ("XSCALL" in ln or "XSTRACE" in ln):
-                    print(ln)
+                    emit(ln)
             time.sleep(0.3)
     except KeyboardInterrupt:
-        print("\n[lua_trace] stopping ...")
+        emit("\n[lua_trace] stopping ...")
     finally:
         restore()
         try:
             ev.close()
         except Exception:
             pass
+        if trace_file is not None:
+            try:
+                trace_file.close()
+            except Exception:
+                pass
+            print("[lua_trace] trace written to %s" % trace_path)
     return 0
 
 

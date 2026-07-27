@@ -17,17 +17,24 @@ Run from an **Administrator** PowerShell — npcap needs it to capture:
     python tools\\live_sniffer.py               decode
     python tools\\live_sniffer.py --discover    show every TCP flow seen
 
+Every run also writes what it decodes to its own timestamped JSONL file,
+``results/traffic/YYYYMMDD_HHMMSS_traffic.jsonl`` — one object per message, so a
+restart never overwrites the previous session or blends into it.
+
 Options:
     --discover       list every TCP flow with its opening bytes, decode nothing
     --port PORT      narrow the capture filter to one port (default: all TCP)
     --iface NAME     pin an interface; omitted = auto-detect
     --list-ifaces    print interfaces and exit
     --raw            also dump the full payload of every message
+    --out PATH       write the JSONL transcript here instead of the default
+    --no-out         decode to the terminal only, write no transcript
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sys
@@ -40,6 +47,7 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402  (path must be set first)
+import run_output  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Colour
@@ -286,9 +294,14 @@ class Stream:
 
 
 class LiveDecoder:
-    def __init__(self, discover: bool = False, show_raw: bool = False):
+    def __init__(self, discover: bool = False, show_raw: bool = False,
+                 transcript=None):
         self.discover = discover
         self.show_raw = show_raw
+        # Open file handle (or None). The subclasses in tools/ — chat_monitor,
+        # rally_monitor, the map scanners — write their own domain records and
+        # never pass one, so they are unaffected.
+        self.transcript = transcript
         self.streams: dict[tuple, Stream] = {}
         self.counts: Counter[str] = Counter()
         self.endpoints: set[tuple] = set()
@@ -352,6 +365,33 @@ class LiveDecoder:
             for env in stream.drain():
                 self.emit(stream.direction, env)
 
+    def record(self, obj: dict) -> None:
+        """Append one JSON object to this run's transcript, if one is open.
+
+        Called from `handle` under `self.lock`, so lines never interleave. A
+        transcript that cannot be written (full disk, handle closed by a Stop
+        racing the reader thread) is reported once and then dropped — losing the
+        log must never take the capture down with it.
+        """
+        if self.transcript is None:
+            return
+        line = {"ts": datetime.now().isoformat(timespec="seconds")}
+        line.update(obj)
+        try:
+            self.transcript.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            print(f"{C_ERR}transcript write failed ({exc}) — continuing without it{C_RESET}",
+                  file=sys.stderr)
+            self.transcript = None
+
+    def close_transcript(self) -> None:
+        handle, self.transcript = self.transcript, None
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+
     def report_flow(self, key, data: bytes) -> None:
         src, sport, dst, dport = key
         kind = proto.classify(data)
@@ -359,6 +399,8 @@ class LiveDecoder:
         mark = "GAME?" if kind == "GAME" else kind
         print(f"{stamp()} {colour}{mark:<8}{C_RESET} {src}:{sport} -> {dst}:{dport}"
               f"   {data[:8].hex(' ')}")
+        self.record({"event": "flow", "shape": kind, "src": f"{src}:{sport}",
+                     "dst": f"{dst}:{dport}", "opening": data[:8].hex(" ")})
 
     def announce(self, key, stream: Stream) -> None:
         src, sport, dst, dport = key
@@ -385,9 +427,10 @@ class LiveDecoder:
 
         print(f"{stamp()} {colour}{arrow} {command}{C_RESET}  {summarise(payload)}")
         if self.show_raw:
-            import json
-
             print(f"        {C_DIM}{json.dumps(payload, ensure_ascii=False)[:1500]}{C_RESET}")
+        # The transcript keeps the FULL payload regardless of --raw: the terminal
+        # line is a summary, the file is the record you go back to afterwards.
+        self.record({"dir": direction, "cmd": command, "payload": payload})
 
     def report(self) -> None:
         elapsed = time.time() - self.started
@@ -444,6 +487,10 @@ def main() -> int:
     ap.add_argument("--iface", help="interface name; omitted = auto-detect")
     ap.add_argument("--list-ifaces", action="store_true", help="list interfaces and exit")
     ap.add_argument("--raw", action="store_true", help="dump the full payload of each message")
+    ap.add_argument("--out", help="JSONL transcript path (default: a new "
+                                  "results/traffic/<timestamp>_traffic.jsonl per run)")
+    ap.add_argument("--no-out", action="store_true",
+                    help="decode to the terminal only, write no transcript")
     args = ap.parse_args()
 
     try:
@@ -473,7 +520,22 @@ def main() -> int:
     # pinned loses traffic. The stream is found by frame shape instead.
     bpf = f"tcp port {args.port}" if args.port else "tcp"
 
-    decoder = LiveDecoder(discover=args.discover, show_raw=args.raw)
+    # One fresh transcript per run: a restart must never overwrite the previous
+    # session's capture, nor append into it (two sessions in one file cannot be
+    # told apart afterwards).
+    transcript = out_path = None
+    if not args.no_out:
+        try:
+            if args.out:
+                os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+                transcript, out_path = open(args.out, "w", encoding="utf-8", buffering=1), args.out
+            else:
+                transcript, out_path = run_output.open_run_file("traffic", "traffic.jsonl")
+        except OSError as exc:
+            print(f"{C_ERR}cannot open transcript ({exc}) — decoding to the terminal only{C_RESET}",
+                  file=sys.stderr)
+
+    decoder = LiveDecoder(discover=args.discover, show_raw=args.raw, transcript=transcript)
     stop = threading.Event()
 
     targets = [args.iface] if args.iface else [
@@ -484,6 +546,8 @@ def main() -> int:
     print(f"Last War live sniffer — {mode}")
     print(f"filter: '{bpf}'   interfaces: "
           f"{args.iface if args.iface else f'{len(targets)} (all)'}")
+    if out_path:
+        print(f"transcript: {out_path}")
     if args.discover:
         print(f"{C_DIM}columns: shape  src -> dst  first 8 bytes{C_RESET}")
     else:
@@ -515,6 +579,9 @@ def main() -> int:
         stop.set()
 
     decoder.report()
+    decoder.close_transcript()
+    if out_path:
+        print(f"\ntranscript written to {out_path}")
     return 0
 
 
