@@ -1,23 +1,22 @@
-r"""Go to world coordinates (X, Y) — the real in-engine navigation, no pixel tap.
+r"""Go to world coordinates (X, Y) [on SERVER] — the real in-engine navigation, no pixel tap.
 
-Two entry points, both by tile pointId (`pid = SceneUtils.TilePosToIndex(Vector2Int(X,Y))`):
+Entry points:
 
-  * default  -> `GoToUtil.MoveToWorldPoint(pid)` : the client's OWN move-to-tile. Centres
-                the camera on (X, Y) and leaves the world/input state consistent.
+  * default  -> `GoToUtil.GotoWorldPos(Vector3(X*2+1,0,Y*2+1), 105, nil, nil, serverId)` :
+                the game's OWN "go to coordinate on server" jump (`lua_actions.jump_to_coord`),
+                captured live from the in-game magnifier flow. ONE call for same- and
+                cross-server: a foreign SERVER loads and enters that world, the home SERVER
+                centres on it. No `UIMoveCity` teleport window, so map input stays alive.
+                SERVER defaults to the home server when omitted.
   * --click  -> `GoToUtil.OnClickWorldPoint(pid, type, uuid)` : exactly what a real tap on
                 the map does — navigate AND select, opening the tile's UIWorldPoint popup
                 with its detail loaded. The "click" happens inside the game, so there is no
-                pydirectinput pixel tap to miss and nothing under-sent.
+                pydirectinput pixel tap to miss and nothing under-sent. Same-server only.
 
-Why not `GoToUtil.GotoPos(...)`? That is a camera-only tween (the magnifier's internal
-call). It moves the view but is NOT the game's move-to-tile, so after it a following map
-tap can fail to land. `--gotopos` keeps it available as a legacy camera pan, but the real
-coordinate navigation is `MoveToWorldPoint` / `OnClickWorldPoint` above.
-
-    C:\Python312\python.exe tools\goto_coord.py <X> <Y>                # move-to-tile (real)
-    C:\Python312\python.exe tools\goto_coord.py 650 480               # -> centre on (650,480)
+    C:\Python312\python.exe tools\goto_coord.py <X> <Y> [SERVER]        # jump (real, GotoWorldPos)
+    C:\Python312\python.exe tools\goto_coord.py 650 480                 # -> home server (650,480)
+    C:\Python312\python.exe tools\goto_coord.py 499 499 972             # -> server 972 (499,499)
     C:\Python312\python.exe tools\goto_coord.py 576 492 --click 2 <uuid>   # navigate + select
-    C:\Python312\python.exe tools\goto_coord.py 650 480 --gotopos 935      # legacy camera pan
 """
 import sys
 sys.path.insert(0, "tools/lib")
@@ -57,13 +56,10 @@ def main():
         uuid = int(rest[2]) if len(rest) > 2 else 0
         chunk = A.click_world_point(x, y, ptype, uuid)
         marker, tag = "ACT", "click"
-    elif rest and rest[0] == "--gotopos":
-        srv = int(rest[1]) if len(rest) > 1 else A.HOME_SERVER
-        chunk = A.goto_pos(x, y, srv)
-        marker, tag = "ACT", "gotopos"
     else:
-        chunk = A.move_to_coord(x, y)
-        marker, tag = "ACT", "moveto"
+        srv = int(rest[0]) if rest and rest[0].lstrip("-").isdigit() else A.HOME_SERVER
+        chunk = A.jump_to_coord(x, y, srv)
+        marker, tag = "ACT", "jump srv=%d" % srv
 
     print(one(run(chunk, marker, 2.0), "ACT "), flush=True)
     print("after:", cur(run), flush=True)

@@ -30,10 +30,30 @@ def current_server() -> str:
             % HOME_SERVER)
 
 
-def goto_pos(x: int, y: int, server: int) -> str:
-    """In-server camera jump to tile (x, y). Does NOT load a foreign server (use cross_jump)."""
-    return ('pcall(function() GoToUtil.GotoPos(CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,%d,nil) end) '
-            'CS.UnityEngine.Debug.LogError("ACT goto=%d,%d,%d")' % (x, y, server, x, y, server))
+def jump_to_coord(x: int, y: int, server: int) -> str:
+    """Jump to tile (x, y) on `server` — the game's OWN coordinate navigation.
+
+    Reproduces exactly what the in-game "go to coordinate on server" flow does (open the
+    magnifier, pick a target, jump), captured live with `tools/lua_trace.py` while the
+    player used it by hand (Player.log):
+
+        GoToUtil.GotoWorldPos(worldPos, 105, nil, nil, serverId)
+
+    `worldPos` is the tile's world position `Vector3(x*2+1, 0, y*2+1)` (world = tile*2, the
+    camera lands on the tile). This ONE call covers both cases: a foreign `server` loads and
+    enters that server's world (`IsInOtherServer` -> true), the home `server` returns to /
+    centres on it (`IsInOtherServer` -> false). No `UIMoveCity` teleport window, no
+    authorize-list dance, no forced mid-switch window-close — so map input stays alive
+    afterwards. Verified live: srv 972 -> inOther, srv 935 -> home, UIMoveCity never opens.
+
+    Replaces the removed `GotoPos` camera crutch and the `JumpToServerByServerId` move-city
+    hack (which popped `UIMoveCity`, force-closed it mid-switch, and left map taps dead).
+    """
+    sid = int(server)
+    return ('pcall(function() GoToUtil.GotoWorldPos('
+            'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,%d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv=%d")'
+            % (x, y, sid, x, y, sid))
 
 
 def _pid(x: int, y: int) -> str:
@@ -44,11 +64,12 @@ def _pid(x: int, y: int) -> str:
 def move_to_coord(x: int, y: int) -> str:
     """In-server move to tile (x, y) by its pointId — the game's OWN move-to-tile.
 
-    This is the real coordinate jump, not the `GotoPos` camera-only tween (see
-    `goto_pos`). `GoToUtil.MoveToWorldPoint(pid)` is the path the client itself uses
-    to centre on a tile, so it leaves the world/input state consistent — unlike a raw
-    camera pan, after which a following map tap can fail to land. Verified live: camera
-    centres on (x, y), UIManager stack stays empty. No `serverId` arg — same-server only.
+    `GoToUtil.MoveToWorldPoint(pid)` centres the camera on a tile on the CURRENT server and
+    leaves the world/input state consistent. It takes no `serverId`, so it cannot switch
+    servers — for a coordinate jump that may target another server use `jump_to_coord`
+    (the game's own `GotoWorldPos` path). Kept as the same-server centring primitive
+    (e.g. after a jump, before reading a tile). Verified live: camera centres on (x, y),
+    UIManager stack stays empty.
     """
     return ('pcall(function() GoToUtil.MoveToWorldPoint(%s) end) '
             'CS.UnityEngine.Debug.LogError("ACT moveto=%d,%d")' % (_pid(x, y), x, y))
@@ -73,37 +94,6 @@ def click_world_point(x: int, y: int, ptype: int = 0, uuid: int = 0) -> str:
             % (_pid(x, y), ptype, uuid, x, y, ptype))
 
 
-def cross_jump(server: int, home: int = HOME_SERVER, x=None, y=None) -> str:
-    """Enter a FOREIGN server's world, fully loaded, with no teleport UI.
-
-    Authorize (SetCrossEnableList) -> bulk-load (JumpToServerByServerId, always move-city)
-    -> a main-thread watcher closes the UIMoveCity window the moment it opens (no fixed
-    timeout; the world keeps streaming after). Optional pan to (x, y) once loaded. Returns
-    immediately after arming; the close/pan run in-game on the main thread.
-    """
-    pan = ""
-    if x is not None and y is not None:
-        pan = ('TimerManager:GetInstance():DelayInvoke(function() '
-               'pcall(function() GoToUtil.GotoPos(CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,%d,nil) end) '
-               'pcall(function() SceneUtils.ClearLastRequestALPointsTime() end) '
-               'pcall(function() SceneUtils.WorldSendGetALPointsRequest() end) end, 2.0) ' % (x, y, server))
-    return (
-        'local lst={} lst[0]={%d} lst[1]={%d} '
-        'pcall(function() CrossServerUtil.SetCrossEnableList(lst) end) '
-        'pcall(function() CrossServerUtil.JumpToServerByServerId(%d, MoveCrossServerType.BigMap3000, nil, 105, false) end) '
-        '_G.__MCW=0 '
-        'local function w() _G.__MCW=_G.__MCW+1 '
-        '  local open=false pcall(function() open=UIManager.Instance:IsWindowOpen("UIMoveCity") end) '
-        '  if open then pcall(function() local win=UIManager.Instance:GetWindow("UIMoveCity") '
-        '      if win and win.Ctrl and win.Ctrl.CloseSelf then win.Ctrl:CloseSelf() end end) '
-        '    CS.UnityEngine.Debug.LogError("ACT cross closed after ".._G.__MCW) '
-        '  elseif _G.__MCW<120 then TimerManager:GetInstance():DelayInvoke(w,0.1) '
-        '  else CS.UnityEngine.Debug.LogError("ACT cross gaveup") end end '
-        'TimerManager:GetInstance():DelayInvoke(w,0.1) '
-        '%s'
-        'CS.UnityEngine.Debug.LogError("ACT cross armed srv=%d")' % (home, server, server, pan, server))
-
-
 def goto_server(server: int, in_move_to_state: bool = False) -> str:
     """Switch to another server's world the way the in-game UI does — the CLEAN path.
 
@@ -114,12 +104,15 @@ def goto_server(server: int, in_move_to_state: bool = False) -> str:
         GoToUtil.GotoServerZone(serverId, false)       -- navigate to that server's zone
 
     Notably the manual switch used NEITHER `CrossServerUtil.JumpToServerByServerId` NOR
-    `SetCrossEnableList` — those belong to the move-city bulk-load hack (`cross_jump`) that
-    also pops the `UIMoveCity` teleport window. `GotoServerZone` is the clean entry: no
+    `SetCrossEnableList` — those belonged to the removed move-city bulk-load hack that also
+    popped the `UIMoveCity` teleport window. `GotoServerZone` is the clean entry: no
     teleport UI, no authorize-list dance. It bulk-loads for targets the client is already
     authorized to view — i.e. servers in an active cross-server event group (e.g. the
-    yuntie/meteorite battle group the traced switch belonged to). For an arbitrary
-    out-of-event server, `cross_jump` (move-city + close UIMoveCity) is still the fallback.
+    yuntie/meteorite battle group the traced switch belonged to).
+
+    This is a bare server switch (no coordinate). To jump straight to a tile on another
+    server prefer `jump_to_coord` (`GotoWorldPos`), which is what the in-game coordinate
+    jump actually calls and which also enters the server cleanly.
 
     `in_move_to_state` is `GotoServerZone`'s second arg (the traced call passed `false`).
     """

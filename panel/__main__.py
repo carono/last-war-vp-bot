@@ -1059,14 +1059,10 @@ class Panel(tk.Tk):
                     self._log_put("[coord] daemon недоступен")
                     return
                 cur = self._current_server()
-                target = str(server) if server is not None else cur
-                if target != cur:
-                    self._log_put(f"[coord] другой сервер ({target} != {cur}) — кросс-загрузка + переход в ({x},{y})")
-                    chunk, settle = lua_actions.cross_jump(int(target), x=x, y=y), 1.6
-                else:
-                    self._log_put(f"[coord] переход в ({x},{y}) [сервер {target}]")
-                    chunk, settle = lua_actions.move_to_coord(x, y), 1.0
-                for ln in self._client.run(chunk, marker="ACT", settle=settle):
+                target = int(server) if server is not None else int(cur)
+                self._log_put(f"[coord] переход в ({x},{y}) [сервер {target}]")
+                chunk = lua_actions.jump_to_coord(x, y, target)
+                for ln in self._client.run(chunk, marker="ACT", settle=1.6):
                     self._log_put(f"[coord] {ln}")
                 self._log_put("[coord] готово")
             except Exception as exc:
