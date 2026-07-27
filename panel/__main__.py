@@ -1308,11 +1308,13 @@ class Panel(tk.Tk):
         except Exception:
             pass
         rel = os.path.relpath(out, REPO)
-        self._log_put(f"[chat] старт монитора → {rel}")
+        self._log_put(f"[chat] старт чтения (Lua VM) → {rel}")
+        self._log_put("[chat] нужен тёплый lua_daemon и открытое окно чата в игре")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         try:
             self._chat_proc = subprocess.Popen(
-                [WIN_PYTHON, "-u", os.path.join(TOOLS, "chat_monitor.py"), "--out", out],
+                [WIN_PYTHON, "-u", os.path.join(TOOLS, "chat_reader.py"),
+                 "--seconds", "0", "--out", out],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
                 env=env, creationflags=NO_WINDOW)
