@@ -4,6 +4,7 @@
   "menu.help": "Help",
   "menu.help.about": "About",
   "menu.language": "Language",
+  "menu.develop": "Develop",
 
   "about.title": "About",
   "about.name": "Last War Control Panel",
@@ -60,6 +61,9 @@
   "rally.frame": "Rally",
   "rally.monitor": "Rally monitor",
   "rally.hint": "push.alliance.march.* → log + {path}",
+
+  "develop.traffic.toggle": "Traffic sniffer",
+  "develop.functions.toggle": "Function sniffer",
 
   "log.frame": "Log (coordinates are clickable)",
   "log.copy": "Copy",

@@ -92,6 +92,17 @@ CAPTURE_OPTIONS = [
     {"key": "capture.ghost_op", "script": os.path.join("dev", "secret_mission_capture.py")},
 ]
 
+# Develop-tab sniffers. Absolute paths, resolved at launch, so the working
+# directory the panel was started from is irrelevant.
+#   * Traffic  — tools/lib/live_sniffer.py: raw live decode of the game protocol,
+#     one line per command as it crosses the wire (see docs/research/protocol.md).
+#   * Functions — tools/lua_trace.py --dedup: wraps every reachable Lua function
+#     and logs the FIRST call of each name only. The unfiltered tracer floods
+#     Player.log and freezes the game, so --dedup is the safe discovery default
+#     (per task #1060: the monkey-patch tool is tools/lua_trace.py).
+TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
+FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
+
 
 _NON_GAME_PORTS = frozenset({80, 443})
 
@@ -180,6 +191,13 @@ class Panel(tk.Tk):
         self._coord_seq = 0
         self._mon_proc = None
         self._rally_proc = None
+        self._sniff_proc = None       # Develop: traffic sniffer
+        self._trace_proc = None       # Develop: Lua-function tracer
+        # Toggle state for the two Develop-menu sniffers. Created here (not in a
+        # tab builder) because the menu bar is built before the UI and is rebuilt
+        # on every language change — the vars must outlive those rebuilds.
+        self._sniff_var = tk.BooleanVar(value=False)
+        self._trace_var = tk.BooleanVar(value=False)
         self._client = lua_client.DaemonClient()
         self._build_menu()
         self._build_profile_bar()
@@ -229,10 +247,17 @@ class Panel(tk.Tk):
                 label=i18nmod.LANG_NAMES.get(lang, lang), value=lang,
                 variable=self._lang_var, command=lambda l=lang: self._set_language(l))
 
+        develop_menu = tk.Menu(menubar, tearoff=0)
+        develop_menu.add_checkbutton(label=self._t("develop.traffic.toggle"),
+                                     variable=self._sniff_var, command=self._toggle_sniff)
+        develop_menu.add_checkbutton(label=self._t("develop.functions.toggle"),
+                                     variable=self._trace_var, command=self._toggle_trace)
+
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
 
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
+        menubar.add_cascade(label=self._t("menu.develop"), menu=develop_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
         if self._build_menu not in self._tr_hooks:
@@ -918,6 +943,109 @@ class Panel(tk.Tk):
             except Exception:
                 pass
 
+    # -- Develop menu: raw sniffers -----------------------------------------
+    def _spawn_sniffer(self, cmd: list, tag: str) -> "subprocess.Popen | None":
+        """Launch a raw sniffer child, streaming its stdout+stderr into the log.
+
+        Same recipe as the secret/rally monitors: Windows Python, unbuffered,
+        utf-8 forced (the child's piped stdout would otherwise fall back to the
+        ANSI code page and mangle its glyphs under our utf-8 decode), no console
+        window. Returns the process, or None if it failed to start.
+        """
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        try:
+            return subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
+                env=env, creationflags=NO_WINDOW)
+        except Exception as exc:
+            self._log_put(f"[{tag}] ошибка запуска: {exc}")
+            return None
+
+    def _toggle_sniff(self) -> None:
+        if self._sniff_var.get():
+            self._start_sniff()
+        else:
+            self._stop_sniff()
+
+    def _start_sniff(self) -> None:
+        if self._sniff_proc is not None:
+            return
+        cmd = [WIN_PYTHON, "-u", TRAFFIC_SNIFFER]
+        self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
+        self._sniff_proc = self._spawn_sniffer(cmd, "traffic")
+        if self._sniff_proc is None:
+            self._sniff_var.set(False)
+            return
+        self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
+                      f"вывод идёт в лог")
+        threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
+                         daemon=True).start()
+
+    def _sniff_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[traffic] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._sniff_proc is proc:      # ended on its own, not via _stop_sniff
+            self._log_put("[traffic] снифер завершён")
+            self._sniff_proc = None
+            self.after(0, lambda: self._sniff_var.set(False))
+
+    def _stop_sniff(self) -> None:
+        proc, self._sniff_proc = self._sniff_proc, None
+        if proc is not None:
+            self._log_put("[traffic] стоп снифера трафика")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    def _toggle_trace(self) -> None:
+        if self._trace_var.get():
+            self._start_trace()
+        else:
+            self._stop_trace()
+
+    def _start_trace(self) -> None:
+        if self._trace_proc is not None:
+            return
+        # --dedup: log only the first call of each function name. Without it the
+        # tracer wraps every reachable Lua function and floods Player.log, which
+        # freezes the game — see the tools/lua_trace.py docstring. The safe
+        # discovery pass is the right default for a one-click panel button.
+        cmd = [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"]
+        self._log_put("[trace] запуск трассировщика Lua-функций (lua_trace.py --dedup) …")
+        self._trace_proc = self._spawn_sniffer(cmd, "trace")
+        if self._trace_proc is None:
+            self._trace_var.set(False)
+            return
+        self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
+                      f"вывод идёт в лог")
+        threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
+                         daemon=True).start()
+
+    def _trace_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[trace] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._trace_proc is proc:      # ended on its own, not via _stop_trace
+            self._log_put("[trace] трассировщик завершён")
+            self._trace_proc = None
+            self.after(0, lambda: self._trace_var.set(False))
+
+    def _stop_trace(self) -> None:
+        proc, self._trace_proc = self._trace_proc, None
+        if proc is not None:
+            self._log_put("[trace] стоп трассировщика")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
     # -- jump routing (shared by the entry button and clickable coords) -----
     def _jump(self, x: int, y: int, server) -> None:
         if self._busy:
@@ -1022,6 +1150,8 @@ class Panel(tk.Tk):
     def _on_close(self) -> None:
         self._stop_monitor()
         self._stop_rally()
+        self._stop_sniff()
+        self._stop_trace()
         self.destroy()
 
 
