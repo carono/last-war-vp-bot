@@ -14,6 +14,7 @@
 
   "tab.main": "Main",
   "tab.scenarios": "Scenarios",
+  "tab.chat": "Chat",
   "scenarios.placeholder": "Scenarios — coming soon",
 
   "top.game": "Game:",
@@ -68,6 +69,20 @@
   "log.frame": "Log (coordinates are clickable)",
   "log.copy": "Copy",
   "log.select_all": "Select All",
+
+  "chat.monitor": "Chat monitor",
+  "chat.hint": "TCP-leg only: DMs, gifts, shares. World/alliance broadcast (TLS WSS) is not captured.",
+  "chat.tab.world": "World",
+  "chat.tab.alliance": "Alliance",
+  "chat.tab.national": "National",
+  "chat.tab.dm": "DM",
+  "chat.tab.other": "Other",
+  "chat.col.time": "Time",
+  "chat.col.alliance": "Alliance",
+  "chat.col.nick": "Nick",
+  "chat.col.msg": "Message",
+  "chat.clear": "Clear",
+  "chat.count": "{n} messages",
 
   "profile.label": "Profile:",
   "profile.new": "New",

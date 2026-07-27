@@ -14,6 +14,7 @@
 
   "tab.main": "Основные",
   "tab.scenarios": "Сценарии",
+  "tab.chat": "Чат",
   "scenarios.placeholder": "Сценарии — скоро",
 
   "top.game": "Игра:",
@@ -68,6 +69,20 @@
   "log.frame": "Лог (координаты кликабельны)",
   "log.copy": "Копировать",
   "log.select_all": "Выделить всё",
+
+  "chat.monitor": "Монитор чата",
+  "chat.hint": "Только TCP: личные сообщения, подарки, шары. Broadcast (world/alliance) идёт по TLS WSS — не перехватывается.",
+  "chat.tab.world": "Мировой",
+  "chat.tab.alliance": "Альянс",
+  "chat.tab.national": "Нац.",
+  "chat.tab.dm": "ЛС",
+  "chat.tab.other": "Другие",
+  "chat.col.time": "Время",
+  "chat.col.alliance": "Альянс",
+  "chat.col.nick": "Ник",
+  "chat.col.msg": "Сообщение",
+  "chat.clear": "Очистить",
+  "chat.count": "{n} сообщений",
 
   "profile.label": "Профиль:",
   "profile.new": "Создать",

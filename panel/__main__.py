@@ -198,6 +198,15 @@ class Panel(tk.Tk):
         # on every language change — the vars must outlive those rebuilds.
         self._sniff_var = tk.BooleanVar(value=False)
         self._trace_var = tk.BooleanVar(value=False)
+        self._chat_var = tk.BooleanVar(value=False)
+        self._chat_q: "queue.Queue[dict]" = queue.Queue()
+        self._chat_proc = None
+        # In-memory chat messages keyed by chat_type
+        self._chat_msgs: dict = {t: [] for t in ("world", "alliance", "national", "dm", "other", "system")}
+        # Treeview widgets per chat type (populated by _build_chat_tab)
+        self._chat_trees: dict = {}
+        # Count of rows already inserted into each treeview (for incremental appends)
+        self._chat_tree_rows: dict = {}
         self._client = lua_client.DaemonClient()
         self._build_menu()
         self._build_profile_bar()
@@ -320,6 +329,7 @@ class Panel(tk.Tk):
             self._apply_language()
         self._apply_settings_to_ui()
         self._sync_monitors()                 # restart captures into the new profile's logs
+        self._load_chat_history()             # reload chat messages for the new profile
 
     def _create_profile(self) -> None:
         name = simpledialog.askstring(self._t("profile.new"),
@@ -383,6 +393,7 @@ class Panel(tk.Tk):
             "filter_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
             "secret_monitor": self._mon_var.get(),
+            "chat_monitor": self._chat_var.get(),
         }
 
     def _apply_settings_to_ui(self) -> None:
@@ -404,6 +415,7 @@ class Panel(tk.Tk):
             self._lvl_to_var.set(s.get("filter_level_to", ""))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
+            self._chat_var.set(bool(s.get("chat_monitor", False)))
         finally:
             self._loading = False
         self._update_path_hints()
@@ -412,7 +424,7 @@ class Panel(tk.Tk):
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
                     self._pending_var, self._can_loot_var, self._lvl_from_var,
-                    self._lvl_to_var, self._rally_var, self._mon_var):
+                    self._lvl_to_var, self._rally_var, self._mon_var, self._chat_var):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
@@ -438,7 +450,7 @@ class Panel(tk.Tk):
         self._profiles.save(self._settings)
 
     def _sync_monitors(self) -> None:
-        """Start/stop (restart) the rally & secret captures to match the checkboxes.
+        """Start/stop (restart) the rally, secret and chat captures to match the checkboxes.
 
         Restarting is deliberate: a running capture keeps writing to the *old* profile's
         log, so on a profile switch we bounce it to redirect output to the new directory.
@@ -449,6 +461,9 @@ class Panel(tk.Tk):
         self._stop_monitor()
         if self._mon_var.get():
             self._start_monitor()
+        self._stop_chat()
+        if self._chat_var.get():
+            self._start_chat()
 
     def _update_path_hints(self) -> None:
         """Refresh labels that show the active profile's log path (rally hint)."""
@@ -465,12 +480,16 @@ class Panel(tk.Tk):
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
         scenarios = ttk.Frame(nb)
+        chat_tab = ttk.Frame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
+        nb.add(chat_tab, text=self._t("tab.chat"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
-                                       nb.tab(scenarios, text=self._t("tab.scenarios"))))
+                                       nb.tab(scenarios, text=self._t("tab.scenarios")),
+                                       nb.tab(chat_tab, text=self._t("tab.chat"))))
         self._tr(ttk.Label(scenarios, foreground="#888", padding=20),
                  "scenarios.placeholder").pack(expand=True)
+        self._build_chat_tab(chat_tab)
 
         top = ttk.Frame(main, padding=8)
         top.pack(fill="x")
@@ -708,6 +727,9 @@ class Panel(tk.Tk):
             self._start_rally()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
             self._start_monitor()
+        if self._chat_var.get():            # chat monitor, if the profile had it on
+            self._start_chat()
+        self.after(0, self._load_chat_history)
         self._ensure_daemon()
         self._load_current_server()
 
@@ -1154,7 +1176,249 @@ class Panel(tk.Tk):
         self._stop_rally()
         self._stop_sniff()
         self._stop_trace()
+        self._stop_chat()
         self.destroy()
+
+
+    # -- chat tab -----------------------------------------------------------
+
+    def _build_chat_tab(self, parent: ttk.Frame) -> None:
+        """Build the Chat tab: monitor toggle + sub-tabs per chat type."""
+        ctrl = ttk.Frame(parent, padding=(8, 6, 8, 4))
+        ctrl.pack(fill="x")
+        self._tr(ttk.Checkbutton(ctrl, variable=self._chat_var, command=self._toggle_chat),
+                 "chat.monitor").pack(side="left")
+        self._tr(ttk.Label(ctrl, foreground="#888", wraplength=500, justify="left"),
+                 "chat.hint").pack(side="left", padx=(10, 0))
+
+        sub_nb = ttk.Notebook(parent)
+        sub_nb.pack(fill="both", expand=True, padx=4, pady=(0, 2))
+
+        for type_key in ("world", "alliance", "national", "dm", "other"):
+            frame = ttk.Frame(sub_nb)
+            sub_nb.add(frame, text=self._t(f"chat.tab.{type_key}"))
+            _k = type_key  # capture for lambda
+            self._tr_hooks.append(
+                lambda nb=sub_nb, f=frame, k=_k: nb.tab(f, text=self._t(f"chat.tab.{k}"))
+            )
+            tree = self._make_chat_tree(frame)
+            self._chat_trees[type_key] = tree
+            self._chat_tree_rows[type_key] = 0
+
+        bot = ttk.Frame(parent, padding=(6, 2, 6, 4))
+        bot.pack(fill="x")
+        self._tr(ttk.Button(bot, command=self._clear_chat),
+                 "chat.clear").pack(side="left")
+        self._chat_count_var = tk.StringVar(value=self._t("chat.count", n=0))
+        ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
+            side="right", padx=8)
+        self._tr_hooks.append(self._retranslate_chat_bottom)
+
+        self._pump_chat()
+
+    def _retranslate_chat_bottom(self) -> None:
+        """Re-apply translatable text in the chat bottom bar after a language change."""
+        total = sum(len(v) for v in self._chat_msgs.values())
+        self._chat_count_var.set(self._t("chat.count", n=total))
+
+    def _make_chat_tree(self, parent: ttk.Frame) -> "ttk.Treeview":
+        """Build a Treeview with columns (time, alliance, nick, message) + scrollbar."""
+        frame = ttk.Frame(parent)
+        frame.pack(fill="both", expand=True)
+        cols = ("time", "alliance", "nick", "msg")
+        tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
+        tree.heading("time", text=self._t("chat.col.time"))
+        tree.heading("alliance", text=self._t("chat.col.alliance"))
+        tree.heading("nick", text=self._t("chat.col.nick"))
+        tree.heading("msg", text=self._t("chat.col.msg"))
+        tree.column("time", width=70, minwidth=60, stretch=False)
+        tree.column("alliance", width=60, minwidth=50, stretch=False)
+        tree.column("nick", width=120, minwidth=80, stretch=False)
+        tree.column("msg", width=300, stretch=True)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        return tree
+
+    def _pump_chat(self) -> None:
+        """Drain the chat queue and refresh treeviews — scheduled every 1 s."""
+        changed: set = set()
+        try:
+            while True:
+                record = self._chat_q.get_nowait()
+                chat_type = record.get("chat_type", "other")
+                if chat_type not in self._chat_msgs:
+                    chat_type = "other"
+                msgs = self._chat_msgs[chat_type]
+                msgs.append(record)
+                if len(msgs) > 500:
+                    # Trim to the last 500 entries and force a full treeview rebuild.
+                    msgs[:] = msgs[-500:]
+                    self._chat_tree_rows[chat_type] = 0
+                    tree = self._chat_trees.get(chat_type)
+                    if tree is not None:
+                        tree.delete(*tree.get_children())
+                changed.add(chat_type)
+        except queue.Empty:
+            pass
+
+        for chat_type in changed:
+            self._update_chat_tree(chat_type)
+
+        total = sum(len(v) for v in self._chat_msgs.values())
+        self._chat_count_var.set(self._t("chat.count", n=total))
+        self.after(1000, self._pump_chat)
+
+    def _update_chat_tree(self, chat_type: str) -> None:
+        """Append only the records that have not yet been inserted into the treeview."""
+        from datetime import datetime as _dt
+        tree = self._chat_trees.get(chat_type)
+        if tree is None:
+            return
+        msgs = self._chat_msgs.get(chat_type, [])
+        start = self._chat_tree_rows.get(chat_type, 0)
+        for record in msgs[start:]:
+            ts = record.get("ts", 0)
+            t_str = _dt.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+            tree.insert("", "end", values=(
+                t_str,
+                (record.get("alliance") or "")[:12],
+                (record.get("sender_name") or "")[:30],
+                (record.get("msg") or "")[:300],
+            ))
+        self._chat_tree_rows[chat_type] = len(msgs)
+        if len(msgs) > start:
+            children = tree.get_children()
+            if children:
+                tree.see(children[-1])
+
+    def _toggle_chat(self) -> None:
+        if self._chat_var.get():
+            self._start_chat()
+        else:
+            self._stop_chat()
+
+    def _start_chat(self) -> None:
+        if self._chat_proc is not None:
+            return
+        out = self._profiles.chat_log()
+        try:
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+        except Exception:
+            pass
+        rel = os.path.relpath(out, REPO)
+        self._log_put(f"[chat] старт монитора → {rel}")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        try:
+            self._chat_proc = subprocess.Popen(
+                [WIN_PYTHON, "-u", os.path.join(TOOLS, "chat_monitor.py"), "--out", out],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
+                env=env, creationflags=NO_WINDOW)
+        except Exception as exc:
+            self._log_put(f"[chat] ошибка запуска: {exc}")
+            self._chat_proc = None
+            self._chat_var.set(False)
+            return
+        self._log_put(f"[chat] монитор запущен (pid {self._chat_proc.pid})")
+        threading.Thread(target=self._chat_reader, args=(self._chat_proc,), daemon=True).start()
+
+    def _chat_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                    if isinstance(record, dict):
+                        self._chat_q.put(record)
+                        self._append_chat(record)
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+        if self._chat_proc is proc:
+            self._log_put("[chat] монитор завершён")
+            self._chat_proc = None
+            self.after(0, lambda: self._chat_var.set(False))
+
+    def _append_chat(self, record: dict) -> None:
+        """Persist one chat record to the active profile's chat_log.jsonl."""
+        try:
+            with open(self._profiles.chat_log(), "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
+    def _stop_chat(self) -> None:
+        proc, self._chat_proc = self._chat_proc, None
+        if proc is not None:
+            self._log_put("[chat] стоп монитора")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    def _clear_chat(self) -> None:
+        """Remove all in-memory chat messages and clear all treeviews."""
+        for chat_type in list(self._chat_msgs):
+            self._chat_msgs[chat_type].clear()
+            tree = self._chat_trees.get(chat_type)
+            if tree is not None:
+                tree.delete(*tree.get_children())
+            self._chat_tree_rows[chat_type] = 0
+        self._chat_count_var.set(self._t("chat.count", n=0))
+
+    def _load_chat_history(self) -> None:
+        """Load the last 500 records from the active profile's chat_log.jsonl.
+
+        Called on startup and on profile switch. Clears the current in-memory
+        state first, then repopulates from the file and rebuilds all treeviews.
+        """
+        # Clear current state
+        for chat_type in list(self._chat_msgs):
+            self._chat_msgs[chat_type].clear()
+            tree = self._chat_trees.get(chat_type)
+            if tree is not None:
+                tree.delete(*tree.get_children())
+            self._chat_tree_rows[chat_type] = 0
+
+        path = self._profiles.chat_log()
+        if not os.path.isfile(path):
+            return
+
+        raw_records: list = []
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        if isinstance(rec, dict):
+                            raw_records.append(rec)
+                    except json.JSONDecodeError:
+                        pass
+        except OSError:
+            return
+
+        for record in raw_records[-500:]:
+            chat_type = record.get("chat_type", "other")
+            if chat_type not in self._chat_msgs:
+                chat_type = "other"
+            self._chat_msgs[chat_type].append(record)
+
+        for chat_type, msgs in self._chat_msgs.items():
+            if msgs:
+                self._update_chat_tree(chat_type)
+
+        total = sum(len(v) for v in self._chat_msgs.values())
+        self._chat_count_var.set(self._t("chat.count", n=total))
+        if total:
+            self._log_put(f"[chat] история загружена: {total} сообщений")
 
 
 def main(argv: list[str] | None = None) -> int:

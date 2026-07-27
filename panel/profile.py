@@ -30,6 +30,7 @@ SETTINGS_FILE = os.path.join(PANEL_DIR, "settings.json")
 DEFAULT_PROFILE = "default"
 RALLY_LOG = "rally_log.jsonl"
 SECRET_LOG = "secret_tasks_log.jsonl"
+CHAT_LOG = "chat_log.jsonl"
 PANEL_LOG = "panel.log"
 CONFIG_FILE = "config.json"
 
@@ -181,6 +182,10 @@ class ProfileManager:
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)
+
+    def chat_log(self, name: str | None = None) -> str:
+        """JSONL log of chat messages captured on the plain-TCP leg."""
+        return os.path.join(self.dir(name), CHAT_LOG)
 
     def panel_log(self, name: str | None = None) -> str:
         """Plain-text mirror of everything shown in the panel log widget."""
