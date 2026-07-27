@@ -1,0 +1,798 @@
+{
+ "emoji": [
+  {
+   "id": "101",
+   "name": "e006",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e006.png",
+   "cat": "1"
+  },
+  {
+   "id": "102",
+   "name": "e01c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01c.png",
+   "cat": "1"
+  },
+  {
+   "id": "103",
+   "name": "e01e",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01e.png",
+   "cat": "1"
+  },
+  {
+   "id": "104",
+   "name": "e008",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e008.png",
+   "cat": "1"
+  },
+  {
+   "id": "105",
+   "name": "e007",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e007.png",
+   "cat": "1"
+  },
+  {
+   "id": "106",
+   "name": "e036",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e036.png",
+   "cat": "1"
+  },
+  {
+   "id": "107",
+   "name": "e00d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00d.png",
+   "cat": "1"
+  },
+  {
+   "id": "108",
+   "name": "e033",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e033.png",
+   "cat": "1"
+  },
+  {
+   "id": "109",
+   "name": "e022",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e022.png",
+   "cat": "1"
+  },
+  {
+   "id": "110",
+   "name": "e016",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e016.png",
+   "cat": "1"
+  },
+  {
+   "id": "111",
+   "name": "e00a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00a.png",
+   "cat": "1"
+  },
+  {
+   "id": "112",
+   "name": "e009",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e009.png",
+   "cat": "1"
+  },
+  {
+   "id": "113",
+   "name": "e012",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e012.png",
+   "cat": "1"
+  },
+  {
+   "id": "114",
+   "name": "e034",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e034.png",
+   "cat": "1"
+  },
+  {
+   "id": "115",
+   "name": "e018",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e018.png",
+   "cat": "1"
+  },
+  {
+   "id": "116",
+   "name": "e032",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e032.png",
+   "cat": "1"
+  },
+  {
+   "id": "117",
+   "name": "e025",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e025.png",
+   "cat": "1"
+  },
+  {
+   "id": "118",
+   "name": "e024",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e024.png",
+   "cat": "1"
+  },
+  {
+   "id": "119",
+   "name": "e003",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e003.png",
+   "cat": "1"
+  },
+  {
+   "id": "120",
+   "name": "e017",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e017.png",
+   "cat": "1"
+  },
+  {
+   "id": "121",
+   "name": "e01b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01b.png",
+   "cat": "1"
+  },
+  {
+   "id": "122",
+   "name": "e00e",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00e.png",
+   "cat": "1"
+  },
+  {
+   "id": "123",
+   "name": "e031",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e031.png",
+   "cat": "1"
+  },
+  {
+   "id": "124",
+   "name": "e02c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02c.png",
+   "cat": "1"
+  },
+  {
+   "id": "125",
+   "name": "e002",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e002.png",
+   "cat": "1"
+  },
+  {
+   "id": "126",
+   "name": "e02e",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02e.png",
+   "cat": "1"
+  },
+  {
+   "id": "127",
+   "name": "e021",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e021.png",
+   "cat": "1"
+  },
+  {
+   "id": "128",
+   "name": "e023",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e023.png",
+   "cat": "1"
+  },
+  {
+   "id": "129",
+   "name": "e038",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e038.png",
+   "cat": "1"
+  },
+  {
+   "id": "130",
+   "name": "e02f",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02f.png",
+   "cat": "1"
+  },
+  {
+   "id": "131",
+   "name": "e00c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00c.png",
+   "cat": "1"
+  },
+  {
+   "id": "132",
+   "name": "e026",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e026.png",
+   "cat": "1"
+  },
+  {
+   "id": "133",
+   "name": "e02b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02b.png",
+   "cat": "1"
+  },
+  {
+   "id": "134",
+   "name": "e01d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01d.png",
+   "cat": "1"
+  },
+  {
+   "id": "135",
+   "name": "e013",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e013.png",
+   "cat": "1"
+  },
+  {
+   "id": "136",
+   "name": "e01f",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01f.png",
+   "cat": "1"
+  },
+  {
+   "id": "137",
+   "name": "e029",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e029.png",
+   "cat": "1"
+  },
+  {
+   "id": "138",
+   "name": "e010",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e010.png",
+   "cat": "1"
+  },
+  {
+   "id": "139",
+   "name": "e020",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e020.png",
+   "cat": "1"
+  },
+  {
+   "id": "140",
+   "name": "e004",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e004.png",
+   "cat": "1"
+  },
+  {
+   "id": "141",
+   "name": "e00f",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00f.png",
+   "cat": "1"
+  },
+  {
+   "id": "142",
+   "name": "e014",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e014.png",
+   "cat": "1"
+  },
+  {
+   "id": "143",
+   "name": "e019",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e019.png",
+   "cat": "1"
+  },
+  {
+   "id": "144",
+   "name": "e011",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e011.png",
+   "cat": "1"
+  },
+  {
+   "id": "145",
+   "name": "e028",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e028.png",
+   "cat": "1"
+  },
+  {
+   "id": "157",
+   "name": "e03a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e03a.png",
+   "cat": "1"
+  },
+  {
+   "id": "158",
+   "name": "e03b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e03b.png",
+   "cat": "1"
+  },
+  {
+   "id": "159",
+   "name": "e03c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e03c.png",
+   "cat": "1"
+  },
+  {
+   "id": "160",
+   "name": "e03d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e03d.png",
+   "cat": "1"
+  },
+  {
+   "id": "161",
+   "name": "e03f",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e03f.png",
+   "cat": "1"
+  },
+  {
+   "id": "162",
+   "name": "e039",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e039.png",
+   "cat": "1"
+  },
+  {
+   "id": "163",
+   "name": "e040",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e040.png",
+   "cat": "1"
+  },
+  {
+   "id": "164",
+   "name": "e041",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e041.png",
+   "cat": "1"
+  },
+  {
+   "id": "165",
+   "name": "e042",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e042.png",
+   "cat": "1"
+  },
+  {
+   "id": "166",
+   "name": "e043",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e043.png",
+   "cat": "1"
+  },
+  {
+   "id": "168",
+   "name": "e045",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e045.png",
+   "cat": "1"
+  },
+  {
+   "id": "177",
+   "name": "e050",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e050.png",
+   "cat": "1"
+  },
+  {
+   "id": "178",
+   "name": "e05a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e05a.png",
+   "cat": "1"
+  },
+  {
+   "id": "179",
+   "name": "e05b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e05b.png",
+   "cat": "1"
+  },
+  {
+   "id": "180",
+   "name": "e05c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e05c.png",
+   "cat": "1"
+  },
+  {
+   "id": "146",
+   "name": "e015",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e015.png",
+   "cat": "1"
+  },
+  {
+   "id": "147",
+   "name": "e001",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e001.png",
+   "cat": "1"
+  },
+  {
+   "id": "148",
+   "name": "e01a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e01a.png",
+   "cat": "1"
+  },
+  {
+   "id": "167",
+   "name": "e044",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e044.png",
+   "cat": "1"
+  },
+  {
+   "id": "181",
+   "name": "e05d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e05d.png",
+   "cat": "1"
+  },
+  {
+   "id": "149",
+   "name": "e00b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e00b.png",
+   "cat": "1"
+  },
+  {
+   "id": "150",
+   "name": "e037",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e037.png",
+   "cat": "1"
+  },
+  {
+   "id": "151",
+   "name": "e035",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e035.png",
+   "cat": "1"
+  },
+  {
+   "id": "152",
+   "name": "e02a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02a.png",
+   "cat": "1"
+  },
+  {
+   "id": "153",
+   "name": "e027",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e027.png",
+   "cat": "1"
+  },
+  {
+   "id": "154",
+   "name": "e02d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e02d.png",
+   "cat": "1"
+  },
+  {
+   "id": "155",
+   "name": "e005",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e005.png",
+   "cat": "1"
+  },
+  {
+   "id": "156",
+   "name": "e030",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e030.png",
+   "cat": "1"
+  },
+  {
+   "id": "169",
+   "name": "e046",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e046.png",
+   "cat": "1"
+  },
+  {
+   "id": "170",
+   "name": "e047",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e047.png",
+   "cat": "1"
+  },
+  {
+   "id": "176",
+   "name": "e04d",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e04d.png",
+   "cat": "1"
+  },
+  {
+   "id": "171",
+   "name": "e048",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e048.png",
+   "cat": "3"
+  },
+  {
+   "id": "172",
+   "name": "e049",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e049.png",
+   "cat": "3"
+  },
+  {
+   "id": "173",
+   "name": "e04a",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e04a.png",
+   "cat": "3"
+  },
+  {
+   "id": "174",
+   "name": "e04b",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e04b.png",
+   "cat": "3"
+  },
+  {
+   "id": "175",
+   "name": "e04c",
+   "path": "Assets/Main/Sprites/UI/LWChatEmoji/Default/e04c.png",
+   "cat": "3"
+  }
+ ],
+ "stickers": [
+  {
+   "id": "5",
+   "name": "dice",
+   "sticker_name": "sticker_5",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "16"
+  },
+  {
+   "id": "6",
+   "name": "sticker/map_like",
+   "sticker_name": "sticker_map_like",
+   "para1": "sticker/MapSticker_default",
+   "para2": "8",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "7",
+   "name": "sticker/map_angry",
+   "sticker_name": "sticker_map_angry",
+   "para1": "sticker/MapSticker_default",
+   "para2": "4",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "8",
+   "name": "sticker/map_cry",
+   "sticker_name": "sticker_map_cry",
+   "para1": "sticker/MapSticker_default",
+   "para2": "12",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "9",
+   "name": "sticker/map_laugh",
+   "sticker_name": "sticker_map_laugh",
+   "para1": "sticker/MapSticker_default",
+   "para2": "0",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "18",
+   "name": "sticker/lyt_biaoqing_fengmian_7",
+   "sticker_name": "item_name_991009",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "11",
+   "name": "sticker/S3_1",
+   "sticker_name": "item_name_650058",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "19",
+   "name": "sticker/lyt_biaoqing_fengmian_8",
+   "sticker_name": "item_name_991010",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "22",
+   "name": "sticker/lrb_biaoqing_fengmian_bixin",
+   "sticker_name": "item_name_992004",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "12",
+   "name": "sticker/S3_2",
+   "sticker_name": "item_name_650059",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "13",
+   "name": "sticker/S3_1",
+   "sticker_name": "item_name_650058",
+   "para1": "sticker/MapSticker_S3",
+   "para2": "0",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "14",
+   "name": "sticker/S3_2",
+   "sticker_name": "item_name_650059",
+   "para1": "sticker/MapSticker_S3",
+   "para2": "4",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "10",
+   "name": "sticker/lrb_biaoqing_songhuoji",
+   "sticker_name": "item_name654106",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "17",
+   "name": "sticker/lrb_biaoqing_songhuoji",
+   "sticker_name": "item_name654106",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "23",
+   "name": "sticker/music_2025",
+   "sticker_name": "item_name_992009",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "28",
+   "name": "sticker/lrb_biaoqing_fengmian_zhenjing",
+   "sticker_name": "gift_privilege_sticker_2",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "33",
+   "name": "sticker/lyt_biaoqing_fengmian_11",
+   "sticker_name": "gift_privilege_sticker_7",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "35",
+   "name": "sticker/zyf_shengdanjie_biaoqing_icon",
+   "sticker_name": "item_name654228",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  },
+  {
+   "id": "41",
+   "name": "sticker/zyf_jinzhuan_biaoqing_icon",
+   "sticker_name": "item_name_654263",
+   "para1": "",
+   "para2": "",
+   "type": "3",
+   "frame_rate": "32"
+  }
+ ],
+ "sticker_by_id": {
+  "5": {
+   "name": "dice",
+   "stem": "dice",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "16"
+  },
+  "6": {
+   "name": "sticker/map_like",
+   "stem": "map_like",
+   "para1": "sticker/MapSticker_default",
+   "para2": "8",
+   "frame_rate": "32"
+  },
+  "7": {
+   "name": "sticker/map_angry",
+   "stem": "map_angry",
+   "para1": "sticker/MapSticker_default",
+   "para2": "4",
+   "frame_rate": "32"
+  },
+  "8": {
+   "name": "sticker/map_cry",
+   "stem": "map_cry",
+   "para1": "sticker/MapSticker_default",
+   "para2": "12",
+   "frame_rate": "32"
+  },
+  "9": {
+   "name": "sticker/map_laugh",
+   "stem": "map_laugh",
+   "para1": "sticker/MapSticker_default",
+   "para2": "0",
+   "frame_rate": "32"
+  },
+  "10": {
+   "name": "sticker/lrb_biaoqing_songhuoji",
+   "stem": "lrb_biaoqing_songhuoji",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "11": {
+   "name": "sticker/S3_1",
+   "stem": "S3_1",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "12": {
+   "name": "sticker/S3_2",
+   "stem": "S3_2",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "13": {
+   "name": "sticker/S3_1",
+   "stem": "S3_1",
+   "para1": "sticker/MapSticker_S3",
+   "para2": "0",
+   "frame_rate": "32"
+  },
+  "14": {
+   "name": "sticker/S3_2",
+   "stem": "S3_2",
+   "para1": "sticker/MapSticker_S3",
+   "para2": "4",
+   "frame_rate": "32"
+  },
+  "17": {
+   "name": "sticker/lrb_biaoqing_songhuoji",
+   "stem": "lrb_biaoqing_songhuoji",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "18": {
+   "name": "sticker/lyt_biaoqing_fengmian_7",
+   "stem": "lyt_biaoqing_fengmian_7",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "19": {
+   "name": "sticker/lyt_biaoqing_fengmian_8",
+   "stem": "lyt_biaoqing_fengmian_8",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "22": {
+   "name": "sticker/lrb_biaoqing_fengmian_bixin",
+   "stem": "lrb_biaoqing_fengmian_bixin",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "23": {
+   "name": "sticker/music_2025",
+   "stem": "music_2025",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "28": {
+   "name": "sticker/lrb_biaoqing_fengmian_zhenjing",
+   "stem": "lrb_biaoqing_fengmian_zhenjing",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "33": {
+   "name": "sticker/lyt_biaoqing_fengmian_11",
+   "stem": "lyt_biaoqing_fengmian_11",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "35": {
+   "name": "sticker/zyf_shengdanjie_biaoqing_icon",
+   "stem": "zyf_shengdanjie_biaoqing_icon",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  },
+  "41": {
+   "name": "sticker/zyf_jinzhuan_biaoqing_icon",
+   "stem": "zyf_jinzhuan_biaoqing_icon",
+   "para1": "",
+   "para2": "",
+   "frame_rate": "32"
+  }
+ }
+}

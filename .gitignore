@@ -45,5 +45,10 @@ sslkeys.log
 
 # extracted game art (see tools/extract_hero_icons.py) → results/hero_icons/ (results/ above already covers it).
 
+# Scanner output written outside results/ when --json is given a bare path
+# (tools/scan_players.py --json players.json). Player dumps, not source.
+/players.json
+/result/
+
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/

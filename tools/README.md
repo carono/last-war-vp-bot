@@ -20,9 +20,15 @@ The directory is split by role. **Run every script from the repo root** (paths l
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
   `rally_join.py` (rally listen/join/decline + squad select), `rally_monitor.py` (live
   rally capture), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
-  evaluator behind them), `goto_coord.py` (jump to a tile), `secret_task_capture.py`
-  (find secret tasks), `scan_leaderboard.py`, `scan_players.py` and
-  `extract_hero_icons.py` (pull hero-icon sprites from the bundles).
+  evaluator behind them), `goto_coord.py` (jump to a tile), `attack.py` (attack /
+  scout an enemy base), `chat_reader.py` (read world/national/alliance chat off the
+  Lua VM), `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
+  `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
+  hero-icon / chat-emoji / sticker sprites from the bundles).
+  `chat_assets.py` sits here too, next to the two consumers it pairs with
+  (`chat_reader.py` and the panel's Chat tab), but is a module, not an entrypoint:
+  it maps a chat token (`[e:E006]`, `[sticker:35]`, `[photo:429]`) onto a local
+  PNG/JPG path via the id→stem table in `tools/data/chat_assets_map.json`.
 - **`tools/lib/`** — shared modules imported by the entrypoints (not run directly): the Lua/
   il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
   `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
@@ -62,6 +68,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |
 | `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
+| `attack.py` | **Windows** (Python, Lua daemon) | attack (`ATTACK_CITY`) or scout (`SCOUT_CITY`) an enemy base without clicking, and read back the scout report — see [`../docs/research/attack-and-scout.md`](../docs/research/attack-and-scout.md) |
+| `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
+| `extract_chat_assets.py` | **WSL** or **Windows** (Python, UnityPy) | extract chat emoji / sticker sprites from the cached asset bundles into `results/chat_assets/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
 and cannot see the Windows game's traffic directly. WSL is for offline analysis

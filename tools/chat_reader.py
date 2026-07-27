@@ -25,12 +25,11 @@ Requirements / caveats
 * The warm Lua daemon must be running (``tools/lua_daemon.py``) and the game
   alive. Run under the Windows Python so it can reach the daemon:
       C:\Python312\python.exe -u tools\chat_reader.py --seconds 300
-* The in-game **chat window must be open** -- the client only processes the chat
-  stream while the chat UI is up. This script opens it for you
-  (``GoToUtil.OpenChatView()``); leave it open while capturing.
-* Capture is LIVE from the moment the hook is installed. Pre-existing backlog is
-  only replayed by the client on the *first* chat-open of a game session
-  (``TryInitAllRoomData``); a fresh open mid-session shows only new messages.
+* The chat window does NOT need to be open. The hook sits on the class-level
+  ``ChatMessage:onParseServerData``, which the client runs for every parsed
+  message whether or not the chat UI is up, so capture is always-on.
+* Capture is LIVE-forward from the moment the hook is installed: it sees new
+  messages, not pre-existing backlog.
 * Non-ASCII text is carried as hex and decoded here, so Cyrillic/CJK survive.
 
 Output: one JSON record per message to stdout and, if given, appended to --out.
@@ -40,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 
@@ -51,23 +51,15 @@ MARKER = "ACT"
 
 # ---------------------------------------------------------------------------
 # Lua side: install idempotent hooks that copy each incoming ChatMessage into
-# the global ring buffer _G.__CHATREAD. Fields are hex-encoded so non-ASCII text
+# the global ring buffer _G.__CR_BUF. Fields are hex-encoded so non-ASCII text
 # reaches Python intact (LogError mangles raw UTF-8 in Player.log).
 # ---------------------------------------------------------------------------
 _INSTALL_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("ACT "..tostring(s)) end
-_G.__CHATREAD = _G.__CHATREAD or {}
+_G.__CR_BUF = _G.__CR_BUF or {}
 local function hex(s)
   if type(s) ~= "string" then return "" end
   return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end))
-end
-local function cname(t)
-  if type(t) ~= "table" then return nil end
-  local ok, cn = pcall(function()
-    local mt = getmetatable(t); local idx = mt and rawget(mt, "__index")
-    return (rawget(t, "_class_type") and t._class_type.__cname) or (idx and idx.__cname)
-  end)
-  return ok and cn or nil
 end
 local function record(a)
   local rec = {}
@@ -79,78 +71,81 @@ local function record(a)
   rec.post   = tostring(pg("post"))
   rec.mtype  = tostring(pg("type"))
   rec.uid    = tostring(pg("senderUid"))
-  rec.msg    = hex(pg("msg"))
-  rec.att    = hex(pg("attachmentMsg"))
+  -- getMsg() is the base text. getMessageWithExtra() renders attachment/interactive
+  -- posts (coord shares, etc.) whose base text is just a "?" placeholder into a full
+  -- string ("[ALLY] Name (BZ #935 X:.. Y:..)"). Emit both; Python picks the display.
+  rec.msg    = hex(tostring(mg("getMsg")))
+  rec.we     = hex(tostring(mg("getMessageWithExtra")))
+  rec.ismy   = tostring(mg("isMySendChat"))
   rec.sender = hex(mg("getSenderName"))
   local si = mg("getSenderInfo")
   if type(si) == "table" then
     rec.alliance = hex(tostring(si.allianceSimpleName or ""))
     rec.lang     = tostring(si.lang)
     rec.gm       = tostring(si.gmFlag)
+    rec.srv      = tostring(si.serverId)
   end
-  local cap = _G.__CHATREAD
+  local cap = _G.__CR_BUF
   cap[#cap + 1] = rec
   if #cap > 500 then table.remove(cap, 1) end
 end
-local function scanargs(...)
-  for i = 1, select("#", ...) do
-    local a = select(i, ...)
-    if cname(a) == "ChatMessage" then record(a) end
-  end
+
+-- Single class-level ingress hook. ChatMessage:onParseServerData fires exactly
+-- once for every parsed message regardless of room / UI routing (world / national
+-- / alliance / DM). Bind the class table directly from package.loaded so it works
+-- on a fresh session with no captured instance yet -- and, crucially, WITHOUT the
+-- chat window open (the client parses the stream whether or not the UI is up).
+--
+-- We deliberately do NOT also hook the UI-routing handlers
+-- (ChatViewTipBubbleDataManager:OnGetNewChatMsg / UpdateOnNewMessage): they fire
+-- in addition to onParseServerData for the same message, producing duplicates, and
+-- only work while the chat view is open. The single class hook is both sufficient
+-- and duplicate-free. Older revisions of this tool DID hook those handlers
+-- (originals stashed in _G.__CR_H); if a stale set is still wrapped in this long
+-- running game session, restore it so it stops double-recording.
+if type(_G.__CR_H) == "table" then
+  local mgr = DataCenter.ChatViewTipBubbleDataManager
+  for m, orig in pairs(_G.__CR_H) do pcall(function() mgr[m] = orig end) end
+  _G.__CR_H = nil
+  L("legacy UI hooks restored")
 end
 
--- 1) UI-routing handlers: selected room -> OnGetNewChatMsg, other rooms -> UpdateOnNewMessage.
-local mgr = DataCenter.ChatViewTipBubbleDataManager
-_G.__CR_H = _G.__CR_H or {}
-local function hook_mgr(m)
-  if _G.__CR_H[m] then mgr[m] = _G.__CR_H[m] end            -- restore before re-wrapping
-  local orig = mgr[m]
-  if type(orig) ~= "function" then return end
-  _G.__CR_H[m] = orig
-  mgr[m] = function(self, ...) pcall(scanargs, ...) return orig(self, ...) end
-end
-hook_mgr("OnGetNewChatMsg")
-hook_mgr("UpdateOnNewMessage")
-
--- 2) Class-level ingress: ChatMessage:onParseServerData fires for every parsed
---    message regardless of room/UI routing. Needs a live ChatMessage instance to
---    reach the class table; grab one lazily from a captured message if present.
-if not _G.__CR_CLASS_HOOKED then
-  local CM = nil
-  if type(_G.__LASTCHAT) == "table" then
-    CM = rawget(_G.__LASTCHAT, "_class_type")
-    if not CM then local mt = getmetatable(_G.__LASTCHAT); CM = mt and rawget(mt, "__index") end
+local CM = package.loaded["Chat.Model.ChatMessage"]
+if type(CM) == "table" and type(CM.onParseServerData) == "function" then
+  -- Save the pristine method exactly once, then always rebuild the wrapper from
+  -- it. This keeps re-install idempotent AND lets an updated record() take effect
+  -- without a game restart, with no ever-growing wrapper chain.
+  _G.__CR_ORIG = _G.__CR_ORIG or CM.onParseServerData
+  local orig = _G.__CR_ORIG
+  CM.onParseServerData = function(self, ...)
+    local r = {orig(self, ...)}
+    pcall(record, self)
+    return table.unpack(r)
   end
-  if type(CM) == "table" and type(CM.onParseServerData) == "function" then
-    local orig = CM.onParseServerData
-    CM.onParseServerData = function(self, ...)
-      local r = {orig(self, ...)}
-      pcall(record, self)
-      return table.unpack(r)
-    end
-    _G.__CR_CLASS_HOOKED = true
-    L("class-hook on")
-  end
+  _G.__CR_CLASS_HOOKED = true
+  L("class-hook on")
+else
+  L("class-hook FAIL: Chat.Model.ChatMessage type="..type(CM))
 end
-L("chat_reader hooks installed; buf="..#_G.__CHATREAD)
+L("chat_reader hooks installed; buf="..#_G.__CR_BUF)
 """
-
-_OPEN_LUA = (
-    'pcall(function() GoToUtil.OpenChatView() end) '
-    'CS.UnityEngine.Debug.LogError("ACT chat window opened")'
-)
 
 _DRAIN_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("ACT "..tostring(s)) end
-local cap = _G.__CHATREAD or {}
+local cap = _G.__CR_BUF or {}
 L("N="..#cap)
+local function f(v) return tostring(v == nil and "" or v) end   -- nil-safe field
 for i, r in ipairs(cap) do
-  L("R roomId="..r.roomId.." seqId="..r.seqId.." st="..r.st.." post="..r.post
-    .." type="..(r.mtype or "").." uid="..r.uid.." lang="..tostring(r.lang)
-    .." gm="..tostring(r.gm).." alliance="..(r.alliance or "").." sender="..(r.sender or "")
-    .." msg="..(r.msg or "").." att="..(r.att or ""))
+  -- Each line is emitted under its own pcall: a single malformed record must
+  -- never abort the whole drain loop (that would silently drop every message).
+  pcall(function()
+    L("R roomId="..f(r.roomId).." seqId="..f(r.seqId).." st="..f(r.st).." post="..f(r.post)
+      .." type="..f(r.mtype).." uid="..f(r.uid).." lang="..f(r.lang)
+      .." gm="..f(r.gm).." srv="..f(r.srv).." ismy="..f(r.ismy).." alliance="..f(r.alliance)
+      .." sender="..f(r.sender).." msg="..f(r.msg).." we="..f(r.we))
+  end)
 end
-_G.__CHATREAD = {}   -- drained; keep buffer small
+_G.__CR_BUF = {}   -- drained; keep buffer small
 """
 
 
@@ -175,6 +170,23 @@ def classify_room(room_id: str) -> str:
     return "other"
 
 
+# The game's "local" emoji are Private Use Area glyphs (U+E000..U+F8FF) sitting
+# inline in the message text; a terminal / JSON consumer renders them as broken
+# boxes ("локальные смайлы выводятся неверно"). Replace each with a readable
+# [e:XXXX] token. Rich inline objects arrive as <lwSticker:N:> / <lwPhoto:N:> /
+# <lwEmoji:N:> ... markers; normalise them all to a readable [kind:N].
+_PUA_RE = re.compile("[\ue000-\uf8ff]")
+_LW_RE = re.compile(r"<lw([A-Za-z]+):(\d+)(?::[^>]*)?>")
+_PLACEHOLDER = {"", "?", "nil"}
+
+
+def _render_text(s: str) -> str:
+    """Make chat text human-readable: name inline objects and PUA emoji explicitly."""
+    s = _LW_RE.sub(lambda m: f"[{m.group(1).lower()}:{m.group(2)}]", s)
+    s = _PUA_RE.sub(lambda m: f"[e:{ord(m.group()):04X}]", s)
+    return s
+
+
 def _parse_record_line(line: str) -> dict | None:
     """Parse one 'ACT R k=v k=v ...' drain line into a decoded chat record."""
     body = line
@@ -191,21 +203,36 @@ def _parse_record_line(line: str) -> dict | None:
             k, v = tok.split("=", 1)
             fields[k] = v
     room_id = fields.get("roomId", "")
+    base = _hexdec(fields.get("msg", ""))          # getMsg()
+    with_extra = _hexdec(fields.get("we", ""))     # getMessageWithExtra()
+    # Attachment / interactive posts (coord shares, invites, ...) leave getMsg() as
+    # a bare "?" placeholder; getMessageWithExtra() renders the real content
+    # ("[ALLY] Name (BZ #935 X:.. Y:..)"). Prefer it only when the base is empty.
+    display = with_extra if (base.strip() in _PLACEHOLDER and with_extra) else base
+    # Timestamp the record with the message's own serverTime (epoch ms), NOT the
+    # parse time: when the user scrolls up, the client re-parses old history through
+    # the hook "now", so a parse-time ts would sort ancient messages to the bottom.
+    server_time = fields.get("st", "")
+    try:
+        ts = int(server_time) / 1000.0
+    except (TypeError, ValueError):
+        ts = time.time()
     rec = {
-        "ts": time.time(),
+        "ts": ts,
         "room_id": room_id,
         "chat_type": classify_room(room_id),
         "seq_id": fields.get("seqId", ""),
-        "server_time": fields.get("st", ""),
+        "server_time": server_time,
         "post": fields.get("post", ""),
         "type": fields.get("type", ""),
         "sender_uid": fields.get("uid", ""),
+        "server_id": fields.get("srv", ""),
         "lang": fields.get("lang", ""),
         "gm": fields.get("gm", ""),
+        "is_mine": fields.get("ismy", "") == "true",
         "alliance": _hexdec(fields.get("alliance", "")),
         "sender_name": _hexdec(fields.get("sender", "")),
-        "msg": _hexdec(fields.get("msg", "")),
-        "attachment_msg": _hexdec(fields.get("att", "")),
+        "msg": _render_text(display),
     }
     return rec
 
@@ -220,24 +247,30 @@ def main() -> int:
                     help="seconds between buffer drains")
     ap.add_argument("--out", metavar="PATH", help="append JSONL here as well as stdout")
     ap.add_argument("--no-open", action="store_true",
-                    help="do not auto-open the chat window (assume it is already open)")
+                    help="deprecated no-op (the chat window no longer needs to be open)")
     args = ap.parse_args()
+
+    # Chat text is UTF-8 (Cyrillic / Arabic / CJK / emoji). The Windows console
+    # defaults to a legacy codepage (e.g. cp1251), so a raw print() of a foreign
+    # message raises UnicodeEncodeError and kills the whole capture mid-stream --
+    # the classic "nothing shows up" symptom. Force UTF-8 on both streams.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 
     ev = lua_client.get_evaluator()
 
-    # Install hooks (idempotent) and open the chat window.
+    # Install the single class-level hook (idempotent). No need to open the chat
+    # window -- onParseServerData fires regardless of UI state.
     ev.run(_INSTALL_LUA, marker=MARKER, settle=1.5)
-    if not args.no_open:
-        ev.run(_OPEN_LUA, marker=MARKER, settle=2.0)
-    # Second install pass: now that a ChatMessage may exist (__LASTCHAT), the
-    # class-level hook can bind.
-    ev.run(_INSTALL_LUA, marker=MARKER, settle=1.2)
 
-    print(f"# chat_reader: capturing for {args.seconds or '∞'}s "
-          f"(chat window must stay open)", file=sys.stderr, flush=True)
+    print(f"# chat_reader: capturing for {args.seconds or '∞'}s",
+          file=sys.stderr, flush=True)
 
     seen: set[tuple] = set()
     out_fh = open(args.out, "a", encoding="utf-8") if args.out else None
@@ -250,6 +283,19 @@ def main() -> int:
             for ln in (lines or []):
                 rec = _parse_record_line(ln)
                 if rec is None:
+                    continue
+                # A ChatMessage always carries a roomId; a record without one is
+                # not a routable message -- skip it rather than emit an empty line.
+                if not rec["room_id"] or rec["room_id"] == "nil":
+                    continue
+                # Your own outgoing message is parsed twice: an optimistic local
+                # echo with no server seqId yet, and ~1s later the server-confirmed
+                # copy (real seqId). Every genuine broadcast carries a positive
+                # seqId, so dropping the seqId-less copy removes the duplicate
+                # without losing anything -- the confirmed copy still comes through.
+                # (isMySendChat() is unreliable here: it read false on some echoes.)
+                seq = rec["seq_id"]
+                if not (seq.isdigit() and int(seq) > 0):
                     continue
                 key = (rec["room_id"], rec["seq_id"], rec["sender_uid"], rec["msg"])
                 if key in seen:

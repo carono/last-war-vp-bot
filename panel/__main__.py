@@ -69,12 +69,20 @@ for _tp in (TOOLS, TOOLS_LIB):
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
+import chat_assets      # noqa: E402  (token -> local sprite PNG for chat rendering)
+
+try:
+    from PIL import Image as _PILImage, ImageTk as _PILImageTk  # noqa: E402
+    _PIL_OK = True
+except Exception:       # noqa: BLE001
+    _PIL_OK = False
 
 WIN_PYTHON = r"C:\Python312\python.exe"
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_PHOTO_TOK = re.compile(r"\[photo:(\d+)\]")
 
 # Game lifecycle (paths derived from %LOCALAPPDATA%, no hardcoded username)
 _LOCALAPPDATA = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
@@ -207,10 +215,15 @@ class Panel(tk.Tk):
         self._chat_proc = None
         # In-memory chat messages keyed by chat_type
         self._chat_msgs: dict = {t: [] for t in ("world", "alliance", "national", "dm", "other", "system")}
-        # Treeview widgets per chat type (populated by _build_chat_tab)
+        # Text-view widgets per chat type (populated by _build_chat_tab). Named
+        # _chat_trees for historical reasons; they are tk.Text now, not Treeviews.
         self._chat_trees: dict = {}
-        # Count of rows already inserted into each treeview (for incremental appends)
+        # Count of lines already rendered into each view (for incremental appends)
         self._chat_tree_rows: dict = {}
+        # Cache of inline sprite images keyed by (path, height) -- also keeps the
+        # PhotoImage refs alive (tk.Text does not hold a Python reference).
+        self._chat_img_cache: dict = {}
+        self._photo_seq = 0            # unique-tag counter for clickable photos
         self._client = lua_client.DaemonClient()
         self._build_menu()
         self._build_profile_bar()
@@ -1225,25 +1238,142 @@ class Panel(tk.Tk):
         total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
 
-    def _make_chat_tree(self, parent: ttk.Frame) -> "ttk.Treeview":
-        """Build a Treeview with columns (time, alliance, nick, message) + scrollbar."""
+    def _make_chat_tree(self, parent: ttk.Frame) -> "tk.Text":
+        """Build a read-only Text view for one chat type, with a scrollbar.
+
+        A Text widget (not a Treeview) is used so emoji / sticker sprites can be
+        drawn inline with the message text via ``image_create``.
+        """
         frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
-        cols = ("time", "alliance", "nick", "msg")
-        tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="browse")
-        tree.heading("time", text=self._t("chat.col.time"))
-        tree.heading("alliance", text=self._t("chat.col.alliance"))
-        tree.heading("nick", text=self._t("chat.col.nick"))
-        tree.heading("msg", text=self._t("chat.col.msg"))
-        tree.column("time", width=70, minwidth=60, stretch=False)
-        tree.column("alliance", width=60, minwidth=50, stretch=False)
-        tree.column("nick", width=120, minwidth=80, stretch=False)
-        tree.column("msg", width=300, stretch=True)
-        sb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=sb.set)
-        tree.pack(side="left", fill="both", expand=True)
+        txt = tk.Text(frame, wrap="word", state="disabled", cursor="arrow",
+                      font=("Segoe UI", 10), spacing1=1, spacing3=3,
+                      borderwidth=0, highlightthickness=0, padx=6, pady=4)
+        txt.tag_configure("time", foreground="#8a8a8a")
+        txt.tag_configure("alliance", foreground="#2a6bd0")
+        txt.tag_configure("nick", foreground="#333333")
+        txt.tag_configure("mine", foreground="#2e7d32")
+        txt.tag_configure("token", foreground="#6a4fb0")
+        sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        return tree
+        return txt
+
+    def _chat_image(self, path: str, height: int):
+        """Load (and cache) an inline sprite scaled to ``height`` px, or None."""
+        key = (path, height)
+        img = self._chat_img_cache.get(key)
+        if img is not None:
+            return img
+        try:
+            if _PIL_OK:
+                im = _PILImage.open(path).convert("RGBA")
+                w, h = im.size
+                if h and h != height:
+                    w = max(1, round(w * height / h))
+                    im = im.resize((w, height), _PILImage.LANCZOS)
+                img = _PILImageTk.PhotoImage(im)
+            else:
+                img = tk.PhotoImage(file=path)   # PNG, no scaling
+        except Exception:       # noqa: BLE001
+            return None
+        self._chat_img_cache[key] = img
+        return img
+
+    @staticmethod
+    def _chat_clear_view(view: "tk.Text") -> None:
+        view.configure(state="normal")
+        view.delete("1.0", "end")
+        view.configure(state="disabled")
+
+    def _render_msg_line(self, view: "tk.Text", record: dict) -> None:
+        """Append one chat message as a line, with sprites drawn inline."""
+        from datetime import datetime as _dt
+        ts = record.get("ts", 0)
+        t_str = _dt.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
+        alliance = (record.get("alliance") or "")[:12]
+        nick = (record.get("sender_name") or "")[:30]
+        nick_tag = "mine" if record.get("is_mine") else "nick"
+        view.configure(state="normal")
+        view.insert("end", (t_str + " ") if t_str else "", ("time",))
+        if alliance:
+            view.insert("end", f"[{alliance}] ", ("alliance",))
+        view.insert("end", nick + ": ", (nick_tag,))
+        uid = record.get("sender_uid") or ""
+        for kind, val in chat_assets.segments((record.get("msg") or "")[:300]):
+            if kind == "text":
+                view.insert("end", val)
+            elif kind == "token":
+                # A photo token resolves to a JPG the client already cached on disk
+                # (keyed by uid+picVer) -> render it; else a friendly placeholder.
+                m = _PHOTO_TOK.match(val)
+                path = chat_assets.photo_path(uid, m.group(1)) if m else None
+                if path:
+                    img = self._chat_image(path, 110)
+                    if img is not None:
+                        # Tag the image so a click opens it full-size (like the game).
+                        tag = f"photo{self._photo_seq}"
+                        self._photo_seq += 1
+                        pos = view.index("end -1c")
+                        view.image_create(pos, image=img)
+                        view.tag_add(tag, pos, f"{pos} +1c")
+                        pv = m.group(1)
+                        view.tag_bind(tag, "<Button-1>",
+                                      lambda e, u=uid, p=pv, f=path: self._open_photo(u, p, f))
+                        view.tag_bind(tag, "<Enter>",
+                                      lambda e, v=view: v.configure(cursor="hand2"))
+                        view.tag_bind(tag, "<Leave>",
+                                      lambda e, v=view: v.configure(cursor="arrow"))
+                        continue
+                view.insert("end", "🖼 фото" if m else val, ("token",))
+            elif kind == "image":
+                # stickers are bigger objects than inline emoji
+                height = 56 if (os.sep + "sticker") in val else 18
+                img = self._chat_image(val, height)
+                if img is not None:
+                    view.image_create("end", image=img)
+                else:
+                    view.insert("end", "[img]", ("token",))
+        view.insert("end", "\n")
+        view.configure(state="disabled")
+
+    def _open_photo(self, uid: str, pic_ver: str, fallback: str) -> None:
+        """Open a chat photo full-size in a popup, like tapping it in the game."""
+        path = chat_assets.photo_path(uid, pic_ver, big=True) or fallback
+        if not path or not os.path.isfile(path):
+            return
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        max_w, max_h = int(sw * 0.85), int(sh * 0.85)
+        try:
+            if _PIL_OK:
+                im = _PILImage.open(path).convert("RGBA")
+                w, h = im.size
+                # Fit within the screen; allow modest upscaling of small thumbnails.
+                scale = min(max_w / w, max_h / h, 4.0)
+                if abs(scale - 1.0) > 0.01:
+                    im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))),
+                                   _PILImage.LANCZOS)
+                photo = _PILImageTk.PhotoImage(im)
+            else:
+                photo = tk.PhotoImage(file=path)
+        except Exception as exc:       # noqa: BLE001
+            self._log_put(f"[chat] не удалось открыть фото: {exc}")
+            return
+        top = tk.Toplevel(self)
+        top.title(self._t("tab.chat"))
+        top.configure(background="#000000")
+        lbl = tk.Label(top, image=photo, background="#000000", cursor="hand2")
+        lbl.image = photo              # keep a reference alive
+        lbl.pack()
+        top.bind("<Button-1>", lambda e: top.destroy())
+        top.bind("<Escape>", lambda e: top.destroy())
+        top.update_idletasks()
+        x = max(0, (sw - top.winfo_width()) // 2)
+        y = max(0, (sh - top.winfo_height()) // 2)
+        top.geometry(f"+{x}+{y}")
+        top.transient(self)
+        top.focus_set()
 
     def _pump_chat(self) -> None:
         """Drain the chat queue and refresh treeviews — scheduled every 1 s."""
@@ -1255,14 +1385,25 @@ class Panel(tk.Tk):
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
                 msgs = self._chat_msgs[chat_type]
+                # Order by the message's own serverTime (record["ts"]). The live
+                # stream is already monotonic; only history re-parsed on scroll-up
+                # arrives "from the past" -- resort and rebuild that tree then, so
+                # old messages land in their proper place, not at the bottom.
+                out_of_order = bool(msgs) and record.get("ts", 0) < msgs[-1].get("ts", 0)
                 msgs.append(record)
+                if out_of_order:
+                    msgs.sort(key=lambda r: r.get("ts", 0))
+                    self._chat_tree_rows[chat_type] = 0
+                    view = self._chat_trees.get(chat_type)
+                    if view is not None:
+                        self._chat_clear_view(view)
                 if len(msgs) > 500:
-                    # Trim to the last 500 entries and force a full treeview rebuild.
+                    # Trim to the last 500 entries and force a full view rebuild.
                     msgs[:] = msgs[-500:]
                     self._chat_tree_rows[chat_type] = 0
-                    tree = self._chat_trees.get(chat_type)
-                    if tree is not None:
-                        tree.delete(*tree.get_children())
+                    view = self._chat_trees.get(chat_type)
+                    if view is not None:
+                        self._chat_clear_view(view)
                 changed.add(chat_type)
         except queue.Empty:
             pass
@@ -1275,27 +1416,17 @@ class Panel(tk.Tk):
         self.after(1000, self._pump_chat)
 
     def _update_chat_tree(self, chat_type: str) -> None:
-        """Append only the records that have not yet been inserted into the treeview."""
-        from datetime import datetime as _dt
-        tree = self._chat_trees.get(chat_type)
-        if tree is None:
+        """Append only the records not yet rendered into the view, and autoscroll."""
+        view = self._chat_trees.get(chat_type)
+        if view is None:
             return
         msgs = self._chat_msgs.get(chat_type, [])
         start = self._chat_tree_rows.get(chat_type, 0)
         for record in msgs[start:]:
-            ts = record.get("ts", 0)
-            t_str = _dt.fromtimestamp(ts).strftime("%H:%M:%S") if ts else ""
-            tree.insert("", "end", values=(
-                t_str,
-                (record.get("alliance") or "")[:12],
-                (record.get("sender_name") or "")[:30],
-                (record.get("msg") or "")[:300],
-            ))
+            self._render_msg_line(view, record)
         self._chat_tree_rows[chat_type] = len(msgs)
         if len(msgs) > start:
-            children = tree.get_children()
-            if children:
-                tree.see(children[-1])
+            view.see("end")
 
     def _toggle_chat(self) -> None:
         if self._chat_var.get():
@@ -1313,7 +1444,7 @@ class Panel(tk.Tk):
             pass
         rel = os.path.relpath(out, REPO)
         self._log_put(f"[chat] старт чтения (Lua VM) → {rel}")
-        self._log_put("[chat] нужен тёплый lua_daemon и открытое окно чата в игре")
+        self._log_put("[chat] нужен тёплый lua_daemon (окно чата открывать не нужно)")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         try:
             self._chat_proc = subprocess.Popen(
@@ -1368,12 +1499,12 @@ class Panel(tk.Tk):
                 pass
 
     def _clear_chat(self) -> None:
-        """Remove all in-memory chat messages and clear all treeviews."""
+        """Remove all in-memory chat messages and clear all views."""
         for chat_type in list(self._chat_msgs):
             self._chat_msgs[chat_type].clear()
-            tree = self._chat_trees.get(chat_type)
-            if tree is not None:
-                tree.delete(*tree.get_children())
+            view = self._chat_trees.get(chat_type)
+            if view is not None:
+                self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
         self._chat_count_var.set(self._t("chat.count", n=0))
 
@@ -1386,9 +1517,9 @@ class Panel(tk.Tk):
         # Clear current state
         for chat_type in list(self._chat_msgs):
             self._chat_msgs[chat_type].clear()
-            tree = self._chat_trees.get(chat_type)
-            if tree is not None:
-                tree.delete(*tree.get_children())
+            view = self._chat_trees.get(chat_type)
+            if view is not None:
+                self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
 
         path = self._profiles.chat_log()
