@@ -104,6 +104,34 @@ def cross_jump(server: int, home: int = HOME_SERVER, x=None, y=None) -> str:
         'CS.UnityEngine.Debug.LogError("ACT cross armed srv=%d")' % (home, server, server, pan, server))
 
 
+def goto_server(server: int, in_move_to_state: bool = False) -> str:
+    """Switch to another server's world the way the in-game UI does — the CLEAN path.
+
+    This is the sequence the engine actually runs on a manual server switch, captured with
+    `tools/lua_trace.py --dedup` while the player switched servers by hand (Player.log):
+
+        CrossServerUtil.OnCrossServer(serverId)        -- enter the cross-server context
+        GoToUtil.GotoServerZone(serverId, false)       -- navigate to that server's zone
+
+    Notably the manual switch used NEITHER `CrossServerUtil.JumpToServerByServerId` NOR
+    `SetCrossEnableList` — those belong to the move-city bulk-load hack (`cross_jump`) that
+    also pops the `UIMoveCity` teleport window. `GotoServerZone` is the clean entry: no
+    teleport UI, no authorize-list dance. It bulk-loads for targets the client is already
+    authorized to view — i.e. servers in an active cross-server event group (e.g. the
+    yuntie/meteorite battle group the traced switch belonged to). For an arbitrary
+    out-of-event server, `cross_jump` (move-city + close UIMoveCity) is still the fallback.
+
+    `in_move_to_state` is `GotoServerZone`'s second arg (the traced call passed `false`).
+    """
+    sid = int(server)
+    return (
+        'pcall(function() CrossServerUtil.OnCrossServer(%d) end) '
+        'pcall(function() GoToUtil.GotoServerZone(%d, %s) end) '
+        'CS.UnityEngine.Debug.LogError("ACT gotoserver srv=%d reason="..'
+        'tostring(select(2,pcall(function() return CrossServerUtil.GetCrossEnableReason(%d) end))))'
+        % (sid, sid, "true" if in_move_to_state else "false", sid, sid))
+
+
 def back_home() -> str:
     """Return from a foreign server to the home server."""
     return ('TimerManager:GetInstance():DelayInvoke(function() '

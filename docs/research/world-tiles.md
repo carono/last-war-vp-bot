@@ -181,6 +181,28 @@ different API — `CrossServerUtil.JumpToServerByServerId(...)` — see the sect
 **Discipline for further probing: return to the home server 935 before each new hypothesis** (a
 foreign-server `GotoPos` view is a stuck/empty state).
 
+## Switching to another server the clean in-game way (tools/goto_server.py)
+
+The move-city recipe below bulk-loads an *arbitrary* foreign server but bundles the `UIMoveCity`
+teleport UI. When the target is a server the client is already authorized to view — a server in an
+**active cross-server event group** (yuntie/meteorite battle, etc.) — the in-game UI switches with no
+teleport window at all. Reverse-engineered with `tools/lua_trace.py --dedup` while the player
+switched servers by hand (two switches, to 8131 then 1040); the trace showed the whole switch is:
+
+```lua
+CrossServerUtil.OnCrossServer(serverId)     -- enter the cross-server context
+GoToUtil.GotoServerZone(serverId, false)    -- navigate to that server's zone (2nd arg = isInMoveToState)
+```
+
+and, decisively, used **neither** `CrossServerUtil.JumpToServerByServerId` **nor**
+`CrossServerUtil.SetCrossEnableList` — both of which belong only to the move-city hack. Return home
+(also from the trace): `CrossServerUtil.OnBackSelfServer()` + `SceneUtils.ChangeToCity()`.
+
+`tools/goto_server.py <serverId>` runs this via `SafeDoString` (recipe `lua_actions.goto_server`);
+`tools/goto_server.py --home` returns. This supersedes the earlier "OnCrossServer + GotoServerZone
+does not bulk-load" dead-end note below: that was measured on an *out-of-event* server with no
+authorization; inside an active event group `GotoServerZone` is exactly what the UI itself calls.
+
 ## Viewing another server's world — full load, no teleport UI (tools/dev/cross_server.py)
 
 Goal: browse a foreign server's map (e.g. 972) programmatically, with the map fully populated and
