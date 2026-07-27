@@ -1064,8 +1064,8 @@ class Panel(tk.Tk):
                     self._log_put(f"[coord] другой сервер ({target} != {cur}) — кросс-загрузка + переход в ({x},{y})")
                     chunk, settle = lua_actions.cross_jump(int(target), x=x, y=y), 1.6
                 else:
-                    self._log_put(f"[coord] переход камерой в ({x},{y}) [сервер {target}]")
-                    chunk, settle = lua_actions.goto_pos(x, y, int(target)), 1.0
+                    self._log_put(f"[coord] переход в ({x},{y}) [сервер {target}]")
+                    chunk, settle = lua_actions.move_to_coord(x, y), 1.0
                 for ln in self._client.run(chunk, marker="ACT", settle=settle):
                     self._log_put(f"[coord] {ln}")
                 self._log_put("[coord] готово")
