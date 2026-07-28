@@ -42,6 +42,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 if not __package__:
     __package__ = "panel"
 
+import glob
 import json
 import os
 import queue
@@ -63,7 +64,12 @@ TOOLS = os.path.join(REPO, "tools")
 # (lua_client, lua_actions, coords, …) in tools/lib/ since the split. Both must
 # be importable by bare name — the same fix bot/__init__.py already carries.
 TOOLS_LIB = os.path.join(TOOLS, "lib")
-for _tp in (TOOLS, TOOLS_LIB):
+# src/ carries the DSL runtime (lastwar_bot.script_engine) that interprets the
+# actions/*.md scripts — the Scenarios tab runs them. Its heavy deps (cv2, win32)
+# are imported lazily inside the interpreter, so importing the package is cheap and
+# Lua-only actions run without them.
+SRC = os.path.join(REPO, "src")
+for _tp in (TOOLS, TOOLS_LIB, SRC):
     if _tp not in sys.path:
         sys.path.insert(0, _tp)
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
@@ -116,6 +122,41 @@ CAPTURE_OPTIONS = [
 # file name — a wall of timestamps says nothing about what each run captured.
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
+
+# Directory holding the DSL action scripts the Scenarios tab lists and runs. Only the
+# blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
+# non-recursive glob below deliberately skips, so the picker offers only what works.
+ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
+# Actions that are runtime plumbing rather than user-facing scenarios — hidden from
+# the picker even if present here. `watchdog` is ticked by the runner, not run by hand.
+_HIDDEN_ACTIONS = frozenset({"watchdog"})
+
+
+def list_actions() -> list[dict]:
+    """Enumerate the blessed action scripts (actions/*.md, not actions/dev/) as {name, title}.
+
+    `title` is the first `#` comment line of the .md (falling back to the name),
+    so the picker shows a human sentence instead of a bare file stem.
+    """
+    out = []
+    for path in sorted(glob.glob(os.path.join(ACTIONS_DIR, "*.md"))):
+        name = os.path.splitext(os.path.basename(path))[0]
+        if name in _HIDDEN_ACTIONS:
+            continue
+        title = name
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for raw in fh:
+                    s = raw.strip()
+                    if s.startswith("#"):
+                        title = s.lstrip("#").strip() or name
+                        break
+                    if s:
+                        break
+        except OSError:
+            pass
+        out.append({"name": name, "title": title})
+    return out
 
 
 _NON_GAME_PORTS = frozenset({80, 443})
@@ -506,8 +547,7 @@ class Panel(tk.Tk):
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(chat_tab, text=self._t("tab.chat"))))
-        self._tr(ttk.Label(scenarios, foreground="#888", padding=20),
-                 "scenarios.placeholder").pack(expand=True)
+        self._build_scenarios_tab(scenarios)
         self._build_chat_tab(chat_tab)
 
         top = ttk.Frame(main, padding=8)
@@ -1220,8 +1260,156 @@ class Panel(tk.Tk):
         self._stop_sniff()
         self._stop_trace()
         self._stop_chat()
+        self._stop_scenario_loop()
         self.destroy()
 
+
+    # -- scenarios tab (run .md action scripts) -----------------------------
+
+    def _build_scenarios_tab(self, parent: ttk.Frame) -> None:
+        """List the DSL action scripts and let the operator run or loop one.
+
+        Each `src/lastwar_bot/actions/*.md` is one runnable action. Run executes it
+        once through the interpreter on a worker thread (output streams into the
+        shared log); Repeat re-runs it on an interval until switched off. Game-VM
+        actions (LUA/READ_LUA/GAME/JUMP) go through the Lua daemon and need no
+        window; vision actions (FIND/CLICK) resolve the game window on demand.
+        """
+        self._scn_loop_stop = threading.Event()
+        self._scn_loop_thread: threading.Thread | None = None
+
+        frame = self._tr(ttk.LabelFrame(parent, padding=8), "scenarios.actions")
+        frame.pack(fill="both", expand=True, padx=8, pady=8)
+
+        listwrap = ttk.Frame(frame)
+        listwrap.pack(fill="both", expand=True)
+        self._scn_list = tk.Listbox(listwrap, height=10, activestyle="dotbox",
+                                    exportselection=False)
+        scroll = ttk.Scrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
+        self._scn_list.configure(yscrollcommand=scroll.set)
+        self._scn_list.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self._scn_list.bind("<Double-Button-1>", lambda _e: self._run_selected_action())
+
+        controls = ttk.Frame(frame)
+        controls.pack(fill="x", pady=(8, 0))
+        self._tr(ttk.Button(controls, command=self._run_selected_action),
+                 "scenarios.run").pack(side="left", padx=(0, 4), ipady=2)
+        self._scn_loop_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
+                                 command=self._toggle_scenario_loop),
+                 "scenarios.loop").pack(side="left", padx=(8, 2))
+        self._tr(ttk.Label(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
+        self._scn_interval_var = tk.StringVar(value="60")
+        ttk.Spinbox(controls, from_=5, to=86400, width=6,
+                    textvariable=self._scn_interval_var).pack(side="left")
+        self._tr(ttk.Button(controls, command=self._refresh_actions),
+                 "scenarios.refresh").pack(side="right")
+
+        self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
+                 "scenarios.hint").pack(anchor="w", pady=(8, 0))
+
+        self._scn_actions: list[dict] = []
+        self._refresh_actions()
+
+    def _refresh_actions(self) -> None:
+        """(Re)load the action list into the listbox, keeping the selection if possible."""
+        prev = self._selected_action_name()
+        self._scn_actions = list_actions()
+        self._scn_list.delete(0, "end")
+        for item in self._scn_actions:
+            self._scn_list.insert("end", f"{item['title']}   ·   {item['name']}")
+        if not self._scn_actions:
+            self._log_put("[action] " + self._t("scenarios.empty"))
+            return
+        idx = next((i for i, a in enumerate(self._scn_actions) if a["name"] == prev), 0)
+        self._scn_list.selection_clear(0, "end")
+        self._scn_list.selection_set(idx)
+        self._scn_list.see(idx)
+
+    def _selected_action_name(self) -> str | None:
+        sel = self._scn_list.curselection() if hasattr(self, "_scn_list") else ()
+        if not sel:
+            return None
+        return self._scn_actions[sel[0]]["name"]
+
+    def _run_selected_action(self) -> None:
+        name = self._selected_action_name()
+        if name is None:
+            self._log_put("[action] " + self._t("scenarios.none_selected"))
+            return
+        self._run_md_action(name)
+
+    def _run_md_action(self, name: str) -> None:
+        """Run one action through the interpreter on a worker thread.
+
+        Mirrors `_act`: a single `self._busy` guard serialises against nav/jump so two
+        game-driving jobs never race on the daemon. The interpreter's on_event lines
+        stream straight into the shared log via `_log_put`.
+        """
+        if self._busy:
+            self._log_put("[action] " + self._t("busy"))
+            return
+        self._busy = True
+        self._log_put(f"[action] {name}: {self._t('scenarios.running')}")
+
+        def work() -> None:
+            try:
+                from lastwar_bot import script_engine
+                # hwnd=0 → resolved lazily only if the action uses vision primitives.
+                # profile=None → READ_TEXT actions raise clearly if run without one.
+                script_engine.run_action(
+                    name, hwnd=0,
+                    on_event=lambda msg: self._log_put(f"[action] {msg}"),
+                    profile=None,
+                )
+            except Exception as exc:                       # noqa: BLE001
+                self._log_put(f"[action] {name}: error: {exc}")
+            finally:
+                self._busy = False
+                self.after(400, self._refresh_status)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _toggle_scenario_loop(self) -> None:
+        if self._scn_loop_var.get():
+            self._start_scenario_loop()
+        else:
+            self._stop_scenario_loop()
+
+    def _start_scenario_loop(self) -> None:
+        name = self._selected_action_name()
+        if name is None:
+            self._scn_loop_var.set(False)
+            self._log_put("[action] " + self._t("scenarios.none_selected"))
+            return
+        try:
+            interval = max(5, int(self._scn_interval_var.get()))
+        except ValueError:
+            interval = 60
+        self._scn_loop_stop.clear()
+        self._log_put("[action] " + self._t("scenarios.loop_on", sec=interval))
+
+        def loop() -> None:
+            while not self._scn_loop_stop.is_set():
+                self._run_md_action(name)
+                # Wait out the interval, but also block while a run is still busy so
+                # a slow action never overlaps its own next tick.
+                self._scn_loop_stop.wait(interval)
+                while self._busy and not self._scn_loop_stop.is_set():
+                    self._scn_loop_stop.wait(0.5)
+
+        self._scn_loop_thread = threading.Thread(target=loop, daemon=True)
+        self._scn_loop_thread.start()
+
+    def _stop_scenario_loop(self) -> None:
+        stop = getattr(self, "_scn_loop_stop", None)
+        if stop is None:
+            return
+        stop.set()
+        if getattr(self, "_scn_loop_var", None) is not None:
+            self._scn_loop_var.set(False)
+        self._log_put("[action] " + self._t("scenarios.loop_off"))
 
     # -- chat tab -----------------------------------------------------------
 
