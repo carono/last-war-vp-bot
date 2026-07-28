@@ -195,3 +195,73 @@ def chat_send_sticker(room_id: str, sticker_id: int) -> str:
         'CS.UnityEngine.Debug.LogError("ACT chat_sticker_sent")'
         % (_lua_bytes(room_id), int(sticker_id))
     )
+
+
+# ---------------------------------------------------------------------------
+# Coordinate ("point") share. Reverse-engineered live for task #1089 from a PM
+# trace to EleNita — see docs/research/chat-coord-share.md.
+#
+# A shared coordinate is NOT text: it is `post = 13` (PostType.Text_PointShare)
+# plus an `attachmentId` JSON blob describing the map object. The base `msg` is
+# the literal placeholder "?" — the client renders the bubble from attachmentId
+# (ChatMessage:getMessageWithExtra()).
+#
+# It also does NOT ride `ChatManager2:__sendToRoom`: that path rebuilds `extra`
+# and silently drops attachmentId (verified — the echo came back with an empty
+# attachment and "this message type is not supported by your game version").
+# Shares go out as their own command class, `Chat.NetMessage.ChatShareCommand`,
+# dispatched on the chat connection:
+#
+#     ChatManager2:GetInstance().Net:SendSFSMessage(<cmd>, param)
+#
+# `ChatShareCommand:OnCreate(param)` reads, in order:
+#     post, lang, msg, roomId, tradeName, itemIds, tradePoint, attachmentId,
+#     chatType, langRoomLang, toUser, reportUid, cardUuid, planIndex, bossUid,
+#     ossAddress, serverIdEx, introductionEx, freeEx
+# — everything past `attachmentId` belongs to other share kinds and may be nil.
+#
+# The command differs per channel (ChatMsgDefines):
+#     DM        chat.room.send   (ChatSharePerson)   + toUser = peer uid
+#     World     chat.country     (ChatShareCountry)
+#     National  chat.country     + langRoomLang = <lang>
+#     Alliance  al.msg           (ChatShareAlliance)
+
+POST_POINT_SHARE = 13          # PostType.Text_PointShare
+
+CMD_SHARE_DM = "chat.room.send"
+CMD_SHARE_COUNTRY = "chat.country"
+CMD_SHARE_ALLIANCE = "al.msg"
+
+
+def chat_share_cmd(room_id: str) -> str:
+    """The share command for a room id (see the table above)."""
+    if room_id.startswith("alliance_"):
+        return CMD_SHARE_ALLIANCE
+    if room_id.startswith("country_") or room_id.startswith("custom_lang_"):
+        return CMD_SHARE_COUNTRY
+    return CMD_SHARE_DM
+
+
+def _lua_opt(key: str, value) -> str:
+    """`key=<lua>` fragment, or '' when the value is unset (keeps the field nil)."""
+    if value in (None, ""):
+        return ""
+    return "%s=%s, " % (key, _lua_bytes(str(value)))
+
+
+def chat_share_point(room_id: str, attachment_json: str, post: int = POST_POINT_SHARE,
+                     lang: str = "ru", to_user=None, lang_room=None, cmd=None) -> str:
+    """Share a map coordinate (`attachment_json`) into `room_id`.
+
+    `attachment_json` is the already-serialised attachmentId blob — the caller owns its
+    shape, since it differs per object kind (bare point, mine, monster, secret task...).
+    """
+    return (
+        'pcall(function() local CM=ChatManager2 local inst=CM.GetInstance(CM) '
+        'inst.Net:SendSFSMessage(%s, {post=%d, lang=%s, msg="?", roomId=%s, '
+        'attachmentId=%s, %s%schatType=0}) end) '
+        'CS.UnityEngine.Debug.LogError("ACT chat_point_sent")'
+        % (_lua_bytes(cmd or chat_share_cmd(room_id)), int(post), _lua_bytes(lang),
+           _lua_bytes(room_id), _lua_bytes(attachment_json),
+           _lua_opt("toUser", to_user), _lua_opt("langRoomLang", lang_room))
+    )

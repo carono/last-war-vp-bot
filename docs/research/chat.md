@@ -144,6 +144,12 @@ type — an integer template id for a mine, a `"LLVV"` string for a monster, a
 localised name for a task; any consumer must tolerate all three. See
 [`protocol.md`](protocol.md#chat) for the tile-coordinate caveat.
 
+> **The client-side view of the same feature** — how a shared coordinate is
+> modelled (`post = 13`, `msg = "?"`, the `attachmentId` blob), which `posType`
+> values were observed live, and how to *send* one — is written up in
+> [`chat-coord-share.md`](chat-coord-share.md). Note the send does **not** go
+> through the text choke point `ChatManager2:__sendToRoom`.
+
 ## 4. System broadcasts and the social feed
 
 These are game notifications that surface in or beside chat. All arrive on the

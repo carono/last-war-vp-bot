@@ -14,6 +14,10 @@ missed (stale port, see the `env_read_wgb_blocked` memory). So the send was
 reconstructed from the **Lua trace** plus live introspection through the warm
 daemon, not from the pcap.
 
+> **Coordinates are the exception.** A shared map point is not text and does
+> **not** go through `__sendToRoom` (it drops the attachment). See
+> [`chat-coord-share.md`](chat-coord-share.md).
+
 ## The one choke point
 
 Every chat send — world, national, alliance, DM, text, emoji — funnels through a
@@ -122,8 +126,10 @@ local echo. So the tool works fully headless — closed dialog, no focus, no pix
   recipes (msg rebuilt byte-for-byte via `string.char`, so Cyrillic/CJK/PUA survive
   the daemon hop and xLua compile).
 - `tools/chat_send.py` — CLI: `--to <peerUid>` (DM) or `--room <id>`, `--text`
-  (with `{e:<id>}` tokens), `--sticker <id>`, `--dry-run`, `--list-emoji`,
-  `--list-sticker`. Runs through the warm daemon; no pixels, no foreground input.
+  (with `{e:<id>}` tokens), `--sticker <id>`, `--coords` / `--my-base`
+  (see [`chat-coord-share.md`](chat-coord-share.md)), `--dry-run`,
+  `--list-emoji`, `--list-sticker`. Runs through the warm daemon; no pixels, no
+  foreground input.
 
 Outgoing chat cannot be unsent — `--dry-run` previews the resolved room id and
 payload first.
