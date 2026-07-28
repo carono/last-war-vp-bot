@@ -1,5 +1,18 @@
 # Research — Network protocol sniffing for Last War
 
+> **Correction — this spike's recommendation was reversed.** The TL;DR below
+> concluded "protocol automation not recommended / passive capture yields
+> undecryptable TLS / stay vision-based." That was wrong on the decisive point:
+> the `:17935` transport turned out to be **plaintext TLV over TCP, not TLS**, so
+> passive capture decodes 100% and protocol-level automation became the project's
+> **primary** approach (Lua-VM routes + decoded protocol; see [`protocol.md`](protocol.md),
+> [`sniffing-playbook.md`](sniffing-playbook.md), [`xlua-state.md`](xlua-state.md)).
+> What still holds is the **anti-cheat map**: *active* techniques (MITM/Frida/
+> debuggers) are ACE-flagged, *passive* capture is safe — those empirical facts
+> are why this page is kept (they are cited from
+> [`dll-injection-vs-ace.md`](dll-injection-vs-ace.md)). Read the recommendation
+> as historical; the ACE-behaviour findings as current.
+
 **Status:** research spike (task #366). No code shipped. This document records
 what the client is, what interception would take, what the anti-cheat allows,
 and a recommendation.
