@@ -2,6 +2,12 @@
 
 > На русском: [`farming.ru.md`](farming.ru.md)
 
+<!-- progress:start -->
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 77
+
+🟩 18 done · 🟨 10 partly · 🟥 49 not automated
+<!-- progress:end -->
+
 A plain feature list: what is automated today, what is half-way there, and what
 is still done by hand. The sections follow the feature list of the old script
 ([`legacy-ru/farming.md`](legacy-ru/farming.md) /

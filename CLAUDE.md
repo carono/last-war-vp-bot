@@ -19,6 +19,13 @@ before starting anything else, and before reporting the task done:
 2. **`docs/farming.ru.md` (RU) second.** Mirror the same edit — same section, same
    position, same mark, same meaning. The two files are read side by side, so
    they must stay in step; never change one and leave the other.
+3. **Redraw the progress bar.** Both files open with a bar between
+   `<!-- progress:start -->` and `<!-- progress:end -->` — the share of ✅ among
+   all the feature bullets. Any time a mark changes, or an item is added or
+   removed, run `python3 tools/farming_progress.py --write` and commit the
+   redrawn bar with the same edit. Never hand-count it, and never leave a bar
+   that disagrees with the list below it — without `--write` the script only
+   reports, and exits non-zero when a file is out of date.
 
 Confirmation is the trigger: unproven work stays ❌ or 🟡, and a feature is not
 finished — and must not be marked done in the tracker — until both files say so.
