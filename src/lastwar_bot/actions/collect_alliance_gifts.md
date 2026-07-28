@@ -1,20 +1,24 @@
-# Claim every alliance gift (ordinary + premium).
+# Claim the alliance gifts — ordinary and premium.
 #
-# The alliance "Gifts" screen (Подарки альянса) collects the boxes alliancemates
-# and the alliance itself have banked for you. It has two "collect all" buttons —
-# ordinary gifts (type 1) and premium / privilege gifts (type 2). This recipe
-# presses both in one go.
+# Reproduces exactly what the player did in the "Подарки альянса" recording: open
+# the alliance Gifts section, then press its two "collect all" buttons — ordinary
+# gifts first, then premium/privilege gifts.
 #
-# As with the other recipes, each line is just "tap a button"; the real Lua
-# (DataCenter.AllianceGiftDataManager:SetAllGiftReceiveByType) lives in the button
-# library tools/lib/game_buttons.py.
+# Each line is just "tap a button"; the engine calls live in the button library
+# tools/lib/game_buttons.py. Behind them: opening the window sends
+# alliance.reward.list; each collect button is UILWAllianceGiftCtrl:OnGetAllBtnClick
+# (type) and sends alliance.reward.allreceive {type} (type 1 = ordinary, 2 = premium).
+# A tab with nothing to claim just no-ops, so pressing both is always safe.
 #
-# No window is opened: the claim is sent straight from the data manager (the
-# recorded flow's "open section" tap only loaded the list; the two collect taps
-# each send alliance.reward.allreceive {type}). So there is nothing to close.
+# The two collect buttons are real UI clicks, so the window must be open first —
+# that is why this recipe opens the section and closes it at the end (unlike the
+# headless help_ally / collect_base_resources recipes).
 #
 # Source: results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl.
-# See docs/research/alliance-gift-collection.md for the wire/Lua mapping and the
-# verification caveat (the record had nothing pending, so the claim was gated).
+# Live-confirmed in-game (premium gifts collected on OnGetAllBtnClick(2)); see
+# docs/research/alliance-gift-collection.md.
 
-TAP collect_alliance_gifts xall   # sweep both gift tabs until nothing is left to claim
+TAP alliance_gifts          # open the "Подарки альянса" section
+TAP collect_gifts_ordinary  # "collect all" on the ordinary-gifts tab (type 1)
+TAP collect_gifts_premium   # "collect all" on the premium-gifts tab (type 2)
+TAP close                   # close the gift window

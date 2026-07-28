@@ -86,28 +86,31 @@ BUTTONS: dict[str, Button] = {
         count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",
         max_taps=10,
     ),
-    # --- Alliance -> claim every alliance gift --------------------------------
-    "collect_alliance_gifts": Button(
-        # "Подарки альянса" -> "Забрать всё". The alliance gift window carries two
-        # collect-all buttons: ordinary gifts (type 1) and premium/privilege gifts
-        # (type 2); each claims every still-unreceived gift of that type. On the wire
-        # this is alliance.reward.allreceive {type}. Like help_ally_all the claim goes
-        # straight from the data manager, so no window has to be open — one press
-        # sweeps both tabs (an empty tab just no-ops, safely gated client-side).
-        # Live-probed: DataCenter.AllianceGiftDataManager (the "reward" domain shows up
-        # as the Gift manager), method SetAllGiftReceiveByType(type); GetGiftInfoList
-        # (type) is the list side (alliance.reward.list). GetRedPointNum() = total
-        # unclaimed, drops to 0 once everything is taken.
-        # See docs/research/alliance-gift-collection.md.
-        lua=(
-            "local m=DataCenter.AllianceGiftDataManager "
-            "for _,t in ipairs({1,2}) do pcall(function() m:SetAllGiftReceiveByType(t) end) end"
-        ),
-        wait=1.0, label="Collect alliance gifts",
-        # One sweep clears both types; xall re-reads the red-point count and mops up
-        # anything that lands in the gap, then stops the instant the server says 0.
-        count_lua="DataCenter.AllianceGiftDataManager:GetRedPointNum()",
-        max_taps=5,
+    # --- Alliance -> gifts: open the section, then claim each tab -------------
+    # The "Подарки альянса" window has two "collect all" buttons — ordinary gifts
+    # (type 1) and premium/privilege gifts (type 2) — handled by the same click
+    # handler UILWAllianceGiftCtrl:OnGetAllBtnClick(type) (nparams=2 = self+type).
+    # On the wire each press is alliance.reward.allreceive {type}; opening the
+    # window sends alliance.reward.list. Unlike a headless data call these are the
+    # real button clicks, so the window has to be open first (they read the loaded
+    # list). Live-confirmed: opening the window and firing OnGetAllBtnClick(2)
+    # collected the premium gifts in-game. See docs/research/alliance-gift-collection.md.
+    "alliance_gifts": Button(
+        lua="UIManager.Instance:OpenWindow(UIWindowNames.UILWAllianceGift)",
+        wait=1.3, label="Alliance gifts panel",
+    ),
+    "collect_gifts_ordinary": Button(
+        # "Забрать всё" on the ordinary-gifts tab (type 1). No-op if that tab is
+        # already empty. Guarded so it only fires with the gift window on top.
+        lua=("local w=UIManager.Instance:GetStackTopWindow() "
+             "if w and tostring(w.Name)=='UILWAllianceGift' then w.Ctrl:OnGetAllBtnClick(1) end"),
+        wait=0.8, label="Collect ordinary gifts",
+    ),
+    "collect_gifts_premium": Button(
+        # "Забрать всё" on the premium/privilege tab (type 2). Same guard.
+        lua=("local w=UIManager.Instance:GetStackTopWindow() "
+             "if w and tostring(w.Name)=='UILWAllianceGift' then w.Ctrl:OnGetAllBtnClick(2) end"),
+        wait=0.8, label="Collect premium gifts",
     ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(

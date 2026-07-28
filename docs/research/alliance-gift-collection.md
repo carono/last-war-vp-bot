@@ -1,18 +1,19 @@
 # Alliance gift collection ("Подарки альянса")
 
 How the alliance "Gifts" screen claims its banked boxes, derived from one labelled
-sniffer run and confirmed against the live Lua VM through the warm daemon.
+sniffer run and confirmed live in-game through the warm Lua daemon.
 
-- Recipe: `actions/collect_alliance_gifts.md`.
-- Button: `tools/lib/game_buttons.py` (`collect_alliance_gifts`).
-- Source capture: `results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl`
-  (+ the same-label `results/traces/…_trace.log`). `results/` is git-ignored, so
-  this note is the durable record.
+- Recipe: `actions/collect_alliance_gifts.md` — open the section, collect ordinary,
+  collect premium, close (the player's exact clicks).
+- Buttons: `tools/lib/game_buttons.py` (`alliance_gifts`, `collect_gifts_ordinary`,
+  `collect_gifts_premium`).
+- Source capture: `results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl`.
+  `results/` is git-ignored, so this note is the durable record.
 
 ## What the player did
 
-One recording of: tap the alliance **Gifts** section, then the two "collect all"
-buttons — ordinary gifts and premium/privilege gifts.
+One recording of: tap the alliance **Gifts** section, then its two "collect all"
+buttons — ordinary gifts, then premium/privilege gifts.
 
 ## What crossed the wire
 
@@ -20,52 +21,52 @@ The `up` lines minus keepalives (§8.5 of `docs/skills/sniff.md`):
 
 ```
 alliance.reward.list       {index:0, len:1000}          # open section (default tab)
-alliance.reward.allreceive {type:2}                     # claim all of type 2
+alliance.reward.allreceive {type:2}                     # claim all of type 2 (premium)
 alliance.reward.list       {index:0, type:2, len:1000}  # re-list to refresh
 ```
 
-Reading: list the gifts, claim all of a type, re-list. The response to a typeless
-`list` carries `info.list1`; a `type:2` `list` carries `info.list2` + `redPoint2`.
-So the feature is **type-parameterised**: `type` (absent ⇒ 1) selects the tab —
-type 1 = ordinary gifts, type 2 = premium/privilege gifts.
+The feature is **type-parameterised**. A typeless `list` response carries
+`info.list1`; a `type:2` `list` carries `info.list2` — so `type` selects the tab:
+**type 1 = ordinary gifts, type 2 = premium/privilege gifts**. Only one
+`allreceive` fired in the recording because the other tab had nothing pending (the
+client swallows an empty claim, §8.5b). Both `alliance.reward.list` and
+`alliance.reward.allreceive` were newly observed — added to
+`tools/known_commands.txt`.
 
-Only **one** `allreceive` fired even though the player pressed two collect buttons:
-the other tab had nothing pending, so the client swallowed that click (the "gated"
-case, §8.5b / §8.11). Both `alliance.reward.list` and `alliance.reward.allreceive`
-were newly observed — added to `tools/known_commands.txt`.
+## The Lua behind it (live-probed and confirmed in-game)
 
-## The Lua behind it (live-probed)
-
-The function-level trace was pure UI churn — the gift manager never appeared in it
-(the §8.5a blind spot: the window controller lives in `package.loaded`, not on `_G`
-at depth 2). So the API was recovered from the wire name and pinned on the live VM
+The function-level trace was pure UI churn — the gift controller lives in
+`package.loaded`, not on `_G` at depth 2 (the §8.5a blind spot). So the API was
+recovered from the wire name and pinned on the live VM
 (`tools/lib/lua_eval.py` → the warm `lua_daemon`):
 
 | layer | where |
 |---|---|
-| manager | `DataCenter.AllianceGiftDataManager` (the "reward" domain surfaces as the **Gift** manager) |
-| claim all | `AllianceGiftDataManager:SetAllGiftReceiveByType(type)` — the wire's `alliance.reward.allreceive {type}` |
-| list | `AllianceGiftDataManager:GetGiftInfoList(type)` / `UpdateGiftInfoList` — the wire's `alliance.reward.list` (the getter errors without a `type` arg, confirming the per-type shape) |
-| counter | `AllianceGiftDataManager:GetRedPointNum()` — total unclaimed; `0` when nothing is pending |
-| controller (window) | `UI.UILWAlliance.UILWAllianceGift.Controller.UILWAllianceGiftCtrl`, click handler `OnGetAllBtnClick` — not needed for the headless call |
+| window | `UIWindowNames.UILWAllianceGift` — `UIManager.Instance:OpenWindow(...)` opens the section (sends `alliance.reward.list`) |
+| controller | `UI.UILWAlliance.UILWAllianceGift.Controller.UILWAllianceGiftCtrl` |
+| collect all | `Ctrl:OnGetAllBtnClick(type)` — `debug.getinfo` reports `nparams=2` (self + type); type 1 = ordinary, type 2 = premium. Sends `alliance.reward.allreceive {type}` |
+| data manager | `DataCenter.AllianceGiftDataManager` — `GetGiftInfoList(type)` (errors without a `type`, confirming the per-type shape), `GetRedPointNum()` = total unclaimed, `SetAllGiftReceiveByType(type)` (the manager-side claim) |
 
-The harvest is headless, like `help_ally_all`: `SetAllGiftReceiveByType(type)` sends
-straight from the data manager, so no window has to be open. The button sweeps both
-types in one press:
+**Why the controller, not the data manager.** The player pressed real buttons, and
+the two collect buttons read the loaded gift list, so the window must be open first.
+Firing the data-manager `SetAllGiftReceiveByType` headlessly (with no window) sent
+nothing on the wire; the real click path is the controller's `OnGetAllBtnClick`,
+which is what the recipe drives.
 
-```lua
-local m = DataCenter.AllianceGiftDataManager
-for _, t in ipairs({1, 2}) do pcall(function() m:SetAllGiftReceiveByType(t) end) end
+### Acceptance
+
+Ran live through the daemon, mirroring the recipe:
+
+```
+OpenWindow(UILWAllianceGift)            -> top window = UILWAllianceGift
+Ctrl:OnGetAllBtnClick(1)                -> ok  (ordinary tab; no-op when empty)
+Ctrl:OnGetAllBtnClick(2)                -> ok  (premium tab)
+Ctrl:CloseSelf()                        -> top window = nil (back to HUD)
 ```
 
-## Verification caveat
-
-At record and probe time `GetRedPointNum()` was **0** — nothing was pending — so
-firing `SetAllGiftReceiveByType(1/2)` with the traffic sniffer running produced no
-`alliance.reward.allreceive` on the wire (the client gates an empty claim). The
-mapping therefore rests on: the exact name/param match (manager, method and the
-`type` argument all mirror the wire), the type-parameterised list confirming the
-model, and the method being callable headlessly. **Re-run the §8.10 acceptance test
-when gifts are actually pending** (`GetRedPointNum() > 0`): the recipe is correct
-when a single `TAP collect_alliance_gifts` emits `alliance.reward.allreceive` and
-drops the red-point count to 0.
+`OnGetAllBtnClick(2)` **collected the premium gifts in-game** (observed by the user
+watching the client). That is the acceptance signal — state over screenshots, and
+here the visible in-game claim is the state. (The wire sniffer running alongside
+this probe mostly logged `down`/keepalive frames and missed the `up` claim; the
+original human recording did capture the `up` commands, which is what the mapping
+above rests on.)
