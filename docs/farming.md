@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 79
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 19 of 79
 
-🟩 18 done · 🟨 11 partly · 🟥 50 not automated
+🟩 19 done · 🟨 11 partly · 🟥 49 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -124,7 +124,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
-- ❌ Robbing a secret task
+- ✅ Robbing a secret task — the whole robbery runs headless off a task's uuid, five a day, and stops on its own at the daily cap. Naming the victim is still the person's job: the targets come from a map scan or from coordinates handed to `tools/steal_secret_task.py`
 - ❌ Refreshing missions to UR — by tickets, diamonds or MEGA
 - ❌ Sending own secret missions out
 - ❌ Collecting own or alliance missions
@@ -210,7 +210,7 @@ The routine as it is actually played, against what the bot covers.
 | Collect the base and the resource truck | ✅ base · 🟡 truck |
 | Send secret missions out | ❌ |
 | Help with 5 UR or star secret tasks | ❌ |
-| Steal 5 star tasks | 🟡 finding them works, taking them does not |
+| Steal 5 star tasks | 🟡 finding and robbing work, picking the five targets does not |
 | Radar tasks | ❌ |
 | 20 rally joins per monster type | 🟡 joining works, counting and choosing do not |
 | Attack marked players, scouting before and after | 🟡 attacking and scouting work, picking targets does not |

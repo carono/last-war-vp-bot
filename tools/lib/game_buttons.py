@@ -230,6 +230,40 @@ BUTTONS: dict[str, Button] = {
              "end end"),
         wait=0.5, label="dismiss skill-result popup",
     ),
+    # --- world -> rob another player's secret task ---------------------------
+    # «Кража секретки». A finished hero-dispatch task on someone else's tile can
+    # be robbed three times before its loot slots fill up; the account gets five
+    # robberies a day (`GetDispatchSetting("steal_count")`), and an unspent one is
+    # simply lost at the daily reset. One press is one `hero.dispatch.steal
+    # {uuid, targetServer}` — no marker tap, no popup, no camera move.
+    #
+    # `TAP` takes no arguments, so the targets are parked in the game VM first
+    # (`tools/steal_secret_task.py` fills the queue from a map scan, from
+    # coordinates or from bare uuids) and this button robs them one per press.
+    # See lua_actions.steal_next_secret_task() and docs/research/secret-task-steal.md.
+    "steal_secret_task": Button(
+        lua=_lua_actions.steal_next_secret_task(),
+        # The daily counter only moves when the server's reply lands, and that reply
+        # carries the whole reward list. Pressing again before it arrives would rob
+        # against a stale budget — the queue pop is the safety net, this pause is what
+        # keeps `xall` from leaning on it.
+        wait=2.0, label="Rob a secret task",
+        # min(targets queued, robberies left today) — so `xall` stops both when the
+        # queue runs dry and when the daily cap is spent.
+        count_lua=_lua_actions.secret_task_steals_pending(),
+        max_taps=10,
+    ),
+    "dismiss_steal_reward": Button(
+        # A successful robbery raises `UIDispatchTaskReward` — the loot list plus the
+        # emoji strip for leaving the victim a message. Its own window, so neither
+        # `dismiss_reward_popup` nor a top-of-stack close reliably matches it. No-op
+        # when nothing is up.
+        lua=("local mgr=UIManager.Instance local n=UIWindowNames.UIDispatchTaskReward "
+             "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+             "if ok and open then local w=mgr:GetWindow(n) "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
+        wait=0.5, label="dismiss steal-reward popup",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.

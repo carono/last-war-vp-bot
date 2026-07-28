@@ -666,3 +666,194 @@ def occupation_skills_dump() -> str:
         "tostring(d:GetSkillAvailableTime(sid) or 0), tostring(t.cd_time), "
         "hex(UIUtil:GetString(t.name)))) end end"
     )
+
+
+# --------------------------------------------------------------------------
+# Secret-task robbery — «кража секретки»
+# --------------------------------------------------------------------------
+# A secret task (hero dispatch) sitting on another player's tile can be robbed
+# three times before its loot slots are full. On the wire one robbery is a
+# single command with no coordinate in it at all:
+#
+#     --> hero.dispatch.steal   {uuid, targetServer}
+#     <-- push.hero.dispatch.mission.steal {pointId, serverId, worldId, playerInfo}
+#     <-- hero.dispatch.steal   {reward[], ownerInfo, recordUuid, todayStealNum, ...}
+#
+# The Lua side, pinned live against the VM for task #1099 (traces
+# `20260729_013329_кража_серкетки` / `20260729_013404_Кража_секретки`; both
+# traffic checkpoints came back with keepalives only, so the wire half is the
+# 2026-07-19 capture written up in docs/research/protocol.md §7):
+#
+#   * `MsgDefines.DispatchSteal` = `hero.dispatch.steal`.
+#   * `Net.Msgs.DispatchTask.DispatchStealMessage:OnCreate(uuid, targetServer)`
+#     puts exactly two fields in the SFSObject — `PutLong uuid`,
+#     `PutInt targetServer`. So the send needs NO window open and no map tap.
+#   * The in-game press is `UIWorldPointBtn:onDispatchTaskClick(btnType)` with
+#     `btnType == WorldPointBtnType.DispatchTaskSteal` (54 — the same 54 the
+#     trace passes to `LoadPath.GetBuildBtnSpritePath`, i.e. the «украсть»
+#     icon). Its whole network line is that one `SFSNetwork.SendMessage`.
+#   * `DispatchStealMessage:HandleMessage` is the reply applier (rewards,
+#     `ShowReward`, `UpdateTodayNum`, `UpdateSteal`) — calling it sends nothing.
+#     Same trap as `AllianceHelpDataManager:OnHelpAll`; the press is the send.
+#
+# THE TARGET IS A `uuid`, NOT A COORDINATE. A caller holding only x/y resolves
+# it first with `secret_task_request_detail()` + `secret_task_uuid_at()` (the
+# `world.get.detail.new` round trip the client itself fires when a marker is
+# tapped) — verified live: asking for a known alliance task's pointId returned
+# the same uuid the dispatch record carries.
+#
+# See docs/research/secret-task-steal.md.
+
+# `WorldPointType.HERO_DISPATCH` — the pointType `world.get.detail.new` wants
+# for a secret-task marker (and the `f2 = 17` tiles the map scanner decodes).
+SECRET_TASK_POINT_TYPE = 17
+
+# `WorldPointBtnType.DispatchTaskSteal` — the popup button this recipe replaces.
+# Not used by the send (the send is the message, not the button); kept because it
+# is what identifies the traced click.
+SECRET_TASK_STEAL_BTN = 54
+
+
+def secret_task_steals_left() -> str:
+    """Lua *expression* -> how many robberies the account may still make today.
+
+    `GetDispatchSetting("steal_count")` is the daily cap (5 on the live account) and
+    `GetTodayStealNum()` what has been spent; the server resets both. This is the ONE
+    gate that is fully readable client-side, which is why every press below carries it
+    and why it is the `count_lua` of the `steal_secret_task` button.
+
+    The other conditions `onDispatchTaskClick` checks — the tile's own looter list
+    (`stealList:Contains(selfUid)`, max three) and its `protect_times` window — hang off
+    the world object of a tile that is currently rendered, so they are NOT answerable
+    for an arbitrary uuid. Those stay the server's job: a robbery it refuses comes back
+    as `hero.dispatch.steal` with an `errorCode` and the client pops the matching tip.
+    """
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "local cap=tonumber(M:GetDispatchSetting('steal_count')) or 0 "
+            "local used=tonumber(M:GetTodayStealNum()) or 0 "
+            "local left=cap-used if left<0 then left=0 end return left end)()")
+
+
+def secret_task_request_detail(x: int, y: int, server: int) -> str:
+    """Ask the server for the marker detail of tile (x, y) — the uuid lookup.
+
+    This is the first of the two messages a manual robbery sends: tapping a secret-task
+    marker fires `world.get.detail.new {point, serverId, 0, pointType = 17, uid = ""}`,
+    and the reply is parsed into `WorldPointDetailManager`, keyed by pointId. Read the
+    uuid out of it with `secret_task_uuid_at()` AFTER a settle — never in the same
+    chunk, the reply has not landed yet.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("world.get.detail.new", %s, %d, 0, %d, "") end) '
+            'CS.UnityEngine.Debug.LogError("ACT detail_requested %d,%d srv=%d")'
+            % (_pid(x, y), int(server), SECRET_TASK_POINT_TYPE, x, y, int(server)))
+
+
+def secret_task_uuid_at(x: int, y: int) -> str:
+    """Lua *expression* -> the task uuid cached for tile (x, y), or 0.
+
+    `0` means "not asked for yet, or the reply has not arrived" — not "no task there".
+    The cache is per pointId and survives across chunks, so the usual shape is
+    request -> wait -> read.
+    """
+    return ("(function() local d=DataCenter.WorldPointDetailManager:GetDetailByPointId(%s) "
+            "return (d and d.uuid) or 0 end)()" % _pid(x, y))
+
+
+def secret_task_owner_at(x: int, y: int) -> str:
+    """Lua *expression* -> the uid of the player whose task sits on tile (x, y), or 0.
+
+    From the same cached detail. Lets a caller refuse to rob its own or an
+    alliancemate's task before spending one of the day's five attempts.
+    """
+    return ("(function() local d=DataCenter.WorldPointDetailManager:GetDetailByPointId(%s) "
+            "return (d and d.uid) or 0 end)()" % _pid(x, y))
+
+
+def secret_task_steal(uuid: int, server: int) -> str:
+    """Rob the secret task `uuid` on `server` — one `hero.dispatch.steal`.
+
+    Headless: no marker tap, no `UIWorldPoint` window, no camera move. Gated on the
+    daily budget so a spent account does not put a doomed message on the wire (the
+    server would answer with an errorCode and the client would raise a toast — the same
+    trap as the resource-collect readiness gate).
+    """
+    return ('if %s > 0 then '
+            'pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchSteal, %d, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT steal_sent uuid=%d srv=%d") end'
+            % (secret_task_steals_left(), int(uuid), int(server), int(uuid), int(server)))
+
+
+def secret_task_leave_message(record_uuid: int, msg_id: int, server: int) -> str:
+    """Leave the robbed player one of the canned emoji («стикер вдогонку»).
+
+    The optional second half of the flow: the reward window that opens after a
+    successful robbery has an emoji strip, and picking one fires
+    `MsgDefines.DispatchLeaveMessage` = `hero.dispatch.leave.message`
+    ({`recordUuid`, `msgId`, `targetServer`}) — read off
+    `UIDispatchTaskRewardView:OnStealMessageBtnClick`.
+
+    `record_uuid` is the `recordUuid` from the robbery's own reply (NOT the task uuid),
+    and `msg_id` one of the ids in `GetStealEmojiList()` (11 of them live). Pure
+    flavour — it pays nothing and is not part of the loot.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchLeaveMessage, %d, %d, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT steal_message_sent record=%d msg=%d")'
+            % (int(record_uuid), int(msg_id), int(server), int(record_uuid), int(msg_id)))
+
+
+# --- the target queue ------------------------------------------------------
+# `TAP` takes no arguments, so a button cannot be told *which* task to rob. The
+# targets are therefore parked in the game VM — on the dispatch manager's own
+# table (`__lw_steal_queue`), because this VM rejects some new globals — and the
+# button robs the first one and drops it. Filling the queue is the job of
+# `tools/steal_secret_task.py`: it is the side that can scan the map, resolve a
+# coordinate to a uuid across a round trip, and drop what is already looted out.
+# The same split as the profession skills: one press = one action, `xall` walks
+# the set, and the count is re-read between presses.
+
+def secret_task_queue_set(targets) -> str:
+    """Replace the steal queue with `targets` — an iterable of (uuid, server) pairs."""
+    items = ",".join("{uuid=%d,server=%d}" % (int(u), int(s)) for u, s in targets)
+    return ("local M=DataCenter.ActDispatchTaskDataManager M.__lw_steal_queue={%s} "
+            'CS.UnityEngine.Debug.LogError("ACT steal_queue_set "..tostring(#M.__lw_steal_queue))'
+            % items)
+
+
+def secret_task_queue_clear() -> str:
+    """Empty the steal queue (a recipe should not inherit yesterday's targets)."""
+    return ("local M=DataCenter.ActDispatchTaskDataManager M.__lw_steal_queue={} "
+            'CS.UnityEngine.Debug.LogError("ACT steal_queue_cleared")')
+
+
+def secret_task_queue_len() -> str:
+    """Lua *expression* -> how many targets are still queued."""
+    return ("(function() local M=DataCenter.ActDispatchTaskDataManager "
+            "return #(M.__lw_steal_queue or {}) end)()")
+
+
+def secret_task_steals_pending() -> str:
+    """Lua *expression* -> presses `steal_secret_task` can still make.
+
+    `min(queued targets, robberies left today)` — the button's `count_lua`, so `xall`
+    stops both when the queue runs dry and when the daily cap is reached, and never
+    spends a round trip on a press the gate would decline anyway.
+    """
+    return ("(function() local q=%s local b=%s if q<b then return q end return b end)()"
+            % (secret_task_queue_len(), secret_task_steals_left()))
+
+
+def steal_next_secret_task() -> str:
+    """Rob the first queued target and drop it from the queue (one press, one task).
+
+    One press per chunk on purpose: `todayStealNum` only moves when the server's reply
+    lands, so a `while` inside one chunk would both spin the game's main thread and rob
+    against a stale budget. The target is removed BEFORE the send, so a refused robbery
+    (expired tile, slots full, already robbed by me) costs one queue entry rather than
+    wedging `xall` on the same doomed uuid forever.
+    """
+    return ("local M=DataCenter.ActDispatchTaskDataManager "
+            "local q=M.__lw_steal_queue or {} local t=table.remove(q,1) "
+            "if t and %s > 0 then "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchSteal, t.uuid, t.server) end) "
+            'CS.UnityEngine.Debug.LogError("ACT steal_sent uuid="..tostring(t.uuid)'
+            '.." srv="..tostring(t.server)) end' % secret_task_steals_left())

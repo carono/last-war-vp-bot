@@ -991,6 +991,11 @@ open. Re-run the trap with `--match world.get.detail` to close it.
 
 #### Stealing — `hero.dispatch.steal`
 
+> The client side of this — which Lua call sends it, what gates it, and how a
+> coordinate is turned into the `uuid` it wants — is
+> [`secret-task-steal.md`](secret-task-steal.md). Robbing is automated there
+> (`tools/steal_secret_task.py`, `actions/steal_secret_task.md`).
+
 Captured live on 2026-07-19 by `tools/trap_command.py` while the maintainer
 robbed a task by hand. The command is **`hero.dispatch.steal`** — no command
 containing "rob" exists. The exchange is four messages:

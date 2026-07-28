@@ -240,6 +240,57 @@ def test_mastery_gate_is_state_and_use_position():
     assert "10113" in one and "MasterySkillState.Normal" in one
 
 
+def test_steal_recipe_spends_the_queue_and_stops_at_the_budget():
+    """The robbery recipe presses once per queued target and closes the loot window.
+
+    `xall` is load-bearing here for two reasons a fixed count cannot cover: how many
+    targets are queued is not knowable when the recipe is written, and the daily cap
+    (five robberies) is spent by anything else that robbed today. The button's count
+    is the minimum of the two, so the loop stops at whichever runs out first.
+    """
+    import game_buttons as gb
+
+    path = se.resolve_action("steal_secret_task")
+    assert path is not None, "actions/steal_secret_task.md is missing"
+    stmts = se.parse_text(path.read_text(encoding="utf-8"))
+    taps = [s for s in stmts if isinstance(s, se.TapStmt)]
+    assert [s.name for s in taps] == ["steal_secret_task", "dismiss_steal_reward"]
+    assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"
+
+    button = gb.get("steal_secret_task")
+    assert button is not None and button.count_lua, "xall needs a count expression"
+    # Two robberies available, then none -> exactly two presses.
+    ev = FakeEval(rluas=[2, 1, 0])
+    _run("TAP steal_secret_task xall", ev)
+    presses = [c for c in ev.chunks if "MsgDefines.DispatchSteal" in c]
+    assert len(presses) == 2, presses
+    assert all("table.remove" in c for c in presses), "a press must consume its target"
+
+
+def test_steal_is_gated_on_the_daily_budget():
+    """Every robbery carries the daily-cap gate, and the count never exceeds it.
+
+    Sending past the cap is not a no-op: the server refuses it and the client raises a
+    player-facing tip, the same trap as the resource-collect readiness gate. The queue
+    length alone would happily send ten.
+    """
+    import lua_actions as la
+
+    left = la.secret_task_steals_left()
+    assert "steal_count" in left and "GetTodayStealNum" in left
+
+    for chunk in (la.secret_task_steal(1, 534), la.steal_next_secret_task()):
+        assert "GetTodayStealNum" in chunk, "an ungated robbery reaches the server"
+        assert "MsgDefines.DispatchSteal" in chunk
+
+    pending = la.secret_task_steals_pending()
+    assert "__lw_steal_queue" in pending and "steal_count" in pending
+
+    # The target is a uuid + server, never a coordinate (the command has no point field).
+    queued = la.secret_task_queue_set([(1397117352503547575, 534)])
+    assert "uuid=1397117352503547575" in queued and "server=534" in queued
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
