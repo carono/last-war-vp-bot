@@ -241,6 +241,15 @@ def main() -> int:
         if not left or not queued:
             break
 
+    if robbed:
+        # Every success raises the loot window (UIDispatchTaskReward). Leaving it up
+        # would sit on top of the map for whoever looks at the client next, so close
+        # it with the same press the recipe uses.
+        import game_buttons
+        button = game_buttons.get("dismiss_steal_reward")
+        if button is not None:
+            ev.run(button.lua, MARKER, button.wait)
+
     print("sent %d robbery/robberies; %d left today" % (robbed, left))
     if robbed < len(targets):
         print("note: a target the server refused (expired, slots full, already robbed "

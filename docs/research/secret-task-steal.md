@@ -148,7 +148,13 @@ Two things it does NOT do, both on purpose:
 * it does not wait for a star whose dispatch is still running. A starred tile
   that is not raidable *right now* is simply not a target this press. Observed
   live: three level-7 stars in view, all «ещё выполняется» (12–90 minutes out),
-  19 ordinary tiles raidable — the button correctly robbed nothing.
+  19 ordinary tiles raidable — the button correctly robbed nothing. Ten minutes
+  later the nearest star came free and the same command robbed it (level 7,
+  `#509 X:504 Y:314`, budget 2 → 1), leaving the other two — still running —
+  alone. Both halves of the rule are therefore confirmed against the live game.
+
+A successful run closes the loot window it raised, so the client is left as it
+was found.
 
 `starred` is the decoder's reading of `cfgId` (family 6000 minus the `99` class),
 not something the game states on the wire — see §7 of `protocol.md`. That is the

@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 19 of 80
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **25%** — 20 of 80
 
-🟩 19 done · 🟨 12 partly · 🟥 49 not automated
+🟩 20 done · 🟨 11 partly · 🟥 49 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -125,7 +125,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
 - ✅ Robbing a secret task — the whole robbery runs headless off a task's uuid, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to `tools/steal_secret_task.py`
-- 🟡 Auto-loot from the panel — one button robs the starred tasks of the highest level the scan found, and does nothing at all when no star is raidable. Confirmed to hold its fire correctly; the robbing half of it has not yet met a live raidable star (the ones seen were still running their dispatch), and the scan it reads still needs the map to be moving
+- ✅ Auto-loot from the panel — one button robs the starred tasks of the highest level the scan found, and does nothing at all when no star is raidable. Both halves confirmed live: it held its fire with three stars still running their dispatch and 19 ordinary tiles raidable, then robbed the level-7 star the moment one came free. The scan it reads still needs the map to be moving
 - ❌ Refreshing missions to UR — by tickets, diamonds or MEGA
 - ❌ Sending own secret missions out
 - ❌ Collecting own or alliance missions
