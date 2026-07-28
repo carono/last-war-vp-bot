@@ -191,21 +191,21 @@ BUTTONS: dict[str, Button] = {
     # here, because which skills exist depends on the profession (Инженер / Военный
     # лидер) and on how far its tree is levelled — a button per id would only fit one
     # account. For pinning a routine to a single named skill there is
-    # lua_actions.mastery_use_skill(id).
+    # lua_actions.apply_occupation_skill(id).
     #
     # Only skills whose use-position is `SkillView` are fired: those need no target.
     # The `Building` / `Field` ones (Совместное исследование, Осадное знамя …) want a
     # world point and are deliberately left alone. See
     # docs/research/occupation-skills.md.
     "use_profession_skill": Button(
-        lua=_lua_actions.mastery_use_next_ready(),
+        lua=_lua_actions.apply_next_occupation_skill(),
         # Generous on purpose. The cooldown is set by the SERVER's reply, and the
         # observed round trip for use.desert.talent.skill ran up to ~8 s (the reply
         # carries the whole reward list). Pressing again before it lands would fire
-        # the same skill twice — the re-fire guard in mastery_use_next_ready() is the
+        # the same skill twice — the re-fire guard in apply_next_occupation_skill() is the
         # real safety net, this pause is what keeps `xall` from leaning on it.
         wait=4.0, label="Use profession skill",
-        count_lua=_lua_actions.mastery_ready_count(),
+        count_lua=_lua_actions.occupation_skills_ready_count(),
         # Thirteen active nodes on a maxed tree, and only about half are no-target.
         max_taps=10,
     ),

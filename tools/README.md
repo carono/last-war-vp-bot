@@ -25,7 +25,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
   Lua VM), `chat_send.py` (send text / emoji / stickers / coordinates),
   `dispatch_tasks.py` (list the secret tasks the client knows),
   `ministry.py` (the kingdom-position board: holders, queues, and applying for a post),
-  `mastery_skills.py` (the profession's active skills and firing the ready ones),
+  `occupation_skills.py` (the profession's active skills and firing the ready ones),
   `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
   `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
   hero-icon / chat-emoji / sticker sprites from the bundles).
@@ -78,7 +78,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `chat_send.py` | **Windows** (Python, Lua daemon) | send a DM / channel message: text, inline emoji, stickers — see [`../docs/research/chat-send.md`](../docs/research/chat-send.md) — and map coordinates (`--coords` / `--my-base` / `--coord-extra`) — see [`../docs/research/chat-coord-share.md`](../docs/research/chat-coord-share.md) |
 | `dispatch_tasks.py` | **Windows** (Python, Lua daemon) | list the secret tasks ("секретки") the client already knows, straight off the Lua VM — no capture and no map panning; `--share-args` prints ready `chat_send.py` arguments |
 | `ministry.py` | **Windows** (Python, Lua daemon) | the ministry board — who holds each kingdom position, how long they have sat and how many applicants are queued — and `--apply <post>` to submit an application headlessly; see [`../docs/research/ministry.md`](../docs/research/ministry.md) |
-| `mastery_skills.py` | **Windows** (Python, Lua daemon) | the profession's («навыки профессии») active skills — state, banked charges and when the next one lands — and `--use` to fire the ready no-target ones headlessly; see [`../docs/research/occupation-skills.md`](../docs/research/occupation-skills.md) |
+| `occupation_skills.py` | **Windows** (Python, Lua daemon) | the profession's («навыки профессии») active skills — state, banked charges and when the next one lands — and `--use` to fire the ready no-target ones headlessly; see [`../docs/research/occupation-skills.md`](../docs/research/occupation-skills.md) |
 | `extract_chat_assets.py` | **WSL** or **Windows** (Python, UnityPy) | extract chat emoji / sticker sprites from the cached asset bundles into `results/chat_assets/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM

@@ -205,6 +205,23 @@ def test_occupation_skills_recipe_walks_the_ready_set():
     assert all("__lw_fired" in c for c in presses), "presses must stamp the re-fire guard"
 
 
+def test_occupation_skill_cooldown_is_server_clocked_and_state_aware():
+    """The cooldown read must use the SERVER clock and rule out `Covered` / `Locked`.
+
+    A `Covered` node (a tier superseded by a higher one) carries no charge data, so its
+    availability time is 0 — read naively that says "ready now" about a skill that can
+    never be pressed. The sentinel is -1, not 0, precisely so a scheduler can tell
+    "castable, waiting" from "not a question about this skill".
+    """
+    import lua_actions as la
+
+    cd = la.skill_cooldown_remaining(10113)
+    assert "GetSkillAvailableTime" in cd
+    assert "GetServerTime" in cd, "the local clock drifts from the server's"
+    assert "MasterySkillState.Covered" in cd and "MasterySkillState.Locked" in cd
+    assert "return -1" in cd
+
+
 def test_mastery_gate_is_state_and_use_position():
     """Ready = `Normal` state AND a no-target (`SkillView`) skill — both, not either.
 
@@ -214,12 +231,12 @@ def test_mastery_gate_is_state_and_use_position():
     """
     import lua_actions as la
 
-    ready = la.mastery_ready_count()
+    ready = la.occupation_skills_ready_count()
     assert "MasterySkillState.Normal" in ready
     assert "MasterySkillUsePosType.SkillView" in ready
     assert "active_skills" in ready
     # A specific-skill press carries the same gate plus its own id.
-    one = la.mastery_use_skill(10113)
+    one = la.apply_occupation_skill(10113)
     assert "10113" in one and "MasterySkillState.Normal" in one
 
 

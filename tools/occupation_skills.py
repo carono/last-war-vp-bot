@@ -29,11 +29,11 @@ pressed here. The full protocol write-up is docs/research/occupation-skills.md.
 
 Usage (run under the Windows Python so it can reach the daemon)
 
-    /mnt/c/Python312/python.exe tools/mastery_skills.py            # list every skill
-    /mnt/c/Python312/python.exe tools/mastery_skills.py --json     # same, machine-readable
-    /mnt/c/Python312/python.exe tools/mastery_skills.py --use      # fire every ready
+    /mnt/c/Python312/python.exe tools/occupation_skills.py            # list every skill
+    /mnt/c/Python312/python.exe tools/occupation_skills.py --json     # same, machine-readable
+    /mnt/c/Python312/python.exe tools/occupation_skills.py --use      # fire every ready
                                                                      no-target skill
-    /mnt/c/Python312/python.exe tools/mastery_skills.py --use 10113  # fire just that one
+    /mnt/c/Python312/python.exe tools/occupation_skills.py --use 10113  # fire just that one
 
 `--use` is the same press the `use_profession_skill` button makes, one skill at a
 time with a pause between presses: the cooldown is set by the SERVER's reply, so
@@ -74,7 +74,7 @@ def _num(v) -> int:
 def read_skills(ev) -> dict:
     """`{now_ms, home_id, level, skills: [...]}` — every active skill of the profession."""
     out = {"now_ms": 0, "home_id": 0, "level": 0, "skills": []}
-    for line in ev.run(lua_actions.mastery_dump(), MARKER, 1.6):
+    for line in ev.run(lua_actions.occupation_skills_dump(), MARKER, 1.6):
         body = line[4:] if line.startswith("ACT ") else line
         if body.startswith("now "):
             parts = body.split(" ")
@@ -108,6 +108,12 @@ def print_table(state: dict) -> None:
     home = {101: "Инженер", 102: "Военный лидер"}.get(state["home_id"], "?")
     print("profession %s (home_id %d), mastery level %d"
           % (home, state["home_id"], state["level"]))
+    if not state["skills"]:
+        # A real state, not a failure: on a young account no node of the tree has a
+        # skill learned yet (GetCurSkillIdByMasteryId is nil everywhere), so there is
+        # nothing to fire and `xall` is a no-op. Say so rather than print a bare header.
+        print("no active skills learned yet — nothing to fire")
+        return
     print("%-7s %-10s %-9s %-7s %-9s %s"
           % ("skill", "state", "target", "charges", "next", "name"))
     for s in state["skills"]:
@@ -129,7 +135,7 @@ def use_ready(ev, skill_id: int | None = None) -> int:
     would spin the game's main thread and freeze the client.
     """
     if skill_id is not None:
-        ev.run(lua_actions.mastery_use_skill(skill_id), MARKER, PRESS_SETTLE)
+        ev.run(lua_actions.apply_occupation_skill(skill_id), MARKER, PRESS_SETTLE)
         after = read_skills(ev)
         hit = next((s for s in after["skills"] if s.get("sid") == skill_id), None)
         fired = bool(hit and not (hit["ready"] and hit["no_target"]))
@@ -145,7 +151,7 @@ def use_ready(ev, skill_id: int | None = None) -> int:
             break
         target = ready[0]
         print("firing %d (%s) …" % (target.get("sid", 0), target.get("name", "")))
-        ev.run(lua_actions.mastery_use_next_ready(), MARKER, PRESS_SETTLE)
+        ev.run(lua_actions.apply_next_occupation_skill(), MARKER, PRESS_SETTLE)
         pressed += 1
         time.sleep(0.5)
     print("pressed %d skill(s)" % pressed)

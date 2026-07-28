@@ -515,7 +515,7 @@ MASTERY_STATE_NAMES: dict[int, str] = {
 MASTERY_REFIRE_GUARD_MS = 120_000
 
 
-def _mastery_ready_ids() -> str:
+def _occupation_ready_ids() -> str:
     """Lua *expression* -> array of skill ids that can be fired right now, headless.
 
     Three filters, all of them load-bearing:
@@ -530,7 +530,7 @@ def _mastery_ready_ids() -> str:
       server-side rejection with a player-facing toast (the same trap as the
       resource-collect readiness gate).
 
-    Plus the re-fire guard: ids stamped by `mastery_use_next_ready()` less than
+    Plus the re-fire guard: ids stamped by `apply_next_occupation_skill()` less than
     `MASTERY_REFIRE_GUARD_MS` ago are dropped, so `xall` cannot double-fire one skill
     while its cooldown is still in flight. The stamps live on the manager table
     (`__lw_fired`) rather than in a global — this VM rejects some new globals.
@@ -551,16 +551,16 @@ def _mastery_ready_ids() -> str:
     )
 
 
-def mastery_ready_count() -> str:
+def occupation_skills_ready_count() -> str:
     """Lua *expression* -> how many no-target profession skills are off cooldown.
 
     What `TAP use_profession_skill xall` counts down, and what a recipe reads with
     `READ_LUA … INTO n` to decide whether the panel is worth opening at all.
     """
-    return "#%s" % _mastery_ready_ids()
+    return "#%s" % _occupation_ready_ids()
 
 
-def mastery_use_next_ready() -> str:
+def apply_next_occupation_skill() -> str:
     """Fire the first ready no-target profession skill (one press, one skill).
 
     One press per chunk on purpose: the charge only drops when the server answers, and
@@ -573,23 +573,59 @@ def mastery_use_next_ready() -> str:
         "if sid then M.__lw_fired=M.__lw_fired or {} "
         "M.__lw_fired[sid]=UITimeManager:GetInstance():GetServerTime() "
         "pcall(function() M:UseSkill(sid) end) "
-        'CS.UnityEngine.Debug.LogError("ACT mastery_used "..tostring(sid)) end'
-        % _mastery_ready_ids()
+        'CS.UnityEngine.Debug.LogError("ACT occupation_skill_used "..tostring(sid)) end'
+        % _occupation_ready_ids()
     )
 
 
-def mastery_skill_ready(skill_id: int) -> str:
+def skill_cooldown_remaining(skill_id: int) -> str:
+    """Lua *expression* -> milliseconds until `skill_id` can be fired again.
+
+    `0` = a charge is banked right now. `-1` = the question does not apply — the id is
+    not an active skill of this profession, or its node is `Locked` / `Covered` (a tier
+    superseded by a higher one, which carries no charge data at all and would otherwise
+    read as a confident, wrong "ready now").
+
+    This is `GetSkillAvailableTime` — the epoch-ms the NEXT charge lands, which is the
+    server's `recover.cdEndTime` — minus the server clock, never the local one: the two
+    drift, and every timestamp in this subsystem is server time.
+
+    Milliseconds because that is what the game stores; a recipe that wants minutes
+    divides. Deliberately independent of the re-fire guard in
+    `apply_next_occupation_skill()` — this answers "what does the GAME think", which is
+    what a scheduler wants when deciding how long to sleep before coming back.
+    """
+    return (
+        "(function() local M=DataCenter.MasteryManager "
+        "local d=M:GetData() if not d then return -1 end "
+        "for _,mid in ipairs(M:GetHomeDict(d.home_id) or {}) do "
+        "local sid=M:GetCurSkillIdByMasteryId(mid) "
+        "if sid==%d then "
+        "local t=M:GetSkillTemplate(sid) "
+        "if not (t and t.active_skills) then return -1 end "
+        "local st=M:GetMasteryGroupSkillState(mid) "
+        "if st==MasterySkillState.Locked or st==MasterySkillState.Covered "
+        "or st==MasterySkillState.None then return -1 end "
+        "local avail=d:GetSkillAvailableTime(sid) or 0 "
+        "if avail==0 then return 0 end "
+        "local left=avail-UITimeManager:GetInstance():GetServerTime() "
+        "if left<0 then left=0 end return left end end "
+        "return -1 end)()" % int(skill_id)
+    )
+
+
+def skill_can_use(skill_id: int) -> str:
     """Lua *expression* -> 1 when `skill_id` is a no-target skill that may be fired now.
 
     Numeric so a recipe can gate on it, and so `TAP <one skill> xall` stops at one press.
     """
     return ("(function() for _,sid in ipairs(%s) do "
             "if sid==%d then return 1 end end return 0 end)()"
-            % (_mastery_ready_ids(), int(skill_id)))
+            % (_occupation_ready_ids(), int(skill_id)))
 
 
-def mastery_use_skill(skill_id: int) -> str:
-    """Fire one specific profession skill by id, gated by `mastery_skill_ready`.
+def apply_occupation_skill(skill_id: int) -> str:
+    """Fire one specific profession skill by id, gated by `skill_can_use`.
 
     For pinning a routine to a named skill («Быстрое Производство» and nothing else).
     Ungated it would still leave the client and come back as a rejection toast.
@@ -598,10 +634,10 @@ def mastery_use_skill(skill_id: int) -> str:
             "M.__lw_fired=M.__lw_fired or {} "
             "M.__lw_fired[%d]=UITimeManager:GetInstance():GetServerTime() "
             "pcall(function() M:UseSkill(%d) end) end"
-            % (mastery_skill_ready(skill_id), int(skill_id), int(skill_id)))
+            % (skill_can_use(skill_id), int(skill_id), int(skill_id)))
 
 
-def mastery_dump() -> str:
+def occupation_skills_dump() -> str:
     """Reader chunk: one `ACT S …` line per active skill of the current profession.
 
     Fields: `sid` skill id, `mid` mastery node, `st` MasterySkillState, `pos` where it is

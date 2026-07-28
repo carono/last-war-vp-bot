@@ -6,10 +6,11 @@ and pinned against the live Lua VM.
 - Recipe: `actions/occupation_skills.md` — press every ready no-target skill.
 - Buttons: `tools/lib/game_buttons.py` (`use_profession_skill`,
   `profession_skills_panel`, `dismiss_skill_result`).
-- Primitives: `tools/lib/lua_actions.py` (`mastery_ready_count`,
-  `mastery_use_next_ready`, `mastery_use_skill`, `mastery_skill_ready`,
-  `mastery_dump`).
-- Reader / CLI: `tools/mastery_skills.py` — the table below, live, plus `--use`.
+- Primitives: `tools/lib/lua_actions.py` — `apply_occupation_skill(id)` /
+  `apply_next_occupation_skill()` (the press), `skill_can_use(id)` /
+  `occupation_skills_ready_count()` (the gate), `skill_cooldown_remaining(id)`
+  (ms until the next charge), `occupation_skills_dump()` (the reader).
+- Reader / CLI: `tools/occupation_skills.py` — the table below, live, plus `--use`.
 - Source capture: `results/traces/20260729_010052_навыки_профессии_trace.log` +
   `results/traffic/20260729_010053_навыки_профессии_traffic.jsonl`. `results/` is
   git-ignored, so this note is the durable record.
@@ -118,6 +119,32 @@ data:GetSkillAvailableTime(skillId)     -- epoch-ms the next charge lands (0 = n
 low-tier node superseded by a higher tier of the same skill (10133 under 10450), and
 it has no charge data at all, so gating on the charge counter alone would misread it.
 
+### How long until it can be pressed again
+
+`skill_cooldown_remaining(id)` answers in milliseconds; `0` means a charge is banked
+now, `-1` that the question does not apply (not an active skill of this profession, or
+its node is `Locked` / `Covered`). It is `GetSkillAvailableTime` — the same instant the
+server sent as `recover.cdEndTime` — minus **the server clock**, never the local one.
+
+The `-1` is not pedantry. A `Covered` node's availability time is `0`, which read
+naively says "ready now" about a skill that can never be pressed; the sentinel is what
+lets a scheduler tell "castable, waiting" from "not a question about this skill". Live
+against the recorded account:
+
+```
+10113 -> 82827685   (~23 h, the skill from the capture)
+10130 ->  17231287  (~4 h 47 m)
+10450 ->         0  (a charge banked — though it needs a target, so no press here)
+10133 ->        -1  (Covered)
+99999 ->        -1  (not a skill of this profession)
+```
+
+A recipe reads it directly:
+
+```
+READ_LUA <skill_cooldown_remaining(10113)> INTO wait_ms
+```
+
 ### Which skills may be fired blind
 
 `skillTemplate:CheckUsePosition(MasterySkillUsePosType.X)` answers where a skill is
@@ -154,10 +181,17 @@ DRY SendUseSkillMsg id=10113 param=nil msgId=use.desert.talent.skill
 (`SFSNetwork.SendMessage <- use.desert.talent.skill, 10113, nil`), with no
 confirmation dialog on the way and nothing reaching the wire.
 
-The readers were run live and agree with the recording: `mastery_dump()` lists all
-thirteen skills with their states, and `mastery_ready_count()` returns `0` while every
+The readers were run live and agree with the recording: `occupation_skills_dump()` lists all
+thirteen skills with their states, and `occupation_skills_ready_count()` returns `0` while every
 `SkillView` skill sits in `CD` — correctly *excluding* 10450, whose state is `Normal`
 but which needs a building target.
+
+A second state turned up by accident and is worth recording: the client later came up
+on a different, much younger account (mastery level 12) where **no node of the tree has
+a skill learned at all** — `GetCurSkillIdByMasteryId` is nil for all 62 nodes and
+`GetCurLvByMasteryId` is 0. The readers handle it without a special case: the dump is
+empty, the ready count is `0`, and `TAP use_profession_skill xall` is a no-op. So the
+recipe is safe to put in a routine that runs across accounts of different ages.
 
 **Still unproven:** the server accepting a press this code path produced. Until a
 charge is available and a run is confirmed in-game, the feature stays 🟡.
@@ -167,7 +201,7 @@ charge is available and a run is confirmed in-game, the feature stays 🟡.
 `TAP use_profession_skill xall` re-reads the ready count between presses. The count
 is client-side state that only changes when the server's reply lands — up to ~8 s in
 the recording — so a naive loop would press, see the skill still `Normal`, and fire
-it a second time. `mastery_use_next_ready()` therefore stamps each id it fires on
+it a second time. `apply_next_occupation_skill()` therefore stamps each id it fires on
 `MasteryManager.__lw_fired` and drops anything stamped within
 `MASTERY_REFIRE_GUARD_MS` (120 s) from the ready list. The stamps live on the manager
 table rather than in a global because this VM refuses some new globals
