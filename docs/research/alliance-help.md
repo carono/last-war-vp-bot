@@ -109,7 +109,22 @@ after:  pending=0  total=6   helpNum=0
 ```
 
 The server answered, which the decoy never got. Re-running the recipe with an empty
-list logs `TAP Help All (alliance) xall -> 0 press(es)` and puts nothing on the wire.
+list logs `TAP Help All (alliance) xall -> 0 press(es)` and puts nothing on the wire
+(checked against a five-minute capture).
+
+Then end to end, waiting for a real request to arrive and running `actions/help_ally.md`
+itself:
+
+```
+21:54:33 <-- push.al.help.new  level=19 helpId='…'      # an alliancemate asks
+         TAP Help All (alliance) (1; 1 available)
+         TAP Help All (alliance) xall -> 1 press(es)
+21:54:33 --> al.help.all  cmdBaseTime=1785268474380
+21:54:34 <-- al.help.all  allianceId='<my alliance>' (+3 fields)
+```
+
+One request pending, one press, one message, one reply — `xall` did not spin, and the
+re-read after the press saw the list cleared by the server rather than by the client.
 
 Daily limit: helping is **unlimited**. Only the daily help POINTS are capped —
 `GetAllianceHelpSliderData()` → `{todayHelpPoint = 1000, maxHelpCount = 1000}` — and the
