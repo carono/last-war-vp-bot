@@ -74,6 +74,7 @@ for _tp in (TOOLS, TOOLS_LIB, SRC):
         sys.path.insert(0, _tp)
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
+import lua_trace        # noqa: E402  (RESTORE_CHUNK — unwrap tracer hooks after a hard Stop)
 import coords           # noqa: E402
 import chat_assets      # noqa: E402  (token -> local sprite PNG for chat rendering)
 
@@ -1220,6 +1221,50 @@ class Panel(tk.Tk):
             self._log_put("[trace] стоп трассировщика")
             try:
                 proc.terminate()
+            except Exception:
+                pass
+            # proc.terminate() is TerminateProcess on Windows — a hard kill that
+            # runs NEITHER the tracer's atexit handler NOR its finally block, so
+            # the ~8700 Lua functions it wrapped stay live in the game VM. Every
+            # wrapped call then keeps paying the logging-shim cost (pcall +
+            # tostring + Debug.LogError), which is what lags the game after a
+            # sniff (task #1086). The killed child cannot clean up after itself,
+            # so unwrap the hooks from here, over the warm daemon. RESTORE_CHUNK
+            # is idempotent — it reports "nothing installed" when the VM is
+            # already clean — so a redundant call (e.g. the child DID exit
+            # cleanly on its own) is harmless.
+            threading.Thread(target=self._restore_trace_hooks, daemon=True).start()
+
+    def _restore_trace_hooks(self) -> None:
+        """Unwrap the lua_trace hooks left in the game VM after a hard Stop.
+
+        Runs off the Tk thread: a restore round-trips the daemon and settles
+        ~1.5 s. The tracer's own restore retries because the default (flood)
+        mode can bury the confirmation line in Player.log; the panel only ever
+        launches --dedup, which does not flood, so a couple of attempts suffice.
+        get_evaluator() uses the warm daemon when it is up and falls back to a
+        fresh local LuaEval otherwise, so this still works with no daemon as
+        long as the game is alive (and if it is dead, there are no hooks to
+        clear).
+        """
+        try:
+            ev = lua_client.get_evaluator()
+        except Exception as exc:      # noqa: BLE001
+            self._log_put(f"[trace] снятие хуков: evaluator недоступен ({exc})")
+            return
+        try:
+            for attempt in range(3):
+                out = ev.run(lua_trace.RESTORE_CHUNK, marker="XSTRACE", settle=1.5 + attempt)
+                if any("XSTRACE restored" in ln for ln in out):
+                    self._log_put("[trace] хуки сняты: " + "; ".join(out))
+                    return
+            self._log_put("[trace] снятие хуков НЕ подтверждено за 3 попытки — "
+                          "проверь игру (rerun tools/lua_trace.py или перезапуск)")
+        except Exception as exc:      # noqa: BLE001  (teardown must never crash)
+            self._log_put(f"[trace] ошибка снятия хуков: {exc}")
+        finally:
+            try:
+                ev.close()
             except Exception:
                 pass
 
