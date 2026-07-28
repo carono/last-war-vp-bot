@@ -16,8 +16,9 @@ See [`docs/architecture.md`](docs/architecture.md).
 
 ## Feature status
 
-What the bot can do today, against the legacy feature list and the operator's
-daily routine: [`docs/farming.md`](docs/farming.md).
+What the bot can do today, against the legacy feature list and the daily
+routine: [`docs/farming.md`](docs/farming.md)
+(на русском — [`docs/farming.ru.md`](docs/farming.ru.md)).
 
 ## Running
 
