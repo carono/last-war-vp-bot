@@ -14,6 +14,7 @@ down al.applylist
 down al.battle.week.result.info
 down al.duel.lottery.get.info
 down al.getjoinmsg
+down al.help.all
 down al.rank
 down al.science.donate
 down al.science.fresh
@@ -217,6 +218,7 @@ up al.applylist
 up al.battle.week.result.info
 up al.duel.lottery.get.info
 up al.getjoinmsg
+up al.help.all
 up al.rank
 up al.science.donate
 up al.science.fresh

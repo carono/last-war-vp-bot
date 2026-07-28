@@ -408,3 +408,51 @@ def ministry_fetch_board() -> str:
             "for _, id in pairs(M:GetCanApplyGovernmentList() or {}) do "
             "pcall(function() M:SendKingdomPositionApplyList(id) end) end "
             'CS.UnityEngine.Debug.LogError("ACT ministry_board_requested")')
+
+
+# --------------------------------------------------------------------------
+# Alliance help — the "Помочь всем" button
+# --------------------------------------------------------------------------
+# `DataCenter.AllianceHelpDataManager:OnHelpAll(otherHelpInfoList)` looks like the
+# action and is not: its whole body is `self.otherHelpInfoList = ...` plus
+# `self:SetHelpNum(...)`, and its only caller is `AlHelpAllMessage:HandleMessage`.
+# It is the *reply applier*. Calling it directly empties the pending list on screen
+# and sends nothing — the request vanishes, no alliancemate is helped. That was the
+# bug in the first version of this recipe (trace 20260728_232122).
+#
+# The press is `UILWAlHelpCtrl:OnClickHelpAll`, whose one network line is
+#
+#     SFSNetwork.SendMessage(MsgDefines.AlHelpAll,   -- 'al.help.all'
+#                            curTime, helpAllBtnPos, toPos, nil, true)
+#
+# and `AlHelpAllMessage:OnCreate` puts exactly ONE field into the SFSObject —
+# `cmdBaseTime`. The trailing arguments are kept client-side as `_helpBtnPos` /
+# `_flyToPos` / `_isOnlyDisperse` / `_isOnlyShowDiff` and only drive the reward-fly
+# animation, so the send needs no window open: `Vector3.zero` twice stands in for the
+# on-screen button, matching the real click's `nil, true` tail. Confirmed live —
+# `--> al.help.all cmdBaseTime=…` followed by the server's `<-- al.help.all`, with the
+# pending list dropping to zero.
+#
+# The controller gates the send on `can_help` (at least one entry that is not mine),
+# and shows tip 390170 otherwise. `alliance_help_pending()` is that same predicate as
+# a number, so `TAP help_ally_all xall` never fires a press the chunk then declines
+# to make — and never spends a server round trip on an empty list.
+def alliance_help_pending() -> str:
+    """Lua *expression* -> how many alliancemates are waiting for help right now.
+
+    Non-self entries of `GetAllianceHelpList()`; my own open requests sit in the same
+    list (`isSelf == true`) and are not helpable, so they are skipped.
+    """
+    return ("(function() local n = 0 "
+            "for _, it in ipairs(DataCenter.AllianceHelpDataManager:GetAllianceHelpList() or {}) do "
+            "if not it.isSelf then n = n + 1 end end "
+            "return n end)()")
+
+
+def alliance_help_all() -> str:
+    """Answer every pending alliance help request in one message (`al.help.all`)."""
+    return ("if %s > 0 then "
+            "local Z = CS.UnityEngine.Vector3.zero "
+            "SFSNetwork.SendMessage(MsgDefines.AlHelpAll, "
+            "math.floor(UITimeManager:GetInstance():GetServerTime()), Z, Z, nil, true) end"
+            % alliance_help_pending())

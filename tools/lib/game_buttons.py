@@ -77,18 +77,18 @@ BUTTONS: dict[str, Button] = {
     ),
     # --- Alliance -> help every member with an open help request -------------
     "help_ally_all": Button(
-        # The in-game "Помочь всем" (Help All) button. OnHelpAll clears EVERY pending
-        # request in one shot, so it needs no UI window open — it reads the help list
-        # and fires the al.help.all message straight from the data manager. Helping is
-        # unlimited; only the daily HELP POINTS are capped (GetAllianceHelpSliderData ->
-        # {todayHelpPoint, maxHelpCount=1000}), and hitting that cap does NOT stop you
-        # from helping. See docs/research/alliance-tech-donate.md sibling notes.
-        lua="DataCenter.AllianceHelpDataManager:OnHelpAll()",
+        # The in-game "Помочь всем" (Help All) button — one al.help.all message answers
+        # every pending request at once, and no UI window has to be open. The engine
+        # side, and why `AllianceHelpDataManager:OnHelpAll` is NOT it, is written up in
+        # lua_actions.alliance_help_all(). Helping is unlimited; only the daily HELP
+        # POINTS are capped (GetAllianceHelpSliderData -> {todayHelpPoint,
+        # maxHelpCount=1000}), and hitting that cap does NOT stop you from helping.
+        lua=_lua_actions.alliance_help_all(),
         wait=1.0, label="Help All (alliance)",
-        # GetHelpNum = how many requests are still waiting; one OnHelpAll drops it to 0,
-        # so `xall` presses once and re-reads to confirm (and mops up any that arrive in
-        # the gap) instead of guessing a fixed count.
-        count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",
+        # How many alliancemates are still waiting — the same gate the press applies, so
+        # `xall` presses once, re-reads to confirm the server cleared the list, and mops
+        # up anything that arrived in the gap instead of guessing a fixed count.
+        count_lua=_lua_actions.alliance_help_pending(),
         max_taps=10,
     ),
     # --- Alliance -> gifts: open the section, then claim each tab -------------

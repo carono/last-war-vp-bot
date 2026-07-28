@@ -583,6 +583,34 @@ for k in pairs(package.loaded) do
   if tostring(k):find('Help') then CS.UnityEngine.Debug.LogError('P mod '..tostring(k)) end end
 ```
 
+**Read the candidate's body before you call it.** The client's Lua is compiled but
+**not stripped**, so `string.dump` on any Lua function hands back a chunk whose
+constant table still names every string it references — globals, fields, message
+ids — plus its source path and its locals. Printing the printable runs of that dump
+answers "does this function send anything?" without firing it:
+
+```lua
+-- 4. a poor man's decompiler: the strings a function references, in order
+local function strings(f, tag)
+  local ok, b = pcall(string.dump, f)          -- C functions are the only failure mode
+  if not ok then CS.UnityEngine.Debug.LogError('P '..tag..' dump FAILED') return end
+  local out, cur = {}, {}
+  for i = 1, #b do
+    local c = b:byte(i)
+    if c >= 32 and c < 127 then cur[#cur+1] = string.char(c)
+    else if #cur >= 4 then out[#out+1] = table.concat(cur) end cur = {} end
+  end
+  CS.UnityEngine.Debug.LogError('P '..tag..' :: '..table.concat(out, ' | '))
+end
+strings(DataCenter.AllianceHelpDataManager.OnHelpAll, 'Mgr.OnHelpAll')
+```
+
+A sender's constants contain `SFSNetwork | SendMessage | MsgDefines | <TheMsg>`. If
+they don't, the function is a *reply applier* and calling it only rewrites local
+state — which is precisely how `AllianceHelpDataManager:OnHelpAll` (constants:
+`otherHelpInfoList | SetHelpNum | self`) shipped a help-all recipe that cleared the
+pending list and helped nobody. See `../research/alliance-help.md`.
+
 **Verification is a counter, not a screenshot.** Read the count → fire the call
 once → read it again. That round trip is what turns a guess into an entry in
 `game_buttons.py`. Keep the traffic sniffer running while probing: seeing your
@@ -661,12 +689,16 @@ the recipe never names them.
 
 ```python
 "help_ally_all": Button(
-    lua="DataCenter.AllianceHelpDataManager:OnHelpAll()",
+    lua=_lua_actions.alliance_help_all(),           # sends al.help.all
     wait=1.0, label="Help All (alliance)",
-    count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",   # enables `xall`
-    max_taps=10,                                                   # safety cap
+    count_lua=_lua_actions.alliance_help_pending(),  # enables `xall`
+    max_taps=10,                                     # safety cap
 ),
 ```
+
+Anything longer than a call or two goes in `tools/lib/lua_actions.py` as a named
+chunk builder, so the button stays one readable line and the engine reasoning lives
+next to its own docstring.
 
 | field | what to put there |
 |---|---|
@@ -759,11 +791,17 @@ same day. Diagnose first, then fall back.
 2. **Grep the VM for that noun** — `DataCenter` managers and `package.loaded`
    modules (§8.7 snippets). `al.help.all` ⇒ `DataCenter.AllianceHelpDataManager`.
 3. **Enumerate its methods** and read them as a sentence: `GetHelpNum`,
-   `OnHelpAll`, `GetAllianceHelpSliderData`. The `On*` is the action, the `Get*`
-   is the counter, the `*Data` is the limit model.
-4. **Prove it with the counter round trip**: read `GetHelpNum()` → call
-   `OnHelpAll()` → read it again → confirm the `up` command in the traffic
-   sniffer. That is the whole verification; no trace needed.
+   `OnHelpAll`, `GetAllianceHelpSliderData`. The `Get*` is the counter, the
+   `*Data` is the limit model — and the `On*` is a **candidate**, not the action.
+   Half the `On*` methods on a data manager are reply appliers called by
+   `<Thing>Message:HandleMessage`. Dump its constants (§8.7 snippet 4) and look for
+   `SFSNetwork | SendMessage` before you believe it: `AllianceHelpDataManager:OnHelpAll`
+   has none, and shipped a recipe that helped nobody for a day.
+4. **Prove it on the wire, not with the counter.** Read `GetHelpNum()` → call the
+   candidate → read it again is only *half*; a reply applier passes that test,
+   because it edits the very state you are reading. The proof is the `up` command
+   appearing in the traffic sniffer, with the server's reply behind it. If the
+   counter moved and the wire stayed quiet, you called the applier.
 5. **Check the real limit** while you are in there. `help_ally` looked capped
    until `GetAllianceHelpSliderData` showed the 1000/day cap is on help *points*,
    not on helping — which changed the recipe.
