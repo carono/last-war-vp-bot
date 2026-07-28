@@ -50,6 +50,9 @@ a task, a `"[TAG] Name"` label for a base; any consumer must tolerate all three
 reported `posType` 2 (monster) and 5 (mine); those were not re-observed in this
 run, so treat the list as open-ended rather than exhaustive.
 
+Note `uid` appears **only** on the bare pin (`posType 0`), where it identifies the
+sharer. Every richer kind describes the object instead and carries no `uid`.
+
 A march share is a different `post` entirely (687) and is produced by
 `MarchUtil.ShareOneMarch(uuid, key, level, name, ownerName)`.
 
@@ -142,13 +145,49 @@ A "share my position" attachment is labelled from live player state:
 `ChatUtil.GeneratePrivateRoomId(userId)` is the client's own DM-room builder, if
 the hand-rolled `custom_<peer>_<self>_v2` concatenation ever needs replacing.
 
-## 6. Tooling
+## 6. Sharing a secret task (posType 22)
+
+Secret tasks ("секретки" / hero dispatch) do not need a capture to find: the client
+keeps a parsed copy in `DataCenter.ActDispatchTaskDataManager` —
+
+| field | meaning |
+|---|---|
+| `singleTask` | your own tasks; `pointId = 0`, they sit inside your base, so they have **no map position and cannot be shared** |
+| `allianceTask` | alliance members' tasks placed on the world map (124 rows in the sample session) |
+
+Each record has `uuid`, `cfgId`, `pointId` (→ tile via `SceneUtils.IndexToTilePos`),
+`targetServer`, `completionTime` (dispatch finished), `actEndTime` (expiry),
+`stealInfoList`, and an `avatar` holding the owner's `name` and alliance `abbr`.
+"Worth sharing" is `completionTime <= now < actEndTime` — the same
+dispatch-complete / not-expired gate the `can_loot` rule uses for tiles.
+
+`tools/dispatch_tasks.py` lists them and prints the ready arguments:
+
+```bash
+C:\Python312\python.exe tools\dispatch_tasks.py --alliance --ready --nearest --share-args
+C:\Python312\python.exe tools\chat_send.py --to <peerUid> \
+    --coords "615,493" --coord-server 935 --coord-type 22 \
+    --coord-label "Секретное задание" \
+    --coord-extra '{"uuid":…,"cfgId":…,"uname":"Iwabo","abbr":"TLou","dispatch":1}'
+```
+
+Verified live: `seq 137` in the EleNita room rendered
+`Секретное задание [TLou] Iwabo (БЗ #935 X:615 Y:493)` — field-for-field the same
+attachment shape the game's own tile-bubble share produced (`seq 126`, `seq 136`).
+
+`uuid` exceeds 2^53, so it must never be round-tripped through a float: it is read
+as a Lua 5.3 integer, printed exactly, and shipped as JSON text.
+
+## 7. Tooling
 
 - `tools/lib/lua_actions.py` — `chat_share_point(room, attachment_json, ...)` and
   `chat_share_cmd(room)`.
+- `tools/dispatch_tasks.py` — list live secret tasks (`--own` / `--alliance`,
+  `--ready`, `--nearest`, `--json`, `--share-args`).
 - `tools/chat_send.py`:
   - `--coords "567,471"` — share a map pin (accepts every spelling
     `tools/lib/coords.py` parses: `X:567 Y:471`, `@[567,471|935]`, `(567,471)`, …),
   - `--coord-server`, `--coord-label`, `--coord-type` (attachment `posType`),
+  - `--coord-extra '<json>'` — kind-specific attachment fields (secret task, node, …),
   - `--my-base` — share own base like the in-game button,
   - `--dry-run` previews the room, command and attachment without sending.

@@ -38,6 +38,9 @@ A shared map coordinate is not text: it is `post = 13` plus an `attachmentId` JS
 blob, sent as its own command (see docs/research/chat-coord-share.md). `--coords`
 sends a bare map pin, `--my-base` shares the player's own base the way the chat
 "share my position" button does. The recipient gets the normal tappable bubble.
+Richer map objects (secret task, resource node, ...) add `--coord-type <posType>`
+plus their own fields through `--coord-extra`; `tools/dispatch_tasks.py
+--share-args` prints those for a live secret task.
 
 Usage (run under the Windows Python so it can reach the daemon)
 --------------------------------------------------------------
@@ -48,6 +51,8 @@ Usage (run under the Windows Python so it can reach the daemon)
     C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "X:567 Y:471" --coord-server 972
     C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "500,500" --coord-label "Сбор тут"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --my-base
+    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "615,493" --coord-type 22 \
+        --coord-label "Секретное задание" --coord-extra '{"uuid":…,"cfgId":…,"uname":…,"abbr":…,"dispatch":1}'
     C:\Python312\python.exe tools\chat_send.py --room country_935 --text "hello world"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --text "hi" --dry-run
     C:\Python312\python.exe tools\chat_send.py --list-emoji
@@ -262,12 +267,15 @@ def parse_coords(text: str):
 
 
 def build_point_attachment(x: int, y: int, server: int, pos_type=0, label=None,
-                           uid=None) -> str:
+                           uid=None, extra=None) -> str:
     """The `attachmentId` blob for a shared map point.
 
     Shape confirmed live against the game's own shares (docs/research/chat-coord-share.md):
-    a bare pin carries `posType` + the sharer's `uid`; the "share my base" button omits
-    `posType` and instead labels the bubble through `oname` ("[TAG] Name").
+    the "share my base" button omits `posType` and labels the bubble through `oname`
+    ("[TAG] Name"); a bare pin is `posType 0` plus the sharer's `uid`. Richer objects
+    (`posType` 1 / 6 / 22 …) carry no `uid` but kind-specific fields instead — pass
+    those through `extra` (e.g. a secret task's `uuid`, `cfgId`, `uname`, `abbr`,
+    `dispatch`); `tools/dispatch_tasks.py --share-args` prints a ready blob.
     """
     att = {"x": int(x), "y": int(y), "sid": int(server), "worldId": 0, "worldType": 0}
     if pos_type is None:
@@ -276,8 +284,12 @@ def build_point_attachment(x: int, y: int, server: int, pos_type=0, label=None,
         att["posType"] = int(pos_type)
         if label:
             att["oname"] = label
-        if uid:
+        # Only the bare pin identifies the sharer; every richer kind describes the
+        # object itself instead.
+        if uid and int(pos_type) == 0:
             att["uid"] = str(uid)
+    if extra:
+        att.update(extra)
     return json.dumps(att, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -322,6 +334,10 @@ def main() -> int:
     ap.add_argument("--coord-type", type=int, default=0,
                     help="attachment posType: 0 bare pin (default), 1 resource node, "
                          "6 node being gathered, 22 secret task")
+    ap.add_argument("--coord-extra", metavar="JSON",
+                    help="extra attachment fields for a richer object, e.g. a secret "
+                         "task's {\"uuid\":…,\"cfgId\":…,\"uname\":…,\"abbr\":…,\"dispatch\":1} "
+                         "(tools/dispatch_tasks.py --share-args prints it)")
     ap.add_argument("--my-base", action="store_true",
                     help='share own base coordinates, like the chat "share my position" button')
     ap.add_argument("--lang", default="ru", help="sender language tag on a share (default ru)")
@@ -381,8 +397,17 @@ def main() -> int:
         server = args.coord_server or server or int(profile.get("srv") or 0)
         if not server:
             ap.error("no server for the coordinate: pass --coord-server")
+        extra = None
+        if args.coord_extra:
+            try:
+                extra = json.loads(args.coord_extra)
+            except ValueError as exc:
+                ap.error("--coord-extra is not valid JSON: %s" % exc)
+            if not isinstance(extra, dict):
+                ap.error("--coord-extra must be a JSON object")
         att = build_point_attachment(x, y, server, pos_type=args.coord_type,
-                                     label=args.coord_label, uid=profile.get("uid"))
+                                     label=args.coord_label, uid=profile.get("uid"),
+                                     extra=extra)
         _log("coords %s" % coords_fmt.fmt(x, y, server))
         rc |= send_point(ev, room, att, peer_uid=args.to, lang=args.lang, dry=args.dry_run)
 
