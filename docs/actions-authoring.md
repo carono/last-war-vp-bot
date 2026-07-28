@@ -197,6 +197,12 @@ as a first step in any flow that must start from a known state.
 
 ## Workflow: "the user just asked for behaviour X"
 
+> **Behaviour the game already has a button for?** Don't guess the engine
+> calls — record the player doing it once and reverse it. The end-to-end
+> loop (panel Sniffer → read the trace + the wire → live-probe the VM →
+> `game_buttons.py` → this `.md`) is [`docs/skills/sniff.md` §8](skills/sniff.md#8-the-basic-workflow--one-sniffer-run--a-working-recipe).
+> The steps below pick up from there, at "write the script".
+
 1. **Inspect**: read existing `actions/*.md` to see if you can compose
    them. Read `docs/dsl.md` for available primitives.
 2. **Identify templates**: does the new behaviour need a new

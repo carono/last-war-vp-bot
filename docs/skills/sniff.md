@@ -11,6 +11,11 @@ format) lives in [`../research/protocol.md`](../research/protocol.md),
 > §7 (Lua-function tracing) is the **in-process, active** exception — it injects
 > Lua by thread-hijacking; same emulator + throwaway-account rule applies.
 
+> **Turning an in-game action into a bot recipe? Start at [§8](#8-the-basic-workflow--one-sniffer-run--a-working-recipe).**
+> §1-§7 are the reference for each tool on its own; §8 is the end-to-end loop
+> (panel Sniffer → player acts → read both files → live-probe the VM → buttons →
+> a `TAP` recipe) that those tools exist to serve.
+
 ---
 
 ## 1. Environment — what works
@@ -209,6 +214,7 @@ the same socket. `_id` in a payload pairs a request with its reply; server
 - Command never captured → `python3 tools/trap_command.py --match <x>`, then do it by hand.
 - Active work (inject/MITM) → stop; read the ACE rule and `sniffing-playbook.md` first.
 - Need *which Lua function* an in-game action calls (not the wire) → §7.
+- Automating an in-game action end-to-end (the everyday job) → **§8**.
 
 ---
 
@@ -276,3 +282,440 @@ grep `Player.log` for `TRACE` → restore. This trace is what exposed the
 cross-server `SetCrossEnableList` gate and its table shape
 (`../research/world-tiles.md`). It is an ad-hoc technique, not a committed
 script — re-arm it each session.
+
+---
+
+## 8. The basic workflow — one sniffer run → a working recipe
+
+§1-§7 describe each tool alone. This section is the **standard loop** the project
+actually runs: the player performs an action once with both sniffers on, and the
+session ends with a committed `actions/*.md` recipe that reproduces it headlessly.
+Everything below is the general procedure; `../research/alliance-tech-donate.md`
+is one full worked instance of it, and `src/lastwar_bot/actions/help_ally.md` is
+the instance where the trace came back empty (§8.11).
+
+```
+ 1  panel: Develop → Sniffer ON, type a label
+ 2  the player performs ONE in-game action
+ 3  panel: Develop → Sniffer OFF   (both children stop, the tracer restores itself)
+ 4  label/description missing?  ASK the player before analysing anything
+ 5  read results/traces/*<label>*_trace.log   (XSCALL — which Lua fired)
+    read results/traffic/*<label>*_traffic.jsonl (wire — which command was sent)
+ 6  line the two up (order + the panel log; per-line timestamps exist only on the wire side)
+ 7  pin the real API by probing the LIVE Lua VM — the trace only nominates candidates
+ 8  add the named buttons to tools/lib/game_buttons.py
+ 9  write src/lastwar_bot/actions/<name>.md as TAP lines
+10  run it from the panel's Scenarios tab, write the research note, commit
+```
+
+Steps 1-3 are the operator's; 4-10 are the worker's. The two files are the whole
+handover: they answer the same question from opposite ends — *what the client
+called* vs *what crossed the socket*.
+
+### 8.1 Start the sniffer
+
+**Panel (the normal way).** Menu **Develop → Sniffer** (`develop.sniff.toggle`;
+«Разработка → Снифер» in the Russian UI). It asks once for a **session label** —
+free text describing what is about to be done, in whatever language the operator
+types — and hands the same label to **both** children, so the session's two files
+share a name:
+
+| child | command the panel spawns | writes |
+|---|---|---|
+| traffic | `live_sniffer.py --label <L>` | `results/traffic/<YYYYMMDD_HHMMSS>_<L>_traffic.jsonl` |
+| functions | `lua_trace.py --dedup --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
+
+Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
+**new** files, so a stop/start cycle never overwrites the previous session
+(`tools/lib/run_output.py`).
+
+**Headless equivalent**, when there is no panel:
+
+```bash
+/mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "alliance gifts"   &
+/mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "alliance gifts"
+```
+
+Prerequisites, in the order they bite:
+
+1. The game is running **and logged in** — an ESTABLISHED `:17935` line (§1).
+   No socket, no traffic.
+2. Windows Python for the traffic side (§1). The WSL `python3` captures nothing,
+   silently.
+3. The Lua tracer needs the VM: it goes through `get_evaluator()`, i.e. the warm
+   daemon `tools/lua_daemon.py` if it is up, otherwise a fresh local `LuaEval`
+   (slower to start, same result).
+4. `--dedup` is mandatory for a filterless run. Without it the tracer logs *every*
+   call of ~8700 wrapped functions and **freezes the client**.
+
+Sanity line in the trace file — read it before anything else:
+
+```
+XSTRACE installed wrapped=8730 depth=2 filter=none dedup=true hook=false
+```
+
+`wrapped=0`, a missing line, or `XSTRACE INSTALL ERROR:` means nothing was armed
+and the run is void — fix that and re-record rather than analysing an empty file.
+
+### 8.2 The player performs the action
+
+Rules that make the recording readable — all of them are about keeping the
+correlation in §8.6 trivial:
+
+- **One action per run.** Two actions in one file cost more time to untangle than
+  a second 30-second recording.
+- **Short.** 15-60 s. The trace grows by every UI element the game rebuilds.
+- **Start from a known screen** (base or world), do the action deliberately,
+  once, then stop moving.
+- **Don't pan the map / open unrelated windows** while recording — every panel
+  the client opens adds a page of `UI*` churn to the trace.
+- **Repeat the click a few times** when the action is counter-gated (donate,
+  gifts) — that is how the counter's behaviour becomes visible on the wire.
+- **Say what you did.** The label is the primary record; if the action has a
+  sequence ("alliance → gifts → collect all"), the sequence matters more than the
+  label text.
+
+### 8.3 Stop
+
+Toggle **Develop → Sniffer** off (it stops both children), or Ctrl+C the
+standalone runs. The tracer restores every wrapped function on exit — confirm it:
+
+```
+XSTRACE traced distinct=… calls=…
+XSTRACE restored 8730
+```
+
+If instead you see `WARNING: restore not confirmed after retries`, the shims are
+still live in the running Lua state (they persist until the game restarts, spam
+`Player.log` and slow hot functions). Fix by re-running and stopping the tracer
+once more, or restart the game.
+
+### 8.4 No label, no description? Ask — before analysing
+
+A trace without knowing what was done is a list of UI class names. If the run
+arrived with an empty label, or the label is too terse to reconstruct the flow,
+**ask the player first**. The questions that actually change the analysis:
+
+1. What was pressed, **in what order**? (Which panel opened, which cell/tab.)
+2. Did a **window open**, and did you close it afterwards? How many?
+3. Was it **one press or several**? Did anything visibly count down
+   (attempts / "N left" / a progress bar)?
+4. What **changed** afterwards — resources arrived, a red dot cleared, a march
+   left, a mail appeared?
+5. Was the action **available at all** at that moment, or was the daily quota
+   already spent? (A spent quota is why a send may be missing from the wire.)
+
+Record the answer in the research note (§8.10) — the file name only carries the
+label, not the sequence.
+
+### 8.5 Read the two files
+
+#### a) `results/traces/*_trace.log` — which Lua fired
+
+Format: raw `Player.log` lines the tracer tailed, one call per line —
+`XSCALL <table.fn> <- <arg>, <arg>, …`. With `--dedup` only the **first** call of
+each name is logged (the rest are counted and summarised at exit), so the file is
+a *set of names in first-call order*, not a call count. Arguments are never
+truncated.
+
+```bash
+L=results/traces/20260728_171425_Сбор_ресурсов_trace.log
+
+grep -c XSCALL "$L"                                     # did anything fire at all?
+grep -o 'XSCALL [A-Za-z0-9_.]*' "$L" | sed 's/XSCALL //' | nl   # names, in call order
+
+# signal only: drop the UI/engine churn, keep game logic
+grep XSCALL "$L" | grep -vE '\.(getters|super)\.' \
+  | grep -E 'DataCenter\.|Utils?\.|Manager\.|Message|SFSObject\.'
+```
+
+What is **noise** (the client rebuilding its UI — always the bulk of the file):
+`UI*` widgets, `RadarImage.*`, `*.getters.*`, `*.super.*`, `New` / `__init` /
+`Delete` / `OnDestroy` / `OnCreate`, `Vector3.New`, `Color.*`, layout groups,
+`UIAnimator.Play`.
+
+What is **signal**:
+
+| pattern | meaning |
+|---|---|
+| `DataCenter.<X>Manager.<fn>` | the data layer — where the real API lives (`DataCenter.ProductLineManager.bindProductionTimer`) |
+| `<X>Utils.<fn>` / `<X>Util.<fn>` | the action verb itself (`BuildingUtils.CityCollectionByItemId` — collecting a city resource bubble) |
+| `SFSObject.Put*` (`PutInt`/`PutLong`/`PutLongArray`) | **the client is serialising an outgoing message right here** — the anchor for the matching `up` command on the wire |
+| `SFSBaseMessage.HandleMessage` | a server reply is being parsed |
+| `*Template.*`, `*Data.ParseData` | the config/data model behind the feature (ids, gates) |
+| `EventManager.Broadcast*` | the feature's internal event id |
+
+**Known blind spot — the UI click handler will not be there.** The tracer walks
+`_G` to `--depth 2`, and window controllers (`UIAllianceScienceInfoCtrl` and
+friends) live in `package.loaded["UI.…"]` modules, not on `_G`. Across every
+session recorded so far, **no** `*Ctrl:On*Click` ever appeared in a trace. The
+trace gives you the layer *underneath* the button; the controller name comes from
+§8.7. `--depth 3` widens the walk (slower, noisier) and is worth one retry when
+the interesting table is nested.
+
+#### b) `results/traffic/*_traffic.jsonl` — what crossed the socket
+
+One JSON object per message: `{"ts", "dir", "cmd", "payload"}`. `dir` is `up`
+(client → server) or `down`.
+
+```bash
+T=results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl
+
+jq -r '.cmd' "$T" | sort | uniq -c | sort -rn            # command histogram
+jq -r 'select(.dir=="up" and .cmd!="(keepalive)")|[.ts,.cmd]|@tsv' "$T"   # what WE sent
+jq -c 'select(.cmd|test("alliance"))' "$T"               # domain grep, with payloads
+jq -r '[.ts,.dir,.cmd]|@tsv' "$T"                        # full timeline
+```
+
+**The `up` lines minus keepalives are the action.** That short list *is* the
+protocol-level answer, and it is usually readable without any further work:
+
+| session label | the `up` lines | reading |
+|---|---|---|
+| Подарки альянса | `alliance.reward.list` → `alliance.reward.allreceive {type:2}` → `alliance.reward.list` | list the gifts, claim all of type 2, re-list to refresh |
+| поздравление с повышением базы | `alliance.congratulation.thumbs.up` | one fire-and-forget send |
+| Сбор грузовика | `train.batch.reward` → `train.record.batch.detail` | claim, then read back the record |
+
+Cross-check the names against `tools/known_commands.txt`. A command **not** in
+that file is newly observed (`alliance.reward.allreceive` and `train.batch.reward`
+were, at the time of writing) — add it there as part of the commit, and see
+`tools/trap_command.py` for catching a command you expect but have not seen yet.
+
+Payload fields are the recipe's parameters: `{"type":2}` on `allreceive`,
+`{"index":0,"len":1000}` on a list request, `_id` pairing a request with its reply
+(server pushes carry none).
+
+**Zero `up` lines is a real result too**, and it splits into three cases:
+
+- the action was **client-only** (a UI toggle, a local read) — nothing to send;
+- the action was **gated** (daily quota spent, nothing pending) — the client
+  swallowed the click, which §8.4 question 5 is there to catch;
+- the sniffer missed it (§4): wrong interpreter/interface, or the game was not
+  actually connected.
+
+### 8.6 Line the two files up
+
+Be aware of the asymmetry before trying anything clever:
+
+| | timestamps | ordering |
+|---|---|---|
+| `*_traffic.jsonl` | yes, `ts` per line, 1 s resolution | wire order |
+| `*_trace.log` | **no** — they are raw `Player.log` lines | first-call order (deduped) |
+
+So there is no join key. What works, in order of effort:
+
+1. **One action per run** (§8.2). Then both files describe the same 30 seconds and
+   correlation is reading, not joining.
+2. **The panel log is the correlated view.** It interleaves `[traffic]` and
+   `[trace]` lines from both children in real time — that interleaving *is* the
+   timeline the files lack. Copy it out of the panel while the session is fresh
+   if the ordering matters.
+3. **Anchor on serialisation.** An `SFSObject.Put*` / `<X>Message` in the trace
+   and an `up` command in the traffic file, both near the end of the action, are
+   the same event seen twice.
+4. **Names rhyme across the two layers.** Use the wire name as the search term
+   for the Lua side, and vice versa. From the «Сбор грузовика» session, the two
+   files pair up on sight:
+
+   ```
+   trace:   XSCALL RailwayUtil.ApplyArriveReward <- table: …
+   traffic: 17:26:04  up  train.batch.reward
+            17:26:06  up  train.record.batch.detail
+   ```
+
+   Same for `al.science.donate` ↔ `AllianceScienceDataManager` /
+   `AlScienceDonateMessage`. One `*Util(s).<Verb>` in the trace plus one `up`
+   command with the matching noun is a solved step.
+
+### 8.7 Pin the API on the live VM
+
+**The trace nominates candidates; it does not prove the API.** Every recipe in
+this repo was finished by probing the running game through the Lua VM — the warm
+daemon (`tools/lua_daemon.py` + `tools/lib/lua_client.py`) or
+`tools/lib/lua_eval.py` directly. Results come back through `Player.log`, because
+`SafeDoString` returns nothing and swallows errors (`../research/xlua-state.md`).
+
+```bash
+# one chunk, results printed by marker
+/mnt/c/Python312/python.exe tools/lib/lua_eval.py --marker P "
+CS.UnityEngine.Debug.LogError('P '..tostring(DataCenter.AllianceHelpDataManager:GetHelpNum()))"
+```
+
+The three questions to answer for every step of the flow:
+
+| question | probe |
+|---|---|
+| **What holds the feature?** | `for k in pairs(DataCenter) do ... end` — list the managers, grep the domain noun (`Help`, `Reward`, `Science`) |
+| **What can it do?** | walk the manager's metatable/`__index` and log every `function` key |
+| **How many times can it be done now?** | a `Get*RestCount` / `Get*Num` / `Get*Count` on the same manager — this becomes `count_lua` in §8.8 |
+
+```lua
+-- 1. which managers exist
+local out = {} for k,v in pairs(DataCenter) do out[#out+1] = tostring(k) end
+CS.UnityEngine.Debug.LogError('P '..table.concat(out, ' '))
+
+-- 2. what a manager exposes
+local M = DataCenter.AllianceHelpDataManager
+local out = {} for k,v in pairs(getmetatable(M) and getmetatable(M).__index or M) do
+  if type(v) == 'function' then out[#out+1] = tostring(k) end end
+CS.UnityEngine.Debug.LogError('P '..table.concat(out, ' '))
+
+-- 3. a module-scoped class the _G walk never sees (the controllers from §8.5a)
+for k in pairs(package.loaded) do
+  if tostring(k):find('Help') then CS.UnityEngine.Debug.LogError('P mod '..tostring(k)) end end
+```
+
+**Verification is a counter, not a screenshot.** Read the count → fire the call
+once → read it again. That round trip is what turns a guess into an entry in
+`game_buttons.py`. Keep the traffic sniffer running while probing: seeing your
+own `up` command appear is the second half of the proof.
+
+Two hard rules while probing (both learned the hard way):
+
+- **Never loop-and-wait-on-server inside one Lua chunk.** A counter only drops
+  after the server replies; a tight `while rest > 0 do press() end` spins the main
+  thread and **freezes the client**. One press per chunk, pause, re-read.
+- **Each UI step lands on the next frame.** A chunk cannot see the window it just
+  opened — stage `OpenWindow` / `On…Click` / the action as separate chunks with a
+  settle between them. This is exactly what the `wait` field in §8.8 is for.
+
+### 8.8 Add the buttons
+
+`tools/lib/game_buttons.py` is the vocabulary the DSL's `TAP` speaks: one entry
+per pressable thing, `name -> Button`. This is where the ugly engine calls live so
+the recipe never names them.
+
+```python
+"help_ally_all": Button(
+    lua="DataCenter.AllianceHelpDataManager:OnHelpAll()",
+    wait=1.0, label="Help All (alliance)",
+    count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",   # enables `xall`
+    max_taps=10,                                                   # safety cap
+),
+```
+
+| field | what to put there |
+|---|---|
+| `lua` | the chunk that presses it, verbatim; one step only |
+| `wait` | pause **after** pressing. Opening a window ≈ 1.2-1.5 s; an in-place click ≈ 0.1-0.4 s; anything the server must confirm ≈ 0.6-1.0 s. The pause belongs here, not in the recipe. |
+| `label` | the human phrase that shows up in the log |
+| `count_lua` | optional expression = "how many times can this still do something *right now*". Present ⇒ the recipe may say `xall`, and the loop re-reads it, so throttled or dropped presses are retried. |
+| `max_taps` | hard cap on `xall` iterations, so a miscounting expression cannot spin forever |
+
+Add one entry per *button the player pressed*, not one per Lua call you found.
+If the flow was "open panel → open detail → press → close", that is four entries
+(and `close` already exists).
+
+### 8.9 Write the recipe
+
+`src/lastwar_bot/actions/<name>.md`, in `TAP` notation — the everyday form is a
+list of button presses with a comment header explaining the flow and its limits.
+Grammar: [`../dsl.md`](../dsl.md); authoring conventions:
+[`../actions-authoring.md`](../actions-authoring.md).
+
+```
+# Donate to the alliance's priority (recommended) technology.
+#
+# Every line is just "tap a button". The messy engine calls behind each button
+# live in the button library tools/lib/game_buttons.py.
+
+TAP alliance_tech     # the "Alliance Tech" button (opens the tech list directly)
+TAP recommended_tech  # the tech marked as priority
+TAP donate_1000 xall  # press "Donate 1000" for every attempt currently banked
+TAP close x3          # close the windows we opened
+```
+
+The patterns that keep recurring:
+
+| pattern | when |
+|---|---|
+| `TAP <b> xall` | counter-gated repeats — donate, help, claim. Needs `count_lua`; re-reads the count each round, so it stops exactly when the server says so. |
+| `TAP <b> xN` | fixed, known repeats (rare — prefer `xall`) |
+| `TAP close xN` | unwind the window stack at the end — `close` pops the top window (`Ctrl:CloseSelf()`), so press it once per window the recipe opened. `donate_alliance_tech.md` ships `x3`. Don't over-press: past the recipe's own windows you start popping the HUD, and there is no in-session recovery from that. |
+| no `close` at all | the action was headless — a data-manager call that opened nothing (`help_ally.md`). Do not add windows the flow does not need. |
+| `WHILE <var> > 0` + `READ_LUA … INTO <var>` | a bespoke count-gated loop when `xall` does not fit |
+| `LUA <chunk>` | the authoring layer — a one-off engine call while a button is still being designed. Do not ship a whole multi-step flow inside one `LUA`. |
+| `GAME WORLD` / `GAME CITY`, `JUMP x, y[, server]` | scene switch / coordinate jump sugar |
+
+Write the header comment as if for someone who never saw the trace: what the
+in-game action is, which single Lua call is behind it, whether a window is
+involved, and **what the daily limit really counts** (for `help_ally` it is help
+*points*, not helps — a distinction that only came out of §8.7 probing).
+
+New scripts land in `src/lastwar_bot/actions/dev/` until they are verified
+end-to-end; promote to `actions/` (which is what the panel's Scenarios picker
+lists) once they are.
+
+### 8.10 Verify, document, commit
+
+1. **Parse:** `python -X utf8 -c "from lastwar_bot import script_engine; print(script_engine.parse_file(script_engine.ACTIONS_DIR / 'NAME.md'))"`
+2. **Run:** panel → **Scenarios** tab → pick the script → Run. A game-primitive-only
+   recipe runs with `hwnd=0`, no window handle needed.
+3. **Watch it on the wire:** keep the traffic sniffer on during the first run.
+   The recipe is correct when it produces **the same `up` commands** as the
+   human's recording did. That is the acceptance test.
+4. **Write the research note** — `docs/research/<feature>.md`, following
+   `alliance-tech-donate.md`: which labelled trace it came from, what the trace
+   showed, what had to be live-probed, the API table, the freeze pitfalls, and
+   the usage lines. Name the source files by path; `results/` is git-ignored, so
+   the note is the only durable record of the session.
+5. **Add any new wire command** to `tools/known_commands.txt`.
+6. **Commit** the recipe + buttons + note together, and say in the message what
+   was recorded vs what was live-probed (see `feat(alliance): help every
+   alliancemate via OnHelpAll`).
+
+### 8.11 The trace came back empty — what then
+
+This happens, and it is not a dead end. `20260728_162518_Помощь_союзнику_trace.log`
+holds **zero** `XSCALL` lines, yet the session still shipped `help_ally.md` the
+same day. Diagnose first, then fall back.
+
+| symptom | cause | fix |
+|---|---|---|
+| no `XSTRACE installed` line, or `INSTALL ERROR` | the chunk never ran — daemon down, VM not reachable | restart `tools/lua_daemon.py`, re-record |
+| `wrapped=0` | the walk found nothing to wrap — the VM reached is not the game's live state, or a `--filter` matched nothing | drop the filter, restart the daemon, re-record |
+| `installed wrapped=8xxx` but **no `XSCALL`** | the action's code path is not reachable from `_G` at depth 2 (module-scoped controller — see §8.5a), or it is not Lua at all (C#/IL2CPP), or the click was gated and nothing ran | retry with `--depth 3`, or a targeted `--filter Help` (a filter wraps only matching names, so it is safe without `--dedup`), or `--hook-all` (heaviest — may stall the game) |
+| `XSCALL` lines, but all `UI*` churn | the feature's logic is native / behind a controller | fall back below |
+
+**The fallback that works — recover from the wire, then live-probe the VM:**
+
+1. **Take the name from the traffic file.** The `up` command is the feature's
+   true name (`al.help.all`, `alliance.reward.allreceive`). If traffic is empty
+   too, take the noun from the in-game wording instead (Help → `Help`).
+2. **Grep the VM for that noun** — `DataCenter` managers and `package.loaded`
+   modules (§8.7 snippets). `al.help.all` ⇒ `DataCenter.AllianceHelpDataManager`.
+3. **Enumerate its methods** and read them as a sentence: `GetHelpNum`,
+   `OnHelpAll`, `GetAllianceHelpSliderData`. The `On*` is the action, the `Get*`
+   is the counter, the `*Data` is the limit model.
+4. **Prove it with the counter round trip**: read `GetHelpNum()` → call
+   `OnHelpAll()` → read it again → confirm the `up` command in the traffic
+   sniffer. That is the whole verification; no trace needed.
+5. **Check the real limit** while you are in there. `help_ally` looked capped
+   until `GetAllianceHelpSliderData` showed the 1000/day cap is on help *points*,
+   not on helping — which changed the recipe.
+
+Write down in the commit and the research note that the API was **live-probed
+because the trace was empty**. That single sentence saves the next session from
+re-recording a trace that will be empty again.
+
+### 8.12 Quick reference
+
+```bash
+# record (panel Develop → Sniffer does both, with one shared label)
+/mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "<label>" &
+/mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "<label>"
+
+# analyse
+L=$(ls -t results/traces/*_trace.log | head -1); T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
+grep -c XSCALL "$L"
+grep XSCALL "$L" | grep -vE '\.(getters|super)\.' | grep -E 'DataCenter\.|Utils?\.|Message|SFSObject\.'
+jq -r 'select(.dir=="up" and .cmd!="(keepalive)")|[.ts,.cmd]|@tsv' "$T"
+
+# probe
+/mnt/c/Python312/python.exe tools/lib/lua_eval.py --marker P "CS.UnityEngine.Debug.LogError('P '..tostring(<expr>))"
+
+# ship
+#   tools/lib/game_buttons.py     -> one Button per press (lua / wait / label / count_lua)
+#   src/lastwar_bot/actions/*.md  -> TAP lines
+#   docs/research/<feature>.md    -> the durable record
+```

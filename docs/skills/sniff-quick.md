@@ -10,4 +10,9 @@ For raw dump: use map_capture directly
 
 Default timeout: 60s. No asking, no planning — just run.
 
+Different job — turning a recorded sniffer session (results/traces/*_trace.log +
+results/traffic/*_traffic.jsonl) into an actions/*.md recipe: follow the
+end-to-end workflow in docs/skills/sniff.md §8. If the run has no label and you
+cannot tell what the player did, ask before analysing (§8.4).
+
 Details: docs/skills/sniff.md
