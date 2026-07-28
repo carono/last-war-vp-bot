@@ -101,6 +101,21 @@ unlock_goods, link_decoration_id, sticker_name, sort}`; `GetShowStickerList()`
 enumerates ids (e.g. `5 dice`, `6 sticker/map_like`, `35
 sticker/zyf_shengdanjie_biaoqing_icon`).
 
+## Headless mode — confirmed
+
+Sending does **not** need the chat UI. `ChatManager2` is an always-loaded
+singleton and `__sendToRoom` fires the wire commands directly, with no dependency
+on the `UIChatNew_v2` window. Verified live against EleNita
+(`custom_1697234600000972_1522777203000972_v2`):
+
+| Send | Chat window | Result (via `tools/chat_reader.py`) |
+|---|---|---|
+| `тест`  | open   | echoed back `is_mine=true`, `seq_id=123` |
+| `тест2` | **closed** (`UIManager:IsWindowOpen("UIChatNew_v2") == false`) | echoed back `is_mine=true`, `seq_id=124` |
+
+The monotonic `seq_id` bump (123 → 124) proves each was a real server send, not a
+local echo. So the tool works fully headless — closed dialog, no focus, no pixels.
+
 ## Tooling
 
 - `tools/lib/lua_actions.py` — `chat_send_text(room, msg)` / `chat_send_sticker(room, id)`
