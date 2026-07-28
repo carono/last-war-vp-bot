@@ -114,12 +114,14 @@ CAPTURE_OPTIONS = [
 #     and logs the FIRST call of each name only. The unfiltered tracer floods
 #     Player.log and freezes the game, so --dedup is the safe discovery default
 #     (per task #1060: the monkey-patch tool is tools/lua_trace.py).
-# Each Start spawns a fresh child, and each child opens its own timestamped file
+# The two answer the same question from opposite ends — what crossed the wire vs
+# what the client called — so the menu runs them as ONE toggle: a single label is
+# asked once and handed to both children, which makes the two run files of a
+# session share a name and line up when read side by side (task #1079).
+# Each start spawns fresh children, and each child opens its own timestamped file
 # under results/traffic/ resp. results/traces/ — so a stop/start cycle never
 # overwrites the previous session. The child prints the path it chose, which
-# lands in the panel log like the rest of its output. Starting either one first
-# asks for an optional session label, passed on as --label and folded into that
-# file name — a wall of timestamps says nothing about what each run captured.
+# lands in the panel log like the rest of its output, tagged [traffic] / [trace].
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
 
@@ -248,11 +250,11 @@ class Panel(tk.Tk):
         self._rally_proc = None
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
-        # Toggle state for the two Develop-menu sniffers. Created here (not in a
-        # tab builder) because the menu bar is built before the UI and is rebuilt
-        # on every language change — the vars must outlive those rebuilds.
+        # Toggle state for the single Develop-menu sniffer entry (it drives both
+        # children above). Created here (not in a tab builder) because the menu
+        # bar is built before the UI and is rebuilt on every language change —
+        # the var must outlive those rebuilds.
         self._sniff_var = tk.BooleanVar(value=False)
-        self._trace_var = tk.BooleanVar(value=False)
         self._chat_var = tk.BooleanVar(value=False)
         self._chat_q: "queue.Queue[dict]" = queue.Queue()
         self._chat_proc = None
@@ -317,10 +319,8 @@ class Panel(tk.Tk):
                 variable=self._lang_var, command=lambda l=lang: self._set_language(l))
 
         develop_menu = tk.Menu(menubar, tearoff=0)
-        develop_menu.add_checkbutton(label=self._t("develop.traffic.toggle"),
+        develop_menu.add_checkbutton(label=self._t("develop.sniff.toggle"),
                                      variable=self._sniff_var, command=self._toggle_sniff)
-        develop_menu.add_checkbutton(label=self._t("develop.functions.toggle"),
-                                     variable=self._trace_var, command=self._toggle_trace)
 
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
@@ -1062,30 +1062,52 @@ class Panel(tk.Tk):
                                       self._t("develop.label.prompt"), parent=self)
 
     def _toggle_sniff(self) -> None:
+        """One menu entry, both sniffers: on → start the pair, off → stop the pair."""
         if self._sniff_var.get():
             self._start_sniff()
         else:
             self._stop_sniff()
 
     def _start_sniff(self) -> None:
-        if self._sniff_proc is not None:
+        """Ask for one label, then start the traffic sniffer and the Lua tracer.
+
+        The label is asked ONCE and passed to both children so a session's two
+        run files carry the same name. If only one of the two comes up the
+        toggle stays on — a half-running session is still worth watching — and
+        the log says which half is missing; only a total failure flips it back.
+        """
+        if self._sniff_proc is not None or self._trace_proc is not None:
             return
         label = self._ask_run_label()
         if label is None:
             self._sniff_var.set(False)
             return
-        cmd = [WIN_PYTHON, "-u", TRAFFIC_SNIFFER]
-        if label.strip():
-            cmd += ["--label", label]
+        label_args = ["--label", label] if label.strip() else []
+
         self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
-        self._sniff_proc = self._spawn_sniffer(cmd, "traffic")
-        if self._sniff_proc is None:
+        self._sniff_proc = self._spawn_sniffer(
+            [WIN_PYTHON, "-u", TRAFFIC_SNIFFER] + label_args, "traffic")
+        if self._sniff_proc is not None:
+            self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
+                          f"вывод идёт в лог, запись — в results/traffic/")
+            threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
+                             daemon=True).start()
+
+        # --dedup: log only the first call of each function name. Without it the
+        # tracer wraps every reachable Lua function and floods Player.log, which
+        # freezes the game — see the tools/lua_trace.py docstring. The safe
+        # discovery pass is the right default for a one-click panel button.
+        self._log_put("[trace] запуск трассировщика Lua-функций (lua_trace.py --dedup) …")
+        self._trace_proc = self._spawn_sniffer(
+            [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"] + label_args, "trace")
+        if self._trace_proc is not None:
+            self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
+                          f"вывод идёт в лог, запись — в results/traces/")
+            threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
+                             daemon=True).start()
+
+        if self._sniff_proc is None and self._trace_proc is None:
             self._sniff_var.set(False)
-            return
-        self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
-                      f"вывод идёт в лог, запись — в results/traffic/")
-        threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
-                         daemon=True).start()
 
     def _sniff_reader(self, proc) -> None:
         try:
@@ -1096,6 +1118,27 @@ class Panel(tk.Tk):
         if self._sniff_proc is proc:      # ended on its own, not via _stop_sniff
             self._log_put("[traffic] снифер завершён")
             self._sniff_proc = None
+            self._sync_sniff_var()
+
+    def _trace_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[trace] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._trace_proc is proc:      # ended on its own, not via _stop_sniff
+            self._log_put("[trace] трассировщик завершён")
+            self._trace_proc = None
+            self._sync_sniff_var()
+
+    def _sync_sniff_var(self) -> None:
+        """Untick the shared toggle once BOTH children are gone.
+
+        Either child may die on its own (the game restarts, tshark loses the
+        interface). While the other one still runs the session is live, so the
+        checkmark must stay — it is the pair's state, not one process's.
+        """
+        if self._sniff_proc is None and self._trace_proc is None:
             self.after(0, lambda: self._sniff_var.set(False))
 
     def _stop_sniff(self) -> None:
@@ -1106,49 +1149,6 @@ class Panel(tk.Tk):
                 proc.terminate()
             except Exception:
                 pass
-
-    def _toggle_trace(self) -> None:
-        if self._trace_var.get():
-            self._start_trace()
-        else:
-            self._stop_trace()
-
-    def _start_trace(self) -> None:
-        if self._trace_proc is not None:
-            return
-        label = self._ask_run_label()
-        if label is None:
-            self._trace_var.set(False)
-            return
-        # --dedup: log only the first call of each function name. Without it the
-        # tracer wraps every reachable Lua function and floods Player.log, which
-        # freezes the game — see the tools/lua_trace.py docstring. The safe
-        # discovery pass is the right default for a one-click panel button.
-        cmd = [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"]
-        if label.strip():
-            cmd += ["--label", label]
-        self._log_put("[trace] запуск трассировщика Lua-функций (lua_trace.py --dedup) …")
-        self._trace_proc = self._spawn_sniffer(cmd, "trace")
-        if self._trace_proc is None:
-            self._trace_var.set(False)
-            return
-        self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
-                      f"вывод идёт в лог, запись — в results/traces/")
-        threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
-                         daemon=True).start()
-
-    def _trace_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                self._log_put(f"[trace] {raw.rstrip()}")
-        except Exception:
-            pass
-        if self._trace_proc is proc:      # ended on its own, not via _stop_trace
-            self._log_put("[trace] трассировщик завершён")
-            self._trace_proc = None
-            self.after(0, lambda: self._trace_var.set(False))
-
-    def _stop_trace(self) -> None:
         proc, self._trace_proc = self._trace_proc, None
         if proc is not None:
             self._log_put("[trace] стоп трассировщика")
@@ -1246,8 +1246,7 @@ class Panel(tk.Tk):
     def _on_close(self) -> None:
         self._stop_monitor()
         self._stop_rally()
-        self._stop_sniff()
-        self._stop_trace()
+        self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
         self._stop_scenario_loop()
         self.destroy()

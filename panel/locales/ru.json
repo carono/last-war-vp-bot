@@ -76,8 +76,7 @@
   "rally.monitor": "Монитор ралли",
   "rally.hint": "push.alliance.march.* → лог + {path}",
 
-  "develop.traffic.toggle": "Снифер трафика",
-  "develop.functions.toggle": "Снифер функций",
+  "develop.sniff.toggle": "Снифер",
   "develop.label.title": "Метка сессии",
   "develop.label.prompt": "Метка сессии (необязательно).\nПопадёт в имя файла лога; пробелы станут подчёркиваниями.",
 
