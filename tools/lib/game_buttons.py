@@ -86,6 +86,47 @@ BUTTONS: dict[str, Button] = {
         count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",
         max_taps=10,
     ),
+    # --- base -> collect every ready resource building -----------------------
+    "collect_base_resources": Button(
+        # "Собрать все ресурсы с базы". Sweeps every producing city building and
+        # fires the game's own harvest call for each resource type in one shot —
+        # exactly what tapping a resource building does. Captured from the
+        # "Сбор ресурсов" trace: tapping a ready building calls
+        # BuildingUtils.CityCollectionByItemId(itemId, worldPos...), which batches
+        # every ready building of that itemId. Here we group the base's producing
+        # buildings (those with a productEndTime) by itemId and call it per group;
+        # the server collects whatever is ready and no-ops the rest (proven
+        # harmless), so this needs no per-building readiness check. Positions come
+        # from BuildingUtils.GetBuildModelCenterVec(pointId,2,2,0), as in the trace.
+        # See docs/research/resource-collection.md.
+        lua=(
+            "local bm=DataCenter.BuildManager local u=table.unpack or unpack local g={} "
+            "for _,b in pairs(bm:GetAllBuildData() or {}) do "
+            "if type(b)=='table' and b.pointId and (b.itemId or b.cachedItemId) "
+            "and b.productEndTime and b.productEndTime>0 then "
+            "local id=b.itemId or b.cachedItemId "
+            "local okp,p=pcall(function() return BuildingUtils.GetBuildModelCenterVec(b.pointId,2,2,0) end) "
+            "if okp and p then g[id]=g[id] or {} local t=g[id] t[#t+1]=p end end end "
+            "for id,p in pairs(g) do pcall(function() BuildingUtils.CityCollectionByItemId(id, u(p)) end) end"
+        ),
+        wait=1.5, label="Collect base resources",
+    ),
+    # --- base -> collect every supply truck that has arrived ------------------
+    "collect_trucks": Button(
+        # "Собрать грузовики". A supply truck surfaces on the base as a build bubble:
+        # BuildBubbleType.TruckTravelling while en route, TruckReward / TruckReady
+        # once it has arrived. Tapping the ready bubble collects its goods, so this
+        # fires OnClick on every TruckReward/TruckReady bubble — the literal
+        # reproduction of the "Сбор грузовика ресурсов" trace. Like help_ally_all it
+        # clears all pending ones in a single press (no window needs to be open).
+        # See docs/research/resource-collection.md.
+        lua=(
+            "local m=DataCenter.BuildBubbleManager local BT=_G.BuildBubbleType "
+            "for _,v in pairs(m.allBuildBubble or {}) do local ty=v.param and v.param.buildBubbleType "
+            "if ty==BT.TruckReward or ty==BT.TruckReady then pcall(function() v:OnClick() end) end end"
+        ),
+        wait=1.2, label="Collect ready trucks",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.
