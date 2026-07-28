@@ -1,5 +1,15 @@
 # Architecture (v2)
 
+> **Read this alongside the reality.** This file captures the *original* v2 design
+> intent. The canonical, up-to-date architecture and orientation now live in
+> [`AGENTS.md`](../AGENTS.md); the honest feature-by-feature status is in
+> [`farming.md`](farming.md). Two things below never got built as drawn: the
+> **LLM planner** and the **VLM executor** loop. In practice the bot today acts
+> mainly through the game's **own Lua VM** (the warm daemon, `tools/lua_daemon.py`)
+> and the decoded network protocol, with the CV/OCR + DSL layer used only where no
+> Lua route exists. The planner/executor below remain an open goal, not a
+> description of what runs.
+
 ## Separation of concerns
 
 The main pain point of v1 (Lua/UOPilot) was pixel-colour navigation: any UI update broke the scripts. v2 splits the problem into two layers:
@@ -12,27 +22,30 @@ Top-level flow: `"collect resources at the base"` → **planner** turns it into 
 ## High-level skills are scripts, not Python
 
 The skill catalogue lives in **`src/lastwar_bot/actions/*.md`** as a small
-Russian-flavoured DSL — readable for humans, writable by an LLM. Example
+declarative DSL — readable for humans, writable by an LLM. Example
 (`go_to_base.md`):
 
 ```
-Если находимся не на базе
-  Клик на картинку базы [click_base_button]
-  Ждем пока база откроется
+# Navigate to the Base screen if we're not already there.
+
+IF screen != base
+    CALL click_base_button
+    WAIT screen == base WITHIN 10s
 ```
 
 A tiny interpreter (`script_engine.py`) parses these files and calls
 into low-level Python primitives (find_window, SceneIndex.find_sift,
-click, identify_screen, …). Only those primitives stay in Python; the
+click, identify_screen, …) as well as Lua-VM routes (`TAP`, `LUA`,
+`GAME`, `JUMP`, …). Only those primitives stay in Python; the
 orchestration is declarative. The longer-term goal is for the LLM to
 *author* new scripts from a natural-language scenario, making the bot
 inherently extensible without touching the Python code.
 
-Supported DSL features: `Если` / `Иначе`, `Ищем картинку [X.png]`
-with an indented body that runs on success, `Кликаем` (on the last
-find), `[action_name]` to call another `.md` script, `Ждем пока <X>
-откроется` and `Ждем N секунд`. The recognised vocabulary is centralised
-in `script_engine.Interpreter` and easy to extend.
+The DSL keywords are English (`IF` / `ELSE`, `WHILE … LIMIT N`,
+`FIND <tpl>.png`, `CLICK`, `CALL`, `WAIT`, `READ_TEXT`, …). The full,
+current grammar is in [`dsl.md`](dsl.md) and the cheatsheet in
+[`AGENTS.md`](../AGENTS.md) §4; the recognised vocabulary is centralised
+in `script_engine.py` and easy to extend.
 
 ## Components
 
@@ -122,6 +135,7 @@ The foundation is in place:
   - **SIFT + RANSAC** (`features.SceneIndex.find_sift`) tuned for small UI icons (`contrastThreshold=0.02, edgeThreshold=20`). Crucially, **SIFT survives the game's UI re-rendering at different window sizes**, so a single template captured at the minimum supported window scales up to fullscreen. ORB extracts 0 keypoints on the same icons.
   - `SceneIndex` pre-computes SIFT features for the captured frame once so that probing it against many templates is cheap.
 - ✅ Red attention-dot detector (`perception/red_dots.py`): HSV colour thresholding + contour shape filter. Default thresholds tuned against a live capture (`min_area=60, max_area=200, min_circularity=0.85`).
-- ⏳ Skill catalogue and executor.
-- ⏳ LLM-backed planner.
-- ⏳ OCR provider (RapidOCR vs PaddleOCR decision after the first real run).
+- ✅ Skill catalogue (`src/lastwar_bot/actions/*.md`) + DSL interpreter (`script_engine.py`). See [`dsl.md`](dsl.md) and [`farming.md`](farming.md) for what runs today.
+- ✅ OCR provider — RapidOCR (`perception/ocr.py`, lazy-loaded), exposed as the `READ_TEXT` DSL primitive.
+- ⏳ **Executor loop** as drawn above (screenshot → classify → run_skill → verify → next). The panel runs one action at a time and can repeat it on an interval; nothing sequences a whole session yet.
+- ⏳ **LLM-backed planner.** Never built — the bot acts through explicit `.md` recipes and Lua-VM routes, not an LLM-decomposed plan.
