@@ -857,3 +857,288 @@ def steal_next_secret_task() -> str:
             "pcall(function() SFSNetwork.SendMessage(MsgDefines.DispatchSteal, t.uuid, t.server) end) "
             'CS.UnityEngine.Debug.LogError("ACT steal_sent uuid="..tostring(t.uuid)'
             '.." srv="..tostring(t.server)) end' % secret_task_steals_left())
+
+
+# --------------------------------------------------------------------------
+# Ghost recon robbery — «Операция Призрак» / ghost.recon.steal
+# --------------------------------------------------------------------------
+# A DIFFERENT feature from the secret-task robbery above, despite the similar
+# shape. «Секретка» is the hero dispatch that sits on a player's own tile and
+# rides `hero.dispatch.*`; «Операция Призрак» is the weekly co-op event whose
+# squads sit on `f2 = 29` tiles and ride `ghost.recon.*`. Both can be robbed,
+# the commands are different, and the two daily budgets are counted separately.
+# See docs/research/ghost-recon-steal.md and secret-task-steal.md.
+#
+# The wire side was captured in task #1005 (`results/ghost1005/steal.json`):
+#
+#     --> ghost.recon.steal  {uuid, ownerServer}
+#     <-- ghost.recon.steal  {reward[], recordUuid, stealTimes, ownerInfo,
+#                             cfgId, ownerUid, ownerServer, uuid}
+#
+# The Lua side was pinned live for this task:
+#
+#   * `MsgDefines.GhostReconSteal` = `ghost.recon.steal`, and
+#     `GhostReconStealMessage:OnCreate(uuid, ownerServer)` puts exactly two
+#     fields in the SFSObject — `PutLong uuid`, `PutInt ownerServer`.
+#   * The press lives in the giant map-button dispatcher
+#     `UIWorldPointBtn:OnBtnClick`, in the branch for
+#     `WorldPointBtnType.GhostreconTaskSteal` (96); its constants read
+#     `… GhostReconSteal | ownerServer …`, i.e. that one SendMessage.
+#   * `GhostReconStealMessage:HandleMessage` is the reply applier
+#     (`RewardManager:AddRewardsAndRes`, `ActGhostreconManager:GhostReconStealHandler`,
+#     `UIUtil.ShowTipsId` on an errorCode). Calling it sends nothing.
+#
+# The owning manager is `DataCenter.ActGhostreconManager`: `taskList` (the
+# squads the client knows, each with `uuid`, `cfgId`, `ownerId`, `ownerServer`,
+# `targetServer`, `pointId`, `completionTime`, `actEndTime` and a `stealList` of
+# past thieves), `stealTimes` (spent today), `GetNowSettingCfg().stealCount`
+# (the daily cap, 5), `dispatchStealRange` (the set of servers that may be
+# robbed at all) and `IsOpenDay()`.
+
+# `GhostreconPointStealType`, the game's own verdict on one tile.
+GHOST_STEAL_PREVIEW, GHOST_STEAL_CAN = 1, 2
+GHOST_STEAL_UNSTEAL, GHOST_STEAL_UNSHOW = 3, 4
+GHOST_STEAL_NAMES: dict[int, str] = {
+    GHOST_STEAL_PREVIEW: "preview",     # visible, not robbable yet
+    GHOST_STEAL_CAN: "can-steal",
+    GHOST_STEAL_UNSTEAL: "no-steal",    # budget spent / already robbed by me
+    GHOST_STEAL_UNSHOW: "not-shown",    # still running, or no template
+}
+
+# `WorldPointBtnType.GhostreconTaskSteal` — the map button this replaces. Not
+# used by the send (the send is the message); kept because it names the click.
+GHOST_RECON_STEAL_BTN = 96
+
+
+def ghost_recon_is_open() -> str:
+    """Lua *expression* -> 1 while the ghost-recon event is running today.
+
+    `IsOpenDay()` compares the server clock against `openTime` for the same server
+    day. Outside the event the whole feature is dark: `taskList` is empty, no tile
+    carries a steal button, and a robbery would be refused — so every press below
+    checks this first rather than putting a doomed message on the wire.
+    """
+    return "(DataCenter.ActGhostreconManager:IsOpenDay() and 1 or 0)"
+
+
+def ghost_recon_steals_left() -> str:
+    """Lua *expression* -> ghost-recon robberies still available today.
+
+    `GetNowSettingCfg().stealCount` is the daily cap (5 on the live config) and
+    `stealTimes` what has been spent. Counted separately from the secret-task
+    budget in `secret_task_steals_left()` — the two features share nothing but
+    the idea.
+    """
+    return ("(function() local M=DataCenter.ActGhostreconManager "
+            "local cfg=M:GetNowSettingCfg() "
+            "local cap=tonumber(cfg and cfg.stealCount) or 0 "
+            "local used=tonumber(M.stealTimes) or 0 "
+            "local left=cap-used if left<0 then left=0 end return left end)()")
+
+
+def _ghost_task_by_uuid() -> str:
+    """Lua chunk fragment: `find(uuid)` -> the task record, or nil.
+
+    Looks in `taskList` (the squads the client actually has data for) — the alliance
+    list is deliberately not searched: `ActGhostreconAllianceTaskInfo` carries neither
+    `completionTime` nor `stealList`, so it cannot answer whether a tile is robbable.
+    """
+    return ("local function find(u) "
+            "for _,t in ipairs(DataCenter.ActGhostreconManager.taskList or {}) do "
+            "if tostring(t.uuid)==tostring(u) then return t end end return nil end ")
+
+
+# The client's own verdict, `ActGhostreconManager:GetPointStealType(cfgId,
+# completionTime, stealList)`, is the right gate for the TIMING half — it knows the
+# template, the protect window and whether the squad has finished. It is called
+# below with an EMPTY looter list on purpose:
+#
+#   passing a non-empty `stealList` throws inside the game
+#   (`ActGhostreconManager.lua:570: attempt to index a nil value (field 'player')`
+#   — the client reads `LuaEntry.player`, lowercase, which does not exist in this
+#   VM; `LuaEntry.Player` does).
+#
+# Verified live: `GetPointStealType(60302, <finished>, {})` -> 2 (CanSteal),
+# `GetPointStealType(60302, <still running>, {})` -> 4 (UnShow), and any non-empty
+# list -> that error. So the looter half is counted here instead, from the record's
+# own `stealList` against the template's `stealMaxtimes` (3 on cfg 60302), which is
+# the same arithmetic the crashing branch was doing.
+def ghost_recon_steal_state(uuid: int) -> str:
+    """Lua *expression* -> `GhostreconPointStealType` for `uuid` (0 = unknown task).
+
+    Numeric so a caller can tell *why* a target was skipped: 2 is robbable, 1 is
+    visible but not yet, 3 is "not for me" (budget spent / already robbed), 4 is
+    still running. 0 means the client has no record of that uuid at all — ask the
+    server for the lists first (`ghost_recon_refresh()`).
+    """
+    return ("(function() %s local t=find(%d) if not t then return 0 end "
+            "local M=DataCenter.ActGhostreconManager "
+            "local ok,st=pcall(function() "
+            "return M:GetPointStealType(t.cfgId, t.completionTime, {}) end) "
+            "if not ok then return 0 end return st end)()"
+            % (_ghost_task_by_uuid(), int(uuid)))
+
+
+def ghost_recon_can_steal(uuid: int) -> str:
+    """Lua *expression* -> 1 when `uuid` may be robbed right now.
+
+    Four conditions, and every one of them is the client's own:
+
+    * the event is open today;
+    * the game's verdict for the tile is `CanSteal` (finished, past its protect
+      window, template known);
+    * the squad is somebody else's — robbing my own is not a thing;
+    * the tile has a free loot slot and I am not already in its `stealList`
+      (counted here rather than by the game, see the note above);
+    * the owner's server is inside `dispatchStealRange`, the event's reachable set.
+
+    All of it is advisory in the same way the secret-task gate is: the server has the
+    last word and answers a refused robbery with an errorCode plus a toast.
+    """
+    return (
+        "(function() if %s==0 then return 0 end "
+        "%s local t=find(%d) if not t then return 0 end "
+        "local M=DataCenter.ActGhostreconManager "
+        "local me=tostring(LuaEntry.Player.uid) "
+        "if tostring(t.ownerId)==me then return 0 end "
+        "local tpl=M:GetTaskTemplate(t.cfgId) if not tpl then return 0 end "
+        "local n=0 for _,s in ipairs(t.stealList or {}) do n=n+1 "
+        "if tostring(s.uid)==me then return 0 end end "
+        "if n>=(tonumber(tpl.stealMaxtimes) or 3) then return 0 end "
+        "local srv=t.ownerServer or t.targetServer "
+        "if srv and (M.dispatchStealRange or {})[srv]~=true then return 0 end "
+        "local ok,st=pcall(function() "
+        "return M:GetPointStealType(t.cfgId, t.completionTime, {}) end) "
+        "if not ok or st~=GhostreconPointStealType.CanSteal then return 0 end "
+        "if %s<=0 then return 0 end return 1 end)()"
+        % (ghost_recon_is_open(), _ghost_task_by_uuid(), int(uuid),
+           ghost_recon_steals_left())
+    )
+
+
+def ghost_recon_refresh() -> str:
+    """Ask the server for both ghost-recon task lists (own/known + alliance).
+
+    Fire-and-forget: read the result from a SEPARATE chunk after a settle, never by
+    looping inside this one. Without it a fresh client has an empty `taskList` and
+    every target reads as unknown.
+    """
+    return ("pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostreconGetTaskList) end) "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostReconGetAllianceTaskList) end) "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_lists_requested")')
+
+
+def ghost_recon_targets_dump() -> str:
+    """Reader chunk: one `ACT G …` line per ghost-recon squad the client knows.
+
+    Fields: `uuid`, `cfg` template id, `owner` uid, `srv` the owner's server, `x`/`y`
+    (from `pointId`), `done` completion epoch-ms, `ends` the tile's expiry, `looted`
+    how many of the template's slots are spent, `state` the game's
+    `GhostreconPointStealType`, and `mine` when the squad is my own.
+
+    A robbery needs `uuid` + `ownerServer`, both of which are printed, so this is the
+    list a queue is built from.
+    """
+    return (
+        "local M=DataCenter.ActGhostreconManager "
+        "local me=tostring(LuaEntry.Player.uid) "
+        'CS.UnityEngine.Debug.LogError("ACT ghost open="..tostring(M:IsOpenDay())'
+        '.." left="..tostring(%s).." known="..tostring(#(M.taskList or {}))) '
+        "for _,t in ipairs(M.taskList or {}) do "
+        "local x,y=0,0 pcall(function() local tp=SceneUtils.IndexToTilePos(t.pointId) "
+        "x,y=tp.x,tp.y end) "
+        "local n=0 for _,s in ipairs(t.stealList or {}) do n=n+1 end "
+        "local ok,st=pcall(function() "
+        "return M:GetPointStealType(t.cfgId, t.completionTime, {}) end) "
+        'CS.UnityEngine.Debug.LogError("ACT G uuid="..tostring(t.uuid)'
+        '.." cfg="..tostring(t.cfgId).." owner="..tostring(t.ownerId)'
+        '.." srv="..tostring(t.ownerServer or t.targetServer)'
+        '.." x="..tostring(x).." y="..tostring(y)'
+        '.." done="..tostring(t.completionTime).." ends="..tostring(t.actEndTime)'
+        '.." looted="..tostring(n).." state="..tostring(ok and st or 0)'
+        '.." mine="..tostring(tostring(t.ownerId)==me)) end'
+        % ghost_recon_steals_left()
+    )
+
+
+def ghost_recon_steal(uuid: int, owner_server: int) -> str:
+    """Rob ghost-recon squad `uuid` on `owner_server` — one `ghost.recon.steal`.
+
+    Headless: no tile tap, no popup, no march. Gated on the day's budget and on the
+    event being open, so a spent or closed day never puts a doomed message on the
+    wire. The per-tile conditions are `ghost_recon_can_steal()`'s job — this one
+    takes a target the caller has already vetted (or is deliberately re-trying).
+    """
+    return ('if %s > 0 and %s > 0 then '
+            'pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostReconSteal, %d, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT ghost_steal_sent uuid=%d srv=%d") end'
+            % (ghost_recon_is_open(), ghost_recon_steals_left(),
+               int(uuid), int(owner_server), int(uuid), int(owner_server)))
+
+
+def ghost_recon_leave_message(record_uuid: int, msg_id: int, owner_server: int) -> str:
+    """Leave the robbed squad's owner one of the canned messages.
+
+    `ghost.recon.leave.message {msgId, recordUuid, ownerServer}` — the follow-up
+    captured in #1005, keyed by the `recordUuid` the robbery's reply carries (NOT the
+    task uuid). Pure flavour; it pays nothing.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostReconLeaveMessage, '
+            '%d, %d, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT ghost_message_sent record=%d msg=%d")'
+            % (int(msg_id), int(record_uuid), int(owner_server),
+               int(record_uuid), int(msg_id)))
+
+
+# --- the ghost-recon target queue -----------------------------------------
+# Same reason as the secret-task queue: `TAP` takes no arguments, so the targets
+# are parked on the manager's own table and the button robs them one per press.
+# A separate table from `__lw_steal_queue` so the two features can never rob each
+# other's targets with the wrong command.
+
+def ghost_recon_queue_set(targets) -> str:
+    """Replace the ghost-recon queue with `targets` — (uuid, owner_server) pairs."""
+    items = ",".join("{uuid=%d,server=%d}" % (int(u), int(s)) for u, s in targets)
+    return ("local M=DataCenter.ActGhostreconManager M.__lw_ghost_queue={%s} "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_queue_set "..tostring(#M.__lw_ghost_queue))'
+            % items)
+
+
+def ghost_recon_queue_clear() -> str:
+    """Empty the ghost-recon queue."""
+    return ("local M=DataCenter.ActGhostreconManager M.__lw_ghost_queue={} "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_queue_cleared")')
+
+
+def ghost_recon_queue_len() -> str:
+    """Lua *expression* -> how many ghost-recon targets are queued."""
+    return ("(function() return #(DataCenter.ActGhostreconManager.__lw_ghost_queue or {}) end)()")
+
+
+def ghost_recon_steals_pending() -> str:
+    """Lua *expression* -> presses `steal_ghost_recon` can still make.
+
+    `min(queued, robberies left today)`, and 0 whenever the event is closed — the
+    button's `count_lua`, so `xall` stops at the queue, at the cap, or at the end of
+    the event, whichever comes first.
+    """
+    return ("(function() if %s==0 then return 0 end "
+            "local q=%s local b=%s if q<b then return q end return b end)()"
+            % (ghost_recon_is_open(), ghost_recon_queue_len(), ghost_recon_steals_left()))
+
+
+def steal_next_ghost_recon() -> str:
+    """Rob the first queued ghost-recon target (one press, one squad).
+
+    The target is popped BEFORE the send, so a refused robbery costs one queue entry
+    rather than wedging `xall` on the same doomed uuid. One press per chunk: the
+    budget only moves when the server's reply lands.
+    """
+    return ("local M=DataCenter.ActGhostreconManager "
+            "local q=M.__lw_ghost_queue or {} local t=table.remove(q,1) "
+            "if t and %s > 0 and %s > 0 then "
+            "pcall(function() SFSNetwork.SendMessage(MsgDefines.GhostReconSteal, "
+            "t.uuid, t.server) end) "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_steal_sent uuid="..tostring(t.uuid)'
+            '.." srv="..tostring(t.server)) end'
+            % (ghost_recon_is_open(), ghost_recon_steals_left()))

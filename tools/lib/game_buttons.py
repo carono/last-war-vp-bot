@@ -264,6 +264,40 @@ BUTTONS: dict[str, Button] = {
              "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
         wait=0.5, label="dismiss steal-reward popup",
     ),
+    # --- world -> rob a ghost-recon squad («Операция Призрак») ----------------
+    # A DIFFERENT feature from `steal_secret_task` above: that one robs a hero
+    # dispatch («секретка», `hero.dispatch.steal`), this one robs the weekly
+    # co-op event's squads (`ghost.recon.steal`). Separate commands, separate
+    # daily budgets (5 each), separate queues — mixing them up would send the
+    # wrong command at the right uuid. See docs/research/ghost-recon-steal.md.
+    #
+    # Targets are parked in the VM first (tools/ghost_recon_steal.py), because
+    # `TAP` takes no arguments; one press robs one squad and drops it.
+    "steal_ghost_recon": Button(
+        lua=_lua_actions.steal_next_ghost_recon(),
+        # The budget only moves when the reply lands, and that reply carries the
+        # whole reward list. The queue pop is the safety net; this pause is what
+        # keeps `xall` from leaning on it.
+        wait=2.0, label="Rob a ghost-recon squad",
+        # min(queued, robberies left today), and 0 while the event is closed — so
+        # `xall` is a no-op six days a week instead of an error.
+        count_lua=_lua_actions.ghost_recon_steals_pending(),
+        max_taps=10,
+    ),
+    "dismiss_ghost_recon_reward": Button(
+        # A successful robbery raises the event's own loot window
+        # (UIGhostreconReward; the box variant is UIGhostreconGetBoxReward).
+        # Separate windows from the dispatch one, so `dismiss_steal_reward` does
+        # not match them. No-op when nothing is up.
+        lua=("local mgr=UIManager.Instance "
+             "for _,n in ipairs({UIWindowNames.UIGhostreconReward, "
+             "UIWindowNames.UIGhostreconGetBoxReward}) do "
+             "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+             "if ok and open then local w=mgr:GetWindow(n) "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end "
+             "end end"),
+        wait=0.5, label="dismiss ghost-recon reward popup",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.

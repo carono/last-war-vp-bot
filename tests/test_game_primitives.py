@@ -291,6 +291,66 @@ def test_steal_is_gated_on_the_daily_budget():
     assert "uuid=1397117352503547575" in queued and "server=534" in queued
 
 
+def test_ghost_recon_recipe_is_a_noop_while_the_event_is_closed():
+    """The ghost-recon recipe presses once per queued squad — and never off-day.
+
+    «Операция Призрак» runs one day a week. Six days out of seven `IsOpenDay()` is
+    false, and the count expression has to read 0 then, otherwise `xall` would fire
+    robberies the server refuses (each one a toast in the operator's face). The queue
+    can legitimately still hold yesterday's targets, so the open-day check cannot be
+    left to "the queue is empty".
+    """
+    import game_buttons as gb
+
+    path = se.resolve_action("steal_ghost_recon")
+    assert path is not None, "actions/steal_ghost_recon.md is missing"
+    stmts = se.parse_text(path.read_text(encoding="utf-8"))
+    taps = [s for s in stmts if isinstance(s, se.TapStmt)]
+    assert [s.name for s in taps] == ["steal_ghost_recon", "dismiss_ghost_recon_reward"]
+    assert taps[0].count is None, "the press must be TAP … xall, not a fixed count"
+
+    button = gb.get("steal_ghost_recon")
+    assert button is not None and button.count_lua, "xall needs a count expression"
+    assert "IsOpenDay" in button.count_lua, "off-day the count must read 0"
+
+    # Two squads available, then none -> exactly two presses.
+    ev = FakeEval(rluas=[2, 1, 0])
+    _run("TAP steal_ghost_recon xall", ev)
+    presses = [c for c in ev.chunks if "MsgDefines.GhostReconSteal" in c]
+    assert len(presses) == 2, presses
+    # Nothing available -> no press at all.
+    idle = FakeEval(rluas=[0])
+    _run("TAP steal_ghost_recon xall", idle)
+    assert not [c for c in idle.chunks if "MsgDefines.GhostReconSteal" in c]
+
+
+def test_ghost_recon_and_secret_task_robberies_never_share_state():
+    """The two robberies must not touch each other's command, queue or budget.
+
+    They look alike («украсть» on a map tile) and differ in every detail that
+    matters: `ghost.recon.steal {uuid, ownerServer}` vs `hero.dispatch.steal
+    {uuid, targetServer}`, a weekly event vs an everyday feature, and two budgets
+    of five that are counted apart. Crossing them would send the wrong command at
+    a real uuid and burn the wrong day's allowance.
+    """
+    import lua_actions as la
+
+    ghost = la.steal_next_ghost_recon()
+    dispatch = la.steal_next_secret_task()
+    assert "GhostReconSteal" in ghost and "DispatchSteal" not in ghost
+    assert "DispatchSteal" in dispatch and "GhostReconSteal" not in dispatch
+    assert "__lw_ghost_queue" in ghost and "__lw_steal_queue" not in ghost
+    assert "__lw_steal_queue" in dispatch and "__lw_ghost_queue" not in dispatch
+    # Separate budgets: each reads its own manager's counter.
+    assert "ActGhostreconManager" in la.ghost_recon_steals_left()
+    assert "ActDispatchTaskDataManager" in la.secret_task_steals_left()
+    # The ghost gate asks the game for the timing half with an EMPTY looter list —
+    # a non-empty one throws inside the client (LuaEntry.player is nil).
+    gate = la.ghost_recon_can_steal(1)
+    assert "GetPointStealType" in gate and "t.completionTime, {}" in gate
+    assert "stealMaxtimes" in gate, "the looter half has to be counted here"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

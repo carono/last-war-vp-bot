@@ -1,5 +1,9 @@
 # Rob every queued secret task — «кража секретки».
 #
+# For the OTHER robbery — the weekly co-op event «Операция Призрак», which rides
+# `ghost.recon.steal` and has its own five-a-day budget — see
+# steal_ghost_recon.md. The two look alike and share nothing.
+#
 # A finished hero-dispatch task ("секретка") on another player's tile can be robbed
 # three times before its loot slots are full, and the account gets five robberies a
 # day (`GetDispatchSetting("steal_count")`). The counter resets daily and nothing
