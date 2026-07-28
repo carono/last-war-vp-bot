@@ -9,47 +9,56 @@ Recipes: `actions/collect_base_resources.md` (blessed) and
 `actions/dev/collect_trucks.md`. Buttons: `tools/lib/game_buttons.py`
 (`collect_base_resources`, `collect_trucks`).
 
-## Type 1 — production buildings (`CityCollectionByItemId`)
+## Type 1 — production buildings (`ProductLineManager:SendCollect`)
 
-Trace: `results/traces/20260728_171425_Сбор_ресурсов_trace.log`. The load-bearing
-line is the harvest itself:
+The base's resource generators are **production lines**, owned by
+`DataCenter.ProductLineManager`. Collecting one building is a single call —
+`ProductLineManager:SendCollect(uuid)` — and the game's own "Collect All" button
+does nothing more than fire that for every ready building. So a full base sweep is
+just a loop over `GetAllBuildUuids()`:
 
+```lua
+local plm = DataCenter.ProductLineManager
+for _, u in pairs(plm:GetAllBuildUuids() or {}) do
+  pcall(function() plm:SendCollect(u) end)
+end
 ```
-XSCALL BuildingUtils.CityCollectionByItemId <- 10201000, (-977.2, 501.1, 0.0), (-1388.6, 807.1, 0.0)
-XSCALL UIUtil.DoFly <- ... cfm_zhujiemian_tubiao_ziyuan4.png, (-977.2, 501.1, 0.0), (-1388.6, 807.1, 0.0), ...
-XSCALL DataCenter.ProductLineManager.bindProductionTimer <- 1156814232810146872
-```
 
-So tapping a ready building calls **`BuildingUtils.CityCollectionByItemId(itemId,
-worldPos...)`**. The first arg is the building's config id (here `10201000`, a
-resource building with 5 instances); the varargs are the **world positions** of every
-ready instance of that itemId — one call harvests them all at once (the trace shows
-two positions batched). `UIUtil.DoFly` is just the resource-icon fly animation and can
-be ignored.
+An already-empty building simply no-ops, so **no readiness check is needed** and no
+window has to be open — the harvest is fully headless.
 
-### Data model (confirmed live)
+### How this was pinned down (all confirmed live)
 
-- `BuildingUtils.GetBuildListByBuildId(buildId)` → the building instances. Each has
-  `itemId` / `cachedItemId` (== the buildId for resource buildings), `pointId`,
-  `prodStatus`, `productEndTime`, `lastCollectTime`, `productBase`.
-- `DataCenter.BuildManager:GetAllBuildData()` → all 205 city buildings; the producing
-  ones carry a non-zero `productEndTime` (walls/decorations don't). Filtering on that
-  narrows the sweep to ~11 resource-building kinds / ~41 instances.
-- `BuildingUtils.GetBuildModelCenterVec(pointId, 2, 2, 0)` → the world position an
-  instance needs as the `CityCollectionByItemId` argument (2×2 tile footprint).
+Each production building exposes, keyed by uuid:
 
-### Recipe strategy
+- `plm:GetAllBuildUuids()` → the 38 production buildings (a plain Lua table).
+- `plm:GetBuildingCurrStorage(uuid)` → the pending, uncollected amount. This is the
+  ground-truth signal: it resets to ~0 the instant a building is collected.
+- `plm:CanOneKeyCollectRes()` → whether anything is currently collectible.
 
-`collect_base_resources` groups the base's producing buildings by `itemId` and calls
-`CityCollectionByItemId(itemId, positions...)` once per group. **No readiness check is
-needed**: the server harvests whatever is ready and no-ops the rest (proven harmless
-by firing it across all buildings — no error, nothing lost). Readiness helpers exist
-but are unreliable for a blanket sweep: `BuildingUtils.IsCanShowCollectGreenByPoint`
-returns `true` for *every* building, and `BuildManager:GetCanGetResourceBuildUuidByResourceType(rt)`
-errors on most resource types — so we rely on the server's own no-op instead.
+The collectors were tested one method at a time, watching `GetBuildingCurrStorage`:
 
-`BuildingUtils` also exposes `CollectSoldier`, `IsBuildResourceEmpty`,
-`GetResourcePercent`, `GetCityBuildAllResByItemId` for finer-grained work if ever needed.
+| call | effect on storage |
+|---|---|
+| `SendCollect(uuid)` | **drops to ~0 — collects** |
+| `OnCollectClick(uuid)` | also collects (the button handler; wraps `SendCollect`) |
+| `CheckOneKeyCollectAll()` | no-op (only *checks* whether to show the one-key button) |
+| `TryCollectRes()` / `OnCollectClick()` with no uuid | no-op (need a uuid) |
+| `CampProduceDataManager:CollectAllRes()` | no-op (a different, seasonal subsystem) |
+
+End-to-end proof: looping `SendCollect` over all 38 buildings dropped their summed
+pending storage from **~29k to ~6k (16 ready → 0)**.
+
+### Why not `CityCollectionByItemId` (the old, retired approach)
+
+The earlier `collect_base_resources` reconstructed the harvest from the
+`20260728_171425_Сбор_ресурсов` trace's load-bearing line —
+`BuildingUtils.CityCollectionByItemId(itemId, worldPos...)` — by scanning all 205
+city buildings (`BuildManager:GetAllBuildData()`), filtering on `productEndTime`,
+grouping by `itemId`, and resolving each instance's world position via
+`GetBuildModelCenterVec(pointId, 2, 2, 0)`. That works but is far more machinery than
+needed: `SendCollect(uuid)` collects a building directly, so the position math and the
+205-building scan are gone.
 
 ## Type 2 — supply trucks (build bubbles)
 

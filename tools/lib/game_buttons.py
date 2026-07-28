@@ -88,26 +88,21 @@ BUTTONS: dict[str, Button] = {
     ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(
-        # "Собрать все ресурсы с базы". Sweeps every producing city building and
-        # fires the game's own harvest call for each resource type in one shot —
-        # exactly what tapping a resource building does. Captured from the
-        # "Сбор ресурсов" trace: tapping a ready building calls
-        # BuildingUtils.CityCollectionByItemId(itemId, worldPos...), which batches
-        # every ready building of that itemId. Here we group the base's producing
-        # buildings (those with a productEndTime) by itemId and call it per group;
-        # the server collects whatever is ready and no-ops the rest (proven
-        # harmless), so this needs no per-building readiness check. Positions come
-        # from BuildingUtils.GetBuildModelCenterVec(pointId,2,2,0), as in the trace.
+        # "Собрать все ресурсы с базы" — the base's own "Collect All" in one press.
+        # The base's resource generators are production lines tracked by
+        # DataCenter.ProductLineManager; harvesting one is SendCollect(uuid), and
+        # the game's Collect-All button simply fires that for every ready building.
+        # So this loops GetAllBuildUuids() and calls SendCollect on each — an
+        # already-empty building just no-ops, so no readiness check is needed.
+        # Verified live through the warm daemon: sweeping all 38 production
+        # buildings dropped their pending storage from ~29k to ~6k (16 ready -> 0).
+        # No world positions, itemId grouping or 205-building scan — the earlier
+        # BuildingUtils.CityCollectionByItemId approach is retired.
         # See docs/research/resource-collection.md.
         lua=(
-            "local bm=DataCenter.BuildManager local u=table.unpack or unpack local g={} "
-            "for _,b in pairs(bm:GetAllBuildData() or {}) do "
-            "if type(b)=='table' and b.pointId and (b.itemId or b.cachedItemId) "
-            "and b.productEndTime and b.productEndTime>0 then "
-            "local id=b.itemId or b.cachedItemId "
-            "local okp,p=pcall(function() return BuildingUtils.GetBuildModelCenterVec(b.pointId,2,2,0) end) "
-            "if okp and p then g[id]=g[id] or {} local t=g[id] t[#t+1]=p end end end "
-            "for id,p in pairs(g) do pcall(function() BuildingUtils.CityCollectionByItemId(id, u(p)) end) end"
+            "local plm=DataCenter.ProductLineManager "
+            "for _,u in pairs(plm:GetAllBuildUuids() or {}) do "
+            "pcall(function() plm:SendCollect(u) end) end"
         ),
         wait=1.5, label="Collect base resources",
     ),
