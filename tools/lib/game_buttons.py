@@ -136,8 +136,16 @@ BUTTONS: dict[str, Button] = {
         # The base's resource generators are production lines tracked by
         # DataCenter.ProductLineManager; harvesting one is SendCollect(uuid), and
         # the game's Collect-All button simply fires that for every ready building.
-        # So this loops GetAllBuildUuids() and calls SendCollect on each — an
-        # already-empty building just no-ops, so no readiness check is needed.
+        # So this loops GetAllBuildUuids() and calls SendCollect on the ready ones.
+        # READINESS IS MANDATORY: SendCollect on a building with nothing banked is
+        # NOT a no-op — the server answers `building.production.collect` with
+        # errorCode 602026 "In production, please be patient." and the client pops
+        # that toast, one per building (confirmed on the wire, task #1087).
+        # GetBuildingCurrStorage(uuid) is the banked amount and the server bills
+        # exactly floor() of it (stor 30155.12 -> resNum 30155, stor 210.87 ->
+        # resNum 210, both captured live), so `>= 1` is precisely the server's own
+        # accept condition — and it also skips the sub-unit window right after a
+        # collect, where storage is positive but floors to 0.
         # Verified live through the warm daemon: sweeping all 38 production
         # buildings dropped their pending storage from ~29k to ~6k (16 ready -> 0).
         # No world positions, itemId grouping or 205-building scan — the earlier
@@ -146,7 +154,8 @@ BUTTONS: dict[str, Button] = {
         lua=(
             "local plm=DataCenter.ProductLineManager "
             "for _,u in pairs(plm:GetAllBuildUuids() or {}) do "
-            "pcall(function() plm:SendCollect(u) end) end"
+            "local ok,stor=pcall(function() return plm:GetBuildingCurrStorage(u) end) "
+            "if ok and (stor or 0)>=1 then pcall(function() plm:SendCollect(u) end) end end"
         ),
         wait=1.5, label="Collect base resources",
     ),

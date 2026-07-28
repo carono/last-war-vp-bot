@@ -641,6 +641,15 @@ found the answer in minutes.
    API; reading one was pure detour. Decide everything by reading VM state through the
    daemon.
 
+6. **"It silently no-ops" is a claim about the wire — go read the wire** (#1087). The
+   sweep was shipped fire-at-everything because a not-ready building looked inert from
+   the VM: `pcall` succeeded, nothing was logged, storage stayed 0. It was not inert —
+   every one of those calls left the client and came back as
+   `errorCode 602026 "In production, please be patient."`, one player-facing toast each.
+   A 30-second `tools/lib/live_tshark.py` capture around a single call settled it. When
+   a loop fires a *network* call speculatively, the capture — not the absence of a Lua
+   error — is what proves the no-op.
+
 The durable write-up for this specific feature, incl. the method-by-method test table,
 is [`../research/resource-collection.md`](../research/resource-collection.md).
 

@@ -14,18 +14,58 @@ Recipes: `actions/collect_base_resources.md` (blessed) and
 The base's resource generators are **production lines**, owned by
 `DataCenter.ProductLineManager`. Collecting one building is a single call —
 `ProductLineManager:SendCollect(uuid)` — and the game's own "Collect All" button
-does nothing more than fire that for every ready building. So a full base sweep is
-just a loop over `GetAllBuildUuids()`:
+does nothing more than fire that for every **ready** building. So a full base sweep is
+a loop over `GetAllBuildUuids()` gated on readiness:
 
 ```lua
 local plm = DataCenter.ProductLineManager
 for _, u in pairs(plm:GetAllBuildUuids() or {}) do
-  pcall(function() plm:SendCollect(u) end)
+  local ok, stor = pcall(function() return plm:GetBuildingCurrStorage(u) end)
+  if ok and (stor or 0) >= 1 then pcall(function() plm:SendCollect(u) end) end
 end
 ```
 
-An already-empty building simply no-ops, so **no readiness check is needed** and no
-window has to be open — the harvest is fully headless.
+No window has to be open — the harvest is fully headless.
+
+### The readiness gate is mandatory (task #1087)
+
+An earlier version of this note claimed an already-empty building "simply no-ops, so no
+readiness check is needed". **That is wrong.** `SendCollect` on a building with nothing
+banked goes out on the wire and is rejected by the server — captured live:
+
+```
+--> building.production.collect  uuid=1267743595478371491
+<-- building.production.collect  errorCode='602026' errorMsg='In production, please be patient.'
+```
+
+The client turns each rejection into a toast, so an ungated sweep of 38 buildings left
+the player staring at a queue of "production still running" popups — one per not-ready
+building.
+
+**The gate:** `GetBuildingCurrStorage(uuid) >= 1`. The server bills exactly `floor()` of
+the client-side storage — both captured on the wire in the same session:
+
+| client `GetBuildingCurrStorage` | server `resNum` in the reply |
+|---|---|
+| `30155.124313861` | `30155` |
+| `210.87499520183` | `210` |
+
+so `floor(storage) >= 1` *is* the server's own accept condition. `>= 1` rather than
+`> 0` also skips the sub-unit window right after a collect, where a continuous producer
+already shows a fraction that still floors to 0.
+
+Two shapes of building exist and both are covered by the same gate: continuous resource
+generators, whose storage climbs every second (~70/s on a maxed farm), and batch "goods"
+factories, whose storage stays at exactly `0` until `GetNextCollectTime(uuid)` and then
+jumps by a whole `GetBuildProduceNum(uuid)`.
+
+Not the gate, checked and rejected: `GetState(uuid)` (`1` for ready and empty alike),
+`GetNextCollectTime(uuid)` (the *next production tick*, in the future even for a
+building that is full and collectable) and `TryCollectRes(uuid)` (sends nothing at all —
+a capture around it showed no `building.production.collect` frame).
+
+Verified after the fix: the gated sweep sent 36 collects and got 36 successful replies,
+zero `602026`.
 
 ### How this was pinned down (all confirmed live)
 
@@ -33,7 +73,11 @@ Each production building exposes, keyed by uuid:
 
 - `plm:GetAllBuildUuids()` → the 38 production buildings (a plain Lua table).
 - `plm:GetBuildingCurrStorage(uuid)` → the pending, uncollected amount. This is the
-  ground-truth signal: it resets to ~0 the instant a building is collected.
+  ground-truth signal *and* the readiness gate: it resets to ~0 the instant a building
+  is collected, and the server accepts a collect exactly when it floors to `>= 1`.
+- `plm:GetNextCollectTime(uuid)` → when the next production tick lands (**not** a
+  collect cooldown).
+- `plm:GetBuildProduceNum(uuid)` → the per-tick production of that building.
 - `plm:CanOneKeyCollectRes()` → whether anything is currently collectible.
 
 The collectors were tested one method at a time, watching `GetBuildingCurrStorage`:
@@ -96,6 +140,8 @@ API alternatives if the bubble path proves unreliable.
 
 `collect_base_resources` (the `SendCollect` sweep) is **user-confirmed working live** —
 run against a real base it collected every ready resource generator in a single tap.
+Since #1087 it skips the not-ready ones, so the harvest no longer trails a queue of
+"In production, please be patient." toasts.
 
 ## Notes for the next session
 
