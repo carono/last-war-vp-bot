@@ -14,6 +14,11 @@ See [`docs/install/`](docs/install/README.md) — step-by-step Windows guides fo
 
 See [`docs/architecture.md`](docs/architecture.md).
 
+## Feature status
+
+What the bot can do today, against the legacy feature list and the operator's
+daily routine: [`docs/farming.md`](docs/farming.md).
+
 ## Running
 
 Easiest: double-click **`run.bat`** in the repository root. It activates the venv and launches the control UI.
