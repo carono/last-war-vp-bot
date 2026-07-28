@@ -70,6 +70,22 @@ BUTTONS: dict[str, Button] = {
         count_lua="DataCenter.AllianceScienceDataManager:GetResDonateRestCount()",
         max_taps=40,
     ),
+    # --- Alliance -> help every member with an open help request -------------
+    "help_ally_all": Button(
+        # The in-game "Помочь всем" (Help All) button. OnHelpAll clears EVERY pending
+        # request in one shot, so it needs no UI window open — it reads the help list
+        # and fires the al.help.all message straight from the data manager. Helping is
+        # unlimited; only the daily HELP POINTS are capped (GetAllianceHelpSliderData ->
+        # {todayHelpPoint, maxHelpCount=1000}), and hitting that cap does NOT stop you
+        # from helping. See docs/research/alliance-tech-donate.md sibling notes.
+        lua="DataCenter.AllianceHelpDataManager:OnHelpAll()",
+        wait=1.0, label="Help All (alliance)",
+        # GetHelpNum = how many requests are still waiting; one OnHelpAll drops it to 0,
+        # so `xall` presses once and re-reads to confirm (and mops up any that arrive in
+        # the gap) instead of guessing a fixed count.
+        count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",
+        max_taps=10,
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.
