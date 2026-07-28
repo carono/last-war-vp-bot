@@ -1784,7 +1784,6 @@ class Panel(tk.Tk):
                     record = json.loads(raw)
                     if isinstance(record, dict):
                         self._chat_q.put(record)
-                        self._append_chat(record)
                 except json.JSONDecodeError:
                     pass
         except Exception:
@@ -1794,13 +1793,9 @@ class Panel(tk.Tk):
             self._chat_proc = None
             self.after(0, lambda: self._chat_var.set(False))
 
-    def _append_chat(self, record: dict) -> None:
-        """Persist one chat record to the active profile's chat_log.jsonl."""
-        try:
-            with open(self._profiles.chat_log(), "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except OSError:
-            pass
+    # chat_log.jsonl is written by chat_reader.py itself (`--out`), so the panel
+    # does NOT append here: two processes appending to one file interleaved
+    # their buffers, duplicating every record and corrupting utf-8 mid-line.
 
     def _stop_chat(self) -> None:
         proc, self._chat_proc = self._chat_proc, None
@@ -1839,9 +1834,14 @@ class Panel(tk.Tk):
         if not os.path.isfile(path):
             return
 
+        # Older logs were appended by two processes at once (the panel and
+        # `chat_reader --out`), so their buffers could interleave and split a
+        # multi-byte character across a line boundary -- a strict utf-8 read
+        # then died with UnicodeDecodeError on startup. Decode leniently: a
+        # mangled line simply fails the json parse below and is skipped.
         raw_records: list = []
         try:
-            with open(path, encoding="utf-8") as fh:
+            with open(path, encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line:
@@ -1854,6 +1854,19 @@ class Panel(tk.Tk):
                         pass
         except OSError:
             return
+
+        # Same history: every message landed in the file twice (once per writer).
+        # Drop repeats by the identity chat_reader itself dedupes on.
+        seen: set = set()
+        unique: list = []
+        for rec in raw_records:
+            key = (rec.get("room_id"), rec.get("seq_id"),
+                   rec.get("sender_uid"), rec.get("msg"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(rec)
+        raw_records = unique
 
         for record in raw_records[-500:]:
             chat_type = record.get("chat_type", "other")
