@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 77
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 78
 
-🟩 18 done · 🟨 10 partly · 🟥 49 not automated
+🟩 18 done · 🟨 10 partly · 🟥 50 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -46,6 +46,7 @@ start to finish. Every ✅ below is still something a human starts.
 - ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask
 - ❌ Notification about an appointment
 - ❌ Applying during the alliance duel
+- ❌ Using the post's occupation skills — the buffs a serving minister hands out to alliancemates
 
 ### Alliance support
 
