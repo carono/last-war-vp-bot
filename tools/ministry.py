@@ -25,17 +25,15 @@ Everything here is read straight out of the live Lua VM through the warm daemon
 Two things have to be asked for before they can be read, so this tool fires both
 requests, waits one round trip and only then reads:
 
-  * `get.kingdom.positions <your server>` — the position table holds whatever kingdom
-    the client last looked at, and browsing another server (the cross-server world
-    view) leaves ITS holders cached. Each row prints the server its holder's uid
-    belongs to, so a stale board is visible rather than silently wrong. Several
-    servers under one government is normal, not stale: a season merges a group of
-    servers into one kingdom (935/972/1032 here). A board with nobody from your own
-    server on it is the real stale case, and it is called out.
+  * `get.kingdom.positions` — the position table holds whatever kingdom the client
+    last looked at, and browsing another server (the cross-server world view) leaves
+    ITS holders cached. Each row prints the server its holder came from, so which
+    ministry is on screen is visible rather than assumed. Holders from several servers
+    are normal: a season merges a group of them under one government.
   * `kingdom.position.apply.list` — the applicant queues are never pushed.
 
 Submitting an application is not affected by any of this: `kingdom.position.apply`
-carries no server field and the server always applies it to your own kingdom.
+carries no server field and the server applies it to the sender's own kingdom.
 
 The two numbers other scripts want are `queue` (how many are waiting) and `held_min`
 (how many minutes the current holder has sat) — they are what a scheduling recipe
@@ -87,9 +85,7 @@ pcall(function()
   local G = DataCenter.GovernmentManager
   local T = DataCenter.GovernmentTemplateManager
   L("now="..tostring(UITimeManager.Instance:GetSocketTime()))
-  local uid = tostring(select(2, pcall(function() return DataCenter.PlayerInfoDataManager:GetSelfUid() end)))
   L("self pos="..tostring(G.self_positionId or 0)
-    .." home="..tostring(tonumber(uid:sub(-6)) or 0)
     .." viewing="..tostring(G.curDataServerId or 0)
     .." resign="..tostring(select(2, pcall(function() return M:GetResignOfficeTime() end))))
   for _, id in pairs(M:GetCanApplyGovernmentList() or {}) do
@@ -97,6 +93,14 @@ pcall(function()
     local queue, mine = 0, -1
     for _ in pairs(M:GetApplyList(id) or {}) do queue = queue + 1 end
     pcall(function() mine = M:GetApplyListOwnIndex(id) end)
+    -- Same gate the TAP button uses, so the column never disagrees with the press:
+    -- CheckCanApply alone says "yes" to the zone-war commanders even when only the
+    -- conqueror may have them (see docs/research/ministry.md).
+    local can = M:CheckCanApply(id)
+    if can then
+      local tpl = T:GetTemplate(id)
+      if tpl and tpl.type == 1 then can = G:IsConqueror(G.curDataServerId) and true or false end
+    end
     L("P id="..tostring(id)
       .." title="..hex(tostring(select(2, pcall(function() return T:GetTemplateName(id) end)) or ""))
       .." holder="..hex(tostring(info and info.name or ""))
@@ -105,7 +109,7 @@ pcall(function()
       .." since="..tostring(info and info.appointTime or 0)
       .." queue="..tostring(queue)
       .." myIndex="..tostring(mine)
-      .." canApply="..tostring(M:CheckCanApply(id) and 1 or 0)
+      .." canApply="..tostring(can and 1 or 0)
       .." lastApply="..tostring((M.ownApplyTimeList or {})[id] or 0))
   end
 end)
@@ -129,24 +133,23 @@ def _num(v) -> int:
 def read_board(ev, refresh: bool = True) -> dict:
     """The whole board: `{now_ms, self_position, resign_in, posts: [...]}`.
 
-    `refresh` reloads our own kingdom's holders and asks for the applicant queues
-    first. Without it the `queue` column reflects whatever the client had cached
-    (usually nothing) and the holders may belong to a server the player was merely
-    browsing — only turn it off when the caller has just refreshed by other means.
+    `refresh` reloads the holder table and asks for the applicant queues first.
+    Without it the `queue` column reflects whatever the client had cached (usually
+    nothing) — only turn it off when the caller has just refreshed by other means.
     """
     if refresh:
         ev.run(lua_actions.ministry_fetch_board(), MARKER, 0.2)
         time.sleep(BOARD_SETTLE)
 
-    board = {"now_ms": 0, "self_position": 0, "home_server": 0, "viewing_server": 0,
+    board = {"now_ms": 0, "self_position": 0, "viewing_server": 0,
              "resign_in": 0, "posts": []}
     for ln in ev.run(_BOARD_LUA, MARKER, 1.4):
         body = ln[4:] if ln.startswith("ACT ") else ln
         if body.startswith("now="):
             board["now_ms"] = _num(body[4:])
         elif body.startswith("self "):
-            _keys = {"pos": "self_position", "home": "home_server",
-                     "viewing": "viewing_server", "resign": "resign_in"}
+            _keys = {"pos": "self_position", "viewing": "viewing_server",
+                     "resign": "resign_in"}
             for tok in body[5:].split(" "):
                 key, _, value = tok.partition("=")
                 if key in _keys:
@@ -168,9 +171,14 @@ def read_board(ev, refresh: bool = True) -> dict:
 
 
 def held_minutes(post: dict, now_ms: int) -> float:
-    """Minutes the current holder has sat, or -1 for a vacant / unloaded post."""
-    since = post.get("since", 0)
-    if not since or not now_ms:
+    """Minutes the current holder has sat, or -1 for a vacant / unloaded post.
+
+    A vacant seat still carries a stale `appointTime` from whoever sat there last, so
+    `since` alone reads as "held for weeks" on an empty post — the holder's uid is what
+    actually says someone is in the chair.
+    """
+    since, uid = post.get("since", 0), post.get("uid", 0)
+    if not since or not uid or not now_ms:
         return -1.0
     return max(0.0, (now_ms - since) / 60000.0)
 
@@ -240,8 +248,9 @@ def main() -> int:
 
     board = read_board(ev, refresh=not args.no_refresh)
     now = board["now_ms"]
-    print("server %d; your post: %s; resign lock %ds"
-          % (board["home_server"], board["self_position"] or "-", board["resign_in"]))
+    print("kingdom %s; your post: %s; resign lock %ds"
+          % (board["viewing_server"] or "?", board["self_position"] or "-",
+             board["resign_in"]))
     print("%-7s %-26s %-18s %-6s %-8s %-6s %-6s %s"
           % ("id", "post", "holder", "abbr", "held,min", "queue", "srv", "canApply"))
     seen = set()
@@ -255,18 +264,12 @@ def main() -> int:
                  p.get("abbr", ""), "-" if held < 0 else "%.0f" % held,
                  p.get("queue", 0), srv or "-", "yes" if p.get("canApply") else "no"))
     # A season merges several servers into one kingdom group under a single government,
-    # so holders from neighbouring servers are normal — what is NOT normal is a board
-    # with nobody from our own server on it, which means we are looking at a kingdom
-    # the player merely browsed (the cross-server world view leaves it cached).
-    if seen and board["home_server"] not in seen:
-        print("WARNING: no post on this board is held by anyone from server %d — this is "
-              "another kingdom's ministry, left over from browsing it (viewing=%s). "
-              "Applying is unaffected (kingdom.position.apply carries no server and "
-              "always lands on your own), but the holder and queue columns are not yours."
-              % (board["home_server"], board["viewing_server"]))
-    elif len(seen) > 1:
-        print("kingdom group: %s (a season merges servers under one government)"
-              % ", ".join(str(s) for s in sorted(seen)))
+    # so holders from more than one server are normal. The column is printed rather than
+    # judged: which kingdom is loaded is the client's business, and the logged-in
+    # account is not a constant (see lua_actions.ministry_fetch_board).
+    if len(seen) > 1:
+        print("holders come from %d servers — a season merges a group of them under "
+              "one government" % len(seen))
 
     if args.json:
         for p in board["posts"]:

@@ -81,7 +81,8 @@ Reads, all off `DataCenter`:
 | the post I hold | `GovernmentManager.self_positionId` / `:GetOwnPositionId()` |
 | who holds a post, since when | `GovernmentManager:GetPositionInfoByPositionId(id)` → `{name, abbr, uid, appointTime}` |
 | minimum time in office | `OfficialApplyManager:GetResignOfficeTime()` → `1801` s (a configured constant, not a countdown) |
-| my own uid → my server | `PlayerInfoDataManager:GetSelfUid()`; the last six digits are the server (`…000972` → 972) |
+| ministry post or zone-war commander | `GovernmentTemplateManager:GetTemplate(id).type` → `0` / `1` |
+| is my alliance the conqueror | `GovernmentManager:IsConqueror(serverId)` |
 
 Two things must be *asked for* before they can be read — both fire-and-forget, so read
 them from a separate chunk after ~1.6 s (never loop-and-wait inside one chunk):
@@ -89,8 +90,8 @@ them from a separate chunk after ~1.6 s (never loop-and-wait inside one chunk):
 * `OfficialApplyManager:SendKingdomPositionApplyList(id)` → `kingdom.position.apply.list`
   fills the applicant queues. They are never pushed; unfetched reads as an empty queue,
   which is indistinguishable from "nobody is waiting".
-* `SFSNetwork.SendMessage('get.kingdom.positions', <your server>)` repoints the position
-  table at your own kingdom (see the server trap below).
+* `SFSNetwork.SendMessage('get.kingdom.positions', <kingdom>)` refreshes the holder
+  table (see the board section below).
 
 ## The trap: position ids are strings
 
@@ -110,23 +111,48 @@ This cost a shipped-but-dead recipe: the first `submit_ministry.md` run logged
 own serialiser, because `positionId` goes out as a UtfString. Every chunk in
 `lua_actions.py` quotes the id.
 
-## The other trap: whose ministry are you looking at?
+## The other trap: `CheckCanApply` does not cover the commander posts
 
-`GetPositionInfoByPositionId` serves *whatever kingdom's positions were last loaded*.
-Browsing another server (the cross-server world view, `world-tiles.md`)
-leaves that server's holders cached, and the board then reads perfectly while describing
-strangers. It happened mid-session here: the board showed server 509's ministry while the
-account lives on 972.
+The template's `type` splits the eight posts in two: `type == 0` is the ordinary
+ministry, `type == 1` are the two zone-war commanders. They are **not** applied for on
+the same terms — the commanders belong to the war's conqueror — but
+`CheckCanApply` returns `true` for them regardless, including with the zone war long
+over and both seats empty.
 
-`tools/ministry.py` prints the six-digit server suffix of each holder's uid and calls out
-a board with nobody from your own server on it. **Several servers on one board is
-normal** — a season merges a group of servers under a single government (935/972/1032 in
-this session), so a mixed board is the expected shape, not a stale one.
+So the client happily puts a doomed request on the wire. Firing one deliberately, with
+`SFSNetwork.SendMessage` and `KingdomPositionApplyMessage.HandleMessage` wrapped:
 
-Applying is *not* affected: `kingdom.position.apply` carries no server field and the
-server always applies it to the sender's own kingdom. That was confirmed the hard way —
-the application that landed was sent while the client was showing server 509's board, and
-the post granted was on the account's own server 972.
+```
+SEND  kingdom.position.apply
+REPLY errorCode = officer_apply_045
+      errorMsg  = "not conqueror uuid:<alliance uuid>"
+```
+
+That is the resource-collect trap again (`resource-collection.md`): "the client did not
+complain" is not evidence of a no-op — the request left, was rejected, and the player got
+a toast for it. The gate in `lua_actions._ministry_gate` therefore adds
+`IsConqueror(curDataServerId)` for `type == 1` posts, and `ministry_can_apply` mirrors it
+so `TAP … xall` never reports a press the chunk then declines to make. Verified: with the
+gate in place the commander application produces **no** `SEND` at all.
+
+Only the negative half is proven. No conqueror account was available, so "the gate opens
+for someone who *is* the conqueror" is inference, not observation.
+
+## Whose ministry is on the board?
+
+`GetPositionInfoByPositionId` serves *whatever kingdom's positions were last loaded*, and
+browsing another server (the cross-server world view, `world-tiles.md`) leaves that
+kingdom's holders cached. Holders from several different servers on one board are normal
+rather than suspicious: a season merges a group of servers under a single government.
+
+`tools/ministry.py` prints the server each holder came from and does not judge it. Naming
+"your own" kingdom was tried and dropped: the logged-in account is not a constant during a
+session (operators switch accounts), so anything derived from the current identity is a
+claim the tool cannot stand behind. Showing what is actually loaded is the honest form.
+
+Applying is unaffected either way — `kingdom.position.apply` carries **only**
+`positionId`, with no server field, so the kingdom is the server's business and not
+something the client chooses.
 
 ## Verification
 
@@ -138,9 +164,14 @@ the post granted was on the account's own server 972.
 4. Re-run through the DSL: `run_action('submit_ministry', 0)` →
    `TAP Apply: Minister of the Interior … (1; 1 available)` → `1 press(es)`.
 
-The post was lost again minutes later to another applicant — on an auto-granting server
-the ministry churns, which is exactly why the queue and "how long has the holder sat"
-reads exist: scheduling *when* to apply is left to the recipes that will use them.
+5. The Administrative Commander post, applied for on purpose because it was known to be
+   unavailable: request sent, `officer_apply_045` back. After the conqueror gate landed,
+   the same call sends nothing.
+
+The post was lost again minutes later to another applicant — where the server grants
+applications automatically the ministry churns, which is exactly why the queue and "how
+long has the holder sat" reads exist: scheduling *when* to apply is left to the recipes
+that will use them.
 
 ## Usage
 

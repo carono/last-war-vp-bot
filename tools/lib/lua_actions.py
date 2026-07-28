@@ -282,9 +282,11 @@ def chat_share_point(room_id: str, attachment_json: str, post: int = POST_POINT_
 # serialiser then throws "attempt to get length of a number value"
 # (SFSDataSerializer). Every chunk below quotes the id for exactly this reason.
 #
-# Ids and names were read live off `GovernmentTemplateManager:GetTemplateName(id)`;
-# 10008/10009 only exist while the zone war runs. `slug` is the name the DSL
-# `TAP` catalogue uses (tools/lib/game_buttons.py generates one button per post).
+# Ids and names were read live off `GovernmentTemplateManager:GetTemplateName(id)`.
+# The template's `type` field splits them into two families that are NOT applied for
+# on the same terms: `type == 0` is the ordinary ministry, `type == 1` are the zone-war
+# commanders, which only the conqueror may ask for. `slug` is the name the DSL `TAP`
+# catalogue uses (tools/lib/game_buttons.py generates one button per post).
 # See docs/research/ministry.md.
 MINISTRY_POSTS: dict[int, tuple[str, str, str]] = {
     # id: (slug, English gloss, the in-game Russian name)
@@ -302,6 +304,32 @@ MINISTRY_POSTS: dict[int, tuple[str, str, str]] = {
 MINISTRY_SLUGS: dict[str, int] = {slug: pid for pid, (slug, _, _) in MINISTRY_POSTS.items()}
 
 
+def _ministry_gate(position_id: int) -> str:
+    """Lua expression: may an application for `position_id` be sent right now?
+
+    Two conditions, because the client's own pre-flight only covers the first:
+
+    * `CheckCanApply(id)` — already holding a post, still on this post's cooldown.
+    * the conqueror check for `type == 1` posts (the zone-war commanders).
+      `CheckCanApply` returns **true** for those even when the zone war is over and
+      nobody may have them, so relying on it alone puts a doomed request on the wire:
+      the server answers `kingdom.position.apply` with `errorCode officer_apply_045`,
+      `errorMsg "not conqueror <alliance uuid>"`, and the client raises the matching
+      toast. Observed live against the Administrative Commander post.
+
+    The conqueror half is verified only in the negative (a non-conqueror is correctly
+    blocked); no conqueror account was available to confirm it opens.
+    """
+    return (
+        "(function() local M=DataCenter.OfficialApplyManager "
+        "local G=DataCenter.GovernmentManager "
+        "if not M:CheckCanApply('%d') then return false end "
+        "local t=DataCenter.GovernmentTemplateManager:GetTemplate('%d') "
+        "if t and t.type==1 then return G:IsConqueror(G.curDataServerId) and true or false end "
+        "return true end)()" % (int(position_id), int(position_id))
+    )
+
+
 def ministry_apply(position_id: int) -> str:
     """Submit an application for kingdom position `position_id`.
 
@@ -309,18 +337,17 @@ def ministry_apply(position_id: int) -> str:
     `UIOfficialApplyCtrl:SendKingdomPositionApply(positionId)`, and that method never
     touches `self`, so the module table can stand in for the window controller.
 
-    Gated on `CheckCanApply(id)`, which is the client's own pre-flight (already hold a
-    post / still on the per-post cooldown / the post is closed). Without the gate the
-    application still leaves the client and comes back as a server-side rejection with a
-    player-facing toast — the same trap as the resource-collect readiness gate.
+    Gated by `_ministry_gate` — without it the application still leaves the client and
+    comes back as a server-side rejection with a player-facing toast, the same trap as
+    the resource-collect readiness gate.
     """
     return (
         "local M = DataCenter.OfficialApplyManager "
         "local id = '%d' "
-        "if M:CheckCanApply(id) then "
+        "if %s then "
         "M:SetViewPositionId(id) "
         "local C = require('UI.UIGovernment.OfficialApply.Controller.UIOfficialApplyCtrl') "
-        "C.SendKingdomPositionApply(C, id) end" % int(position_id)
+        "C.SendKingdomPositionApply(C, id) end" % (int(position_id), _ministry_gate(position_id))
     )
 
 
@@ -328,9 +355,11 @@ def ministry_can_apply(position_id: int) -> str:
     """Lua *expression* -> 1 when an application for `position_id` would be accepted.
 
     Numeric on purpose: it is what `TAP <post> xall` counts down and what a recipe reads
-    with `READ_LUA … INTO <var>` to decide whether to bother applying at all.
+    with `READ_LUA … INTO <var>` to decide whether to bother applying at all. Mirrors
+    `ministry_apply`'s gate exactly, so `xall` never reports a press that the chunk then
+    silently declines to make.
     """
-    return "(DataCenter.OfficialApplyManager:CheckCanApply('%d') and 1 or 0)" % int(position_id)
+    return "(%s and 1 or 0)" % _ministry_gate(position_id)
 
 
 def ministry_queue_len(position_id: int) -> str:
@@ -356,35 +385,26 @@ def ministry_held_minutes(position_id: int) -> str:
             % int(position_id))
 
 
-def ministry_home_server() -> str:
-    """Lua *expression* -> the server the account itself lives on.
-
-    A uid ends in its six-digit server number (…000972 -> 972), which is the only
-    reliable home-server marker in the VM: `GovernmentManager.curDataServerId` tracks
-    whatever kingdom the client last *looked at*, not the player's own.
-    """
-    return ("(function() local uid=tostring(DataCenter.PlayerInfoDataManager:GetSelfUid()) "
-            "return tonumber(uid:sub(-6)) or 0 end)()")
-
-
 def ministry_fetch_board() -> str:
-    """Load the board: our own kingdom's post holders, plus every applicant queue.
+    """Load the board: the kingdom's post holders, plus every applicant queue.
 
     Two requests, both fire-and-forget — read the result from a SEPARATE chunk after a
     settle (never loop-and-wait inside one chunk, it freezes the client):
 
-      * `get.kingdom.positions <homeServer>` repoints the position table at OUR kingdom.
-        It has to be explicit: browsing another server's government (the cross-server
-        world view does this) leaves that server's holders cached, and
-        `GetPositionInfoByPositionId` will happily keep serving them — a wrong answer
-        that looks exactly like a right one. The holder uids in the board output carry
-        the server they came from, so the result is checkable.
+      * `get.kingdom.positions <the loaded kingdom>` refreshes the holder table.
       * `kingdom.position.apply.list` per post fills the applicant queues, which are
-        never pushed and are empty until asked for.
+        never pushed and stay empty until asked for.
+
+    The kingdom asked about is `GovernmentManager.curDataServerId` — whichever one the
+    client currently has loaded. No attempt is made to pin the board to "my own"
+    kingdom: the logged-in account is not a constant (operators switch accounts), and
+    the client may be showing a kingdom it was merely browsing. So the reader gets
+    what is actually there rather than an assertion — every board row carries its
+    holder's server, which makes whose ministry is on screen visible.
     """
     return ("local M = DataCenter.OfficialApplyManager "
-            "pcall(function() SFSNetwork.SendMessage('get.kingdom.positions', %s) end) "
+            "local G = DataCenter.GovernmentManager "
+            "pcall(function() SFSNetwork.SendMessage('get.kingdom.positions', G.curDataServerId) end) "
             "for _, id in pairs(M:GetCanApplyGovernmentList() or {}) do "
             "pcall(function() M:SendKingdomPositionApplyList(id) end) end "
-            'CS.UnityEngine.Debug.LogError("ACT ministry_board_requested")'
-            % ministry_home_server())
+            'CS.UnityEngine.Debug.LogError("ACT ministry_board_requested")')
