@@ -112,6 +112,21 @@ BUTTONS: dict[str, Button] = {
              "if w and tostring(w.Name)=='UILWAllianceGift' then w.Ctrl:OnGetAllBtnClick(2) end"),
         wait=0.8, label="Collect premium gifts",
     ),
+    "dismiss_reward_popup": Button(
+        # After a collect the game stacks a "you received …" reward-list modal on
+        # top of the gift window (it appears often — one per non-empty tab). Close
+        # it by NAME so we never touch the gift window or the HUD: the reward-show
+        # popups all carry 'Reward' or are the get-gift view ('GetGift'), whereas
+        # the gift window is 'UILWAllianceGift' (no 'Reward', no 'GetGift') and HUD
+        # windows match neither. A no-op when the top is not such a popup — safe to
+        # press after every collect (and it MUST run between the two collects, or
+        # the modal would block the second collect's window guard).
+        lua=("local w=UIManager.Instance:GetStackTopWindow() "
+             "local n=w and tostring(w.Name) or '' "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf and (n:find('Reward') or n:find('GetGift')) then "
+             "w.Ctrl:CloseSelf() end"),
+        wait=0.5, label="dismiss reward popup",
+    ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(
         # "Собрать все ресурсы с базы" — the base's own "Collect All" in one press.

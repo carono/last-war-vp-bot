@@ -14,11 +14,19 @@
 # that is why this recipe opens the section and closes it at the end (unlike the
 # headless help_ally / collect_base_resources recipes).
 #
+# Each non-empty tab pops a "you received …" reward-list modal on top of the gift
+# window, so dismiss_reward_popup runs after every collect — it also HAS to run
+# between the two collects, or that modal would block the premium collect (its
+# window guard needs the gift window on top). dismiss_reward_popup only closes a
+# reward-show popup (matched by name), so it is a safe no-op when no modal showed.
+#
 # Source: results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl.
 # Live-confirmed in-game (premium gifts collected on OnGetAllBtnClick(2)); see
 # docs/research/alliance-gift-collection.md.
 
 TAP alliance_gifts          # open the "Подарки альянса" section
 TAP collect_gifts_ordinary  # "collect all" on the ordinary-gifts tab (type 1)
+TAP dismiss_reward_popup    # close the "collected gifts" modal if it appeared
 TAP collect_gifts_premium   # "collect all" on the premium-gifts tab (type 2)
+TAP dismiss_reward_popup    # close the modal again
 TAP close                   # close the gift window

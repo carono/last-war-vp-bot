@@ -70,3 +70,22 @@ here the visible in-game claim is the state. (The wire sniffer running alongside
 this probe mostly logged `down`/keepalive frames and missed the `up` claim; the
 original human recording did capture the `up` commands, which is what the mapping
 above rests on.)
+
+## The "collected gifts" modal
+
+A non-empty collect stacks a reward-list modal ("you received …") on top of the
+gift window, and it shows up often. It has to be dismissed **between** the two
+collects too, because the second collect's guard needs the gift window on top.
+
+`dismiss_reward_popup` closes the top window only when its name carries `Reward`
+or `GetGift` — the whole reward-show family (`UIGetRewardView`, `UIRewardShow`,
+`UICommonRewardTip`, `UILWGetGiftView`, `UIGiftPackageRewardGet`, …). That guard
+is provably safe: the gift window is `UILWAllianceGift` (no `Reward`, no `GetGift`)
+and HUD windows match neither, so it can never close them — a no-op when no modal
+is up.
+
+**Caveat:** at authoring time `GetRedPointNum()` was 0, so no modal could be raised
+to read its exact window name; the popup is matched by family, not by a pinned name.
+It closed nothing wrongly in a full dry run (open → collect ×2 → dismiss ×2 → close
+left the gift window on top throughout, then the HUD). Confirm the exact popup name
+on the next real collection (`GetRedPointNum() > 0`) and tighten the match if needed.
