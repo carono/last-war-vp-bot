@@ -2453,7 +2453,8 @@ def _looks_like_board(entry: dict) -> bool:
                for f in LEADERBOARD_SCORE_FIELDS)
 
 
-def filter_players(players, level=None, alliance=None) -> list:
+def filter_players(players, level=None, alliance=None, name=None,
+                   uid=None) -> list:
     """Narrow a base list. None means "any".
 
     `level` takes one HQ level or any iterable of them, matching the "or"
@@ -2461,17 +2462,36 @@ def filter_players(players, level=None, alliance=None) -> list:
     case-insensitively — the tag is drawn uppercase in game but nothing on the
     wire guarantees the case, and an exact-case filter that silently matches
     nothing is worse than a loose one.
+
+    `name` is a **substring** of the player's name, case-insensitively: names
+    carry spacing, decoration and mixed scripts nobody retypes exactly, so an
+    equality test would be a filter that never fires. A base whose tile carried
+    no name cannot match one.
+
+    `uid` is the opposite — an **exact** id, one or any iterable of them, and
+    compared as text because that is how a uid is kept everywhere else here
+    (`PlayerBase.uid` is a str). Every filter is an "and": `--name vp --level
+    30` keeps HQ-30 bases whose name contains "vp".
     """
     levels = None
     if level is not None:
         levels = {level} if isinstance(level, int) else set(level)
     tag = alliance.strip().casefold() if alliance else None
+    needle = name.strip().casefold() if name else None
+    uids = None
+    if uid is not None:
+        one = (uid,) if isinstance(uid, (str, int)) else uid
+        uids = {str(u).strip() for u in one}
 
     out = []
     for p in players:
         if levels is not None and p.level not in levels:
             continue
         if tag is not None and (p.alliance_abbr or "").casefold() != tag:
+            continue
+        if needle is not None and needle not in (p.name or "").casefold():
+            continue
+        if uids is not None and p.uid not in uids:
             continue
         out.append(p)
     # Highest level first — the bases worth looking at before the rest.

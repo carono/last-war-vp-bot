@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-for _p in (_REPO_ROOT, _REPO_ROOT / "tools"):
+for _p in (_REPO_ROOT, _REPO_ROOT / "tools", _REPO_ROOT / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

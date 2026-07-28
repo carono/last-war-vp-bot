@@ -29,6 +29,9 @@ are taken just as seriously; the numbers are equally real.
     python tools/scan_players.py --alliance VP            only that alliance's bases
     python tools/scan_players.py --level 30               only HQ 30
     python tools/scan_players.py --level 30,31            HQ 30 or 31
+    python tools/scan_players.py --name kot               only names containing "kot"
+    python tools/scan_players.py --uid 123456             only that player
+    python tools/scan_players.py --uid 123456,789012      either of them
     python tools/scan_players.py --dump results/traffic.jsonl
                                                           also record every frame
     python tools/scan_players.py --list-ifaces            interfaces, then exit
@@ -74,10 +77,19 @@ timer:
     pan away, so a stale task lies; a base's name and level do not go stale
     that fast, and a sweep across several servers is the point of the tool.
     `seen_at` on every record says when the map last confirmed it;
-  * `--alliance` and `--level` narrow what is *collected*, not just what is
-    printed, so the file and the console always agree. They apply to clicked
-    profiles too, so a click on someone outside the filter is dropped rather
-    than smuggled into a narrowed sweep.
+  * `--alliance`, `--level`, `--name` and `--uid` narrow what is *collected*,
+    not just what is printed, so the file and the console always agree. They
+    apply to clicked profiles too, so a click on someone outside the filter is
+    dropped rather than smuggled into a narrowed sweep. Several of them
+    together is an "and": `--name kot --level 30` keeps only HQ-30 bases whose
+    name contains "kot".
+
+`--name` is a substring and ignores case — names carry spacing and decoration
+nobody retypes exactly. `--uid` is the other extreme: an exact id, which is
+what you want once a run has already told you which player to follow. Neither
+lets a base arrive that the map never sent: a `--uid` sweep still needs someone
+to pan over that player's ground (or to click them) before anything is
+collected.
 
 Each run rewrites `--json` from scratch — it is this run's result, not a
 database that grows across runs. Point successive sweeps at different files
@@ -119,10 +131,12 @@ class PlayerIndex(MapIndex):
     jumped away would collect nothing across a multi-server run.
     """
 
-    def __init__(self, level=None, alliance=None) -> None:
+    def __init__(self, level=None, alliance=None, name=None, uid=None) -> None:
         super().__init__()
         self.level = level
         self.alliance = alliance
+        self.name = name
+        self.uid = uid
         self._bases: dict[tuple, proto.PlayerBase] = {}
         # Wall-clock of the last time the map re-sent each base, so a reader
         # can tell a base confirmed a minute ago from one seen once an hour in.
@@ -149,10 +163,19 @@ class PlayerIndex(MapIndex):
         self._remarks: dict[str, str] = {}
         self.remarks_known = 0
 
+    def _keep(self, players: list) -> list:
+        """The subset of `players` this run was asked to collect.
+
+        One place for every narrowing flag, so a tile and a clicked profile can
+        never disagree about who belongs in the sweep.
+        """
+        return proto.filter_players(players, level=self.level,
+                                    alliance=self.alliance, name=self.name,
+                                    uid=self.uid)
+
     def on_blocks(self, payload, blocks, now: float) -> None:
         found = list(proto.player_bases(payload))
-        kept = proto.filter_players(found, level=self.level,
-                                    alliance=self.alliance)
+        kept = self._keep(found)
         self.rejected += len(found) - len(kept)
         for base in kept:
             key = (base.server_id, base.uid)
@@ -245,8 +268,7 @@ class PlayerIndex(MapIndex):
                 # a chat link, or a roster. Kept without coordinates rather
                 # than dropped: the numbers are the point of the lookup.
                 base = profile.as_base()
-                if not proto.filter_players([base], level=self.level,
-                                            alliance=self.alliance):
+                if not self._keep([base]):
                     self.rejected += 1
                     continue
                 self._bases[key] = self._stamp_remark(base)
@@ -344,6 +366,21 @@ class PlayerIndex(MapIndex):
         return out
 
 
+def uid_set(text: str) -> set:
+    """Parse `--uid` — one uid or a comma-separated list of them.
+
+    Kept as text rather than numbers: a uid is a str everywhere else here, it
+    is an identifier and not a quantity, and parsing it as an int would refuse
+    a perfectly good id the day the server issues one that is not all digits.
+    Refuses an empty selection the way `level_set` does — an argument that
+    narrowed to nothing would quietly collect nothing all run.
+    """
+    uids = {part.strip() for part in text.split(",") if part.strip()}
+    if not uids:
+        raise argparse.ArgumentTypeError("no uid given")
+    return uids
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -362,6 +399,12 @@ def main() -> int:
     ap.add_argument("--alliance", metavar="ABBR",
                     help="only bases of this alliance, by its abbreviation "
                          "(case-insensitive)")
+    ap.add_argument("--name", metavar="TEXT",
+                    help="only players whose name contains this text "
+                         "(case-insensitive substring, not a whole name)")
+    ap.add_argument("--uid", type=uid_set, metavar="UID[,UID...]",
+                    help="only these players, by exact uid; a comma-separated "
+                         "list matches any of them (--uid 123456,789012)")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
@@ -374,7 +417,8 @@ def main() -> int:
     except Exception:
         pass
 
-    index = PlayerIndex(level=args.level, alliance=args.alliance)
+    index = PlayerIndex(level=args.level, alliance=args.alliance,
+                        name=args.name, uid=args.uid)
     stop, bpf = start_capture(index, args)
 
     print("Last War player sweep — scapy/npcap, no dumpcap")
@@ -384,6 +428,10 @@ def main() -> int:
         narrowing.append(f"alliance {args.alliance}")
     if args.level:
         narrowing.append("level " + ",".join(str(n) for n in sorted(args.level)))
+    if args.name:
+        narrowing.append(f"names containing {args.name!r}")
+    if args.uid:
+        narrowing.append("uid " + ",".join(sorted(args.uid)))
     window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
     sink = f" -> {args.json} every {args.interval}s" if args.json else ""
     scope = f" — collecting only {' and '.join(narrowing)}" if narrowing else ""
@@ -481,7 +529,7 @@ def main() -> int:
     diagnose(index, len(everything),
              "Map data arrived but held no player bases you asked for (no "
              "f2=6 tiles passed the filter) — pan over inhabited ground, or "
-             "widen --alliance/--level.")
+             "widen --alliance/--level/--name/--uid.")
     if everything and not profiled:
         print(f"{C_DIM}No profile stats: nothing was clicked during the run, "
               f"or the clicks landed on something other than a base. Power, "
