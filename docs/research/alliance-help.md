@@ -104,7 +104,7 @@ Live, with `tools/lib/live_tshark.py` running:
 ```
 before: pending=6  total=12  helpNum=6
         --> al.help.all  cmdBaseTime=1785267758008
-        <-- al.help.all  allianceId='3d4b9dee…' (+3 fields)
+        <-- al.help.all  allianceId='<my alliance>' (+3 fields)
 after:  pending=0  total=6   helpNum=0
 ```
 
