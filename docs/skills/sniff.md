@@ -579,6 +579,53 @@ Two hard rules while probing (both learned the hard way):
   opened — stage `OpenWindow` / `On…Click` / the action as separate chunks with a
   settle between them. This is exactly what the `wait` field in §8.8 is for.
 
+### 8.7a Post-mortem — the resource-collect trap (read before you replay a trace)
+
+`collect_base_resources` took a whole session to get right. Every wrong turn was a
+violation of §8.7, so they are worth naming — this is the checklist that would have
+found the answer in minutes.
+
+1. **The flashiest XSCALL line is a symptom, not the API.** The resource trace's
+   load-bearing line looks like `BuildingUtils.CityCollectionByItemId(itemId,
+   worldPos...)` — a per-type, position-hungry call. Transcribing it literally forced
+   a 205-building scan (`GetAllBuildData` → group by itemId → resolve each world
+   position) and *still* didn't reliably collect. The real answer was the **quiet**
+   line one row down — `ProductLineManager.bindProductionTimer(<uuid>)` — which names
+   the owner: the base's generators are **production lines**, and the whole harvest is
+   `DataCenter.ProductLineManager:SendCollect(uuid)` looped over `GetAllBuildUuids()`.
+   **Read the trace to find the manager, then §8.7-walk it; don't replay the loudest
+   call.**
+
+2. **The inherited API is a hypothesis, not a fact.** The old recipe, this repo's
+   research note, and the memory all asserted `CityCollectionByItemId`. Anchoring on
+   that framing — trying to *simplify within it* — cost the most time. When a recipe
+   "doesn't work," re-derive the mechanism from live state; don't optimise the wrong
+   call.
+
+3. **The verification signal must reset on success — per unit, not an aggregate.**
+   The first checks watched a whole-base storage *sum*, which climbs every second from
+   ongoing production: a real collect was buried in the noise and a no-op looked
+   identical to a success. Switching to per-building `GetBuildingCurrStorage(uuid)` —
+   which snaps to ~0 the instant that one building is collected — made it unambiguous
+   in one read: `SendCollect` drops it; `CheckOneKeyCollectAll` (only *checks* whether
+   to show the one-key button), `TryCollectRes()`/`OnCollectClick()` with no uuid, and
+   `CampProduceDataManager:CollectAllRes` (a different, seasonal subsystem) do not.
+   Pick a signal that is **zero-or-not for a single unit**, then fire and re-read.
+
+4. **Prefer the data-layer call; ignore the window.** Hunting for "which modal the
+   *resources* tap opens" was a rabbit hole — one candidate is a convert window that
+   hangs when opened without its server data; another's "collect" button was a GM
+   `gm.gain.item` cheat. None of it mattered: the harvest is a headless manager method
+   that needs no UI. If the manager call works from the daemon with nothing open, the
+   recipe needs no window tap (here: two imagined taps collapsed to one).
+
+5. **State over screenshots.** A `*_collect_all.png` template says nothing about the
+   API; reading one was pure detour. Decide everything by reading VM state through the
+   daemon.
+
+The durable write-up for this specific feature, incl. the method-by-method test table,
+is [`../research/resource-collection.md`](../research/resource-collection.md).
+
 ### 8.8 Add the buttons
 
 `tools/lib/game_buttons.py` is the vocabulary the DSL's `TAP` speaks: one entry
