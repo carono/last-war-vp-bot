@@ -125,6 +125,35 @@ uuid.
 | `TAP dismiss_steal_reward` | loot window closed |
 | queue + `actions/steal_secret_task.md` (uuid …0444144278) | **robbed**, 3 → 2 left, queue emptied |
 
+## 6a. Auto-loot — the panel button
+
+The panel's «Автолут ★ макс. уровня» (Secret tasks frame) robs **starred tasks
+only, and only the highest level the scan actually found**. With no star in view
+it does nothing at all — deliberately, because the scarce thing is the day's five
+robberies, not the targets: an attempt spent on a plain level-5 tile is one a
+level-7 star cannot have until the daily reset.
+
+It reads the capture's own checkpoint — the monitor now runs with
+`--json <profile>/secret_tasks.json`, rewritten every tick — and hands it to
+`tools/steal_secret_task.py --from-scan … --star-max`, the same entrypoint a
+human uses from the shell. `load_fresh_tasks` drops any tile not re-seen in the
+last 15 minutes and recomputes `can_loot` against the current clock, so a stale
+file cannot aim a robbery at a tile that is already gone.
+
+Two things it does NOT do, both on purpose:
+
+* it ignores the panel's display filters (stars / pending / level range) — those
+  decide what is *printed*, and a display filter quietly changing who gets raided
+  would be a nasty surprise;
+* it does not wait for a star whose dispatch is still running. A starred tile
+  that is not raidable *right now* is simply not a target this press. Observed
+  live: three level-7 stars in view, all «ещё выполняется» (12–90 minutes out),
+  19 ordinary tiles raidable — the button correctly robbed nothing.
+
+`starred` is the decoder's reading of `cfgId` (family 6000 minus the `99` class),
+not something the game states on the wire — see §7 of `protocol.md`. That is the
+one soft spot in this rule.
+
 ## 7. Open
 
 * **Finding targets is still the weak half.** The queue has to be filled from a

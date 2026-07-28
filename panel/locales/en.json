@@ -68,6 +68,7 @@
   "secret.can_loot_only": "Lootable only",
   "secret.level_from": "Level from",
   "secret.level_to": "to",
+  "secret.autoloot": "Auto-loot ★ best level",
 
   "capture.secret_tasks": "Secret tasks",
   "capture.ghost_op": "Operation Ghost",

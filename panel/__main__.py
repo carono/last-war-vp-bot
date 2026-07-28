@@ -254,6 +254,7 @@ class Panel(tk.Tk):
         self._coord_seq = 0
         self._mon_proc = None
         self._rally_proc = None
+        self._autoloot_proc = None    # one auto-loot run at a time
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
@@ -648,6 +649,14 @@ class Panel(tk.Tk):
         self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
+        # Auto-loot: rob the starred tasks of the highest level the capture has
+        # actually seen. Deliberately unrelated to the filter checkboxes above —
+        # those only decide what is printed, while this decides what is robbed,
+        # and a display filter silently changing who gets raided would be a nasty
+        # surprise. Stars only: with no star in the scan it robs nothing at all.
+        self._autoloot_btn = self._tr(ttk.Button(row2, command=self._autoloot_stars),
+                                      "secret.autoloot")
+        self._autoloot_btn.pack(side="right", padx=(8, 0), ipady=2)
 
         rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
@@ -883,6 +892,15 @@ class Panel(tk.Tk):
         # Let the capture auto-detect the game's live port; --all-tcp stays a
         # manual last resort for when detection genuinely fails.
         cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script)]
+        # Checkpoint what the capture currently sees into the profile, so the
+        # auto-loot button has a machine-readable view of the map instead of the
+        # log lines this panel prints for the human. Rewritten every tick; the
+        # reader drops anything not re-seen in the scan window, so a stale file
+        # cannot send a robbery at a tile that has already been taken.
+        # Only for the secret-task capture: the ghost-recon one writes its own
+        # record shape, and auto-loot must never be handed that by mistake.
+        if script == CAPTURE_OPTIONS[0]["script"]:
+            cmd += ["--json", self._profiles.tasks_json()]
         # Capture tick interval from the panel (falls back to the child's own
         # default if the field is blank or non-numeric).
         interval = self._interval_var.get().strip()
@@ -1037,6 +1055,50 @@ class Panel(tk.Tk):
                 proc.terminate()
             except Exception:
                 pass
+
+    # -- auto-loot: rob the best starred tasks the capture has found ---------
+    def _autoloot_stars(self) -> None:
+        """Rob the starred secret tasks of the highest level currently on the map.
+
+        One button, one rule: **starred only, best level only**. The day's budget is
+        five robberies (`hero.dispatch.steal`), and a level-7 star pays several times
+        what a plain tile does — so spending an attempt on anything less is a loss that
+        cannot be taken back until the daily reset. With no star in the scan the button
+        deliberately does nothing at all.
+
+        The work happens in `tools/steal_secret_task.py --from-scan … --star-max`, the
+        same entrypoint a human uses from the shell, so the panel adds a click and not a
+        second implementation of the rule. It runs as a child process (like the monitors)
+        because a robbery walks the Lua daemon several times and must not sit on the Tk
+        thread. See docs/research/secret-task-steal.md.
+        """
+        checkpoint = self._profiles.tasks_json()
+        if not os.path.exists(checkpoint):
+            self._log_put("[autoloot] нет данных скана — включи «Мониторинг» "
+                          "секреток и подвигай карту")
+            return
+        if self._autoloot_proc is not None:
+            self._log_put("[autoloot] уже идёт")
+            return
+        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, "steal_secret_task.py"),
+               "--from-scan", checkpoint, "--star-max"]
+        self._log_put("[autoloot] звёздные цели максимального уровня …")
+        proc = self._spawn_sniffer(cmd, "autoloot")
+        if proc is None:
+            return
+        self._autoloot_proc = proc
+        threading.Thread(target=self._autoloot_reader, args=(proc,), daemon=True).start()
+
+    def _autoloot_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                ln = raw.rstrip()
+                if ln:
+                    self._log_put(f"[autoloot] {ln}")
+        except Exception:
+            pass
+        if self._autoloot_proc is proc:
+            self._autoloot_proc = None
 
     # -- Develop menu: raw sniffers -----------------------------------------
     def _spawn_sniffer(self, cmd: list, tag: str) -> "subprocess.Popen | None":

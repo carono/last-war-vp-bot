@@ -31,6 +31,10 @@ DEFAULT_PROFILE = "default"
 RALLY_LOG = "rally_log.jsonl"
 SECRET_LOG = "secret_tasks_log.jsonl"
 CHAT_LOG = "chat_log.jsonl"
+# Live checkpoint of the secret-task capture (tools/secret_task_capture.py --json).
+# Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
+# current state of the map, which is what an auto-loot decision has to read.
+TASKS_JSON = "secret_tasks.json"
 PANEL_LOG = "panel.log"
 CONFIG_FILE = "config.json"
 
@@ -182,6 +186,10 @@ class ProfileManager:
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)
+
+    def tasks_json(self, name: str | None = None) -> str:
+        """Where the secret-task capture checkpoints what it currently sees."""
+        return os.path.join(self.dir(name), TASKS_JSON)
 
     def chat_log(self, name: str | None = None) -> str:
         """JSONL log of chat messages captured on the plain-TCP leg."""

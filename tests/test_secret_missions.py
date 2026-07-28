@@ -228,6 +228,67 @@ def test_share_roundtrip():
     assert proto.ShareMission.from_dict(m.as_dict()) == m
 
 
+def _checkpoint(tmp_path, tasks) -> str:
+    """Write `tasks` as a capture checkpoint the auto-loot reader will accept."""
+    now = time.time()
+    records = []
+    for t in tasks:
+        rec = t.as_dict()
+        rec["seen_at"] = int(now)
+        records.append(rec)
+    path = tmp_path / "tasks.json"
+    path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def _task(uuid: int, cfg_id: int, family: str, level: int, looted=()) -> "proto.SecretTask":
+    """A raidable tile: dispatch finished a minute ago, expires in an hour."""
+    now_ms = int(time.time() * 1000)
+    return proto.SecretTask(
+        uuid=uuid, server_id=534, x=100 + uuid, y=200, level=level,
+        cfg_id=cfg_id, family=family, looted_by=tuple(looted), owner_uid="u%d" % uuid,
+        alliance_id="a", expires_at=now_ms + 3_600_000, completed_at=now_ms - 60_000)
+
+
+def test_autoloot_takes_only_starred_tasks_of_the_best_level(tmp_path=None):
+    """The panel's auto-loot rule: stars only, and only the highest level found.
+
+    The day's five robberies are the scarce thing, not the targets — an attempt spent
+    on a level-5 plain tile is one a level-7 star cannot have until the daily reset.
+    So a plain task must never be picked up as a consolation, however raidable, and a
+    starred level-6 must lose to a starred level-7 in the same scan.
+    """
+    import tempfile
+    from pathlib import Path as _Path
+    tmp_path = _Path(tmp_path or tempfile.mkdtemp())
+    import steal_secret_task as steal
+
+    tasks = [
+        _task(1, 50000704, "5000", 7),    # unstarred family, top level — must be skipped
+        _task(2, 60000601, "6000", 6),    # starred, but not the best level
+        _task(3, 60000701, "6000", 7),    # starred, best level -> the target
+        _task(4, 60000702, "6000", 7, looted=("x", "y", "z")),  # 3/3, not raidable
+    ]
+    picked = steal.targets_from_scan(_checkpoint(tmp_path, tasks), limit=5,
+                                     star_max=True, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in picked] == [3], picked
+
+
+def test_autoloot_does_nothing_without_a_star(tmp_path=None):
+    """No star in the scan -> no target at all (the button is a no-op, not a fallback)."""
+    import tempfile
+    from pathlib import Path as _Path
+    tmp_path = _Path(tmp_path or tempfile.mkdtemp())
+    import steal_secret_task as steal
+
+    said = []
+    tasks = [_task(1, 400703, "40", 7), _task(2, 50000704, "5000", 7)]
+    picked = steal.targets_from_scan(_checkpoint(tmp_path, tasks), limit=5,
+                                     star_max=True, say=said.append)
+    assert picked == []
+    assert any("no starred task" in m for m in said), said
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

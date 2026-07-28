@@ -17,6 +17,9 @@ docs/research/secret-task-steal.md.
     --from-scan tasks.json         every raidable task in a capture checkpoint
                                    (tools/secret_task_capture.py --json), freshest
                                    first, already filtered by `can_loot`
+    --from-scan … --star-max       the panel's auto-loot rule: starred tasks only,
+                                   and only the highest level among them. No star
+                                   in the scan means nothing is robbed at all
 
 Usage (run under the Windows Python so it can reach the warm daemon)
 --------------------------------------------------------------------
@@ -100,25 +103,48 @@ def resolve_uuid(ev, x: int, y: int, server: int) -> int:
     return 0
 
 
-def targets_from_scan(path: str, limit: int) -> list[tuple[int, int, str]]:
+def _label(task) -> str:
+    return ("%s%s lvl %d %d/3 looted"
+            % ("*" if task.starred else " ",
+               coords_fmt.fmt(task.x, task.y, task.server_id),
+               task.level, task.loot_count))
+
+
+def targets_from_scan(path: str, limit: int, star_max: bool = False,
+                      say=print) -> list[tuple[int, int, str]]:
     """Raidable tasks from a capture checkpoint, as (uuid, server, label).
 
     Freshness and raidability are the checkpoint reader's own rules — `load_fresh_tasks`
     drops anything not re-seen in this scan window and recomputes `can_loot` against the
     current clock, so a file written an hour ago cannot smuggle a stale tile in here.
+
+    `star_max` is the panel's auto-loot rule: **starred tasks only**, and among those
+    only the highest level actually found. No star in the scan means no target at all —
+    the caller does nothing rather than settling for an ordinary task, which is the
+    whole point of the button (a robbery spent on a level-5 plain tile is one that a
+    level-7 star cannot have later that day).
+
+    `starred` is `cfgId` family 6000 minus the `99` class — the rule and the evidence
+    behind it live in `STAR_TASK_FAMILIES` (docs/research/protocol.md §7). It is the one
+    property the game does not state outright, so a star here is the decoder's reading,
+    not the game's word.
     """
     sys.path.insert(0, os.path.join(_HERE, "lib"))
     import lastwar_proto as proto
 
     tasks = proto.load_fresh_tasks(path)
     raidable = [t for t in tasks if t.can_loot]
+    if star_max:
+        starred = [t for t in raidable if t.starred]
+        if not starred:
+            say("no starred task in the scan (%d raidable, none starred) — nothing to do"
+                % len(raidable))
+            return []
+        top = max(t.level for t in starred)
+        raidable = [t for t in starred if t.level == top]
+        say("starred targets: %d at level %d (the highest found)" % (len(raidable), top))
     raidable.sort(key=lambda t: (-t.free_slots, -t.level))
-    out = []
-    for t in raidable[:limit]:
-        out.append((t.uuid, t.server_id,
-                    "%s lvl %d %d/3 looted"
-                    % (coords_fmt.fmt(t.x, t.y, t.server_id), t.level, t.loot_count)))
-    return out
+    return [(t.uuid, t.server_id, _label(t)) for t in raidable[:limit]]
 
 
 def main() -> int:
@@ -131,6 +157,9 @@ def main() -> int:
                     help="capture checkpoint (tools/secret_task_capture.py --json)")
     ap.add_argument("--limit", type=int, default=5,
                     help="most targets to take from --from-scan (default 5)")
+    ap.add_argument("--star-max", action="store_true",
+                    help="with --from-scan: starred tasks only, and only the highest "
+                         "level found. No star in the scan = nothing is robbed")
     ap.add_argument("--queue-only", action="store_true",
                     help="park the targets in the game VM and stop (no robbery)")
     ap.add_argument("--status", action="store_true",
@@ -152,11 +181,19 @@ def main() -> int:
 
     targets: list[tuple[int, int, str]] = []
     if args.from_scan:
-        targets = targets_from_scan(args.from_scan, args.limit)
-        if not targets:
-            print("no raidable task in %s — scan again while panning the map"
-                  % args.from_scan)
+        if not os.path.exists(args.from_scan):
+            print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
+                  "секреток») while the map moves" % args.from_scan)
             return 1
+        targets = targets_from_scan(args.from_scan, args.limit, star_max=args.star_max)
+        if not targets:
+            # With --star-max this is the ordinary "no star on screen" answer, not a
+            # failure: the button is supposed to do nothing rather than rob a plain
+            # task. targets_from_scan has already said which case it was.
+            if not args.star_max:
+                print("no raidable task in %s — scan again while panning the map"
+                      % args.from_scan)
+            return 0 if args.star_max else 1
     elif args.coords:
         if args.server is None:
             ap.error("--coords needs --server")
