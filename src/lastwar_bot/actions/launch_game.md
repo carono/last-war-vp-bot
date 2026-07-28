@@ -1,13 +1,15 @@
-# Start the Last War launcher and wait for the base screen to appear.
+# Start the Last War launcher and wait for the home base to be ready.
 #
 # The path uses %LOCALAPPDATA% so it resolves correctly under any
 # Windows user. If the launcher is installed elsewhere on this machine
 # (custom drive, portable copy), edit the LAUNCH line.
 #
-# Cold launches normally finish in 1-2 minutes; WITHIN 300s leaves a
-# safety margin. The bot polls every ~0.3s for the base screen and
-# exits as soon as it appears.
+# Readiness is checked by STATE, not pixels: `scene == city` asks the game's
+# own Lua VM whether it is in the city scene with the main HUD up. It reads
+# 'unknown' while the client is still loading (or restarting into a new
+# process) and flips to 'city' the moment the base is interactive. Cold
+# launches normally finish in 1-2 minutes; WITHIN 300s leaves a safety margin.
 
 LAUNCH "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
-WAIT screen == base WITHIN 300s
-LOG "Game ready on the base screen."
+WAIT scene == city WITHIN 300s
+LOG "Game ready at the home base (city scene)."

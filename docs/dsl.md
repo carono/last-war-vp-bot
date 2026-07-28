@@ -393,7 +393,20 @@ JUMP 512, 640, 972
 
 Allowed in `IF` and `WAIT`:
 
-- `screen == base` / `screen != base`
+- `scene == city` / `scene == world` / `scene == unknown` (and `!=`) — **state,
+  not pixels.** Asks the game's own Lua VM (`SceneUtils.GetIsInCity/GetIsInWorld`,
+  plus `UIMain` open for `city`). Reads `unknown` while the client is loading or the
+  daemon is re-hijacking a freshly-launched process, and needs no game window — so it
+  works right through a launch/restart (`WAIT scene == city WITHIN 300s`). **Prefer
+  this** over `screen`.
+  ```
+  WAIT scene == city WITHIN 300s
+  IF scene == world
+      LOG "on the map"
+  ```
+- `screen == base` / `screen != base` — **legacy SIFT vision** (screenshots the
+  window and feature-matches templates). Needs `cv2` + the game window; only the
+  `actions/dev/` vision scripts still use it. Prefer `scene` for anything new.
 - `screen == world` / `screen != world`
 - `screen == unknown` / `screen != unknown`
 - `FOUND` — last `FIND` succeeded

@@ -1221,23 +1221,12 @@ class Panel(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     # -- game lifecycle -----------------------------------------------------
-    def _start_launcher(self) -> bool:
-        if not os.path.isfile(LAUNCHER):
-            self._log_put(f"[game] лаунчер не найден: {LAUNCHER}")
-            return False
-        try:
-            subprocess.Popen([LAUNCHER], cwd=GAME_DIR, creationflags=NO_WINDOW | DETACHED,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             stdin=subprocess.DEVNULL)
-            self._log_put("[game] лаунчер запущен")
-            return True
-        except Exception as exc:
-            self._log_put(f"[game] ошибка запуска: {exc}")
-            return False
-
     def _launch_game(self) -> None:
-        self._log_put("[game] запуск LastWarLauncher.exe…")
-        threading.Thread(target=self._start_launcher, daemon=True).start()
+        # Launch through the same DSL recipe the bot uses: actions/launch_game.md
+        # (LAUNCH the launcher, then WAIT for the base screen). One source of truth
+        # for "start the game", shared by the panel and any scripted run.
+        self._log_put("[game] запуск через рецепт launch_game…")
+        self._run_md_action("launch_game")
 
     def _restart_game(self) -> None:
         def work() -> None:
@@ -1249,9 +1238,9 @@ class Panel(tk.Tk):
             except Exception as exc:
                 self._log_put(f"[game] ошибка kill: {exc}")
             time.sleep(1.0)
-            if self._start_launcher():
-                self._log_put("[game] перезапуск: жди загрузки игры; daemon сам переинициализируется "
-                              "при следующем действии")
+            # Relaunch via the recipe (waits for the base screen, then daemon
+            # re-initialises on the next action).
+            self._run_md_action("launch_game")
         threading.Thread(target=work, daemon=True).start()
 
     def _on_close(self) -> None:

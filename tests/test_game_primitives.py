@@ -145,6 +145,29 @@ def test_unknown_variable_is_runtime_error():
         raise AssertionError("using an unset variable should raise")
 
 
+def test_scene_condition_reads_state():
+    # _current_scene evaluates a Lua expr via RLUA; FakeEval replays the tag.
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(rluas=["city"]))
+    interp = se.Interpreter(ctx)
+    assert interp.eval_condition("scene == city", 1) is True
+    ctx.evaluator = FakeEval(rluas=["world"])
+    assert interp.eval_condition("scene == city", 1) is False
+    assert se.Interpreter(se.Context(hwnd=0, evaluator=FakeEval(rluas=["world"]))
+                          ).eval_condition("scene == world", 1) is True
+
+
+def test_scene_unknown_when_vm_unreachable():
+    # A VM error (None) must read as 'unknown', not crash — this is what a launch
+    # WAIT relies on while the daemon is re-hijacking a freshly-launched process.
+    class Dead:
+        def run(self, *a, **k):
+            raise RuntimeError("daemon down")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=Dead())
+    interp = se.Interpreter(ctx)
+    assert interp.eval_condition("scene == unknown", 1) is True
+    assert interp.eval_condition("scene == city", 1) is False
+
+
 def test_game_scene_and_jump_sugar():
     ev = FakeEval()
     _run("GAME WORLD", ev)

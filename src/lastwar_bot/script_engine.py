@@ -167,6 +167,11 @@ def _coerce(raw: str) -> Any:
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
 )
+# State-based scene check (via the game's Lua VM, NOT the SIFT screen matcher):
+# `scene == city` / `scene == world` / `scene == unknown`. Preferred over `screen`.
+_SCENE_CHECK_RE = re.compile(
+    r"^scene\s*(==|!=)\s*(city|world|unknown)\s*$", re.IGNORECASE,
+)
 _FIND_COND_RE = re.compile(
     rf"^FIND\s+({_IDENT}\.png)\s*$", re.IGNORECASE,
 )
@@ -660,6 +665,13 @@ class Interpreter:
         if up == "NOT FOUND":
             return self.ctx.last_find is None
 
+        m = _SCENE_CHECK_RE.match(cond)
+        if m:
+            op = m.group(1)
+            wanted = m.group(2).lower()
+            current = self._current_scene()
+            return (current == wanted) if op == "==" else (current != wanted)
+
         m = _SCREEN_CHECK_RE.match(cond)
         if m:
             op = m.group(1)
@@ -1057,22 +1069,61 @@ class Interpreter:
             time.sleep(btn.wait)
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
 
-    def _eval_number(self, expr: str) -> float | None:
-        """Evaluate a Lua expression to a number (or None if it is not numeric / errored)."""
+    def _eval_lua_value(self, expr: str) -> str | None:
+        """Evaluate a Lua expression, returning its `tostring()` value.
+
+        Returns None if the expression errors OR the game VM is unreachable (daemon
+        down / mid-rehijack after a game restart) — callers decide what that means
+        (a scene poll treats it as 'unknown'; a count read stops).
+        """
         chunk = (
             'local ok,v=pcall(function() return %s end) '
             'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
             % expr
         )
-        val: float | None = None
-        for out in self._run_lua(chunk, marker="RLUA", settle=0.35):
+        try:
+            lines = self._run_lua(chunk, marker="RLUA", settle=0.35)
+        except (RuntimeError, OSError):
+            return None
+        value: str | None = None
+        for out in lines:
             if "RLUA " in out:
                 raw = out.split("RLUA ", 1)[1].strip()
-                if not raw.startswith("ERR:"):
-                    c = _coerce(raw)
-                    if isinstance(c, (int, float)):
-                        val = float(c)
-        return val
+                value = None if raw.startswith("ERR:") else raw
+        return value
+
+    def _eval_number(self, expr: str) -> float | None:
+        """Evaluate a Lua expression to a number (or None if not numeric / errored)."""
+        raw = self._eval_lua_value(expr)
+        if raw is None:
+            return None
+        c = _coerce(raw)
+        return float(c) if isinstance(c, (int, float)) else None
+
+    def _current_scene(self) -> str:
+        """Read the game scene from the Lua VM (state, not pixels): 'city' / 'world' / 'unknown'.
+
+        'city' means fully at the home base — the city scene AND the main HUD (UIMain)
+        is up, so a still-loading client reads 'unknown', which is exactly what a launch
+        `WAIT scene == city` wants. Any VM failure (game not up yet, daemon re-hijacking
+        the freshly-launched process) also reads 'unknown', so the caller just keeps
+        polling; the daemon auto-rebuilds its LuaEval on a stale handle, so this recovers
+        by itself across a restart. No screenshots, no SIFT.
+        """
+        expr = (
+            "(function() "
+            "if not SceneUtils then return 'unknown' end "
+            "if SceneUtils.GetIsInWorld and SceneUtils.GetIsInWorld() then return 'world' end "
+            "if SceneUtils.GetIsInCity and SceneUtils.GetIsInCity() "
+            "and UIManager and UIManager.Instance and UIManager.Instance:IsWindowOpen('UIMain') "
+            "then return 'city' end "
+            "return 'unknown' end)()"
+        )
+        try:
+            val = self._eval_lua_value(expr)
+        except Exception:  # noqa: BLE001 — any VM hiccup is just "unknown, poll again"
+            return "unknown"
+        return val if val in ("city", "world") else "unknown"
 
     def _do_lua(self, stmt: LuaStmt) -> None:
         """Run one raw Lua chunk in the game VM, verbatim.
