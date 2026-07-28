@@ -73,19 +73,34 @@ above rests on.)
 
 ## The "collected gifts" modal
 
-A non-empty collect stacks a reward-list modal ("you received …") on top of the
-gift window, and it shows up often. It has to be dismissed **between** the two
-collects too, because the second collect's guard needs the gift window on top.
+A non-empty collect raises a "you received …" reward-list modal — its window is
+**`UIGiftPackageRewardGet`** (pinned live: it was the only extra window in
+`IsWindowOpen` after a real collect). It appears often and lingers on screen.
 
-`dismiss_reward_popup` closes the top window only when its name carries `Reward`
-or `GetGift` — the whole reward-show family (`UIGetRewardView`, `UIRewardShow`,
-`UICommonRewardTip`, `UILWGetGiftView`, `UIGiftPackageRewardGet`, …). That guard
-is provably safe: the gift window is `UILWAllianceGift` (no `Reward`, no `GetGift`)
-and HUD windows match neither, so it can never close them — a no-op when no modal
-is up.
+The trap: this popup is on a **separate UI layer, not the main window stack**.
+`GetStackTopWindow()` still returns `UILWAllianceGift` while the modal is up, so a
+top-of-stack close never sees it (the first `dismiss_reward_popup` cut looked only
+at the top window and did nothing — the bug the user hit). It also means the modal
+does **not** block the second collect (whose guard checks the top window), so it
+need not be dismissed between the two collects — only cleared for tidiness.
 
-**Caveat:** at authoring time `GetRedPointNum()` was 0, so no modal could be raised
-to read its exact window name; the popup is matched by family, not by a pinned name.
-It closed nothing wrongly in a full dry run (open → collect ×2 → dismiss ×2 → close
-left the gift window on top throughout, then the HUD). Confirm the exact popup name
-on the next real collection (`GetRedPointNum() > 0`) and tighten the match if needed.
+The fix: don't look at the top of the stack — scan the window names and close each
+open reward-show popup directly:
+
+```lua
+local mgr = UIManager.Instance
+for _, name in pairs(UIWindowNames) do
+  local s = tostring(name)
+  if s:find('Reward') or s:find('GetGift') then
+    if mgr:IsWindowOpen(name) then
+      local w = mgr:GetWindow(name)
+      if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() end
+    end
+  end
+end
+```
+
+Confirmed live: `GetWindow(UIGiftPackageRewardGet).Ctrl:CloseSelf()` closed the
+modal (`IsWindowOpen` → false afterwards). The `Reward`/`GetGift` filter is safe:
+the gift window `UILWAllianceGift` and the HUD `UIMain` match neither token, so the
+scan only ever touches reward-show popups.

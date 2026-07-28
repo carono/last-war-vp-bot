@@ -10,18 +10,19 @@
 # (type) and sends alliance.reward.allreceive {type} (type 1 = ordinary, 2 = premium).
 # A tab with nothing to claim just no-ops, so pressing both is always safe.
 #
+# A non-empty collect raises a "you received …" reward-list modal
+# (UIGiftPackageRewardGet) on a separate UI layer — it does NOT block the gift
+# window underneath, but it lingers on screen, so dismiss_reward_popup closes it
+# after each collect (it scans the open windows and closes the reward popup by name;
+# a safe no-op when none is up).
+#
 # The two collect buttons are real UI clicks, so the window must be open first —
 # that is why this recipe opens the section and closes it at the end (unlike the
 # headless help_ally / collect_base_resources recipes).
 #
-# Each non-empty tab pops a "you received …" reward-list modal on top of the gift
-# window, so dismiss_reward_popup runs after every collect — it also HAS to run
-# between the two collects, or that modal would block the premium collect (its
-# window guard needs the gift window on top). dismiss_reward_popup only closes a
-# reward-show popup (matched by name), so it is a safe no-op when no modal showed.
-#
 # Source: results/traffic/20260728_172314_Подарки_альянса_traffic.jsonl.
-# Live-confirmed in-game (premium gifts collected on OnGetAllBtnClick(2)); see
+# Live-confirmed in-game (premium collected on OnGetAllBtnClick(2); the reward modal
+# UIGiftPackageRewardGet closed via GetWindow -> CloseSelf); see
 # docs/research/alliance-gift-collection.md.
 
 TAP alliance_gifts          # open the "Подарки альянса" section

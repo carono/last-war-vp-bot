@@ -113,18 +113,21 @@ BUTTONS: dict[str, Button] = {
         wait=0.8, label="Collect premium gifts",
     ),
     "dismiss_reward_popup": Button(
-        # After a collect the game stacks a "you received …" reward-list modal on
-        # top of the gift window (it appears often — one per non-empty tab). Close
-        # it by NAME so we never touch the gift window or the HUD: the reward-show
-        # popups all carry 'Reward' or are the get-gift view ('GetGift'), whereas
-        # the gift window is 'UILWAllianceGift' (no 'Reward', no 'GetGift') and HUD
-        # windows match neither. A no-op when the top is not such a popup — safe to
-        # press after every collect (and it MUST run between the two collects, or
-        # the modal would block the second collect's window guard).
-        lua=("local w=UIManager.Instance:GetStackTopWindow() "
-             "local n=w and tostring(w.Name) or '' "
-             "if w and w.Ctrl and w.Ctrl.CloseSelf and (n:find('Reward') or n:find('GetGift')) then "
-             "w.Ctrl:CloseSelf() end"),
+        # After a collect the game raises a "you received …" reward-list modal
+        # (UIGiftPackageRewardGet, confirmed live). It sits on a SEPARATE UI layer,
+        # NOT on the main window stack — GetStackTopWindow() still returns the gift
+        # window, which is why a top-of-stack close never sees it. So scan every
+        # window name, and for each reward-show popup that is currently open
+        # (name carries 'Reward' or 'GetGift') close it via GetWindow -> CloseSelf.
+        # Safe: the gift window ('UILWAllianceGift') and the HUD ('UIMain') match
+        # neither token, so they are never touched; a no-op when no popup is up.
+        lua=("local mgr=UIManager.Instance "
+             "for _,name in pairs(UIWindowNames) do local s=tostring(name) "
+             "if s:find('Reward') or s:find('GetGift') then "
+             "local ok,open=pcall(function() return mgr:IsWindowOpen(name) end) "
+             "if ok and open then local w=mgr:GetWindow(name) "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end "
+             "end end end"),
         wait=0.5, label="dismiss reward popup",
     ),
     # --- base -> collect every ready resource building -----------------------
