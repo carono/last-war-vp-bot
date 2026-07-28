@@ -69,6 +69,8 @@ PROBE_KEEP = 2 << 10    # tail carried into the next round, so a frame boundary
 PROBE_FRAMES = 8        # frames to inspect per candidate before giving up
 PROBE_CANDIDATES = 32   # sync points to try per direction, per round
 MAX_PROBE_ROUNDS = 64   # ~512 KB of unrecognised data before writing a stream off
+READY_TIMEOUT = 5.0     # seconds to wait for every interface to open before
+                        # announcing readiness with whatever came up
 
 INTERESTING = (
     "x", "y", "viewLvl", "blockSize", "serverId", "worldId", "bigMap",
@@ -557,6 +559,18 @@ def main() -> int:
         print(f"{C_DIM}waiting for a stream whose frames match the protocol…{C_RESET}")
     print(f"{C_DIM}Ctrl+C to stop{C_RESET}\n")
 
+    # Readiness bookkeeping. The banner above is printed before a single
+    # interface is open — npcap needs a moment per handle — so anyone driving
+    # the game from a script (or the panel) would start acting while nothing is
+    # captured yet. Count the interfaces that actually reached the capture loop
+    # and announce ONE readiness line once every target has settled either way.
+    opened = {"live": 0, "dead": 0}
+    opened_lock = threading.Lock()
+
+    def note(key):
+        with opened_lock:
+            opened[key] += 1
+
     def run(iface):
         try:
             sniff(
@@ -564,15 +578,34 @@ def main() -> int:
                 iface=iface,
                 prn=lambda p: decoder.handle(p, iface),
                 store=False,
+                started_callback=lambda: note("live"),
                 stop_filter=lambda _p: stop.is_set(),
             )
         except Exception as exc:  # one dead interface must not kill the run
+            note("dead")
             if not stop.is_set():
                 print(f"{C_DIM}iface {iface}: {exc}{C_RESET}", file=sys.stderr)
 
     threads = [threading.Thread(target=run, args=(i,), daemon=True) for i in targets]
     for thread in threads:
         thread.start()
+
+    # Cap the wait: a wedged interface must not hold the readiness line back
+    # forever — better to report "5/17 live" than to stay silent.
+    deadline = time.time() + READY_TIMEOUT
+    while time.time() < deadline:
+        with opened_lock:
+            if opened["live"] + opened["dead"] >= len(targets):
+                break
+        time.sleep(0.05)
+    with opened_lock:
+        live = opened["live"]
+    if live:
+        print(f"{C_OK}CAPTURE READY — {live}/{len(targets)} interface(s) live{C_RESET}\n",
+              flush=True)
+    else:
+        print(f"{C_ERR}CAPTURE FAILED — no interface could be opened "
+              f"(npcap missing, or not running as admin){C_RESET}\n", flush=True)
 
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     try:

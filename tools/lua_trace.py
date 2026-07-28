@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import os
+import re
 import sys
 import time
 
@@ -385,6 +386,22 @@ def main():
     lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all, dedup), marker="XSTRACE", settle=1.5)
     for ln in lines:
         emit(ln)
+    # One machine-readable verdict on top of the game-side wording, so a driver
+    # (the panel) knows when the hooks are actually live instead of guessing
+    # from the spawn time: installing costs ~2 s with a warm Lua daemon and
+    # several more when it has to attach first, and every action taken before
+    # that is simply not traced.
+    # wrapped=0 counts as a failure, not as readiness: the chunk ran but armed
+    # nothing, which makes the whole recording void (see docs/skills/sniff.md §8.1).
+    wrapped = 0
+    for ln in lines:
+        if "XSTRACE installed" in ln:
+            found = re.search(r"wrapped=(\d+)", ln)
+            wrapped = int(found.group(1)) if found else 0
+    if wrapped:
+        emit("[lua_trace] TRACE READY — hooks live (wrapped=%d)" % wrapped)
+    else:
+        emit("[lua_trace] TRACE FAILED — no hooks installed (see the lines above)")
     emit("[lua_trace] tailing %s — Ctrl+C to stop and restore\n" % log)
 
     offset = os.path.getsize(log) if os.path.exists(log) else 0

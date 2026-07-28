@@ -124,6 +124,11 @@ CAPTURE_OPTIONS = [
 # lands in the panel log like the rest of its output, tagged [traffic] / [trace].
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
+# How long to wait for both sniffer halves to report "ready" before saying so in
+# the log. Measured on this machine: capture is live ~1 s in, the Lua hooks
+# ~2 s in with a warm daemon and noticeably later when it has to attach first —
+# so the cap is generous, it only exists to break a silent wait.
+SNIFF_READY_TIMEOUT = 25.0
 
 # Directory holding the DSL action scripts the Scenarios tab lists and runs. Only the
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
@@ -250,6 +255,8 @@ class Panel(tk.Tk):
         self._rally_proc = None
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
+        self._sniff_ready = {}        # per-half readiness: None pending / True / False
+        self._sniff_t0 = 0.0          # when the pair was launched (for "ready in Ns")
         # Toggle state for the single Develop-menu sniffer entry (it drives both
         # children above). Created here (not in a tab builder) because the menu
         # bar is built before the UI and is rebuilt on every language change —
@@ -1084,10 +1091,19 @@ class Panel(tk.Tk):
             return
         label_args = ["--label", label] if label.strip() else []
 
+        # Neither child is capturing when its pid appears: npcap needs ~1 s to
+        # open the interfaces and the Lua hooks land ~2 s in (more with a cold
+        # daemon). Both now print a readiness marker; collect them and say ONE
+        # word when the pair is actually recording — acting before that quietly
+        # loses the frames the run was started for.
+        self._sniff_ready = {}
+        self._sniff_t0 = time.time()
+
         self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
         self._sniff_proc = self._spawn_sniffer(
             [WIN_PYTHON, "-u", TRAFFIC_SNIFFER] + label_args, "traffic")
         if self._sniff_proc is not None:
+            self._sniff_ready["traffic"] = None
             self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
                           f"вывод идёт в лог, запись — в results/traffic/")
             threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
@@ -1101,6 +1117,7 @@ class Panel(tk.Tk):
         self._trace_proc = self._spawn_sniffer(
             [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"] + label_args, "trace")
         if self._trace_proc is not None:
+            self._sniff_ready["trace"] = None
             self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
                           f"вывод идёт в лог, запись — в results/traces/")
             threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
@@ -1108,27 +1125,76 @@ class Panel(tk.Tk):
 
         if self._sniff_proc is None and self._trace_proc is None:
             self._sniff_var.set(False)
+            return
+        self._log_put("[sniff] жду готовности обоих потоков — пока не действуй в игре …")
+        self.after(int(SNIFF_READY_TIMEOUT * 1000), self._sniff_ready_watchdog)
+
+    def _mark_sniff_ready(self, part: str, ok: bool) -> None:
+        """Record one half's verdict; announce as soon as both have reported.
+
+        `self._sniff_ready` holds None until a half reports, so a failure is a
+        distinct outcome from "still starting" — otherwise a dead tracer would
+        either be announced as ready or block the announcement forever.
+        """
+        state = self._sniff_ready
+        if state.get(part, "gone") is not None:      # unknown part, or already reported
+            return
+        state[part] = ok
+        if any(v is None for v in state.values()):
+            return
+        dt = time.time() - self._sniff_t0
+        live = [p for p, v in state.items() if v]
+        if len(live) == len(state):
+            self._log_put(f"[sniff] ГОТОВ ({dt:.1f} с) — оба потока пишут, "
+                          f"можно выполнять действия в игре")
+        elif live:
+            self._log_put(f"[sniff] ЧАСТИЧНО ГОТОВ ({dt:.1f} с) — пишет только "
+                          f"{', '.join(live)}; вторая половина сессии потеряна")
+        else:
+            self._log_put(f"[sniff] НЕ ГОТОВ ({dt:.1f} с) — ни один поток не пишет")
+
+    def _sniff_ready_watchdog(self) -> None:
+        """Never leave the log on "жду готовности" if a marker never arrives."""
+        if self._sniff_proc is None and self._trace_proc is None:
+            return                                   # session already over
+        pending = [p for p, v in self._sniff_ready.items() if v is None]
+        if pending:
+            self._log_put(f"[sniff] готовность не подтверждена за "
+                          f"{SNIFF_READY_TIMEOUT:.0f} с: {', '.join(pending)} — "
+                          f"проверь лог выше")
 
     def _sniff_reader(self, proc) -> None:
         try:
             for raw in proc.stdout:
-                self._log_put(f"[traffic] {raw.rstrip()}")
+                line = raw.rstrip()
+                self._log_put(f"[traffic] {line}")
+                if "CAPTURE READY" in line:
+                    self._mark_sniff_ready("traffic", True)
+                elif "CAPTURE FAILED" in line:
+                    self._mark_sniff_ready("traffic", False)
         except Exception:
             pass
         if self._sniff_proc is proc:      # ended on its own, not via _stop_sniff
             self._log_put("[traffic] снифер завершён")
             self._sniff_proc = None
+            self._mark_sniff_ready("traffic", False)  # died before reporting: nothing captured
             self._sync_sniff_var()
 
     def _trace_reader(self, proc) -> None:
         try:
             for raw in proc.stdout:
-                self._log_put(f"[trace] {raw.rstrip()}")
+                line = raw.rstrip()
+                self._log_put(f"[trace] {line}")
+                if "TRACE READY" in line:
+                    self._mark_sniff_ready("trace", True)
+                elif "TRACE FAILED" in line:
+                    self._mark_sniff_ready("trace", False)
         except Exception:
             pass
         if self._trace_proc is proc:      # ended on its own, not via _stop_sniff
             self._log_put("[trace] трассировщик завершён")
             self._trace_proc = None
+            self._mark_sniff_ready("trace", False)   # died before reporting: no hooks
             self._sync_sniff_var()
 
     def _sync_sniff_var(self) -> None:

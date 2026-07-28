@@ -295,7 +295,7 @@ is one full worked instance of it, and `src/lastwar_bot/actions/help_ally.md` is
 the instance where the trace came back empty (§8.11).
 
 ```
- 1  panel: Develop → Sniffer ON, type a label
+ 1  panel: Develop → Sniffer ON, type a label, WAIT for the «[sniff] ГОТОВ» line
  2  the player performs ONE in-game action
  3  panel: Develop → Sniffer OFF   (both children stop, the tracer restores itself)
  4  label/description missing?  ASK the player before analysing anything
@@ -328,6 +328,24 @@ share a name:
 Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
 **new** files, so a stop/start cycle never overwrites the previous session
 (`tools/lib/run_output.py`).
+
+**Neither child records the moment its pid appears — wait for the ready line.**
+The pids are printed instantly, but npcap still has to open every interface and
+the tracer still has to install ~8700 Lua wraps through the VM. Measured on this
+machine: capture goes live ~0.7-1.0 s in, `XSTRACE installed` lands ~1.8 s in
+with a warm `lua_daemon`, and later when `get_evaluator()` has to attach a fresh
+`LuaEval` first. An action performed inside that window is simply not in the
+files. So each child now prints its own verdict —
+
+| child | ready marker | failure marker |
+|---|---|---|
+| traffic | `CAPTURE READY — N/M interface(s) live` | `CAPTURE FAILED — no interface could be opened` |
+| functions | `[lua_trace] TRACE READY — hooks live` | `[lua_trace] TRACE FAILED — hooks not installed` |
+
+— and the panel folds the pair into one line: **`[sniff] ГОТОВ (2.0 с) — оба
+потока пишут, можно выполнять действия в игре`**. That line, not the pid, is the
+go signal. `ЧАСТИЧНО ГОТОВ` means half the session is being lost; if nothing is
+confirmed within 25 s the panel says so instead of waiting silently.
 
 **Headless equivalent**, when there is no panel:
 
