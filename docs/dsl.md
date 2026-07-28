@@ -304,10 +304,11 @@ is the human-facing primitive: the recipe names *what* to press, the catalogue k
 *how*.
 
 ```
-TAP alliance_tech     # open Alliance Tech
-TAP recommended_tech  # open the priority tech
-TAP donate_1000 xall  # press "Donate 1000" for every attempt currently banked
-TAP close x3          # pop 3 windows off the stack
+TAP alliance_tech           # open Alliance Tech
+TAP recommended_tech        # open the priority tech
+TAP donate_1000 xall        # press "Donate 1000" for every attempt currently banked
+TAP collect_base_resources  # harvest every ready resource building in one sweep
+TAP close x3                # pop 3 windows off the stack
 ```
 
 `xall` presses **as many times as the button reports it still can** — its `count_lua`

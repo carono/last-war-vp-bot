@@ -92,6 +92,11 @@ opens a window (in which case switch to `DataCenter.LWGateTruckGoodsManager:Drop
 `SetBuildObjState`, …) and `BuildManager:GetAllInBaseTruckShowBuild()` are the direct
 API alternatives if the bubble path proves unreliable.
 
+## Status
+
+`collect_base_resources` (the `SendCollect` sweep) is **user-confirmed working live** —
+run against a real base it collected every ready resource generator in a single tap.
+
 ## Notes for the next session
 
 - Reading values back from the daemon uses `CS.UnityEngine.Debug.LogError("MARK|"..x)`
