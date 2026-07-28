@@ -122,6 +122,9 @@ local echo. So the tool works fully headless — closed dialog, no focus, no pix
 
 ## Tooling
 
+- `tools/lib/chat_share.py` — the importable coordinate-share API (build an
+  attachment, send it) for use from other scripts; see
+  [`chat-coord-share.md §7`](chat-coord-share.md).
 - `tools/lib/lua_actions.py` — `chat_send_text(room, msg)` / `chat_send_sticker(room, id)`
   recipes (msg rebuilt byte-for-byte via `string.char`, so Cyrillic/CJK/PUA survive
   the daemon hop and xLua compile).

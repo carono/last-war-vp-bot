@@ -178,10 +178,67 @@ attachment shape the game's own tile-bubble share produced (`seq 126`, `seq 136`
 `uuid` exceeds 2^53, so it must never be round-tripped through a float: it is read
 as a Lua 5.3 integer, printed exactly, and shipped as JSON text.
 
-## 7. Tooling
+## 7. Using it from your own script
 
+The reusable core lives in **`tools/lib/chat_share.py`** — import that, not the CLI.
+`tools/chat_send.py` and `tools/dispatch_tasks.py` are thin wrappers over it, so
+there is one implementation to keep correct.
+
+```python
+import sys, os
+sys.path.insert(0, os.path.join("tools", "lib"))
+import chat_share, lua_client
+
+ev = lua_client.get_evaluator()          # warm daemon, or a local LuaEval
+me = chat_share.self_profile(ev)         # {uid, srv, x, y, name, abbr}
+room = chat_share.dm_room(peer_uid, me["uid"])
+
+chat_share.share_point(ev, room, chat_share.point_attachment(615, 493, 935),
+                       peer_uid=peer_uid)
+```
+
+| function | what it gives you |
+|---|---|
+| `self_profile(ev)` | `{uid, srv, x, y, name, abbr}` — uid, home server, own base tile, name, alliance tag |
+| `self_label(profile)` | `"[TAG] Name"`, the label the game puts on a shared base |
+| `dm_room(peer, self)` / `peer_of(room)` | build a DM room id / read the peer back out of one |
+| `point_attachment(x, y, srv, pos_type=0, label=…, uid=…, extra={…})` | `attachmentId` for any map object |
+| `base_attachment(profile, label=None)` | `attachmentId` for "share my position" |
+| `task_attachment(task)` | `attachmentId` for a secret task, from a `dispatch_tasks` record |
+| `share_point(ev, room, attachment, peer_uid=None, lang="ru")` | send it; `True` when the game confirmed |
+
+`dispatch_tasks.read_tasks(ev)` returns `(tasks, server_time_ms)`; each task is a
+plain dict (`kind`, `uuid`, `cfgId`, `pointId`, `x`, `y`, `srv`, `owner`, `done`,
+`expires`, `steals`, `name`, `abbr`) that `task_attachment()` consumes directly:
+
+```python
+sys.path.insert(0, "tools")
+import dispatch_tasks
+
+tasks, now = dispatch_tasks.read_tasks(ev)
+ready = [t for t in tasks if t["kind"] == "alliance" and t["pointId"]
+         and t["done"] and t["done"] <= now < t["expires"]]
+chat_share.share_point(ev, room, chat_share.task_attachment(ready[0]),
+                       peer_uid=peer_uid)
+```
+
+Things worth knowing before you build on this:
+
+- **Outgoing chat cannot be unsent.** Build the attachment, print it, and only then
+  call `share_point()`; the CLI's `--dry-run` exists for the same reason.
+- `share_point()` returns `False` when the game did not confirm — treat that as a
+  failed send, not a warning. It is also how you notice a dead daemon / dead game.
+- Only the **DM** command is verified live; world / national / alliance are wired
+  from the client's defines but untested.
+- A record whose `pointId` is `0` has no map position (your own tasks sit inside
+  your base) and cannot be shared.
+- `uuid` exceeds 2^53 — keep it an `int`, never a float.
+
+## 8. Tooling
+
+- `tools/lib/chat_share.py` — the importable surface described above.
 - `tools/lib/lua_actions.py` — `chat_share_point(room, attachment_json, ...)` and
-  `chat_share_cmd(room)`.
+  `chat_share_cmd(room)`, the Lua chunk builders underneath it.
 - `tools/dispatch_tasks.py` — list live secret tasks (`--own` / `--alliance`,
   `--ready`, `--nearest`, `--json`, `--share-args`).
 - `tools/chat_send.py`:

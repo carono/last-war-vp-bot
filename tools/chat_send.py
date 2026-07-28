@@ -72,6 +72,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
+import chat_share  # noqa: E402
 import coords as coords_fmt  # noqa: E402
 import lua_actions  # noqa: E402
 import lua_client  # noqa: E402
@@ -84,66 +85,15 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def _hexdec(h: str) -> str:
-    """Decode a hex field emitted by the Lua side (Player.log mangles raw UTF-8)."""
-    try:
-        return bytes.fromhex(h).decode("utf-8", "replace")
-    except ValueError:
-        return ""
+# The reusable core (self profile, attachment builders, the send itself) lives in
+# tools/lib/chat_share.py so other scripts can import it; this module is the CLI.
+resolve_self_profile = chat_share.self_profile
+dm_room = chat_share.dm_room
 
 
 def resolve_self_uid(ev) -> str:
     """The logged-in player's uid (needed to build a DM room id)."""
-    chunk = (
-        'CS.UnityEngine.Debug.LogError("ACT selfuid="..'
-        'tostring(select(2, pcall(function() return ChatInterface.getPlayerUid() end))))'
-    )
-    for ln in ev.run(chunk, MARKER, 0.8):
-        if "selfuid=" in ln:
-            return ln.split("selfuid=", 1)[1].strip()
-    return ""
-
-
-def resolve_self_profile(ev) -> dict:
-    """Live self profile used to label a coordinate share.
-
-    `world_main_pos` on the player record is the own base's tile index; the tile x/y
-    come from `SceneUtils.IndexToTilePos`. The display label the game itself puts on a
-    "share my position" message is `"[<allianceSimpleName>] <userName>"`.
-    """
-    chunk = r'''
-local function hex(s) return (tostring(s):gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
-pcall(function()
-  local uid = ChatInterface.getPlayerUid()
-  local srv = ChatInterface.getSelfServerId()
-  local p = ChatInterface.getPlayer()
-  local ud = ChatInterface.getUserData(uid)
-  local x, y = "", ""
-  pcall(function()
-    local tp = SceneUtils.IndexToTilePos(p.world_main_pos)
-    x, y = tp.x, tp.y
-  end)
-  CS.UnityEngine.Debug.LogError("ACT self uid="..tostring(uid).." srv="..tostring(srv)
-    .." x="..tostring(x).." y="..tostring(y)
-    .." name="..hex(tostring(ud and ud.userName or (p and p.name) or ""))
-    .." abbr="..hex(tostring(ud and ud.allianceSimpleName or "")))
-end)
-'''
-    out = {}
-    for ln in ev.run(chunk, MARKER, 1.2):
-        if " self " not in ln:
-            continue
-        for tok in ln.split(" self ", 1)[1].split(" "):
-            key, sep, value = tok.partition("=")
-            if not sep:
-                continue
-            out[key] = _hexdec(value) if key in ("name", "abbr") else value
-    return out
-
-
-def dm_room(peer_uid: str, self_uid: str) -> str:
-    """DM room id: custom_<peerUid>_<selfUid>_v2 (peer first, self second)."""
-    return "custom_%s_%s_v2" % (peer_uid, self_uid)
+    return chat_share.self_profile(ev).get("uid", "")
 
 
 def resolve_emoji_pua(ev, ids) -> dict:
@@ -266,56 +216,20 @@ def parse_coords(text: str):
     raise ValueError("cannot read a coordinate out of %r" % text)
 
 
-def build_point_attachment(x: int, y: int, server: int, pos_type=0, label=None,
-                           uid=None, extra=None) -> str:
-    """The `attachmentId` blob for a shared map point.
-
-    Shape confirmed live against the game's own shares (docs/research/chat-coord-share.md):
-    the "share my base" button omits `posType` and labels the bubble through `oname`
-    ("[TAG] Name"); a bare pin is `posType 0` plus the sharer's `uid`. Richer objects
-    (`posType` 1 / 6 / 22 …) carry no `uid` but kind-specific fields instead — pass
-    those through `extra` (e.g. a secret task's `uuid`, `cfgId`, `uname`, `abbr`,
-    `dispatch`); `tools/dispatch_tasks.py --share-args` prints a ready blob.
-    """
-    att = {"x": int(x), "y": int(y), "sid": int(server), "worldId": 0, "worldType": 0}
-    if pos_type is None:
-        att["oname"] = label or ""
-    else:
-        att["posType"] = int(pos_type)
-        if label:
-            att["oname"] = label
-        # Only the bare pin identifies the sharer; every richer kind describes the
-        # object itself instead.
-        if uid and int(pos_type) == 0:
-            att["uid"] = str(uid)
-    if extra:
-        att.update(extra)
-    return json.dumps(att, ensure_ascii=False, separators=(",", ":"))
+build_point_attachment = chat_share.point_attachment
 
 
 def send_point(ev, room: str, attachment: str, peer_uid=None, lang: str = "ru",
                dry: bool = False) -> int:
     """Send a coordinate share; `attachment` is the finished attachmentId JSON."""
-    cmd = lua_actions.chat_share_cmd(room)
-    lang_room = room.split("_")[2] if room.startswith("custom_lang_") else None
-    if cmd == lua_actions.CMD_SHARE_DM and not peer_uid:
-        # A raw --room DM still needs the peer uid: it is the first id in
-        # custom_<peerUid>_<selfUid>_v2.
-        parts = room.split("_")
-        peer_uid = parts[1] if len(parts) >= 4 and parts[0] == "custom" else None
-    _log("room=%s  cmd=%s  attachmentId=%s" % (room, cmd, attachment))
+    _log("room=%s  cmd=%s  attachmentId=%s"
+         % (room, lua_actions.chat_share_cmd(room), attachment))
     if dry:
         _log("[dry-run] not sent")
         return 0
-    chunk = lua_actions.chat_share_point(
-        room, attachment, lang=lang,
-        to_user=peer_uid if cmd == lua_actions.CMD_SHARE_DM else None,
-        lang_room=lang_room,
-    )
-    for ln in ev.run(chunk, MARKER, 1.4):
-        if "chat_point_sent" in ln:
-            _log("sent (coordinates)")
-            return 0
+    if chat_share.share_point(ev, room, attachment, peer_uid=peer_uid, lang=lang):
+        _log("sent (coordinates)")
+        return 0
     _log("WARN: no send confirmation from the game")
     return 1
 
@@ -381,12 +295,9 @@ def main() -> int:
         if not profile.get("x"):
             _log("ERROR: could not read the own base tile (world_main_pos)")
             return rc | 1
-        label = args.coord_label or (
-            "[%s] %s" % (profile.get("abbr"), profile.get("name"))
-            if profile.get("abbr") else profile.get("name", ""))
-        att = build_point_attachment(profile["x"], profile["y"],
-                                     args.coord_server or profile["srv"],
-                                     pos_type=None, label=label)
+        if args.coord_server:
+            profile = dict(profile, srv=args.coord_server)
+        att = chat_share.base_attachment(profile, label=args.coord_label)
         rc |= send_point(ev, room, att, peer_uid=args.to, lang=args.lang, dry=args.dry_run)
 
     if args.coords:

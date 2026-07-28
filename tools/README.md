@@ -22,7 +22,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
   rally capture), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
   evaluator behind them), `goto_coord.py` (jump to a tile), `attack.py` (attack /
   scout an enemy base), `chat_reader.py` (read world/national/alliance chat off the
-  Lua VM), `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
+  Lua VM), `chat_send.py` (send text / emoji / stickers / coordinates),
+  `dispatch_tasks.py` (list the secret tasks the client knows),
+  `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
   `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
   hero-icon / chat-emoji / sticker sprites from the bundles).
   `chat_assets.py` sits here too, next to the two consumers it pairs with
@@ -33,8 +35,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
   il2cpp stack (`lua_eval`, `lua_client`, `lua_actions`, `xlua_route`, `il2cpp_probe`,
   `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
   capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
-  `lastwar_encode`), and helpers (`coords`, `hero_icons_map`, `steal_via_socket`,
-  `run_output` — the per-run timestamped file under `results/`).
+  `lastwar_encode`), and helpers (`coords`, `chat_share` — build and send chat
+  coordinate attachments, `hero_icons_map`, `steal_via_socket`, `run_output` — the
+  per-run timestamped file under `results/`).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
   (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
@@ -70,6 +73,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 | `attack.py` | **Windows** (Python, Lua daemon) | attack (`ATTACK_CITY`) or scout (`SCOUT_CITY`) an enemy base without clicking, and read back the scout report — see [`../docs/research/attack-and-scout.md`](../docs/research/attack-and-scout.md) |
 | `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
+| `chat_send.py` | **Windows** (Python, Lua daemon) | send a DM / channel message: text, inline emoji, stickers — see [`../docs/research/chat-send.md`](../docs/research/chat-send.md) — and map coordinates (`--coords` / `--my-base` / `--coord-extra`) — see [`../docs/research/chat-coord-share.md`](../docs/research/chat-coord-share.md) |
+| `dispatch_tasks.py` | **Windows** (Python, Lua daemon) | list the secret tasks ("секретки") the client already knows, straight off the Lua VM — no capture and no map panning; `--share-args` prints ready `chat_send.py` arguments |
 | `extract_chat_assets.py` | **WSL** or **Windows** (Python, UnityPy) | extract chat emoji / sticker sprites from the cached asset bundles into `results/chat_assets/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM

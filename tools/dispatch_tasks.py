@@ -40,13 +40,14 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
+import chat_share  # noqa: E402
 import coords as coords_fmt  # noqa: E402
 import lua_client  # noqa: E402
 
 MARKER = "ACT"
 
 # The label the client itself puts on a shared secret task (attachment `oname`).
-TASK_LABEL = "Секретное задание"
+TASK_LABEL = chat_share.SECRET_TASK_LABEL
 
 _DUMP_LUA = r"""
 local function hex(s) return (tostring(s):gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
@@ -114,7 +115,11 @@ def read_tasks(ev) -> tuple[list[dict], int]:
 
 
 def share_extra(task: dict) -> dict:
-    """The kind-specific half of a posType-22 attachment (see chat-coord-share.md)."""
+    """The kind-specific half of a posType-22 attachment (see chat-coord-share.md).
+
+    `chat_share.task_attachment(task)` builds the whole blob; this is only the tail,
+    for printing ready `chat_send.py --coord-extra` arguments.
+    """
     return {
         "uuid": int(task["uuid"]),
         "cfgId": task["cfgId"],
