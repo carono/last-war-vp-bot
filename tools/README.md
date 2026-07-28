@@ -24,6 +24,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
   scout an enemy base), `chat_reader.py` (read world/national/alliance chat off the
   Lua VM), `chat_send.py` (send text / emoji / stickers / coordinates),
   `dispatch_tasks.py` (list the secret tasks the client knows),
+  `ministry.py` (the kingdom-position board: holders, queues, and applying for a post),
   `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
   `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
   hero-icon / chat-emoji / sticker sprites from the bundles).
@@ -75,6 +76,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
 | `chat_send.py` | **Windows** (Python, Lua daemon) | send a DM / channel message: text, inline emoji, stickers — see [`../docs/research/chat-send.md`](../docs/research/chat-send.md) — and map coordinates (`--coords` / `--my-base` / `--coord-extra`) — see [`../docs/research/chat-coord-share.md`](../docs/research/chat-coord-share.md) |
 | `dispatch_tasks.py` | **Windows** (Python, Lua daemon) | list the secret tasks ("секретки") the client already knows, straight off the Lua VM — no capture and no map panning; `--share-args` prints ready `chat_send.py` arguments |
+| `ministry.py` | **Windows** (Python, Lua daemon) | the ministry board — who holds each kingdom position, how long they have sat and how many applicants are queued — and `--apply <post>` to submit an application headlessly; see [`../docs/research/ministry-apply.md`](../docs/research/ministry-apply.md) |
 | `extract_chat_assets.py` | **WSL** or **Windows** (Python, UnityPy) | extract chat emoji / sticker sprites from the cached asset bundles into `results/chat_assets/` |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM

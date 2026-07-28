@@ -109,6 +109,8 @@ down hero.dispatch.treasure.v2.get.info
 down hero.event.info.get
 down init
 down inquiry.list
+down kingdom.position.apply
+down kingdom.position.apply.list
 down login.ext
 down login.other
 down lw.get.alliance.alert.info
@@ -310,6 +312,8 @@ up hero.dispatch.steal
 up hero.dispatch.treasure.v2.get.info
 up hero.event.info.get
 up inquiry.list
+up kingdom.position.apply
+up kingdom.position.apply.list
 up login.ext
 up login.other
 up lw.get.alliance.alert.info

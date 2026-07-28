@@ -18,7 +18,12 @@ alliance-science calls, docs/research/alliance-tech-donate.md.
 """
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lua_actions as _lua_actions  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -183,6 +188,27 @@ BUTTONS: dict[str, Button] = {
         wait=0.4, label="close window",
     ),
 }
+
+
+# --- Government -> ministry: apply for one of the server's eight posts --------
+# One button per post ("apply_minister_science", "apply_vice_president", …) rather
+# than one parameterised button, because `TAP` takes no arguments and a recipe that
+# names the post it wants reads like the in-game click it replaces. Every entry is
+# the same gated one-liner from lua_actions.ministry_apply(); the ids, the names and
+# the gate are documented in docs/research/ministry-apply.md.
+#
+# `max_taps=1` on purpose: an application is a single press. `xall` then means "press
+# only if the post can actually be applied for right now" — which is what makes
+# submit_ministry.md able to walk a preference list and stop at the first post that
+# takes it. (Without the cap, a server that queues applicants instead of granting them
+# instantly would leave CheckCanApply true and the loop would re-apply in a spin.)
+for _pid, (_slug, _en, _ru) in _lua_actions.MINISTRY_POSTS.items():
+    BUTTONS["apply_%s" % _slug] = Button(
+        lua=_lua_actions.ministry_apply(_pid),
+        wait=1.2, label="Apply: %s (%s)" % (_en, _ru),
+        count_lua=_lua_actions.ministry_can_apply(_pid),
+        max_taps=1,
+    )
 
 
 def get(name: str) -> Button | None:

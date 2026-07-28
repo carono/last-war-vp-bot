@@ -265,3 +265,126 @@ def chat_share_point(room_id: str, attachment_json: str, post: int = POST_POINT_
            _lua_bytes(room_id), _lua_bytes(attachment_json),
            _lua_opt("toUser", to_user), _lua_opt("langRoomLang", lang_room))
     )
+
+
+# --------------------------------------------------------------------------
+# Government / ministry — the server's kingdom positions ("министерство")
+# --------------------------------------------------------------------------
+# The President appoints eight posts; a player asks for one by submitting an
+# application. On the wire that is a single command, `kingdom.position.apply`,
+# whose only field `positionId` is serialised as a UtfString.
+#
+# POSITION IDS ARE STRINGS, EVERYWHERE. `GetCanApplyGovernmentList()` hands back
+# `"10007"`, not `10007`, and the apply manager keys its own tables the same way, so
+# `CheckCanApply(10007)` answers **false** while `CheckCanApply("10007")` answers the
+# truth — a silent wrong answer, not an error. Passing a number to
+# `SendKingdomPositionApply` is the louder half of the same rule: the client's
+# serialiser then throws "attempt to get length of a number value"
+# (SFSDataSerializer). Every chunk below quotes the id for exactly this reason.
+#
+# Ids and names were read live off `GovernmentTemplateManager:GetTemplateName(id)`;
+# 10008/10009 only exist while the zone war runs. `slug` is the name the DSL
+# `TAP` catalogue uses (tools/lib/game_buttons.py generates one button per post).
+# See docs/research/ministry-apply.md.
+MINISTRY_POSTS: dict[int, tuple[str, str, str]] = {
+    # id: (slug, English gloss, the in-game Russian name)
+    10002: ("vice_president", "Vice President", "Вице-президент"),
+    10003: ("minister_strategy", "Minister of Strategy", "Министр стратегии"),
+    10004: ("minister_defence", "Minister of Defence", "Министр обороны"),
+    10005: ("minister_construction", "Minister of Construction", "Министр строительства"),
+    10006: ("minister_science", "Minister of Science", "Министр науки"),
+    10007: ("minister_interior", "Minister of the Interior", "Министр внутренних дел"),
+    10008: ("commander_military", "Military Commander", "Военный командир"),
+    10009: ("commander_admin", "Administrative Commander", "Административный командир"),
+}
+
+# slug -> id, for CLI arguments that name a post instead of numbering it.
+MINISTRY_SLUGS: dict[str, int] = {slug: pid for pid, (slug, _, _) in MINISTRY_POSTS.items()}
+
+
+def ministry_apply(position_id: int) -> str:
+    """Submit an application for kingdom position `position_id`.
+
+    Headless — no window has to be open. The in-game "Подать заявку" button is
+    `UIOfficialApplyCtrl:SendKingdomPositionApply(positionId)`, and that method never
+    touches `self`, so the module table can stand in for the window controller.
+
+    Gated on `CheckCanApply(id)`, which is the client's own pre-flight (already hold a
+    post / still on the per-post cooldown / the post is closed). Without the gate the
+    application still leaves the client and comes back as a server-side rejection with a
+    player-facing toast — the same trap as the resource-collect readiness gate.
+    """
+    return (
+        "local M = DataCenter.OfficialApplyManager "
+        "local id = '%d' "
+        "if M:CheckCanApply(id) then "
+        "M:SetViewPositionId(id) "
+        "local C = require('UI.UIGovernment.OfficialApply.Controller.UIOfficialApplyCtrl') "
+        "C.SendKingdomPositionApply(C, id) end" % int(position_id)
+    )
+
+
+def ministry_can_apply(position_id: int) -> str:
+    """Lua *expression* -> 1 when an application for `position_id` would be accepted.
+
+    Numeric on purpose: it is what `TAP <post> xall` counts down and what a recipe reads
+    with `READ_LUA … INTO <var>` to decide whether to bother applying at all.
+    """
+    return "(DataCenter.OfficialApplyManager:CheckCanApply('%d') and 1 or 0)" % int(position_id)
+
+
+def ministry_queue_len(position_id: int) -> str:
+    """Lua *expression* -> how many players are queued for `position_id`.
+
+    The list is server-fed and NOT pushed: it only holds data after
+    `ministry_fetch_queues()` has been run and the reply has landed (~1 s).
+    """
+    return ("(function() local n=0 "
+            "for _ in pairs(DataCenter.OfficialApplyManager:GetApplyList('%d') or {}) do n=n+1 end "
+            "return n end)()" % int(position_id))
+
+
+def ministry_held_minutes(position_id: int) -> str:
+    """Lua *expression* -> how many minutes the current holder of `position_id` has sat.
+
+    -1 when the post is vacant (or its holder has not been loaded yet), so a recipe can
+    tell "empty seat" from "just appointed".
+    """
+    return ("(function() local i=DataCenter.GovernmentManager:GetPositionInfoByPositionId('%d') "
+            "if not i or not i.appointTime or i.appointTime==0 then return -1 end "
+            "return (UITimeManager.Instance:GetSocketTime()-i.appointTime)/60000 end)()"
+            % int(position_id))
+
+
+def ministry_home_server() -> str:
+    """Lua *expression* -> the server the account itself lives on.
+
+    A uid ends in its six-digit server number (…000972 -> 972), which is the only
+    reliable home-server marker in the VM: `GovernmentManager.curDataServerId` tracks
+    whatever kingdom the client last *looked at*, not the player's own.
+    """
+    return ("(function() local uid=tostring(DataCenter.PlayerInfoDataManager:GetSelfUid()) "
+            "return tonumber(uid:sub(-6)) or 0 end)()")
+
+
+def ministry_fetch_board() -> str:
+    """Load the board: our own kingdom's post holders, plus every applicant queue.
+
+    Two requests, both fire-and-forget — read the result from a SEPARATE chunk after a
+    settle (never loop-and-wait inside one chunk, it freezes the client):
+
+      * `get.kingdom.positions <homeServer>` repoints the position table at OUR kingdom.
+        It has to be explicit: browsing another server's government (the cross-server
+        world view does this) leaves that server's holders cached, and
+        `GetPositionInfoByPositionId` will happily keep serving them — a wrong answer
+        that looks exactly like a right one. The holder uids in the board output carry
+        the server they came from, so the result is checkable.
+      * `kingdom.position.apply.list` per post fills the applicant queues, which are
+        never pushed and are empty until asked for.
+    """
+    return ("local M = DataCenter.OfficialApplyManager "
+            "pcall(function() SFSNetwork.SendMessage('get.kingdom.positions', %s) end) "
+            "for _, id in pairs(M:GetCanApplyGovernmentList() or {}) do "
+            "pcall(function() M:SendKingdomPositionApplyList(id) end) end "
+            'CS.UnityEngine.Debug.LogError("ACT ministry_board_requested")'
+            % ministry_home_server())

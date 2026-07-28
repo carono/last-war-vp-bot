@@ -37,7 +37,7 @@ start to finish. Every ✅ below is still something a human starts.
 
 ### Ministry
 
-- ❌ Applying for a post
+- ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask
 - ❌ Notification about an appointment
 - ❌ Applying during the alliance duel
 
