@@ -26,6 +26,8 @@ down alliance.declare.war.get
 down alliance.luck.siphon.gain.info
 down alliance.notice.list.info
 down alliance.notice.pinned.list.info
+down alliance.reward.allreceive
+down alliance.reward.list
 down alliance.skill.get.list
 down alliance.star.gain.activity.info.new
 down alliance.team.ls
@@ -225,6 +227,8 @@ up alliance.declare.war.get
 up alliance.luck.siphon.gain.info
 up alliance.notice.list.info
 up alliance.notice.pinned.list.info
+up alliance.reward.allreceive
+up alliance.reward.list
 up alliance.skill.get.list
 up alliance.star.gain.activity.info.new
 up alliance.team.ls

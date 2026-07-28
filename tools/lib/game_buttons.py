@@ -86,6 +86,29 @@ BUTTONS: dict[str, Button] = {
         count_lua="DataCenter.AllianceHelpDataManager:GetHelpNum()",
         max_taps=10,
     ),
+    # --- Alliance -> claim every alliance gift --------------------------------
+    "collect_alliance_gifts": Button(
+        # "Подарки альянса" -> "Забрать всё". The alliance gift window carries two
+        # collect-all buttons: ordinary gifts (type 1) and premium/privilege gifts
+        # (type 2); each claims every still-unreceived gift of that type. On the wire
+        # this is alliance.reward.allreceive {type}. Like help_ally_all the claim goes
+        # straight from the data manager, so no window has to be open — one press
+        # sweeps both tabs (an empty tab just no-ops, safely gated client-side).
+        # Live-probed: DataCenter.AllianceGiftDataManager (the "reward" domain shows up
+        # as the Gift manager), method SetAllGiftReceiveByType(type); GetGiftInfoList
+        # (type) is the list side (alliance.reward.list). GetRedPointNum() = total
+        # unclaimed, drops to 0 once everything is taken.
+        # See docs/research/alliance-gift-collection.md.
+        lua=(
+            "local m=DataCenter.AllianceGiftDataManager "
+            "for _,t in ipairs({1,2}) do pcall(function() m:SetAllGiftReceiveByType(t) end) end"
+        ),
+        wait=1.0, label="Collect alliance gifts",
+        # One sweep clears both types; xall re-reads the red-point count and mops up
+        # anything that lands in the gap, then stops the instant the server says 0.
+        count_lua="DataCenter.AllianceGiftDataManager:GetRedPointNum()",
+        max_taps=5,
+    ),
     # --- base -> collect every ready resource building -----------------------
     "collect_base_resources": Button(
         # "Собрать все ресурсы с базы" — the base's own "Collect All" in one press.
