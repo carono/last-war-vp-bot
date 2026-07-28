@@ -136,3 +136,62 @@ def back_home() -> str:
             'pcall(function() CrossServerUtil.OnBackSelfServer() end) '
             'CS.UnityEngine.Debug.LogError("ACT back done") end, 0.4) '
             'CS.UnityEngine.Debug.LogError("ACT back armed")')
+
+
+# ---------------------------------------------------------------------------
+# Chat send (DM / room). Reverse-engineered live from a PM trace to EleNita
+# (task #1085): text, inline emoji and stickers. See docs/research/chat-send.md.
+#
+# Every chat send funnels through ONE choke point in the client:
+#     ChatManager2:__sendToRoom(roomId, msg, extra, reply, isProxy, post)
+# which builds and fires both wire commands (`lw.user.push.chat.msg` + the
+# `chat.stat` telemetry twin). `extra` is an optional msgExtra table (srcLang,
+# post, atUids, ...) — every field is read defensively, so an empty `{}` sends a
+# clean plain message. `reply`=nil, `isProxy`=0, `post`=nil are the text defaults
+# captured on the wire.
+#
+# Room id shapes (docs/research/chat.md §2):
+#   DM        custom_<peerUid>_<selfUid>_v2
+#   World     country_<server>
+#   National  custom_lang_<lang>_<server>
+#   Alliance  alliance_<serverId>_<allianceId>
+#
+# Inline emoji are Private Use Area glyphs (U+E000-U+F8FF) sitting *inside* the
+# msg string; emoji id -> PUA is `ChatEmojiTemplateManager:GetEmojiDataById(id).name`
+# (a PUA hex stem, e.g. 101 -> "e006" -> U+E006). Resolve those to real chars in
+# the caller and hand the finished string here, so this recipe stays a pure send.
+#
+# Stickers are NOT text — they ride their own manager entry:
+#     ChatEmojiTemplateManager:TrySendSticker(roomId, stickerId)
+
+
+def _lua_bytes(s: str) -> str:
+    """A Lua expression rebuilding `s` byte-for-byte via string.char.
+
+    Avoids all quoting/escaping hazards for Cyrillic / CJK / PUA-emoji text when the
+    chunk is shipped to the daemon and compiled by xLua (Lua strings are byte arrays).
+    """
+    b = s.encode("utf-8")
+    if not b:
+        return '""'
+    return "string.char(" + ",".join(str(x) for x in b) + ")"
+
+
+def chat_send_text(room_id: str, msg: str) -> str:
+    """Send `msg` (already-assembled text, may contain inline PUA emoji) to `room_id`."""
+    return (
+        'pcall(function() local CM=ChatManager2 local inst=CM.GetInstance(CM) '
+        'CM.__sendToRoom(inst, %s, %s, {}, nil, 0, nil) end) '
+        'CS.UnityEngine.Debug.LogError("ACT chat_sent")'
+        % (_lua_bytes(room_id), _lua_bytes(msg))
+    )
+
+
+def chat_send_sticker(room_id: str, sticker_id: int) -> str:
+    """Send sticker `sticker_id` to `room_id` via the emoji/sticker manager."""
+    return (
+        'pcall(function() local em=DataCenter.ChatEmojiTemplateManager '
+        'em:TrySendSticker(%s, %d) end) '
+        'CS.UnityEngine.Debug.LogError("ACT chat_sticker_sent")'
+        % (_lua_bytes(room_id), int(sticker_id))
+    )
