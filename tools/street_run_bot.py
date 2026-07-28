@@ -13,13 +13,16 @@ via DataCenter.LWGhostParkourDataManager.
 
 Run under the Windows Python so it can reach the game + warm Lua daemon:
 
-    C:\Python312\python.exe tools\street_run_bot.py probe     # is the event open? attempts left?
+    C:\Python312\python.exe tools\street_run_bot.py probe        # is the event open? attempts left?
     C:\Python312\python.exe tools\street_run_bot.py shot [name.png]
-    C:\Python312\python.exe tools\street_run_bot.py run        # play attempts (blocked until event is open)
+    C:\Python312\python.exe tools\street_run_bot.py watch [sec]  # poll until the event opens
+    C:\Python312\python.exe tools\street_run_bot.py calibrate [n]# grab N run frames for tuning
+    C:\Python312\python.exe tools\street_run_bot.py run [fightType]  # play (blocked until open)
 
-Status: `probe` and `shot` work now. `run` refuses while the event is closed
-(activityId=nil); its perception layer is a calibration stub — the lane geometry
-and obstacle signature must be tuned on the first live frames (marked CALIBRATE).
+Status: `probe`/`shot`/`watch` work now. `run` refuses while the event is closed
+(activityId=nil) and keeps 5 attempts in reserve for the user; its perception layer
+is a calibration stub — the lane geometry and obstacle signature must be tuned on the
+first live frames (`calibrate`, marked CALIBRATE) before `run` can actually dodge.
 """
 from __future__ import annotations
 
@@ -56,8 +59,21 @@ try("highest",        function() return m:GetPersonalHightestScore() end)
 _FETCH_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRB "..tostring(s)) end
 local m = DataCenter.LWGhostParkourDataManager
+-- refresh the activity roster, then pull parkour-specific info
+pcall(function() DataCenter.ActivityListDataManager:RequestActivityData() end)
 pcall(function() m:SendGetGhostParkourInfosMessage() end)
 L("fetch-requested")
+"""
+
+# Launch a run. ReqStartGame(fightType, restart) sends MsgDefines.GhostParkourFightStart;
+# the server reply lands in OnStartGame → LWBattleManager:Enter(PVEType.GhostParkour,...)
+# which loads the runner scene. fightType is an enum (personal vs endless etc.) — CONFIRM
+# LIVE via string.dump once the event is open. restart=false for a fresh run.
+_START_LUA = r"""
+local function L(s) CS.UnityEngine.Debug.LogError("SRB "..tostring(s)) end
+local m = DataCenter.LWGhostParkourDataManager
+local ok,err = pcall(function() m:ReqStartGame(%d, false) end)
+L(ok and "start-sent" or ("start-err="..tostring(err)))
 """
 
 
@@ -89,6 +105,10 @@ def read_state(fetch: bool = False) -> dict:
 def event_open(state: dict) -> bool:
     aid = state.get("activityId", "nil")
     return aid not in ("nil", "", "0")
+
+
+def start_run(fight_type: int = 1):
+    _eval(_START_LUA % fight_type, settle=2.5)
 
 
 # ---------------------------------------------------------------------------
@@ -209,12 +229,43 @@ def cmd_shot(name="sr_now.png"):
     return 0
 
 
-def cmd_run():
+def cmd_watch(interval: float = 300.0):
+    """Poll until «Уличный забег» opens, then stop so a live calibration+run pass can
+    begin. Does NOT auto-play (the detector needs calibrating on real frames first)."""
+    print("Watching for «Уличный забег» to open (Ctrl-C to stop)...")
+    while True:
+        st = read_state(fetch=True)
+        if event_open(st):
+            print("EVENT OPEN! activityId=", st.get("activityId"),
+                  "attempts=", st.get("remainTimes", st.get("remainChallenge")))
+            print("Run `street_run_bot.py calibrate` then `run`.")
+            return 0
+        print("  closed; next check in", int(interval), "s")
+        time.sleep(interval)
+
+
+def cmd_calibrate(n: int = 30, delay: float = 0.15):
+    """Capture N frames while a run is on screen, into results/street_run/, so the
+    lane geometry + obstacle signature in detect() can be tuned. Start a run first."""
+    outdir = os.path.join("results", "street_run")
+    os.makedirs(outdir, exist_ok=True)
+    h, _ = find_win()
+    if h is None:
+        print("no game window"); return 1
+    focus(h); time.sleep(0.5)
+    for i in range(n):
+        grab(h, os.path.join("street_run", f"frame_{i:03d}.png"))
+        time.sleep(delay)
+    print(f"saved {n} frames to {outdir}")
+    return 0
+
+
+def cmd_run(fight_type: int = 1):
     st = read_state(fetch=True)
     if not event_open(st):
         print("Event «Уличный забег» is not open (activityId=nil). Nothing to run.")
-        print("Re-run once the event is scheduled; then calibrate detect() on the")
-        print("first frames of UIGhostParkourBattleMain (see CALIBRATE in this file).")
+        print("Use `watch` to wait for it, then `calibrate` on the first live frames")
+        print("(the perception layer in detect() is a CALIBRATE stub until then).")
         return 2
 
     h, _ = find_win()
@@ -222,27 +273,32 @@ def cmd_run():
         print("no game window"); return 1
     focus(h); time.sleep(0.8)
 
+    os.makedirs(os.path.join("results", "street_run"), exist_ok=True)
+    log = open(os.path.join("results", "street_run", "runs.log"), "a")
     remaining = int(st.get("remainTimes") or st.get("remainChallenge") or 0)
     print(f"Event open, {remaining} attempt(s) available.")
-    # TODO(live): LWGhostParkourDataManager:ReqStartGame(...) then wait for
-    # UIGhostParkourBattleMain; run the reflex loop below; on death press
-    # «Воскрешение» while resurrections remain; loop until remainTimes == 0.
-    while remaining > 0:
-        # start a run (headless launch or press Start button) -- confirm arg shape live
-        # reflex loop:
+    # Leave 5 attempts in reserve for the user (task instruction).
+    reserve = 5
+    while remaining > reserve:
+        start_run(fight_type)          # ReqStartGame → OnStartGame → runner scene
+        time.sleep(3.0)                # wait for UIGhostParkourBattleMain / scene load
+        # reflex loop until death:
         deadline = time.time() + 300
         while time.time() < deadline:
             img, _ = grab(h)
-            s = detect(img)
+            s = detect(img)            # CALIBRATE: real lane/obstacle detection
             if s["dead"]:
                 break
             key = decide(s)
             if key:
                 press(key)
-            # ~60 fps budget; detect() must stay well under 16 ms once calibrated
-            time.sleep(0.01)
-        remaining -= 1
-        print("attempt done, remaining:", remaining)
+            time.sleep(0.01)           # detect() must stay <16 ms once calibrated
+        st = read_state()
+        dist = st.get("highest", "?")
+        log.write(f"attempt remaining={remaining} best={dist}\n"); log.flush()
+        remaining = int(st.get("remainTimes") or st.get("remainChallenge") or remaining - 1)
+        print("attempt done, remaining:", remaining, "best:", dist)
+    print("Stopped with", remaining, "attempts in reserve for the user.")
     return 0
 
 
@@ -252,8 +308,12 @@ def main(argv):
         return cmd_probe()
     if cmd == "shot":
         return cmd_shot(argv[1] if len(argv) > 1 else "sr_now.png")
+    if cmd == "watch":
+        return cmd_watch(float(argv[1]) if len(argv) > 1 else 300.0)
+    if cmd == "calibrate":
+        return cmd_calibrate(int(argv[1]) if len(argv) > 1 else 30)
     if cmd == "run":
-        return cmd_run()
+        return cmd_run(int(argv[1]) if len(argv) > 1 else 1)
     print(__doc__)
     return 1
 

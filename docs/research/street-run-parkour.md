@@ -123,13 +123,29 @@ matches. (At recon the 28 active activities did NOT include parkour — that is 
 the event is off. To re-check: `street_run_bot.py probe`, or scan `nowActivityList` for the
 parkour entry.)
 
-**Entry path (player flow).** Not reachable from the main «События» competition panel
-(that lists Строительство города / Чёрный рынок / …). When live, «Уличный забег» is a
-timed seasonal activity reached from the activities/seasonal hub → its own panel with a
-Start button → `UIGhostParkourBattleMain`. Headless equivalent:
-`LWGhostParkourDataManager:ReqStartGame(...)` (arg shape to confirm via `string.dump`
-once the event is open). Directly `OpenWindow(UIWindowNames.UIGhostParkourBattleMain)`
-while closed only hides the HUD and renders nothing — a server session is required.
+**Entry path (player flow).** Not reachable from the «События» panel — its tabs are
+Чёрный рынок / Вызов ЧР II / Поле боя в пустыне / **Соревнование на игровых автоматах**
+(arcade) / Разыскиваемый Босс / Сообщество. The arcade («Соревнование на игровых
+автоматах», `s6_minigame_battle`) is a carousel of *other* minigames — «Сбор сыворотки»
+(a Tetris/block puzzle), «Полдень настал» (S5 western), «Рётэй», «Под руинами» — **none
+is the runner**. `UIRaceEntrance` is the warzone «Командный центр», also unrelated. When
+live, «Уличный забег» is a timed seasonal activity with its own panel → Start button →
+`UIGhostParkourBattleMain`.
+
+**Headless launch flow** (confirmed by `string.dump`):
+
+```
+LWGhostParkourDataManager:ReqStartGame(fightType, restart)   -- restart=false for a fresh run
+  → SFSNetwork:SendMessage(MsgDefines.GhostParkourFightStart, {...})
+  → server reply → OnStartGame(message)   -- reads message.remainTimes / stageId / uuid
+  → LWBattleManager:Enter(PVEType.GhostParkour, levelId, RestartParam)  -- loads the runner scene
+```
+
+`fightType` is an enum (personal vs endless / stage type) — **confirm the value live**
+(`GhostParkourPassType` = {Personal=3, Alliance=4} is the *pass* type, not fightType).
+While the event is closed the request is silently dropped (no `OnStartGame`, no attempt
+spent) — verified: `ReqStartGame(1,false)` did nothing. Directly
+`OpenWindow(UIWindowNames.UIGhostParkourBattleMain)` while closed only hides the HUD.
 
 ## Launch / attempt-tracking plan (once the event is open)
 
@@ -148,7 +164,29 @@ while closed only hides the HUD and renders nothing — a server session is requ
 - ✅ Confirmed the state-reading strategy (vision; Lua only for meta/launch).
 - ⛔ **Blocked on the event being inactive** — cannot observe the live runner, calibrate
   the detector, or run the ~30 attempts until «Уличный забег» is scheduled/open on the
-  account. `tools/scratch/sr_io.py` (input + fast capture) is the ready harness; the
-  perception layer is a calibration stub pending live frames.
+  account. `tools/street_run_bot.py` is the ready harness (`probe`/`shot`/`watch` work
+  now; `calibrate` + `run` need a live event); the perception layer is a calibration
+  stub pending live frames.
+
+### Exhaustively verified NOT accessible (session 2)
+
+The user reported ~30 attempts available, but the event is not reachable from this
+client. Confirmed closed five independent ways:
+
+1. `LWGhostParkourDataManager` state all empty — `activityId=nil, beginTime=0,
+   remainTimes=nil, endlessSwitch=false, highest=0` — **even after** a forced
+   `ActivityListDataManager:RequestActivityData()` resync + `SendGetGhostParkourInfosMessage()`.
+2. Deep scan of `nowActivityList` (28) / `laterActivityList` / `overActivityList` —
+   **zero** parkour references.
+3. `ReqStartGame(1,false)` — silently dropped, no scene, no attempt spent.
+4. Every «События» tab and the whole arcade carousel inspected — no runner.
+5. `UIGhostParkourRankPanelView` = «Нет данных», `UIGhostParkourBattleMain` = empty HUD-hide.
+
+Most likely: the event round is currently **closed / time-gated** (the user's "~30
+attempts" is their remaining allowance from an open window, and it reopens on
+schedule), **or** this automation drives a **different account** than the user plays
+(the launch doc recommends a throwaway) where the event isn't active. Either way it
+cannot be forced from here. Use `street_run_bot.py watch` to catch the next open
+window, then `calibrate` + `run`.
 
 Do not mark this ✅ in `docs/farming.md` until a run is proven live.
