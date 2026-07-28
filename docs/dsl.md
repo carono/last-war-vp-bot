@@ -4,6 +4,10 @@ Skills live as small declarative scripts in `src/lastwar_bot/actions/*.md`.
 Each file is one skill; the file name (without `.md`) is the skill name.
 The runtime is implemented in `src/lastwar_bot/script_engine.py`.
 
+> **Blessed vs. dev.** Only tested scripts sit in `actions/`; the rest live in
+> `actions/dev/` (still runnable — `run_action`/`CALL` look in both). The panel offers
+> the blessed dir only. Several examples below reference files now under `actions/dev/`.
+
 ## A complete example
 
 `go_to_base.md`:
@@ -266,6 +270,124 @@ hides — so the rule lives in one constant, `STAR_TASK_FAMILIES` in
 observation that does not yet fit are both written down. Re-test it any
 time with `tools/live_tshark.py --tasks --families`, which tallies
 families against the stars actually drawn on the map.
+
+## Game primitives (Lua VM, no pixels)
+
+Everything above reads the screen and clicks. These instead drive the game through
+its **own Lua VM** — the warm daemon in `tools/lua_daemon.py` (see
+`docs/research/xlua-state.md`). They send exact in-engine calls, so they are immune
+to UI-layout drift and OCR noise, and they need **no game-window handle** — an action
+made entirely of game primitives runs even when started with `hwnd=0` (e.g. from the
+panel's Scenarios tab). The daemon must be up; if it is down the evaluator falls back
+to a fresh local `LuaEval`.
+
+The evaluator is created on first use and cached on the run context, so every game
+primitive in one action shares one connection.
+
+**Two layers, so recipes stay readable.** The everyday layer is `TAP` — you press
+*named buttons* (`alliance`, `donate_1000`, …) and never see an engine name. The ugly
+`UIManager.Instance:OpenWindow(...)` calls behind each button live in one catalogue,
+`tools/lib/game_buttons.py`. Underneath sits the authoring layer — `LUA`, `READ_LUA`
+and the `GAME`/`JUMP` sugar — which is how you *define* a new button or write a
+one-off flow. A finished recipe should read like a list of button presses.
+
+> **Never put a server-waiting loop inside one `LUA` chunk.** The chunk runs on the
+> game's main thread and returns at once; a Lua `while` that waits for a value the
+> server sends back (a donation count, a load flag) spins forever and freezes the
+> client. Loop in the DSL instead — `TAP ... xN`, or `WHILE` + `WAIT` — so the
+> round-trip lands between calls. Each `TAP` already pauses after every press.
+
+### `TAP <button> [xN | xall]`
+
+Press a named button from the catalogue — once (default), `N` times, or `xall`. This
+is the human-facing primitive: the recipe names *what* to press, the catalogue knows
+*how*.
+
+```
+TAP alliance_tech     # open Alliance Tech
+TAP recommended_tech  # open the priority tech
+TAP donate_1000 xall  # press "Donate 1000" for every attempt currently banked
+TAP close x3          # pop 3 windows off the stack
+```
+
+`xall` presses **as many times as the button reports it still can** — its `count_lua`
+in the catalogue (for `donate_1000`, the remaining-donations count). The real number
+is read at run time and substituted for you, and the loop re-reads it after each press
+and stops at zero, so it spends exactly what is available and recovers any press the
+client's long-press throttle dropped. (There is no single "donate all" call in the
+game — the in-game *hold* just repeats the click at an interval; `xall` reproduces
+that, fast.) A button with no `count_lua` cannot be `xall`'d (clear runtime error).
+
+Every button carries its own small post-press pause (in the catalogue), so even a long
+`xall` never busy-loops the client — the throttle/round-trip lands in the gap.
+Pressing more times than there is anything to do is harmless when the action
+self-gates (`donate_1000` no-ops once the quota is spent). An unknown button name is a
+runtime error listing the ones that exist.
+
+**Adding a button** = one entry in `tools/lib/game_buttons.py` (`name -> {lua, wait,
+label, count_lua?}`). Use `READ_LUA`/`LUA` while working it out, then fold the call
+into a button so recipes can just `TAP` it.
+
+### `LUA <chunk>`
+
+Run one raw Lua chunk in the game VM. The rest of the line, verbatim — no quotes
+(Lua is quote-heavy). Errors are caught and logged rather than silently swallowed.
+
+```
+LUA UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceScience)
+LUA local rec = DataCenter.AllianceScienceDataManager:GetCurRecommendScience(); UIManager.Instance:GetStackTopWindow().Ctrl:OnScienceInfoClick(rec, nil)
+```
+
+### `READ_LUA <expr> INTO <var>`
+
+Evaluate a Lua expression and store its value in a script variable. Numeric results
+become numbers (so `IF`/`WHILE` can compare them); anything else stays a string. The
+`INTO <var>` tail is anchored at the end of the line, so the expression can contain
+anything up to it.
+
+```
+READ_LUA DataCenter.AllianceScienceDataManager:GetResDonateRestCount() INTO attempts
+READ_LUA (UIManager.Instance:GetStackTopWindow() and 1 or 0) INTO haswin
+```
+
+Variables are then tested with a **numeric condition** in `IF`/`WHILE`:
+`<var> <op> <number>`, where `<op>` is `==`, `!=`, `>`, `<`, `>=`, `<=`. Testing a
+variable that was never set, or one holding a non-numeric value, is a runtime error.
+
+```
+WHILE attempts > 0 LIMIT 40
+    LUA ... one "Donate 1000" press ...
+    WAIT 0.6
+    READ_LUA DataCenter.AllianceScienceDataManager:GetResDonateRestCount() INTO attempts
+```
+
+This `WHILE`/`READ_LUA` shape is how you spend *exactly* the banked attempts and stop
+(rather than a fixed `TAP donate_1000 x30`); it is the pattern to reach for when a
+count must gate the loop. The engine API behind the alliance-science calls is in
+`docs/research/alliance-tech-donate.md`.
+
+### `GAME WORLD` / `GAME CITY`
+
+Switch the scene: `WORLD` renders the map, `CITY` returns to the home base. Wraps
+`SceneUtils.ChangeToWorld()` / `ChangeToCity()`.
+
+```
+GAME WORLD
+```
+
+The vision-based `go_to_world.md` clicks the on-screen toggle instead; use whichever
+fits — the Lua path is layout-proof, the vision path needs no daemon.
+
+### `JUMP x, y [, server]`
+
+Jump the camera to tile `(x, y)`. With no server it stays on the current/home server;
+with a third number it enters that server (cross-server jump). Wraps the game's own
+coordinate-jump, `GoToUtil.GotoWorldPos`.
+
+```
+JUMP 512, 640
+JUMP 512, 640, 972
+```
 
 ## Conditions
 

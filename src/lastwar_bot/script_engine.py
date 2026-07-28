@@ -62,8 +62,21 @@ from pathlib import Path
 from typing import Any, Callable
 
 ACTIONS_DIR = Path(__file__).parent / "actions"
+# Untested / experimental actions live under actions/dev/. The blessed, verified ones
+# sit directly in actions/ (only what the panel's Scenarios list should offer). Both
+# are runnable — resolve_action() looks in the blessed dir first, then dev.
+DEV_ACTIONS_DIR = ACTIONS_DIR / "dev"
 
 EventCallback = Callable[[str], None]
+
+
+def resolve_action(name: str) -> Path | None:
+    """Locate an action script by name: blessed `actions/` first, then `actions/dev/`."""
+    for base in (ACTIONS_DIR, DEV_ACTIONS_DIR):
+        path = base / f"{name}.md"
+        if path.exists():
+            return path
+    return None
 
 
 # ---- Tokens / patterns -----------------------------------------------------
@@ -105,6 +118,51 @@ _SCAN_OPT_RE = re.compile(
     r"\b(LEVEL|FREE_SLOTS|WITHIN)\s+(\d+(?:\.\d+)?)\s*s?\b|\b(STAR|CAN_LOOT)\b",
     re.IGNORECASE,
 )
+
+# ---- Game-VM primitives (Lua daemon bridge) --------------------------------
+# These drive the game through its own Lua VM (the warm daemon, tools/lua_daemon.py),
+# not through pixels — so they need no hwnd. See docs/dsl.md "Game primitives".
+#
+# The building block is LUA: it runs one raw in-engine call, verbatim, so a recipe
+# shows exactly what it does to the game (no hidden Python composites — humans edit
+# these). READ_LUA evaluates an expression and stashes the result in a script
+# variable, which numeric IF/WHILE conditions then test. GAME/JUMP are thin, single-
+# call sugar over the common recipes in tools/lib/lua_actions.py.
+_GAME_SCENE_RE = re.compile(r"^GAME\s+(WORLD|CITY)\s*$", re.IGNORECASE)
+_JUMP_RE = re.compile(
+    r"^JUMP\s+(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$", re.IGNORECASE,
+)
+# TAP presses a named "button" from the friendly catalogue (tools/lib/game_buttons.py),
+# optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
+# button reports it still can (its count_lua), re-reading until that reaches zero.
+# This is the high-level, human-readable layer — engine calls stay in the catalogue.
+_TAP_RE = re.compile(r"^TAP\s+([A-Za-z_]\w*)(?:\s+x\s*(\d+|all))?\s*$", re.IGNORECASE)
+# LUA takes the rest of the line as a raw Lua chunk (no quotes — Lua is quote-heavy).
+# READ_LUA <expr> INTO <var> captures a value; the `INTO <var>` tail is anchored at
+# the end so the expression itself may contain anything up to it.
+_LUA_RE = re.compile(r"^LUA\s+(.+)$", re.IGNORECASE)
+_READ_LUA_RE = re.compile(
+    r"^READ_LUA\s+(.+)\s+INTO\s+([A-Za-z_]\w*)\s*$", re.IGNORECASE,
+)
+# Numeric variable condition: `attempts > 0`, `haswin == 0`, etc. Evaluated after
+# the screen/profile/missions predicates so those keywords keep priority.
+_VAR_COND_RE = re.compile(
+    r"^([A-Za-z_]\w*)\s*(==|!=|>=|<=|>|<)\s*(-?\d+(?:\.\d+)?)\s*$",
+)
+
+
+def _coerce(raw: str) -> Any:
+    """Turn a Lua `tostring` result into an int/float when it looks numeric.
+
+    Keeps values usable by numeric conditions (`attempts > 0`) while leaving
+    non-numeric strings (`"UIAllianceScienceInfo"`, `"nil"`) as-is.
+    """
+    if re.fullmatch(r"-?\d+", raw):
+        return int(raw)
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
 
 _SCREEN_CHECK_RE = re.compile(
     rf"^screen\s*(==|!=)\s*({_IDENT})\s*$", re.IGNORECASE,
@@ -178,6 +236,40 @@ class WhileStmt(_Stmt):
 
 
 @dataclass(slots=True)
+class GameSceneStmt(_Stmt):
+    """Switch the game scene via the Lua VM: CITY (home base) or WORLD (the map)."""
+    scene: str  # "world" | "city"
+
+
+@dataclass(slots=True)
+class JumpStmt(_Stmt):
+    """Camera/coordinate jump to tile (x, y) — same-server or (with server) cross-server."""
+    x: int
+    y: int
+    server: int | None = None
+
+
+@dataclass(slots=True)
+class TapStmt(_Stmt):
+    """Press a named button `count` times. count=None means `xall` (spend all)."""
+    name: str
+    count: int | None = 1
+
+
+@dataclass(slots=True)
+class LuaStmt(_Stmt):
+    """Run one raw Lua chunk in the game VM (verbatim rest-of-line). No return value."""
+    chunk: str
+
+
+@dataclass(slots=True)
+class ReadLuaStmt(_Stmt):
+    """Evaluate a Lua expression and store its value in the script variable `var`."""
+    expr: str
+    var: str
+
+
+@dataclass(slots=True)
 class CallStmt(_Stmt):
     action_name: str
 
@@ -224,6 +316,13 @@ class ScriptRuntimeError(Exception):
 # ---- Parser ----------------------------------------------------------------
 
 
+# A trailing inline comment: whitespace, then '#' that is followed by a space or the
+# end of line. The follow-up requirement is what keeps a Lua length operator (`#list`,
+# `#t` — '#' glued to a name) from being mistaken for a comment, so `LUA local n = #t`
+# survives while `TAP alliance   # the button` gets its note stripped.
+_INLINE_COMMENT_RE = re.compile(r"\s+#(?=\s|$).*$")
+
+
 def parse_text(text: str) -> list[Any]:
     """Tokenise a script source string and return the top-level statements."""
     lines: list[tuple[int, str, int]] = []
@@ -232,7 +331,10 @@ def parse_text(text: str) -> list[Any]:
         stripped = rstripped.lstrip()
         if not stripped or stripped.startswith("#"):
             continue
-        indent = len(rstripped) - len(stripped)
+        indent = len(rstripped) - len(stripped)   # from leading space, before comment strip
+        stripped = _INLINE_COMMENT_RE.sub("", stripped).rstrip()
+        if not stripped:
+            continue
         lines.append((indent, stripped, i))
     statements, _ = _parse_block(lines, 0, 0)
     return statements
@@ -314,6 +416,39 @@ def _parse_one(lines, i, indent):
     m = _SCAN_MISSIONS_RE.match(text)
     if m:
         return _parse_scan_missions(m.group(1), text, ln), i + 1
+
+    m = _GAME_SCENE_RE.match(text)
+    if m:
+        return GameSceneStmt(text=text, line_no=ln, scene=m.group(1).lower()), i + 1
+
+    m = _JUMP_RE.match(text)
+    if m:
+        server = int(m.group(3)) if m.group(3) is not None else None
+        return JumpStmt(
+            text=text, line_no=ln,
+            x=int(m.group(1)), y=int(m.group(2)), server=server,
+        ), i + 1
+
+    m = _TAP_RE.match(text)
+    if m:
+        raw = m.group(2)
+        if raw is None:
+            count: int | None = 1
+        elif raw.lower() == "all":
+            count = None
+        else:
+            count = int(raw)
+        return TapStmt(text=text, line_no=ln, name=m.group(1), count=count), i + 1
+
+    m = _READ_LUA_RE.match(text)
+    if m:
+        return ReadLuaStmt(
+            text=text, line_no=ln, expr=m.group(1).strip(), var=m.group(2),
+        ), i + 1
+
+    m = _LUA_RE.match(text)
+    if m:
+        return LuaStmt(text=text, line_no=ln, chunk=m.group(1).strip()), i + 1
 
     m = _CALL_RE.match(text)
     if m:
@@ -413,6 +548,12 @@ class Context:
     # Result of the most recent SCAN_SECRET_MISSIONS — a list of
     # `net.missions.SecretMission`, read by the `missions.count` condition.
     missions: list = field(default_factory=list)
+    # Lazily-created Lua-VM evaluator (daemon client or local LuaEval) shared by the
+    # game primitives (LUA / READ_LUA / GAME / JUMP). Created on first use so
+    # vision-only scripts never touch the daemon. See Interpreter._evaluator().
+    evaluator: Any = None
+    # Script variables written by READ_LUA and tested by numeric IF/WHILE conditions.
+    vars: dict = field(default_factory=dict)
 
 
 class _HaltSignal(Exception):
@@ -435,9 +576,9 @@ class Interpreter:
     # ---- entry point ----
 
     def run_action(self, name: str) -> bool:
-        path = ACTIONS_DIR / f"{name}.md"
-        if not path.exists():
-            self.ctx.on_event(f"!! action not found: {name} ({path})")
+        path = resolve_action(name)
+        if path is None:
+            self.ctx.on_event(f"!! action not found: {name} (looked in {ACTIONS_DIR} and dev/)")
             return False
         self._log(f"> action: {name}")
         self._depth += 1
@@ -499,6 +640,16 @@ class Interpreter:
                 self._do_scan_missions(stmt)
             case WhileStmt():
                 self._do_while(stmt)
+            case GameSceneStmt():
+                self._do_game_scene(stmt)
+            case JumpStmt():
+                self._do_jump(stmt)
+            case TapStmt():
+                self._do_tap(stmt)
+            case LuaStmt():
+                self._do_lua(stmt)
+            case ReadLuaStmt():
+                self._do_read_lua(stmt)
 
     # ---- conditions ----
 
@@ -542,6 +693,27 @@ class Interpreter:
                 ">": actual > wanted, "<": actual < wanted,
             }[op]
 
+        m = _VAR_COND_RE.match(cond)
+        if m:
+            name, op, wanted = m.group(1), m.group(2), float(m.group(3))
+            if name not in self.ctx.vars:
+                raise ScriptRuntimeError(
+                    f"line {line_no}: unknown variable {name!r} "
+                    f"(set it first with READ_LUA ... INTO {name})"
+                )
+            try:
+                actual = float(self.ctx.vars[name])
+            except (TypeError, ValueError):
+                raise ScriptRuntimeError(
+                    f"line {line_no}: variable {name!r} = {self.ctx.vars[name]!r} "
+                    "is not numeric"
+                )
+            return {
+                "==": actual == wanted, "!=": actual != wanted,
+                ">=": actual >= wanted, "<=": actual <= wanted,
+                ">": actual > wanted, "<": actual < wanted,
+            }[op]
+
         raise ScriptRuntimeError(f"line {line_no}: unknown condition: {cond!r}")
 
     def _find_template_inline(self, template_name: str) -> bool:
@@ -559,7 +731,7 @@ class Interpreter:
         path = TEMPLATES_DIR / template_name
         if not path.exists():
             raise ScriptRuntimeError(f"template not found: {template_name}")
-        scene = features.SceneIndex(grab(self.ctx.hwnd))
+        scene = features.SceneIndex(grab(self._ensure_hwnd()))
         match = scene.find_sift(path)
         if match is None or match.inliers < 4:
             self.ctx.last_find = None
@@ -599,6 +771,22 @@ class Interpreter:
 
     # ---- primitives ----
 
+    def _ensure_hwnd(self) -> int:
+        """Return a live game-window handle, discovering it lazily on first need.
+
+        The vision primitives (FIND/CLICK/READ_TEXT/PRESS/CLOSE_WINDOW) need a real
+        hwnd, but callers such as the panel start actions with hwnd=0 (they drive the
+        game through the Lua daemon and never resolve a window). Resolve it here so a
+        vision action run from anywhere just works; raise if the window is absent.
+        """
+        if not self.ctx.hwnd:
+            from .perception.capture import WindowNotFoundError, find_window
+            try:
+                self.ctx.hwnd = find_window("Last War-Survival Game", "LastWar.exe").hwnd
+            except WindowNotFoundError as exc:
+                raise ScriptRuntimeError(f"game window not found: {exc}") from exc
+        return self.ctx.hwnd
+
     # Number of capture+match attempts inside a single FIND. SIFT matching
     # has a stochastic component (RANSAC + ratio-test cutoff right at the
     # 4-inlier floor), and a transient animation can briefly hide enough
@@ -618,9 +806,10 @@ class Interpreter:
                 f"line {stmt.line_no}: template not found: {stmt.template_name}"
             )
 
+        hwnd = self._ensure_hwnd()
         match = None
         for attempt in range(1, self._FIND_RETRIES + 1):
-            scene = features.SceneIndex(grab(self.ctx.hwnd))
+            scene = features.SceneIndex(grab(hwnd))
             match = scene.find_sift(path)
             if match is not None and match.inliers >= 4:
                 break
@@ -644,7 +833,7 @@ class Interpreter:
 
         if stmt.coords is not None:
             cx, cy = stmt.coords
-            click(self.ctx.hwnd, cx, cy, mode="foreground")
+            click(self._ensure_hwnd(), cx, cy, mode="foreground")
             self._log(f"CLICK at ({cx}, {cy})  [absolute]")
             return
 
@@ -654,13 +843,13 @@ class Interpreter:
                 f"line {stmt.line_no}: CLICK without a preceding successful FIND"
             )
         cx, cy = match.center
-        click(self.ctx.hwnd, cx, cy, mode="foreground")
+        click(self._ensure_hwnd(), cx, cy, mode="foreground")
         self._log(f"CLICK at ({cx}, {cy})")
 
     def _do_press(self, stmt: PressStmt) -> None:
         from .inputs import press_key
 
-        press_key(self.ctx.hwnd, stmt.key)
+        press_key(self._ensure_hwnd(), stmt.key)
         self._log(f"PRESS {stmt.key.upper()}")
 
     def _do_while(self, stmt: WhileStmt) -> None:
@@ -689,7 +878,7 @@ class Interpreter:
         from .perception.capture import grab
         from .perception.ocr import read_text
 
-        img = grab(self.ctx.hwnd)
+        img = grab(self._ensure_hwnd())
         text = read_text(img, stmt.region)
         self.ctx.profile.set(stmt.target_field, text)
         x, y, w, h = stmt.region
@@ -763,6 +952,170 @@ class Interpreter:
                 f"{', starred' if mission.starred else ''}"
             )
 
+    # ---- game-VM primitives (Lua daemon bridge) ----
+
+    def _tools_lib_on_path(self) -> None:
+        """Put tools/lib on sys.path so the Lua bridge modules import (they are not
+        an installed package). Same wiring the SCAN_SECRET_MISSIONS primitive uses."""
+        lib = Path(__file__).resolve().parents[2] / "tools" / "lib"
+        if str(lib) not in sys.path:
+            sys.path.insert(0, str(lib))
+
+    def _evaluator(self):
+        """Return the shared Lua evaluator, creating it on first use.
+
+        Backed by the warm daemon when it is up, otherwise a fresh local `LuaEval`
+        (see tools/lib/lua_client.get_evaluator). Cached on the Context so every game
+        primitive in one action reuses the same connection.
+        """
+        if self.ctx.evaluator is None:
+            self._tools_lib_on_path()
+            try:
+                import lua_client
+            except ImportError as exc:
+                raise ScriptRuntimeError(
+                    f"game primitives need the Lua bridge in tools/lib — {exc}"
+                ) from exc
+            self.ctx.evaluator = lua_client.get_evaluator()
+        return self.ctx.evaluator
+
+    def _run_lua(self, chunk: str, marker: str = "ACT", settle: float = 1.2) -> list:
+        return self._evaluator().run(chunk, marker, settle)
+
+    def _do_game_scene(self, stmt: GameSceneStmt) -> None:
+        self._tools_lib_on_path()
+        import lua_actions
+        chunk = lua_actions.scene_world() if stmt.scene == "world" else lua_actions.scene_city()
+        self._run_lua(chunk)
+        self._log(f"GAME {stmt.scene.upper()} -> scene switch sent")
+
+    def _do_jump(self, stmt: JumpStmt) -> None:
+        self._tools_lib_on_path()
+        import lua_actions
+        # No explicit server → home/current server (HOME_SERVER fallback in lua_actions).
+        server = stmt.server if stmt.server is not None else lua_actions.HOME_SERVER
+        self._run_lua(lua_actions.jump_to_coord(stmt.x, stmt.y, server))
+        where = f"{stmt.x},{stmt.y}" + (f" srv {stmt.server}" if stmt.server is not None else "")
+        self._log(f"JUMP -> {where}")
+
+    def _do_tap(self, stmt: TapStmt) -> None:
+        """Press a named button from the catalogue: a fixed count, or `xall`.
+
+        Each press is its own game-VM call followed by the button's built-in pause, so
+        even a big repeat can never busy-loop the client — the throttle/round-trip lands
+        in the gap. `xall` re-reads the button's own count and keeps pressing until it
+        hits zero (or a safety cap), which spends exactly what is available and quietly
+        recovers any presses the client's long-press throttle dropped. Unknown button =
+        a clear runtime error naming the ones that exist.
+        """
+        self._tools_lib_on_path()
+        import game_buttons
+        btn = game_buttons.get(stmt.name)
+        if btn is None:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: unknown button {stmt.name!r} "
+                f"(known: {', '.join(game_buttons.names())})"
+            )
+        if stmt.count is None:                      # xall
+            self._tap_all(stmt, btn)
+            return
+        for n in range(1, stmt.count + 1):
+            self._press_button(btn)
+            suffix = f" ({n}/{stmt.count})" if stmt.count > 1 else ""
+            self._log(f"TAP {btn.label}{suffix}")
+            time.sleep(btn.wait)
+
+    def _press_button(self, btn) -> None:
+        """Fire one button press (its Lua), guarded, surfacing any Lua error."""
+        chunk = (
+            'local ok,err=pcall(function() %s end) '
+            'CS.UnityEngine.Debug.LogError("ACT tap="..(ok and "ok" or ("ERR:"..tostring(err))))'
+            % btn.lua
+        )
+        for out in self._run_lua(chunk, settle=0.1):
+            if "ERR:" in out:
+                self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
+
+    def _tap_all(self, stmt: TapStmt, btn) -> None:
+        """`TAP <button> xall`: press while the button's count_lua stays above zero."""
+        if not btn.count_lua:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: button {stmt.name!r} does not support 'xall' "
+                "(no count defined in the catalogue)"
+            )
+        pressed = 0
+        for _ in range(btn.max_taps):
+            remaining = self._eval_number(btn.count_lua)
+            if remaining is None:
+                self._log(f"TAP {btn.label} xall — count unavailable, stopping")
+                break
+            if remaining <= 0:
+                break
+            self._press_button(btn)
+            pressed += 1
+            self._log(f"TAP {btn.label} ({pressed}; {int(remaining)} available)")
+            time.sleep(btn.wait)
+        self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
+
+    def _eval_number(self, expr: str) -> float | None:
+        """Evaluate a Lua expression to a number (or None if it is not numeric / errored)."""
+        chunk = (
+            'local ok,v=pcall(function() return %s end) '
+            'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
+            % expr
+        )
+        val: float | None = None
+        for out in self._run_lua(chunk, marker="RLUA", settle=0.35):
+            if "RLUA " in out:
+                raw = out.split("RLUA ", 1)[1].strip()
+                if not raw.startswith("ERR:"):
+                    c = _coerce(raw)
+                    if isinstance(c, (int, float)):
+                        val = float(c)
+        return val
+
+    def _do_lua(self, stmt: LuaStmt) -> None:
+        """Run one raw Lua chunk in the game VM, verbatim.
+
+        Wrapped in pcall so a Lua error surfaces as a log line instead of being
+        swallowed by SafeDoString (which returns success even on error). The chunk
+        runs on the game's main thread and returns immediately — do NOT put a busy
+        loop here that waits on server state (it would freeze the client); express
+        the loop in the DSL with WHILE + WAIT so the round-trip lands between calls.
+        """
+        chunk = (
+            'local ok,err=pcall(function() %s end) '
+            'CS.UnityEngine.Debug.LogError("ACT lua="..(ok and "ok" or ("ERR:"..tostring(err))))'
+            % stmt.chunk
+        )
+        for ln in self._run_lua(chunk):
+            if "ERR:" in ln:
+                self._log(f"LUA error: {ln.split('lua=', 1)[-1]}")
+        self._log(f"LUA {stmt.chunk[:80]}{'…' if len(stmt.chunk) > 80 else ''}")
+
+    def _do_read_lua(self, stmt: ReadLuaStmt) -> None:
+        """Evaluate a Lua expression and store its value in ctx.vars[stmt.var].
+
+        Numeric results are stored as int/float so numeric conditions work; anything
+        else is stored as its string form. A Lua-side error stores None and logs it.
+        """
+        chunk = (
+            'local ok,v=pcall(function() return %s end) '
+            'CS.UnityEngine.Debug.LogError("RLUA "..(ok and tostring(v) or ("ERR:"..tostring(v))))'
+            % stmt.expr
+        )
+        value: Any = None
+        for ln in self._run_lua(chunk, marker="RLUA"):
+            if "RLUA " in ln:
+                raw = ln.split("RLUA ", 1)[1].strip()
+                if raw.startswith("ERR:"):
+                    self._log(f"READ_LUA error: {raw[4:]}")
+                    value = None
+                else:
+                    value = _coerce(raw)
+        self.ctx.vars[stmt.var] = value
+        self._log(f"READ_LUA {stmt.var} = {value!r}")
+
     def _do_call(self, stmt: CallStmt) -> None:
         self._log(f"CALL {stmt.action_name}")
         sub = Interpreter(self.ctx)
@@ -781,7 +1134,7 @@ class Interpreter:
         import win32con
         import win32gui
 
-        win32gui.PostMessage(self.ctx.hwnd, win32con.WM_CLOSE, 0, 0)
+        win32gui.PostMessage(self._ensure_hwnd(), win32con.WM_CLOSE, 0, 0)
         self._log("CLOSE_WINDOW -> WM_CLOSE posted")
 
     def _do_launch(self, stmt: LaunchStmt) -> None:

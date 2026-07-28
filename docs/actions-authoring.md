@@ -42,12 +42,13 @@ natural.
 
 ```
 src/lastwar_bot/
-├── actions/                    *** SCRIPTS GO HERE ***
-│   ├── go_to_base.md           # example: chrome-gated navigation
-│   ├── go_to_world.md
-│   ├── click_base_button.md    # leaf script: FIND + CLICK
-│   ├── click_world_button.md
-│   └── watchdog.md             # ticked every runner cycle
+├── actions/                    *** BLESSED SCRIPTS (tested, offered in the panel) ***
+│   ├── donate_alliance_tech.md # the one verified end-to-end so far
+│   └── dev/                    *** experimental / untested — still runnable ***
+│       ├── go_to_base.md       # example: chrome-gated navigation
+│       ├── click_base_button.md# leaf script: FIND + CLICK
+│       ├── watchdog.md         # ticked every runner cycle
+│       └── …                   # the rest of the vision actions
 ├── game/
 │   ├── skills/navigate.py      # the one game-aware module (identify_screen)
 │   └── templates/*.png         # PNG crops referenced by FIND
@@ -61,6 +62,15 @@ src/lastwar_bot/
 ├── ui.py                       # Tk Debug UI
 └── script_engine.py            # DSL parser + interpreter
 ```
+
+**Blessed vs. dev.** `actions/` holds only scripts verified to work end-to-end (right
+now just `donate_alliance_tech.md`); everything else — the OCR/vision actions, the
+watchdog — sits in `actions/dev/`. The panel's Scenarios list shows the blessed dir
+only, so an operator can only run what's tested. Both are still runnable from code:
+`resolve_action(name)` (used by `run_action` and the watchdog) looks in `actions/`
+first, then `actions/dev/`, and `CALL` resolves across both. Promote a dev script by
+moving it up into `actions/` once it is tested; the paths in the examples below refer
+to files that now live under `actions/dev/`.
 
 ## DSL recap (30-second version)
 
@@ -81,6 +91,30 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `READ_TEXT (...)` | `READ_TEXT (300, 100, 400, 60) INTO profile.name` | OCR a region and save into the active profile. |
 | `PRESS <key>` | `PRESS ESC` | Send a real keypress. Supports ESC/ENTER/SPACE/TAB/BACKSPACE/DELETE/HOME/END/PAGEUP/PAGEDOWN/UP/DOWN/LEFT/RIGHT, F1..F12, single letters/digits. |
 | `WHILE <cond> [LIMIT N]` | `WHILE screen == unknown LIMIT 8` | Repeat body until condition is false or LIMIT hit. Default LIMIT = 20. |
+| `TAP <button> [xN\|xall]` | `TAP donate_1000 xall` | **Game-VM.** Press a named button N times, or `xall` = as many as its count allows (re-read until zero). The human-facing verb. |
+| `LUA <chunk>` | `LUA UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceScience)` | **Game-VM.** Authoring layer: run one raw in-engine call, verbatim. |
+| `READ_LUA <expr> INTO <var>` | `READ_LUA ...:GetResDonateRestCount() INTO attempts` | **Game-VM.** Authoring layer: evaluate an expression into a script variable. |
+| `<var> <op> <number>` | `WHILE attempts > 0 LIMIT 40` | Numeric condition on a READ_LUA variable. |
+| `GAME WORLD` / `GAME CITY` | `GAME WORLD` | **Game-VM.** Single-call sugar: switch scene. |
+| `JUMP x, y [, server]` | `JUMP 512, 640, 972` | **Game-VM.** Single-call sugar: coordinate jump. |
+
+**Two backends, one grammar.** The vision primitives (FIND/CLICK/READ_TEXT/PRESS)
+read the screen and click through a window handle; the **game primitives**
+(TAP/LUA/READ_LUA/GAME/JUMP) drive the game through its own Lua VM (the warm daemon,
+`tools/lua_daemon.py`) and need no handle. Mix them freely in one script. An action
+made only of game primitives runs with `hwnd=0` — which is how the panel's
+**Scenarios** tab runs it (pick a script, Run, or Repeat on an interval).
+
+**Recipes read like button presses; engine names hide in the catalogue.** The
+everyday form is `TAP <button>` — see `donate_alliance_tech.md`, which is five
+`TAP` lines. The ugly `UIManager.Instance:OpenWindow(...)` calls live once in
+`tools/lib/game_buttons.py` (`name -> {lua, wait, label}`); a recipe author adds a
+button there and then just `TAP`s it. `LUA`/`READ_LUA` are the authoring layer for
+defining buttons or a bespoke count-gated loop (spend *exactly* N attempts). Two hard
+rules: don't bury a whole multi-step flow in one opaque keyword, and **never**
+loop-and-wait-on-server inside one `LUA` chunk (it freezes the client — loop with
+`TAP xN` or `WHILE`+`WAIT`, each of which pauses between calls). See
+[`docs/dsl.md`](dsl.md#game-primitives-lua-vm-no-pixels).
 
 Extended conditions:
 - `FIND <tpl>.png` — ad-hoc SIFT find as a condition; updates `LAST`.

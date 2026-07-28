@@ -119,10 +119,9 @@ class BotRunner:
         """Run the configured watchdog action. Return True if it halted us."""
         # Lazy import: avoids paying the script_engine import cost when no
         # watchdog is configured and keeps the module dependency flat.
-        from .script_engine import ACTIONS_DIR, Context, Interpreter
+        from .script_engine import Context, Interpreter, resolve_action
 
-        path = ACTIONS_DIR / f"{self.watchdog_action}.md"
-        if not path.exists():
+        if resolve_action(self.watchdog_action) is None:
             return False
         ctx = Context(hwnd=hwnd, on_event=self._emit, profile=self.profile)
         Interpreter(ctx).run_action(self.watchdog_action)
