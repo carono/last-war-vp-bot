@@ -111,7 +111,9 @@ CAPTURE_OPTIONS = [
 # Each Start spawns a fresh child, and each child opens its own timestamped file
 # under results/traffic/ resp. results/traces/ — so a stop/start cycle never
 # overwrites the previous session. The child prints the path it chose, which
-# lands in the panel log like the rest of its output.
+# lands in the panel log like the rest of its output. Starting either one first
+# asks for an optional session label, passed on as --label and folded into that
+# file name — a wall of timestamps says nothing about what each run captured.
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
 
@@ -1007,6 +1009,18 @@ class Panel(tk.Tk):
             self._log_put(f"[{tag}] ошибка запуска: {exc}")
             return None
 
+    def _ask_run_label(self) -> "str | None":
+        """Ask what this sniffer run is about; returns the label, or None if cancelled.
+
+        A run file is named by its start time alone, which says nothing about
+        what was being captured — the label is what makes a directory of them
+        readable later (see tools/lib/run_output.py). Empty input is a valid
+        answer (no label); only Cancel aborts the launch, which is why "" and
+        None must stay distinguishable here.
+        """
+        return simpledialog.askstring(self._t("develop.label.title"),
+                                      self._t("develop.label.prompt"), parent=self)
+
     def _toggle_sniff(self) -> None:
         if self._sniff_var.get():
             self._start_sniff()
@@ -1016,7 +1030,13 @@ class Panel(tk.Tk):
     def _start_sniff(self) -> None:
         if self._sniff_proc is not None:
             return
+        label = self._ask_run_label()
+        if label is None:
+            self._sniff_var.set(False)
+            return
         cmd = [WIN_PYTHON, "-u", TRAFFIC_SNIFFER]
+        if label.strip():
+            cmd += ["--label", label]
         self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
         self._sniff_proc = self._spawn_sniffer(cmd, "traffic")
         if self._sniff_proc is None:
@@ -1056,11 +1076,17 @@ class Panel(tk.Tk):
     def _start_trace(self) -> None:
         if self._trace_proc is not None:
             return
+        label = self._ask_run_label()
+        if label is None:
+            self._trace_var.set(False)
+            return
         # --dedup: log only the first call of each function name. Without it the
         # tracer wraps every reachable Lua function and floods Player.log, which
         # freezes the game — see the tools/lua_trace.py docstring. The safe
         # discovery pass is the right default for a one-click panel button.
         cmd = [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"]
+        if label.strip():
+            cmd += ["--label", label]
         self._log_put("[trace] запуск трассировщика Lua-функций (lua_trace.py --dedup) …")
         self._trace_proc = self._spawn_sniffer(cmd, "trace")
         if self._trace_proc is None:

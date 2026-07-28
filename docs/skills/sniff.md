@@ -96,9 +96,12 @@ When no ready tool fits, reuse the transport — don't reimplement sniffing.
   decoded envelope. Subclass it and override `emit`.
 - `map_capture.MapIndex(LiveDecoder)` → adds server-on-screen election + the
   `--dump` FrameLog; subclass **this** for any map-tile scanner.
-- `run_output.open_run_file(subdir, name)` → `(handle, path)` for a fresh
-  `results/<subdir>/<YYYYMMDD_HHMMSS>_<name>`; use it whenever a probe should
-  keep its own record instead of overwriting the last run's. `LiveDecoder`
+- `run_output.open_run_file(subdir, name, label=None)` → `(handle, path)` for a
+  fresh `results/<subdir>/<YYYYMMDD_HHMMSS>_[<label>_]<name>`; use it whenever a
+  probe should keep its own record instead of overwriting the last run's. The
+  optional `label` is free text (spaces → underscores) describing what the run
+  is about — `live_sniffer.py` and `lua_trace.py` expose it as `--label`, and
+  the panel's Develop menu asks for it before starting either. `LiveDecoder`
   takes such a handle as `transcript=` and writes one JSON object per message;
   that is how `live_sniffer.py` / `live_tshark.py` fill `results/traffic/`, and
   `lua_trace.py` fills `results/traces/`.

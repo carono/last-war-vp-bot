@@ -318,6 +318,8 @@ def main():
     ap.add_argument("--all", action="store_true", help="print every Player.log line, not just XSCALL/XSTRACE")
     ap.add_argument("--out", help="trace file path (default: a new "
                                   "results/traces/<timestamp>_trace.log per run)")
+    ap.add_argument("--label", help="free-text session label folded into the default "
+                                    "file name (spaces become underscores); ignored with --out")
     ap.add_argument("--no-out", action="store_true",
                     help="print to the terminal only, save no trace file")
     args = ap.parse_args()
@@ -337,7 +339,8 @@ def main():
                 os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
                 trace_file, trace_path = open(args.out, "w", encoding="utf-8", buffering=1), args.out
             else:
-                trace_file, trace_path = run_output.open_run_file("traces", "trace.log")
+                trace_file, trace_path = run_output.open_run_file(
+                    "traces", "trace.log", label=args.label)
         except OSError as exc:
             print("[lua_trace] cannot open trace file (%s) — printing only" % exc, file=sys.stderr)
 

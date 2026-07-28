@@ -489,6 +489,8 @@ def main() -> int:
     ap.add_argument("--raw", action="store_true", help="dump the full payload of each message")
     ap.add_argument("--out", help="JSONL transcript path (default: a new "
                                   "results/traffic/<timestamp>_traffic.jsonl per run)")
+    ap.add_argument("--label", help="free-text session label folded into the default "
+                                    "file name (spaces become underscores); ignored with --out")
     ap.add_argument("--no-out", action="store_true",
                     help="decode to the terminal only, write no transcript")
     args = ap.parse_args()
@@ -530,7 +532,8 @@ def main() -> int:
                 os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
                 transcript, out_path = open(args.out, "w", encoding="utf-8", buffering=1), args.out
             else:
-                transcript, out_path = run_output.open_run_file("traffic", "traffic.jsonl")
+                transcript, out_path = run_output.open_run_file(
+                    "traffic", "traffic.jsonl", label=args.label)
         except OSError as exc:
             print(f"{C_ERR}cannot open transcript ({exc}) — decoding to the terminal only{C_RESET}",
                   file=sys.stderr)

@@ -65,6 +65,8 @@
 
   "develop.traffic.toggle": "Снифер трафика",
   "develop.functions.toggle": "Снифер функций",
+  "develop.label.title": "Метка сессии",
+  "develop.label.prompt": "Метка сессии (необязательно).\nПопадёт в имя файла лога; пробелы станут подчёркиваниями.",
 
   "log.frame": "Лог (координаты кликабельны)",
   "log.copy": "Копировать",

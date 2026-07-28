@@ -65,6 +65,8 @@
 
   "develop.traffic.toggle": "Traffic sniffer",
   "develop.functions.toggle": "Function sniffer",
+  "develop.label.title": "Session label",
+  "develop.label.prompt": "Session label (optional).\nGoes into the log file name; spaces become underscores.",
 
   "log.frame": "Log (coordinates are clickable)",
   "log.copy": "Copy",
