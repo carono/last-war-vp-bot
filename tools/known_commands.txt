@@ -180,6 +180,7 @@ down social.status.view
 down surprise.point.get.info
 down top.message.get
 down train.list
+down use.desert.talent.skill
 down user.get.act.boss.march
 down user.get.auto.join.team.info
 down user.get.questionnaire.list
@@ -353,6 +354,7 @@ up social.status.view
 up surprise.point.get.info
 up top.message.get
 up train.list
+up use.desert.talent.skill
 up user.get.act.boss.march
 up user.get.auto.join.team.info
 up user.get.questionnaire.list

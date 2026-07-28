@@ -456,3 +456,177 @@ def alliance_help_all() -> str:
             "SFSNetwork.SendMessage(MsgDefines.AlHelpAll, "
             "math.floor(UITimeManager:GetInstance():GetServerTime()), Z, Z, nil, true) end"
             % alliance_help_pending())
+
+
+# --------------------------------------------------------------------------
+# Occupation ("profession") skills — the Mastery tree
+# --------------------------------------------------------------------------
+# In game these are «навыки профессии»: the active skills of the profession the
+# player picked (`home_id` 101 = Инженер / Engineer, 102 = Военный лидер / Warlord).
+# On the wire one press is a single command:
+#
+#     --> use.desert.talent.skill  {skillId = "10113"}
+#     <-- use.desert.talent.skill  {skillId, type = 1018, todayTimes = 1,
+#                                   recover = {lastTime, duration, num, max, type,
+#                                              cdEndTime},
+#                                   exeObj = {reward = [...], lucky, bTypes, ...}}
+#
+# `recover` is the charge counter: `num` charges banked out of `max`, refilling
+# `duration` ms after `lastTime`. That reply is what puts the skill on cooldown —
+# nothing client-side does, which is why the re-fire guard below exists.
+#
+# The owning manager is `DataCenter.MasteryManager`:
+#
+#   * `UseSkill(skillId, pointId, msgId, serverId)` — what the in-game useBtn calls
+#     (LWUIMasterySkillUseInWorldCell:OnBtnClickFunc). It routes on where the skill
+#     is cast from and, for a no-target skill, ends in the sender.
+#   * `SendUseSkillMsg(skillTemp, param, msgId)` — THE SENDER (its constants carry
+#     `SFSNetwork | SendMessage | MsgDefines | MasteryUseSkill`).
+#   * `HandleUseSkill(msg)` — the reply applier (rewards, popups,
+#     `SetSkillCdAndEffectTime`). Calling it sends nothing; it is not the press.
+#
+# Verified without spending a charge: with `SendUseSkillMsg` and
+# `SFSNetwork.SendMessage` temporarily stubbed out, `MasteryManager:UseSkill(10113)`
+# — no pointId, no serverId — arrived at
+# `SendUseSkillMsg(skillTemp{id=10113}, param=nil, msgId='use.desert.talent.skill')`,
+# byte-for-byte the send the human click produced in trace
+# `20260729_010052_навыки_профессии` (`SFSNetwork.SendMessage <- use.desert.talent.skill,
+# 10113, nil`). No confirmation dialog on the way. See
+# docs/research/occupation-skills.md.
+
+# `MasterySkillState` (a game global). Only `Normal` may be pressed.
+MASTERY_STATE_NONE, MASTERY_STATE_NORMAL, MASTERY_STATE_LOCKED = 0, 1, 2
+MASTERY_STATE_CD, MASTERY_STATE_COVERED = 3, 4
+MASTERY_STATE_NOUSE, MASTERY_STATE_EFFECT = 5, 6
+MASTERY_STATE_NAMES: dict[int, str] = {
+    MASTERY_STATE_NONE: "none",
+    MASTERY_STATE_NORMAL: "ready",
+    MASTERY_STATE_LOCKED: "locked",
+    MASTERY_STATE_CD: "cooldown",
+    MASTERY_STATE_COVERED: "covered",     # superseded by a higher tier of the same node
+    MASTERY_STATE_NOUSE: "no-use",
+    MASTERY_STATE_EFFECT: "in-effect",
+}
+
+# How long a just-fired skill stays excluded from the "ready" list. The client only
+# learns about the new cooldown when the server's reply lands (~0.2-8 s observed), so
+# without this a second press in that window would fire the SAME skill twice. Anything
+# longer than the round trip and shorter than a real cooldown (>= 23 h) works.
+MASTERY_REFIRE_GUARD_MS = 120_000
+
+
+def _mastery_ready_ids() -> str:
+    """Lua *expression* -> array of skill ids that can be fired right now, headless.
+
+    Three filters, all of them load-bearing:
+
+    * `active_skills` — passive nodes have no press at all.
+    * `CheckUsePosition(MasterySkillUsePosType.SkillView)` — the skill is cast from the
+      skill panel and needs NO target. The others (`Building`, `Field`, …) send a march
+      or want a map point, and firing them blind would aim at nothing; they are left to
+      a future targeted recipe.
+    * `GetMasteryGroupSkillState(masteryId) == Normal` — the client's own gate. `CD`,
+      `Locked` and `Covered` all read as "not now", and pressing anyway earns a
+      server-side rejection with a player-facing toast (the same trap as the
+      resource-collect readiness gate).
+
+    Plus the re-fire guard: ids stamped by `mastery_use_next_ready()` less than
+    `MASTERY_REFIRE_GUARD_MS` ago are dropped, so `xall` cannot double-fire one skill
+    while its cooldown is still in flight. The stamps live on the manager table
+    (`__lw_fired`) rather than in a global — this VM rejects some new globals.
+    """
+    return (
+        "(function() local M=DataCenter.MasteryManager "
+        "local d=M:GetData() if not d then return {} end "
+        "local now=UITimeManager:GetInstance():GetServerTime() "
+        "local fired=M.__lw_fired or {} local out={} "
+        "for _,mid in ipairs(M:GetHomeDict(d.home_id) or {}) do "
+        "local sid=M:GetCurSkillIdByMasteryId(mid) "
+        "local t=sid and M:GetSkillTemplate(sid) "
+        "if t and t.active_skills "
+        "and t:CheckUsePosition(MasterySkillUsePosType.SkillView) "
+        "and M:GetMasteryGroupSkillState(mid)==MasterySkillState.Normal "
+        "and (now-(fired[sid] or 0))>%d then out[#out+1]=sid end end "
+        "return out end)()" % MASTERY_REFIRE_GUARD_MS
+    )
+
+
+def mastery_ready_count() -> str:
+    """Lua *expression* -> how many no-target profession skills are off cooldown.
+
+    What `TAP use_profession_skill xall` counts down, and what a recipe reads with
+    `READ_LUA … INTO n` to decide whether the panel is worth opening at all.
+    """
+    return "#%s" % _mastery_ready_ids()
+
+
+def mastery_use_next_ready() -> str:
+    """Fire the first ready no-target profession skill (one press, one skill).
+
+    One press per chunk on purpose: the charge only drops when the server answers, and
+    a `while ready > 0 do press() end` inside a single chunk would spin the game's main
+    thread and freeze the client. `xall` re-reads the count between presses instead.
+    """
+    return (
+        "local M=DataCenter.MasteryManager "
+        "local ids=%s local sid=ids[1] "
+        "if sid then M.__lw_fired=M.__lw_fired or {} "
+        "M.__lw_fired[sid]=UITimeManager:GetInstance():GetServerTime() "
+        "pcall(function() M:UseSkill(sid) end) "
+        'CS.UnityEngine.Debug.LogError("ACT mastery_used "..tostring(sid)) end'
+        % _mastery_ready_ids()
+    )
+
+
+def mastery_skill_ready(skill_id: int) -> str:
+    """Lua *expression* -> 1 when `skill_id` is a no-target skill that may be fired now.
+
+    Numeric so a recipe can gate on it, and so `TAP <one skill> xall` stops at one press.
+    """
+    return ("(function() for _,sid in ipairs(%s) do "
+            "if sid==%d then return 1 end end return 0 end)()"
+            % (_mastery_ready_ids(), int(skill_id)))
+
+
+def mastery_use_skill(skill_id: int) -> str:
+    """Fire one specific profession skill by id, gated by `mastery_skill_ready`.
+
+    For pinning a routine to a named skill («Быстрое Производство» and nothing else).
+    Ungated it would still leave the client and come back as a rejection toast.
+    """
+    return ("if %s==1 then local M=DataCenter.MasteryManager "
+            "M.__lw_fired=M.__lw_fired or {} "
+            "M.__lw_fired[%d]=UITimeManager:GetInstance():GetServerTime() "
+            "pcall(function() M:UseSkill(%d) end) end"
+            % (mastery_skill_ready(skill_id), int(skill_id), int(skill_id)))
+
+
+def mastery_dump() -> str:
+    """Reader chunk: one `ACT S …` line per active skill of the current profession.
+
+    Fields: `sid` skill id, `mid` mastery node, `st` MasterySkillState, `pos` where it is
+    cast from (`SkillView` = no target), `num`/`max` banked charges, `avail` epoch-ms the
+    next charge lands (0 = now), `cd` the full cooldown in minutes, and `name`, hex-encoded
+    because the display name is localised and the log channel is ASCII-only.
+    """
+    return (
+        "local M=DataCenter.MasteryManager local d=M:GetData() "
+        'local function hex(s) return (tostring(s):gsub(".", '
+        'function(c) return string.format("%02x", string.byte(c)) end)) end '
+        "local names={} for k,v in pairs(MasterySkillUsePosType) do names[v]=k end "
+        'CS.UnityEngine.Debug.LogError("ACT now "..tostring(UITimeManager:GetInstance():GetServerTime())'
+        '.." home "..tostring(d and d.home_id).." lv "..tostring(d and d.level)) '
+        "if not d then return end "
+        "for _,mid in ipairs(M:GetHomeDict(d.home_id) or {}) do "
+        "local sid=M:GetCurSkillIdByMasteryId(mid) "
+        "local t=sid and M:GetSkillTemplate(sid) "
+        "if t and t.active_skills then "
+        "local pos='' for v=0,9 do if t:CheckUsePosition(v) then pos=(names[v] or tostring(v)) end end "
+        "local c=d:GetSkillChargeData(sid) "
+        'CS.UnityEngine.Debug.LogError(string.format('
+        '"ACT S sid=%s mid=%s st=%s pos=%s num=%s max=%s avail=%s cd=%s name=%s", '
+        "tostring(sid), tostring(mid), tostring(M:GetMasteryGroupSkillState(mid)), pos, "
+        "tostring(c and c.num or 0), tostring(c and c.max or 0), "
+        "tostring(d:GetSkillAvailableTime(sid) or 0), tostring(t.cd_time), "
+        "hex(UIUtil:GetString(t.name)))) end end"
+    )

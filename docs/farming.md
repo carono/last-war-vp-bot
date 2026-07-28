@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 78
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **23%** — 18 of 79
 
-🟩 18 done · 🟨 10 partly · 🟥 50 not automated
+🟩 18 done · 🟨 11 partly · 🟥 50 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -46,7 +46,16 @@ start to finish. Every ✅ below is still something a human starts.
 - ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask
 - ❌ Notification about an appointment
 - ❌ Applying during the alliance duel
-- ❌ Using the post's occupation skills — the buffs a serving minister hands out to alliancemates
+
+### Profession skills
+
+The active skills of the profession the account picked (Engineer / Warlord). Each
+is a banked charge on a 23.5-hour-plus cooldown, so one left unspent is a day of
+that payout thrown away. (Previously logged under Ministry as "the buffs a serving
+minister hands out" — the recording shows it is the profession tree, not a post.)
+
+- 🟡 Firing the skills that need no target — production, instant collect, speed-up chest, a survivor, an instant step off the build or research queue: one press each, no window opened, whatever is off cooldown. The call path is proven against the live game, but no charge was free to spend, so a run has not been confirmed in-game yet
+- ❌ The skills that need a target — helping an alliancemate's build or research, planting the siege banner: they want a world point and nothing picks one yet
 
 ### Alliance support
 
@@ -213,6 +222,7 @@ The routine as it is actually played, against what the bot covers.
 | Supplies, secret training, quests | ❌ |
 | Arena | ❌ |
 | Help alliancemates who ask | ✅ |
+| Fire the profession skills that came off cooldown | 🟡 the no-target ones · ❌ the targeted ones |
 | General's challenge, free heroes in the tavern | ❌ |
 | Shop purchases from a list | ❌ |
 | Treasure maps and the exchange | ❌ |

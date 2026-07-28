@@ -178,6 +178,51 @@ def test_game_scene_and_jump_sugar():
     assert "GotoWorldPos" in joined and "972" in joined
 
 
+def test_occupation_skills_recipe_walks_the_ready_set():
+    """The profession-skill recipe presses once per ready skill, then clears the modal.
+
+    Two things this pins down, both of which cost real charges to get wrong:
+    the press must be driven by `xall` off a live count (never a fixed number, since
+    how many skills are off cooldown is not knowable when the recipe is written), and
+    each press must carry the re-fire stamp that stops one skill being fired twice
+    while its cooldown is still in flight on the server.
+    """
+    import game_buttons as gb
+
+    path = se.resolve_action("occupation_skills")
+    assert path is not None, "actions/occupation_skills.md is missing"
+    stmts = se.parse_text(path.read_text(encoding="utf-8"))
+    assert [s.name for s in stmts] == ["use_profession_skill", "dismiss_skill_result"]
+    assert stmts[0].count is None, "the press must be TAP … xall, not a fixed count"
+
+    button = gb.get("use_profession_skill")
+    assert button is not None and button.count_lua, "xall needs a count expression"
+    # Two ready skills, then none -> exactly two presses.
+    ev = FakeEval(rluas=[2, 1, 0])
+    _run("TAP use_profession_skill xall", ev)
+    presses = [c for c in ev.chunks if "UseSkill" in c]
+    assert len(presses) == 2, presses
+    assert all("__lw_fired" in c for c in presses), "presses must stamp the re-fire guard"
+
+
+def test_mastery_gate_is_state_and_use_position():
+    """Ready = `Normal` state AND a no-target (`SkillView`) skill — both, not either.
+
+    Dropping either half is a live bug: without the state check a press lands on a
+    skill still in cooldown and earns a server rejection toast; without the
+    use-position check it fires a skill that wants a world target at nothing.
+    """
+    import lua_actions as la
+
+    ready = la.mastery_ready_count()
+    assert "MasterySkillState.Normal" in ready
+    assert "MasterySkillUsePosType.SkillView" in ready
+    assert "active_skills" in ready
+    # A specific-skill press carries the same gate plus its own id.
+    one = la.mastery_use_skill(10113)
+    assert "10113" in one and "MasterySkillState.Normal" in one
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

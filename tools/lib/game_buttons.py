@@ -180,6 +180,56 @@ BUTTONS: dict[str, Button] = {
         ),
         wait=1.2, label="Collect ready trucks",
     ),
+    # --- profession ("mastery") skills: fire the ones that need no target -----
+    # «Навыки профессии» — the active skills of the profession the account picked.
+    # Each is a once-a-day-ish charge (cooldown 1410-4290 min) that hands over
+    # resources, speed-ups, a survivor or an instant build/research step, so leaving
+    # them unpressed is pure lost income.
+    #
+    # One press = one skill, always the first one that is off cooldown; `xall` walks
+    # the whole ready set. The skill is chosen inside the press rather than named
+    # here, because which skills exist depends on the profession (Инженер / Военный
+    # лидер) and on how far its tree is levelled — a button per id would only fit one
+    # account. For pinning a routine to a single named skill there is
+    # lua_actions.mastery_use_skill(id).
+    #
+    # Only skills whose use-position is `SkillView` are fired: those need no target.
+    # The `Building` / `Field` ones (Совместное исследование, Осадное знамя …) want a
+    # world point and are deliberately left alone. See
+    # docs/research/occupation-skills.md.
+    "use_profession_skill": Button(
+        lua=_lua_actions.mastery_use_next_ready(),
+        # Generous on purpose. The cooldown is set by the SERVER's reply, and the
+        # observed round trip for use.desert.talent.skill ran up to ~8 s (the reply
+        # carries the whole reward list). Pressing again before it lands would fire
+        # the same skill twice — the re-fire guard in mastery_use_next_ready() is the
+        # real safety net, this pause is what keeps `xall` from leaning on it.
+        wait=4.0, label="Use profession skill",
+        count_lua=_lua_actions.mastery_ready_count(),
+        # Thirteen active nodes on a maxed tree, and only about half are no-target.
+        max_taps=10,
+    ),
+    "profession_skills_panel": Button(
+        # The «Профессия» window itself. Not needed to fire anything — the press is
+        # headless — but it is how a human checks what the bot just did.
+        lua="UIManager.Instance:OpenWindow(UIWindowNames.LWUIMastery)",
+        wait=1.5, label="Profession panel",
+    ),
+    "dismiss_skill_result": Button(
+        # A successful use raises its own result modal — UIMasterySkillUseResultShow
+        # for most skills, UIBuyOneGetOneFree for the resource ones (seen live in
+        # trace 20260729_010052), UIGetVirus for Cultivate Virus. They are separate
+        # windows from the generic reward popup, so `dismiss_reward_popup` does not
+        # match them. No-op when nothing is up.
+        lua=("local mgr=UIManager.Instance "
+             "for _,n in ipairs({UIWindowNames.UIMasterySkillUseResultShow, "
+             "UIWindowNames.UIBuyOneGetOneFree, UIWindowNames.UIGetVirus}) do "
+             "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+             "if ok and open then local w=mgr:GetWindow(n) "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end "
+             "end end"),
+        wait=0.5, label="dismiss skill-result popup",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.
