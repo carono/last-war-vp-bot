@@ -285,7 +285,7 @@ def chat_share_point(room_id: str, attachment_json: str, post: int = POST_POINT_
 # Ids and names were read live off `GovernmentTemplateManager:GetTemplateName(id)`;
 # 10008/10009 only exist while the zone war runs. `slug` is the name the DSL
 # `TAP` catalogue uses (tools/lib/game_buttons.py generates one button per post).
-# See docs/research/ministry-apply.md.
+# See docs/research/ministry.md.
 MINISTRY_POSTS: dict[int, tuple[str, str, str]] = {
     # id: (slug, English gloss, the in-game Russian name)
     10002: ("vice_president", "Vice President", "Вице-президент"),

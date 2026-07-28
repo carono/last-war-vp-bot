@@ -58,7 +58,7 @@ Usage (run under the Windows Python so it can reach the daemon)
     C:\Python312\python.exe tools\ministry.py --apply 10007 --dry-run
 
 Applying is the same press the DSL exposes as `TAP apply_<post>` and the
-`submit_ministry.md` recipe runs; see docs/research/ministry-apply.md.
+`submit_ministry.md` recipe runs; see docs/research/ministry.md.
 """
 from __future__ import annotations
 

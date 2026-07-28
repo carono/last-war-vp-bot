@@ -8,7 +8,7 @@
 # Behind the tap: UIOfficialApplyCtrl:SendKingdomPositionApply(positionId), which puts
 # `kingdom.position.apply {positionId}` on the wire. The engine calls live in the button
 # library tools/lib/game_buttons.py; the reverse-engineering is in
-# docs/research/ministry-apply.md.
+# docs/research/ministry.md.
 #
 # The eight posts, one button each — swap the line below for the one you want:
 #

@@ -195,7 +195,7 @@ BUTTONS: dict[str, Button] = {
 # than one parameterised button, because `TAP` takes no arguments and a recipe that
 # names the post it wants reads like the in-game click it replaces. Every entry is
 # the same gated one-liner from lua_actions.ministry_apply(); the ids, the names and
-# the gate are documented in docs/research/ministry-apply.md.
+# the gate are documented in docs/research/ministry.md.
 #
 # `max_taps=1` on purpose: an application is a single press. `xall` then means "press
 # only if the post can actually be applied for right now" — which is what makes
