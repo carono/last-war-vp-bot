@@ -274,13 +274,14 @@ def test_autoloot_takes_only_starred_tasks_of_the_best_level(tmp_path=None):
     assert [uuid for uuid, _srv, _label in picked] == [3], picked
 
 
-def test_autoloot_level_range_is_a_hard_gate(tmp_path=None):
-    """«Уровень от / до» bounds what may be robbed, not just what is printed.
+def test_autoloot_robs_the_filter_top_level_and_nothing_lower(tmp_path=None):
+    """«от 1 до 7» means level 7 — a level-6 star is not a consolation prize.
 
-    Live case (2026-07-29 14:15): the range said 6..7 and the day's budget was
-    being saved for 7s, but a level-6 star was the only raidable one and got
-    robbed anyway — the range never reached the rule. With `level_min=7` the 6 is
-    not a target at all, and with no star in range nothing is robbed.
+    Live case (2026-07-29 14:15): the range said 6..7, the day's last robberies
+    were being saved for 7s, and the only raidable star was a 6 — which got
+    robbed, because the rule took "the best level found" instead of the level the
+    filter asked for. The scarce thing is the five daily attempts, not the
+    targets: one spent on a 6 is one a 7 cannot have until the reset.
     """
     import tempfile
     from pathlib import Path as _Path
@@ -288,25 +289,50 @@ def test_autoloot_level_range_is_a_hard_gate(tmp_path=None):
     import steal_secret_task as steal
 
     tasks = [
-        _task(1, 60000501, "6000", 5),    # starred, below the range
-        _task(2, 60000601, "6000", 6),    # starred, inside 6..7
+        _task(1, 60000501, "6000", 5),    # starred, below the filter's top
+        _task(2, 60000601, "6000", 6),    # starred, below the filter's top
         _task(3, 60000801, "6000", 8),    # starred, above the range
     ]
     checkpoint = _checkpoint(tmp_path, tasks)
-    inside = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
-                                     level_min=6, level_max=7, say=lambda _m: None)
-    assert [uuid for uuid, _srv, _label in inside] == [2], inside
 
     said = []
-    only7 = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
-                                    level_min=7, level_max=7, say=said.append)
-    assert only7 == [], only7                     # the level-6 star is NOT a fallback
-    assert any("no starred task" in m for m in said), said
+    picked = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                     level_min=1, level_max=7, say=said.append)
+    assert picked == [], picked                    # neither the 6 nor the 5 stands in
+    assert any("no starred task at level 7" in m for m in said), said
 
-    # An open end stays open, and no range at all keeps the old behaviour.
-    top = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
-                                  level_min=6, say=lambda _m: None)
-    assert [uuid for uuid, _srv, _label in top] == [3], top
+    # The 7 shows up -> that is the target, and the lower stars stay untouched.
+    tasks.append(_task(4, 60000701, "6000", 7))
+    picked = steal.targets_from_scan(_checkpoint(tmp_path, tasks), limit=5,
+                                     star_max=True, level_min=1, level_max=7,
+                                     say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in picked] == [4], picked
+
+
+def test_autoloot_level_range_is_a_hard_gate(tmp_path=None):
+    """The range bounds what may be robbed at all, not just what is printed."""
+    import tempfile
+    from pathlib import Path as _Path
+    tmp_path = _Path(tmp_path or tempfile.mkdtemp())
+    import steal_secret_task as steal
+
+    tasks = [
+        _task(1, 60000501, "6000", 5),
+        _task(2, 60000601, "6000", 6),
+        _task(3, 60000801, "6000", 8),    # starred, above the range -> never a target
+    ]
+    checkpoint = _checkpoint(tmp_path, tasks)
+    picked = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                     level_min=5, level_max=6, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in picked] == [2], picked
+
+    # No «до» set: no target level is configured, so the best found in range
+    # stands in for it (and the level-8 star above the open end still wins).
+    said = []
+    fallback = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                       level_min=6, say=said.append)
+    assert [uuid for uuid, _srv, _label in fallback] == [3], fallback
+    assert any("no «до» set" in m for m in said), said
     unbounded = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
                                         say=lambda _m: None)
     assert [uuid for uuid, _srv, _label in unbounded] == [3], unbounded

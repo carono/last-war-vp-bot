@@ -18,12 +18,12 @@ docs/research/secret-task-steal.md.
                                    (tools/secret_task_capture.py --json), freshest
                                    first, already filtered by `can_loot`
     --from-scan … --star-max       the panel's auto-loot rule: starred tasks only,
-                                   and only the highest level among them. No star
-                                   in the scan means nothing is robbed at all
+                                   and only at ONE level — the top of the range
+                                   below. No star there means nothing is robbed
     --from-scan … --level-min N    hard level gate («уровень от / до» in the panel):
-                --level-max M      levels outside it are not targets at all, so
-                                   --star-max looks for its top level inside the
-                                   range and the day's budget is not spent below it
+                --level-max M      levels outside it are not targets at all, and
+                                   with --star-max the target level IS --level-max
+                                   («от 1 до 7» robs 7s and leaves a 6 alone)
 
 Usage (run under the Windows Python so it can reach the warm daemon)
 --------------------------------------------------------------------
@@ -124,16 +124,19 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
     current clock, so a file written an hour ago cannot smuggle a stale tile in here.
 
     `level_min` / `level_max` bound which levels may be robbed at all — the panel's
-    «уровень от / до». They are applied FIRST, before `star_max` looks for its top
-    level, so the range is a hard gate and not a preference: with `level_min=7` a
-    level-6 star is not a target even when it is the only star on the map, and the
-    day's five robberies stay unspent for a 7. Either end may be None (open).
+    «уровень от / до». They are applied FIRST, before `star_max` picks its target
+    level, so the range is a hard gate and not a preference. Either end may be None.
 
-    `star_max` is the panel's auto-loot rule: **starred tasks only**, and among those
-    only the highest level actually found *within the range*. No star in the scan means
-    no target at all — the caller does nothing rather than settling for an ordinary
-    task, which is the whole point (a robbery spent on a level-5 plain tile is one that
-    a level-7 star cannot have later that day).
+    `star_max` is the panel's auto-loot rule: **starred tasks only**, and only at ONE
+    level — `level_max`, the top of the configured range. «от 1 до 7» means level 7
+    and nothing else: a level-6 star is not robbed even when it is the only star on
+    the map, because the day's five robberies are the scarce thing and one spent on a
+    6 is one a 7 cannot have until the daily reset. Without `level_max` no target
+    level is configured, so it falls back to the highest level actually found in
+    range.
+
+    No star at the target level means no target at all — the caller does nothing
+    rather than settling for a lower one, which is the whole point of the rule.
 
     `starred` is `cfgId` family 6000 minus the `99` class — the rule and the evidence
     behind it live in `STAR_TASK_FAMILIES` (docs/research/protocol.md §7). It is the one
@@ -161,9 +164,19 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
             say("no starred task in the scan (%d raidable, none starred) — nothing to do"
                 % len(raidable))
             return []
-        top = max(t.level for t in starred)
+        # The target level is the FILTER's top, not the best thing lying around:
+        # «от 1 до 7» means 7s are robbed and a 6 waits, however alone it is. Only
+        # with no configured top does the best level found stand in for it.
+        if level_max is not None:
+            top, why = level_max, "the filter's top"
+        else:
+            top, why = max(t.level for t in starred), "the highest found, no «до» set"
         raidable = [t for t in starred if t.level == top]
-        say("starred targets: %d at level %d (the highest found)" % (len(raidable), top))
+        if not raidable:
+            say("no starred task at level %d (%s) — nothing to do; %d starred lower "
+                "in range are left alone" % (top, why, len(starred)))
+            return []
+        say("starred targets: %d at level %d (%s)" % (len(raidable), top, why))
     raidable.sort(key=lambda t: (-t.free_slots, -t.level))
     return [(t.uuid, t.server_id, _label(t)) for t in raidable[:limit]]
 
@@ -179,13 +192,15 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=5,
                     help="most targets to take from --from-scan (default 5)")
     ap.add_argument("--star-max", action="store_true",
-                    help="with --from-scan: starred tasks only, and only the highest "
-                         "level found. No star in the scan = nothing is robbed")
+                    help="with --from-scan: starred tasks only, and only at the top "
+                         "level of --level-min/--level-max (the highest level found, "
+                         "when no --level-max is given). Nothing there = nothing robbed")
     ap.add_argument("--level-min", type=int, metavar="N",
                     help="with --from-scan: never rob below level N (the panel's "
-                         "«уровень от»). Applied before --star-max picks its top level")
+                         "«уровень от»)")
     ap.add_argument("--level-max", type=int, metavar="N",
-                    help="with --from-scan: never rob above level N («уровень до»)")
+                    help="with --from-scan: never rob above level N («уровень до») — "
+                         "and with --star-max this IS the level robbed, nothing lower")
     ap.add_argument("--queue-only", action="store_true",
                     help="park the targets in the game VM and stop (no robbery)")
     ap.add_argument("--status", action="store_true",

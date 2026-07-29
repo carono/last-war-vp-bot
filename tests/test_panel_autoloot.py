@@ -67,7 +67,7 @@ def _checkpoint(path: Path, tasks, age: int = 0) -> None:
 class _Watcher:
     """A Panel stand-in carrying only what the watcher touches."""
 
-    def __init__(self, checkpoint: Path):
+    def __init__(self, checkpoint: Path, level_from: str = "", level_to: str = ""):
         from panel.__main__ import Panel
 
         self.logs: list = []
@@ -79,6 +79,11 @@ class _Watcher:
         self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
         self._log_put = self.logs.append
         self._autoloot_run = self.runs.append          # the child is never spawned here
+        # The «уровень от / до» entries duck-typed: `_autoloot_levels` only reads
+        # `.get()`, so the rule can be exercised without a Tk root window.
+        self._lvl_from_var = types.SimpleNamespace(get=lambda: level_from)
+        self._lvl_to_var = types.SimpleNamespace(get=lambda: level_to)
+        self._autoloot_levels = types.MethodType(Panel._autoloot_levels, self)
         self._autoloot_targets = types.MethodType(Panel._autoloot_targets, self)
         self.tick = types.MethodType(Panel._autoloot_tick, self)
 
@@ -139,6 +144,35 @@ def test_autoloot_watcher_fires_once_per_target():
     _checkpoint(cp, [_task(21, 60000701, "6000", 7)], age=100_000)
     w.tick()
     assert w.runs == [str(cp)] * 3, "fired at a stale checkpoint"
+
+
+def test_autoloot_watcher_waits_for_the_filter_top_level():
+    """With «от 1 до 7» ticked, a raidable level-6 star must NOT fire the watcher.
+
+    The layer above the rule is where the day's five robberies are actually
+    spent, so the level the operator asked for has to survive all the way here —
+    this is the 2026-07-29 case, walked through the watcher itself.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp, level_from="1", level_to="7")
+
+    # Every star in the scan is below the filter's top: hold fire.
+    _checkpoint(cp, [_task(1, 60000501, "6000", 5), _task(2, 60000601, "6000", 6)])
+    w.tick()
+    w.tick()
+    assert w.runs == [], "robbed below the filter's top level: %r" % (w.runs,)
+    assert w._autoloot_seen == set(), w._autoloot_seen
+
+    # A level-7 star comes free -> that one is robbed, and only that one.
+    _checkpoint(cp, [_task(1, 60000501, "6000", 5), _task(2, 60000601, "6000", 6),
+                     _task(3, 60000701, "6000", 7)])
+    w.tick()
+    assert w.runs == [str(cp)], w.runs
+    assert w._autoloot_seen == {3}, w._autoloot_seen
 
 
 def _run_standalone() -> int:

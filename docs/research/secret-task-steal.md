@@ -164,18 +164,29 @@ harmless when «Мониторинг» is off: nothing refreshes the checkpoint,
 stays fresh enough to be a target (the panel says as much when the box is ticked
 with the monitor stopped).
 
-**The «уровень от / до» entries bound it.** They sit in the same row as the
-checkbox and read as one control, so they are a hard gate on what may be robbed,
-not a display preference: the range is applied *before* `--star-max` looks for
-its top level, and both the watcher's poll and the child process get it
-(`--level-min` / `--level-max`) — the child re-reads the checkpoint, so a range
-that reached only the panel would let it rob outside the range anyway. Set «от 7»
-and a level-6 star is not a target at all, however alone it is on the map.
+**«Уровень до» IS the level it robs.** The two entries sit in the same row as the
+checkbox and read as one control, so the range is not a display preference and
+not a mere ceiling over "whatever is lying around": with `--star-max` the target
+level is exactly `--level-max`. «от 1 до 7» robs level-7 stars and leaves a
+level-6 one alone however long it is the only star on the map. Both the watcher's
+poll and the child process get the range — the child re-reads the checkpoint, so
+a range that reached only the panel would let it rob outside the range anyway.
 
-This was learned the hard way: on 2026-07-29 14:15 the range said 6..7, the day's
-last two robberies were being saved for 7s, and auto-loot spent one on the only
-raidable star — a level 6 — because the range never reached the rule. Note that
-6 *is* inside 6..7; what the range now guarantees is that «от 7» means it.
+Why the top and not the best thing available: **the five daily attempts are the
+scarce resource, not the targets.** A robbery spent on a 6 is one a 7 cannot have
+until the reset, and stars of the top level keep appearing all day. So "nothing
+raidable at the asked-for level" is a normal answer, not a failure — the watcher
+holds fire and says so.
+
+Learned the hard way, twice on 2026-07-29: at 14:15 the range said 6..7 and
+auto-loot robbed the only raidable star, a level 6, because (a) the range never
+reached the rule at all, and (b) the rule took "the highest level found" rather
+than the level asked for. Both are fixed; replaying that very checkpoint now
+yields *no* target at «до 7» and the same level-6 tile only if «до 6» is set.
+
+With **no «уровень до»** there is no configured target level, so the rule falls
+back to the highest level actually found in range — the old behaviour, and the
+log says which of the two it is applying.
 
 Two things it does NOT do, both on purpose:
 

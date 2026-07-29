@@ -68,8 +68,9 @@
   "secret.can_loot_only": "Только доступные",
   "secret.level_from": "Уровень от",
   "secret.level_to": "до",
-  "secret.autoloot": "Автолут ★ макс. уровня",
-  "secret.autoloot.range": "уровень {lo}..{hi}",
+  "secret.autoloot": "Автолут ★ по верхнему уровню фильтра",
+  "secret.autoloot.rule_top": "беру только звёзды уровня {lvl} (фильтр {lo}..{lvl})",
+  "secret.autoloot.rule_found": "«уровень до» не задан — беру звёзды максимального найденного уровня (фильтр от {lo})",
 
   "capture.secret_tasks": "Секретные задания",
   "capture.ghost_op": "Операция Призрак",

@@ -68,8 +68,9 @@
   "secret.can_loot_only": "Lootable only",
   "secret.level_from": "Level from",
   "secret.level_to": "to",
-  "secret.autoloot": "Auto-loot ★ best level",
-  "secret.autoloot.range": "level {lo}..{hi}",
+  "secret.autoloot": "Auto-loot ★ at the filter's top level",
+  "secret.autoloot.rule_top": "robbing stars of level {lvl} only (filter {lo}..{lvl})",
+  "secret.autoloot.rule_found": "no «уровень до» set — robbing stars of the highest level found (filter from {lo})",
 
   "capture.secret_tasks": "Secret tasks",
   "capture.ghost_op": "Operation Ghost",
