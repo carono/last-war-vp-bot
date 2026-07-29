@@ -19,9 +19,24 @@ Lua recipe: `actions/alliance_donate.lua`. Wire command: `al.science.donate`
 **Freeze pitfall (important):** the remaining-attempts count (`GetResDonateRestCount`)
 only drops AFTER the server replies to `al.science.donate`. A tight in-Lua
 `while rest>0 do OnResDonateClick() end` therefore never sees it fall, spins on the
-main thread and **freezes the client**. Donate ONE press per chunk, wait ~0.6 s, then
-re-read the count — the DSL recipe loops with `WHILE`+`WAIT`, and
-`alliance_science.press_donate` loops in Python the same way.
+main thread and **freezes the client**. Donate ONE press per chunk, from the Python
+side — `TAP donate_1000 xall` in the DSL recipe, `alliance_science.press_donate` for
+the CLI. Both loop the same way.
+
+**Pacing:** the count does NOT have to be re-read before every press. One press spends
+exactly one attempt, so the loop assumes the countdown and re-reads the real count once
+every `recheck_every` presses (5) to correct the drift. With that, a press costs ~0.2 s
+instead of ~1 s — the pace of holding the button down in game — and a full 30-attempt
+quota takes seconds, not half a minute. The knobs: `Button.recheck_every` /
+`Button.wait` in `tools/lib/game_buttons.py` for the DSL, the `settle_after` /
+`recheck_every` arguments of `press_donate` for the CLI.
+
+Because a press in flight has not been counted yet, a re-read can report *more* left
+than the loop assumed, so a batch may overshoot the quota by a press or two. That is
+expected to be harmless — the quota is enforced server-side and a refused donation
+spends nothing (the same shape as the collect gate, refusal 602026) — but it has not
+been observed on the wire here. Watch for a rejection reply after the last press of a
+run before treating the overshoot as proven benign.
 
 ## What the trace shows
 

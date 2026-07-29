@@ -32,6 +32,14 @@ Run = Callable[..., list]
 Log = Callable[[str], None]
 
 
+# How long a chunk is given to reach Player.log before its lines are read back. A press
+# reports nothing the caller acts on, so it only needs enough for the invoke to return;
+# a count read has to actually see its line, and 0.4 s is the value the DSL's own count
+# reads (script_engine._eval_lua_value, settle=0.35) have been running at.
+_PRESS_SETTLE = 0.3
+_READ_SETTLE = 0.4
+
+
 def _L(name: str) -> str:
     """Lua logger prefix helper — mirrors the marker convention of the other tools."""
     return 'local L=function(s) CS.UnityEngine.Debug.LogError("%s "..tostring(s)) end' % name
@@ -95,7 +103,7 @@ def _rest_count(run: Run, use_gold: bool) -> int:
     getter = "GetGoldDonateRestCount" if use_gold else "GetResDonateRestCount"
     lines = run(
         _L("DON") + '\nL("rest="..tostring(DataCenter.AllianceScienceDataManager:%s()))'
-        % getter, "DON", 0.4)
+        % getter, "DON", _READ_SETTLE)
     for ln in lines:
         if "rest=" in ln:
             try:
@@ -116,9 +124,15 @@ def press_donate(run: Run, use_gold: bool, cap: int | None,
     presses lets the round-trip land — mirrors the DSL recipe donate_alliance_tech.md.
 
     The remaining-attempts count is re-read once every `recheck_every` presses, not
-    before each one: a press spends exactly one attempt, and one past the quota is
-    gated server-side, so the extra read only cost wall-clock. That, plus the short
-    `settle_after`, is what makes this run at the pace of holding the button in game.
+    before each one: a press spends exactly one attempt, so the countdown between reads
+    can simply be assumed, and the read that ends the batch corrects the drift. That,
+    plus the short `settle_after`, is what makes this run at the pace of holding the
+    button in game (~0.2 s a press instead of ~1 s).
+
+    Drift only ever runs one way — a press still in flight has not been counted, so a
+    re-read may report more left than assumed and the batch can overshoot the quota by
+    a press or two. Those land as refused donations, which spend nothing; see
+    docs/research/alliance-tech-donate.md ("Pacing") for what is and is not proven.
     """
     method = "OnGoldDonateClick" if use_gold else "OnResDonateClick"
     # Res press: (scienceId, resType, resNum). Gold press: (scienceId, goldNum).
@@ -142,7 +156,7 @@ L("pressed one")''' % (method, args)
             rest = _rest_count(run, use_gold)
         if rest <= 0:
             break
-        run(press, "DON", 0.3)
+        run(press, "DON", _PRESS_SETTLE)
         n += 1
         rest -= 1                          # assumed; the next re-read corrects it
         time.sleep(settle_after)   # let the server apply this donation before the next press
