@@ -401,9 +401,9 @@ BUTTONS: dict[str, Button] = {
     # 0 while the heal is still running. One heal press already covers every type, so a
     # plain `TAP heal_all` is the usual call.
     #
-    # UNPROVEN LIVE: the message shape and the wounded list are read off the game's own
-    # sender, but no heal has been seen through to soldiers coming back — every live
-    # attempt so far was refused by the base for having no free building queue.
+    # UNPROVEN LIVE: the shape is exactly what a recorded human press sends, but a heal
+    # sent by THIS code has not yet been watched moving the wounded count. Building queues
+    # are not a gate — the recorded press went through with all four of them working.
     "heal_all": Button(
         lua=_lua_actions.hospital_heal_all(),
         wait=1.2, label="Heal all wounded soldiers",

@@ -4,20 +4,21 @@ One press of the in-game cure button is one ``hospital.cure`` message that heals
 of wounded soldiers at once; the message and where its numbers come from are written up
 in ``lua_actions`` (the hospital section) and ``docs/research/hospital-heal.md``:
 
-    hospital.cure  {armyArray = [{armyId = <string>, count = <int>}, ...],
-                    gold = 0, goldForTime = 0, goldForResource = 0, itemIds = ""}
+    hospital.cure  {armyArray = [{armyId = <string>, count = <int>}, ...], gold = 0}
 
 The wounded themselves are ``DataCenter.HospitalManager.allHospital`` — one row per
 soldier type, ``dead`` being the wounded waiting and ``heal`` those already in
 treatment. Collecting the healed soldiers is the manager's own
 ``CheckSendFinish``, which sends ``queue.finish`` once the heal timer has run out.
 
-The message serialises and reaches the server (its replies come back through
-``HospitalCureHandle``), and its shape is the window's own argument, not an approximation
-of it. What has NOT been seen through yet is one accepted heal: every live attempt so far
-was refused, always from a base whose building queues were all busy — a heal takes one.
-So treat :func:`heal_all` as proven in shape and unproven in outcome, and read the free
-build queue count it logs before blaming the code.
+The shape above is what a recorded human press actually sends — `armyArray` and `gold`,
+nothing else. Sending the pay-to-finish fields alongside (`goldForTime`, `goldForResource`,
+`itemIds`) makes the client build the message WITHOUT `armyArray` and the server answer
+`E000000`; that bug is fixed, but a scripted heal has not yet been watched moving the
+wounded count, so treat :func:`heal_all` as unproven in outcome.
+
+Building queues are NOT a gate: the player's own heal went through with all four of them
+working. An earlier version of this module claimed otherwise.
 
 Everything runs through any evaluator exposing ``.run(chunk, marker, settle)`` — the warm
 daemon client or a local ``LuaEval`` (see ``tools/lib/lua_client.py``).
@@ -75,7 +76,7 @@ def healed_ready(run: Run, settle: float = 0.35) -> "int | None":
 
 
 def free_build_queues(run: Run, settle: float = 0.35) -> "int | None":
-    """How many building queues are idle — a heal needs one, and refuses without it."""
+    """How many building queues are idle. Diagnostic only — a heal does NOT need one."""
     return _count(run, lua_actions.free_build_queues(), "freeq", settle)
 
 
@@ -111,9 +112,8 @@ def heal_all(run: Run, log: "Log | None" = None, settle: float = 1.2) -> int:
     nothing was wounded, when the game VM could not be reached, or when the send was
     skipped — in every case with a line through ``log``.
 
-    The count returned is how many soldier types went into the message, not a promise
-    that the server accepted it: with every building queue busy the base refuses the
-    heal, and it says so on screen rather than back down this call.
+    The count returned is how many soldier types went into the message, not a promise that
+    the server accepted it — a refusal comes back asynchronously as the game's own tip.
     """
     say: Log = log or (lambda _m: None)
     n = wounded_types(run)
@@ -133,7 +133,6 @@ def heal_all(run: Run, log: "Log | None" = None, settle: float = 1.2) -> int:
     except (RuntimeError, OSError) as exc:
         say(f"hospital.cure failed: {exc}")
         return 0
-    free = None
     for line in lines:
         if "heal=ERR:" in line:
             say(f"hospital.cure failed: {line.split('heal=ERR:', 1)[1].strip()}")
@@ -141,15 +140,7 @@ def heal_all(run: Run, log: "Log | None" = None, settle: float = 1.2) -> int:
         if "hospital_heal_all skip:" in line:
             say(f"heal skipped: {line.split('skip:', 1)[1].strip()}")
             return 0
-        if "freeq=" in line:
-            raw = line.split("freeq=", 1)[1].split()[0]
-            try:
-                free = int(float(raw))
-            except ValueError:
-                free = None
     say(f"healed {n} soldier type(s)")
-    if free == 0:
-        say("...but no building queue is free — the server refuses a heal without one")
     return n
 
 

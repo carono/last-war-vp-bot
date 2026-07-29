@@ -1590,19 +1590,20 @@ def park_treasures(home_server: int = 0) -> str:
 # (docs/research/hospital-heal.md):
 #
 #     SFSNetwork.SendMessage(MsgDefines.HospitalCure, {      -- "hospital.cure"
-#         armyArray      = { {armyId = <string>, count = <int>}, ... },
-#         gold           = 0,      -- gold spent on the heal (0 = the free heal)
-#         goldForTime    = 0,      -- gold spent to skip the timer
-#         goldForResource= 0,      -- gold spent to cover missing resources
-#         itemIds        = "",     -- speed-up items used (empty = none)
+#         armyArray = { {armyId = <string>, count = <int>}, ... },
+#         gold      = 0,           -- gold spent on the heal (0 = the free heal)
 #     })
 #
 # The message class `HospitalCureMessage` renames the per-entry `count` to `healNum`
 # on the wire (`PutUtfString(armyId, tostring(one.armyId))` + `PutInt(healNum, …)`),
-# which is why the trace shows `healNum` and the caller passes `count`. The three gold
-# fields are NOT optional: the serialiser packs them as ints and a missing one aborts
-# the send ("bad argument #2 to 'pack'"). Sending them as 0 with `count` filled in was
-# confirmed live — the server answers `HospitalCureHandle` with a real errorCode.
+# which is why the trace shows `healNum` and the caller passes `count`. `gold` is NOT
+# optional (the serialiser packs it as an int; a missing one aborts the send with
+# "bad argument #2 to 'pack'"), and `worldType` the class fills in itself.
+#
+# Do NOT add `goldForTime` / `goldForResource` / `itemIds`: they belong to the
+# pay-to-finish branch, and passing them even as 0/"" makes `OnCreate` skip `armyArray`
+# altogether, so the server answers errorCode E000000 and nothing heals. The recorded
+# human press (20260729_182527, no dedup) puts exactly armyArray + gold + worldType.
 #
 # The wounded list is `DataCenter.HospitalManager.allHospital`, keyed by armyId. A row
 # carries exactly three server fields (`HospitalInfo`: armyId, heal, dead):
@@ -1638,9 +1639,10 @@ def hospital_cure(entries) -> str:
     """
     entries = list(entries)
     army = _hospital_army_literal(entries)
-    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.HospitalCure, '
-            '{armyArray=%s, gold=0, goldForTime=0, goldForResource=0, itemIds=""}) end) '
-            'CS.UnityEngine.Debug.LogError("ACT hospital_cure entries=%d")'
+    return ('local ok,err = pcall(function() SFSNetwork.SendMessage(MsgDefines.HospitalCure, '
+            '{armyArray=%s, gold=0}) end) '
+            'CS.UnityEngine.Debug.LogError("ACT hospital_cure entries=%d ok="..tostring(ok)'
+            '..(ok and "" or (" err="..tostring(err))))'
             % (army, len(entries)))
 
 
@@ -1668,10 +1670,6 @@ def hospital_heal_all() -> str:
     pre-fills (it suggests only as many as fit the player's chosen cure time), and it is
     what "heal them all" means. Sends nothing (a logged no-op) when nothing is wounded.
 
-    The log line also carries how many building queues were free at the moment of the
-    send. A heal takes one, and a base with none gets the send refused server-side with
-    nothing to show for it down this call, so the count is what tells a busy base from a
-    broken heal afterwards. Reading it here costs no extra round trip.
     """
     return (
         "local ok,err = pcall(function() "
@@ -1682,13 +1680,10 @@ def hospital_heal_all() -> str:
         "if type(h)=='table' and h.armyId and type(h.dead)=='number' and h.dead > 0 then "
         "army[#army+1] = {armyId = tostring(h.armyId), count = math.floor(h.dead)} end end "
         "if #army == 0 then error('no wounded soldiers') end "
-        "SFSNetwork.SendMessage(MsgDefines.HospitalCure, "
-        "{armyArray = army, gold = 0, goldForTime = 0, goldForResource = 0, itemIds = ''}) "
-        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army'
-        '.." freeq="..tostring(%s)) '
+        "SFSNetwork.SendMessage(MsgDefines.HospitalCure, {armyArray = army, gold = 0}) "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army) '
         "end) "
         'if not ok then CS.UnityEngine.Debug.LogError("ACT hospital_heal_all skip: "..tostring(err)) end'
-        % free_build_queues()
     )
 
 
@@ -1757,9 +1752,9 @@ def hospital_wounded_probe() -> str:
 def free_build_queues() -> str:
     """Lua *expression* -> how many building queues (`NewQueueType.Default`) are idle.
 
-    A heal takes a building queue as well as the hospital's own: with every one of them
-    working, `hospital.cure` comes back refused with the game's «Очередь на строительство
-    заполнена». Reading this first tells a rejected heal from a busy base.
+    Diagnostic only. A heal does NOT need one: a recorded human press went through with
+    all four Default queues working, which retired the earlier «Очередь на строительство
+    заполнена» theory (docs/research/hospital-heal.md §5).
     """
     return ("(function() "
             "local q = DataCenter and DataCenter.QueueDataManager "

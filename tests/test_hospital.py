@@ -139,27 +139,14 @@ def test_heal_all_skip_is_surfaced_as_zero():
     _check("...and surfaces the skip reason", any("skipped" in m for m in logs))
 
 
-def test_heal_all_warns_when_no_building_queue_is_free():
-    # A heal takes a building queue; with none free the server refuses it and says so only
-    # on screen, so the count that came back with the send is the one clue afterwards.
+def test_heal_all_never_blames_the_building_queues():
+    # A recorded human press went through with all four Default queues working, so a heal
+    # does NOT take one. An earlier build warned about that and the warning was false.
     ev = FakeEval([1], free=0)
     logs = []
     n = hospital.heal_all(ev.run, logs.append)
-    _check("the send still happened", n == 1 and ev.heals == 1)
-    _check("...and the busy base is called out", any("no building queue is free" in m for m in logs))
-
-
-def test_heal_all_free_queue_is_not_warned_about():
-    ev = FakeEval([1], free=2)
-    logs = []
-    hospital.heal_all(ev.run, logs.append)
-    _check("a free queue warns about nothing", not any("building queue" in m for m in logs))
-
-
-def test_heal_all_reads_the_free_queues_in_the_same_call():
-    chunk = lua_actions.hospital_heal_all()
-    _check("the send reports the free queues", "freeq=" in chunk)
-    _check("...off the queue table", "NewQueueType.Default" in chunk)
+    _check("the send happened", n == 1 and ev.heals == 1)
+    _check("...and nothing blames the queues", not any("building queue" in m for m in logs))
 
 
 def test_heal_all_builds_from_the_hospital_rows():
@@ -179,11 +166,21 @@ def test_cure_builds_the_message():
     _check("the per-entry count is an int", "count=80" in chunk)
 
 
-def test_cure_carries_the_gold_fields():
-    # Not optional: the serialiser packs them as ints and a missing one aborts the send.
+def test_cure_carries_gold_and_nothing_else():
+    # `gold` is mandatory (the serialiser packs it as an int). The pay-to-finish fields are
+    # NOT: sending them takes the client down the branch that omits armyArray entirely and
+    # the server answers E000000 — which is what the 20260729_182527 recording showed.
     chunk = lua_actions.hospital_cure([("3014", 1)])
-    for field in ("gold=0", "goldForTime=0", "goldForResource=0", 'itemIds=""'):
-        _check("cure carries %s" % field, field in chunk)
+    _check("cure carries gold=0", "gold=0" in chunk)
+    for field in ("goldForTime", "goldForResource", "itemIds"):
+        _check("cure does NOT carry %s" % field, field not in chunk)
+
+
+def test_heal_all_carries_gold_and_nothing_else():
+    chunk = lua_actions.hospital_heal_all()
+    _check("heal_all carries gold = 0", "gold = 0" in chunk)
+    for field in ("goldForTime", "goldForResource", "itemIds"):
+        _check("heal_all does NOT carry %s" % field, field not in chunk)
 
 
 def test_cure_multiple_types():

@@ -30,12 +30,17 @@ caller side from `LWUIHospitalView.SendMessage` / `HospitalCureMessage.OnCreate`
 
 ```lua
 SFSNetwork.SendMessage(MsgDefines.HospitalCure, {        -- "hospital.cure"
-    armyArray       = { {armyId = "3014", count = 93}, {armyId = "3013", count = 1} },
-    gold            = 0,   -- gold spent on the heal          (0 = the free heal)
-    goldForTime     = 0,   -- gold spent to skip the timer
-    goldForResource = 0,   -- gold spent to cover missing resources
-    itemIds         = "",  -- speed-up items used             (empty = none)
+    armyArray = { {armyId = "3014", count = 93}, {armyId = "3013", count = 1} },
+    gold      = 0,   -- gold spent on the heal (0 = the free heal)
 })
+```
+
+On the wire that is **three** keys and no more:
+
+```
+PutUtfString(armyId, 3014)  PutInt(healNum, 93)   AddSFSObject
+PutUtfString(armyId, 3013)  PutInt(healNum, 1)    AddSFSObject
+PutSFSArray(armyArray, …)   PutInt(gold, 0)       PutInt(worldType, 0)
 ```
 
 * One `armyArray` entry per soldier type to heal. `armyId` is the soldier template id
@@ -44,24 +49,24 @@ SFSNetwork.SendMessage(MsgDefines.HospitalCure, {        -- "hospital.cure"
 * `HospitalCureMessage` renames `count` to **`healNum`** on the wire, which is why the
   trace reads `PutUtfString(armyId, "3014")` + `PutInt(healNum, 80)` while the caller
   passes `count`.
-* The three gold fields are **not optional**. The serialiser packs them as ints, and a
-  missing one aborts the send before it leaves the client
+* `gold` is **not optional** — the serialiser packs it as an int and a missing one aborts
+  the send before it leaves the client
   (`SFSDataSerializer.lua:39: bad argument #2 to 'pack' (number expected, got nil)`).
-  Sending `armyArray` alone was tried live, with `count` and with `healNum` — both die on
-  that same `pack` error, so the four extra fields go out on every real press too. The
-  trace shows them only once because it dedups by *function name*, not by argument list:
-  that is why one `PutInt` line stands for four.
+* `goldForTime`, `goldForResource` and `itemIds` are **not part of a plain heal** and must
+  not be sent. They belong to the pay-to-finish path; passing them (even as `0` / `""`)
+  takes `OnCreate` down that branch, which emits `itemId` and the gold fields and **skips
+  `armyArray` entirely** — the server then answers `errorCode E000000` and nothing heals.
 * The message also carries a `worldType`, which the message class fills in itself from
   `LuaEntry.Player:GetCurWorldType()` (0 in the base) — the caller neither knows nor
   passes it.
 * No window has to be open: the message carries no window or building id, so the send is
   the whole press.
 
-The five caller fields are exactly what the window itself passes: `LWUIHospitalView.SendMessage`
-builds `{armyArray = {{armyId = …, count = info.curCount}, …}, gold, goldForTime,
-goldForResource, itemIds}` and hands it to the same `SFSNetwork.SendMessage`. A headless
-send is therefore not an approximation of the press — it is the same call with the same
-argument.
+> An earlier revision of this file listed all five caller fields as mandatory and said the
+> trace hid the repeats by deduping. Both claims were wrong, and they came from reading a
+> trace recorded with `lua_trace --dedup`, which keeps only the FIRST call of each name.
+> The 20260729_182527 re-recording (no dedup) shows the whole message, and it is three keys.
+> Never reason from what a deduped trace does not contain — see `docs/skills/sniff.md` §8.5a.
 
 The reply comes back through `HospitalManager:HospitalCureHandle`, which either carries
 an `errorCode` (and shows the game's tip) or applies the heal: resources, gold, the queue,
@@ -101,18 +106,28 @@ queue state=0 endTime=0 helpNum=2     -- the hospital queue: idle
 
 ## 4. "Ask for help" and "collect" — the other two presses
 
-* **Ask for help — no message of its own.** The heal queue itself carries the help state
-  (`helpNum`, `isHelped`, `lastHelpTime`), i.e. starting a heal registers it for alliance
-  help; there is no player-initiated "request help for my heal" send. What the 152841
-  trace shows is the *inbound* half — an ally helping:
+* **Ask for help — `al.call.help`, a press of its own.** Positional arguments, not a
+  table:
 
+  ```lua
+  SFSNetwork.SendMessage(MsgDefines.AlCallHelp, queueUuid, 1, 3, 1)   -- "al.call.help"
+  --   PutLong(uuid, <hospital queue uuid>)   PutInt(type, 1)
+  --   PutInt(qType, 3)                       PutUtfString(itemId, "1")
   ```
-  UIUtil.ShowTips <- Vaserely предоставил помощь, ускорив исцеление ваших раненых
-                     солдат. 1/40!
-  ```
+
+  `qType` is the queue kind — `3` = `NewQueueType.Hospital`, i.e. the same value that
+  identifies the heal queue everywhere else — and `uuid` is that queue's uuid, so the same
+  message asks for help on any queue by changing those two. The game follows it with
+  `al.show.help` (a refresh of the request list), which is not part of the press.
 
   Helping *others* is the separate `al.help.all` press the `help_ally` recipe already
   sends.
+
+> This section previously stated that asking for help sends nothing and that starting a
+> heal registers the request by itself. That was read off the deduped trace, where
+> `SFSNetwork.SendMessage` appears once and every later message is dropped. The no-dedup
+> recording has four sends in it — `hospital.cure`, `al.call.help`, `al.show.help`,
+> `queue.finish` — so both "there is no such message" claims in this file were artefacts.
 
 * **Collect the healed — `queue.finish`.** The window's receive button is
   `DataCenter.HospitalManager:CheckSendFinish(buildUuid)`, which
@@ -122,60 +137,54 @@ queue state=0 endTime=0 helpNum=2     -- the hospital queue: idle
   `MsgDefines.QueueFinish` (`queue.finish`) with the queue uuid. Calling it directly is
   therefore both the press and its gate — a heal still running costs one no-op.
 
-  Neither trace contains this press: the heal in 152841 was timed at ~32 minutes, so the
-  soldiers could not possibly have come back before the capture ended.
+  The no-dedup recording has it, and it is one field:
 
-## 5. A heal needs a free building queue
+  ```
+  SFSNetwork.SendMessage <- queue.finish, <table>
+  PutLong(uuid, 1156814232810146879)     -- the hospital queue's own uuid
+  ```
 
-Healing occupies a building queue (`NewQueueType.Default`) on top of the hospital's own
-(`NewQueueType.Hospital`). With every building queue working, the server refuses the cure
-with `errorCode 130069` — «Очередь на строительство заполнена». `lua_actions.free_build_queues()`
-counts the idle ones, and both the probe and the heal itself print the count, so a refused
-heal can be told from a bug.
+  (The earlier note here — "neither trace contains this press" — was the dedup artefact
+  again: `SFSNetwork.SendMessage` had already been logged for `hospital.cure`, so the
+  collect send was never written.)
 
-The counter was checked against the raw queue table live, and it is honest — the base at
-the time held twelve queues, of which four were `type=0` (`Default`) and all four were
-`state=2` (`Work`), the earliest of them finishing a day later:
+## 5. Building queues are NOT what blocks a heal
 
-```
-queue[…866] type=0 state=2 endTime=…   -- Default,  working
-queue[…078] type=0 state=2 endTime=…   -- Default,  working
-queue[…587] type=0 state=2 endTime=…   -- Default,  working
-queue[…166] type=0 state=2 endTime=…   -- Default,  working
-queue[…879] type=3 state=0 endTime=0   -- Hospital, idle
-free build queues = 0
-```
+An earlier revision of this file claimed a heal takes a `NewQueueType.Default` building
+queue and that a base with all of them busy gets the cure refused with `errorCode 130069`.
+**That was wrong**, and the whole §5 it justified is retracted.
+
+The player's own heal on 2026-07-29 went through from a base with `free build queues = 0`
+— 93 soldiers of type `3014` left the wounded list (746 → 647) while all four Default
+queues were working. Whatever `130069` was, it was not this.
+
+`lua_actions.free_build_queues()` still counts idle Default queues correctly and the probe
+still prints it; it is simply not a gate on healing, and `heal_all` must not treat it as
+one.
 
 ## 6. What is proven and what is not
 
-Proven live: the message shape (it serialises, reaches the server, and comes back through
-the real reply handler), that the shape is byte-for-byte the window's own argument, the
-wounded list, the collect press and its gate, and the absence of a help-request message.
+Proven live: the message and every field in it (from the no-dedup recording of a real
+press), the wounded list, the three other presses of the routine, and that a heal is
+accepted with the building queues full.
 
-**Not** proven: a heal seen through end to end. Every live attempt was refused. On
-2026-07-29 the refusal was reproduced five times from a base with 0 free building queues —
-all wounded at once, a single soldier, and an exact replay of the press the capture
-recorded (`3014` × 80), each with the hospital window shut and with it open. Every one came
-back the same way:
+**Not** proven: a heal sent **from a script**. The headless send reaches the server and is
+answered `errorCode E000000` with the generic "unknown error" tip, because the message
+leaves without `armyArray`:
 
 ```
 HospitalCureHandle <- {errorCode = "E000000"}    -- the ONLY field in the reply
-UIUtil.ShowTips    <- Извините, произошла неизвестная ошибка…
 ```
 
-`E000000` is not in the client's error table, which is why the tip is the generic one; the
-earlier `130069` («Очередь на строительство заполнена») was the same base state answered
-with a code the client *does* know. Since the payload has now been shown identical to the
-window's own, what is left to differ is state, and the only state known to differ from the
-successful capture is the four busy building queues.
+The cause of the missing `armyArray` was the three extra fields (§2) — a plain heal must
+send only `armyArray` and `gold`. Dropping them is the fix under test; until a scripted
+heal is watched moving the wounded count, the ability stays 🟡.
 
-The window's own sender cannot be used to check that from a script: `LWUIHospitalView.SendMessage`
+The window's own sender cannot stand in for it from a script: `LWUIHospitalView.SendMessage`
 sums `curCount` over its own soldier list — not over `HospitalManager.allHospital` — and
-bails out with `hospital error soldierCount 0 ----->` when the list has not been through
-the cells. So replaying the press through the UI needs a real hand on the button.
-
-So the ability stays 🟡 until one heal is watched from the press to the soldiers coming
-back, on a base with a building queue free.
+bails out with `hospital error soldierCount 0 ----->` even after `ChangeSoliderCount` has
+filled both that list and `cacheSoliderCureCount`. Replaying the press through the UI needs
+a real hand on the button.
 
 A warning about the traces, which is why §3 exists at all: the first pass read this
 ability off the trace alone and got both halves wrong — `T11Util.GetSelfCurSoldierData()`

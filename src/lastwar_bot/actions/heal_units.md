@@ -19,8 +19,6 @@ TAP heal_all xall
 # ready yet; the collect belongs to the previous one.
 TAP collect_healed xall
 
-# NB — a heal also takes one of the base's building queues. With all of them busy the game
-# refuses the heal and says so on screen only, so the run adds a line of its own when it
-# sent into a base with no free queue. Nothing here can work around that; it only means the
-# next run heals instead. Still not watched through end to end on a live game: every
-# attempt so far met a base with all four queues working.
+# NB — not yet watched through end to end on a live game. The request itself now matches a
+# recording of a person healing by hand, field for field. Building queues do not stand in
+# the way: that recorded heal went through with every one of them working.
