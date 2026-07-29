@@ -10,6 +10,21 @@ obvious data-manager call is a decoy that silently helps nobody.
   trace of the player pressing the real button). `results/` is git-ignored, so this
   note is the durable record.
 
+## Follow-up captures carry nothing new
+
+Two later sessions relabeled the same feature — `20260728_162518_Помощь_союзнику`
+(§8.11 of `docs/skills/sniff.md`) and `20260729_145629_Помощь_союзникам` — and both
+came back with **no `al.help.all` on the wire**: the traffic file holds only
+keepalives plus downstream `push.lw.alliance.alert.info.remove` churn (a member's
+march ending), a `push.al.sign` count bump and a `push.all.notice` ministry
+appointment, and the trace is UI churn (an already-collected alliance gift, the
+notice popup). Every command there is already in `docs/research/protocol.md`; the
+`al.help.all` press is only visible when a request is actually pending and answered,
+as in the Acceptance capture below. There is no new primitive or scenario to write —
+the feature is fully covered by `help_ally_all` / `alliance_help_all` / `help_ally.md`.
+Do not re-record "help allies": recapture only with a request pending and confirm the
+`--> al.help.all` up-frame.
+
 ## The decoy
 
 The first version of this recipe pressed
