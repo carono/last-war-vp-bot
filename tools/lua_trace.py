@@ -392,7 +392,7 @@ def main():
     # several more when it has to attach first, and every action taken before
     # that is simply not traced.
     # wrapped=0 counts as a failure, not as readiness: the chunk ran but armed
-    # nothing, which makes the whole recording void (see docs/skills/sniff.md §8.1).
+    # nothing, which makes the whole recording void (see docs/skills/sniff-capture.md §8.1).
     wrapped = 0
     for ln in lines:
         if "XSTRACE installed" in ln:

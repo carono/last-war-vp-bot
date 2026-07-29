@@ -1,304 +1,39 @@
-# Skill — sniff Last War traffic (worker cheat-sheet)
+# Skill — turn a recorded session into a recipe (worker cheat-sheet)
 
-Stop re-discovering the toolkit. This page is the copy-paste path from "I need
-to see the game's traffic" to a decoded stream. The *why* (anti-cheat, protocol
-format) lives in [`../research/protocol.md`](../research/protocol.md),
-[`../research/sniffing-playbook.md`](../research/sniffing-playbook.md) and
-[`../../tools/README.md`](../../tools/README.md).
+You have a recorded sniffer session — a `results/traffic/*_traffic.jsonl` +
+`results/traces/*_trace.log` pair, ideally with a `_desc.txt` beside it. This page
+turns that into a committed `actions/*.md` recipe. The whole job is
+[§8.0](#80-the-strict-checklist--analysis-in-10-minutes) — nine commands, in
+order; the rest is reference for when a step of §8.0 sends you there.
 
-> **ACE rule.** §1-§6 are **passive capture** — transparent to the anti-cheat.
-> MITM / Frida / socket injection is not; emulator + throwaway account only.
-> §7 (Lua-function tracing) is the **in-process, active** exception — it injects
-> Lua by thread-hijacking; same emulator + throwaway-account rule applies.
+**Need to *record* a session yourself** (run the sniffers, capture a new stream,
+trace which Lua fired)? That is the other half of the skill,
+[`sniff-capture.md`](sniff-capture.md) — do not read it to analyse a recording you
+already have.
 
-> **Turning an in-game action into a bot recipe? Start at [§8](#8-the-basic-workflow--one-sniffer-run--a-working-recipe).**
-> §1-§7 are the reference for each tool on its own; §8 is the end-to-end loop
-> (panel Sniffer → player acts → read both files → live-probe the VM → buttons →
-> a `TAP` recipe) that those tools exist to serve.
+> **ACE note.** Reading the two files is passive. The one active thing this page
+> can send you to is live-probing the Lua VM (§8.7, §8.11), and the strict path
+> only reaches it when the wire is empty — emulator + throwaway account only, per
+> the ACE rule in `sniff-capture.md`.
 
----
-
-## 1. Environment — what works
-
-| Fact | Value |
-|---|---|
-| **Interpreter for capture** | `/mnt/c/Python312/python.exe` — the **Windows** Python. Sees `C:` and `D:`, has scapy + npcap. |
-| **Never** use for capture | The WSL `python3`. WSL2 is a NAT'd VM; its sockets **cannot see** the Windows game's packets — it captures nothing, silently. |
-| **Capture interface** | `#13 "vEthernet (Создать виртуальный коммутатор)"` — the Hyper-V virtual-switch adapter. Confirm with `--list-ifaces`; the number can shift, the name is the anchor. |
-| **Game endpoint** | TCP `34.145.128.94:17935` (server IP changes per session — match by **port 17935**, not IP). |
-| **Game running?** | The game process holds an **ESTABLISHED** connection to `:17935` (`netstat -ano | findstr 17935`). No such line = not logged in = nothing to capture. |
-
-One-time on the Windows interpreter:
-`C:\Python312\python.exe -m pip install scapy zstandard`
-(`zstandard` is mandatory — the 445 KB login `init` and other big frames are
-zstd-compressed and won't decode without it.)
-
-npcap needs **no** Administrator prompt when installed with "allow
-non-administrator capture" (Wireshark's default).
+This page is the analysis half of §8 — **§8.0 and §8.4-§8.11**. Recording
+(§8.1-§8.3) and the capture toolkit (§1-§7) are in `sniff-capture.md`; the two
+share the §8 numbering with no overlap.
 
 ---
 
-## 2. Ready-made tools
+## 8. From a recorded session to a recipe
 
-All four run from the repo root. The first three talk to **npcap directly via
-scapy** — no Wireshark, nothing spawned. Every tool takes `--list-ifaces`,
-`--iface <name>`, `--seconds N` (else Ctrl+C), and `--dump traffic.jsonl` (record
-**every** decoded frame as JSONL for later mining).
-
-### `secret_task_capture.py` — secret tasks (map tiles `f2 = 17`)
-```bash
-/mnt/c/Python312/python.exe tools/secret_task_capture.py                  # stream, print
-/mnt/c/Python312/python.exe tools/secret_task_capture.py --seconds 300 --json out.json
-/mnt/c/Python312/python.exe tools/secret_task_capture.py --level 7 --can-loot
-```
-
-### `secret_mission_capture.py` — ghost-recon missions (tiles `f2 = 29`)
-"Операция Призрак" / Secret Command Post co-op weekly.
-```bash
-/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py              # stream, print
-/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py --done       # only lootable-now
-/mnt/c/Python312/python.exe tools/dev/secret_mission_capture.py --server 991,992 --json out.json
-```
-
-### `ghost_recon_tile_dump.py` — every `f2 = 29` tile, no filter
-Diagnostic twin of the mission scanner: dumps all ghost-recon tiles plus the
-off-map ghost-recon polls, and cross-references them by uuid/coordinate. Use it
-when the mission scanner shows nothing and you need to know whether the tile is
-on the wire at all.
-```bash
-/mnt/c/Python312/python.exe tools/dev/ghost_recon_tile_dump.py --seconds 300 --json out.json
-```
-
-### `rally_monitor.py` — alliance rallies / стяги
-Harvests every participant's `armyInfo` out of `push.alliance.march.*`. Same
-scapy/npcap transport as the three above (no `dumpcap.exe`/`tshark.exe`), but it
-listens on the `push.alliance.march.*` push stream instead of `world.get.block`,
-so **no map panning is needed** — a rally arrives the moment it is launched or
-refreshed.
-```bash
-/mnt/c/Python312/python.exe tools/rally_monitor.py --seconds 1800 --out results/rally/monitor.jsonl
-```
-
-**Map tiles need the map moving.** Secret tasks, missions and ghost tiles ride
-`world.get.block`, which the server sends **only while you pan the map**. Zero
-map responses = nobody was dragging, not a broken capture (the closing line says
-which). Rallies are pushed unprompted and need no panning.
-
----
-
-## 3. Capture from scratch (wide dump / a new stream)
-
-When no ready tool fits, reuse the transport — don't reimplement sniffing.
-
-**Building blocks** (all in `tools/`):
-- `map_capture.start_capture(index, args)` → starts scapy sniffer threads,
-  returns `(stop_event, bpf)`. BPF defaults to `tcp port 17935` (`--all-tcp`
-  widens it). Exits the process on `--list-ifaces`.
-- `map_capture.add_capture_arguments(ap)` → adds `--iface / --list-ifaces /
-  --seconds / --dump / --all-tcp` to your argparser.
-- `live_sniffer.LiveDecoder` → base decoder: per-flow TCP reassembly, finds the
-  game stream **by frame shape** (not port), calls `emit(direction, env)` per
-  decoded envelope. Subclass it and override `emit`.
-- `map_capture.MapIndex(LiveDecoder)` → adds server-on-screen election + the
-  `--dump` FrameLog; subclass **this** for any map-tile scanner.
-- `run_output.open_run_file(subdir, name, label=None)` → `(handle, path)` for a
-  fresh `results/<subdir>/<YYYYMMDD_HHMMSS>_[<label>_]<name>`; use it whenever a
-  probe should keep its own record instead of overwriting the last run's. The
-  optional `label` is free text (spaces → underscores) describing what the run
-  is about — `live_sniffer.py` and `lua_trace.py` expose it as `--label`, and
-  the panel's Develop menu asks for it before starting either. `LiveDecoder`
-  takes such a handle as `transcript=` and writes one JSON object per message;
-  that is how `live_sniffer.py` / `live_tshark.py` fill `results/traffic/`, and
-  `lua_trace.py` fills `results/traces/`.
-
-**Minimal skeleton** (run under the Windows Python):
-```python
-import argparse, sys, os, time
-sys.path.insert(0, "tools")
-from live_sniffer import LiveDecoder
-from map_capture import add_capture_arguments, start_capture
-
-class Dump(LiveDecoder):
-    def emit(self, direction, env):
-        import lastwar_proto as proto
-        name = proto.envelope_command(env) or "(keepalive)"
-        print(direction, name, proto.envelope_payload(env))
-
-ap = argparse.ArgumentParser(); add_capture_arguments(ap, include_dump=False)
-args = ap.parse_args()
-index = Dump()
-stop, _ = start_capture(index, args)          # threads running
-try:
-    time.sleep(args.seconds or 1e9)
-except KeyboardInterrupt:
-    pass
-stop.set()
-```
-
-**Decoding (offline or inside `emit`)** — everything is in `lastwar_proto.py`
-(alias it `proto`); this is the reference decoder, imported everywhere, never
-copied:
-- `proto.iter_frames(stream_bytes, direction)` → yields `(env, start, end)`.
-  `direction` is `"down"` (server, magic `0x80`) or `"up"` (client, `0xc4`).
-  Handles XOR mask, TLV, zlib/zstd. *(Live reassembly is `live_sniffer.Stream`
-  — `feed(seq, data)` + `drain()`; you rarely call it directly.)*
-- `proto.classify(data)`, `proto.envelope_command(env)`,
-  `proto.envelope_payload(env)` → shape/name/body of an envelope.
-- `proto.secret_tasks(payload)` → `[SecretTask]` from a `world.get.block` body.
-- `proto.ghost_recon_tiles(payload)` → `[GhostReconMission]` likewise.
-
-Decode a **saved `.pcapng`** (this runs fine under the WSL `python3`):
-```bash
-python3 tools/lastwar_proto.py results/capture.pcapng                 # survey + summary
-python3 tools/lastwar_proto.py results/capture.pcapng --timeline      # every message
-python3 tools/lastwar_proto.py results/capture.pcapng --grep chat
-python3 tools/lastwar_proto.py results/capture.pcapng --json out.json
-```
-Don't pass `--port` — the client races several gateways and a second endpoint
-(chat/login) would hide behind a port assumption.
-
-Mining a `--dump` JSONL:
-```bash
-jq -r '.name' traffic.jsonl | sort | uniq -c | sort -rn        # command histogram
-jq -c 'select(.name == "get.user.info.multi")' traffic.jsonl
-jq -c 'select(.name == null)' traffic.jsonl                    # unnamed (only .action)
-```
-
----
-
-## 4. Common errors → fix
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| 0 packets / 0 frames, no error | Ran under the **WSL** Python | Use `/mnt/c/Python312/python.exe`. WSL sees none of the game's packets. |
-| `scapy is not installed on this interpreter` | The capturing Python lacks scapy | `pip install scapy zstandard` on that interpreter (npcap itself ships with Wireshark). All four tools share this one transport. |
-| `Unable to guess datalink type` / "npcap delivered N packets but none decoded" | scapy mis-maps the npcap linktype | Already worked around (frames re-parsed as Ethernet). If it persists, pin the right adapter with `--iface`. |
-| "No packets at all" | Game not running, or wrong interface | Check the `:17935` ESTABLISHED line; `--list-ifaces` and pin `#13 vEthernet (…)`. |
-| Empty capture, game clearly online | Idle base sends only keepalives; map tiles need motion | **Pan the map / open the screen** during the run. |
-| Big server frames warn/fail to decode | `zstandard` missing | `pip install zstandard` on the **capturing** interpreter. |
-| pcap decodes as mostly `tls` | Wrong pcap — some other process | The game is **not** TLS; re-capture the `:17935` socket only. |
-| "unknown TLV tags" counter > 0 | **False alarm** — counts frames the decoder already discarded | Ignore; never document those tags. |
-
----
-
-## 5. Protocol cheat-sheet
-
-Full spec: [`../research/protocol.md`](../research/protocol.md).
-
-**Transport:** one TCP connection to `…:17935`; XOR-masked, length-prefixed TLV
-envelopes `{c, a, p:{…}}`, big frames zstd-compressed. **Not TLS.** Chat rides
-the same socket. `_id` in a payload pairs a request with its reply; server
-**pushes** carry none.
-
-**Map tile kinds** (`world.get.block`, field `f2`):
-
-| `f2` | Tile |
-|---|---|
-| `6` | player base (public profile inline: uid, name, HQ level, alliance) |
-| `7` | resource mine |
-| `17` | secret task (raidable) |
-| `29` | ghost-recon mission ("Операция Призрак") |
-
-**Key commands:** `world.get.block` (map tiles), `push.alliance.march.*`
-(rallies/marches/trucks), `get.user.info.multi` (profile stats on click),
-`al.rank` (alliance roster). Command names and payload fields are catalogued in
-`protocol.md` and `tools/known_commands.txt`.
-
----
-
-## 6. Decision cheat-sheet
-
-- Specific stream as JSON → the matching `/mnt/c/Python312/python.exe tools/*_capture.py`.
-- Watch commands live / new stream → §3 skeleton on `LiveDecoder` + `start_capture`.
-- Saved `.pcapng` → `python3 tools/lastwar_proto.py <file>`.
-- Command never captured → `python3 tools/trap_command.py --match <x>`, then do it by hand.
-- Active work (inject/MITM) → stop; read the ACE rule and `sniffing-playbook.md` first.
-- Need *which Lua function* an in-game action calls (not the wire) → §7.
-- Automating an in-game action end-to-end (the everyday job) → **§8**.
-
----
-
-## 7. Lua-function tracing (in-process — NOT passive wire)
-
-The wire tells you *what bytes* cross the socket. Sometimes you instead need
-*which client Lua function* fires for an in-game action, and with what arguments
-— e.g. to learn that the "switch server" button calls
-`CrossServerUtil.SetCrossEnableList(...)`. That is done by **monkey-patching**
-the Lua function live through `tools/lua_eval.py` and reading `Player.log`.
-
-> **Not passive.** `lua_eval.py` injects Lua by thread-hijacking the running
-> process (see `../research/game-launch-and-scene-control.md`). It is the
-> *active* side of the toolkit — emulator + throwaway account only, never a real
-> account. The ACE rule at the top still applies.
-
-**How it works.** Wrap the target with a shim that logs its args via
-`CS.UnityEngine.Debug.LogError(...)` (which lands in `Player.log`), keep the
-original in a global so you can restore it, perform the action in-game, then
-grep the log.
-
-**Arm** the trace (one or many functions — add `wrap(...)` lines as needed):
-```bash
-/mnt/c/Python312/python.exe tools/lua_eval.py --marker MP "
-_G.__TRACE = _G.__TRACE or {}
-local function argstr(...) local n=select('#',...) local s='' for i=1,n do s=s..i..':'..tostring(select(i,...))..' ' end return s end
-local function wrap(tbl,name,tag)
-  if not tbl or type(tbl[name])~='function' then return end
-  local key=tag..'.'..name if _G.__TRACE[key] then return end
-  local orig=tbl[name] _G.__TRACE[key]=orig
-  tbl[name]=function(...) CS.UnityEngine.Debug.LogError('TRACE '..key..' <- '..argstr(...)) return orig(...) end
-end
-wrap(CrossServerUtil,'SetCrossEnableList','CSU')
-wrap(CrossServerUtil,'OnCrossServer','CSU')
-CS.UnityEngine.Debug.LogError('MP armed')"
-```
-`argstr` uses `select('#',...)` (not `ipairs`) so a `nil` in the middle of the
-argument list is still logged. To capture a **table argument's contents** (only
-its address prints otherwise), store it and dump it in the shim:
-`_G.__CAP = arg` + a small `dump(t,depth)` walker that recurses to depth ~3 —
-this is how the `{[0]={935},[1]={972}}` shape of the enable list was recovered.
-
-**Read** the trace — the game appends to `Player.log`:
-```bash
-LOG=$(ls -t "/mnt/c/Users/"*"/AppData/LocalLow/FunFly/Last War-Survival Game/Player.log" | head -1)
-grep -aE "TRACE " "$LOG" | tail -40
-```
-
-**Restore** — always, when done. The shims live in the running Lua state until
-the game restarts; leaving them wrapped spams the log and slows hot functions:
-```bash
-/mnt/c/Python312/python.exe tools/lua_eval.py --marker UN "
-local n=0
-if _G.__TRACE then for key,orig in pairs(_G.__TRACE) do
-  local tag,name=key:match('([^.]+)%.(.+)')
-  local tbl=(tag=='CSU' and CrossServerUtil) or (tag=='GTU' and GoToUtil) or (tag=='SU' and SceneUtils)
-  if tbl then tbl[name]=orig n=n+1 end
-end _G.__TRACE=nil end
-CS.UnityEngine.Debug.LogError('UN restored='..n)"
-```
-(Extend the `tag`→table map for any other holder table you wrap.)
-
-**Workflow:** arm → perform the normal in-game action (you or the player) →
-grep `Player.log` for `TRACE` → restore. This trace is what exposed the
-cross-server `SetCrossEnableList` gate and its table shape
-(`../research/world-tiles.md`). It is an ad-hoc technique, not a committed
-script — re-arm it each session.
-
----
-
-## 8. The basic workflow — one sniffer run → a working recipe
-
-§1-§7 describe each tool alone. This section is the **standard loop** the project
-actually runs: the player performs an action once with both sniffers on, and the
-session ends with a committed `actions/*.md` recipe that reproduces it headlessly.
-Everything below is the general procedure; `../research/alliance-tech-donate.md`
-is one full worked instance of it, and `src/lastwar_bot/actions/help_ally.md` is
-the instance where the trace came back empty (§8.11).
+The **standard loop** the project runs: the player performs an action once with
+both sniffers on, and the session ends with a committed `actions/*.md` recipe that
+reproduces it headlessly. `../research/alliance-tech-donate.md` is one full worked
+instance of it, and `src/lastwar_bot/actions/help_ally.md` is the instance where
+the trace came back empty (§8.11).
 
 ```
- 1  panel: Develop → Sniffer ON, type a label, WAIT for the «[sniff] ГОТОВ» line
- 2  the player performs ONE in-game action
- 3  panel: Develop → Sniffer OFF   → the panel asks: keep it (+ describe what was
-                                     done) or delete the run
+ 1  panel: Develop → Sniffer ON, type a label, WAIT for «[sniff] ГОТОВ»  ┐ operator;
+ 2  the player performs ONE in-game action                               │ sniff-capture.md
+ 3  panel: Develop → Sniffer OFF → keep (+ describe) or delete the run    ┘ §8.1-§8.3
  4  read the description:  python3 tools/sniff_runs.py --last 1  (missing? ASK)
  5  list the outgoing wire msgs — that IS the action (empty? then, only then, §8.11)
  6  name the 1-2 key msgs (cmd + payload fields) + one grep for the owning manager
@@ -307,13 +42,10 @@ the instance where the trace came back empty (§8.11).
  9  scenario  → src/lastwar_bot/actions/dev/<name>.md  as TAP lines
 10  farming.md + farming.ru.md 🟡, one line each → farming_progress.py --write → commit
 ```
-Steps 4-10 in strict, do-exactly-this form with the commands are [§8.0](#80-the-strict-checklist--analysis-in-10-minutes).
 
-Steps 1-3 are the operator's; 4-10 are the worker's. The two files are the whole
-handover: they answer the same question from opposite ends — *what the client
-called* vs *what crossed the socket*. **The strict, do-exactly-this version of
-steps 4-10 is [§8.0](#80-the-strict-checklist--analysis-in-10-minutes); the rest
-of §8 is reference, read only when a step of §8.0 sends you there.**
+Steps 1-3 are the operator's (`sniff-capture.md`); **4-10 are your whole job, in
+strict form below.** The two files answer the same question from opposite ends —
+*what the client called* vs *what crossed the socket*.
 
 ### 8.0 The strict checklist — analysis in ≤10 minutes
 
@@ -322,7 +54,7 @@ of §8 is reference, read only when a step of §8.0 sends you there.**
 > probes (unless step 2's gate fires on an empty wire), **no** research note
 > (unless the user asks for one), **no** re-checking the farming bar between
 > steps, **no** "let me also verify X live." The recipe ships **🟡** — written
-> from the wire, proven later by the player. §8.1-§8.12 are reference; open one
+> from the wire, proven later by the player. §8.4-§8.11 are reference; open one
 > only when a step here names it.
 
 The whole of the worker's job (steps 4-10), as nine actions — one action, one
@@ -388,137 +120,6 @@ That is the whole job. The player proves it live in a later session; only then
 does the mark flip 🟡 → ✅. Do not verify it yourself, do not write a research
 note, do not grep a second time.
 
-### 8.1 Start the sniffer
-
-**Panel (the normal way).** Menu **Develop → Sniffer** (`develop.sniff.toggle`;
-«Разработка → Снифер» in the Russian UI). It asks once for a **session label** —
-free text describing what is about to be done, in whatever language the operator
-types — and hands the same label to **both** children, so the session's two files
-share a name:
-
-| child | command the panel spawns | writes |
-|---|---|---|
-| traffic | `live_sniffer.py --label <L>` | `results/traffic/<YYYYMMDD_HHMMSS>_<L>_traffic.jsonl` |
-| functions | `lua_trace.py --dedup --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
-
-Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
-**new** files, so a stop/start cycle never overwrites the previous session
-(`tools/lib/run_output.py`). The label names the files; *what was actually done*
-is asked at the **end** of the run (§8.3) and stored beside them.
-
-**Neither child records the moment its pid appears — wait for the ready line.**
-The pids are printed instantly, but npcap still has to open every interface and
-the tracer still has to install ~8700 Lua wraps through the VM. Measured on this
-machine: capture goes live ~0.7-1.0 s in, `XSTRACE installed` lands ~1.8 s in
-with a warm `lua_daemon`, and later when `get_evaluator()` has to attach a fresh
-`LuaEval` first. An action performed inside that window is simply not in the
-files. So each child now prints its own verdict —
-
-| child | ready marker | failure marker |
-|---|---|---|
-| traffic | `CAPTURE READY — N/M interface(s) live` | `CAPTURE FAILED — no interface could be opened` |
-| functions | `[lua_trace] TRACE READY — hooks live` | `[lua_trace] TRACE FAILED — hooks not installed` |
-
-— and the panel folds the pair into one line: **`[sniff] ГОТОВ (2.0 с) — оба
-потока пишут, можно выполнять действия в игре`**. That line, not the pid, is the
-go signal. `ЧАСТИЧНО ГОТОВ` means half the session is being lost; if nothing is
-confirmed within 25 s the panel says so instead of waiting silently.
-
-**Headless equivalent**, when there is no panel:
-
-```bash
-/mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "alliance gifts"   &
-/mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "alliance gifts"
-```
-
-Prerequisites, in the order they bite:
-
-1. The game is running **and logged in** — an ESTABLISHED `:17935` line (§1).
-   No socket, no traffic.
-2. Windows Python for the traffic side (§1). The WSL `python3` captures nothing,
-   silently.
-3. The Lua tracer needs the VM: it goes through `get_evaluator()`, i.e. the warm
-   daemon `tools/lua_daemon.py` if it is up, otherwise a fresh local `LuaEval`
-   (slower to start, same result).
-4. `--dedup` is mandatory for a filterless run. Without it the tracer logs *every*
-   call of ~8700 wrapped functions and **freezes the client**.
-
-Sanity line in the trace file — read it before anything else:
-
-```
-XSTRACE installed wrapped=8730 depth=2 filter=none dedup=true hook=false
-```
-
-`wrapped=0`, a missing line, or `XSTRACE INSTALL ERROR:` means nothing was armed
-and the run is void — fix that and re-record rather than analysing an empty file.
-
-### 8.2 The player performs the action
-
-Rules that make the recording readable — all of them are about keeping the
-correlation in §8.6 trivial:
-
-- **One action per run.** Two actions in one file cost more time to untangle than
-  a second 30-second recording.
-- **Short.** 15-60 s. The trace grows by every UI element the game rebuilds.
-- **Start from a known screen** (base or world), do the action deliberately,
-  once, then stop moving.
-- **Don't pan the map / open unrelated windows** while recording — every panel
-  the client opens adds a page of `UI*` churn to the trace.
-- **Repeat the click a few times** when the action is counter-gated (donate,
-  gifts) — that is how the counter's behaviour becomes visible on the wire.
-- **Say what you did.** The label is the primary record; if the action has a
-  sequence ("alliance → gifts → collect all"), the sequence matters more than the
-  label text.
-
-### 8.3 Stop — and say what was done
-
-Toggle **Develop → Sniffer** off (it stops both children), or Ctrl+C the
-standalone runs.
-
-The panel then asks what to do with the recording — **«Запись снифера»**. The
-dialog opens with what was actually captured (duration, and per file: path, size
-and how much is in it — traced calls resp. decoded frames, which is what tells a
-real run from an empty one), a description box, and two answers:
-
-| answer | what happens |
-|---|---|
-| **Сохранить** (also the window's X, and `Ctrl+Enter`) | the run is kept; whatever was typed in the description box is written beside **both** files as `<stamp>_<label>_desc.txt` — same base name, `_desc.txt` instead of the file's own kind (`tools/lib/run_notes.py`) |
-| **Удалить запись** | after a confirmation, the two files and their descriptions are deleted — a run that recorded the wrong thing is noise in a directory that is read by hand |
-
-```
-results/traces/20260728_155726_сокровище_trace.log
-results/traces/20260728_155726_сокровище_desc.txt      <- "тапнул на сокровище и собрал его"
-results/traffic/20260728_155731_сокровище_traffic.jsonl
-results/traffic/20260728_155731_сокровище_desc.txt
-```
-
-The description file holds the operator's words and nothing else, so it can be
-read straight into an analysis prompt ("what the player did: …").
-
-**Fill the description in.** The two files say which Lua fired and what crossed
-the wire; they never say which buttons were pressed, in what order, or what
-changed on screen — and that is exactly what the analysis needs (§8.4 is the
-list of questions; answering them here means they never have to be asked). An
-empty box still keeps the files, the panel just logs that no description was
-given. A run stopped without the panel (the headless pair) gets no prompt, so
-attach the description afterwards:
-
-```bash
-python3 tools/sniff_runs.py --describe "alliance → gifts → collect all, ×3"
-```
-
-The tracer restores every wrapped function on exit — confirm it:
-
-```
-XSTRACE traced distinct=… calls=…
-XSTRACE restored 8730
-```
-
-If instead you see `WARNING: restore not confirmed after retries`, the shims are
-still live in the running Lua state (they persist until the game restarts, spam
-`Player.log` and slow hot functions). Fix by re-running and stopping the tracer
-once more, or restart the game.
-
 ### 8.4 Read the description first — no description? Ask
 
 **Start every analysis here**, before opening either file:
@@ -530,9 +131,10 @@ python3 tools/sniff_runs.py --undescribed # runs still missing one
 ```
 
 It lists each recorded session — both files, their sizes, and the operator's
-answer to «что делал в игре» (§8.3), read from the `_desc.txt` beside them. That
-description is the context both files lack; read it as the statement of what the
-run was supposed to record, and treat the files as the evidence for it.
+answer to «что делал в игре» (`sniff-capture.md` §8.3), read from the `_desc.txt`
+beside them. That description is the context both files lack; read it as the
+statement of what the run was supposed to record, and treat the files as the
+evidence for it.
 
 A trace without knowing what was done is a list of UI class names. If the run
 carries no description, or the description is too terse to reconstruct the flow,
@@ -549,8 +151,7 @@ carries no description, or the description is too terse to reconstruct the flow,
 
 Record the answer where the next session will find it: attach it to the run
 (`tools/sniff_runs.py --describe "…"`, which writes the note the panel would
-have) **and** repeat it in the research note (§8.10). The file name only carries
-the label, not the sequence.
+have). The file name only carries the label, not the sequence.
 
 ### 8.5 Read the two files
 
@@ -634,8 +235,8 @@ Payload fields are the recipe's parameters: `{"type":2}` on `allreceive`,
 - the action was **client-only** (a UI toggle, a local read) — nothing to send;
 - the action was **gated** (daily quota spent, nothing pending) — the client
   swallowed the click, which §8.4 question 5 is there to catch;
-- the sniffer missed it (§4): wrong interpreter/interface, or the game was not
-  actually connected.
+- the sniffer missed it (`sniff-capture.md` §4): wrong interpreter/interface, or
+  the game was not actually connected.
 
 ### 8.6 Line the two files up
 
@@ -648,8 +249,8 @@ Be aware of the asymmetry before trying anything clever:
 
 So there is no join key. What works, in order of effort:
 
-1. **One action per run** (§8.2). Then both files describe the same 30 seconds and
-   correlation is reading, not joining.
+1. **One action per run** (the recording rule, `sniff-capture.md` §8.2). Then both
+   files describe the same 30 seconds and correlation is reading, not joining.
 2. **The panel log is the correlated view.** It interleaves `[traffic]` and
    `[trace]` lines from both children in real time — that interleaving *is* the
    timeline the files lack. Copy it out of the panel while the session is fresh
@@ -671,12 +272,12 @@ So there is no join key. What works, in order of effort:
    `AlScienceDonateMessage`. One `*Util(s).<Verb>` in the trace plus one `up`
    command with the matching noun is a solved step.
 
-### 8.7 Pin the API on the live VM
+### 8.7 Pin the API on the live VM (only when the wire is empty — §8.0 gate)
 
-**The trace nominates candidates; it does not prove the API.** Every recipe in
-this repo was finished by probing the running game through the Lua VM — the warm
-daemon (`tools/lua_daemon.py` + `tools/lib/lua_client.py`) or
-`tools/lib/lua_eval.py` directly. Results come back through `Player.log`, because
+**The trace nominates candidates; it does not prove the API.** This is the
+fallback for a silent wire (§8.0 step 2 gate → §8.11), not part of the fast path —
+when the `up` command is on the wire, that command *is* the answer and you do not
+probe. When you must probe, results come back through `Player.log`, because
 `SafeDoString` returns nothing and swallows errors (`../research/xlua-state.md`).
 
 ```bash
@@ -840,7 +441,7 @@ If the flow was "open panel → open detail → press → close", that is four e
 
 ### 8.9 Write the recipe
 
-`src/lastwar_bot/actions/<name>.md`, in `TAP` notation — the everyday form is a
+`src/lastwar_bot/actions/dev/<name>.md`, in `TAP` notation — the everyday form is a
 list of button presses with a comment header explaining the flow and its limits.
 Grammar: [`../dsl.md`](../dsl.md); authoring conventions:
 [`../actions-authoring.md`](../actions-authoring.md).
@@ -872,29 +473,29 @@ in-game action is, which single Lua call is behind it, whether a window is
 involved, and **what the daily limit really counts** (for `help_ally` it is help
 *points*, not helps — a distinction that only came out of §8.7 probing).
 
-New scripts land in `src/lastwar_bot/actions/dev/` until they are verified
-end-to-end; promote to `actions/` (which is what the panel's Scenarios picker
-lists) once they are.
+New scripts stay in `src/lastwar_bot/actions/dev/`; promote to `actions/` (which is
+what the panel's Scenarios picker lists) once the player has proven them live.
 
-### 8.10 Verify, document, commit
+### 8.10 Verify live — optional, only when the game is up
 
-1. **Parse:** `python -X utf8 -c "from lastwar_bot import script_engine; print(script_engine.parse_file(script_engine.ACTIONS_DIR / 'NAME.md'))"`
+The strict path (§8.0) **stops at the 🟡 commit**; the player proves the recipe in
+a later session. Do the steps here only when the game is actually running and you
+want to prove it now, or when the user explicitly asks for a durable research note.
+
+1. **Parse:** `python -X utf8 -c "from lastwar_bot import script_engine; print(script_engine.parse_file(script_engine.ACTIONS_DIR / 'dev' / 'NAME.md'))"`
 2. **Run:** panel → **Scenarios** tab → pick the script → Run. A game-primitive-only
    recipe runs with `hwnd=0`, no window handle needed.
 3. **Watch it on the wire:** keep the traffic sniffer on during the first run.
    The recipe is correct when it produces **the same `up` commands** as the
-   human's recording did. That is the acceptance test.
-4. **Write the research note** — `docs/research/<feature>.md`, following
+   human's recording did. That is the acceptance test; on a pass, flip the farming
+   mark 🟡 → ✅ and promote the script out of `dev/`.
+4. **Research note — only if asked** — `docs/research/<feature>.md`, following
    `alliance-tech-donate.md`: which labelled trace it came from, what the trace
    showed, what had to be live-probed, the API table, the freeze pitfalls, and
-   the usage lines. Name the source files by path; `results/` is git-ignored, so
-   the note is the only durable record of the session.
-5. **Add any new wire command** to `tools/known_commands.txt`.
-6. **Commit** the recipe + buttons + note together, and say in the message what
-   was recorded vs what was live-probed (see `feat(alliance): help every
-   alliancemate via OnHelpAll`).
+   the usage lines. `results/` is git-ignored, so the note is the only durable
+   record of the session. Not part of the fast path — write it on request.
 
-### 8.11 The trace came back empty — what then
+### 8.11 The trace came back empty — what then (§8.0 step 2 gate)
 
 This happens, and it is not a dead end. `20260728_162518_Помощь_союзнику_trace.log`
 holds **zero** `XSCALL` lines, yet the session still shipped `help_ally.md` the
@@ -930,29 +531,6 @@ same day. Diagnose first, then fall back.
    until `GetAllianceHelpSliderData` showed the 1000/day cap is on help *points*,
    not on helping — which changed the recipe.
 
-Write down in the commit and the research note that the API was **live-probed
-because the trace was empty**. That single sentence saves the next session from
-re-recording a trace that will be empty again.
-
-### 8.12 Quick reference
-
-```bash
-# record (panel Develop → Sniffer does both, with one shared label)
-/mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "<label>" &
-/mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "<label>"
-
-# analyse — the description of what was done comes first
-python3 tools/sniff_runs.py --last 1
-L=$(ls -t results/traces/*_trace.log | head -1); T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
-grep -c XSCALL "$L"
-grep XSCALL "$L" | grep -vE '\.(getters|super)\.' | grep -E 'DataCenter\.|Utils?\.|Message|SFSObject\.'
-jq -r 'select(.dir=="up" and .cmd!="(keepalive)")|[.ts,.cmd]|@tsv' "$T"
-
-# probe
-/mnt/c/Python312/python.exe tools/lib/lua_eval.py --marker P "CS.UnityEngine.Debug.LogError('P '..tostring(<expr>))"
-
-# ship
-#   tools/lib/game_buttons.py     -> one Button per press (lua / wait / label / count_lua)
-#   src/lastwar_bot/actions/*.md  -> TAP lines
-#   docs/research/<feature>.md    -> the durable record
-```
+Write down in the commit that the API was **live-probed because the trace was
+empty**. That single sentence saves the next session from re-recording a trace
+that will be empty again.
