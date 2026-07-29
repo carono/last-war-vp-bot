@@ -43,7 +43,8 @@ the panel was closed is worked off shortly after it opens. Two errands that come
 due at the same moment never run at the same time: they queue and take their
 turn, so the game is only ever being driven by one of them. Which errands the
 schedule holds is a list you can edit — adding one, or changing what it does and
-how often, needs no change to the program.
+how often, needs no change to the program — and the list belongs to the account,
+so two of them can be farmed on two different schedules.
 
 The one thing the panel cannot do yet is **play a whole session on its own**: it
 repeats a chosen action and keeps a handful of abilities to their own clocks, but
@@ -196,7 +197,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Launching the game and waiting until the base is actually ready to be used
 - 🟡 Reacting to the "logged in from another device" screen — the reaction is written, but nothing watches for it yet
 - ❌ Pausing while the person at the keyboard is using the mouse. The screen-driven abilities need the game in front, so a person and the bot cannot share the computer during those
-- ✅ Separate profiles per account — own settings, filters and logs — and an interface in Russian or English
+- ✅ Separate profiles per account — own settings, filters, logs and schedule — and an interface in Russian or English
 - 🟡 A second account in parallel. Its client is started and kept in a second Windows session in the background — the bot brings the session, the client and its own control channel up by itself, and every ability that works without the screen can be pointed at either account. What cannot reach it is anything screen-driven: clicks and screenshots only ever land on the client in front. Not yet played through a real session on the second account
 - ❌ A second account's client next to the first one *on the same screen*. Starting it as another Windows user works for any other program, but the anti-cheat kills the game a few seconds in
 

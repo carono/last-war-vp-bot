@@ -19,12 +19,16 @@ Blocks:
     passed since it last ran. Everything scheduled runs single-file on one worker thread
     fed by a queue — two errands due at the same moment take their turn instead of driving
     the game at once, and «Запустить» enqueues rather than starting a thread of its own.
-    The clock is kept in the profile, so it survives a restart (panel/timers.py).
+    The list of errands, their switches and periods, and the clock that says when each last
+    ran all belong to the ACTIVE PROFILE (its timers.json / timers_last_run.json), seeded
+    from the template panel/timers.json — so two accounts keep two schedules, and both
+    survive a restart (panel/timers.py).
 
 All panel settings (language, checkboxes, filters, coordinates, monitor state) live in a named
 *profile*; the switcher bar above the tabs creates / renames / deletes / selects one. Each profile
-is a directory under panel/profiles/<name>/ holding config.json plus its own rally_log.jsonl and
-secret_tasks_log.jsonl; the active profile is remembered in panel/settings.json (see panel/profile.py).
+is a directory under panel/profiles/<name>/ holding config.json plus its own rally_log.jsonl,
+secret_tasks_log.jsonl and timers.json; the active profile is remembered in panel/settings.json
+(see panel/profile.py).
 Every change auto-saves, and switching a profile re-applies all of its settings.
 
 Any coordinate printed in the log — canonical `X:1 Y:2` / `#server X:1 Y:2` (tools/coords.py) or a
@@ -364,9 +368,9 @@ class Panel(tk.Tk):
         # re-pointed on a switch; the scheduler itself is created here and only
         # started once the UI exists (_startup), because a fired timer logs.
         self._timer_store = timersmod.LastRunStore(self._profiles.timers_state())
-        # WHICH timers exist comes from panel/timers.json — not from code, and not
-        # from the profile: the catalogue is shared by every account, while the
-        # switch, the period and the clock are per profile.
+        # WHICH timers exist comes from the PROFILE's own timers.json — not from
+        # code: one account's schedule is not the other's. A profile that has none
+        # yet is seeded from the template panel/timers.json.
         self._timer_catalogue = timersmod.default_catalogue()
         self._timer_vars: dict[str, dict] = {}   # name -> {"enabled": Var, "interval": Var}
         self._timer_rows: dict[str, dict] = {}   # name -> {"last": Label, "next": Label}
@@ -529,9 +533,10 @@ class Panel(tk.Tk):
             messagebox.showerror(self._t("profile.rename"), str(exc), parent=self)
             return
         self._refresh_profile_combo(select=newn)
-        # The directory moved under the schedule's feet: re-point the store, or
-        # the next run would write its record into a re-created old directory.
+        # The directory moved under the schedule's feet: re-point both files, or
+        # the next run would write into a re-created old directory.
         self._timer_store.set_path(self._profiles.timers_state())
+        self._reload_timers(quiet=True)
         self._log_put(f"[profile] переименован: {cur} → {newn}")
 
     def _delete_profile(self) -> None:
@@ -569,11 +574,9 @@ class Panel(tk.Tk):
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
-            # {key: {"enabled": bool, "minutes": int}} — the schedule itself. When
-            # each timer last RAN is not here: that belongs to the profile's
-            # timers.json, which the panel rewrites on every run rather than on
-            # every settings change.
-            "timers": self._timer_config(),
+            # The schedule is NOT here: a timer's switch and period live in the
+            # profile's own timers.json beside its scenario, and when each last
+            # ran in timers_last_run.json (see panel/timers.py).
         }
 
     def _apply_settings_to_ui(self) -> None:
@@ -599,11 +602,6 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
-            timers_cfg = self._timer_catalogue.normalize_config(s.get("timers"))
-            for name, var in self._timer_vars.items():
-                item = timers_cfg[name]
-                var["enabled"].set(bool(item["enabled"]))
-                var["interval"].set(str(item["interval_sec"]))
         finally:
             self._loading = False
         self._update_path_hints()
@@ -663,10 +661,12 @@ class Panel(tk.Tk):
         self._stop_chat()
         if self._chat_var.get():
             self._start_chat()
-        # The schedule's clock is per profile too: point the store at the new
-        # profile's timers.json, or the account just switched to would look as
-        # freshly collected as the one switched away from.
+        # The schedule belongs to the account: its timers, their switches and
+        # periods, and the clock that says when each last ran. Re-read all of it,
+        # or the profile just switched to would run the other one's errands and
+        # look as freshly collected as it did.
         self._timer_store.set_path(self._profiles.timers_state())
+        self._reload_timers(quiet=True)
 
     def _update_path_hints(self) -> None:
         """Refresh labels that show the active profile's log path (rally hint)."""
@@ -2124,9 +2124,10 @@ class Panel(tk.Tk):
         drives the game directly: a row only edits the settings the scheduler
         thread reads on its next tick.
 
-        WHICH rows exist is not decided here either — the list is read from
-        panel/timers.json, so a new timer is a new entry in that file and «⟳»
-        below re-reads it without restarting the panel.
+        WHICH rows exist is not decided here either — the list is read from the
+        active profile's timers.json, so a new timer is a new entry in that file,
+        every account keeps its own set, and «⟳» below re-reads it without
+        restarting the panel.
         """
         frame = self._tr(ttk.LabelFrame(parent, padding=8), "timers.frame")
         frame.pack(fill="x", padx=8, pady=8)
@@ -2159,8 +2160,9 @@ class Panel(tk.Tk):
             self._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
 
-        saved = self._settings.get("timers")
-        config = self._timer_catalogue.normalize_config(saved)
+        # The catalogue IS the settings now: its own enabled/interval_sec are
+        # what the row shows, and what the row writes back to.
+        config = self._timer_catalogue.default_config()
         for row, timer in enumerate(self._timer_catalogue, start=1):
             item = config[timer.name]
             enabled = tk.BooleanVar(value=bool(item["enabled"]))
@@ -2194,25 +2196,42 @@ class Panel(tk.Tk):
         """Persist a ticked box / retyped period, for rows built at any time.
 
         Called from the row builder rather than from `_install_autosave`, because
-        the rows can be rebuilt at any moment by «⟳». Traces added while the panel
-        is still loading are harmless: `_save_settings` no-ops until then.
+        the rows can be rebuilt at any moment by «⟳» or by a profile switch.
         """
         for var in self._timer_vars.values():
-            var["enabled"].trace_add("write", lambda *a: self._save_settings())
-            var["interval"].trace_add("write", lambda *a: self._save_settings())
+            var["enabled"].trace_add("write", lambda *a: self._save_timers())
+            var["interval"].trace_add("write", lambda *a: self._save_timers())
 
-    def _reload_timers(self) -> None:
-        """Re-read panel/timers.json and redraw the rows from it."""
+    def _save_timers(self) -> None:
+        """Write the ticked boxes and typed periods into the profile's timers.json.
+
+        The scenario, the args and the title are left exactly as they were typed —
+        the panel has no way to edit them and must not rewrite them.
+        """
+        if getattr(self, "_loading", False) or not self._timer_vars:
+            return
+        self._timer_catalogue = self._timer_catalogue.with_settings(self._timer_config())
+        timersmod.save_catalogue(self._timer_catalogue, self._profiles.timers_json())
+
+    def _reload_timers(self, quiet: bool = False) -> None:
+        """Re-read the profile's timers.json and redraw the rows from it."""
         self._load_timer_catalogue()
-        self._fill_timer_grid()
-        self._log_put("[timer] " + self._t("timers.log.reloaded",
-                                           n=len(self._timer_catalogue)))
+        if hasattr(self, "_timer_grid"):
+            self._fill_timer_grid()
+        if not quiet:
+            self._log_put("[timer] " + self._t("timers.log.reloaded",
+                                               n=len(self._timer_catalogue)))
 
     def _load_timer_catalogue(self) -> None:
-        """Read the catalogue file, reporting whatever it could not make sense of."""
-        self._timer_catalogue = timersmod.load_catalogue()
+        """Read the active profile's catalogue, reporting what it made no sense of.
+
+        Seeded from the template on a profile that has none yet, so a new account
+        starts with the same schedule and can then diverge freely.
+        """
+        path = self._profiles.timers_json()
+        self._timer_catalogue = timersmod.load_profile_catalogue(path)
         for problem in self._timer_catalogue.errors:
-            self._log_put(f"[timer] {_repo_rel(timersmod.CATALOGUE_FILE)}: {problem}")
+            self._log_put(f"[timer] {_repo_rel(path)}: {problem}")
 
     def _timer_config(self) -> dict:
         """The timers' settings as the scheduler wants them (read off the widgets).
@@ -2223,7 +2242,7 @@ class Panel(tk.Tk):
         run from a test double may not).
         """
         if not self._timer_vars:
-            return self._timer_catalogue.normalize_config(self._settings.get("timers"))
+            return self._timer_catalogue.default_config()
         raw = {}
         for name, var in self._timer_vars.items():
             raw[name] = {"enabled": bool(var["enabled"].get()),

@@ -7,9 +7,12 @@ failed run counted as a run means an hour of production left in the buildings)
 and the config (a typo in one entry must cost that entry, not the schedule) — so
 that is what is tested here:
 
-  * the catalogue comes from panel/timers.json: entries fall back field by field
-    to the built-ins, junk entries are dropped with a complaint rather than an
-    exception, and a missing/unreadable file falls back to the built-in list;
+  * the catalogue comes from the PROFILE's timers.json: a profile with none yet
+    is seeded from the template, two profiles keep two schedules, entries fall
+    back field by field, junk entries are dropped with a complaint rather than an
+    exception, and an unreadable file falls back instead of being overwritten;
+  * ticking a box writes back into that profile's file, leaving the scenario,
+    the args and the title exactly as they were typed;
   * a timer that has never run is due at once, and one just run is not;
   * a switched-off row is never due, whatever its clock says;
   * the alliance errand is ONE timer of two steps, in order (donate, then gifts);
@@ -37,6 +40,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -162,10 +166,67 @@ def test_a_missing_file_is_seeded_and_a_broken_one_falls_back():
     assert written[1]["scenario"] == ["donate_alliance_tech",
                                       "collect_alliance_gifts"], written[1]
 
+    # A file that cannot be read is NOT overwritten — whatever the operator typed
+    # is still there to be fixed, and the panel runs on the fallback meanwhile.
     path.write_text("{ this is not json", encoding="utf-8")
     broken = timersmod.load_catalogue(str(path))
     assert broken.names() == [BASE, ALLY], broken.names()
     assert broken.errors, "a broken file must say so"
+    assert path.read_text(encoding="utf-8") == "{ this is not json"
+
+
+def test_each_profile_keeps_its_own_timers():
+    """Two profiles, two schedules — seeded from the same template, then apart."""
+    template = Path(tempfile.mkdtemp()) / "timers.json"
+    template.write_text(json.dumps([
+        {"name": BASE, "interval_sec": 1800},
+        {"name": "shared_extra", "scenario": 'LOG "hi"', "interval_sec": 600},
+    ]), encoding="utf-8")
+    seed = timersmod.load_catalogue(str(template))
+
+    one = Path(tempfile.mkdtemp()) / "timers.json"
+    two = Path(tempfile.mkdtemp()) / "timers.json"
+    first = timersmod.load_catalogue(str(one), seed_from=seed)
+    second = timersmod.load_catalogue(str(two), seed_from=seed)
+
+    # Both start as the template says…
+    assert first.names() == second.names() == [BASE, "shared_extra"]
+    assert first.by_name(BASE).interval_sec == 1800
+
+    # …and then go their own way: the first account switches the base on and
+    # halves its period, the second drops that timer from its list entirely.
+    timersmod.save_catalogue(
+        first.with_settings({BASE: {"enabled": True, "interval_sec": 900}}), str(one))
+    two.write_text(json.dumps([{"name": "shared_extra", "interval_sec": 60}]),
+                   encoding="utf-8")
+
+    first = timersmod.load_catalogue(str(one), seed_from=seed)
+    second = timersmod.load_catalogue(str(two), seed_from=seed)
+    assert first.by_name(BASE).enabled is True
+    assert first.by_name(BASE).interval_sec == 900
+    assert second.by_name(BASE) is None, "the other profile's timer leaked in"
+    assert second.names() == ["shared_extra"], second.names()
+    # The template is untouched by either of them.
+    assert timersmod.load_catalogue(str(template)).by_name(BASE).interval_sec == 1800
+
+
+def test_saving_settings_leaves_the_scenario_alone():
+    """The UI writes the switch and the period — never the operator's own text."""
+    tmp = Path(tempfile.mkdtemp())
+    path = tmp / "timers.json"
+    path.write_text(json.dumps([
+        {"name": "mine", "scenario": ['LOG "one"', 'LOG "two"'], "interval_sec": 600,
+         "args": {"who": "world"}, "title": "Mine"},
+    ]), encoding="utf-8")
+    cat = timersmod.load_catalogue(str(path))
+
+    timersmod.save_catalogue(
+        cat.with_settings({"mine": {"enabled": True, "interval_sec": 120}}), str(path))
+
+    back = timersmod.load_catalogue(str(path)).by_name("mine")
+    assert back.enabled is True and back.interval_sec == 120
+    assert back.scenario == ('LOG "one"', 'LOG "two"'), back.scenario
+    assert back.args == {"who": "world"} and back.title == "Mine"
 
 
 # --- what is due ------------------------------------------------------------
@@ -423,13 +484,16 @@ def test_timers_tab_builds_from_the_config_and_binds():
     root.withdraw()
     tmp = Path(tempfile.mkdtemp())
 
-    # A catalogue with one built-in and one timer that exists only in "the file",
-    # so the row builder is exercised on both label routes.
-    cat = timersmod.parse_catalogue([
+    # A profile catalogue on disk with one built-in and one timer that exists only
+    # in the file, so the row builder is exercised on both label routes — and the
+    # write-back has a real file to land in.
+    cfg_path = tmp / "timers.json"
+    cfg_path.write_text(json.dumps([
         {"name": BASE, "interval_sec": 1800},
-        {"name": "inline_one", "scenario": "LOG \"hello\"", "interval_sec": 600,
-         "title": "Inline step"},
-    ])
+        {"name": "inline_one", "scenario": 'LOG "hello"', "interval_sec": 600,
+         "args": {"who": "world"}, "title": "Inline step"},
+    ]), encoding="utf-8")
+    cat = timersmod.load_catalogue(str(cfg_path))
 
     class _Tab:
         """A Panel stand-in carrying only what the tab builder touches."""
@@ -443,19 +507,17 @@ def test_timers_tab_builds_from_the_config_and_binds():
             self._timer_rows: dict = {}
             self._timer_catalogue = cat
             self._timer_store = _store(tmp)
-            self.saves = 0
+            self._profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
             self.afters: list = []
 
         _t = Panel._t
         _tr = Panel._tr
         _fill_timer_grid = Panel._fill_timer_grid
         _bind_timer_autosave = Panel._bind_timer_autosave
+        _save_timers = Panel._save_timers
         _timer_config = Panel._timer_config
         _fmt_span = Panel._fmt_span
         _refresh_timer_rows = Panel._refresh_timer_rows
-
-        def _save_settings(self):
-            self.saves += 1
 
         def after(self, _ms, _fn=None):                # the 1 s re-arm, not run here
             self.afters.append(_ms)
@@ -468,11 +530,16 @@ def test_timers_tab_builds_from_the_config_and_binds():
         assert set(tab._timer_rows) == {BASE, "inline_one"}, tab._timer_rows
         assert tab._timer_config()[BASE] == {"enabled": False, "interval_sec": 1800}
 
-        # A ticked box and a retyped period reach the scheduler and are saved.
+        # A ticked box and a retyped period reach the scheduler — and land in the
+        # profile's own file, leaving the other timer's scenario and args intact.
         tab._timer_vars[BASE]["enabled"].set(True)
         tab._timer_vars[BASE]["interval"].set("900")
         assert tab._timer_config()[BASE] == {"enabled": True, "interval_sec": 900}
-        assert tab.saves >= 2, "the row did not autosave"
+        saved = timersmod.load_catalogue(str(cfg_path))
+        assert saved.by_name(BASE).enabled is True, "the row did not autosave"
+        assert saved.by_name(BASE).interval_sec == 900
+        assert saved.by_name("inline_one").scenario == ('LOG "hello"',)
+        assert saved.by_name("inline_one").args == {"who": "world"}
 
         # The rows repaint from the store: never run -> due now; just run -> a
         # period away.
@@ -484,8 +551,11 @@ def test_timers_tab_builds_from_the_config_and_binds():
 
         tab._timer_store.mark_run(BASE)
         tab._refresh_timer_rows()
-        assert row["next"].cget("text") == tab._t(
-            "timers.in_span", span=tab._t("timers.span.min", n=14)), row["next"].cget("text")
+        # 900 s away, give or take the second this test takes to get here — the
+        # column rounds down to whole minutes, so both readings are correct.
+        expected = {tab._t("timers.in_span", span=tab._t("timers.span.min", n=n))
+                    for n in (14, 15)}
+        assert row["next"].cget("text") in expected, row["next"].cget("text")
 
         # args reach an inline step as {placeholders}, and braces of the step's
         # own (Lua tables) survive untouched.

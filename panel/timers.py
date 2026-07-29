@@ -8,10 +8,18 @@ when it finished. That record lives in the profile directory, so closing the
 panel does not reset the clock — a timer that came due while it was shut fires
 shortly after the next launch.
 
-The list of timers is **data, not code**: it is read from ``panel/timers.json``,
-so a new timer is a new entry in that file and nothing here has to change. The
-catalogue below is the fallback the file is seeded from and, if the file is ever
-missing or unreadable, what the panel runs on instead.
+The list of timers is **data, not code, and it belongs to the profile**: it is
+read from ``panel/profiles/<profile>/timers.json``, so a new timer is a new entry
+in that file and nothing here has to change. Two accounts therefore keep two
+different schedules — different timers, each with its own switch, period and args
+— and switching profiles in the panel switches the whole set.
+
+A profile that has none yet is seeded from the *template*, ``panel/timers.json``,
+which is itself seeded from the hardcoded catalogue below the first time the
+panel runs. So the chain is: built-in list → template (edit it to change what new
+profiles start with) → the profile's own file (what actually runs, and what the
+panel's checkboxes write to). The built-in list is also the last-resort fallback
+if a profile's file is ever unreadable.
 
     [
       {
@@ -44,9 +52,9 @@ matching value before it is parsed.
 
 Every field except ``name`` and ``scenario`` may be left out: it then falls back
 to the entry of the same name in the hardcoded catalogue, and failing that to the
-module defaults. ``enabled`` and ``interval_sec`` in the file are *defaults* in
-turn — the panel's own checkbox and period, saved per profile, win over them, so
-two accounts can keep different schedules from one catalogue.
+module defaults. ``enabled`` and ``interval_sec`` are what the panel's own
+checkbox and period write back to — the profile's file is the one source of truth
+for its schedule, not a default some other setting overrides.
 
 What the module decides, and what it deliberately does not:
 
@@ -104,11 +112,11 @@ MAX_INTERVAL_SEC = 7 * 24 * 3600
 DEFAULT_INTERVAL_SEC = 3600
 
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
-# The catalogue file. Beside the panel, not inside a profile: it says WHICH
-# timers exist and what each one runs, which is the same for every account. What
-# differs per account — the switch, the period, and when each last ran — lives in
-# the profile (config.json and timers_last_run.json).
-CATALOGUE_FILE = os.path.join(PANEL_DIR, "timers.json")
+# The TEMPLATE, beside the panel: what a profile that has no timers of its own is
+# seeded from, and nothing else. The catalogue a profile actually runs lives in
+# its own directory (ProfileManager.timers_json), next to the record of when each
+# of them last ran — so one account's schedule is not the other's.
+TEMPLATE_FILE = os.path.join(PANEL_DIR, "timers.json")
 
 
 @dataclass(frozen=True)
@@ -254,6 +262,25 @@ class Catalogue:
                 item.get("interval_sec", timer.interval_sec), timer.interval_sec)
         return out
 
+    def with_settings(self, config: dict) -> "Catalogue":
+        """A copy carrying the panel's switches and periods, ready to be saved.
+
+        Only those two fields move: the scenario, the args and the title are the
+        operator's text and are never rewritten by the UI, which has no way to
+        edit them anyway.
+        """
+        config = self.normalize_config(config)
+        updated = []
+        for timer in self.timers:
+            item = config[timer.name]
+            updated.append(Timer(
+                name=timer.name, scenario=timer.scenario,
+                interval_sec=int(item["interval_sec"]),
+                enabled=bool(item["enabled"]),
+                args=dict(timer.args), title=timer.title,
+                label_key=timer.label_key))
+        return Catalogue(updated, self.path, self.errors)
+
     # -- the decision -------------------------------------------------------
     def due_names(self, config: dict, records: dict, now: float) -> list[str]:
         """Which enabled timers are due at ``now``, the most overdue first.
@@ -297,21 +324,25 @@ def default_catalogue() -> Catalogue:
     return Catalogue(DEFAULT_TIMERS)
 
 
-def parse_catalogue(data, path: str | None = None) -> Catalogue:
+def parse_catalogue(data, path: str | None = None,
+                    fallback: "Catalogue | None" = None) -> Catalogue:
     """Build a catalogue from already-decoded JSON.
 
     Accepts either a bare list of entries or ``{"timers": [...]}``. The FILE owns
     the list — a timer deleted from it is gone — while each entry falls back
-    field by field to the built-in of the same name, so an entry may be as short
-    as ``{"name": "collect_base_resources", "interval_sec": 1800}``.
+    field by field to the one of the same name in ``fallback`` (the template, and
+    behind it the built-ins), so an entry may be as short as
+    ``{"name": "collect_base_resources", "interval_sec": 1800}``.
     """
+    fallback_timers = fallback.timers if fallback is not None else DEFAULT_TIMERS
     if isinstance(data, dict):
         data = data.get("timers")
     if not isinstance(data, list):
-        return Catalogue(DEFAULT_TIMERS, path,
+        return Catalogue(fallback_timers, path,
                          ["config is not a list of timers — using the defaults"])
 
     builtin = {timer.name: timer for timer in DEFAULT_TIMERS}
+    builtin.update({timer.name: timer for timer in fallback_timers})
     timers, errors, seen = [], [], set()
     for index, raw in enumerate(data):
         if not isinstance(raw, dict):
@@ -346,35 +377,51 @@ def parse_catalogue(data, path: str | None = None) -> Catalogue:
         seen.add(name)
 
     if not timers:
+        # An empty list is a legitimate answer — "this account schedules nothing"
+        # — but a file whose every entry was junk is not, and falling back is the
+        # kinder reading of it. The complaints above say which it was.
+        if not errors:
+            return Catalogue((), path)
         errors.append("no usable timers in the config — using the defaults")
-        return Catalogue(DEFAULT_TIMERS, path, errors)
+        return Catalogue(fallback_timers, path, errors)
     return Catalogue(timers, path, errors)
 
 
-def load_catalogue(path: str | None = None, seed: bool = True) -> Catalogue:
-    """Read the catalogue file, falling back to the built-in list.
+def load_catalogue(path: str, seed_from=None) -> Catalogue:
+    """Read a catalogue file, falling back to ``seed_from`` / the built-in list.
 
-    With ``seed`` the file is written out from the defaults when it does not
-    exist yet, so there is always something on disk to edit — which is the whole
-    point of the file: a new timer must be a new entry, not a code change.
+    A file that does not exist yet is *written* from the seed, so there is always
+    something on disk to edit — which is the whole point: a new timer must be a
+    new entry in a file, not a code change. A file that exists but cannot be read
+    is NOT overwritten: the panel runs on the fallback and says so, leaving
+    whatever the operator typed there for them to fix.
     """
-    path = CATALOGUE_FILE if path is None else path
+    seed = seed_from if seed_from is not None else Catalogue(DEFAULT_TIMERS)
     if not os.path.exists(path):
-        cat = Catalogue(DEFAULT_TIMERS, path)
-        if seed:
-            save_catalogue(cat, path)
-        return cat
+        fresh = Catalogue(seed.timers, path)
+        save_catalogue(fresh, path)
+        return fresh
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
-        return Catalogue(DEFAULT_TIMERS, path, [f"{os.path.basename(path)}: {exc}"])
-    return parse_catalogue(data, path)
+        return Catalogue(seed.timers, path, [f"{os.path.basename(path)}: {exc}"])
+    return parse_catalogue(data, path, fallback=seed)
+
+
+def load_template() -> Catalogue:
+    """The template new profiles are seeded from (``panel/timers.json``)."""
+    return load_catalogue(TEMPLATE_FILE)
+
+
+def load_profile_catalogue(path: str) -> Catalogue:
+    """The catalogue a profile runs, seeded from the template when it has none."""
+    return load_catalogue(path, seed_from=load_template())
 
 
 def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:
     """Write a catalogue back out in the file's own format."""
-    _write_json(CATALOGUE_FILE if path is None else path,
+    _write_json(path or catalogue.path or TEMPLATE_FILE,
                 [timer.as_dict() for timer in catalogue.timers])
 
 

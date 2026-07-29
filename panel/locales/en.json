@@ -32,7 +32,7 @@
   "busy": "busy — wait for the current action to finish",
 
   "timers.frame": "Schedule",
-  "timers.hint": "A ticked errand runs by itself once its period has passed, and the clock survives a restart — an hour that ran out while the panel was closed fires shortly after it opens. Nothing fires while the game is not running, a run that fails is retried rather than counted, and two errands due at once take their turn instead of running together. The list itself is panel/timers.json: add an entry there and press ⟳.",
+  "timers.hint": "A ticked errand runs by itself once its period has passed, and the clock survives a restart — an hour that ran out while the panel was closed fires shortly after it opens. Nothing fires while the game is not running, a run that fails is retried rather than counted, and two errands due at once take their turn instead of running together. The list belongs to the profile — panel/profiles/<name>/timers.json: add an entry there and press ⟳.",
   "timers.col.action": "Ability",
   "timers.col.interval": "every, s",
   "timers.col.last": "last run",

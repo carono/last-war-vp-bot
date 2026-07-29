@@ -6,6 +6,7 @@ A *profile* is a named set of panel settings plus its own logs, stored under
     config.json             all panel settings (language, checkboxes, filters, coords…)
     rally_log.jsonl         rally-monitor output for this profile
     secret_tasks_log.jsonl  secret-task findings for this profile
+    timers.json             this profile's timers (what runs, how often, args)
     timers_last_run.json    when each scheduled errand last ran
     panel.log               plain-text mirror of the panel log widget
 
@@ -36,10 +37,11 @@ CHAT_LOG = "chat_log.jsonl"
 # Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
 # current state of the map, which is what an auto-loot decision has to read.
 TASKS_JSON = "secret_tasks.json"
-# When each panel timer last ran (panel/timers.py). Per profile like everything
-# else here: the clock belongs to the account, so switching profiles must not
-# make the other account's base look freshly collected. WHICH timers exist is a
-# different thing and lives in panel/timers.json, one catalogue for all profiles.
+# The profile's own timer catalogue and the record of when each of them last ran
+# (panel/timers.py). Both per profile: one account's schedule is not the other's,
+# and neither is its clock. A profile with no catalogue yet is seeded from the
+# template panel/timers.json.
+TIMERS_CONFIG = "timers.json"
 TIMERS_STATE = "timers_last_run.json"
 PANEL_LOG = "panel.log"
 CONFIG_FILE = "config.json"
@@ -196,6 +198,10 @@ class ProfileManager:
     def tasks_json(self, name: str | None = None) -> str:
         """Where the secret-task capture checkpoints what it currently sees."""
         return os.path.join(self.dir(name), TASKS_JSON)
+
+    def timers_json(self, name: str | None = None) -> str:
+        """This profile's timer catalogue (panel/timers.py)."""
+        return os.path.join(self.dir(name), TIMERS_CONFIG)
 
     def timers_state(self, name: str | None = None) -> str:
         """Last-run records of the scheduled errands (panel/timers.py)."""
