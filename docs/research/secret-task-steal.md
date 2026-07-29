@@ -125,7 +125,7 @@ uuid.
 | `TAP dismiss_steal_reward` | loot window closed |
 | queue + `actions/steal_secret_task.md` (uuid …0444144278) | **robbed**, 3 → 2 left, queue emptied |
 
-## 6a. Auto-loot — the panel button
+## 6a. Auto-loot — the panel checkbox
 
 The panel's «Автолут ★ макс. уровня» (Secret tasks frame) robs **starred tasks
 only, and only the highest level the scan actually found**. With no star in view
@@ -133,25 +133,52 @@ it does nothing at all — deliberately, because the scarce thing is the day's f
 robberies, not the targets: an attempt spent on a plain level-5 tile is one a
 level-7 star cannot have until the daily reset.
 
-It reads the capture's own checkpoint — the monitor now runs with
+It is a **checkbox, not a press** (task #1109). A raidable star is perishable —
+the window closes, or someone else fills the third loot slot — so the gap between
+the capture printing the finding and a human noticing the log line was where
+targets were lost. While the box is ticked a watcher thread re-reads the
+checkpoint every 5 s and fires the robbery the moment the rule has a target;
+unticking it stops the watching (a robbery already under way finishes).
+
+Three things keep the standing order from wasting the budget:
+
+* **a uuid is sent once per session.** The checkpoint keeps showing a tile the
+  server refused, and one we already robbed until a fresh scan brings its loot
+  count back, so every target of a fired run is remembered and never re-sent.
+  Switching the profile (a different checkpoint) clears that memory;
+* **one run at a time.** A new poll while the child is still robbing is skipped;
+* **an exhausted budget pauses the watcher for 30 minutes** instead of firing at
+  every new star. The child says so in words (`the day's robberies are spent` /
+  `robberies left today: 0`), and the pause is short enough that the daily reset
+  is picked up without a human.
+
+It reads the capture's own checkpoint — the monitor runs with
 `--json <profile>/secret_tasks.json`, rewritten every tick — and hands it to
 `tools/steal_secret_task.py --from-scan … --star-max`, the same entrypoint a
-human uses from the shell. `load_fresh_tasks` drops any tile not re-seen in the
-last 15 minutes and recomputes `can_loot` against the current clock, so a stale
-file cannot aim a robbery at a tile that is already gone.
+human uses from the shell; the same call (`targets_from_scan`, a pure file read)
+is what the watcher polls with, so the panel holds no second copy of the rule.
+`load_fresh_tasks` drops any tile not re-seen in the last 15 minutes and
+recomputes `can_loot` against the current clock, so a stale file cannot aim a
+robbery at a tile that is already gone — which is also why the watcher is
+harmless when «Мониторинг» is off: nothing refreshes the checkpoint, so nothing
+stays fresh enough to be a target (the panel says as much when the box is ticked
+with the monitor stopped).
 
 Two things it does NOT do, both on purpose:
 
 * it ignores the panel's display filters (stars / pending / level range) — those
   decide what is *printed*, and a display filter quietly changing who gets raided
   would be a nasty surprise;
-* it does not wait for a star whose dispatch is still running. A starred tile
-  that is not raidable *right now* is simply not a target this press. Observed
-  live: three level-7 stars in view, all «ещё выполняется» (12–90 minutes out),
-  19 ordinary tiles raidable — the button correctly robbed nothing. Ten minutes
-  later the nearest star came free and the same command robbed it (level 7,
-  `#509 X:504 Y:314`, budget 2 → 1), leaving the other two — still running —
-  alone. Both halves of the rule are therefore confirmed against the live game.
+* it does not queue a star whose dispatch is still running. A starred tile that
+  is not raidable *right now* is simply not a target on this poll — the watcher
+  will pick it up on a later one, once the scan shows it free. Observed live
+  (when this was still a press): three level-7 stars in view, all «ещё
+  выполняется» (12–90 minutes out), 19 ordinary tiles raidable — it correctly
+  robbed nothing. Ten minutes later the nearest star came free and the same
+  command robbed it (level 7, `#509 X:504 Y:314`, budget 2 → 1), leaving the
+  other two — still running — alone. Both halves of the *rule* are therefore
+  confirmed against the live game; the automatic trigger on top of it has not
+  yet run a live session.
 
 A successful run closes the loot window it raised, so the client is left as it
 was found.

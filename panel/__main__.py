@@ -11,7 +11,9 @@ Blocks:
     cross-server load recipe. The server field defaults to the current server
     (DataCenter.WorldFavoDataManager.curServerId).
   * Секретные задания — a checkbox that runs the passive capture (tools/secret_task_capture.py
-    or secret_mission_capture.py) in the background and streams findings into the log.
+    or secret_mission_capture.py) in the background and streams findings into the log, plus
+    «Автолут ★» — a standing order that watches the capture's checkpoint and robs a starred
+    task of the best level the moment one becomes raidable (tools/steal_secret_task.py).
 
 All panel settings (language, checkboxes, filters, coordinates, monitor state) live in a named
 *profile*; the switcher bar above the tabs creates / renames / deletes / selects one. Each profile
@@ -1164,14 +1166,21 @@ class Panel(tk.Tk):
         """Poll the capture checkpoint until the checkbox is cleared.
 
         A whole tick is wrapped in try/except: the watcher is a background loop the
-        operator cannot see, so one unreadable checkpoint (half-written by the
-        capture, say) must cost a log line and not the auto-loot for the session.
+        operator cannot see, so one unreadable checkpoint (caught half-written by the
+        capture, say) must cost a log line and not the auto-loot for the session. The
+        same complaint is printed once and not on every poll after it — a checkpoint
+        that stays broken would otherwise fill the log a dozen times a minute.
         """
+        last_err = ""
         while True:
             try:
                 self._autoloot_tick()
+                last_err = ""
             except Exception as exc:      # noqa: BLE001 — never let one tick kill the loop
-                self._log_put(f"[autoloot] ошибка опроса скана: {exc}")
+                err = f"{type(exc).__name__}: {exc}"
+                if err != last_err:
+                    last_err = err
+                    self._log_put(f"[autoloot] ошибка опроса скана: {err}")
             if stop.wait(AUTOLOOT_POLL):
                 return
 
