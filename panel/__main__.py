@@ -289,6 +289,7 @@ class Panel(tk.Tk):
         self._coord_seq = 0
         self._mon_proc = None
         self._rally_proc = None
+        self._help_proc = None        # live auto-help watcher (push.al.help.new)
         self._autoloot_proc = None    # one auto-loot run at a time
         self._autoloot_stop = None    # threading.Event of the watcher loop, when running
         self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
@@ -504,6 +505,7 @@ class Panel(tk.Tk):
             "filter_level_from": self._lvl_from_var.get(),
             "filter_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
+            "alliance_autohelp": self._help_var.get(),
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
@@ -527,6 +529,8 @@ class Panel(tk.Tk):
             self._lvl_from_var.set(s.get("filter_level_from", ""))
             self._lvl_to_var.set(s.get("filter_level_to", ""))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
+            # Off by default: it answers on its own, so it is opted into, not out of.
+            self._help_var.set(bool(s.get("alliance_autohelp", False)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
@@ -538,8 +542,8 @@ class Panel(tk.Tk):
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
                     self._pending_var, self._can_loot_var, self._lvl_from_var,
-                    self._lvl_to_var, self._rally_var, self._mon_var, self._autoloot_var,
-                    self._chat_var):
+                    self._lvl_to_var, self._rally_var, self._help_var, self._mon_var,
+                    self._autoloot_var, self._chat_var):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
@@ -573,6 +577,11 @@ class Panel(tk.Tk):
         self._stop_rally()
         if self._rally_var.get():
             self._start_rally()
+        # Auto-help is per-profile too: a switch must not leave the previous
+        # profile's watcher helping on this one's behalf.
+        self._stop_help()
+        if self._help_var.get():
+            self._start_help()
         self._stop_monitor()
         if self._mon_var.get():
             self._start_monitor()
@@ -730,6 +739,16 @@ class Panel(tk.Tk):
         self._rally_hint.pack(side="left", padx=10)
         self._tr_hooks.append(self._update_path_hints)
 
+        # Alliance auto-help: a standing order like «Автолут ★», but driven by the
+        # wire instead of a poll — the request itself announces its arrival
+        # (push.al.help.new), so there is nothing to poll for.
+        ally = self._tr(ttk.LabelFrame(main, padding=8), "help.frame")
+        ally.pack(fill="x", padx=8, pady=(0, 6))
+        self._help_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(ally, variable=self._help_var, command=self._toggle_help),
+                 "help.auto").pack(side="left")
+        self._tr(ttk.Label(ally, foreground="#888"), "help.hint").pack(side="left", padx=10)
+
         logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         # Plain native Text widget: state="normal" (never toggled to "disabled",
@@ -863,6 +882,8 @@ class Panel(tk.Tk):
     def _startup(self) -> None:
         if self._rally_var.get():           # rally monitor is on by default
             self._start_rally()
+        if self._help_var.get():            # alliance auto-help, if the profile had it on
+            self._start_help()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
             self._start_monitor()
         if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
@@ -1115,6 +1136,65 @@ class Panel(tk.Tk):
         proc, self._rally_proc = self._rally_proc, None
         if proc is not None:
             self._log_put("[rally] стоп мониторинга")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    # -- alliance auto-help: answer push.al.help.new the moment it lands ------
+    #
+    # A standing order, not a press. An alliancemate's request pays help points only
+    # while it is open, and the game announces it on the wire (`push.al.help.new`) —
+    # so instead of a periodic sweep this keeps an ear on the traffic and fires the
+    # one `al.help.all` that answers the whole list the second the push arrives.
+    #
+    # The listening and the pressing both live in the child
+    # (tools/alliance_help_monitor.py): capture must run in the Windows Python, and
+    # the press must not sit on the Tk thread. The panel only ticks the box, streams
+    # the child's lines into the log, and remembers the choice per profile. The gate
+    # («is anybody actually waiting») is the game's own — see
+    # tools/lib/alliance_help.py and docs/research/alliance-help.md.
+    def _toggle_help(self) -> None:
+        if self._help_var.get():
+            self._start_help()
+        else:
+            self._stop_help()
+
+    def _start_help(self) -> None:
+        if self._help_proc is not None:
+            return
+        self._log_put("[help] авто-помощь включена — слушаю push.al.help.new")
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")   # utf-8 to match our decode
+        try:
+            self._help_proc = subprocess.Popen(
+                [WIN_PYTHON, "-u", os.path.join(TOOLS, "alliance_help_monitor.py")],
+                # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
+                env=env, creationflags=NO_WINDOW)
+        except Exception as exc:
+            self._log_put(f"[help] ошибка запуска: {exc}")
+            self._help_proc = None
+            self._help_var.set(False)
+            return
+        threading.Thread(target=self._help_reader, args=(self._help_proc,),
+                         daemon=True).start()
+
+    def _help_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                self._log_put(f"[help] {raw.rstrip()}")
+        except Exception:
+            pass
+        if self._help_proc is proc:      # ended on its own, not via _stop_help
+            self._log_put("[help] авто-помощь остановлена (процесс завершился)")
+            self._help_proc = None
+            self.after(0, lambda: self._help_var.set(False))
+
+    def _stop_help(self) -> None:
+        proc, self._help_proc = self._help_proc, None
+        if proc is not None:
+            self._log_put("[help] авто-помощь выключена")
             try:
                 proc.terminate()
             except Exception:
@@ -1772,6 +1852,7 @@ class Panel(tk.Tk):
         self._stop_monitor()
         self._stop_autoloot()
         self._stop_rally()
+        self._stop_help()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
         self._stop_scenario_loop()

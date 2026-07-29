@@ -104,7 +104,11 @@ BUTTONS: dict[str, Button] = {
         # How many alliancemates are still waiting — the same gate the press applies, so
         # `xall` presses once, re-reads to confirm the server cleared the list, and mops
         # up anything that arrived in the gap instead of guessing a fixed count.
-        count_lua=_lua_actions.alliance_help_pending(),
+        # It is the LARGER of the client's two readings (the help list and the red-point
+        # count): a request that arrived while the bot was running is only ever in the
+        # second one, so the list alone made this recipe press zero times — see the note
+        # above alliance_help_pending() and docs/research/alliance-help.md.
+        count_lua=_lua_actions.alliance_help_waiting(),
         max_taps=10,
     ),
     # --- Base -> recruit a waiting survivor ("Собрать выжившего") -------------

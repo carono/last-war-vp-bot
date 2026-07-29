@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 21 of 87
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **25%** — 22 of 87
 
-🟩 21 done · 🟨 18 partly · 🟥 48 not automated
+🟩 22 done · 🟨 17 partly · 🟥 48 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -61,7 +61,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Collecting alliance gifts — both ordinary and premium
 - ✅ Helping the alliance — a single press answers every pending request at once
-- 🟡 Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») keeps an ear on the traffic and fires that same press the moment `push.al.help.new` lands, so nobody has to be watching for a request to be worth points. The push and the press are both proven; the watcher itself has not been confirmed over a live session yet
+- ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») keeps an ear on the traffic and fires that same press the moment `push.al.help.new` lands, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered ~2 s after their push, with the `al.help.all` and the server's reply seen on the wire. It also found the reason the on-demand recipe kept helping nobody — the push does not fill the client's help list, so the gate now reads the red-point count as well
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
 - 🟡 Healing units — one press heals every wounded soldier type in a single `hospital.cure`, headless, no window opened, and it no-ops when nothing is hurt. The message shape is proven from two traces; the headless read of the full wounded list still has one unconfirmed field name, so a first live run must confirm it actually heals (a probe is ready to pin the field down)
 - ❌ Collecting units from the hospital — no separate collect message was seen; a finished heal returns the soldiers on the heal-queue timer, so there may be nothing to send (unconfirmed)

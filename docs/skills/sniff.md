@@ -743,7 +743,7 @@ the recipe never names them.
 "help_ally_all": Button(
     lua=_lua_actions.alliance_help_all(),           # sends al.help.all
     wait=1.0, label="Help All (alliance)",
-    count_lua=_lua_actions.alliance_help_pending(),  # enables `xall`
+    count_lua=_lua_actions.alliance_help_waiting(),  # enables `xall`
     max_taps=10,                                     # safety cap
 ),
 ```

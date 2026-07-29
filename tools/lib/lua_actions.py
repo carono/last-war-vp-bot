@@ -512,13 +512,22 @@ def alliance_donate_batch(use_gold: bool = False, times: str = "n",
 #
 # The controller gates the send on `can_help` (at least one entry that is not mine),
 # and shows tip 390170 otherwise. `alliance_help_pending()` is that same predicate as
-# a number, so `TAP help_ally_all xall` never fires a press the chunk then declines
-# to make — and never spends a server round trip on an empty list.
+# a number — but it is only HALF of "somebody is waiting", and on its own it is the
+# half that a headless bot almost never sees. `push.al.help.new` does not put the new
+# request into `GetAllianceHelpList()`; its handler only does
+# `SetHelpNum(GetHelpNum() + 1)`. The list is filled by the help window's own query and
+# rewritten by the `al.help.all` reply, so with no window ever opened it holds nothing
+# but my own requests, and a list-only gate declines every request that arrives while
+# the bot is running (four live pushes, four refusals — task #1113).
+# `alliance_help_waiting()` therefore takes the larger of the two signals, and that is
+# what both the chunk gate and the button's `xall` counter use. The red-point count is
+# reset by the server's reply (5 -> 0, observed on the wire), so it terminates the loop.
 def alliance_help_pending() -> str:
-    """Lua *expression* -> how many alliancemates are waiting for help right now.
+    """Lua *expression* -> alliancemates waiting for help *in the client's list*.
 
     Non-self entries of `GetAllianceHelpList()`; my own open requests sit in the same
-    list (`isSelf == true`) and are not helpable, so they are skipped.
+    list (`isSelf == true`) and are not helpable, so they are skipped. Blind to a
+    request that has only just arrived — see `alliance_help_waiting()`.
     """
     return ("(function() local n = 0 "
             "for _, it in ipairs(DataCenter.AllianceHelpDataManager:GetAllianceHelpList() or {}) do "
@@ -526,13 +535,34 @@ def alliance_help_pending() -> str:
             "return n end)()")
 
 
+def alliance_help_red_point() -> str:
+    """Lua *expression* -> the red-point count `push.al.help.new` increments."""
+    return "(DataCenter.AllianceHelpDataManager:GetHelpNum() or 0)"
+
+
+def alliance_help_waiting() -> str:
+    """Lua *expression* -> how many alliancemates are waiting, by either reading."""
+    return "math.max(%s, %s)" % (alliance_help_pending(), alliance_help_red_point())
+
+
 def alliance_help_all() -> str:
     """Answer every pending alliance help request in one message (`al.help.all`)."""
-    return ("if %s > 0 then "
-            "local Z = CS.UnityEngine.Vector3.zero "
+    return "if %s > 0 then %s end" % (alliance_help_waiting(), alliance_help_send())
+
+
+def alliance_help_send() -> str:
+    """The bare `al.help.all` send, with **no** client-side gate in front of it.
+
+    `alliance_help_all()` above is this plus the gate, which is what a `TAP` wants: it
+    decides and sends in one game-VM call. A caller that has ALREADY decided must not go
+    through it — the gate would re-run on the Python side's back and turn the press into
+    a silent no-op (that is exactly how the auto-helper came to log "helped 6" with
+    nothing on the wire). `tools/lib/alliance_help.py` reads both signals itself, prints
+    which one saw the request, and sends this.
+    """
+    return ("local Z = CS.UnityEngine.Vector3.zero "
             "SFSNetwork.SendMessage(MsgDefines.AlHelpAll, "
-            "math.floor(UITimeManager:GetInstance():GetServerTime()), Z, Z, nil, true) end"
-            % alliance_help_pending())
+            "math.floor(UITimeManager:GetInstance():GetServerTime()), Z, Z, nil, true)")
 
 
 # --------------------------------------------------------------------------

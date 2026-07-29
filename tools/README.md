@@ -19,7 +19,10 @@ The directory is split by role. **Run every script from the repo root** (paths l
 
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
   `rally_join.py` (rally listen/join/decline + squad select), `rally_monitor.py` (live
-  rally capture), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
+  rally capture), `alliance_help_monitor.py` (live auto-help — answers
+  `push.al.help.new` with `al.help.all` the second it lands; the panel's
+  «Авто-помощь союзникам» checkbox runs it, and a live session has not confirmed it
+  end to end yet), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua
   evaluator behind them), `goto_coord.py` (jump to a tile), `attack.py` (attack /
   scout an enemy base), `chat_reader.py` (read world/national/alliance chat off the
   Lua VM), `chat_send.py` (send text / emoji / stickers / coordinates),
@@ -46,7 +49,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
   coordinate attachments, `hero_icons_map`, `steal_via_socket`, `instance_manager` —
   named game instances (`get_instance("casper")`) over the per-instance daemon ports,
   `run_output` — the per-run timestamped file under `results/`, `run_notes` — the
-  description stored beside a sniffer run and the keep/delete of that run).
+  description stored beside a sniffer run and the keep/delete of that run,
+  `alliance_help` — the gated "Help All" press shared by the auto-helper and the panel).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
   (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,

@@ -79,6 +79,10 @@
   "rally.monitor": "Rally monitor",
   "rally.hint": "push.alliance.march.* → log + {path}",
 
+  "help.frame": "Alliance",
+  "help.auto": "Auto-help alliancemates",
+  "help.hint": "listening for push.al.help.new → instant \"Help All\" (al.help.all)",
+
   "develop.sniff.toggle": "Sniffer",
   "develop.label.title": "Session label",
   "develop.label.prompt": "Session label (optional).\nGoes into the log file name; spaces become underscores.",
