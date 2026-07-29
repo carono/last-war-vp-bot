@@ -1,12 +1,11 @@
 # Heal the wounded soldiers in the base hospital ("Лечение юнитов").
 #
-# The operator's in-game routine is three steps — heal, ask the alliance to speed it up,
-# collect the healed soldiers when the timer ends — but only two of them are presses:
-# starting a heal registers it for alliance help by itself, so there is nothing to send
-# for the middle step (docs/research/hospital-heal.md).
+# The operator's in-game routine is three presses — collect what has finished, send the
+# wounded in, ask the alliance to speed it up — and all three are real messages
+# (docs/research/hospital-heal.md).
 #
-# Both lines below are headless Lua sends, not screen taps: no hospital window is opened,
-# the wounded list and the heal timer are read straight off the game state.
+# All three lines below are headless Lua sends, not screen taps: no hospital window is
+# opened, the wounded list and the heal timer are read straight off the game state.
 
 # --- 1. Collect the healed soldiers first --------------------------------------
 # Only fires once the heal timer has finished — while one is still running this is a clean
@@ -19,7 +18,14 @@ TAP collect_healed xall
 # `xall` means "only if somebody is actually hurt", so a healthy army costs no round trip.
 TAP heal_all xall
 
+# --- 3. Ask the alliance to speed it up ----------------------------------------
+# The third press of the in-game routine, and it comes last because the heal has to be
+# running before there is a queue to ask about. It asks for every working queue, not just
+# the hospital, and skips the ones already asked for, so it is safe on any schedule.
+TAP call_help xall
+
 # NB — the order matters. The hospital takes ONE job at a time, and soldiers that have
 # finished healing still occupy it until they are collected, so a heal sent before the
-# collect is refused. That is why the collect comes first here; both presses are proven
-# live (681 wounded sent for treatment in one press).
+# collect is refused (errorCode 130069). The help request comes last because it needs a
+# queue already working. All three are proven live: 681 wounded sent in one press, a
+# finished batch collected back, and allies answering the request within seconds.

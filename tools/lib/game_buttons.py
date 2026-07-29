@@ -411,6 +411,16 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.hospital_wounded_count(),
         max_taps=1,
     ),
+    # Ask the alliance to speed up whatever is working — the third press of the healing
+    # routine, and useful on its own for builds and research. `count_lua` counts queues
+    # with no request standing, so `TAP call_help xall` is a clean no-op when every one
+    # has already been asked for.
+    "call_help": Button(
+        lua=_lua_actions.alliance_call_help_all(),
+        wait=1.0, label="Ask the alliance to speed up the queues",
+        count_lua=_lua_actions.queues_needing_help(),
+        max_taps=1,
+    ),
     "collect_healed": Button(
         lua=_lua_actions.hospital_collect(),
         wait=1.0, label="Collect the healed soldiers",

@@ -30,12 +30,15 @@ class FakeEval:
     recorded and answered as a success unless ``send_error`` / ``skip`` is set.
     """
 
-    def __init__(self, wounded=(0,), ready=(0,), send_error=None, skip=None, free=None):
+    def __init__(self, wounded=(0,), ready=(0,), send_error=None, skip=None, free=None,
+                 asked=None):
         self.wounded = list(wounded)
         self.ready = list(ready)
         self.send_error = send_error
         self.skip = skip
         self.free = free
+        self.asked = asked
+        self.helps = 0
         self.reads = 0
         self.ready_reads = 0
         self.heals = 0
@@ -62,6 +65,11 @@ class FakeEval:
             if self.free is not None:
                 out.insert(0, "ACT hospital_heal_all types=1 freeq=%d" % self.free)
             return out
+        if "alliance_call_help_all" in chunk:
+            self.helps += 1
+            if self.skip:
+                return ["ACT alliance_call_help_all skip: %s" % self.skip]
+            return ["ACT alliance_call_help_all asked=%d" % (self.asked or 0)]
         if "hospital_collect" in chunk:
             self.collects += 1
             if self.skip:
@@ -235,6 +243,38 @@ def test_collect_uses_the_games_own_gate():
     chunk = lua_actions.hospital_collect()
     _check("collect presses CheckSendFinish", "CheckSendFinish" in chunk)
     _check("...with the hospital building", "GetCurHospitalBuildUuid" in chunk)
+
+
+# -- call_help: the third press ----------------------------------------------
+
+def test_call_help_reports_what_it_asked_for():
+    ev = FakeEval(asked=3)
+    logs = []
+    n = hospital.call_help(ev.run, logs.append)
+    _check("asks and counts", n == 3 and ev.helps == 1)
+    _check("...and says how many", any("3 queue(s)" in m for m in logs))
+
+
+def test_call_help_nothing_to_ask_for():
+    ev = FakeEval(asked=0)
+    logs = []
+    n = hospital.call_help(ev.run, logs.append)
+    _check("nothing to ask returns 0", n == 0)
+    _check("...and says so", any("already been asked" in m for m in logs))
+
+
+def test_call_help_message_shape():
+    chunk = lua_actions.alliance_call_help_all()
+    _check("names al.call.help", "MsgDefines.AllianceCallHelp" in chunk)
+    _check("itemId goes out as a STRING", "'1'" in chunk)
+    _check("gated on isHelped", "isHelped ~= 1" in chunk)
+    _check("only working queues", "NewQueueState.Work" in chunk)
+
+
+def test_call_help_gate_counts_unasked_queues():
+    expr = lua_actions.queues_needing_help()
+    _check("counts working queues", "NewQueueState.Work" in expr)
+    _check("...that have no request standing", "isHelped ~= 1" in expr)
 
 
 if __name__ == "__main__":

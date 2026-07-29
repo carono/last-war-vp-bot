@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 24 of 87
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 25 of 87
 
-🟩 24 done · 🟨 16 partly · 🟥 47 not automated
+🟩 25 done · 🟨 16 partly · 🟥 46 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -65,7 +65,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
 - ✅ Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. Proven live: 681 wounded went in on a single press. If the hospital is busy — a heal already running, or finished soldiers still waiting to be picked up — the game turns the press down, so collect first
 - ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
-- ❌ Asking for help with healing — a press of its own, and the recording shows exactly what it sends, but the bot does not make it yet
+- ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
 - 🟡 Joining a rally — the bot can join or decline a live rally and pick which squad goes, but nothing decides *which* rallies to join or keeps count
 - ❌ Starting a rally
 - ❌ Treasure notifications

@@ -143,6 +143,37 @@ def heal_all(run: Run, log: "Log | None" = None, settle: float = 1.2) -> int:
     return n
 
 
+def call_help(run: Run, log: "Log | None" = None, settle: float = 1.0) -> int:
+    """Ask the alliance to speed up every working queue. Returns how many were asked for.
+
+    Gated inside the game VM on the queue's own ``isHelped``, so a repeat run re-asks
+    nothing and a base with no work in progress costs one no-op call. Allies answering is
+    asynchronous — the count returned is requests sent, not help received.
+    """
+    say: Log = log or (lambda _m: None)
+    try:
+        lines = run(lua_actions.alliance_call_help_all(), None, settle)
+    except (RuntimeError, OSError) as exc:
+        say(f"call help failed: {exc}")
+        return 0
+    asked = 0
+    for line in lines:
+        if "alliance_call_help_all skip:" in line:
+            say(f"call help skipped: {line.split('skip:', 1)[1].strip()}")
+            return 0
+        if "alliance_call_help_all asked=" in line:
+            raw = line.split("asked=", 1)[1].split()[0]
+            try:
+                asked = int(raw)
+            except ValueError:
+                asked = 0
+    if asked:
+        say(f"asked the alliance to speed up {asked} queue(s)")
+    else:
+        say("every working queue has already been asked for")
+    return asked
+
+
 def collect(run: Run, log: "Log | None" = None, settle: float = 1.0) -> int:
     """Collect the healed soldiers. Returns 1 when the press went out, else 0.
 

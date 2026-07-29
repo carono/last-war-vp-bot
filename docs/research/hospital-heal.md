@@ -163,6 +163,20 @@ queue state=0 endTime=0 helpNum=2     -- the hospital queue: idle
   message asks for help on any queue by changing those two. The game follows it with
   `al.show.help` (a refresh of the request list), which is not part of the press.
 
+  **`itemId` must be a string.** Passing the number `1` dies in the serialiser before the
+  message leaves the client (`SFSDataSerializer.lua:55: attempt to get length of a number
+  value`). The trace cannot tell `1` from `"1"` — it prints both the same way.
+
+  **State: the queue's own `isHelped`** — `0` = no request standing, `1` = asked. It flips
+  on a successful send, which is what gates the repeat. Proven live on the hospital queue:
+  `isHelped 0 -> 1`, `helpNum -> 6`, and five allies answered within seconds
+  («предоставил помощь, ускорив исцеление ваших раненых солдат. 1/40!»).
+
+  Only the hospital queue is confirmed. The same message sent for the base's building
+  queues (`type=0`) is accepted by the client and draws no error and no tip, but their
+  `isHelped` stays `0`, so there is no evidence it registered. Treat help for anything but
+  the hospital as unverified.
+
   Helping *others* is the separate `al.help.all` press the `help_ally` recipe already
   sends.
 

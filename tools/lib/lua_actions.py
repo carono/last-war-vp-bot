@@ -1788,6 +1788,54 @@ def hospital_wounded_probe() -> str:
     )
 
 
+# --------------------------------------------------------------------------
+# Ask the alliance to speed a queue up ("Запрос помощи")
+# --------------------------------------------------------------------------
+# A press of its own, positional arguments — NOT a param table
+# (recording 20260729_182527, docs/research/hospital-heal.md §4):
+#
+#     SFSNetwork.SendMessage(MsgDefines.AllianceCallHelp, uuid, 1, qType, "1")
+#       -> PutLong(uuid, <queue uuid>)  PutInt(type, 1)
+#          PutInt(qType, <queue type>)  PutUtfString(itemId, "1")
+#
+# `itemId` MUST be a string: passing the number 1 dies in the serialiser with
+# "attempt to get length of a number value" before the message leaves the client. The
+# trace cannot tell the two apart — it prints both as `1`.
+#
+# `qType` is the queue's own `type` (3 = Hospital), so the same message asks for help on
+# any queue. `isHelped` on the queue is the state: 0 = no request standing, 1 = asked.
+# Gating on it keeps a repeat run from re-asking, and it is what flips after a successful
+# send (proven live: hospital queue isHelped 0 -> 1, allies answered within seconds).
+def alliance_call_help_all() -> str:
+    """Ask the alliance to speed up every working queue that has no request standing."""
+    return (
+        "local ok,err = pcall(function() "
+        "local q = DataCenter and DataCenter.QueueDataManager "
+        "if not q or type(q.queueDic) ~= 'table' or not NewQueueState then "
+        "error('QueueDataManager not loaded') end "
+        "local n = 0 "
+        "for _, v in pairs(q.queueDic) do "
+        "if type(v)=='table' and v.state == NewQueueState.Work and v.isHelped ~= 1 then "
+        "SFSNetwork.SendMessage(MsgDefines.AllianceCallHelp, v.uuid, 1, v.type, '1') "
+        "n = n + 1 end end "
+        'CS.UnityEngine.Debug.LogError("ACT alliance_call_help_all asked="..n) '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT alliance_call_help_all skip: "..tostring(err)) end'
+    )
+
+
+def queues_needing_help() -> str:
+    """Lua *expression* -> how many working queues have no help request standing."""
+    return ("(function() "
+            "local q = DataCenter and DataCenter.QueueDataManager "
+            "if not q or type(q.queueDic) ~= 'table' or not NewQueueState then return 0 end "
+            "local n = 0 "
+            "for _, v in pairs(q.queueDic) do "
+            "if type(v)=='table' and v.state == NewQueueState.Work and v.isHelped ~= 1 then "
+            "n = n + 1 end end "
+            "return n end)()")
+
+
 def free_build_queues() -> str:
     """Lua *expression* -> how many building queues (`NewQueueType.Default`) are idle.
 
