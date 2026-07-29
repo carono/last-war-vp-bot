@@ -298,6 +298,41 @@ BUTTONS: dict[str, Button] = {
              "end end"),
         wait=0.5, label="dismiss ghost-recon reward popup",
     ),
+    # --- world -> a map treasure («сокровище на карте») -----------------------
+    # Two one-thing buttons over the SAME parked queue (DataCenter.__lw_treasure_queue):
+    #   dig_treasure   — pop the head and send a squad to dig it (still being dug)
+    #                    MarchTargetType.DETECT_TREASURE / CROSS_DETECT_TREASURE
+    #   claim_treasure — pop the head and claim the reward (already dug)
+    #                    detect.event.claim.treasure {uuid, targetServer}
+    # The recipe (work_treasure.md) reads the head's state and presses the right one; the
+    # dig-vs-dug split is the point's operator-uid field (docs/research/world-treasures.md).
+    #
+    # Targets are parked by a finder — the chat "new treasure" detector (coming later) or a
+    # map scan — because `TAP` takes no arguments, the same hand-off as ghost recon.
+    # UNPROVEN: no treasure was live during the RE, so neither send has been fired
+    # end-to-end. `count_lua` is the queue length so each is `xall`-able and a clean no-op
+    # when the queue is empty (both pop, so xall drains it).
+    "dig_treasure": Button(
+        lua=_lua_actions.dig_head_treasure(),
+        wait=2.0, label="Send a squad to dig a treasure",
+        count_lua=_lua_actions.treasure_queue_len(),
+        max_taps=10,
+    ),
+    "claim_treasure": Button(
+        lua=_lua_actions.claim_head_treasure(),
+        wait=2.0, label="Claim a dug treasure",
+        count_lua=_lua_actions.treasure_queue_len(),
+        max_taps=10,
+    ),
+    "dismiss_treasure_reward": Button(
+        # A successful claim raises UIGiftPackageRewardGet (captured in the trace). Its own
+        # window, so the generic closers do not match it. No-op when nothing is up.
+        lua=("local mgr=UIManager.Instance local n=UIWindowNames.UIGiftPackageRewardGet "
+             "local ok,open=pcall(function() return mgr:IsWindowOpen(n) end) "
+             "if ok and open then local w=mgr:GetWindow(n) "
+             "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
+        wait=0.5, label="dismiss treasure-reward popup",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.

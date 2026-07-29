@@ -1142,3 +1142,137 @@ def steal_next_ghost_recon() -> str:
             'CS.UnityEngine.Debug.LogError("ACT ghost_steal_sent uuid="..tostring(t.uuid)'
             '.." srv="..tostring(t.server)) end'
             % (ghost_recon_is_open(), ghost_recon_steals_left()))
+
+
+# ---------------------------------------------------------------------------
+# World-map treasures ("сокровища на карте") — dig march + claim.
+# ---------------------------------------------------------------------------
+# Reverse-engineered from a live capture (task #1107, docs/research/world-treasures.md).
+# A treasure is a `world.get.block` / `push.world.point.update` tile with
+# `WorldPointType.TREASURE == 21`; the alliance marches onto it to dig, and the
+# finisher claims the reward. Two network moves, both taken verbatim from the trace
+# and from the already-working attack / ghost-recon primitives:
+#
+#   * DIG  = MarchUtil.SendCreateMarchMessage(formation, MarchTargetType.DETECT_TREASURE,
+#            pid, uuid, 1, 1, false, serverId, nil) — the SAME launch primitive as
+#            attack/scout/collect (see attack.py / world-monsters.md Finding 17), only the
+#            MarchTargetType changes: DETECT_TREASURE (50) same-server, CROSS_DETECT_TREASURE
+#            (182) for a treasure on another server. Scheduled on the main thread via
+#            TimerManager:DelayInvoke because a cold SendCreateMarchMessage from the hijack
+#            thread is created but dropped by the server (attack.py).
+#   * CLAIM = SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, uuid, targetServer)
+#            — the exact call the in-game "раскопать/забрать" finish fires (trace:
+#            SFSObject PutLong "uuid" + PutInt "targetServer"). A pure network send, so it
+#            needs no main-thread scheduling — identical shape to ghost-recon steal.
+#
+# NOT PROVEN LIVE YET: no treasure was on the map during the analysis
+# (ActDetectTreasureDataManager.treasures_num == 0), so neither call has been fired
+# end-to-end. The server gates both on the per-day dig/claim limit
+# (ActDetectTreasureDataManager:CheckTreasureReachDailyLimit).
+
+MARCH_DETECT_TREASURE = 50         # MarchTargetType.DETECT_TREASURE (same server)
+MARCH_CROSS_DETECT_TREASURE = 182  # MarchTargetType.CROSS_DETECT_TREASURE (other server)
+
+
+def dig_treasure_march(pid, uuid, server, formation, cross: bool = False) -> str:
+    """Send a squad to dig the treasure at tile `pid` (uuid/server from its point data).
+
+    `formation` is a squad formation UUID (as in attack.py / rally_join.py). `cross=True`
+    uses MarchTargetType.CROSS_DETECT_TREASURE for a treasure sitting on another server;
+    same-server digs use DETECT_TREASURE. All ids are passed as bare Lua numeric literals
+    (Lua 5.3 int64), so a 19-digit uuid survives intact.
+    """
+    target = "CROSS_DETECT_TREASURE" if cross else "DETECT_TREASURE"
+    return (
+        'TimerManager:GetInstance():DelayInvoke(function() '
+        'local ok,err=pcall(function() '
+        'MarchUtil.SendCreateMarchMessage(%s, MarchTargetType.%s, %s, %s, 1, 1, false, %s, nil) '
+        'end) '
+        'CS.UnityEngine.Debug.LogError("ACT dig_treasure_sent ok="..tostring(ok).." err="..tostring(err)) '
+        'end, 0.5) '
+        'CS.UnityEngine.Debug.LogError("ACT dig_treasure_armed pid=%s target=%s")'
+        % (formation, target, pid, uuid, server, pid, target)
+    )
+
+
+def claim_treasure(uuid, server) -> str:
+    """Claim (take) a dug treasure by its `uuid` on `server` — the finisher's send.
+
+    `SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, uuid, targetServer)`,
+    exactly what the in-game finish button fires; the message builder packs uuid->PutLong,
+    server->PutInt. Headless, no window, no scheduling (pure network send).
+    """
+    return (
+        'pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, %s, %s) end) '
+        'CS.UnityEngine.Debug.LogError("ACT claim_treasure_sent uuid=%s srv=%s")'
+        % (uuid, server, uuid, server)
+    )
+
+
+# --- Treasure work queue (find -> dig-if-digging / claim-if-dug) -------------
+# The recipe layer. Targets are parked OUTSIDE (a finder), exactly like ghost recon,
+# because a DSL `TAP` takes no arguments. The finder fills a list on the VM:
+#
+#     DataCenter.__lw_treasure_queue = {
+#       { pid=<tileIndex>, uuid=<long>, server=<int>,
+#         dug=<bool>,       -- is it already dug? (wire point field 7 / operator uid present)
+#         cross=<bool>,     -- treasure sits on another server? (server ~= home)
+#         formation=<uuid>, -- squad to send to dig it (optional)
+#       }, ...
+#     }
+#
+# `dug` is the "копается vs раскопано" split proven from the capture
+# (docs/research/world-treasures.md): while the treasure is still being dug the point
+# carries NO operator uid (wire f11.7 absent); once fully dug that field is filled with
+# the finisher's uid. The finder sets `dug` from that. `work_next_treasure` then does
+# the right thing per target — dig it if still digging, claim it if dug.
+#
+# A shared default squad for the dig, when a queue entry has no `formation`:
+#     DataCenter.__lw_treasure_formation = <formation uuid>
+
+
+def treasure_queue_len() -> str:
+    """Lua *expression* -> how many treasures are queued (0 when the finder found none)."""
+    return "(function() return #(DataCenter.__lw_treasure_queue or {}) end)()"
+
+
+def treasure_head_state() -> str:
+    """Lua *expression* -> head target state: 1 dug (claim), 0 digging (dig), -1 empty."""
+    return ("(function() local q=DataCenter.__lw_treasure_queue or {} local t=q[1] "
+            "if not t then return -1 end return t.dug and 1 or 0 end)()")
+
+
+def dig_head_treasure() -> str:
+    """Pop the head treasure and send a squad to DIG it (still-being-dug target).
+
+    The head is removed first (like `steal_next_ghost_recon`) so a refused march costs one
+    queue entry rather than wedging `xall` on the same target — the finder re-adds it next
+    scan while it is still digging. Scheduled on the main thread (a cold
+    `SendCreateMarchMessage` from the hijack thread is created but dropped). Squad =
+    `entry.formation`, else the shared `DataCenter.__lw_treasure_formation`; with neither it
+    is popped and logged, not retried.
+    """
+    return (
+        "local q=DataCenter.__lw_treasure_queue or {} local t=table.remove(q,1) "
+        "if t then local fm=t.formation or DataCenter.__lw_treasure_formation "
+        "if fm then TimerManager:GetInstance():DelayInvoke(function() "
+        "pcall(function() MarchUtil.SendCreateMarchMessage(fm, "
+        "t.cross and MarchTargetType.CROSS_DETECT_TREASURE or MarchTargetType.DETECT_TREASURE, "
+        "t.pid, t.uuid, 1, 1, false, t.server, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_dig pid="..tostring(t.pid).." srv="..tostring(t.server)) '
+        'end, 0.5) '
+        'else CS.UnityEngine.Debug.LogError("ACT treasure_dig_skip no formation (set DataCenter.__lw_treasure_formation)") end '
+        "end"
+    )
+
+
+def claim_head_treasure() -> str:
+    """Pop the head treasure and CLAIM it (already-dug target) — the finisher's send.
+
+    Direct network send (no scheduling needed), same shape as `steal_next_ghost_recon`.
+    """
+    return (
+        "local q=DataCenter.__lw_treasure_queue or {} local t=table.remove(q,1) "
+        "if t then pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, t.server) end) "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_claim uuid="..tostring(t.uuid).." srv="..tostring(t.server)) end'
+    )
