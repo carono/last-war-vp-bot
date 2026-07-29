@@ -69,6 +69,7 @@
   "secret.level_from": "Level from",
   "secret.level_to": "to",
   "secret.autoloot": "Auto-loot ★ best level",
+  "secret.autoloot.range": "level {lo}..{hi}",
 
   "capture.secret_tasks": "Secret tasks",
   "capture.ghost_op": "Operation Ghost",

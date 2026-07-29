@@ -20,6 +20,10 @@ docs/research/secret-task-steal.md.
     --from-scan … --star-max       the panel's auto-loot rule: starred tasks only,
                                    and only the highest level among them. No star
                                    in the scan means nothing is robbed at all
+    --from-scan … --level-min N    hard level gate («уровень от / до» in the panel):
+                --level-max M      levels outside it are not targets at all, so
+                                   --star-max looks for its top level inside the
+                                   range and the day's budget is not spent below it
 
 Usage (run under the Windows Python so it can reach the warm daemon)
 --------------------------------------------------------------------
@@ -111,6 +115,7 @@ def _label(task) -> str:
 
 
 def targets_from_scan(path: str, limit: int, star_max: bool = False,
+                      level_min: int | None = None, level_max: int | None = None,
                       say=print) -> list[tuple[int, int, str]]:
     """Raidable tasks from a capture checkpoint, as (uuid, server, label).
 
@@ -118,11 +123,17 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
     drops anything not re-seen in this scan window and recomputes `can_loot` against the
     current clock, so a file written an hour ago cannot smuggle a stale tile in here.
 
+    `level_min` / `level_max` bound which levels may be robbed at all — the panel's
+    «уровень от / до». They are applied FIRST, before `star_max` looks for its top
+    level, so the range is a hard gate and not a preference: with `level_min=7` a
+    level-6 star is not a target even when it is the only star on the map, and the
+    day's five robberies stay unspent for a 7. Either end may be None (open).
+
     `star_max` is the panel's auto-loot rule: **starred tasks only**, and among those
-    only the highest level actually found. No star in the scan means no target at all —
-    the caller does nothing rather than settling for an ordinary task, which is the
-    whole point of the button (a robbery spent on a level-5 plain tile is one that a
-    level-7 star cannot have later that day).
+    only the highest level actually found *within the range*. No star in the scan means
+    no target at all — the caller does nothing rather than settling for an ordinary
+    task, which is the whole point (a robbery spent on a level-5 plain tile is one that
+    a level-7 star cannot have later that day).
 
     `starred` is `cfgId` family 6000 minus the `99` class — the rule and the evidence
     behind it live in `STAR_TASK_FAMILIES` (docs/research/protocol.md §7). It is the one
@@ -134,6 +145,16 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
 
     tasks = proto.load_fresh_tasks(path)
     raidable = [t for t in tasks if t.can_loot]
+    if level_min is not None or level_max is not None:
+        inside = [t for t in raidable
+                  if (level_min is None or t.level >= level_min)
+                  and (level_max is None or t.level <= level_max)]
+        if len(inside) != len(raidable):
+            say("level filter %s..%s: %d of %d raidable tasks left"
+                % (level_min if level_min is not None else "",
+                   level_max if level_max is not None else "",
+                   len(inside), len(raidable)))
+        raidable = inside
     if star_max:
         starred = [t for t in raidable if t.starred]
         if not starred:
@@ -160,6 +181,11 @@ def main() -> int:
     ap.add_argument("--star-max", action="store_true",
                     help="with --from-scan: starred tasks only, and only the highest "
                          "level found. No star in the scan = nothing is robbed")
+    ap.add_argument("--level-min", type=int, metavar="N",
+                    help="with --from-scan: never rob below level N (the panel's "
+                         "«уровень от»). Applied before --star-max picks its top level")
+    ap.add_argument("--level-max", type=int, metavar="N",
+                    help="with --from-scan: never rob above level N («уровень до»)")
     ap.add_argument("--queue-only", action="store_true",
                     help="park the targets in the game VM and stop (no robbery)")
     ap.add_argument("--status", action="store_true",
@@ -185,7 +211,8 @@ def main() -> int:
             print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
                   "секреток») while the map moves" % args.from_scan)
             return 1
-        targets = targets_from_scan(args.from_scan, args.limit, star_max=args.star_max)
+        targets = targets_from_scan(args.from_scan, args.limit, star_max=args.star_max,
+                                    level_min=args.level_min, level_max=args.level_max)
         if not targets:
             # With --star-max this is the ordinary "no star on screen" answer, not a
             # failure: the button is supposed to do nothing rather than rob a plain

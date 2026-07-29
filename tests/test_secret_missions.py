@@ -274,6 +274,44 @@ def test_autoloot_takes_only_starred_tasks_of_the_best_level(tmp_path=None):
     assert [uuid for uuid, _srv, _label in picked] == [3], picked
 
 
+def test_autoloot_level_range_is_a_hard_gate(tmp_path=None):
+    """«Уровень от / до» bounds what may be robbed, not just what is printed.
+
+    Live case (2026-07-29 14:15): the range said 6..7 and the day's budget was
+    being saved for 7s, but a level-6 star was the only raidable one and got
+    robbed anyway — the range never reached the rule. With `level_min=7` the 6 is
+    not a target at all, and with no star in range nothing is robbed.
+    """
+    import tempfile
+    from pathlib import Path as _Path
+    tmp_path = _Path(tmp_path or tempfile.mkdtemp())
+    import steal_secret_task as steal
+
+    tasks = [
+        _task(1, 60000501, "6000", 5),    # starred, below the range
+        _task(2, 60000601, "6000", 6),    # starred, inside 6..7
+        _task(3, 60000801, "6000", 8),    # starred, above the range
+    ]
+    checkpoint = _checkpoint(tmp_path, tasks)
+    inside = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                     level_min=6, level_max=7, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in inside] == [2], inside
+
+    said = []
+    only7 = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                    level_min=7, level_max=7, say=said.append)
+    assert only7 == [], only7                     # the level-6 star is NOT a fallback
+    assert any("no starred task" in m for m in said), said
+
+    # An open end stays open, and no range at all keeps the old behaviour.
+    top = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                  level_min=6, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in top] == [3], top
+    unbounded = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                        say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in unbounded] == [3], unbounded
+
+
 def test_autoloot_does_nothing_without_a_star(tmp_path=None):
     """No star in the scan -> no target at all (the button is a no-op, not a fallback)."""
     import tempfile

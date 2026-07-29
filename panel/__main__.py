@@ -705,10 +705,14 @@ class Panel(tk.Tk):
         # level the moment one shows up — the scan only finds a raidable star for
         # as long as its loot window is open, so waiting for a human to notice
         # the log line and click was losing targets.
-        # Deliberately unrelated to the filter checkboxes above — those only
-        # decide what is printed, while this decides what is robbed, and a
-        # display filter silently changing who gets raided would be a nasty
-        # surprise. Stars only: with no star in the scan it robs nothing at all.
+        # The «уровень от / до» entries to the left DO bound it: they sit in this
+        # same row and read as one control, and auto-loot ignoring them cost a
+        # robbery on a level-6 star while the range said 6..7 and the day's
+        # budget was being saved for 7s. Set «от 7» and a 6 is not a target at
+        # all. The star/PENDING/LOOTABLE checkboxes stay display-only — those
+        # decide what is printed, and a display filter silently changing who
+        # gets raided would be a nasty surprise.
+        # Stars only: with no star in range it robs nothing at all.
         self._autoloot_var = tk.BooleanVar(value=False)
         self._autoloot_chk = self._tr(ttk.Checkbutton(row2, variable=self._autoloot_var,
                                                       command=self._toggle_autoloot),
@@ -1149,7 +1153,11 @@ class Panel(tk.Tk):
         self._autoloot_seen.clear()
         self._autoloot_pause_until = 0.0
         self._autoloot_warned = False
-        self._log_put("[autoloot] включён — жду звёздную цель максимального уровня")
+        lo, hi = self._autoloot_levels()
+        span = self._t("secret.autoloot.range", lo=lo if lo is not None else "—",
+                       hi=hi if hi is not None else "—")
+        self._log_put(f"[autoloot] включён — жду звёздную цель максимального "
+                      f"уровня ({span})")
         if self._mon_proc is None:
             self._log_put("[autoloot] мониторинг секреток выключен: без него скан "
                           "не обновляется и целей не будет")
@@ -1222,13 +1230,38 @@ class Panel(tk.Tk):
         is safe to call from the watcher thread on every poll.
         """
         import steal_secret_task     # lazy: keeps panel start-up free of it
+        lo, hi = self._autoloot_levels()
         return steal_secret_task.targets_from_scan(checkpoint, limit=AUTOLOOT_LIMIT,
-                                                   star_max=True, say=lambda _m: None)
+                                                   star_max=True, level_min=lo,
+                                                   level_max=hi, say=lambda _m: None)
+
+    def _autoloot_levels(self) -> tuple:
+        """The «уровень от / до» range as (min, max) ints, either end None if unset.
+
+        Read live on every poll, like the display filters in `_task_passes`, so
+        narrowing the range takes effect on the next tick instead of at the next
+        tick of the checkbox. Anything that is not a number reads as "no bound" —
+        a half-typed entry must not silently widen the gate to everything.
+        """
+        def bound(var) -> "int | None":
+            raw = var.get().strip()
+            return int(raw) if raw.isdigit() else None
+        return bound(self._lvl_from_var), bound(self._lvl_to_var)
 
     def _autoloot_run(self, checkpoint: str) -> None:
         cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, "steal_secret_task.py"),
                "--from-scan", checkpoint, "--star-max", "--limit", str(AUTOLOOT_LIMIT)]
-        self._log_put("[autoloot] краду звёздные цели максимального уровня …")
+        # The child re-reads the checkpoint and re-applies the rule, so the range
+        # has to travel with it: without these the watcher would agree to a
+        # target inside the range and the child would then rob outside it.
+        lo, hi = self._autoloot_levels()
+        if lo is not None:
+            cmd += ["--level-min", str(lo)]
+        if hi is not None:
+            cmd += ["--level-max", str(hi)]
+        span = self._t("secret.autoloot.range", lo=lo if lo is not None else "—",
+                       hi=hi if hi is not None else "—")
+        self._log_put(f"[autoloot] краду звёздные цели максимального уровня ({span}) …")
         proc = self._spawn_sniffer(cmd, "autoloot")
         if proc is None:
             return

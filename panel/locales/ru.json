@@ -69,6 +69,7 @@
   "secret.level_from": "Уровень от",
   "secret.level_to": "до",
   "secret.autoloot": "Автолут ★ макс. уровня",
+  "secret.autoloot.range": "уровень {lo}..{hi}",
 
   "capture.secret_tasks": "Секретные задания",
   "capture.ghost_op": "Операция Призрак",

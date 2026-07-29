@@ -164,11 +164,24 @@ harmless when «Мониторинг» is off: nothing refreshes the checkpoint,
 stays fresh enough to be a target (the panel says as much when the box is ticked
 with the monitor stopped).
 
+**The «уровень от / до» entries bound it.** They sit in the same row as the
+checkbox and read as one control, so they are a hard gate on what may be robbed,
+not a display preference: the range is applied *before* `--star-max` looks for
+its top level, and both the watcher's poll and the child process get it
+(`--level-min` / `--level-max`) — the child re-reads the checkpoint, so a range
+that reached only the panel would let it rob outside the range anyway. Set «от 7»
+and a level-6 star is not a target at all, however alone it is on the map.
+
+This was learned the hard way: on 2026-07-29 14:15 the range said 6..7, the day's
+last two robberies were being saved for 7s, and auto-loot spent one on the only
+raidable star — a level 6 — because the range never reached the rule. Note that
+6 *is* inside 6..7; what the range now guarantees is that «от 7» means it.
+
 Two things it does NOT do, both on purpose:
 
-* it ignores the panel's display filters (stars / pending / level range) — those
+* it ignores the **display** checkboxes (stars / pending / lootable) — those
   decide what is *printed*, and a display filter quietly changing who gets raided
-  would be a nasty surprise;
+  would be a nasty surprise. The level range is the deliberate exception above;
 * it does not queue a star whose dispatch is still running. A starred tile that
   is not raidable *right now* is simply not a target on this poll — the watcher
   will pick it up on a later one, once the scan shows it free. Observed live
