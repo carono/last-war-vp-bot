@@ -12,7 +12,9 @@ what is tested here:
   * the alliance errand is ONE timer of two recipes, in order (donate, then gifts);
   * a run is written down; a FAILED run is not, and is held back from re-firing
     every tick;
-  * "the panel is busy" abandons the tick instead of queueing presses;
+  * every script runs single-file on ONE worker thread — two errands due at the
+    same second do not overlap, and "run now" queues instead of starting a thread;
+  * "the panel is busy" leaves the errand IN the queue (delayed, never lost);
   * the gate (game not running) holds everything and complains once, not per tick;
   * a garbled config (empty period, a string from the spinbox, a missing block)
     falls back to the timer's default instead of dropping the row.
@@ -27,6 +29,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -55,14 +58,16 @@ def _store(tmp: Path) -> timersmod.LastRunStore:
 class _Scheduler:
     """A TimerScheduler with the runner and the log captured."""
 
-    def __init__(self, tmp: Path, config: dict, outcome=True, gate=None):
+    def __init__(self, tmp: Path, config: dict, outcome=True, gate=None,
+                 busy_retry: float = 0.0):
         self.ran: list = []
         self.logs: list = []
         self.outcome = outcome          # True / False / an Exception to raise
         self.store = _store(tmp)
         self.sched = timersmod.TimerScheduler(
             store=self.store, config=lambda: config, runner=self._run,
-            log=lambda key, **fmt: self.logs.append(key), gate=gate)
+            log=lambda key, **fmt: self.logs.append(key), gate=gate,
+            busy_retry=busy_retry)
 
     def _run(self, spec):
         self.ran.append(spec.key)
@@ -147,14 +152,83 @@ def test_a_failed_run_is_not_a_run_and_is_held_back():
     assert s.store.records()[BASE]["failed_at"] == 0.0, s.store.records()
 
 
-def test_busy_panel_abandons_the_tick():
-    """"Try later" stops the whole pass — presses are not queued behind each other."""
+def test_a_busy_panel_delays_the_errand_but_never_loses_it():
+    """"Try later" stops the pass and leaves the work in the queue, not on the floor."""
     tmp = Path(tempfile.mkdtemp())
     s = _Scheduler(tmp, _cfg(**{BASE: 60, ALLY: 60}), outcome=False)
     assert s.sched.tick_once() == []
-    assert len(s.ran) == 1, "kept trying while the panel was busy: %r" % (s.ran,)
+    assert len(s.ran) == 1, "kept asking while the panel was busy: %r" % (s.ran,)
     assert s.store.last_run(s.ran[0]) == 0.0
     assert "timers.log.skip_busy" in s.logs, s.logs
+
+    # Both are still queued — the one turned down and the one never reached.
+    assert s.sched.pending() == {BASE, ALLY}, s.sched.pending()
+
+    # The panel frees up: the queue is worked off in order, nothing re-decided.
+    # The turned-down errand rejoins at the BACK — it was never started, and
+    # whatever was behind it was due just as much.
+    s.outcome = True
+    assert s.sched.drain() == [ALLY, BASE], s.ran
+    assert s.sched.pending() == set(), s.sched.pending()
+
+
+def test_run_now_is_queued_not_a_thread_of_its_own():
+    """The button hands work to the worker: it does not run in the caller."""
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, timersmod.default_config())        # every row switched OFF
+    spec = timersmod.BY_KEY[BASE]
+
+    assert s.sched.request(spec) is True
+    assert s.sched.pending() == {BASE}, s.sched.pending()
+    assert s.ran == [], "ran inside the UI thread instead of queueing"
+
+    # A second press while it is still waiting does not line the errand up twice.
+    assert s.sched.request(spec) is False
+    assert s.sched.pending() == {BASE}, s.sched.pending()
+
+    # It runs on the worker — and it runs even though the row is switched off,
+    # because a press by hand is a press.
+    assert s.sched.drain() == [BASE], s.ran
+    assert s.ran == [BASE], s.ran
+    assert s.store.last_run(BASE) > 0, "a manual run must restart the period too"
+
+
+def test_nothing_runs_in_parallel_on_the_real_worker():
+    """The live thread: two errands due at once, executed one after the other.
+
+    The only test here that starts the scheduler for real. The runner records
+    what is in flight while it sleeps, so an overlap would be caught rather than
+    inferred — and every run is asserted to have happened on the one worker.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    inflight: list = []
+    overlaps: list = []
+    finished: list = []
+
+    def runner(spec):
+        inflight.append(spec.key)
+        if len(inflight) > 1:                       # two scripts at once
+            overlaps.append(tuple(inflight))
+        time.sleep(0.05)
+        finished.append((spec.key, threading.current_thread().name))
+        inflight.pop()
+        return True
+
+    sched = timersmod.TimerScheduler(
+        store=_store(tmp), config=lambda: _cfg(**{BASE: 60, ALLY: 60}),
+        runner=runner, log=lambda key, **fmt: None, tick=0.05)
+    sched.start()
+    try:
+        deadline = time.time() + 5
+        while len(finished) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+    finally:
+        sched.stop()
+
+    assert len(finished) == 2, finished
+    assert overlaps == [], "two timer scripts ran at the same time: %r" % (overlaps,)
+    assert {name for _key, name in finished} == {"panel-timers"}, finished
+    assert {key for key, _name in finished} == {BASE, ALLY}, finished
 
 
 def test_gate_holds_everything_and_says_so_once():

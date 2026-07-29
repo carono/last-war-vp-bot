@@ -14,10 +14,12 @@ Blocks:
     or secret_mission_capture.py) in the background and streams findings into the log, plus
     «Автолут ★» — a standing order that watches the capture's checkpoint and robs a starred
     task of the best level the moment one becomes raidable (tools/steal_secret_task.py).
-  * Таймеры — a schedule: each listed ability (collect the base, donate to alliance tech,
-    claim the alliance gifts) has a switch and a period, and runs itself once that long has
-    passed since it last ran. The clock is kept in the profile, so it survives a restart
-    (panel/timers.py).
+  * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech and
+    then claim the gifts) has a switch and a period, and runs itself once that long has
+    passed since it last ran. Everything scheduled runs single-file on one worker thread
+    fed by a queue — two errands due at the same moment take their turn instead of driving
+    the game at once, and «Запустить» enqueues rather than starting a thread of its own.
+    The clock is kept in the profile, so it survives a restart (panel/timers.py).
 
 All panel settings (language, checkboxes, filters, coordinates, monitor state) live in a named
 *profile*; the switcher bar above the tabs creates / renames / deletes / selects one. Each profile
@@ -2200,14 +2202,20 @@ class Panel(tk.Tk):
             self.after(400, self._refresh_status)
 
     def _timer_run_now(self, spec) -> None:
-        """The row's «Запустить» — same run as the clock's, off the Tk thread.
+        """The row's «Запустить» — put the errand on the schedule's own queue.
 
-        It goes through the scheduler so a manual run also restarts the period:
-        pressing the button by hand is collecting the base, and the timer must
+        Not a thread of its own: every timer script runs single-file on the one
+        worker, so a press while another errand is running waits its turn behind
+        it instead of driving the game at the same time. The call returns at once,
+        so the button never blocks the UI.
+
+        It also goes through the scheduler so a manual run restarts the period:
+        pressing the button by hand *is* collecting the base, and the timer must
         not then collect it again a minute later.
         """
-        threading.Thread(target=lambda: self._timers.run_one(spec),
-                         daemon=True).start()
+        if not self._timers.request(spec):
+            self._log_put("[timer] " + self._t("timers.log.already_queued",
+                                               name="+".join(spec.actions)))
 
     def _refresh_timer_rows(self) -> None:
         """Repaint the "last / next run" columns; re-armed once a second."""

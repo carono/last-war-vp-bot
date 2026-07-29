@@ -17,9 +17,13 @@ What the module decides, and what it deliberately does not:
     finished, so a run lost to a closed game is retried rather than silently
     skipped for another hour. To keep a permanently broken action from re-firing
     every tick, a failure parks that one timer for :data:`RETRY_HOLD_SEC`.
-  * **One thing at a time.** The runner reports back "could not, try later" while
-    the panel is busy with another game action; the scheduler then leaves the
-    whole tick alone instead of queueing presses behind each other.
+  * **One thing at a time, in one thread.** Every scheduled script runs on the
+    single worker thread, fed by a queue — nothing ever runs in parallel with
+    anything else. Two errands that come due in the same second go on the queue
+    in order and the second waits for the first to finish; the "run now" button
+    enqueues too, rather than starting a thread of its own. When the panel is
+    busy with a button-driven action of its own, the errand stays queued and is
+    taken up again a few seconds later, so it is delayed, never lost.
 
 Nothing here imports Tk or the game: the panel passes in the settings dict, a
 runner and a log sink, which keeps the decision — *what is due right now* — a
@@ -32,6 +36,7 @@ two locale strings its label needs.
 from __future__ import annotations
 
 import json
+import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -47,6 +52,11 @@ TICK_SEC = 20.0
 # Without it an action that fails for a standing reason (game closed mid-run, a
 # broken recipe) would re-fire every tick and fill the log with the same error.
 RETRY_HOLD_SEC = 300.0
+
+# How long the worker sits still after the panel turns an errand down as busy.
+# The errand stays at the head of the queue either way; this is only about not
+# asking again in a tight loop while a person's own button press runs its course.
+BUSY_RETRY_SEC = 5.0
 
 # Bounds offered in the UI and enforced here, so a hand-edited config cannot ask
 # for a timer that fires every second or one that never fires at all.
@@ -243,15 +253,28 @@ class LastRunStore:
 
 
 class TimerScheduler:
-    """The background clock: ticks, asks what is due, runs it, writes it down.
+    """One background thread and a queue: everything scheduled runs single-file.
+
+    **No timer script ever runs in parallel with another.** The thread is both the
+    clock and the only worker: on each tick it puts the errands that have come due
+    on the queue, then takes them off one at a time and runs each to completion.
+    Two timers that come due in the same second do not race — the second one waits
+    in the queue until the first has finished. The row's "run now" button does not
+    start a thread of its own either; it *enqueues*, so a press during a running
+    errand takes its turn behind it instead of being dropped or overlapping it.
+
+    Being both clock and worker is why the wait is on the queue rather than a
+    sleep: an errand enqueued by hand is picked up at once, while an idle stretch
+    still wakes on the tick.
 
     Collaborators are all callables, so nothing about Tk or the game leaks in:
 
       * ``config()``   -> the normalised settings dict (read fresh every tick, so
                           a checkbox or period change applies without a restart);
-      * ``runner(spec)`` -> ``True`` when the action really ran, ``False`` when it
-                          could not be started right now (panel busy) and the tick
-                          should be abandoned, and it raises for a real failure;
+      * ``runner(spec)`` -> ``True`` when the errand really ran, ``False`` when it
+                          could not be started right now (the panel is busy with a
+                          button-driven action) — then it stays queued and is
+                          retried — and it raises for a real failure;
       * ``log(key, **fmt)`` -> a locale key plus its placeholders;
       * ``gate()``     -> a locale key explaining why nothing may run yet
                           (game not running), or ``None`` to proceed.
@@ -262,16 +285,29 @@ class TimerScheduler:
     """
 
     def __init__(self, *, store: LastRunStore, config, runner, log,
-                 gate=None, tick: float = TICK_SEC) -> None:
+                 gate=None, tick: float = TICK_SEC,
+                 busy_retry: float = BUSY_RETRY_SEC) -> None:
         self._store = store
         self._config = config
         self._runner = runner
         self._log = log
         self._gate = gate
         self._tick = tick
+        self._busy_retry = busy_retry
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gate_said: str | None = None
+        # The work queue. Items are (key, scheduled) — `scheduled` only picks the
+        # log line. `_queued` keeps a key from being lined up twice: a second
+        # press while the first is still waiting would run the errand twice in a
+        # row for no reason.
+        self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
+        self._queued: set[str] = set()
+        self._queue_lock = threading.Lock()
+        # Wall clock the worker may take from the queue again, set when the panel
+        # turns an errand down as busy. Without it the item goes straight back on
+        # the queue and the thread spins on a button press that takes a minute.
+        self._hold_until = 0.0
 
     # -- lifecycle ----------------------------------------------------------
     def start(self) -> None:
@@ -289,19 +325,71 @@ class TimerScheduler:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    # -- the queue ----------------------------------------------------------
+    def request(self, spec: TimerSpec) -> bool:
+        """Ask for an errand by hand ("run now"). Returns ``False`` if already queued.
+
+        Called from the UI thread and returns immediately — the errand runs on the
+        worker like a scheduled one, so it cannot overlap whatever is running.
+        """
+        return self._enqueue(spec.key, scheduled=False)
+
+    def _enqueue(self, key: str, scheduled: bool) -> bool:
+        with self._queue_lock:
+            if key in self._queued:
+                return False
+            self._queued.add(key)
+        self._queue.put((key, scheduled))
+        return True
+
+    def _requeue(self, key: str, scheduled: bool) -> None:
+        """Put a turned-down errand back on the queue, still claimed.
+
+        At the back, not the front: it was never started, so nothing is half done,
+        and whatever is queued behind it came due just as much. Keeping its claim
+        is what stops the next tick from lining the same errand up twice.
+        """
+        self._queue.put((key, scheduled))
+
+    def _release(self, key: str) -> None:
+        with self._queue_lock:
+            self._queued.discard(key)
+
+    def pending(self) -> set[str]:
+        """Keys currently queued or being run — for tests and the row painter."""
+        with self._queue_lock:
+            return set(self._queued)
+
     # -- the clock ----------------------------------------------------------
     def _loop(self) -> None:
+        next_tick = 0.0                      # tick immediately on the first pass
         while not self._stop.is_set():
             try:
-                self.tick_once()
+                now = time.monotonic()
+                if now >= next_tick:
+                    self.enqueue_due()
+                    next_tick = now + self._tick
+                # Wait on the QUEUE, not on a sleep: a "run now" press has to be
+                # picked up at once, and an idle stretch still wakes on the tick.
+                wait = max(0.05, next_tick - time.monotonic())
+                if self._hold_until > time.time():
+                    # The panel is busy with a button-driven action; sit the hold
+                    # out rather than taking work we cannot start.
+                    self._stop.wait(min(wait, self._hold_until - time.time()))
+                    continue
+                try:
+                    key, scheduled = self._queue.get(timeout=wait)
+                except queue.Empty:
+                    continue
+                self._run_queued(key, scheduled)
             except Exception as exc:                      # noqa: BLE001
                 # A scheduler that dies takes every timer with it, silently —
                 # so nothing above is allowed to escape this loop.
                 self._log("timers.log.tick_error", error=exc)
-            self._stop.wait(self._tick)
+                self._stop.wait(self._tick)
 
-    def tick_once(self, now: float | None = None) -> list[str]:
-        """One pass: run whatever is due. Returns the keys that actually ran."""
+    def enqueue_due(self, now: float | None = None) -> list[str]:
+        """Queue every errand that has come due. Returns the keys it queued."""
         now = time.time() if now is None else now
         config = normalize_config(self._config())
         pending = due_keys(config, self._store.records(), now)
@@ -315,25 +403,75 @@ class TimerScheduler:
                     self._gate_said = reason
                 return []
         self._gate_said = None
+        return [key for key in pending if self._enqueue(key, scheduled=True)]
 
+    def _run_queued(self, key: str, scheduled: bool) -> str:
+        """Take one errand off the queue and run it.
+
+        Returns ``"ran"`` / ``"skipped"`` / ``"busy"``. ``"busy"`` is the caller's
+        signal to stop working the queue for now: the errand has been put back and
+        re-running the pass would take the very same item straight off again.
+        """
+        spec = BY_KEY.get(key)
+        if spec is None:                     # a key from an older config — drop it
+            self._release(key)
+            return "skipped"
+        if self._gate is not None:
+            reason = self._gate()
+            if reason:
+                # The game went away between queueing and running: drop it rather
+                # than fail it — the next tick queues it again, unchanged.
+                if reason != self._gate_said:
+                    self._log(reason)
+                    self._gate_said = reason
+                self._release(key)
+                return "skipped"
+        ok, busy = self.run_one(spec, scheduled=scheduled)
+        if busy:
+            self._hold_until = time.time() + self._busy_retry
+            self._requeue(key, scheduled)    # stays claimed: it is still waiting
+            return "busy"
+        self._release(key)
+        return "ran" if ok else "skipped"
+
+    def tick_once(self, now: float | None = None) -> list[str]:
+        """Queue what is due and work the queue off, in order. Keys that ran.
+
+        Exactly what the loop does over one tick, minus the waiting — which is
+        what makes the schedule's behaviour testable without threads at all.
+        """
+        self.enqueue_due(now)
+        return self.drain()
+
+    def drain(self) -> list[str]:
+        """Run the queue down, one errand at a time, until it is empty or held."""
         ran = []
-        for key in pending:
-            if self._stop.is_set():
+        while not self._stop.is_set():
+            if self._hold_until > time.time():
+                break                        # the panel is busy — the rest waits
+            try:
+                key, scheduled = self._queue.get_nowait()
+            except queue.Empty:
                 break
-            spec = BY_KEY[key]
-            if self.run_one(spec, scheduled=True):
+            status = self._run_queued(key, scheduled)
+            if status == "busy":
+                # It went back on the queue: stop the pass, or the next lap would
+                # pull the same item off again and ask the busy panel in a spin.
+                break
+            if status == "ran":
                 ran.append(key)
-            else:
-                # The panel is busy with another game action — leave the rest of
-                # the tick for later rather than piling presses up behind it.
-                break
         return ran
 
-    def run_one(self, spec: TimerSpec, scheduled: bool = False) -> bool:
-        """Run one timer's errand and record the outcome. ``False`` = try later.
+    def run_one(self, spec: TimerSpec, scheduled: bool = False) -> tuple[bool, bool]:
+        """Run one errand and record the outcome. Returns ``(ran, busy)``.
 
-        Shared by the tick and the row's "run now" button, so a manual press
-        restarts the period exactly like an automatic run does.
+        ``busy`` is the one outcome that is not a verdict on the errand: the panel
+        had a button-driven action of its own in flight, so the errand has not been
+        tried at all and the caller keeps it queued. A raise is a real failure
+        (recorded, held back); anything else is a run (recorded, clock reset).
+
+        Both the tick and the "run now" button come through here, which is what
+        makes a manual press restart the period exactly like an automatic run.
         """
         name = "+".join(spec.actions)
         if scheduled:
@@ -346,13 +484,13 @@ class TimerScheduler:
         except Exception as exc:                          # noqa: BLE001
             self._store.mark_failed(spec.key)
             self._log("timers.log.failed", name=name, error=exc)
-            return False
+            return False, False
         if not started:
             self._log("timers.log.skip_busy", name=name)
-            return False
+            return False, True
         self._store.mark_run(spec.key)
         self._log("timers.log.done", name=name)
-        return True
+        return True, False
 
     def _minutes_since(self, key: str) -> int:
         last = self._store.last_run(key)
