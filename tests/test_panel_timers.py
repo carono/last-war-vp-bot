@@ -475,7 +475,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
     try:
-        from panel.__main__ import Panel, _expand_args
+        from panel.__main__ import Panel
         from panel import i18n as i18nmod
         root = tk.Tk()
     except Exception as exc:                           # noqa: BLE001
@@ -557,11 +557,8 @@ def test_timers_tab_builds_from_the_config_and_binds():
                     for n in (14, 15)}
         assert row["next"].cget("text") in expected, row["next"].cget("text")
 
-        # args reach an inline step as {placeholders}, and braces of the step's
-        # own (Lua tables) survive untouched.
-        assert _expand_args("TAP donate x{n}", {"n": 7}) == "TAP donate x7"
-        assert _expand_args("LUA f({a=1})", {}) == "LUA f({a=1})"
-        assert _expand_args("LUA g({b=2}) {miss}", {"n": 1}) == "LUA g({b=2}) {miss}"
+        # A timer's args reach its steps as {placeholders} — the engine does the
+        # substituting now (see test_args in tests/test_game_primitives.py).
     finally:
         root.destroy()
 

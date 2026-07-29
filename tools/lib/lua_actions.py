@@ -1851,3 +1851,117 @@ def free_build_queues() -> str:
             "if type(v)=='table' and v.type == NewQueueType.Default and v.state == NewQueueState.Free then "
             "n = n + 1 end end "
             "return n end)()")
+
+
+# --------------------------------------------------------------------------
+# Alliance rally: join the live ones, one squad each
+# --------------------------------------------------------------------------
+# «Присоединиться к ралли». The engine side is `tools/rally_join.py` and
+# `docs/research/rally-join.md`; this is the same thing as a pressable button so a
+# recipe (and therefore a timer) can do it.
+#
+#   * a rally is a world march with `teamUuid ~= 0`; its LEADER is the march whose
+#     `uuid == teamUuid - 1`, and that leader carries the join parameters
+#     (`teamUuid`, `targetPos`, `serverId`);
+#   * joining is `MarchUtil.SendCreateMarchMessage(formationUuid, 6, targetPos,
+#     teamUuid, 1, 1, false, server, nil)`, scheduled on the main thread;
+#   * WHICH squad goes is the first argument: the formation whose `index` is the
+#     slot the player sees (1/2/3), read live off
+#     `DataCenter.ArmyFormationDataManager.ArmyFormationList`;
+#   * the send silently no-ops while every formation is COLD (`totalSoldierNum`
+#     0). `MarchUtil.OnClickStartMarch` warms them but opens the dispatch panel,
+#     so it is followed by `GoToUtil.CloseAllWindows()` — the game's own close,
+#     not `DestroyAllWindow` (that one kills the HUD). Already warm -> no UI at all.
+#
+# One press = one squad -> one rally, so a recipe says `TAP join_rally xall` and
+# the squads parked in `DataCenter.__lw_rally_squads` are spent one per rally.
+# Two things are excluded from the candidates, which is what makes "squads 2 and 3
+# join TWO DIFFERENT rallies" true rather than hopeful:
+#   * rallies the player already has a march in (`GetOwnerMarches`), and
+#   * rallies joined by an earlier press in this same run
+#     (`DataCenter.__lw_rally_joined`) — the server's own reply takes seconds to
+#     arrive, so waiting for it would let the next press pick the same rally again.
+
+# Shared prelude: `squads` (the parked queue, default 1/2/3), and `rallies` — the
+# joinable ones, ordered by team uuid so the pick is stable between two calls.
+_RALLY_PRELUDE = (
+    "local wm=DataCenter.WorldMarchDataManager "
+    "local function g(mo,k) local ok,v=pcall(function() return mo[k] end) "
+    "if ok then return v end return nil end "
+    # A dictionary enumerator yields KeyValuePairs, a list one yields the item —
+    # take .Value when there is one.
+    "local function cur(e) local mo=e.Current local ok,v=pcall(function() return mo.Value end) "
+    "if ok and v~=nil then return v end return mo end "
+    "local taken=DataCenter.__lw_rally_joined or {} "
+    "local om=wm:GetOwnerMarches() "
+    "if om then local e=om:GetEnumerator() while e:MoveNext() do local mo=cur(e) "
+    "local t=g(mo,'teamUuid') if t~=nil and tostring(t)~='0' then taken[tostring(t)]=true end "
+    "end end "
+    "local rallies={} local col=wm:GetAllMarches() "
+    "if col then local e=col:GetEnumerator() while e:MoveNext() do local mo=cur(e) "
+    "local team=g(mo,'teamUuid') local ts=tostring(team) "
+    "if team~=nil and ts~='0' and ts~='nil' and not taken[ts] then "
+    "local lead=false pcall(function() lead=(tostring(g(mo,'uuid'))==tostring(team-1)) end) "
+    "if lead then rallies[#rallies+1]={team=team,point=g(mo,'targetPos'),"
+    "server=(g(mo,'serverId') or g(mo,'targetServer'))} end "
+    "end end end "
+    "table.sort(rallies,function(a,b) return tostring(a.team)<tostring(b.team) end) "
+    "local squads=DataCenter.__lw_rally_squads or {1,2,3} "
+)
+
+
+def rally_squads_set(squads) -> str:
+    """Park the squad slots a run may spend, and forget the previous run's joins."""
+    slots = ",".join(str(int(s)) for s in squads)
+    return ("DataCenter.__lw_rally_squads={%s} DataCenter.__lw_rally_joined={} "
+            'CS.UnityEngine.Debug.LogError("ACT rally_squads_set {%s}")' % (slots, slots))
+
+
+def rally_joins_pending() -> str:
+    """Lua *expression* -> presses `join_rally` can still make.
+
+    `min(squads still parked, rallies not already joined)` — so `xall` stops both
+    when the squads run out and when there is no fresh rally left, and is a clean
+    no-op when the map is quiet.
+    """
+    return ("(function() %s "
+            "if #squads<#rallies then return #squads end return #rallies end)()"
+            % _RALLY_PRELUDE)
+
+
+def join_next_rally() -> str:
+    """Send the next parked squad to the next rally it is not already in.
+
+    One press per chunk: the squad is dropped from the queue and the rally marked
+    as taken BEFORE the send, so a refused join costs one squad rather than wedging
+    `xall` on the same rally forever.
+    """
+    return (
+        _RALLY_PRELUDE +
+        "local slot=squads[1] local r=rallies[1] "
+        "if slot==nil or r==nil then "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_skip squads="..#squads.." rallies="..#rallies) '
+        "return end "
+        "local formation=nil local warm=false "
+        "local afd=DataCenter.ArmyFormationDataManager "
+        "for _,v in pairs(afd.ArmyFormationList) do "
+        "local ok,idx=pcall(function() return v.index end) "
+        "if ok and tostring(idx)==tostring(slot) then pcall(function() formation=v.uuid end) end "
+        "local ok2,n=pcall(function() return v.totalSoldierNum end) "
+        "if ok2 and (n or 0)>0 then warm=true end end "
+        "table.remove(squads,1) DataCenter.__lw_rally_squads=squads "
+        "if formation==nil then "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_skip no formation for squad "..tostring(slot)) '
+        "return end "
+        "local taken2=DataCenter.__lw_rally_joined or {} taken2[tostring(r.team)]=true "
+        "DataCenter.__lw_rally_joined=taken2 "
+        "if not warm then "
+        "pcall(function() MarchUtil.OnClickStartMarch(6,r.point,r.team,-1,1,7,r.server,0,0) end) "
+        "pcall(function() GoToUtil.CloseAllWindows() end) end "
+        "TimerManager:GetInstance():DelayInvoke(function() pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(formation,6,r.point,r.team,1,1,false,r.server,nil) "
+        "end) end,0.5) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join squad="..tostring(slot)'
+        '.." team="..tostring(r.team).." point="..tostring(r.point)'
+        '.." server="..tostring(r.server).." warmed="..tostring(not warm))'
+    )

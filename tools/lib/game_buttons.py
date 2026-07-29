@@ -427,6 +427,32 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.hospital_healed_ready(),
         max_taps=1,
     ),
+    # --- alliance rally: join the live ones, one squad each -------------------
+    # «Присоединиться к ралли». One press sends the next parked squad to the next
+    # rally the player is not already in, so `TAP join_rally xall` spends the
+    # squads one per rally — squads 2 and 3 land on two DIFFERENT rallies.
+    #
+    # Which squads may be spent is parked first (`DataCenter.__lw_rally_squads`,
+    # see lua_actions.rally_squads_set) because `TAP` takes no arguments; with
+    # nothing parked the press falls back to squads 1/2/3. The recipe that reads
+    # the `squads` argument and parks it is actions/join_rally.md.
+    #
+    # Headless whenever any squad is already loaded. If every formation is cold
+    # (soldiers=0) the send would silently no-op, so the press warms them the way
+    # the game does — which opens the dispatch panel — and closes it again with
+    # GoToUtil.CloseAllWindows(). See docs/research/rally-join.md.
+    "join_rally": Button(
+        lua=_lua_actions.join_next_rally(),
+        # The joining march only appears once the server answers (the send itself
+        # is scheduled 0.5 s out), and `rally_join.py` waits ~3 s before it can
+        # confirm one. The press marks the rally as taken by itself, so this pause
+        # is not what keeps two squads apart — it is what lets the count re-read
+        # see reality.
+        wait=3.0, label="Join a rally",
+        count_lua=_lua_actions.rally_joins_pending(),
+        # Three squads is the whole army; the cap is only a backstop.
+        max_taps=5,
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.

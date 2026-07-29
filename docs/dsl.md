@@ -39,6 +39,46 @@ clicks it, then waits up to 10 seconds for the screen to become "base".
 All keywords are case-insensitive. One statement per line. Blank lines
 and lines starting with `#` are comments.
 
+### `ARGS <name> = <default>`
+
+Declare a parameter of the script and its default. The caller's value wins; the
+default is what lets the same script run with no arguments at all.
+
+```
+ARGS squads = [1, 2, 3]
+ARGS leader = Rock
+```
+
+The value is JSON when it parses as JSON (numbers, lists, `true`/`false`,
+`"quoted"`) and plain text otherwise. Declarations are stripped before parsing —
+they describe the signature, not the body — and may sit anywhere, though the top
+of the file is where a reader looks for them.
+
+Arguments are then used two ways:
+
+- **`{name}` anywhere in the text** is replaced by the value *before the script is
+  parsed*, so an argument can appear in any statement, not just where a variable
+  would fit:
+
+  ```
+  LUA DataCenter.__lw_rally_squads = { {squads} }
+  ```
+
+  A list renders as its comma-separated items (hence `{ {squads} }` → a Lua
+  table), a bool as Lua's `true`/`false`. The replacement is textual and
+  name-keyed, so a Lua table of the script's own (`{a=1}`, `{}`) is untouched, and
+  an unknown `{placeholder}` is left standing where the log will show it.
+- **as a script variable**, so `IF` / `WHILE` can test it: `IF squads > 0`. Same
+  store `READ_LUA … INTO x` writes to.
+
+Because substitution happens once, before the run, `{x}` carries the value the
+script *started* with; a variable a later `READ_LUA` overwrites is read with a
+condition, not with `{x}`.
+
+Callers: the panel's Scenarios tab has an «аргументы (JSON)» box, a timer passes
+its `args` block (see `panel/timers.py`), and from Python it is
+`run_action(name, hwnd=0, variables={...})`.
+
 ### `IF condition` / `ELSE`
 
 Run the indented block when the condition is true (or false for `ELSE`).

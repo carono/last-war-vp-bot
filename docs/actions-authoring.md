@@ -95,6 +95,7 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `LUA <chunk>` | `LUA UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceScience)` | **Game-VM.** Authoring layer: run one raw in-engine call, verbatim. |
 | `READ_LUA <expr> INTO <var>` | `READ_LUA ...:GetResDonateRestCount() INTO attempts` | **Game-VM.** Authoring layer: evaluate an expression into a script variable. |
 | `<var> <op> <number>` | `WHILE attempts > 0 LIMIT 40` | Numeric condition on a READ_LUA variable. |
+| `ARGS <name> = <default>` | `ARGS squads = [1, 2, 3]` | Declare a parameter. The caller's value wins; `{name}` is substituted into the script text before parsing, and the value is also a variable conditions can test. |
 | `GAME WORLD` / `GAME CITY` | `GAME WORLD` | **Game-VM.** Single-call sugar: switch scene. |
 | `JUMP x, y [, server]` | `JUMP 512, 640, 972` | **Game-VM.** Single-call sugar: coordinate jump. |
 
@@ -104,6 +105,13 @@ read the screen and click through a window handle; the **game primitives**
 `tools/lua_daemon.py`) and need no handle. Mix them freely in one script. An action
 made only of game primitives runs with `hwnd=0` — which is how the panel's
 **Scenarios** tab runs it (pick a script, Run, or Repeat on an interval).
+
+**Parameters belong in `ARGS`, not in a copy of the script.** A recipe that
+differs only by a number or a list takes an argument instead of being duplicated:
+`join_rally.md` declares `ARGS squads = [1, 2, 3]` and is run as-is, from the
+panel's «аргументы (JSON)» box (`{"squads": [2, 3]}`), or from a timer's `args`
+block. `{squads}` is replaced in the text before parsing, so an argument can land
+anywhere — including inside a `LUA` chunk.
 
 **Recipes read like button presses; engine names hide in the catalogue.** The
 everyday form is `TAP <button>` — see `donate_alliance_tech.md`, which is a single

@@ -54,6 +54,7 @@ See `docs/dsl.md` for the user-facing reference.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time
@@ -349,6 +350,78 @@ def parse_file(path: Path) -> list[Any]:
     return parse_text(path.read_text(encoding="utf-8"))
 
 
+# ---- arguments -------------------------------------------------------------
+# `ARGS <name> = <value>` declares a parameter and its default. The caller's value
+# wins; the default is what makes a script runnable with no arguments at all.
+# Values are JSON when they parse as JSON (numbers, lists, true/false, "strings")
+# and plain text otherwise, so both `ARGS squads = [1, 2, 3]` and
+# `ARGS leader = Rock` read naturally.
+_ARGS_RE = re.compile(rf"^ARGS\s+({_IDENT})\s*=\s*(.*?)\s*$", re.IGNORECASE)
+
+
+def extract_defaults(text: str) -> tuple[dict, str]:
+    """Split `ARGS` declarations off a script; return ``(defaults, rest)``.
+
+    The declarations are removed from the source, so the parser never sees them —
+    they are about the script's signature, not its body. Blank lines take their
+    place so every remaining statement keeps its original line number in errors.
+    """
+    defaults: dict = {}
+    lines = []
+    for raw in text.splitlines():
+        m = _ARGS_RE.match(raw.strip())
+        if m is None:
+            lines.append(raw)
+            continue
+        value = m.group(2)
+        try:
+            defaults[m.group(1)] = json.loads(value)
+        except ValueError:
+            defaults[m.group(1)] = value
+        lines.append("")
+    return defaults, "\n".join(lines)
+
+
+def render_value(value: Any) -> str:
+    """A variable as it is written into the script text.
+
+    A list becomes its comma-separated items — so a recipe writes `{ {squads} }`
+    and gets a Lua table — and a bool becomes Lua's `true`/`false` rather than
+    Python's capitalised spelling. Everything else is `str()`.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(render_value(item) for item in value)
+    return str(value)
+
+
+def substitute(text: str, variables: dict | None) -> str:
+    """Replace every ``{name}`` with the matching variable's value.
+
+    Plain textual replacement, NOT ``str.format``: a Lua line is full of braces of
+    its own (`{a=1}`, `{}`), and format would choke on every one of them. Only the
+    names actually passed are replaced, so an unknown `{placeholder}` is left
+    standing — it shows up in the log line instead of silently becoming empty.
+    """
+    for name, value in (variables or {}).items():
+        text = text.replace("{%s}" % name, render_value(value))
+    return text
+
+
+def prepare_source(text: str, variables: dict | None) -> tuple[str, dict]:
+    """Apply a script's `ARGS` defaults and substitute `{name}`.
+
+    Returns the ready-to-parse source and the merged variables (defaults first,
+    the caller's values on top) so the caller can put them where conditions will
+    find them.
+    """
+    defaults, body = extract_defaults(text)
+    merged = dict(defaults)
+    merged.update(variables or {})
+    return substitute(body, merged), merged
+
+
 def _parse_block(lines, i, base_indent):
     statements: list[Any] = []
     while i < len(lines):
@@ -588,7 +661,13 @@ class Interpreter:
         self._log(f"> action: {name}")
         self._depth += 1
         try:
-            statements = parse_file(path)
+            # Arguments first: the script's own `ARGS` defaults fill in whatever the
+            # caller left out, the merged set lands in ctx.vars (so conditions read
+            # them too), and `{name}` is substituted before the source is parsed.
+            source, merged = prepare_source(path.read_text(encoding="utf-8"),
+                                            self.ctx.vars)
+            self.ctx.vars.update(merged)
+            statements = parse_text(source)
             self._run_block(statements)
             self._depth -= 1
             self._log(f"< action: {name} OK")
@@ -1358,7 +1437,9 @@ def run_text(
     interp._log(f"> {label}")
     interp._depth += 1
     try:
-        interp._run_block(parse_text(text))
+        source, merged = prepare_source(text, ctx.vars)
+        ctx.vars.update(merged)
+        interp._run_block(parse_text(source))
         interp._depth -= 1
         interp._log(f"< {label} OK")
         return True

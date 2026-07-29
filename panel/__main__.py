@@ -200,19 +200,6 @@ def _repo_rel(path: str) -> str:
     return path if rel.startswith("..") else rel.replace(os.sep, "/")
 
 
-def _expand_args(text: str, args: dict) -> str:
-    """Substitute ``{name}`` in an inline scenario step from the timer's args.
-
-    Plain textual replacement, not str.format: a Lua step is full of braces of
-    its own (`{uuid=1}`) and format would choke on every one of them. An unknown
-    placeholder is left standing, so a typo shows up in the log line instead of
-    silently becoming an empty string.
-    """
-    for key, value in (args or {}).items():
-        text = text.replace("{%s}" % key, str(value))
-    return text
-
-
 def list_actions() -> list[dict]:
     """Enumerate the blessed action scripts (actions/*.md, not actions/dev/) as {name, title}.
 
@@ -2009,6 +1996,16 @@ class Panel(tk.Tk):
         self._tr(ttk.Button(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
 
+        # Arguments for the run — the script's own `ARGS` defaults fill in the rest.
+        # JSON, because that is what a timer's `args` block is too, so a line that
+        # works here can be pasted into timers.json unchanged.
+        argrow = ttk.Frame(frame)
+        argrow.pack(fill="x", pady=(6, 0))
+        self._tr(ttk.Label(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
+        self._scn_args_var = tk.StringVar()
+        ttk.Entry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
+                                                                expand=True)
+
         self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
@@ -2041,19 +2038,48 @@ class Panel(tk.Tk):
         if name is None:
             self._log_put("[action] " + self._t("scenarios.none_selected"))
             return
-        self._run_md_action(name)
+        args = self._scenario_args()
+        if args is None:                      # unreadable JSON — already complained
+            return
+        self._run_md_action(name, args)
 
-    def _run_md_action(self, name: str) -> None:
+    def _scenario_args(self) -> dict | None:
+        """What is typed in the «аргументы» box, as a dict. ``None`` = unusable.
+
+        Empty means "no arguments", which is not the same as a typo: a script run
+        with its defaults because the JSON did not parse would look like it worked,
+        so a bad box refuses the run and says why.
+        """
+        raw = (self._scn_args_var.get() or "").strip()
+        if not raw:
+            return {}
+        try:
+            args = json.loads(raw)
+        except ValueError as exc:
+            self._log_put("[action] " + self._t("scenarios.bad_args", error=exc))
+            return None
+        if not isinstance(args, dict):
+            self._log_put("[action] " + self._t("scenarios.bad_args",
+                                                error="expected {\"name\": value}"))
+            return None
+        return args
+
+    def _run_md_action(self, name: str, args: dict | None = None) -> None:
         """Run one action through the interpreter on a worker thread.
 
         Mirrors `_act`: a single `self._busy` guard serialises against nav/jump so two
         game-driving jobs never race on the daemon. The interpreter's on_event lines
         stream straight into the shared log via `_log_put`.
+
+        `args` are the script's parameters: they fill in its `ARGS` declarations and
+        are substituted for `{name}` in its text (see docs/dsl.md). Passing none runs
+        the script on its own defaults.
         """
         if not self._claim_busy():
             self._log_put("[action] " + self._t("busy"))
             return
-        self._log_put(f"[action] {name}: {self._t('scenarios.running')}")
+        shown = f"{name} {json.dumps(args, ensure_ascii=False)}" if args else name
+        self._log_put(f"[action] {shown}: {self._t('scenarios.running')}")
 
         def work() -> None:
             try:
@@ -2063,7 +2089,7 @@ class Panel(tk.Tk):
                 script_engine.run_action(
                     name, hwnd=0,
                     on_event=lambda msg: self._log_put(f"[action] {msg}"),
-                    profile=None,
+                    profile=None, variables=args,
                 )
             except Exception as exc:                       # noqa: BLE001
                 self._log_put(f"[action] {name}: error: {exc}")
@@ -2085,6 +2111,10 @@ class Panel(tk.Tk):
             self._scn_loop_var.set(False)
             self._log_put("[action] " + self._t("scenarios.none_selected"))
             return
+        args = self._scenario_args()
+        if args is None:                      # unreadable JSON — already complained
+            self._scn_loop_var.set(False)
+            return
         try:
             interval = max(5, int(self._scn_interval_var.get()))
         except ValueError:
@@ -2094,7 +2124,7 @@ class Panel(tk.Tk):
 
         def loop() -> None:
             while not self._scn_loop_stop.is_set():
-                self._run_md_action(name)
+                self._run_md_action(name, args)
                 # Wait out the interval, but also block while a run is still busy so
                 # a slow action never overlaps its own next tick.
                 self._scn_loop_stop.wait(interval)
@@ -2293,8 +2323,8 @@ class Panel(tk.Tk):
                 if script_engine.resolve_action(step) is not None:
                     ok = script_engine.run_action(step, hwnd=0, ctx=ctx)
                 else:
-                    ok = script_engine.run_text(_expand_args(step, timer.args),
-                                                ctx=ctx, label=step.splitlines()[0])
+                    ok = script_engine.run_text(step, ctx=ctx,
+                                                label=step.splitlines()[0])
                 if not ok:
                     raise RuntimeError(self._t("timers.log.step_failed", step=step))
             return True

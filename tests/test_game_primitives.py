@@ -425,6 +425,94 @@ def test_ghost_recon_and_secret_task_robberies_never_share_state():
     assert "stealMaxtimes" in gate, "the looter half has to be counted here"
 
 
+# --- script arguments (ARGS / {name} substitution) --------------------------
+
+def test_args_defaults_and_substitution():
+    """`ARGS` declares a parameter and its default; `{name}` is replaced in the text."""
+    src = ('ARGS squads = [1, 2, 3]\n'
+           'ARGS note = hello\n'
+           'LUA q = { {squads} } -- {note}\n')
+
+    # No arguments: the script runs on its own defaults.
+    body, merged = se.prepare_source(src, {})
+    assert merged == {"squads": [1, 2, 3], "note": "hello"}, merged
+    (lua,) = se.parse_text(body)
+    assert lua.chunk == "q = { 1, 2, 3 } -- hello", lua.chunk
+
+    # The caller's value wins, per field.
+    body, merged = se.prepare_source(src, {"squads": [2, 3]})
+    (lua,) = se.parse_text(body)
+    assert lua.chunk == "q = { 2, 3 } -- hello", lua.chunk
+    assert merged["squads"] == [2, 3]
+
+    # The declarations never reach the parser, and the lines they stood on are kept
+    # blank so a later error still points at the right line.
+    assert "ARGS" not in body
+    assert len(body.splitlines()) == len(src.splitlines())
+
+
+def test_args_do_not_maul_lua_braces():
+    """Substitution is textual and name-keyed — a Lua table is not a placeholder."""
+    assert se.substitute("LUA f({a=1}, {})", {"n": 7}) == "LUA f({a=1}, {})"
+    # An unknown placeholder stays visible instead of silently becoming empty.
+    assert se.substitute("TAP x{miss}", {"n": 7}) == "TAP x{miss}"
+    # Lists join with commas (so `{ {squads} }` is a Lua table), bools are Lua's.
+    assert se.render_value([1, 2, 3]) == "1, 2, 3"
+    assert se.render_value(True) == "true" and se.render_value(False) == "false"
+
+
+def test_args_reach_conditions_as_variables():
+    """A passed argument is also a script variable, so IF/WHILE can test it."""
+    ev = FakeEval()
+    log: list[str] = []
+    ctx = se.new_context(on_event=log.append, variables={"limit": 2})
+    ctx.evaluator = ev
+    se.run_text("IF limit > 1\n    LUA fired()\n", ctx=ctx)
+    assert any("fired()" in c for c in ev.chunks), ev.chunks
+
+
+def test_join_rally_recipe_spends_one_squad_per_rally():
+    """actions/join_rally.md: `squads` picks which squads go, one rally each.
+
+    The two things worth pinning: the argument really reaches the parked queue (so
+    `squads=[2,3]` cannot silently send squad 1), and the press is `xall` off a live
+    count — a fixed count would either leave a rally unjoined or send a squad twice.
+    """
+    import game_buttons as gb
+
+    path = se.resolve_action("join_rally")
+    assert path is not None, "actions/join_rally.md is missing"
+    src = path.read_text(encoding="utf-8")
+
+    body, merged = se.prepare_source(src, {})
+    assert merged["squads"] == [1, 2, 3], "the recipe must default to all three squads"
+    stmts = se.parse_text(body)
+    assert [type(s).__name__ for s in stmts] == ["LuaStmt", "TapStmt"], stmts
+    assert "{ 1, 2, 3 }" in stmts[0].chunk, stmts[0].chunk
+    assert stmts[1].name == "join_rally"
+    assert stmts[1].count is None, "the press must be TAP … xall, not a fixed count"
+
+    # One squad, and only that one is parked.
+    only_first = se.parse_text(se.prepare_source(src, {"squads": [1]})[0])[0].chunk
+    assert "{ 1 }" in only_first, only_first
+    # Two squads -> both parked, in the order asked for.
+    two = se.parse_text(se.prepare_source(src, {"squads": [2, 3]})[0])[0].chunk
+    assert "{ 2, 3 }" in two, two
+    # Every run starts by forgetting the previous one's joins, or a second run
+    # would refuse every rally it joined the first time.
+    assert "__lw_rally_joined" in two
+
+    button = gb.get("join_rally")
+    assert button is not None and button.count_lua, "xall needs a count expression"
+    # The count is min(squads left, rallies not already joined) -> a quiet map is a
+    # clean no-op rather than a press that goes nowhere.
+    ev = FakeEval(rluas=[2, 1, 0])
+    _run("TAP join_rally xall", ev)
+    presses = [c for c in ev.chunks if "SendCreateMarchMessage" in c]
+    assert len(presses) == 2, presses
+    assert all("__lw_rally_joined" in c for c in presses), "each press must claim its rally"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
