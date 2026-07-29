@@ -12,7 +12,10 @@ Default timeout: 60s. No asking, no planning — just run.
 
 Different job — turning a recorded sniffer session (results/traces/*_trace.log +
 results/traffic/*_traffic.jsonl) into an actions/*.md recipe: follow the
-end-to-end workflow in docs/skills/sniff.md §8. If the run has no label and you
-cannot tell what the player did, ask before analysing (§8.4).
+end-to-end workflow in docs/skills/sniff.md §8. Start with
+`python3 tools/sniff_runs.py --last 1` — it prints the run's files and the
+operator's description of what was done in the game, which is the context both
+files lack. No description and you cannot tell what the player did? Ask before
+analysing (§8.4).
 
 Details: docs/skills/sniff.md

@@ -297,8 +297,10 @@ the instance where the trace came back empty (§8.11).
 ```
  1  panel: Develop → Sniffer ON, type a label, WAIT for the «[sniff] ГОТОВ» line
  2  the player performs ONE in-game action
- 3  panel: Develop → Sniffer OFF   (both children stop, the tracer restores itself)
- 4  label/description missing?  ASK the player before analysing anything
+ 3  panel: Develop → Sniffer OFF   → the panel asks: keep it (+ describe what was
+                                     done) or delete the run
+ 4  read the description:  python3 tools/sniff_runs.py --last 1
+    missing?  ASK the player before analysing anything
  5  read results/traces/*<label>*_trace.log   (XSCALL — which Lua fired)
     read results/traffic/*<label>*_traffic.jsonl (wire — which command was sent)
  6  line the two up (order + the panel log; per-line timestamps exist only on the wire side)
@@ -327,7 +329,8 @@ share a name:
 
 Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
 **new** files, so a stop/start cycle never overwrites the previous session
-(`tools/lib/run_output.py`).
+(`tools/lib/run_output.py`). The label names the files; *what was actually done*
+is asked at the **end** of the run (§8.3) and stored beside them.
 
 **Neither child records the moment its pid appears — wait for the ready line.**
 The pids are printed instantly, but npcap still has to open every interface and
@@ -393,10 +396,31 @@ correlation in §8.6 trivial:
   sequence ("alliance → gifts → collect all"), the sequence matters more than the
   label text.
 
-### 8.3 Stop
+### 8.3 Stop — and say what was done
 
 Toggle **Develop → Sniffer** off (it stops both children), or Ctrl+C the
-standalone runs. The tracer restores every wrapped function on exit — confirm it:
+standalone runs.
+
+The panel then asks what to do with the recording — **«Запись снифера»**:
+
+| answer | what happens |
+|---|---|
+| **Сохранить** (also the window's X, and `Ctrl+Enter`) | the run is kept; whatever was typed in the description box is written beside **both** files as `…_trace.note.md` / `…_traffic.note.md` (`tools/lib/run_notes.py`) |
+| **Удалить запись** | after a confirmation, the two files and their notes are deleted — a run that recorded the wrong thing is noise in a directory that is read by hand |
+
+**Fill the description in.** The two files say which Lua fired and what crossed
+the wire; they never say which buttons were pressed, in what order, or what
+changed on screen — and that is exactly what the analysis needs (§8.4 is the
+list of questions; answering them here means they never have to be asked). An
+empty box still keeps the files, the panel just logs that no description was
+given. A run stopped without the panel (the headless pair) gets no prompt, so
+attach the description afterwards:
+
+```bash
+python3 tools/sniff_runs.py --describe "alliance → gifts → collect all, ×3"
+```
+
+The tracer restores every wrapped function on exit — confirm it:
 
 ```
 XSTRACE traced distinct=… calls=…
@@ -408,10 +432,23 @@ still live in the running Lua state (they persist until the game restarts, spam
 `Player.log` and slow hot functions). Fix by re-running and stopping the tracer
 once more, or restart the game.
 
-### 8.4 No label, no description? Ask — before analysing
+### 8.4 Read the description first — no description? Ask
+
+**Start every analysis here**, before opening either file:
+
+```bash
+python3 tools/sniff_runs.py --last 1      # the newest run: files + its description
+python3 tools/sniff_runs.py ресурс        # runs whose label/description match
+python3 tools/sniff_runs.py --undescribed # runs still missing one
+```
+
+It lists each recorded session — both files, their sizes, and the operator's
+answer to «что делал в игре» (§8.3), read from the note beside them. That
+description is the context both files lack; read it as the statement of what the
+run was supposed to record, and treat the files as the evidence for it.
 
 A trace without knowing what was done is a list of UI class names. If the run
-arrived with an empty label, or the label is too terse to reconstruct the flow,
+carries no description, or the description is too terse to reconstruct the flow,
 **ask the player first**. The questions that actually change the analysis:
 
 1. What was pressed, **in what order**? (Which panel opened, which cell/tab.)
@@ -423,8 +460,10 @@ arrived with an empty label, or the label is too terse to reconstruct the flow,
 5. Was the action **available at all** at that moment, or was the daily quota
    already spent? (A spent quota is why a send may be missing from the wire.)
 
-Record the answer in the research note (§8.10) — the file name only carries the
-label, not the sequence.
+Record the answer where the next session will find it: attach it to the run
+(`tools/sniff_runs.py --describe "…"`, which writes the note the panel would
+have) **and** repeat it in the research note (§8.10). The file name only carries
+the label, not the sequence.
 
 ### 8.5 Read the two files
 
@@ -817,7 +856,8 @@ re-recording a trace that will be empty again.
 /mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "<label>" &
 /mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "<label>"
 
-# analyse
+# analyse — the description of what was done comes first
+python3 tools/sniff_runs.py --last 1
 L=$(ls -t results/traces/*_trace.log | head -1); T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
 grep -c XSCALL "$L"
 grep XSCALL "$L" | grep -vE '\.(getters|super)\.' | grep -E 'DataCenter\.|Utils?\.|Message|SFSObject\.'

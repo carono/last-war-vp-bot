@@ -75,6 +75,7 @@ for _tp in (TOOLS, TOOLS_LIB, SRC):
 import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
 import lua_trace        # noqa: E402  (RESTORE_CHUNK — unwrap tracer hooks after a hard Stop)
+import run_notes        # noqa: E402  (keep/discard a sniffer run + its description)
 import coords           # noqa: E402
 import chat_assets      # noqa: E402  (token -> local sprite PNG for chat rendering)
 
@@ -130,6 +131,11 @@ FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
 # ~2 s in with a warm daemon and noticeably later when it has to attach first —
 # so the cap is generous, it only exists to break a silent wait.
 SNIFF_READY_TIMEOUT = 25.0
+# Pause between "the session is over" and the save/delete prompt, so the last
+# lines of the killed children have travelled through their reader threads (the
+# run file paths arrive that way) and the files are closed before the dialog
+# offers to delete them.
+SNIFF_FLUSH_MS = 600
 
 # Directory holding the DSL action scripts the Scenarios tab lists and runs. Only the
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
@@ -138,6 +144,20 @@ ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
 # Actions that are runtime plumbing rather than user-facing scenarios — hidden from
 # the picker even if present here. `watchdog` is ticked by the runner, not run by hand.
 _HIDDEN_ACTIONS = frozenset({"watchdog"})
+
+
+def _repo_rel(path: str) -> str:
+    """A path as it reads in the log: relative to the repo, forward slashes.
+
+    Falls back to the path itself for anything outside the repo (or on another
+    drive, where relpath raises) — a display helper must never be the thing that
+    breaks a dialog.
+    """
+    try:
+        rel = os.path.relpath(path, REPO)
+    except ValueError:
+        return path
+    return path if rel.startswith("..") else rel.replace(os.sep, "/")
 
 
 def list_actions() -> list[dict]:
@@ -259,6 +279,10 @@ class Panel(tk.Tk):
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
         self._sniff_t0 = 0.0          # when the pair was launched (for "ready in Ns")
+        self._sniff_label = ""        # label typed at the start of the current session
+        self._sniff_files = {}        # kind -> run file each child reported opening;
+                                      # emptied by the save/delete prompt that closes
+                                      # a session, which is what makes it fire once
         # Toggle state for the single Develop-menu sniffer entry (it drives both
         # children above). Created here (not in a tab builder) because the menu
         # bar is built before the UI and is rebuilt on every language change —
@@ -1161,6 +1185,8 @@ class Panel(tk.Tk):
         # loses the frames the run was started for.
         self._sniff_ready = {}
         self._sniff_t0 = time.time()
+        self._sniff_label = label
+        self._sniff_files = {}
 
         self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
         self._sniff_proc = self._spawn_sniffer(
@@ -1226,11 +1252,25 @@ class Panel(tk.Tk):
                           f"{SNIFF_READY_TIMEOUT:.0f} с: {', '.join(pending)} — "
                           f"проверь лог выше")
 
+    def _note_run_file(self, kind: str, line: str, marker: str) -> None:
+        """Remember the run file a child says it opened (`marker` precedes the path).
+
+        The path is only ever announced in the child's own output, so this is
+        where the session learns what it is recording — and the save/delete
+        prompt at the end has nothing to offer without it.
+        """
+        _head, sep, path = _ANSI.sub("", line).partition(marker)
+        path = path.strip()
+        if sep and path:
+            self._sniff_files[kind] = path
+
     def _sniff_reader(self, proc) -> None:
         try:
             for raw in proc.stdout:
                 line = raw.rstrip()
                 self._log_put(f"[traffic] {line}")
+                if line.startswith("transcript:"):
+                    self._note_run_file("traffic", line, "transcript:")
                 if "CAPTURE READY" in line:
                     self._mark_sniff_ready("traffic", True)
                 elif "CAPTURE FAILED" in line:
@@ -1248,6 +1288,8 @@ class Panel(tk.Tk):
             for raw in proc.stdout:
                 line = raw.rstrip()
                 self._log_put(f"[trace] {line}")
+                if "trace file:" in line:
+                    self._note_run_file("trace", line, "trace file:")
                 if "TRACE READY" in line:
                     self._mark_sniff_ready("trace", True)
                 elif "TRACE FAILED" in line:
@@ -1269,6 +1311,12 @@ class Panel(tk.Tk):
         """
         if self._sniff_proc is None and self._trace_proc is None:
             self.after(0, lambda: self._sniff_var.set(False))
+            # Both children died on their own (the game restarted, tshark lost
+            # the interface) — the session is over just as surely as after a
+            # Stop, so it gets the same save/delete prompt. Whichever path runs
+            # first empties _sniff_files, so the other one finds nothing to ask
+            # about; both land on the Tk thread, so they cannot interleave.
+            self.after(SNIFF_FLUSH_MS, self._finish_sniff_session)
 
     def _stop_sniff(self) -> None:
         proc, self._sniff_proc = self._sniff_proc, None
@@ -1296,6 +1344,111 @@ class Panel(tk.Tk):
             # already clean — so a redundant call (e.g. the child DID exit
             # cleanly on its own) is harmless.
             threading.Thread(target=self._restore_trace_hooks, daemon=True).start()
+
+        # Ask what this run was, once the killed children have let go of their
+        # files. The delay is not about buffering (both write line-buffered) but
+        # about the last lines still travelling through the reader threads — the
+        # traffic child announces its transcript path early, the tracer's «trace
+        # file:» line can still be in flight when a very short run is stopped.
+        self.after(SNIFF_FLUSH_MS, self._finish_sniff_session)
+
+    # -- end of a sniffer session: keep it with a description, or drop it ----
+    def _finish_sniff_session(self) -> None:
+        """Close the session out: prompt to keep (with a description) or delete.
+
+        Runs once per session — it takes the recorded paths, so a second call
+        (Stop and the children's own exit both lead here) finds nothing left.
+        A session that opened no file at all is closed silently: there is
+        nothing to describe and nothing to delete.
+        """
+        files, self._sniff_files = self._sniff_files, {}
+        label, self._sniff_label = self._sniff_label, ""
+        files = {k: p for k, p in files.items() if p and os.path.exists(p)}
+        if not files:
+            return
+        self._ask_run_outcome(files, label)
+
+    def _ask_run_outcome(self, files: dict, label: str) -> None:
+        """The post-run dialog: a description field, Save and Delete.
+
+        Both answers are worth having. A kept run needs the description — the
+        two files say which Lua fired and what crossed the wire, never which
+        buttons the operator pressed or what changed on screen, and that is the
+        context the analysis starts from (docs/skills/sniff.md §8.4). A run that
+        recorded the wrong thing is noise in a directory that is read by hand,
+        so deleting it is one click rather than a shell detour.
+
+        Closing the window with its X keeps the files: losing a recording must
+        take a deliberate press, never a stray one.
+        """
+        paths = [files[k] for k in ("trace", "traffic") if k in files]
+        win = tk.Toplevel(self)
+        win.title(self._t("develop.run.title"))
+        win.transient(self)
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill="both", expand=True)
+
+        shown = label.strip() or self._t("develop.run.nolabel")
+        ttk.Label(frm, text=self._t("develop.run.header", label=shown),
+                  font=("", 10, "bold")).pack(anchor="w")
+        for kind in ("trace", "traffic"):
+            path = files.get(kind)
+            if path:
+                ttk.Label(frm, foreground="#888",
+                          text=f"{kind}: {self._run_file_caption(path)}").pack(anchor="w")
+        ttk.Label(frm, text=self._t("develop.run.prompt"), wraplength=520,
+                  justify="left").pack(anchor="w", pady=(10, 2))
+        text = tk.Text(frm, height=6, width=64, wrap="word")
+        text.pack(fill="both", expand=True)
+        text.focus_set()
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(10, 0))
+
+        def save() -> None:
+            description = text.get("1.0", "end").strip()
+            win.destroy()
+            self._save_run_note(paths, label, description)
+
+        def discard() -> None:
+            if not messagebox.askyesno(self._t("develop.run.confirm_title"),
+                                       self._t("develop.run.confirm", label=shown),
+                                       parent=win):
+                return
+            win.destroy()
+            gone = run_notes.discard_run(paths)
+            self._log_put(f"[sniff] запись удалена ({len(gone)} файл(ов))")
+
+        ttk.Button(btns, text=self._t("develop.run.discard"),
+                   command=discard).pack(side="left")
+        ttk.Button(btns, text=self._t("develop.run.save"),
+                   command=save).pack(side="right")
+        win.protocol("WM_DELETE_WINDOW", save)
+        win.bind("<Control-Return>", lambda e: save())
+        win.grab_set()
+
+    def _save_run_note(self, paths: list, label: str, description: str) -> None:
+        """Keep the run; write the description beside every file of it."""
+        if not description:
+            self._log_put("[sniff] запись сохранена без описания — при анализе "
+                          "придётся спрашивать, что делалось в игре")
+            return
+        try:
+            written = run_notes.write_note(paths, description, label=label)
+        except Exception as exc:      # noqa: BLE001  (a note must never break the panel)
+            self._log_put(f"[sniff] описание не сохранено: {exc}")
+            return
+        names = ", ".join(_repo_rel(p) for p in written)
+        self._log_put(f"[sniff] запись сохранена, описание → {names or '—'}")
+
+    def _run_file_caption(self, path: str) -> str:
+        """`results/traces/…_trace.log (12 KB)` — what the dialog shows per file."""
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        human = f"{size / 1024:.0f} KB" if size >= 1024 else f"{size} B"
+        return f"{_repo_rel(path)} ({human})"
 
     def _restore_trace_hooks(self) -> None:
         """Unwrap the lua_trace hooks left in the game VM after a hard Stop.

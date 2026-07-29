@@ -30,6 +30,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
   `occupation_skills.py` (the profession's active skills and firing the ready ones),
   `rdp_instance.py` (the second account's client in its own Windows session) with
   `session_launch.py` behind it,
+  `sniff_runs.py` (the recorded sniffer sessions and what was done in each),
   `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
   `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
   hero-icon / chat-emoji / sticker sprites from the bundles).
@@ -44,7 +45,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
   `lastwar_encode`), and helpers (`coords`, `chat_share` — build and send chat
   coordinate attachments, `hero_icons_map`, `steal_via_socket`, `instance_manager` —
   named game instances (`get_instance("casper")`) over the per-instance daemon ports,
-  `run_output` — the per-run timestamped file under `results/`).
+  `run_output` — the per-run timestamped file under `results/`, `run_notes` — the
+  description stored beside a sniffer run and the keep/delete of that run).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
   (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
@@ -77,6 +79,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |
 | `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
+| `sniff_runs.py` | **WSL** or **Windows** (Python) | list the recorded sniffer sessions — both files of each run and the operator's description of what was done in the game (the note the panel writes when a run is kept). **Read this before analysing a trace**; `--describe "…"` attaches a description to a headless run. See [`../docs/skills/sniff.md`](../docs/skills/sniff.md) §8.3-8.4 |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 | `attack.py` | **Windows** (Python, Lua daemon) | attack (`ATTACK_CITY`) or scout (`SCOUT_CITY`) an enemy base without clicking, and read back the scout report — see [`../docs/research/attack-and-scout.md`](../docs/research/attack-and-scout.md) |
 | `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
@@ -532,7 +535,9 @@ results/
 ├── traffic_<ts>.jsonl      # one JSON record per HTTP flow / WS frame (mitm addon)
 ├── analysis_<ts>.json      # offline pcap analysis
 ├── traffic/<ts>_traffic.jsonl  # one file per sniffer run (live_tshark / live_sniffer)
+├── traffic/<ts>_traffic.note.md # what the operator did in the game, that run
 ├── traces/<ts>_trace.log       # one file per Lua tracer run (lua_trace.py)
+├── traces/<ts>_trace.note.md    # the same note, beside the other half of the run
 └── raw/                     # raw request/response bodies (*.bin)
 ```
 `<ts>` is `YYYYMMDD_HHMMSS` taken when the run starts, so a restart always
