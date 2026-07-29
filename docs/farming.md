@@ -41,7 +41,9 @@ and keeping the alliance up (donate, then claim the gifts) as one errand. The
 clock is kept per account and survives a restart, so an hour that ran out while
 the panel was closed is worked off shortly after it opens. Two errands that come
 due at the same moment never run at the same time: they queue and take their
-turn, so the game is only ever being driven by one of them.
+turn, so the game is only ever being driven by one of them. Which errands the
+schedule holds is a list you can edit — adding one, or changing what it does and
+how often, needs no change to the program.
 
 The one thing the panel cannot do yet is **play a whole session on its own**: it
 repeats a chosen action and keeps a handful of abilities to their own clocks, but

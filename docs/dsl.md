@@ -512,6 +512,26 @@ While a script runs, the interpreter keeps a few pieces of state:
   `profile.<field>` condition; writes via `READ_TEXT ... INTO
   profile.<field>`, which persists to disk immediately.
 
+## Running one from Python
+
+`script_engine` exposes three entry points beyond the CLI runner:
+
+```python
+run_action("collect_base_resources", hwnd=0, on_event=print)   # a file in actions/
+run_text('LOG "hi"\nWAIT 1', on_event=print)                   # source held in memory
+ctx = new_context(variables={"count": 3})                      # one session, many calls
+run_action("a", hwnd=0, ctx=ctx); run_text("TAP close", ctx=ctx)
+```
+
+Passing the same `ctx` to several calls runs them as one session: variables, the
+last `FIND` and the Lua evaluator are shared, so a sequence costs one daemon
+connection rather than one per step. `variables` seeds the same store
+`READ_LUA … INTO x` writes to, so a caller can hand a script its parameters and
+the script tests them with the ordinary `IF x > 3` conditions.
+
+Both forms are what the panel's schedule (`panel/timers.json`) runs: a step that
+names an action file runs the file, and anything else is treated as source.
+
 ## Failure model
 
 Every action returns OK / FAILED. An action fails when:

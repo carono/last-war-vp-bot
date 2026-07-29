@@ -196,6 +196,19 @@ def _repo_rel(path: str) -> str:
     return path if rel.startswith("..") else rel.replace(os.sep, "/")
 
 
+def _expand_args(text: str, args: dict) -> str:
+    """Substitute ``{name}`` in an inline scenario step from the timer's args.
+
+    Plain textual replacement, not str.format: a Lua step is full of braces of
+    its own (`{uuid=1}`) and format would choke on every one of them. An unknown
+    placeholder is left standing, so a typo shows up in the log line instead of
+    silently becoming an empty string.
+    """
+    for key, value in (args or {}).items():
+        text = text.replace("{%s}" % key, str(value))
+    return text
+
+
 def list_actions() -> list[dict]:
     """Enumerate the blessed action scripts (actions/*.md, not actions/dev/) as {name, title}.
 
@@ -350,11 +363,17 @@ class Panel(tk.Tk):
         # Scheduled actions (panel/timers.py). The store is per profile, so it is
         # re-pointed on a switch; the scheduler itself is created here and only
         # started once the UI exists (_startup), because a fired timer logs.
-        self._timer_store = timersmod.LastRunStore(self._profiles.timers_json())
-        self._timer_vars: dict[str, dict] = {}   # key -> {"enabled": Var, "minutes": Var}
-        self._timer_rows: dict[str, dict] = {}   # key -> {"last": Label, "next": Label}
+        self._timer_store = timersmod.LastRunStore(self._profiles.timers_state())
+        # WHICH timers exist comes from panel/timers.json — not from code, and not
+        # from the profile: the catalogue is shared by every account, while the
+        # switch, the period and the clock are per profile.
+        self._timer_catalogue = timersmod.default_catalogue()
+        self._timer_vars: dict[str, dict] = {}   # name -> {"enabled": Var, "interval": Var}
+        self._timer_rows: dict[str, dict] = {}   # name -> {"last": Label, "next": Label}
+        self._load_timer_catalogue()
         self._timers = timersmod.TimerScheduler(
             store=self._timer_store,
+            catalogue=lambda: self._timer_catalogue,
             config=self._timer_config,
             runner=self._run_timer_action,
             log=lambda key, **fmt: self._log_put("[timer] " + self._t(key, **fmt)),
@@ -512,7 +531,7 @@ class Panel(tk.Tk):
         self._refresh_profile_combo(select=newn)
         # The directory moved under the schedule's feet: re-point the store, or
         # the next run would write its record into a re-created old directory.
-        self._timer_store.set_path(self._profiles.timers_json())
+        self._timer_store.set_path(self._profiles.timers_state())
         self._log_put(f"[profile] переименован: {cur} → {newn}")
 
     def _delete_profile(self) -> None:
@@ -580,11 +599,11 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
-            timers_cfg = timersmod.normalize_config(s.get("timers"))
-            for key, var in self._timer_vars.items():
-                item = timers_cfg[key]
+            timers_cfg = self._timer_catalogue.normalize_config(s.get("timers"))
+            for name, var in self._timer_vars.items():
+                item = timers_cfg[name]
                 var["enabled"].set(bool(item["enabled"]))
-                var["minutes"].set(str(item["minutes"]))
+                var["interval"].set(str(item["interval_sec"]))
         finally:
             self._loading = False
         self._update_path_hints()
@@ -596,12 +615,6 @@ class Panel(tk.Tk):
                     self._lvl_to_var, self._rally_var, self._help_var, self._mon_var,
                     self._autoloot_var, self._chat_var):
             var.trace_add("write", lambda *a: self._save_settings())
-        # The timer rows: a ticked box or a retyped period is saved like any other
-        # setting. Nothing has to be restarted — the scheduler re-reads them on
-        # its next tick (see _timer_config).
-        for var in self._timer_vars.values():
-            var["enabled"].trace_add("write", lambda *a: self._save_settings())
-            var["minutes"].trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
         # so a change only takes effect on the next capture launch. Bounce a
@@ -653,7 +666,7 @@ class Panel(tk.Tk):
         # The schedule's clock is per profile too: point the store at the new
         # profile's timers.json, or the account just switched to would look as
         # freshly collected as the one switched away from.
-        self._timer_store.set_path(self._profiles.timers_json())
+        self._timer_store.set_path(self._profiles.timers_state())
 
     def _update_path_hints(self) -> None:
         """Refresh labels that show the active profile's log path (rally hint)."""
@@ -2103,46 +2116,103 @@ class Panel(tk.Tk):
     # -- timers tab (scheduled repeats of an action) ------------------------
 
     def _build_timers_tab(self, parent: ttk.Frame) -> None:
-        """One row per scheduled ability: switch, period, when it last/next runs.
+        """One row per configured errand: switch, period, when it last/next runs.
 
         The Scenarios tab's «Повтор» repeats *one selected* action for as long as
-        the panel is open; a timer is the other half — several abilities, each on
+        the panel is open; a timer is the other half — several errands, each on
         its own clock, remembered across restarts (panel/timers.py). Nothing here
         drives the game directly: a row only edits the settings the scheduler
         thread reads on its next tick.
+
+        WHICH rows exist is not decided here either — the list is read from
+        panel/timers.json, so a new timer is a new entry in that file and «⟳»
+        below re-reads it without restarting the panel.
         """
         frame = self._tr(ttk.LabelFrame(parent, padding=8), "timers.frame")
         frame.pack(fill="x", padx=8, pady=8)
 
-        grid = ttk.Frame(frame)
-        grid.pack(fill="x")
+        # Rebuilt wholesale by _reload_timers, so the rows live in their own
+        # frame with nothing else in it.
+        self._timer_grid = ttk.Frame(frame)
+        self._timer_grid.pack(fill="x")
+        self._fill_timer_grid()
+
+        bottom = ttk.Frame(frame)
+        bottom.pack(fill="x", pady=(8, 0))
+        self._tr(ttk.Label(bottom, foreground="#888", wraplength=600, justify="left"),
+                 "timers.hint").pack(side="left", anchor="w")
+        self._tr(ttk.Button(bottom, width=3, command=self._reload_timers),
+                 "timers.reload").pack(side="right", anchor="ne")
+
+        self._refresh_timer_rows()
+
+    def _fill_timer_grid(self) -> None:
+        """(Re)draw a row per timer in the current catalogue."""
+        grid = self._timer_grid
+        for child in grid.winfo_children():
+            child.destroy()
+        self._timer_vars.clear()
+        self._timer_rows.clear()
         grid.columnconfigure(0, weight=1)
         for col, key in enumerate(("timers.col.action", "timers.col.interval",
                                    "timers.col.last", "timers.col.next")):
             self._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
 
-        for row, spec in enumerate(timersmod.TIMERS, start=1):
-            enabled = tk.BooleanVar(value=False)
-            minutes = tk.StringVar(value=str(spec.default_minutes))
-            self._timer_vars[spec.key] = {"enabled": enabled, "minutes": minutes}
-            self._tr(ttk.Checkbutton(grid, variable=enabled), spec.label_key).grid(
-                row=row, column=0, sticky="w", pady=2)
-            ttk.Spinbox(grid, from_=timersmod.MIN_MINUTES, to=timersmod.MAX_MINUTES,
-                        width=5, textvariable=minutes).grid(row=row, column=1,
-                                                            sticky="w", padx=(0, 10))
+        saved = self._settings.get("timers")
+        config = self._timer_catalogue.normalize_config(saved)
+        for row, timer in enumerate(self._timer_catalogue, start=1):
+            item = config[timer.name]
+            enabled = tk.BooleanVar(value=bool(item["enabled"]))
+            seconds = tk.StringVar(value=str(item["interval_sec"]))
+            self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds}
+            box = ttk.Checkbutton(grid, variable=enabled)
+            # A configured `title` wins; a built-in falls back to its locale
+            # string; a timer someone added to the JSON without either shows the
+            # name it was given there.
+            if timer.title:
+                box.configure(text=timer.title)
+            elif timer.label_key:
+                self._tr(box, timer.label_key)
+            else:
+                box.configure(text=timer.name)
+            box.grid(row=row, column=0, sticky="w", pady=2)
+            ttk.Spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
+                        to=timersmod.MAX_INTERVAL_SEC, width=7,
+                        textvariable=seconds).grid(row=row, column=1, sticky="w",
+                                                   padx=(0, 10))
             last = ttk.Label(grid, foreground="#888", width=18)
             last.grid(row=row, column=2, sticky="w", padx=(0, 10))
             nxt = ttk.Label(grid, foreground="#888", width=18)
             nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
-            self._tr(ttk.Button(grid, command=lambda s=spec: self._timer_run_now(s)),
+            self._tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
                      "timers.run_now").grid(row=row, column=4, sticky="e")
-            self._timer_rows[spec.key] = {"last": last, "next": nxt}
+            self._timer_rows[timer.name] = {"last": last, "next": nxt}
+        self._bind_timer_autosave()
 
-        self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
-                 "timers.hint").pack(anchor="w", pady=(8, 0))
+    def _bind_timer_autosave(self) -> None:
+        """Persist a ticked box / retyped period, for rows built at any time.
 
-        self._refresh_timer_rows()
+        Called from the row builder rather than from `_install_autosave`, because
+        the rows can be rebuilt at any moment by «⟳». Traces added while the panel
+        is still loading are harmless: `_save_settings` no-ops until then.
+        """
+        for var in self._timer_vars.values():
+            var["enabled"].trace_add("write", lambda *a: self._save_settings())
+            var["interval"].trace_add("write", lambda *a: self._save_settings())
+
+    def _reload_timers(self) -> None:
+        """Re-read panel/timers.json and redraw the rows from it."""
+        self._load_timer_catalogue()
+        self._fill_timer_grid()
+        self._log_put("[timer] " + self._t("timers.log.reloaded",
+                                           n=len(self._timer_catalogue)))
+
+    def _load_timer_catalogue(self) -> None:
+        """Read the catalogue file, reporting whatever it could not make sense of."""
+        self._timer_catalogue = timersmod.load_catalogue()
+        for problem in self._timer_catalogue.errors:
+            self._log_put(f"[timer] {_repo_rel(timersmod.CATALOGUE_FILE)}: {problem}")
 
     def _timer_config(self) -> dict:
         """The timers' settings as the scheduler wants them (read off the widgets).
@@ -2153,12 +2223,12 @@ class Panel(tk.Tk):
         run from a test double may not).
         """
         if not self._timer_vars:
-            return timersmod.normalize_config(self._settings.get("timers"))
+            return self._timer_catalogue.normalize_config(self._settings.get("timers"))
         raw = {}
-        for key, var in self._timer_vars.items():
-            raw[key] = {"enabled": bool(var["enabled"].get()),
-                        "minutes": var["minutes"].get()}
-        return timersmod.normalize_config(raw)
+        for name, var in self._timer_vars.items():
+            raw[name] = {"enabled": bool(var["enabled"].get()),
+                         "interval_sec": var["interval"].get()}
+        return self._timer_catalogue.normalize_config(raw)
 
     def _timer_gate(self) -> str | None:
         """Why no timer may fire right now — or ``None`` to let the tick through.
@@ -2171,18 +2241,23 @@ class Panel(tk.Tk):
         running, _text = game_status()
         return None if running else "timers.log.skip_game"
 
-    def _run_timer_action(self, spec) -> bool:
-        """Run one timer's errand to completion. ``False`` = panel busy, try later.
+    def _run_timer_action(self, timer) -> bool:
+        """Run one timer's scenario to completion. ``False`` = panel busy, later.
 
         Called on the scheduler thread, so it blocks there rather than spawning
         another: that is what keeps two due timers from pressing at once. Raises
         on a real failure — the scheduler turns that into a logged failure and a
         retry hold, and `last_run` is deliberately left where it was.
 
-        An errand of several recipes (the alliance one is donate → gifts) runs
-        them in order under ONE claim on the busy flag: nothing may slip between
-        the halves, and a raise on the first leaves the rest unrun, so the retry
-        replays the whole errand rather than half of it.
+        A scenario of several steps (the alliance one is donate → gifts) runs
+        under ONE claim on the busy flag and in ONE script context: nothing may
+        slip between the halves, `args` and anything a step reads stay visible to
+        the next one, and a failing step aborts the rest, so the retry replays the
+        whole errand rather than half of it.
+
+        A step is the name of an action script when one exists by that name, and
+        otherwise DSL source run as it stands — which is what lets a timer in the
+        JSON carry its commands inline.
         """
         if not self._claim_busy():
             return False
@@ -2190,18 +2265,25 @@ class Panel(tk.Tk):
             if not lua_client.is_running() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
             from lastwar_bot import script_engine
-            for action in spec.actions:
-                script_engine.run_action(
-                    action, hwnd=0,
-                    on_event=lambda msg, a=action: self._log_put(f"[timer] {a}: {msg}"),
-                    profile=None,
-                )
+            ctx = script_engine.new_context(
+                hwnd=0,
+                on_event=lambda msg: self._log_put(f"[timer] {timer.name}: {msg}"),
+                variables=timer.args,
+            )
+            for step in timer.scenario:
+                if script_engine.resolve_action(step) is not None:
+                    ok = script_engine.run_action(step, hwnd=0, ctx=ctx)
+                else:
+                    ok = script_engine.run_text(_expand_args(step, timer.args),
+                                                ctx=ctx, label=step.splitlines()[0])
+                if not ok:
+                    raise RuntimeError(self._t("timers.log.step_failed", step=step))
             return True
         finally:
             self._release_busy()
             self.after(400, self._refresh_status)
 
-    def _timer_run_now(self, spec) -> None:
+    def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.
 
         Not a thread of its own: every timer script runs single-file on the one
@@ -2213,9 +2295,9 @@ class Panel(tk.Tk):
         pressing the button by hand *is* collecting the base, and the timer must
         not then collect it again a minute later.
         """
-        if not self._timers.request(spec):
+        if not self._timers.request(timer):
             self._log_put("[timer] " + self._t("timers.log.already_queued",
-                                               name="+".join(spec.actions)))
+                                               name=timer.name))
 
     def _refresh_timer_rows(self) -> None:
         """Repaint the "last / next run" columns; re-armed once a second."""
@@ -2223,15 +2305,15 @@ class Panel(tk.Tk):
             config = self._timer_config()
             records = self._timer_store.records()
             now = time.time()
-            for spec in timersmod.TIMERS:
-                row = self._timer_rows.get(spec.key)
+            for timer in self._timer_catalogue:
+                row = self._timer_rows.get(timer.name)
                 if row is None:
                     continue
-                last = float((records.get(spec.key) or {}).get("last_run") or 0.0)
+                last = float((records.get(timer.name) or {}).get("last_run") or 0.0)
                 row["last"].configure(
                     text=self._t("timers.never") if not last
                     else self._t("timers.ago", ago=self._fmt_span(now - last)))
-                due = timersmod.next_due(spec, config, records)
+                due = self._timer_catalogue.next_due(timer, config, records)
                 if due is None:
                     row["next"].configure(text=self._t("timers.off"))
                 elif due <= now:

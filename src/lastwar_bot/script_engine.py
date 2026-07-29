@@ -1288,17 +1288,85 @@ class Interpreter:
         )
 
 
+def new_context(
+    hwnd: int = 0,
+    on_event: EventCallback | None = None,
+    profile: Any = None,
+    variables: dict | None = None,
+) -> Context:
+    """A run context, optionally pre-seeded with script variables.
+
+    `variables` land in ``ctx.vars``, the same place ``READ_LUA ... INTO x``
+    writes to — so a caller can hand a script its parameters and the script tests
+    them with the ordinary ``IF x > 3`` / ``WHILE x > 0`` conditions.
+
+    Pass the same context to several `run_action` / `run_text` calls to run them
+    as one session: variables, the last FIND and the Lua evaluator are shared, so
+    a sequence costs one daemon connection rather than one per step.
+    """
+    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile)
+    if variables:
+        ctx.vars.update(variables)
+    return ctx
+
+
 def run_action(
     name: str,
     hwnd: int,
     on_event: EventCallback | None = None,
     profile: Any = None,
+    variables: dict | None = None,
+    ctx: Context | None = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
     `profile` is an optional `lastwar_bot.profile.Profile` instance that
     becomes available to scripts as the ``profile.<field>`` namespace
     (read via conditions, write via ``READ_TEXT ... INTO profile.<field>``).
+
+    `variables` seeds ``ctx.vars`` (see :func:`new_context`); `ctx` runs in an
+    existing context instead of a fresh one, which is how a caller chains several
+    actions into one session.
     """
-    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile)
+    if ctx is None:
+        ctx = new_context(hwnd, on_event, profile, variables)
     return Interpreter(ctx).run_action(name)
+
+
+def run_text(
+    text: str,
+    hwnd: int = 0,
+    on_event: EventCallback | None = None,
+    profile: Any = None,
+    variables: dict | None = None,
+    ctx: Context | None = None,
+    label: str = "inline",
+) -> bool:
+    """Execute DSL source given as text — the same language as an action file.
+
+    For callers that hold a couple of commands rather than a script on disk (the
+    panel's schedule lets a timer carry its steps inline in JSON). Everything the
+    file form supports works here: several lines, blocks, conditions.
+
+    Returns True when the script ran to the end (or STOPped deliberately), False
+    on a parse or runtime error, which is reported through `on_event` exactly as
+    a failing action file would be.
+    """
+    if ctx is None:
+        ctx = new_context(hwnd, on_event, profile, variables)
+    interp = Interpreter(ctx)
+    interp._log(f"> {label}")
+    interp._depth += 1
+    try:
+        interp._run_block(parse_text(text))
+        interp._depth -= 1
+        interp._log(f"< {label} OK")
+        return True
+    except _HaltSignal:
+        interp._depth -= 1
+        interp._log(f"< {label} HALTED ({ctx.halt_reason or 'no reason given'})")
+        return True
+    except (ScriptParseError, ScriptRuntimeError) as exc:
+        interp._depth -= 1
+        interp._log(f"< {label} FAILED — {exc}")
+        return False

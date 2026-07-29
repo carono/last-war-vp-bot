@@ -1,199 +1,387 @@
 r"""Scheduled repeats of the panel's actions — the timer module.
 
-A *timer* is an errand plus a period: "collect the base every hour", "keep the
+A *timer* is a scenario plus a period: "collect the base every hour", "keep the
 alliance up — donate, then claim the gifts — every hour". While the panel is open
 a background thread ticks; a timer whose last successful run is older than its
-period runs its recipes in order, headless (no window opened, no mouse), and
-writes down when it finished. The record lives in the profile directory, so
-closing the panel does not reset the clock — a timer that came due while it was
-shut fires shortly after the next launch.
+period runs its scenario headless (no window opened, no mouse) and writes down
+when it finished. That record lives in the profile directory, so closing the
+panel does not reset the clock — a timer that came due while it was shut fires
+shortly after the next launch.
+
+The list of timers is **data, not code**: it is read from ``panel/timers.json``,
+so a new timer is a new entry in that file and nothing here has to change. The
+catalogue below is the fallback the file is seeded from and, if the file is ever
+missing or unreadable, what the panel runs on instead.
+
+    [
+      {
+        "name": "collect_base_resources",       // id: config key and record key
+        "scenario": "collect_base_resources",   // one action, or a list (below)
+        "interval_sec": 3600,
+        "enabled": false,
+        "args": {}
+      },
+      {
+        "name": "alliance_upkeep",
+        "scenario": ["donate_alliance_tech", "collect_alliance_gifts"],
+        "interval_sec": 3600,
+        "enabled": false,
+        "args": {},
+        "title": "Alliance: donate, then claim the gifts"
+      }
+    ]
+
+``scenario`` is one step or a list of them, run in order. A step is either the
+name of an action script (``src/lastwar_bot/actions/<name>.md``) or, when no such
+script exists, DSL source run as-is — so a timer can carry its commands inline::
+
+    {"name": "quick_donate", "scenario": "TAP donate_1000 xall", "interval_sec": 1200}
+
+``args`` is handed to the scenario as script variables (the same ``ctx.vars`` that
+``READ_LUA … INTO x`` writes), so steps can test them with the ordinary
+``IF x > 3`` conditions, and ``{name}`` in an inline step is replaced by the
+matching value before it is parsed.
+
+Every field except ``name`` and ``scenario`` may be left out: it then falls back
+to the entry of the same name in the hardcoded catalogue, and failing that to the
+module defaults. ``enabled`` and ``interval_sec`` in the file are *defaults* in
+turn — the panel's own checkbox and period, saved per profile, win over them, so
+two accounts can keep different schedules from one catalogue.
 
 What the module decides, and what it deliberately does not:
 
   * **A timer that has never run is due at once.** "Not collected for over an
     hour" is exactly what an empty record means, so the first tick after a fresh
     profile fires everything that is switched on.
-  * **A failed run is not a run.** ``last_run`` only moves when the action really
-    finished, so a run lost to a closed game is retried rather than silently
-    skipped for another hour. To keep a permanently broken action from re-firing
-    every tick, a failure parks that one timer for :data:`RETRY_HOLD_SEC`.
-  * **One thing at a time, in one thread.** Every scheduled script runs on the
+  * **A failed run is not a run.** ``last_run`` only moves when the scenario
+    really finished, so a run lost to a closed game is retried rather than
+    silently skipped for another hour. To keep a permanently broken scenario from
+    re-firing every tick, a failure parks that one timer for
+    :data:`RETRY_HOLD_SEC`.
+  * **One thing at a time, in one thread.** Every scheduled scenario runs on the
     single worker thread, fed by a queue — nothing ever runs in parallel with
-    anything else. Two errands that come due in the same second go on the queue
-    in order and the second waits for the first to finish; the "run now" button
-    enqueues too, rather than starting a thread of its own. When the panel is
-    busy with a button-driven action of its own, the errand stays queued and is
-    taken up again a few seconds later, so it is delayed, never lost.
+    anything else. Two timers that come due in the same second go on the queue in
+    order and the second waits for the first to finish; the "run now" button
+    enqueues too, rather than starting a thread of its own. When the panel is busy
+    with a button-driven action of its own, the errand stays queued and is taken
+    up again a few seconds later, so it is delayed, never lost.
 
-Nothing here imports Tk or the game: the panel passes in the settings dict, a
-runner and a log sink, which keeps the decision — *what is due right now* — a
-plain function that tests can call without a display or a running client.
-
-The catalogue below is the whole list of timers; adding one is adding an entry
-(an action name from ``src/lastwar_bot/actions/`` plus a default period) and the
-two locale strings its label needs.
+Nothing here imports Tk or the game: the panel passes in the settings, a runner
+and a log sink, which keeps the decision — *what is due right now* — a plain
+function that tests can call without a display or a running client.
 """
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .profile import _write_json
 
 # How often the scheduler wakes up to look for a due timer. Well under the
-# shortest sensible period (a minute), so a timer fires within a few seconds of
-# coming due, and a tick that finds nothing costs one dict comparison.
+# shortest sensible period, so a timer fires within a few seconds of coming due,
+# and a tick that finds nothing costs one dict comparison. A timer configured
+# with a period shorter than this simply fires once a tick.
 TICK_SEC = 20.0
 
 # After a failed run, how long that timer is left alone before it is tried again.
-# Without it an action that fails for a standing reason (game closed mid-run, a
+# Without it a scenario that fails for a standing reason (game closed mid-run, a
 # broken recipe) would re-fire every tick and fill the log with the same error.
 RETRY_HOLD_SEC = 300.0
 
 # How long the worker sits still after the panel turns an errand down as busy.
-# The errand stays at the head of the queue either way; this is only about not
-# asking again in a tight loop while a person's own button press runs its course.
+# The errand stays in the queue either way; this is only about not asking again
+# in a tight loop while a person's own button press runs its course.
 BUSY_RETRY_SEC = 5.0
 
-# Bounds offered in the UI and enforced here, so a hand-edited config cannot ask
-# for a timer that fires every second or one that never fires at all.
-MIN_MINUTES = 1
-MAX_MINUTES = 24 * 60
+# Bounds enforced on whatever the config asks for, so a hand-edited file cannot
+# ask for a timer that fires every second or one that never fires at all.
+MIN_INTERVAL_SEC = 10
+MAX_INTERVAL_SEC = 7 * 24 * 3600
+DEFAULT_INTERVAL_SEC = 3600
+
+PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
+# The catalogue file. Beside the panel, not inside a profile: it says WHICH
+# timers exist and what each one runs, which is the same for every account. What
+# differs per account — the switch, the period, and when each last ran — lives in
+# the profile (config.json and timers_last_run.json).
+CATALOGUE_FILE = os.path.join(PANEL_DIR, "timers.json")
 
 
 @dataclass(frozen=True)
-class TimerSpec:
-    """One schedulable errand: what to run, how often by default, what to call it.
+class Timer:
+    """One schedulable errand, as configured.
 
-    ``actions`` is a *sequence* because an errand is not always one press: the
-    alliance one below is "donate, then claim the gifts", which is two recipes
-    that belong to a single switch and a single clock. The runner walks them in
-    order and the errand only counts as done when the last one has finished — a
+    ``scenario`` is a *sequence* because an errand is not always one press: the
+    alliance one is "donate, then claim the gifts", which is two recipes that
+    belong to a single switch and a single clock. The runner walks them in order
+    and the errand only counts as done when the last one has finished — a
     donation that went through followed by a failed gift claim is a failed
     errand, and the retry does both. That is the safe way round: both recipes
     no-op when there is nothing to take.
     """
 
-    key: str                        # stable id — config key and last-run key
-    actions: tuple[str, ...]        # action scripts (src/lastwar_bot/actions/<name>.md)
-    label_key: str                  # locale key for the row label
-    default_minutes: int
+    name: str                       # id — config key, record key, log name
+    scenario: tuple[str, ...]       # action names and/or inline DSL source
+    interval_sec: int = DEFAULT_INTERVAL_SEC
+    enabled: bool = False
+    args: dict = field(default_factory=dict)
+    title: str | None = None        # row label straight from the config
+    label_key: str | None = None    # …or a locale key, for the built-in entries
+
+    def as_dict(self) -> dict:
+        """The entry as it is written in the catalogue file."""
+        out = {
+            "name": self.name,
+            "scenario": list(self.scenario) if len(self.scenario) != 1
+            else self.scenario[0],
+            "interval_sec": self.interval_sec,
+            "enabled": self.enabled,
+        }
+        if self.args:
+            out["args"] = dict(self.args)
+        if self.title:
+            out["title"] = self.title
+        return out
 
 
-# The two errands task #1118 asks for. Every recipe behind them is headless (the
-# gift one opens the alliance window inside the game and closes it again, still
-# without touching the mouse), so a timer firing never takes the machine away
-# from whoever is using it.
-TIMERS: tuple[TimerSpec, ...] = (
-    TimerSpec(
-        key="collect_base_resources",
-        actions=("collect_base_resources",),
+# The fallback catalogue: what ships in the box, what a missing file is seeded
+# from, and what each field falls back to when an entry leaves it out. Every
+# recipe behind these is headless (the gift one opens the alliance window inside
+# the game and closes it again, still without touching the mouse), so a timer
+# firing never takes the machine away from whoever is using it.
+DEFAULT_TIMERS: tuple[Timer, ...] = (
+    Timer(
+        name="collect_base_resources",
+        scenario=("collect_base_resources",),
+        # An hour. The production buildings keep banking while nobody collects,
+        # so the period is about not letting them sit full, not about a cap.
+        interval_sec=3600,
         label_key="timers.item.collect_base_resources",
-        # An hour, as asked. The production buildings keep banking while nobody
-        # collects, so the period is about not letting them sit full, not about
-        # a cap being missed.
-        default_minutes=60,
     ),
-    TimerSpec(
-        key="alliance_upkeep",
+    Timer(
+        name="alliance_upkeep",
         # Donation first: it is the one with something to lose. Attempts bank up
         # on their own timer and the routine wants them spent every 20 minutes,
         # so if the pair is ever cut short it should be cut short at the gifts,
         # which simply wait in the window until the next round.
-        actions=("donate_alliance_tech", "collect_alliance_gifts"),
+        scenario=("donate_alliance_tech", "collect_alliance_gifts"),
+        interval_sec=3600,
         label_key="timers.item.alliance_upkeep",
-        # An hour by default, as asked, and the spinbox goes down to a minute —
-        # 20 is the period the daily routine actually calls for.
-        default_minutes=60,
     ),
 )
 
-BY_KEY: dict[str, TimerSpec] = {spec.key: spec for spec in TIMERS}
+
+def _as_scenario(raw) -> tuple[str, ...]:
+    """Coerce a ``scenario`` field into a tuple of steps."""
+    if isinstance(raw, str):
+        steps = [raw]
+    elif isinstance(raw, (list, tuple)):
+        steps = [str(step) for step in raw]
+    else:
+        return ()
+    return tuple(step for step in (s.strip() for s in steps) if step)
 
 
-def get(key: str) -> TimerSpec | None:
-    return BY_KEY.get(key)
+def _as_interval(raw, fallback: int) -> int:
+    try:
+        value = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return fallback
+    return max(MIN_INTERVAL_SEC, min(MAX_INTERVAL_SEC, value))
 
 
-def default_config() -> dict:
-    """Every timer, switched off, at its default period.
+class Catalogue:
+    """The configured list of timers, plus whatever was wrong with the file.
 
-    Off by default on purpose: a timer presses buttons in the live game on its
-    own, so it is opted into like «Автолут ★», never out of.
+    ``errors`` is not an exception on purpose: a typo in one entry must cost that
+    entry, not the whole schedule, and the panel prints the complaints into its
+    log where the person who typed them will see them.
     """
-    return {spec.key: {"enabled": False, "minutes": spec.default_minutes}
-            for spec in TIMERS}
 
+    def __init__(self, timers, path: str | None = None, errors=()) -> None:
+        self.timers: tuple[Timer, ...] = tuple(timers)
+        self.path = path
+        self.errors: tuple[str, ...] = tuple(errors)
+        self._by_name = {timer.name: timer for timer in self.timers}
 
-def normalize_config(raw) -> dict:
-    """Coerce a stored/typed config into ``{key: {"enabled": bool, "minutes": int}}``.
+    # -- lookup -------------------------------------------------------------
+    def __iter__(self):
+        return iter(self.timers)
 
-    The panel's spinboxes hand over strings and an older profile may carry no
-    ``timers`` block at all, so every value is re-derived here rather than
-    trusted. An unreadable period falls back to the timer's default instead of
-    dropping the row — a mistyped number must not silently disable a timer the
-    operator believes is on.
-    """
-    raw = raw if isinstance(raw, dict) else {}
-    out = default_config()
-    for spec in TIMERS:
-        item = raw.get(spec.key)
-        if not isinstance(item, dict):
-            continue
-        out[spec.key]["enabled"] = bool(item.get("enabled", False))
-        try:
-            minutes = int(str(item.get("minutes", spec.default_minutes)).strip())
-        except (TypeError, ValueError):
-            minutes = spec.default_minutes
-        out[spec.key]["minutes"] = max(MIN_MINUTES, min(MAX_MINUTES, minutes))
-    return out
+    def __len__(self) -> int:
+        return len(self.timers)
 
+    def by_name(self, name: str) -> Timer | None:
+        return self._by_name.get(name)
 
-def due_keys(config: dict, records: dict, now: float) -> list[str]:
-    """Which enabled timers are due at ``now``, the most overdue first.
+    def names(self) -> list[str]:
+        return [timer.name for timer in self.timers]
 
-    ``records`` is the last-run store's raw mapping (see :class:`LastRunStore`).
-    A timer with no record has never run and is due immediately; one whose last
-    attempt failed is held for :data:`RETRY_HOLD_SEC` before being offered again.
-    """
-    out = []
-    for spec in TIMERS:
-        item = config.get(spec.key) or {}
+    # -- settings -----------------------------------------------------------
+    def default_config(self) -> dict:
+        """Each timer's switch and period as the catalogue asks for them.
+
+        The panel's saved settings override this per profile; a timer the file
+        marks ``"enabled": true`` therefore starts on for a profile that has
+        never seen it, and stays as the operator left it afterwards.
+        """
+        return {timer.name: {"enabled": timer.enabled,
+                             "interval_sec": timer.interval_sec}
+                for timer in self.timers}
+
+    def normalize_config(self, raw) -> dict:
+        """Coerce stored/typed settings into ``{name: {enabled, interval_sec}}``.
+
+        The panel's spinboxes hand over strings, a profile saved before a timer
+        existed has no entry for it, and one saved after a timer was deleted has
+        an entry for nothing — so every value is re-derived here against the
+        current catalogue rather than trusted. An unreadable period falls back to
+        the configured one instead of dropping the row: a mistyped number must
+        not silently disable a timer the operator believes is on.
+        """
+        raw = raw if isinstance(raw, dict) else {}
+        out = self.default_config()
+        for timer in self.timers:
+            item = raw.get(timer.name)
+            if not isinstance(item, dict):
+                continue
+            out[timer.name]["enabled"] = bool(item.get("enabled", timer.enabled))
+            out[timer.name]["interval_sec"] = _as_interval(
+                item.get("interval_sec", timer.interval_sec), timer.interval_sec)
+        return out
+
+    # -- the decision -------------------------------------------------------
+    def due_names(self, config: dict, records: dict, now: float) -> list[str]:
+        """Which enabled timers are due at ``now``, the most overdue first.
+
+        ``records`` is the last-run store's raw mapping (see
+        :class:`LastRunStore`). A timer with no record has never run and is due
+        immediately; one whose last attempt failed is held for
+        :data:`RETRY_HOLD_SEC` before being offered again.
+        """
+        out = []
+        for timer in self.timers:
+            item = config.get(timer.name) or {}
+            if not item.get("enabled"):
+                continue
+            rec = records.get(timer.name) or {}
+            failed_at = float(rec.get("failed_at") or 0.0)
+            if failed_at and now - failed_at < RETRY_HOLD_SEC:
+                continue
+            last = float(rec.get("last_run") or 0.0)
+            period = _as_interval(item.get("interval_sec"), timer.interval_sec)
+            overdue = now - last - period
+            if overdue >= 0:
+                out.append((overdue, timer.name))
+        out.sort(key=lambda pair: pair[0], reverse=True)
+        return [name for _overdue, name in out]
+
+    def next_due(self, timer: Timer, config: dict, records: dict) -> float | None:
+        """Wall clock the timer fires at, ``0.0`` for "now" and ``None`` when off."""
+        item = config.get(timer.name) or {}
         if not item.get("enabled"):
-            continue
-        rec = records.get(spec.key) or {}
-        failed_at = float(rec.get("failed_at") or 0.0)
-        if failed_at and now - failed_at < RETRY_HOLD_SEC:
-            continue
+            return None
+        rec = records.get(timer.name) or {}
         last = float(rec.get("last_run") or 0.0)
-        period = max(MIN_MINUTES, int(item.get("minutes") or spec.default_minutes)) * 60
-        overdue = now - last - period
-        if overdue >= 0:
-            out.append((overdue, spec.key))
-    out.sort(key=lambda pair: pair[0], reverse=True)
-    return [key for _overdue, key in out]
+        if not last:
+            return 0.0
+        return last + _as_interval(item.get("interval_sec"), timer.interval_sec)
 
 
-def next_due(spec: TimerSpec, config: dict, records: dict) -> float | None:
-    """Wall clock the timer fires at, ``0.0`` for "now" and ``None`` when off."""
-    item = config.get(spec.key) or {}
-    if not item.get("enabled"):
-        return None
-    rec = records.get(spec.key) or {}
-    last = float(rec.get("last_run") or 0.0)
-    if not last:
-        return 0.0
-    period = max(MIN_MINUTES, int(item.get("minutes") or spec.default_minutes)) * 60
-    return last + period
+def default_catalogue() -> Catalogue:
+    """The hardcoded fallback, as a catalogue."""
+    return Catalogue(DEFAULT_TIMERS)
+
+
+def parse_catalogue(data, path: str | None = None) -> Catalogue:
+    """Build a catalogue from already-decoded JSON.
+
+    Accepts either a bare list of entries or ``{"timers": [...]}``. The FILE owns
+    the list — a timer deleted from it is gone — while each entry falls back
+    field by field to the built-in of the same name, so an entry may be as short
+    as ``{"name": "collect_base_resources", "interval_sec": 1800}``.
+    """
+    if isinstance(data, dict):
+        data = data.get("timers")
+    if not isinstance(data, list):
+        return Catalogue(DEFAULT_TIMERS, path,
+                         ["config is not a list of timers — using the defaults"])
+
+    builtin = {timer.name: timer for timer in DEFAULT_TIMERS}
+    timers, errors, seen = [], [], set()
+    for index, raw in enumerate(data):
+        if not isinstance(raw, dict):
+            errors.append(f"entry #{index + 1} is not an object — skipped")
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            errors.append(f"entry #{index + 1} has no name — skipped")
+            continue
+        if name in seen:
+            errors.append(f"{name}: listed twice — the later entry is ignored")
+            continue
+        base = builtin.get(name)
+        scenario = _as_scenario(raw.get("scenario"))
+        if not scenario:
+            scenario = base.scenario if base else ()
+        if not scenario:
+            errors.append(f"{name}: no scenario to run — skipped")
+            continue
+        args = raw.get("args")
+        timers.append(Timer(
+            name=name,
+            scenario=scenario,
+            interval_sec=_as_interval(
+                raw.get("interval_sec"),
+                base.interval_sec if base else DEFAULT_INTERVAL_SEC),
+            enabled=bool(raw.get("enabled", base.enabled if base else False)),
+            args=dict(args) if isinstance(args, dict) else {},
+            title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
+            label_key=base.label_key if base else None,
+        ))
+        seen.add(name)
+
+    if not timers:
+        errors.append("no usable timers in the config — using the defaults")
+        return Catalogue(DEFAULT_TIMERS, path, errors)
+    return Catalogue(timers, path, errors)
+
+
+def load_catalogue(path: str | None = None, seed: bool = True) -> Catalogue:
+    """Read the catalogue file, falling back to the built-in list.
+
+    With ``seed`` the file is written out from the defaults when it does not
+    exist yet, so there is always something on disk to edit — which is the whole
+    point of the file: a new timer must be a new entry, not a code change.
+    """
+    path = CATALOGUE_FILE if path is None else path
+    if not os.path.exists(path):
+        cat = Catalogue(DEFAULT_TIMERS, path)
+        if seed:
+            save_catalogue(cat, path)
+        return cat
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return Catalogue(DEFAULT_TIMERS, path, [f"{os.path.basename(path)}: {exc}"])
+    return parse_catalogue(data, path)
+
+
+def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:
+    """Write a catalogue back out in the file's own format."""
+    _write_json(CATALOGUE_FILE if path is None else path,
+                [timer.as_dict() for timer in catalogue.timers])
 
 
 class LastRunStore:
     """When each timer last ran, kept next to the profile it belongs to.
 
-    One small JSON file, ``{key: {"last_run": epoch, "failed_at": epoch}}``,
+    One small JSON file, ``{name: {"last_run": epoch, "failed_at": epoch}}``,
     rewritten whole on every mark. Read errors degrade to "nothing ever ran",
     which makes a corrupted file cost one extra run rather than a crash at
     launch. A profile switch calls :meth:`set_path` — the clock belongs to the
@@ -221,25 +409,25 @@ class LastRunStore:
         with self._lock:
             return {k: dict(v) for k, v in self._data.items()}
 
-    def last_run(self, key: str) -> float:
+    def last_run(self, name: str) -> float:
         with self._lock:
-            return float((self._data.get(key) or {}).get("last_run") or 0.0)
+            return float((self._data.get(name) or {}).get("last_run") or 0.0)
 
     # -- writing ------------------------------------------------------------
-    def mark_run(self, key: str, when: float | None = None) -> None:
+    def mark_run(self, name: str, when: float | None = None) -> None:
         """Record a successful run, clearing any earlier failure hold."""
-        self._update(key, {"last_run": float(when if when is not None else time.time()),
-                           "failed_at": 0.0})
+        self._update(name, {"last_run": float(when if when is not None else time.time()),
+                            "failed_at": 0.0})
 
-    def mark_failed(self, key: str, when: float | None = None) -> None:
+    def mark_failed(self, name: str, when: float | None = None) -> None:
         """Record a failed attempt — the period keeps running, the retry waits."""
-        self._update(key, {"failed_at": float(when if when is not None else time.time())})
+        self._update(name, {"failed_at": float(when if when is not None else time.time())})
 
-    def _update(self, key: str, fields: dict) -> None:
+    def _update(self, name: str, fields: dict) -> None:
         with self._lock:
-            rec = dict(self._data.get(key) or {})
+            rec = dict(self._data.get(name) or {})
             rec.update(fields)
-            self._data[key] = rec
+            self._data[name] = rec
             _write_json(self._path, self._data)
 
     @staticmethod
@@ -255,13 +443,14 @@ class LastRunStore:
 class TimerScheduler:
     """One background thread and a queue: everything scheduled runs single-file.
 
-    **No timer script ever runs in parallel with another.** The thread is both the
-    clock and the only worker: on each tick it puts the errands that have come due
-    on the queue, then takes them off one at a time and runs each to completion.
-    Two timers that come due in the same second do not race — the second one waits
-    in the queue until the first has finished. The row's "run now" button does not
-    start a thread of its own either; it *enqueues*, so a press during a running
-    errand takes its turn behind it instead of being dropped or overlapping it.
+    **No timer scenario ever runs in parallel with another.** The thread is both
+    the clock and the only worker: on each tick it puts the errands that have come
+    due on the queue, then takes them off one at a time and runs each to
+    completion. Two timers that come due in the same second do not race — the
+    second one waits in the queue until the first has finished. The row's "run
+    now" button does not start a thread of its own either; it *enqueues*, so a
+    press during a running errand takes its turn behind it instead of being
+    dropped or overlapping it.
 
     Being both clock and worker is why the wait is on the queue rather than a
     sleep: an errand enqueued by hand is picked up at once, while an idle stretch
@@ -269,9 +458,11 @@ class TimerScheduler:
 
     Collaborators are all callables, so nothing about Tk or the game leaks in:
 
+      * ``catalogue()`` -> the current :class:`Catalogue` (a callable, so the file
+                          can be re-read while the panel is open);
       * ``config()``   -> the normalised settings dict (read fresh every tick, so
                           a checkbox or period change applies without a restart);
-      * ``runner(spec)`` -> ``True`` when the errand really ran, ``False`` when it
+      * ``runner(timer)`` -> ``True`` when the errand really ran, ``False`` when it
                           could not be started right now (the panel is busy with a
                           button-driven action) — then it stays queued and is
                           retried — and it raises for a real failure;
@@ -284,10 +475,11 @@ class TimerScheduler:
     lines into the log.
     """
 
-    def __init__(self, *, store: LastRunStore, config, runner, log,
+    def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
                  busy_retry: float = BUSY_RETRY_SEC) -> None:
         self._store = store
+        self._catalogue = catalogue
         self._config = config
         self._runner = runner
         self._log = log
@@ -297,8 +489,8 @@ class TimerScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gate_said: str | None = None
-        # The work queue. Items are (key, scheduled) — `scheduled` only picks the
-        # log line. `_queued` keeps a key from being lined up twice: a second
+        # The work queue. Items are (name, scheduled) — `scheduled` only picks the
+        # log line. `_queued` keeps a name from being lined up twice: a second
         # press while the first is still waiting would run the errand twice in a
         # row for no reason.
         self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
@@ -326,37 +518,37 @@ class TimerScheduler:
         return self._thread is not None and self._thread.is_alive()
 
     # -- the queue ----------------------------------------------------------
-    def request(self, spec: TimerSpec) -> bool:
-        """Ask for an errand by hand ("run now"). Returns ``False`` if already queued.
+    def request(self, timer: Timer) -> bool:
+        """Ask for an errand by hand ("run now"). ``False`` if already queued.
 
         Called from the UI thread and returns immediately — the errand runs on the
         worker like a scheduled one, so it cannot overlap whatever is running.
         """
-        return self._enqueue(spec.key, scheduled=False)
+        return self._enqueue(timer.name, scheduled=False)
 
-    def _enqueue(self, key: str, scheduled: bool) -> bool:
+    def _enqueue(self, name: str, scheduled: bool) -> bool:
         with self._queue_lock:
-            if key in self._queued:
+            if name in self._queued:
                 return False
-            self._queued.add(key)
-        self._queue.put((key, scheduled))
+            self._queued.add(name)
+        self._queue.put((name, scheduled))
         return True
 
-    def _requeue(self, key: str, scheduled: bool) -> None:
+    def _requeue(self, name: str, scheduled: bool) -> None:
         """Put a turned-down errand back on the queue, still claimed.
 
         At the back, not the front: it was never started, so nothing is half done,
         and whatever is queued behind it came due just as much. Keeping its claim
         is what stops the next tick from lining the same errand up twice.
         """
-        self._queue.put((key, scheduled))
+        self._queue.put((name, scheduled))
 
-    def _release(self, key: str) -> None:
+    def _release(self, name: str) -> None:
         with self._queue_lock:
-            self._queued.discard(key)
+            self._queued.discard(name)
 
     def pending(self) -> set[str]:
-        """Keys currently queued or being run — for tests and the row painter."""
+        """Names currently queued or being run — for tests and the row painter."""
         with self._queue_lock:
             return set(self._queued)
 
@@ -378,10 +570,10 @@ class TimerScheduler:
                     self._stop.wait(min(wait, self._hold_until - time.time()))
                     continue
                 try:
-                    key, scheduled = self._queue.get(timeout=wait)
+                    name, scheduled = self._queue.get(timeout=wait)
                 except queue.Empty:
                     continue
-                self._run_queued(key, scheduled)
+                self._run_queued(name, scheduled)
             except Exception as exc:                      # noqa: BLE001
                 # A scheduler that dies takes every timer with it, silently —
                 # so nothing above is allowed to escape this loop.
@@ -389,10 +581,11 @@ class TimerScheduler:
                 self._stop.wait(self._tick)
 
     def enqueue_due(self, now: float | None = None) -> list[str]:
-        """Queue every errand that has come due. Returns the keys it queued."""
+        """Queue every errand that has come due. Returns the names it queued."""
         now = time.time() if now is None else now
-        config = normalize_config(self._config())
-        pending = due_keys(config, self._store.records(), now)
+        catalogue = self._catalogue()
+        config = catalogue.normalize_config(self._config())
+        pending = catalogue.due_names(config, self._store.records(), now)
         if not pending:
             return []
         if self._gate is not None:
@@ -403,18 +596,18 @@ class TimerScheduler:
                     self._gate_said = reason
                 return []
         self._gate_said = None
-        return [key for key in pending if self._enqueue(key, scheduled=True)]
+        return [name for name in pending if self._enqueue(name, scheduled=True)]
 
-    def _run_queued(self, key: str, scheduled: bool) -> str:
+    def _run_queued(self, name: str, scheduled: bool) -> str:
         """Take one errand off the queue and run it.
 
         Returns ``"ran"`` / ``"skipped"`` / ``"busy"``. ``"busy"`` is the caller's
         signal to stop working the queue for now: the errand has been put back and
         re-running the pass would take the very same item straight off again.
         """
-        spec = BY_KEY.get(key)
-        if spec is None:                     # a key from an older config — drop it
-            self._release(key)
+        timer = self._catalogue().by_name(name)
+        if timer is None:                    # deleted from the config mid-run
+            self._release(name)
             return "skipped"
         if self._gate is not None:
             reason = self._gate()
@@ -424,18 +617,18 @@ class TimerScheduler:
                 if reason != self._gate_said:
                     self._log(reason)
                     self._gate_said = reason
-                self._release(key)
+                self._release(name)
                 return "skipped"
-        ok, busy = self.run_one(spec, scheduled=scheduled)
+        ok, busy = self.run_one(timer, scheduled=scheduled)
         if busy:
             self._hold_until = time.time() + self._busy_retry
-            self._requeue(key, scheduled)    # stays claimed: it is still waiting
+            self._requeue(name, scheduled)   # stays claimed: it is still waiting
             return "busy"
-        self._release(key)
+        self._release(name)
         return "ran" if ok else "skipped"
 
     def tick_once(self, now: float | None = None) -> list[str]:
-        """Queue what is due and work the queue off, in order. Keys that ran.
+        """Queue what is due and work the queue off, in order. Names that ran.
 
         Exactly what the loop does over one tick, minus the waiting — which is
         what makes the schedule's behaviour testable without threads at all.
@@ -450,19 +643,19 @@ class TimerScheduler:
             if self._hold_until > time.time():
                 break                        # the panel is busy — the rest waits
             try:
-                key, scheduled = self._queue.get_nowait()
+                name, scheduled = self._queue.get_nowait()
             except queue.Empty:
                 break
-            status = self._run_queued(key, scheduled)
+            status = self._run_queued(name, scheduled)
             if status == "busy":
                 # It went back on the queue: stop the pass, or the next lap would
                 # pull the same item off again and ask the busy panel in a spin.
                 break
             if status == "ran":
-                ran.append(key)
+                ran.append(name)
         return ran
 
-    def run_one(self, spec: TimerSpec, scheduled: bool = False) -> tuple[bool, bool]:
+    def run_one(self, timer: Timer, scheduled: bool = False) -> tuple[bool, bool]:
         """Run one errand and record the outcome. Returns ``(ran, busy)``.
 
         ``busy`` is the one outcome that is not a verdict on the errand: the panel
@@ -473,27 +666,26 @@ class TimerScheduler:
         Both the tick and the "run now" button come through here, which is what
         makes a manual press restart the period exactly like an automatic run.
         """
-        name = "+".join(spec.actions)
         if scheduled:
-            self._log("timers.log.fire", name=name,
-                      mins=self._minutes_since(spec.key))
+            self._log("timers.log.fire", name=timer.name,
+                      mins=self._minutes_since(timer.name))
         else:
-            self._log("timers.log.manual", name=name)
+            self._log("timers.log.manual", name=timer.name)
         try:
-            started = self._runner(spec)
+            started = self._runner(timer)
         except Exception as exc:                          # noqa: BLE001
-            self._store.mark_failed(spec.key)
-            self._log("timers.log.failed", name=name, error=exc)
+            self._store.mark_failed(timer.name)
+            self._log("timers.log.failed", name=timer.name, error=exc)
             return False, False
         if not started:
-            self._log("timers.log.skip_busy", name=name)
+            self._log("timers.log.skip_busy", name=timer.name)
             return False, True
-        self._store.mark_run(spec.key)
-        self._log("timers.log.done", name=name)
+        self._store.mark_run(timer.name)
+        self._log("timers.log.done", name=timer.name)
         return True, False
 
-    def _minutes_since(self, key: str) -> int:
-        last = self._store.last_run(key)
+    def _minutes_since(self, name: str) -> int:
+        last = self._store.last_run(name)
         if not last:
             return 0
         return int((time.time() - last) // 60)

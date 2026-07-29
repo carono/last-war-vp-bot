@@ -35,6 +35,10 @@ models_cache/
 *.log
 profiles/
 panel/settings.json
+# The timer catalogue is local config: the panel seeds it from the built-in list
+# on first launch (panel/timers.py) and it is meant to be edited on the machine
+# it runs on, so tracking it would turn every added timer into a diff.
+panel/timers.json
 
 # Local artefacts: captures (may hold session tokens), decoded transcripts,
 # benchmark output — never source, kept on disk but out of git.
