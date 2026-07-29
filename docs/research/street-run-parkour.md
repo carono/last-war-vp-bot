@@ -21,9 +21,11 @@ live inspection of the client** (server **935**, 2026-07-29); open items are cal
   best distance **8185** and **28** attempts → `LWSurfingDataManager` is the *only*
   manager whose `GetRemainTimes()==28` **and** `GetPersonalHightestScoreData()==8185`.
   `GetActId()==80063` = activity `id=80063, type=349` in `ActivityListDataManager`.
-- Because the run is real-time, per-frame state must be read by **vision** (mss
-  screenshot + image processing), not Lua — a SafeDoString round-trip is ~1 s, far too
-  slow for a reflex loop. The manager holds only meta (records, attempts, timings).
+- ~~Because the run is real-time, per-frame state must be read by vision, not Lua.~~
+  **Overturned (task #1103, 2026-07-29).** Per-frame obstacle state IS readable from Lua —
+  see [§ Reading obstacles from Lua](#reading-obstacles-from-lua-1103--supersedes-vision).
+  The `LWSurfingDataManager` holds only meta (records, attempts, timings), but the live
+  **runner scene** exposes every obstacle as a monster object with exact lane + distance.
 
 ## Three "parkour"-named things — do NOT confuse
 
@@ -149,6 +151,60 @@ makes the bot think it is boxed when a lane was actually passable.
 - **Offline tuning**: `test [pattern]` runs `detect()`/`decide()` on saved
   `results/street_run/frames/*.png` and writes annotated copies — tune the detector
   without spending an attempt. `run … debug` logs per-frame perception.
+
+## Reading obstacles from Lua (#1103) — supersedes vision
+
+Task #1103 replaced the vision detector with a programmatic read of the Unity scene via
+the xLua daemon. Reader: `tools/lib/surfing_reader.py`; bot commands `readtest` (observe)
+and `runlua` (autopilot). **Proven live, server 935, 2026-07-29.**
+
+**Where the state lives.** During a run the loaded modules include
+`DataCenter.LWBattle.Logic.Surfing.SurfingLogic` (the per-run logic) and
+`Scene.LWBattle.Surfing.Monster.SurfingMonsterManager` (the obstacle manager). Neither is
+a singleton you can look up, so capture the live instances by wrapping their methods once,
+**before** the run starts (they stash `self` into globals):
+
+```lua
+local SL = require("DataCenter.LWBattle.Logic.Surfing.SurfingLogic")
+SL.OnStart = function(self,...) _G.__SR_LOGIC=self return <orig>(self,...) end
+local MM = require("Scene.LWBattle.Surfing.Monster.SurfingMonsterManager")
+MM.Init  = function(self,...) _G.__SR_MM=self return <orig>(self,...) end
+```
+
+**The obstacle model.** `SurfingMonsterManager.showList` is a table of monster objects
+(also `allMonster`, `farmMonster`, `colliderMap`). Each monster exposes plain Lua fields:
+
+| field | meaning |
+|---|---|
+| `.x` | lane centre — **one of {32, 36, 40}** (centre lane = 36, lanes 4 units apart) |
+| `.dataZ` / `.curWorldPos[3]` | world Z (distance along the track) |
+| `.bornId` | template id (e.g. 203001 barrel, 203015/203041 container, 203020/203029 fence) |
+| `.unitType` | **4 = solid collider obstacle · 1 = score/coin · 3 = energy · 2 = box** |
+| `.gameObject.name` | prefab — the definitive type (`A_Monster_surfing_mutong(Clone)` = barrel, `O_env_ditiepaoku_chexiang_*` = container, `O_Object_high_zhalan*` = fence, `A_Vehicle_truck_02` = truck) |
+
+Player position: `SurfingLogic.player:GetPosition()` → `(x, y, z)`; lane = nearest of
+{32,36,40}. Track speed: `SurfingLogic:GetMoveSpeed()` = **30 u/s** (constant), so
+`dz = obstacle.dataZ − player.z` gives an exact time-to-impact `dz/30`. Obstacles are
+readable ~150 u (~5 s) ahead — full deterministic look-ahead, no pixels.
+
+**Latency.** A read round-trip through the warm daemon (`settle=0.06`) is ~0.09 s ≈ 11 Hz
+— on par with the vision loop but with exact geometry and huge look-ahead. A
+scene-enumeration fallback (`FindObjectsOfType(Transform)` filtered by prefab name) keeps
+`read()` working without the capture hook, at higher cost.
+
+**Classification** (by prefab name, definitive; `unitType` corroborates): barrel/`mutong`
+= low, **hoppable**; `dizhalan`/low fence = low; `high_zhalan`/`gaozhalan` = tall fence,
+**not** hoppable; `chexiang`/`truck`/vehicle = tall container/truck, **not** hoppable;
+coins (`O_Object_score_gold`, unitType 1) and buffs are **not** collision hazards.
+
+**Dodge policy** (`surfing_reader.decide`): (1) nothing imminent → hold; (2) a genuinely
+clear adjacent lane → step in; (3) low barrel dead-ahead within the jump window → hop it
+(height-gated — a jump into a tall fence/truck is fatal, proven live); (4) tall obstacle
+with no clear lane → take the least-bad reachable lane. One-step reactive: it clears the
+staggered opening (barrel-centre + trucks on the sides) to **~132 m single life** (vs
+~88 m no control). The remaining deaths are **multi-lane traps** (e.g. truck-centre while
+the only clear lane is two steps away) — solvable now that positions are exact, via
+forward path-planning over the read look-ahead (future work), not more reflex tuning.
 
 ## Status vs. the task
 

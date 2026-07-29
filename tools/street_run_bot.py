@@ -6,11 +6,20 @@ randomly spawning obstacles (cars/trucks/concrete + orange barriers/barrels), ar
 control (←/→ lane, ↑ jump), a handful of attempts per round plus 3 coin-priced revives.
 See docs/research/street-run-parkour.md for the full reconnaissance.
 
-Because the run is real-time, live state (player lane, obstacles) is read by **vision**
-(mss screenshot + image processing), not Lua — a SafeDoString round-trip is ~1 s, far too
-slow for a reflex loop. Lua (DataCenter.LWSurfingDataManager) is used only for meta:
-event availability, remaining attempts, and starting a run (ReqFightStartCheck). Reviving
-is a UI button click (the Lua ReqRebirthGame does not revive).
+Two state layers exist:
+
+  * **Lua scene reader (preferred, task #1103)** — `tools/lib/surfing_reader.py`. During a
+    run every obstacle is a monster object in `SurfingMonsterManager.showList` with exact
+    lane (`.x` ∈ {32,36,40}), distance (`.dataZ`), type (`.gameObject.name`/`.unitType`)
+    and the player at `SurfingLogic.player:GetPosition()`. This gives deterministic
+    look-ahead (~5 s) instead of pixels. Commands: `readtest` (observe), `runlua`
+    (autopilot). A daemon read is ~0.09 s (~11 Hz).
+  * **Vision (legacy)** — mss screenshot + image processing (`detect`/`decide`, `run`).
+    Kept for comparison; the Lua reader supersedes it. See docs/research/street-run-parkour.md.
+
+Lua `DataCenter.LWSurfingDataManager` also holds meta: event availability, remaining
+attempts, starting a run (ReqFightStartCheck). Reviving is a UI button click (the Lua
+ReqRebirthGame does not revive).
 
 Run under the Windows Python so it can reach the game + warm Lua daemon:
 
@@ -19,7 +28,9 @@ Run under the Windows Python so it can reach the game + warm Lua daemon:
     C:\Python312\python.exe tools\street_run_bot.py test [rec_]  # OFFLINE: detect() on saved frames
     C:\Python312\python.exe tools\street_run_bot.py watch [sec]  # poll until the event opens
     C:\Python312\python.exe tools\street_run_bot.py calibrate [n]# grab N run frames for tuning
-    C:\Python312\python.exe tools\street_run_bot.py run [reserve] [revives] [debug] [boxed]
+    C:\Python312\python.exe tools\street_run_bot.py readtest [sec]        # LUA reader, observe-only
+    C:\Python312\python.exe tools\street_run_bot.py runlua [reserve] [revives] [debug]  # LUA autopilot
+    C:\Python312\python.exe tools\street_run_bot.py run [reserve] [revives] [debug] [boxed]  # vision (legacy)
 
 `run` keeps `reserve` attempts for the user (default 5), spends `revives` coin-priced
 revives per run to extend it (0..3, default 0 — revives cost 100/1000/2000+ coins),
@@ -187,8 +198,9 @@ def _game_pid() -> int:
 def find_win(pid: int | None = None):
     if pid is None:
         pid = _game_pid()
-    _, _, _, win32gui, win32process = _win_libs()
+    _, win32api, win32con, win32gui, win32process = _win_libs()
     hs = []
+    minimized = []      # the game window when minimized sits off-screen at ~(-32000,-32000)
 
     def cb(h, _):
         if win32gui.IsWindowVisible(h):
@@ -197,10 +209,28 @@ def find_win(pid: int | None = None):
                 r = win32gui.GetWindowRect(h)
                 if r[2] - r[0] > 200 and r[3] - r[1] > 200:
                     hs.append((h, r))
+                elif win32gui.GetWindowText(h) == "Last War-Survival Game":
+                    minimized.append(h)
         return True
 
     win32gui.EnumWindows(cb, None)
-    return hs[0] if hs else (None, None)
+    if hs:
+        return hs[0]
+    # No usable window but the client is minimized — restore it (input needs it on-screen)
+    if minimized:
+        h = minimized[0]
+        win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)
+        try:
+            win32gui.ShowWindow(h, win32con.SW_RESTORE)
+            win32gui.SetForegroundWindow(h)
+        except Exception:
+            pass
+        win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.6)
+        r = win32gui.GetWindowRect(h)
+        if r[2] - r[0] > 200 and r[3] - r[1] > 200:
+            return (h, r)
+    return (None, None)
 
 
 def focus(h):
@@ -692,10 +722,170 @@ def cmd_run(reserve: int = 5):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Lua-reader autopilot (replaces the vision detect()/decide() with an exact,
+# look-ahead read of SurfingMonsterManager.showList — see tools/lib/surfing_reader.py)
+# ---------------------------------------------------------------------------
+
+def _read_loop(reader, h, log, dbg, revives: int):
+    """One life+revives with the Lua reader driving the dodge. Returns the last player z
+    reached (a distance proxy). Death is detected when player Z stalls (it climbs at
+    ~speed/s while alive)."""
+    import time as _t
+    from surfing_reader import decide
+    life = 0
+    last_z = -1.0
+    z_stall_t = _t.time()
+    cooldown = 0.0
+    while True:
+        deadline = _t.time() + 240
+        while _t.time() < deadline:
+            s = reader.read()
+            now = _t.time()
+            if not s.get("ok"):
+                # scene not readable (between lives / loading). Treat a long gap as death.
+                if now - z_stall_t > 2.0:
+                    break
+                _t.sleep(0.1)
+                continue
+            _, pz = s["player"]
+            if pz > last_z + 0.05:
+                last_z = pz
+                z_stall_t = now
+            elif now - z_stall_t > 1.2:       # z frozen ~1.2 s → dead (or paused)
+                break
+            key = None
+            if now >= cooldown:
+                key = decide(s)
+                if key:
+                    press(key)
+                    cooldown = now + 0.16
+            if dbg is not None:
+                near = [o for o in s["obstacles"] if o["obstacle"] and o["dz"] > -6][:4]
+                brief = " ".join("%s@L%d/%.0f" % (o["kind"], o["lane"], o["dz"]) for o in near)
+                dbg.write("z=%.1f lane=%d key=%s | %s\n" % (pz, s["lane"], key, brief))
+                dbg.flush()
+        # life ended
+        if life < revives:
+            _t.sleep(1.2); focus(h); _t.sleep(0.2)
+            revive(h)
+            resumed = False
+            t_res = _t.time() + 8
+            while _t.time() < t_res:
+                d = reader.read()
+                if d.get("ok"):
+                    resumed = True; break
+                _t.sleep(0.2)
+            if resumed:
+                life += 1; z_stall_t = _t.time(); focus(h); continue
+        break
+    return last_z
+
+
+def cmd_readtest(secs: float = 8.0):
+    """OBSERVE-ONLY proof: install the reader, start ONE run, and print the live obstacle
+    field + what decide() WOULD do — no key presses. Confirms the Lua read replaces vision.
+    Costs one attempt."""
+    from lua_client import get_evaluator
+    from surfing_reader import SurfReader, decide, lane_threats
+    st = read_state(fetch=True)
+    if not event_open(st):
+        print("Event «Уличный забег» is not open — cannot readtest."); return 2
+    ev = get_evaluator()
+    reader = SurfReader(ev)
+    try:
+        reader.install()
+        _eval(_START_LUA, settle=2.0)
+        print("run started; reading scene (observe-only, no input)...")
+        t_end = time.time() + secs
+        n = 0
+        while time.time() < t_end:
+            s = reader.read()
+            if not s.get("ok"):
+                print("  [read] %s" % s.get("reason")); time.sleep(0.15); continue
+            near, jump = lane_threats(s)
+            hazards = [o for o in s["obstacles"] if o["obstacle"] and o["dz"] > -6][:5]
+            desc = ", ".join("%s L%d dz=%.0f%s" % (o["kind"], o["lane"], o["dz"],
+                             "(hop)" if o["jumpable"] else "") for o in hazards)
+            print("  z=%.1f lane=%d near=%s -> %s | %s"
+                  % (s["player"][1], s["lane"],
+                     [None if v is None else round(v) for v in near], decide(s), desc))
+            n += 1
+            time.sleep(0.12)
+        print("read %d frames" % n)
+    finally:
+        ev.close()
+    return 0
+
+
+def cmd_runlua(reserve: int = 5, revives: int = 0):
+    """Autopilot driven by the Lua scene reader (no vision). Keeps `reserve` attempts,
+    spends `revives` per run. Presses arrows via pydirectinput, so the window is focused."""
+    from lua_client import get_evaluator
+    from surfing_reader import SurfReader
+    st = read_state(fetch=True)
+    if not event_open(st):
+        print("Event «Уличный забег» is not open (activityId=nil)."); return 2
+    h, _ = find_win()
+    if h is None:
+        print("no game window"); return 1
+    outdir = os.path.join("results", "street_run")
+    os.makedirs(outdir, exist_ok=True)
+    log = open(os.path.join(outdir, "runs_lua.log"), "a", encoding="utf-8")
+    ev = get_evaluator()
+    reader = SurfReader(ev)
+    remaining = int(st.get("remainTimes") or 0)
+    print("Event open, %d attempt(s); best %s. Reserve=%d revives=%d (LUA reader)"
+          % (remaining, st.get("highest", "?"), reserve, revives))
+    attempt = 0
+    try:
+        reader.install()
+        while remaining > reserve:
+            attempt += 1
+            focus(h); time.sleep(0.3)
+            _eval(_START_LUA, settle=2.0)          # start_run
+            # wait for the scene to become readable
+            loaded = False
+            t_load = time.time() + 10
+            while time.time() < t_load:
+                if reader.read().get("ok"):
+                    loaded = True; break
+                time.sleep(0.2)
+            if not loaded:
+                print("attempt %d: scene did not load" % attempt)
+                _dismiss_popup(); remaining = int(read_state().get("remainTimes") or remaining - 1)
+                continue
+            focus(h); time.sleep(0.2)
+            dbg = open(os.path.join(outdir, "runlua_%02d.log" % attempt), "w", encoding="utf-8") if DEBUG else None
+            reached = _read_loop(reader, h, log, dbg, revives)
+            if dbg is not None:
+                dbg.close()
+            st = read_state()
+            best = st.get("highest", "?")
+            remaining = int(st.get("remainTimes") or remaining - 1)
+            line = ("attempt %d: reached~z=%.0f remaining=%d best=%s"
+                    % (attempt, reached, remaining, best))
+            log.write(line + "\n"); log.flush(); print(line)
+            _dismiss_popup(); time.sleep(0.6)
+    finally:
+        ev.close(); log.close()
+    print("Stopped with %d attempts in reserve. Best: %s"
+          % (remaining, read_state().get("highest", "?")))
+    return 0
+
+
 def main(argv):
+    global REVIVES_PER_RUN, DEBUG, BOXED_ACTION
     cmd = argv[0] if argv else "probe"
     if cmd == "probe":
         return cmd_probe()
+    if cmd == "readtest":
+        return cmd_readtest(float(argv[1]) if len(argv) > 1 else 8.0)
+    if cmd == "runlua":
+        if len(argv) > 3 and argv[3] in ("1", "debug", "true"):
+            DEBUG = True
+        return cmd_runlua(int(argv[1]) if len(argv) > 1 else 5,
+                          int(argv[2]) if len(argv) > 2 else 0)
     if cmd == "test":
         return cmd_test(argv[1] if len(argv) > 1 else "rec_")
     if cmd == "shot":
@@ -708,7 +898,6 @@ def main(argv):
         return cmd_record(int(argv[1]) if len(argv) > 1 else 120)
     if cmd == "run":
         # run [reserve] [revives] [debug] [boxed_action]
-        global REVIVES_PER_RUN, DEBUG, BOXED_ACTION
         if len(argv) > 2:
             REVIVES_PER_RUN = max(0, min(3, int(argv[2])))
         if len(argv) > 3 and argv[3] in ("1", "debug", "true"):

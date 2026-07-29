@@ -84,20 +84,27 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the Surfing 3-lane endless runner) — the bot finds
-  the open event, launches runs, dodges obstacles with a vision reflex loop and extends
-  each run with coin-priced revives, logging every distance and keeping a reserve
-  (`tools/street_run_bot.py`, `LWSurfingDataManager`). Detector v2 (connected-component
-  blobs, robust road reference, coins rejected by width, differential "run to the
-  clearest lane" logic) catches concrete/orange barriers, trucks and lit barrels; the
-  game pid is auto-resolved so a client restart doesn't break it. Revives are driven by
-  clicking the «Воскрешение» button (the Lua `ReqRebirthGame` does not revive), so one
-  attempt spans up to 4 lives → **~440 m per attempt, deterministic** (proven live,
-  server 935), vs ~88 m with no control. What runs by itself: the whole
-  launch→dodge→revive→log loop. **Ceiling is inherent, not a missing feature** — at
-  ~15 fps the reflex loop dodges only ~100–160 m per life and cannot thread the fast
-  spawns reliably; the human record 8185 m (and the 20000 m target) is **not reachable**
-  by this vision pipeline. Left to the person: nothing required; raising the ceiling
-  would need a faster capture path and cleaner obstacle segmentation.
+  the open event, launches runs, dodges obstacles and extends each run with coin-priced
+  revives, logging every distance and keeping a reserve (`tools/street_run_bot.py`,
+  `LWSurfingDataManager`). **Obstacles are now read from Lua, not vision**
+  (`tools/lib/surfing_reader.py`): during a run every obstacle is a monster object in
+  `SurfingMonsterManager.showList`, exposing `.x` (lane — one of 32/36/40, centre=36),
+  `.dataZ` (world Z), `.unitType` (4=solid obstacle · 1=coin · 3=energy · 2=box) and
+  `.gameObject.name` (definitive type — barrel «mutong», fence «zhalan», container
+  «chexiang», truck). The player Z comes from `SurfingLogic.player:GetPosition()` and the
+  track scrolls at a constant `GetMoveSpeed()`=30 u/s, so distance-ahead → time-to-impact
+  is exact and obstacles are known ~150 u (~5 s) ahead — deterministic look-ahead instead
+  of a 15 fps pixel guess. The instances are captured by wrapping `SurfingLogic.OnStart` /
+  `SurfingMonsterManager.Init`. `decide()` steps to a genuinely-clear lane, else hops a
+  low barrel (height-gated — a jump into a tall fence/truck is fatal), else takes the
+  least-bad lane. `runlua` is the Lua-driven autopilot; `readtest` prints the live obstacle
+  field (observe-only). Revives are driven by clicking the «Воскрешение» button (the Lua
+  `ReqRebirthGame` does not revive). What runs by itself: the whole
+  launch→read→dodge→revive→log loop. Proven live (server 935, 2026-07-29): the reader is
+  pixel-perfect and the autopilot cleared the opening trap to **~132 m single life** (vs
+  ~88 m no control), zero vision. Left to the person: nothing required; the remaining
+  deaths are multi-lane traps (need L→M→R path-planning, not one-step reflex) — the exact
+  reader makes that solvable, but the record 8185 m / 20000 m target is still open.
 
 ### Arms Race
 
