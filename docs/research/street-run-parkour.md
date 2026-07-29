@@ -99,37 +99,56 @@ Network fetch (populate the manager): **`SendGetAllParkourInfosMessage`**,
 Keyboard arrows via `pydirectinput` (foreground): **← / →** switch lane, **↑** jump,
 **↓** slide. v1 of the bot uses lane-switch only.
 
-## Auto-play — how `detect()`/`decide()` work (v1)
+## Auto-play — how `detect()`/`decide()` work (v2, 2026-07-29)
 
 - **Player lane**: blue-helmet centroid in the bottom-centre ROI → x-threshold to
-  lane 0/1/2. Avatar sits at x≈0.499 (centre) by default. Reliable.
-- **Obstacles**: sampled in a danger band ahead (`_BAND_DEPTHS` 0.34/0.40/0.47) at
-  three perspective-converged lane centres. A fixed colour threshold FAILS (the
-  cartoon palette swings scene to scene), so the mask is **adaptive**: reference =
-  the clear road patch just in front of the avatar; an obstacle pixel is markedly
-  darker (`V < road_V−45`) or more saturated (`S > road_S+70`) than that, with bright
-  gold coins (`V>175, hue 12–45`) carved back out. Lane blocked if the band fraction
-  exceeds `_OBST_THRESH`.
-- **decide()**: if the player's lane is blocked, step to a clear neighbour (prefer
-  centre); if boxed in, jump. No jump/slide obstacle classification yet.
-- **Loop**: in-memory grab+detect at **~16 fps** (61 ms; the PNG-saving path was ~4).
-  A 0.28 s cooldown after each key stops lane-change overshoot. Death = the big
-  near-white «Испытание окончено» card centre-screen.
+  lane 0/1/2. Avatar sits at x≈0.49 (centre) by default. Reliable.
+- **Obstacles** — the cartoon palette defeats a fixed threshold *and* even per-pixel
+  labelling (gold coins are pixel-identical to a **lit barrel**: both H≈18 S≈170 V≈220;
+  a white crosswalk ≈ a pale concrete barrier). v2 leans on two robust ideas instead:
+  1. **Blob geometry.** Build an obstacle mask (robust road reference = median over a
+     wide low road band, so the coin trail sitting on the centre patch no longer
+     poisons it; a pixel is an obstacle if it is off-brown-hued = truck, brighter+
+     desaturated = concrete, much more saturated = barrel/orange barrier, or much
+     darker = shadow/underside). Then connected-component filter: keep large solid
+     blobs, drop thin-wide markings (crosswalk/dashes), thin diagonals (lamp poles),
+     and **narrow gold blobs (coins) by WIDTH** (<0.055·W) — do NOT colour-carve gold,
+     that deletes lit barrels and kills the run.
+  2. **Differential decide().** The game always leaves a passable lane, so a real
+     obstacle shows up as ONE lane much more blocked than a neighbour; a row blocked
+     ~equally across all three is a ground marking → hold. `decide()` runs to the
+     **least-blocked reachable lane** (argmin) when it beats the current lane by a
+     margin; jump (↑) only when walled in with no clearer neighbour.
+- **Loop**: in-memory grab+detect at **~12–15 fps**. A 0.18 s cooldown after each key
+  stops lane-change overshoot. Death = the big near-white «Испытание окончено» card.
+- **Revive**: on death, up to 3× **click the «Воскрешение» button** (screen-relative
+  (0.565·W, 0.59·H)) to continue the SAME run — distance carries over. The Lua
+  `m:ReqRebirthGame()` does **not** revive (verified: the popup still reports 3/3
+  after it). Revives are coin-priced and the price ramps (×100 → ×1000 → ×2000…), so
+  ~3 per run is the practical limit. `remainTimes` spends 1 per whole multi-life run.
+- **pid auto-resolve**: `find_win()` re-resolves the LastWar.exe pid via
+  `il2cpp_probe.find_game_pid()` every call — the client self-restarts into new pids,
+  so a hardcoded one silently breaks window capture.
+- **Offline tuning**: `test [pattern]` runs `detect()`/`decide()` on saved
+  `results/street_run/frames/*.png` and writes annotated copies — tune the detector
+  without spending an attempt. `run … debug` logs per-frame perception.
 
 ## Status vs. the task
 
 - ✅ **Manager identified & proven** — `LWSurfingDataManager`; probe reports OPEN.
-- ✅ **Launch/loop proven live** — `ReqFightStartCheck(false)` starts a run;
-  `GoBackToActivityPanel()` clears the popup between runs; `run` chains attempts,
-  logs, screenshots each result, and keeps a reserve.
-- 🟡 **Auto-dodge works but is weak.** Live autonomous batch (10 attempts, server
-  935, 2026-07-29): distances **89, 317, 439, 132, 89, 132, 89, 316, 419, 132 m**
-  — best **439 m**, median ~132 m, vs the **~88 m** no-control baseline. So the bot
-  genuinely dodges (3–5× baseline on good runs) but is nowhere near the human record
-  (8185 m). To improve: jump/slide obstacle classification, a per-lane outlier
-  detector for reliability at distance, and a faster capture. Attempts left for the
-  user (reserve honoured).
+- ✅ **Launch/loop/revive proven live** — `ReqFightStartCheck(false)` starts a run;
+  the «Воскрешение» button-click continues it; `GoBackToActivityPanel()` clears the
+  popup between runs; `run` chains attempts, revives, logs, screenshots, keeps a reserve.
+- 🟡 **Auto-dodge works but has an inherent ceiling.** Live (server 935, 2026-07-29):
+  per-life the reflex dodges **~100–160 m**; a run with 2–3 revives reaches **~440 m per
+  attempt, deterministically** (not the luck-dependent 439 of v1's best single life),
+  vs the **~88 m** no-control baseline. **The 20000 m target — and even the 8185 m human
+  record — is not reachable by this pipeline.** At ~15 fps the loop cannot thread the
+  fast obstacle spawns reliably, and the coin/barrel colour collision caps segmentation
+  quality. Raising the ceiling needs a materially faster capture (cropped grab / GPU) and
+  cleaner obstacle segmentation (edge/depth cues), not more tuning of this loop.
 
-`tools/street_run_bot.py`: `probe` (state), `shot`, `watch` (durable poll + sentinel),
-`calibrate` (start a run + grab frames), `record` (capture-only for user play),
-`run [reserve]` (the reflex loop; keeps `reserve` attempts, default 5).
+`tools/street_run_bot.py`: `probe` (state), `shot`, `test` (offline detector on frames),
+`watch` (durable poll + sentinel), `calibrate` (start a run + grab frames), `record`
+(capture-only for user play), `run [reserve] [revives] [debug]` (the reflex loop; keeps
+`reserve` attempts default 5, spends `revives` 0..3 per run default 0, `debug`=1 logs frames).

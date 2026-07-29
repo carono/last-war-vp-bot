@@ -84,11 +84,20 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the Surfing 3-lane endless runner) — the bot finds
-  the open event, launches runs, dodges obstacles with a vision reflex loop
-  (blue-helmet lane + adaptive obstacle band, arrow-key lane switch), logs each
-  distance and keeps a reserve (`tools/street_run_bot.py`, `LWSurfingDataManager`). A
-  10-run batch reached 89–439 m (best 439) vs ~88 m with no control — so it genuinely
-  plays, but nowhere near the human record (8185); no jump/slide yet.
+  the open event, launches runs, dodges obstacles with a vision reflex loop and extends
+  each run with coin-priced revives, logging every distance and keeping a reserve
+  (`tools/street_run_bot.py`, `LWSurfingDataManager`). Detector v2 (connected-component
+  blobs, robust road reference, coins rejected by width, differential "run to the
+  clearest lane" logic) catches concrete/orange barriers, trucks and lit barrels; the
+  game pid is auto-resolved so a client restart doesn't break it. Revives are driven by
+  clicking the «Воскрешение» button (the Lua `ReqRebirthGame` does not revive), so one
+  attempt spans up to 4 lives → **~440 m per attempt, deterministic** (proven live,
+  server 935), vs ~88 m with no control. What runs by itself: the whole
+  launch→dodge→revive→log loop. **Ceiling is inherent, not a missing feature** — at
+  ~15 fps the reflex loop dodges only ~100–160 m per life and cannot thread the fast
+  spawns reliably; the human record 8185 m (and the 20000 m target) is **not reachable**
+  by this vision pipeline. Left to the person: nothing required; raising the ceiling
+  would need a faster capture path and cleaner obstacle segmentation.
 
 ### Arms Race
 

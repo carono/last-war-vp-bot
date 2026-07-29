@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
-r"""Street Run («Уличный забег» / Ghost Parkour endless runner) bot harness.
+r"""Street Run («Уличный забег» / Surfing endless runner) bot harness.
 
-The runner is a Subway-Surfers-style dodge game: run as far as possible, dodge
-randomly spawning obstacles, arrow-key control, a handful of attempts per round.
+The runner is a Subway-Surfers-style 3-lane dodge game: run as far as possible, dodge
+randomly spawning obstacles (cars/trucks/concrete + orange barriers/barrels), arrow-key
+control (←/→ lane, ↑ jump), a handful of attempts per round plus 3 coin-priced revives.
 See docs/research/street-run-parkour.md for the full reconnaissance.
 
-Because the run is real-time, live state (player lane, obstacles) is read by
-**vision** (mss screenshot + image processing), not Lua — a SafeDoString
-round-trip is ~1 s, far too slow for a reflex loop. Lua is used only for meta:
-checking event availability, remaining attempts, and (once open) starting a run
-via DataCenter.LWGhostParkourDataManager.
+Because the run is real-time, live state (player lane, obstacles) is read by **vision**
+(mss screenshot + image processing), not Lua — a SafeDoString round-trip is ~1 s, far too
+slow for a reflex loop. Lua (DataCenter.LWSurfingDataManager) is used only for meta:
+event availability, remaining attempts, and starting a run (ReqFightStartCheck). Reviving
+is a UI button click (the Lua ReqRebirthGame does not revive).
 
 Run under the Windows Python so it can reach the game + warm Lua daemon:
 
     C:\Python312\python.exe tools\street_run_bot.py probe        # is the event open? attempts left?
     C:\Python312\python.exe tools\street_run_bot.py shot [name.png]
+    C:\Python312\python.exe tools\street_run_bot.py test [rec_]  # OFFLINE: detect() on saved frames
     C:\Python312\python.exe tools\street_run_bot.py watch [sec]  # poll until the event opens
     C:\Python312\python.exe tools\street_run_bot.py calibrate [n]# grab N run frames for tuning
-    C:\Python312\python.exe tools\street_run_bot.py run [fightType]  # play (blocked until open)
+    C:\Python312\python.exe tools\street_run_bot.py run [reserve] [revives] [debug]
 
-Status: `probe`/`shot`/`watch` work now. `run` refuses while the event is closed
-(activityId=nil) and keeps 5 attempts in reserve for the user; its perception layer
-is a calibration stub — the lane geometry and obstacle signature must be tuned on the
-first live frames (`calibrate`, marked CALIBRATE) before `run` can actually dodge.
+`run` keeps `reserve` attempts for the user (default 5), spends `revives` coin-priced
+revives per run to extend it (0..3, default 0 — revives cost 100/1000/2000+ coins), and
+`debug`=1 logs each frame's perception to results/street_run/debug_NN.log.
+
+Realistic ceiling (proven live, server 935): the vision reflex dodges ~100-160 m per
+life; with 3 revives a run reaches ~440-600 m per attempt (deterministic, not luck). The
+human record 8185 m — let alone 20000 m — is NOT reachable by this pipeline: at ~15 fps
+the loop cannot thread the fast obstacle spawns reliably, and the cartoon palette makes
+lit barrels pixel-identical to coins.
 """
 from __future__ import annotations
 
@@ -121,11 +128,39 @@ def _dismiss_popup():
     _eval(_DISMISS_LUA, settle=1.0)
 
 
+# Revive on the death popup: continue the SAME run from where it died (distance keeps
+# accumulating). 3 revives per run, x100 parkour coins each. Reviving multiplies the
+# effective per-run distance, so a run that reaches D metres per life can reach ~4·D.
+# NB: the raw Lua `m:ReqRebirthGame()` does NOT revive (verified live — the popup still
+# reports 3/3 after it). Revival is driven by the «Воскрешение ×100» button, so we click
+# it. Button centre measured on the «Испытание окончено» popup at ≈(0.565·W, 0.59·H).
+_REVIVE_BTN = (0.565, 0.59)
+
+
+def revive(h):
+    """Click the «Воскрешение ×100» button on the death popup to continue the run."""
+    import pydirectinput
+    pydirectinput.PAUSE = 0.0
+    pydirectinput.FAILSAFE = False
+    _, _, _, win32gui, _ = _win_libs()
+    r = win32gui.GetWindowRect(h)
+    x = int(r[0] + _REVIVE_BTN[0] * (r[2] - r[0]))
+    y = int(r[1] + _REVIVE_BTN[1] * (r[3] - r[1]))
+    pydirectinput.moveTo(x, y)
+    pydirectinput.click(x, y)
+
+
 # ---------------------------------------------------------------------------
 # Vision + input layer (real-time reflex loop)
 # ---------------------------------------------------------------------------
 
 PID = 94880  # LastWar.exe — re-resolve with find_win() if the client restarted
+
+# Revives to spend per run to extend it (0..3). Distance carries over each revive, so
+# more revives → more metres, at 100 parkour coins each. Set via the `run` CLI args —
+# env vars are NOT used because WSL does not export them to the Windows Python.
+REVIVES_PER_RUN = 0
+DEBUG = False
 
 
 def _win_libs():
@@ -137,7 +172,19 @@ def _win_libs():
     return mss, win32api, win32con, win32gui, win32process
 
 
-def find_win(pid: int = PID):
+def _game_pid() -> int:
+    """Live LastWar.exe pid — the client self-restarts into new pids, so never trust a
+    hardcoded one. Falls back to the PID constant if the probe helper is unavailable."""
+    try:
+        from il2cpp_probe import find_game_pid
+        return find_game_pid()
+    except Exception:
+        return PID
+
+
+def find_win(pid: int | None = None):
+    if pid is None:
+        pid = _game_pid()
     _, _, _, win32gui, win32process = _win_libs()
     hs = []
 
@@ -189,22 +236,31 @@ def press(key: str):
     pydirectinput.press(key)  # 'left' | 'right' | 'up' | 'down'
 
 
-# --- perception (calibrated on results/street_run/frames/live_*.png) ---------
-# Frame is the full client window (≈1531×997). Everything below is expressed as
-# fractions of W/H so it survives a resize. Calibration facts from the live frames:
-#   • The avatar wears a saturated BLUE helmet; during play it sits at y≈0.60 and its
-#     x snaps to one of 3 lanes. Centre lane measured at x≈0.499.
-#   • Coins are vivid YELLOW (hue ~20–40) — must NOT be read as obstacles.
-#   • Obstacles (cars/trucks/containers/barriers) read as vivid non-yellow blobs or
-#     dark blobs inside the road ahead of the avatar.
+# --- perception (v2, calibrated on results/street_run/frames/rec_*.png) -------
+# Frame is the full client window (≈1531×997). Everything below is a fraction of
+# W/H so it survives a resize. The cartoon palette makes a fixed colour threshold
+# useless and even per-pixel classification unreliable (gold coins ≈ brown barrels;
+# a white crosswalk ≈ a pale concrete barrier). v2 therefore leans on TWO robust
+# ideas instead of a perfect pixel label:
+#   1. Blob geometry — a real obstacle is a large, solid component; coins are small
+#      round blobs, lane dashes/crosswalks are thin, poles are thin diagonals. Filter
+#      the obstacle mask by connected-component size and shape.
+#   2. Differential decide() — the game always leaves a passable lane, so an obstacle
+#      manifests as ONE lane much more blocked than a neighbour. A row that blocks all
+#      three lanes equally is a ground marking (crosswalk) or noise, not a wall: hold.
+# Calibration facts (rec_*.png, server 935): avatar wears a saturated BLUE helmet,
+# sits centre (x≈0.49·W, y≈0.62·H); asphalt is H≈15 S≈75 V≈140; concrete barriers are
+# brighter + desaturated (V≈170 S≈50); trucks are vivid off-brown hues; barrels are
+# muted brown with dark banding; coins are bright gold (S>180 V>180).
 
 _HELMET_LO = (95, 110, 80)      # HSV lower for the blue helmet
 _HELMET_HI = (125, 255, 255)
-# lane x-centre at the avatar's depth, and classification thresholds
-_LANE_SPLIT = (0.44, 0.56)      # x < .44 → left(0), .44–.56 → centre(1), > .56 → right(2)
-# danger band ahead of the avatar (sampled at three depths) and per-depth lane spread
-_BAND_DEPTHS = (0.34, 0.40, 0.47)
-_OBST_THRESH = 0.12             # per-lane vivid-nonyellow+dark fraction that means "blocked"
+_LANE_SPLIT = (0.45, 0.55)      # avatar px<.45 → left(0), .45–.55 → centre(1), >.55 → right(2)
+# danger band ahead of the avatar (nearest→farthest); farther depths give lead time
+_BAND_DEPTHS = (0.32, 0.38, 0.44, 0.50, 0.55)
+_OBST_THRESH = 0.14             # per-lane blocked fraction that means "blocked"
+_ROAD_HUE = 16                  # asphalt hue (brownish grey)
+_SCALE = 2                      # process at 1/_SCALE resolution for speed
 
 
 def _to_bgr(img):
@@ -217,14 +273,71 @@ def _to_bgr(img):
 def _lane_centres(yr: float):
     """3 lane x-centres at depth yr, converging toward the vanishing point."""
     t = max(0.0, min(1.0, (yr - 0.28) / (0.60 - 0.28)))
-    spread = 0.02 + (0.12 - 0.02) * t
+    spread = 0.03 + (0.14 - 0.03) * t
     return (0.5 - spread, 0.5, 0.5 + spread)
 
 
+def _obstacle_mask(hsv, H, W):
+    """Binary mask of real obstacles inside the road trapezoid, coins/markings/poles
+    filtered out by colour + connected-component shape. Returns (mask, road_s, road_v)."""
+    import cv2, numpy as np
+    hue = hsv[:, :, 0].astype(np.int16)
+    sat = hsv[:, :, 1].astype(np.int16)
+    val = hsv[:, :, 2].astype(np.int16)
+    # robust asphalt reference: median over a wide low road band (asphalt dominates,
+    # so stray coins/markings don't move the median — unlike a single centre patch,
+    # which the coin trail sits right on top of).
+    band = hsv[int(H * 0.46):int(H * 0.60), int(W * 0.30):int(W * 0.70)]
+    road_s = float(np.median(band[:, :, 1])); road_v = float(np.median(band[:, :, 2]))
+    huedist = np.minimum(np.abs(hue - _ROAD_HUE), 180 - np.abs(hue - _ROAD_HUE))
+    colored = (huedist > 22) & (sat > 70)                       # trucks (blue/red/green)
+    pale = (val > road_v + 22) & (sat < road_s - 10) & (sat > 30)  # concrete (not pure-white markings)
+    dark = val < road_v - 42                                    # undersides, deep shadow, cast shadows (barrels)
+    highsat = (sat > road_s + 78) & (val > 90)                  # barrels, orange barriers & vivid props
+    # NB: do NOT colour-carve coins here — a LIT barrel is bright saturated gold, pixel-
+    # identical to a coin (both H≈18 S≈170 V≈220). Carving gold pixels deletes the barrel
+    # and kills the run. Coins are told apart from barrels/barriers by WIDTH below: a coin
+    # is a narrow blob (~0.02·W), a barrel/barrier is wide (>0.06·W).
+    m = (colored | pale | dark | highsat).astype(np.uint8) * 255
+    # keep only the road trapezoid — drops sky, buildings, sidewalks
+    roi = np.zeros((H, W), np.uint8)
+    pts = np.array([[int(W * 0.43), int(H * 0.30)], [int(W * 0.57), int(H * 0.30)],
+                    [int(W * 0.78), int(H * 0.61)], [int(W * 0.22), int(H * 0.61)]], np.int32)
+    cv2.fillConvexPoly(roi, pts, 255)
+    m = cv2.bitwise_and(m, roi)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    # shape filter: keep solid chunky obstacles; drop coins (narrow gold), thin markings,
+    # thin diagonal poles.
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    keep = np.zeros_like(m)
+    a_min = (H * W) * 0.00035        # ~scale-invariant minimum obstacle area
+    coin_w = W * 0.055              # gold blobs narrower than this are coins, not barrels
+    for i in range(1, n):
+        a = st[i, cv2.CC_STAT_AREA]
+        w = st[i, cv2.CC_STAT_WIDTH]; h = st[i, cv2.CC_STAT_HEIGHT]
+        if a < a_min:
+            continue
+        ar = w / max(h, 1); sol = a / max(w * h, 1)
+        if ar > 2.4 and h < H * 0.06:      # thin & wide → crosswalk stripe / lane dash
+            continue
+        if sol < 0.22:                     # thin diagonal → lamp pole / lane line
+            continue
+        comp = lbl == i
+        mh = float(np.median(hue[comp])); ms = float(np.median(sat[comp])); mv = float(np.median(val[comp]))
+        gold = (10 <= mh <= 26) and ms > 150 and mv > 165
+        if gold and w < coin_w:            # narrow bright-gold blob → coin trail, safe
+            continue
+        keep[comp] = 255
+    return keep, road_s, road_v
+
+
 def detect(img) -> dict:
-    """{'player_lane': 0|1|2|None, 'blocked': [bool,bool,bool], 'dead': bool}."""
+    """{'player_lane': 0|1|2|None, 'blocked': [f,f,f] (0..1 per lane), 'dead': bool}."""
     import cv2, numpy as np
     bgr = _to_bgr(img)
+    if _SCALE != 1:
+        bgr = cv2.resize(bgr, (bgr.shape[1] // _SCALE, bgr.shape[0] // _SCALE),
+                         interpolation=cv2.INTER_AREA)
     H, W = bgr.shape[:2]
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
 
@@ -236,58 +349,54 @@ def detect(img) -> dict:
     # player lane from the blue-helmet centroid in the bottom-centre ROI
     m = cv2.inRange(hsv, _HELMET_LO, _HELMET_HI)
     roi = np.zeros((H, W), np.uint8)
-    roi[int(H * 0.50):int(H * 0.72), int(W * 0.34):int(W * 0.66)] = 255
+    roi[int(H * 0.50):int(H * 0.72), int(W * 0.32):int(W * 0.68)] = 255
     m = cv2.bitwise_and(m, roi)
     xs = np.where(m > 0)[1]
-    if len(xs) >= 80:
+    if len(xs) >= 40:
         px = xs.mean() / W
         player = 0 if px < _LANE_SPLIT[0] else (2 if px > _LANE_SPLIT[1] else 1)
     else:
         player = None
 
-    # obstacle per lane, ADAPTIVE to the current frame's lighting (a fixed threshold
-    # fails — road brightness swings scene to scene). Reference = the road patch right
-    # in front of the avatar (almost always clear). An obstacle pixel is markedly
-    # DARKER or MORE saturated than that reference; bright gold coins are carved out.
-    hue = hsv[:, :, 0].astype(int); sat = hsv[:, :, 1].astype(int); val = hsv[:, :, 2].astype(int)
-    ref = hsv[int(H * 0.53):int(H * 0.57), int(W * 0.47):int(W * 0.53)]
-    road_v = float(np.median(ref[:, :, 2])); road_s = float(np.median(ref[:, :, 1]))
-    coin = (val > 175) & (hue >= 12) & (hue <= 45) & (sat > 110)
-    obst = ((val < road_v - 45) | (sat > road_s + 70)) & (~coin)
-    blocked = [False, False, False]
+    keep, _, _ = _obstacle_mask(hsv, H, W)
+    blocked = [0.0, 0.0, 0.0]
     for yr in _BAND_DEPTHS:
-        y = int(H * yr); dy = int(H * 0.03); dx = int(W * 0.03)
+        y = int(H * yr); dy = max(2, int(H * 0.030)); dx = max(2, int(W * 0.035))
         for lane, cx in enumerate(_lane_centres(yr)):
             x = int(W * cx)
-            frac = obst[y - dy:y + dy, x - dx:x + dx].mean()
-            if frac > _OBST_THRESH:
-                blocked[lane] = True
+            frac = keep[y - dy:y + dy, x - dx:x + dx].mean() / 255.0
+            if frac > blocked[lane]:
+                blocked[lane] = frac
     return {"player_lane": player, "blocked": blocked, "dead": dead}
 
 
 def decide(state: dict) -> str | None:
-    """Lane-switch away from a blocked lane toward a clear one. (Jump/slide ↑/↓ are
-    left out of v1 — the frames don't yet distinguish a jumpable vs slideable obstacle,
-    and a wrong guess kills the run faster than a mis-timed lane change.)"""
+    """Run toward the CLEAREST reachable lane. The mask is noisy (every lane carries a
+    moderate false-positive floor), so an absolute 'is this lane empty?' test fails —
+    instead compare lanes relative to each other: step to the least-blocked neighbour
+    when it is meaningfully clearer than where we stand. A row blocked ~equally across
+    all lanes is a crosswalk/marking artifact (no clearer neighbour) → hold. Jump (↑) is
+    a last resort only when the current lane is walled and no neighbour is better.
+    Returns 'left'|'right'|'up'|None."""
     pl = state.get("player_lane")
-    blocked = state.get("blocked") or [False, False, False]
-    if pl is None or not blocked[pl]:
+    b = state.get("blocked") or [0.0, 0.0, 0.0]
+    if pl is None:
         return None
-    # player's lane is blocked → step to a clear neighbour, preferring the centre
+    LOW = 0.12                           # own lane this clear → no need to move
+    MARGIN = 0.10                        # a neighbour must beat the current lane by this much
+    if b[pl] < LOW:
+        return None
     if pl == 1:
-        if not blocked[0] and blocked[2]:
-            return "left"
-        if not blocked[2] and blocked[0]:
-            return "right"
-        if not blocked[2]:
-            return "right"
-        if not blocked[0]:
-            return "left"
-        return "up"                    # both sides blocked → try a jump
-    if pl == 0:
-        return "right" if not blocked[1] else ("up")
-    if pl == 2:
-        return "left" if not blocked[1] else ("up")
+        cand = [(0, "left"), (2, "right")]
+    elif pl == 0:
+        cand = [(1, "right")]
+    else:
+        cand = [(1, "left")]
+    best = min(cand, key=lambda c: b[c[0]])   # least-blocked reachable lane
+    if b[best[0]] < b[pl] - MARGIN:
+        return best[1]
+    if b[pl] > 0.5:                      # walled in, nowhere clearer → jump
+        return "up"
     return None
 
 
@@ -306,6 +415,45 @@ def cmd_probe():
               "| best distance:", st.get("highest", "?"))
     else:
         print("\n=> EVENT CLOSED (activityId is nil). Cannot start a run yet.")
+    return 0
+
+
+class _FileImg:
+    """Adapter so detect() can run on a saved PNG (offline detector tuning)."""
+    def __init__(self, path):
+        import cv2, numpy as np
+        bgr = cv2.imread(path)
+        self.height, self.width = bgr.shape[:2]
+        self.bgra = np.dstack([bgr, np.full((self.height, self.width), 255, np.uint8)]).tobytes()
+
+
+def cmd_test(pattern="rec_"):
+    """Offline: run detect()/decide() on saved gameplay frames and write annotated
+    copies to results/street_run/annot_*.png. No game window, no attempts spent —
+    the loop for tuning the detector before burning a live run."""
+    import cv2, glob, os
+    frames = sorted(glob.glob(f"results/street_run/frames/{pattern}*.png"))
+    outdir = os.path.join("results", "street_run")
+    lane_names = {0: "L", 1: "C", 2: "R", None: "?"}
+    for f in frames:
+        img = _FileImg(f)
+        s = detect(img)
+        if s["dead"]:
+            continue
+        key = decide(s)
+        b = s["blocked"]; pl = s["player_lane"]
+        print(f"{os.path.basename(f):16s} pl={lane_names[pl]} "
+              f"blocked=[{b[0]:.2f},{b[1]:.2f},{b[2]:.2f}] -> {key}")
+        vis = cv2.imread(f); H, W = vis.shape[:2]
+        for yr in _BAND_DEPTHS:
+            for lane, cx in enumerate(_lane_centres(yr)):
+                x = int(W * cx); y = int(H * yr)
+                col = (0, 0, 255) if b[lane] > _OBST_THRESH else (0, 200, 0)
+                cv2.circle(vis, (x, y), 6, col, 2)
+        cv2.putText(vis, f"pl={lane_names[pl]} {b[0]:.2f}/{b[1]:.2f}/{b[2]:.2f} {key}",
+                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        cv2.imwrite(os.path.join(outdir, "annot_" + os.path.basename(f)), vis)
+    print("annotated frames -> results/street_run/annot_*.png")
     return 0
 
 
@@ -439,25 +587,69 @@ def cmd_run(reserve: int = 5):
             print(f"attempt {attempt}: scene did not load; abort this attempt")
             _dismiss_popup(); remaining = int(read_state().get("remainTimes") or remaining - 1)
             continue
-        # reflex loop until death (or a hard cap)
-        cooldown = 0.0
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            s = detect(grab(h)[0])
-            if s["dead"]:
-                break
-            now = time.time()
-            if now >= cooldown:
-                key = decide(s)
-                if key:
-                    press(key)
-                    cooldown = now + 0.28   # let the lane change settle before re-deciding
+        # reflex loop until death, reviving up to REVIVES_PER_RUN times to extend the
+        # same run (distance carries over). A short ring keeps the frame just before
+        # death so the killing obstacle can be studied offline (death_*.png).
+        import mss.tools
+        dbg = None
+        if DEBUG:
+            dbg = open(os.path.join(outdir, f"debug_{attempt:02d}.log"), "w", encoding="utf-8")
+        life = 0
+        frames = 0
+        t0 = time.time()
+        while True:
+            cooldown = 0.0
+            deadline = time.time() + 180
+            prev = None
+            while time.time() < deadline:
+                img = grab(h)[0]
+                s = detect(img)
+                if s["dead"]:
+                    break
+                prev = img
+                now = time.time()
+                key = None
+                if now >= cooldown:
+                    key = decide(s)
+                    if key:
+                        press(key)
+                        cooldown = now + 0.18   # let the lane change settle before re-deciding
+                frames += 1
+                if dbg is not None:
+                    b = s["blocked"]
+                    dbg.write(f"{now - t0:6.2f} pl={s['player_lane']} "
+                              f"b=[{b[0]:.2f},{b[1]:.2f},{b[2]:.2f}] key={key}\n")
+                    dbg.flush()
+            # snapshot the frame that killed this life (for offline failure analysis)
+            if prev is not None:
+                mss.tools.to_png(prev.rgb, prev.size, output=os.path.abspath(
+                    os.path.join("results", "street_run", f"death_{attempt:02d}_{life}.png")))
+            if life < REVIVES_PER_RUN:
+                time.sleep(1.2)          # let the «Испытание окончено» popup render
+                focus(h); time.sleep(0.2)
+                revive(h)                # click «Воскрешение ×100»
+                # wait for the runner scene to resume (popup gone, avatar back)
+                resumed = False
+                t_res = time.time() + 8
+                while time.time() < t_res:
+                    d = detect(grab(h)[0])
+                    if not d["dead"] and d.get("player_lane") is not None:
+                        resumed = True; break
+                    time.sleep(0.2)
+                if resumed:
+                    life += 1
+                    focus(h)
+                    continue
+            break
+        fps = frames / max(time.time() - t0, 0.01)
+        if dbg is not None:
+            dbg.close()
         # record the result: snapshot the «Испытание окончено» popup + read best
         grab(h, os.path.join("street_run", f"result_{attempt:02d}.png"))
         st = read_state()
         best = st.get("highest", "?")
         remaining = int(st.get("remainTimes") or remaining - 1)
-        line = (f"attempt {attempt}: remaining={remaining} best={best} "
+        line = (f"attempt {attempt}: remaining={remaining} best={best} fps={fps:.1f} "
                 f"(popup=results/street_run/result_{attempt:02d}.png)")
         log.write(line + "\n"); log.flush()
         print(line)
@@ -472,6 +664,8 @@ def main(argv):
     cmd = argv[0] if argv else "probe"
     if cmd == "probe":
         return cmd_probe()
+    if cmd == "test":
+        return cmd_test(argv[1] if len(argv) > 1 else "rec_")
     if cmd == "shot":
         return cmd_shot(argv[1] if len(argv) > 1 else "sr_now.png")
     if cmd == "watch":
@@ -481,6 +675,12 @@ def main(argv):
     if cmd == "record":
         return cmd_record(int(argv[1]) if len(argv) > 1 else 120)
     if cmd == "run":
+        # run [reserve] [revives] [debug]
+        global REVIVES_PER_RUN, DEBUG
+        if len(argv) > 2:
+            REVIVES_PER_RUN = max(0, min(3, int(argv[2])))
+        if len(argv) > 3 and argv[3] in ("1", "debug", "true"):
+            DEBUG = True
         return cmd_run(int(argv[1]) if len(argv) > 1 else 5)
     print(__doc__)
     return 1
