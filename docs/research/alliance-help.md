@@ -37,6 +37,15 @@ network line is `SFSNetwork.SendMessage(MsgDefines.AlHelpAll, …)` (constant du
 `alliance_help_all()` sends that one `al.help.all` directly, so no on-screen button of
 either kind has to exist.
 
+The always-visible element itself is the bottom-bar bubble `HelpBubbleTip` (a live
+`GameObject.FindObjectsOfType` scan found it active on the main screen with no window
+open), hosted by `UI.LWMainUI.Component.UIMainBottom.MainAllianceBubbles`. And there is
+**exactly one** alliance help-all up-message class in the client —
+`Net.Msgs.Alliance.AlHelpAllMessage` (the only other `AlHelp*` classes are the inbound
+`PushAlHelpNewMessage` / `PushAlHelpUpdateMessage`). So the bubble and the window button
+have no alternative command to send: both are `al.help.all`, which the bot already
+emits headless. There is no separate "HUD button" primitive to add.
+
 Verified live with the alliance-help window **never opened this session** (cold read
 via `tools/lib/lua_eval.py`):
 
