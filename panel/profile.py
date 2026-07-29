@@ -6,6 +6,7 @@ A *profile* is a named set of panel settings plus its own logs, stored under
     config.json             all panel settings (language, checkboxes, filters, coords…)
     rally_log.jsonl         rally-monitor output for this profile
     secret_tasks_log.jsonl  secret-task findings for this profile
+    timers.json             when each scheduled action last ran
     panel.log               plain-text mirror of the panel log widget
 
 The active profile name lives in ``panel/settings.json`` (global, profile-
@@ -35,6 +36,10 @@ CHAT_LOG = "chat_log.jsonl"
 # Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
 # current state of the map, which is what an auto-loot decision has to read.
 TASKS_JSON = "secret_tasks.json"
+# When each panel timer last ran (panel/timers.py). Per profile like everything
+# else here: the clock belongs to the account, so switching profiles must not
+# make the other account's base look freshly collected.
+TIMERS_JSON = "timers.json"
 PANEL_LOG = "panel.log"
 CONFIG_FILE = "config.json"
 
@@ -190,6 +195,10 @@ class ProfileManager:
     def tasks_json(self, name: str | None = None) -> str:
         """Where the secret-task capture checkpoints what it currently sees."""
         return os.path.join(self.dir(name), TASKS_JSON)
+
+    def timers_json(self, name: str | None = None) -> str:
+        """Last-run records of the scheduled actions (panel/timers.py)."""
+        return os.path.join(self.dir(name), TIMERS_JSON)
 
     def chat_log(self, name: str | None = None) -> str:
         """JSONL log of chat messages captured on the plain-TCP leg."""

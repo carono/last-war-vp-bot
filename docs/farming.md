@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 25 of 87
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 25 of 89
 
-🟩 25 done · 🟨 16 partly · 🟥 46 not automated
+🟩 25 done · 🟨 18 partly · 🟥 46 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -35,9 +35,16 @@ do the thing, which means they survive interface changes, work while the window
 is in the background, and never mis-click. A handful of abilities that have no
 such route still read the screen the old way.
 
+A few abilities no longer need starting at all: the panel has a schedule, and an
+ability listed there runs itself once its period has passed — the base, the
+alliance donation and the alliance gifts today. The clock is kept per account and
+survives a restart, so an hour that ran out while the panel was closed is worked
+off shortly after it opens.
+
 The one thing the panel cannot do yet is **play a whole session on its own**: it
-repeats a single chosen action, but nothing chains the routine together from
-start to finish. Every ✅ below is still something a human starts.
+repeats a chosen action and keeps a handful of abilities to their own clocks, but
+nothing chains the routine together from start to finish. Every ✅ below that is
+not on the schedule is still something a human starts.
 
 ---
 
@@ -63,6 +70,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Helping the alliance — a single press answers every pending request at once
 - ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
+- 🟡 Donating and claiming the gifts on a schedule — each has its own switch and period in the panel (an hour by default), and once that long has passed the donation and the gift collection happen by themselves, with nobody watching. The clock belongs to the account and survives a restart, so a period that ran out while the panel was closed is worked off shortly after it opens; nothing fires while the game is not running, and a run that fails is retried instead of counted. Both presses are the proven ones above; the schedule itself has not yet run through a live session
 - ✅ Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. Proven live: 681 wounded went in on a single press. If the hospital is busy — a heal already running, or finished soldiers still waiting to be picked up — the game turns the press down, so collect first
 - ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
 - ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
@@ -112,6 +120,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Base
 
 - ✅ Collecting everything produced at the base — one sweep over every building that has something waiting, skipping the ones still producing
+- 🟡 Collecting the base on a schedule — a switch and a period in the panel (an hour by default): once that long has passed since the last collection the sweep happens by itself, so the buildings do not sit full while nobody is looking. Same schedule as the alliance donation and gifts above, with the same clock kept per account; not yet run through a live session
 - ❌ Researching technology
 - ❌ Upgrading and constructing buildings
 - ❌ Upgrading the drone
@@ -216,7 +225,7 @@ The routine as it is actually played, against what the bot covers.
 
 | | |
 |---|---|
-| Every 20 min — donate to alliance technology | ✅ |
+| Every 20 min — donate to alliance technology | ✅ · on a schedule 🟡 |
 | Every 4 h — Arms Race objectives | ❌ |
 | Every 4 h — send the second batch of trucks | ❌ |
 
@@ -225,7 +234,7 @@ The routine as it is actually played, against what the bot covers.
 | | |
 |---|---|
 | Send 3 trucks, then 2 more | ❌ |
-| Collect the base and the resource truck | ✅ base · 🟡 truck |
+| Collect the base and the resource truck | ✅ base, on a schedule 🟡 · 🟡 truck |
 | Send secret missions out | ❌ |
 | Help with 5 UR or star secret tasks | ❌ |
 | Steal 5 star tasks | 🟡 finding, picking the best star and robbing work; nothing chains the five together or pans the map on its own |
@@ -235,7 +244,7 @@ The routine as it is actually played, against what the bot covers.
 | Send squads to gather resources | 🟡 |
 | Dig and collect treasures | ❌ |
 | Fireworks | ❌ |
-| Alliance gifts | ✅ |
+| Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | ❌ |
 | Supplies, secret training, quests | ❌ |
 | Arena | ❌ |
@@ -257,8 +266,10 @@ bot has no sense of the calendar and does not notice an event starting.
 ## What is needed before it can be left alone
 
 1. **Something to run the whole session.** Today the panel repeats one chosen
-   ability; nobody plays the routine in order, retries a step that failed, or
-   keeps to a schedule. This is the single biggest gap versus the old script.
+   ability and keeps three of them — the base, the alliance donation, the
+   alliance gifts — to a schedule of their own; nobody plays the routine in
+   order or decides what to do next. This is still the single biggest gap versus
+   the old script.
 2. **More of the game's screens.** Mail, radar, events, the duel, arena, heroes,
    shop and the building queues are untouched; the hospital is only half done.
 3. **Deciding, not just doing.** Attacking, gathering and rallying all work as

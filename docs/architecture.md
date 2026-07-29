@@ -137,5 +137,5 @@ The foundation is in place:
 - ✅ Red attention-dot detector (`perception/red_dots.py`): HSV colour thresholding + contour shape filter. Default thresholds tuned against a live capture (`min_area=60, max_area=200, min_circularity=0.85`).
 - ✅ Skill catalogue (`src/lastwar_bot/actions/*.md`) + DSL interpreter (`script_engine.py`). See [`dsl.md`](dsl.md) and [`farming.md`](farming.md) for what runs today.
 - ✅ OCR provider — RapidOCR (`perception/ocr.py`, lazy-loaded), exposed as the `READ_TEXT` DSL primitive.
-- ⏳ **Executor loop** as drawn above (screenshot → classify → run_skill → verify → next). The panel runs one action at a time and can repeat it on an interval; nothing sequences a whole session yet.
+- ⏳ **Executor loop** as drawn above (screenshot → classify → run_skill → verify → next). The panel runs one action at a time; it can repeat a chosen one on an interval, and its Timers tab (`panel/timers.py`) keeps a few named actions to a per-period clock that is persisted per profile — but nothing sequences a whole session yet.
 - ⏳ **LLM-backed planner.** Never built — the bot acts through explicit `.md` recipes and Lua-VM routes, not an LLM-decomposed plan.
