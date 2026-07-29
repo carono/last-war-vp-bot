@@ -138,6 +138,23 @@ C:\Python312\python.exe tools\dispatch_tasks.py                        # instanc
 LW_DAEMON_PORT=47655 C:\Python312\python.exe tools\dispatch_tasks.py   # instance 2 (:47655)
 ```
 
+Named instead of numbered, when a caller would rather not carry a port around:
+
+```python
+from instance_manager import get_instance, status
+ev = get_instance("casper")        # or get_instance() for this session's client
+```
+
+`tools/lib/instance_manager.py` keeps the registry — the default pair `main` (:47654) and
+`casper` (:47655), overridable by `tools/data/instances.json` (see
+`instances.example.json`), with `LW_INSTANCE` naming the default for a whole process.
+Run it directly for a one-line health check of every instance:
+
+```
+  main       :47654  this session   warm  pid 102644
+  casper     :47655  casper         warm  pid 29352
+```
+
 Two guards make the addressing safe:
 
 * a non-default port never falls back to a local `LuaEval` — an unreachable foreign
@@ -154,6 +171,13 @@ two have not crossed:
 ```
 
 ## 5. Using it
+
+Bringing the second instance up by hand — log in as that account (RDP or fast user
+switching), run **`tools\start_instance.cmd 47655`** inside its session, then
+*disconnect* the session (do not log off). The script starts the client and the daemon
+and refuses to duplicate either, so running it twice is harmless. `--bring-up` does the
+same thing without anyone logging in, and is the normal route.
+
 
 ```bash
 # Windows Python — pywin32 lives there, not in WSL's python3

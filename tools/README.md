@@ -42,8 +42,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
   `il2cpp_dump`, `hijack_call`, `rip_gate`, `find_instance_rpm`, `lua_goto_world`), the
   capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
   `lastwar_encode`), and helpers (`coords`, `chat_share` — build and send chat
-  coordinate attachments, `hero_icons_map`, `steal_via_socket`, `run_output` — the
-  per-run timestamped file under `results/`).
+  coordinate attachments, `hero_icons_map`, `steal_via_socket`, `instance_manager` —
+  named game instances (`get_instance("casper")`) over the per-instance daemon ports,
+  `run_output` — the per-run timestamped file under `results/`).
 - **`tools/dev/`** — working-but-not-yet-human-verified entrypoints: captures
   (`secret_mission_capture.py`, `watch_rally.py`, `rally_report.py`), world actions
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
@@ -89,6 +90,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `launch_as_user.py` | **Windows** (Python, pywin32) | start a process as **another Windows user on the current desktop** — grants that user's SID access to `WinSta0`/`Default`, then `CreateProcessWithLogonW` (or `CreateProcessAsUser`) with `lpDesktop`. `--config accounts.json --all` runs one instance per account; passwords live in Credential Manager, not in the file. Works for any program; **the game itself is killed by ACE a few seconds in**, so a second client needs a second Windows session (`rdp_instance.py`) — see [`../docs/research/multi-instance-second-user.md`](../docs/research/multi-instance-second-user.md) |
 | `rdp_instance.py` | **Windows** (Python, pywin32) | the **second client, in its own Windows session**, driven from this one over TCP: `--bring-up` creates the session (RDP to this machine by another address — not `localhost`), starts that user's client and a `lua_daemon` on its own port, and leaves the session disconnected. `--status` / `--ping` / `--lua` / `--stop` / `--logoff` / `--restore-console`. Any existing tool then drives it with `LW_DAEMON_PORT=47655`; headless abilities only. See [`../docs/research/multi-instance-rdp.md`](../docs/research/multi-instance-rdp.md) |
 | `session_launch.py` | **Windows** (Python, pywin32, **SYSTEM**) | start a process **inside an already logged-on session** under that session's own logon token (`WTSQueryUserToken` — no password). `--list` prints the sessions; used by `rdp_instance.py`, and it is the launch route ACE accepts |
+| `start_instance.cmd` | **Windows** (cmd) | the manual equivalent of `rdp_instance.py --bring-up`, to run **from inside** the second account's session: starts that account's client and a `lua_daemon` on the given port (default 47655), both guarded so a second run is a no-op. Log in, run it once, disconnect the session (do not log off) |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
 and cannot see the Windows game's traffic directly. WSL is for offline analysis

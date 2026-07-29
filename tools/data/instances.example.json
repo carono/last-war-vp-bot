@@ -1,0 +1,14 @@
+[
+  {
+    "name": "main",
+    "port": 47654,
+    "user": "",
+    "_comment": "The client in the session you are sitting in. Empty user = whoever is logged on here. This file is optional — without it tools/lib/instance_manager.py uses exactly this pair. Copy it to instances.json to add a third account."
+  },
+  {
+    "name": "casper",
+    "port": 47655,
+    "user": "casper",
+    "_comment": "A client in its own Windows session, brought up by tools/rdp_instance.py --user casper --port 47655 (or by hand with tools/start_instance.cmd 47655 from inside that session). One port per instance; the daemon of each attaches to the client of its own session."
+  }
+]
