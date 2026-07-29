@@ -72,7 +72,9 @@ Network fetch (populate the manager): **`SendGetAllParkourInfosMessage`**,
 - **3-lane endless runner**, third-person behind-the-back. The avatar auto-runs
   forward and starts in the **centre** lane (screen x ≈ 0.49·W, y ≈ 0.63·H).
 - **Obstacles**: cars, container trucks, side barriers/blocks, streetlamps — occupy
-  specific lanes; dodge by switching lanes (jump/slide likely exist — unconfirmed).
+  specific lanes; dodge by switching lanes. Jump (↑) clears only LOW obstacles (barrels);
+  a jump into a tall barrier is fatal (see Jump/slide findings). Slide (↓) exists but its
+  targets are unverified.
 - **Coins** float along a lane (collectible; top-right counter).
 - **Score = distance in metres** (top-left «NNм» + running icon). Best so far 8185.
 - **Uncontrolled the run dies at ~88 m** (first obstacle) in <3 s — deterministic;
@@ -116,9 +118,24 @@ Keyboard arrows via `pydirectinput` (foreground): **← / →** switch lane, **�
      that deletes lit barrels and kills the run.
   2. **Differential decide().** The game always leaves a passable lane, so a real
      obstacle shows up as ONE lane much more blocked than a neighbour; a row blocked
-     ~equally across all three is a ground marking → hold. `decide()` runs to the
-     **least-blocked reachable lane** (argmin) when it beats the current lane by a
-     margin; jump (↑) only when walled in with no clearer neighbour.
+     ~equally across all three is a ground marking → hold. `decide()` steps into a
+     genuinely-clear side lane (argmin, gated on the target being both clearer *and*
+     actually open); when boxed with an obstacle dead ahead it jumps (↑) **only if the
+     obstacle is LOW** (height-gated `low_ahead`).
+
+**Jump/slide findings (live, 2026-07-29).** Controls are ←/→ lane, ↑ jump, ↓ slide.
+Critically, **jumping a tall orange/concrete barrier is fatal** — the avatar clips it and
+dies (verified: two jumps at a barrier → death at 89 m), so blind jumping is *worse* than
+holding; only a low obstacle (a barrel) is hoppable. `detect()` therefore reports
+`low_ahead` (topmost obstacle-pixel y in the player's near-lane column: barrel top ≳0.52·H
+vs barrier/truck top ≲0.46·H) and `decide()` jumps only when it is set. Slide (↓) is wired
+(`run … down`, `BOXED_ACTION`) but its effect on the on-legs construction barriers is
+**unverified**: the live slide test was cut short when a **concurrent login from another
+device kicked the session** («В ваш аккаунт был выполнен вход с другого устройства» — the
+client froze mid-run, then closed on confirm). Re-testing needs sole possession of the
+account. The dominant real killer remains the detector *over-blocking an escape lane*
+(false positive on the right, where a parallel truck / kerb rock reads as blocked), which
+makes the bot think it is boxed when a lane was actually passable.
 - **Loop**: in-memory grab+detect at **~12–15 fps**. A 0.18 s cooldown after each key
   stops lane-change overshoot. Death = the big near-white «Испытание окончено» card.
 - **Revive**: on death, up to 3× **click the «Воскрешение» button** (screen-relative

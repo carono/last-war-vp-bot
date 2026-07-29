@@ -19,11 +19,13 @@ Run under the Windows Python so it can reach the game + warm Lua daemon:
     C:\Python312\python.exe tools\street_run_bot.py test [rec_]  # OFFLINE: detect() on saved frames
     C:\Python312\python.exe tools\street_run_bot.py watch [sec]  # poll until the event opens
     C:\Python312\python.exe tools\street_run_bot.py calibrate [n]# grab N run frames for tuning
-    C:\Python312\python.exe tools\street_run_bot.py run [reserve] [revives] [debug]
+    C:\Python312\python.exe tools\street_run_bot.py run [reserve] [revives] [debug] [boxed]
 
 `run` keeps `reserve` attempts for the user (default 5), spends `revives` coin-priced
-revives per run to extend it (0..3, default 0 — revives cost 100/1000/2000+ coins), and
-`debug`=1 logs each frame's perception to results/street_run/debug_NN.log.
+revives per run to extend it (0..3, default 0 — revives cost 100/1000/2000+ coins),
+`debug`=1 logs each frame's perception to results/street_run/debug_NN.log, and `boxed`
+(up|down|none, default up) is the action taken when boxed in with a LOW obstacle ahead
+(jumping a tall barrier is fatal, so ↑ is height-gated; ↓ slide is untested).
 
 Realistic ceiling (proven live, server 935): the vision reflex dodges ~100-160 m per
 life; with 3 revives a run reaches ~440-600 m per attempt (deterministic, not luck). The
@@ -367,17 +369,42 @@ def detect(img) -> dict:
             frac = keep[y - dy:y + dy, x - dx:x + dx].mean() / 255.0
             if frac > blocked[lane]:
                 blocked[lane] = frac
-    return {"player_lane": player, "blocked": blocked, "dead": dead}
+
+    # Is the obstacle dead ahead LOW (a barrel — hoppable) or TALL (an orange/concrete
+    # barrier — a jump into it is fatal, proven live)? Height proxy = the topmost
+    # obstacle-pixel y in the player's near-lane column. A barrel's top sits low
+    # (y≳0.52·H); a barrier/truck rises higher (y≲0.46·H). Only a LOW obstacle is jumpable.
+    low_ahead = False
+    if player is not None:
+        cx = _lane_centres(0.50)[player]
+        x = int(W * cx); dx = max(2, int(W * 0.05))
+        col = keep[int(H * 0.40):int(H * 0.62), max(0, x - dx):x + dx]
+        rows = np.where(col.any(axis=1))[0]
+        if len(rows):
+            top = (int(H * 0.40) + int(rows.min())) / H
+            low_ahead = top > 0.50
+    return {"player_lane": player, "blocked": blocked, "dead": dead, "low_ahead": low_ahead}
+
+
+# Jump policy. JUMP_TH = the player-lane fill above which we JUMP when no genuinely-clear
+# side lane exists (barrels / low barriers are ground obstacles the avatar can hop). Set
+# lower to jump more eagerly. TARGET_CLEAR = a side lane must be at least this empty to be
+# worth switching into (a relatively-better but still-blocked lane is a trap).
+JUMP_TH = 0.28
+TARGET_CLEAR = 0.22
+# Boxed-in action when NO clear side lane and the obstacle looks LOW/hoppable. Height
+# gating matters: a jump into a TALL orange/concrete barrier is fatal (proven live), so
+# blind jumping is worse than holding — only jump a low obstacle. 'down' (slide) is left
+# available for testing but OFF by default: whether the game's barriers are slide-under
+# is unverified (the live test was cut short by a concurrent-login session kick).
+BOXED_ACTION = "up"      # 'up' (jump low obstacle) | 'down' (slide) | 'none' (hold)
 
 
 def decide(state: dict) -> str | None:
-    """Run toward the CLEAREST reachable lane. The mask is noisy (every lane carries a
-    moderate false-positive floor), so an absolute 'is this lane empty?' test fails —
-    instead compare lanes relative to each other: step to the least-blocked neighbour
-    when it is meaningfully clearer than where we stand. A row blocked ~equally across
-    all lanes is a crosswalk/marking artifact (no clearer neighbour) → hold. Jump (↑) is
-    a last resort only when the current lane is walled and no neighbour is better.
-    Returns 'left'|'right'|'up'|None."""
+    """Prefer stepping into a genuinely-clear side lane; if boxed with a LOW obstacle dead
+    ahead, jump it (a barrel is hoppable — but a tall barrier is not, so we gate on
+    height). A row blocked ~equally across all lanes is a crosswalk/marking artifact →
+    hold. Returns 'left'|'right'|'up'|'down'|None."""
     pl = state.get("player_lane")
     b = state.get("blocked") or [0.0, 0.0, 0.0]
     if pl is None:
@@ -393,10 +420,15 @@ def decide(state: dict) -> str | None:
     else:
         cand = [(1, "left")]
     best = min(cand, key=lambda c: b[c[0]])   # least-blocked reachable lane
-    if b[best[0]] < b[pl] - MARGIN:
+    # step aside only if the target lane is both clearer AND genuinely open
+    if b[best[0]] < b[pl] - MARGIN and b[best[0]] < TARGET_CLEAR:
         return best[1]
-    if b[pl] > 0.5:                      # walled in, nowhere clearer → jump
-        return "up"
+    # boxed in (no open side lane). Only act on a LOW obstacle — jumping a tall barrier
+    # kills the run; holding at least doesn't make it worse.
+    if b[pl] > JUMP_TH and BOXED_ACTION != "none":
+        if BOXED_ACTION == "up" and not state.get("low_ahead"):
+            return None                  # tall obstacle → a jump won't clear it → hold
+        return BOXED_ACTION
     return None
 
 
@@ -675,12 +707,14 @@ def main(argv):
     if cmd == "record":
         return cmd_record(int(argv[1]) if len(argv) > 1 else 120)
     if cmd == "run":
-        # run [reserve] [revives] [debug]
-        global REVIVES_PER_RUN, DEBUG
+        # run [reserve] [revives] [debug] [boxed_action]
+        global REVIVES_PER_RUN, DEBUG, BOXED_ACTION
         if len(argv) > 2:
             REVIVES_PER_RUN = max(0, min(3, int(argv[2])))
         if len(argv) > 3 and argv[3] in ("1", "debug", "true"):
             DEBUG = True
+        if len(argv) > 4 and argv[4] in ("up", "down", "none"):
+            BOXED_ACTION = argv[4]
         return cmd_run(int(argv[1]) if len(argv) > 1 else 5)
     print(__doc__)
     return 1
