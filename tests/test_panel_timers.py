@@ -1,7 +1,7 @@
 r"""The panel's schedule — what comes due, what is written down, what is skipped.
 
 The Timers tab (task #1118) is a standing order like «Автолут ★»: while a row is
-ticked the panel runs that action once its period has passed, remembering across
+ticked the panel runs that errand once its period has passed, remembering across
 restarts when it last ran. The part that can quietly go wrong is the bookkeeping —
 a failed run counted as a run means an hour of production left in the buildings,
 and a period re-read from a mistyped box means a press every tick — so that is
@@ -9,6 +9,7 @@ what is tested here:
 
   * a timer that has never run is due at once, and one just run is not;
   * a switched-off row is never due, whatever its clock says;
+  * the alliance errand is ONE timer of two recipes, in order (donate, then gifts);
   * a run is written down; a FAILED run is not, and is held back from re-firing
     every tick;
   * "the panel is busy" abandons the tick instead of queueing presses;
@@ -36,8 +37,7 @@ if str(_REPO_ROOT) not in sys.path:
 from panel import timers as timersmod  # noqa: E402
 
 BASE = "collect_base_resources"
-GIFTS = "collect_alliance_gifts"
-TECH = "donate_alliance_tech"
+ALLY = "alliance_upkeep"          # donate, then claim the gifts
 
 
 def _cfg(**minutes) -> dict:
@@ -94,11 +94,24 @@ def test_switched_off_is_never_due():
 def test_most_overdue_goes_first():
     """Several due at once are offered worst-first, so nothing starves."""
     now = time.time()
-    cfg = _cfg(**{BASE: 60, GIFTS: 60, TECH: 60})
+    cfg = _cfg(**{BASE: 60, ALLY: 60})
     records = {BASE: {"last_run": now - 2 * 3600},     # 1 h overdue
-               GIFTS: {"last_run": now - 5 * 3600},    # 4 h overdue
-               TECH: {"last_run": now - 90 * 60}}      # 30 min overdue
-    assert timersmod.due_keys(cfg, records, now) == [GIFTS, BASE, TECH]
+               ALLY: {"last_run": now - 5 * 3600}}     # 4 h overdue
+    assert timersmod.due_keys(cfg, records, now) == [ALLY, BASE]
+
+
+def test_the_alliance_errand_is_one_timer_of_two_recipes():
+    """Donate and gifts share a switch, a period and a clock — and their order."""
+    spec = timersmod.BY_KEY[ALLY]
+    assert spec.actions == ("donate_alliance_tech", "collect_alliance_gifts"), spec
+
+    # One tick = one errand = both recipes, once. The runner is the panel's, so
+    # what is checked here is that the scheduler hands the pair over as a unit.
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, _cfg(**{ALLY: 60}))
+    assert s.sched.tick_once() == [ALLY], s.ran
+    assert s.ran == [ALLY], s.ran
+    assert s.sched.tick_once() == [], "the pair re-fired inside its period"
 
 
 def test_a_run_is_recorded_and_stops_the_next_tick():
@@ -137,7 +150,7 @@ def test_a_failed_run_is_not_a_run_and_is_held_back():
 def test_busy_panel_abandons_the_tick():
     """"Try later" stops the whole pass — presses are not queued behind each other."""
     tmp = Path(tempfile.mkdtemp())
-    s = _Scheduler(tmp, _cfg(**{BASE: 60, GIFTS: 60, TECH: 60}), outcome=False)
+    s = _Scheduler(tmp, _cfg(**{BASE: 60, ALLY: 60}), outcome=False)
     assert s.sched.tick_once() == []
     assert len(s.ran) == 1, "kept trying while the panel was busy: %r" % (s.ran,)
     assert s.store.last_run(s.ran[0]) == 0.0
@@ -269,7 +282,7 @@ def test_timers_tab_builds_and_binds():
         row = tab._timer_rows[BASE]
         assert row["last"].cget("text") == tab._t("timers.never"), row["last"].cget("text")
         assert row["next"].cget("text") == tab._t("timers.due_now"), row["next"].cget("text")
-        assert tab._timer_rows[GIFTS]["next"].cget("text") == tab._t("timers.off")
+        assert tab._timer_rows[ALLY]["next"].cget("text") == tab._t("timers.off")
 
         tab._timer_store.mark_run(BASE)
         tab._refresh_timer_rows()

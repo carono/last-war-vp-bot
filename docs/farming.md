@@ -36,10 +36,10 @@ is in the background, and never mis-click. A handful of abilities that have no
 such route still read the screen the old way.
 
 A few abilities no longer need starting at all: the panel has a schedule, and an
-ability listed there runs itself once its period has passed — the base, the
-alliance donation and the alliance gifts today. The clock is kept per account and
-survives a restart, so an hour that ran out while the panel was closed is worked
-off shortly after it opens.
+errand listed there runs itself once its period has passed — collecting the base,
+and keeping the alliance up (donate, then claim the gifts) as one errand. The
+clock is kept per account and survives a restart, so an hour that ran out while
+the panel was closed is worked off shortly after it opens.
 
 The one thing the panel cannot do yet is **play a whole session on its own**: it
 repeats a chosen action and keeps a handful of abilities to their own clocks, but
@@ -70,7 +70,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Helping the alliance — a single press answers every pending request at once
 - ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
-- 🟡 Donating and claiming the gifts on a schedule — each has its own switch and period in the panel (an hour by default), and once that long has passed the donation and the gift collection happen by themselves, with nobody watching. The clock belongs to the account and survives a restart, so a period that ran out while the panel was closed is worked off shortly after it opens; nothing fires while the game is not running, and a run that fails is retried instead of counted. Both presses are the proven ones above; the schedule itself has not yet run through a live session
+- 🟡 Donating and claiming the gifts on a schedule — one switch and one period in the panel (an hour by default, and it goes down to the 20 minutes the routine actually asks for): once that long has passed, the donation happens and the gifts are claimed straight after it, in that order, with nobody watching. The clock belongs to the account and survives a restart, so a period that ran out while the panel was closed is worked off shortly after it opens; nothing fires while the game is not running, and a run that fails is retried whole instead of counted. Both presses are the proven ones above; the schedule itself has not yet run through a live session
 - ✅ Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. Proven live: 681 wounded went in on a single press. If the hospital is busy — a heal already running, or finished soldiers still waiting to be picked up — the game turns the press down, so collect first
 - ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
 - ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
@@ -266,10 +266,10 @@ bot has no sense of the calendar and does not notice an event starting.
 ## What is needed before it can be left alone
 
 1. **Something to run the whole session.** Today the panel repeats one chosen
-   ability and keeps three of them — the base, the alliance donation, the
-   alliance gifts — to a schedule of their own; nobody plays the routine in
-   order or decides what to do next. This is still the single biggest gap versus
-   the old script.
+   ability and keeps two errands — collecting the base, and the alliance
+   donation with its gifts — to a schedule of their own; nobody plays the
+   routine in order or decides what to do next. This is still the single biggest
+   gap versus the old script.
 2. **More of the game's screens.** Mail, radar, events, the duel, arena, heroes,
    shop and the building queues are untouched; the hospital is only half done.
 3. **Deciding, not just doing.** Attacking, gathering and rallying all work as

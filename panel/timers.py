@@ -1,11 +1,12 @@
 r"""Scheduled repeats of the panel's actions — the timer module.
 
-A *timer* is one named action plus a period: "collect the base every hour". While
-the panel is open a background thread ticks; a timer whose last successful run is
-older than its period fires that action headless (no window opened, no mouse) and
-writes down when it ran. The record lives in the profile directory, so closing the
-panel does not reset the clock — a timer that came due while it was shut fires
-shortly after the next launch.
+A *timer* is an errand plus a period: "collect the base every hour", "keep the
+alliance up — donate, then claim the gifts — every hour". While the panel is open
+a background thread ticks; a timer whose last successful run is older than its
+period runs its recipes in order, headless (no window opened, no mouse), and
+writes down when it finished. The record lives in the profile directory, so
+closing the panel does not reset the clock — a timer that came due while it was
+shut fires shortly after the next launch.
 
 What the module decides, and what it deliberately does not:
 
@@ -55,22 +56,31 @@ MAX_MINUTES = 24 * 60
 
 @dataclass(frozen=True)
 class TimerSpec:
-    """One schedulable ability: which action to run and how often, by default."""
+    """One schedulable errand: what to run, how often by default, what to call it.
 
-    key: str                 # stable id — config key and last-run key
-    action: str              # action script name (src/lastwar_bot/actions/<action>.md)
-    label_key: str           # locale key for the row label
+    ``actions`` is a *sequence* because an errand is not always one press: the
+    alliance one below is "donate, then claim the gifts", which is two recipes
+    that belong to a single switch and a single clock. The runner walks them in
+    order and the errand only counts as done when the last one has finished — a
+    donation that went through followed by a failed gift claim is a failed
+    errand, and the retry does both. That is the safe way round: both recipes
+    no-op when there is nothing to take.
+    """
+
+    key: str                        # stable id — config key and last-run key
+    actions: tuple[str, ...]        # action scripts (src/lastwar_bot/actions/<name>.md)
+    label_key: str                  # locale key for the row label
     default_minutes: int
 
 
-# The three abilities task #1118 asks for. All three are headless recipes (the
+# The two errands task #1118 asks for. Every recipe behind them is headless (the
 # gift one opens the alliance window inside the game and closes it again, still
 # without touching the mouse), so a timer firing never takes the machine away
 # from whoever is using it.
 TIMERS: tuple[TimerSpec, ...] = (
     TimerSpec(
         key="collect_base_resources",
-        action="collect_base_resources",
+        actions=("collect_base_resources",),
         label_key="timers.item.collect_base_resources",
         # An hour, as asked. The production buildings keep banking while nobody
         # collects, so the period is about not letting them sit full, not about
@@ -78,18 +88,15 @@ TIMERS: tuple[TimerSpec, ...] = (
         default_minutes=60,
     ),
     TimerSpec(
-        key="donate_alliance_tech",
-        action="donate_alliance_tech",
-        label_key="timers.item.donate_alliance_tech",
-        # The routine calls for a donation every 20 minutes (the attempts bank up
-        # on a timer of their own), but the hour asked for in the task is the
-        # default; a shorter period is one spinbox away and spends what is banked.
-        default_minutes=60,
-    ),
-    TimerSpec(
-        key="collect_alliance_gifts",
-        action="collect_alliance_gifts",
-        label_key="timers.item.collect_alliance_gifts",
+        key="alliance_upkeep",
+        # Donation first: it is the one with something to lose. Attempts bank up
+        # on their own timer and the routine wants them spent every 20 minutes,
+        # so if the pair is ever cut short it should be cut short at the gifts,
+        # which simply wait in the window until the next round.
+        actions=("donate_alliance_tech", "collect_alliance_gifts"),
+        label_key="timers.item.alliance_upkeep",
+        # An hour by default, as asked, and the spinbox goes down to a minute —
+        # 20 is the period the daily routine actually calls for.
         default_minutes=60,
     ),
 )
@@ -323,27 +330,28 @@ class TimerScheduler:
         return ran
 
     def run_one(self, spec: TimerSpec, scheduled: bool = False) -> bool:
-        """Run one timer's action and record the outcome. ``False`` = try later.
+        """Run one timer's errand and record the outcome. ``False`` = try later.
 
         Shared by the tick and the row's "run now" button, so a manual press
         restarts the period exactly like an automatic run does.
         """
+        name = "+".join(spec.actions)
         if scheduled:
-            self._log("timers.log.fire", name=spec.action,
+            self._log("timers.log.fire", name=name,
                       mins=self._minutes_since(spec.key))
         else:
-            self._log("timers.log.manual", name=spec.action)
+            self._log("timers.log.manual", name=name)
         try:
             started = self._runner(spec)
         except Exception as exc:                          # noqa: BLE001
             self._store.mark_failed(spec.key)
-            self._log("timers.log.failed", name=spec.action, error=exc)
+            self._log("timers.log.failed", name=name, error=exc)
             return False
         if not started:
-            self._log("timers.log.skip_busy", name=spec.action)
+            self._log("timers.log.skip_busy", name=name)
             return False
         self._store.mark_run(spec.key)
-        self._log("timers.log.done", name=spec.action)
+        self._log("timers.log.done", name=name)
         return True
 
     def _minutes_since(self, key: str) -> int:

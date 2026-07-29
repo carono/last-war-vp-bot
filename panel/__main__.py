@@ -2170,12 +2170,17 @@ class Panel(tk.Tk):
         return None if running else "timers.log.skip_game"
 
     def _run_timer_action(self, spec) -> bool:
-        """Run one timer's action to completion. ``False`` = panel busy, try later.
+        """Run one timer's errand to completion. ``False`` = panel busy, try later.
 
         Called on the scheduler thread, so it blocks there rather than spawning
         another: that is what keeps two due timers from pressing at once. Raises
         on a real failure — the scheduler turns that into a logged failure and a
         retry hold, and `last_run` is deliberately left where it was.
+
+        An errand of several recipes (the alliance one is donate → gifts) runs
+        them in order under ONE claim on the busy flag: nothing may slip between
+        the halves, and a raise on the first leaves the rest unrun, so the retry
+        replays the whole errand rather than half of it.
         """
         if not self._claim_busy():
             return False
@@ -2183,11 +2188,12 @@ class Panel(tk.Tk):
             if not lua_client.is_running() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
             from lastwar_bot import script_engine
-            script_engine.run_action(
-                spec.action, hwnd=0,
-                on_event=lambda msg: self._log_put(f"[timer] {spec.action}: {msg}"),
-                profile=None,
-            )
+            for action in spec.actions:
+                script_engine.run_action(
+                    action, hwnd=0,
+                    on_event=lambda msg, a=action: self._log_put(f"[timer] {a}: {msg}"),
+                    profile=None,
+                )
             return True
         finally:
             self._release_busy()
