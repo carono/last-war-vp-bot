@@ -62,9 +62,20 @@ command, one output each. The only branch in the list is step 2's gate. Name the
 files once:
 
 ```bash
+# the newest run
 L=$(ls -t results/traces/*_trace.log | head -1)
 T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
+
+# a run the player named ("Лечение юнитов") — ask for the pair, never build it
+L=$(python3 tools/sniff_runs.py --json <label> | jq -r '.[0].files.trace')
+T=$(python3 tools/sniff_runs.py --json <label> | jq -r '.[0].files.traffic')
 ```
+
+The two sniffers start a second or two apart, so **one run's trace and traffic
+carry different timestamps** — `20260729_152841_…_trace.log` next to
+`20260729_152842_…_traffic.jsonl`. A glob built from the trace's stamp finds no
+traffic at all and reads as "the wire was silent". Take the pair from
+`sniff_runs.py`, which knows they belong together.
 
 1. **Read what the player did** (~30 s).
    ```bash
@@ -78,6 +89,9 @@ T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
    jq -c 'select(.dir=="up" and .cmd!="(keepalive)")' "$T"
    ```
    The `up` lines minus keepalives **are the action**: command + payload.
+   The field is `dir`. (`direction` belongs to the raw map-capture format —
+   `tools/lib/map_capture.py`, a different file with a different shape; a grep
+   for it here matches nothing and looks like a silent wire.)
    **GATE — the only branch.** Zero `up` lines → the wire is silent, so *only
    then* fall to the live VM (**§8.11**). Otherwise **never touch the VM** — go on.
 
