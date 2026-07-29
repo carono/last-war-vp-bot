@@ -8,23 +8,24 @@ the analysis starts by interrogating the operator (see
 ``docs/skills/sniff.md`` §8.4).
 
 So the panel asks once, right after the sniffer is stopped, and stores the
-answer *next to* each run file of that session::
+answer *next to* each run file of that session — same base name, ``_desc.txt``
+instead of the file's own kind::
 
     results/traces/20260728_171425_Сбор_ресурсов_trace.log
-    results/traces/20260728_171425_Сбор_ресурсов_trace.note.md   <- the note
+    results/traces/20260728_171425_Сбор_ресурсов_desc.txt        <- the description
     results/traffic/20260728_171426_Сбор_ресурсов_traffic.jsonl
-    results/traffic/20260728_171426_Сбор_ресурсов_traffic.note.md
+    results/traffic/20260728_171426_Сбор_ресурсов_desc.txt
 
-The same note is written beside every file of the run, so whichever half you
-open first, the description is one directory listing away. It is Markdown —
-readable as-is — with the description under a fixed heading, so
-:func:`read_note` can hand just the description back to a tool.
+The same text is written beside every file of the run, so whichever half you
+open first, the description is one directory listing away. The file holds the
+operator's words and nothing else: it is read straight into an analysis prompt
+("what the player did"), and a header would have to be stripped there.
 
 The panel's other answer is "delete": a run that recorded the wrong thing is
 noise in a directory that is read by hand, so :func:`discard_run` removes the
-files and their notes.
+files and their descriptions.
 
-``results/`` is git-ignored, notes included — nothing here reaches a commit.
+``results/`` is git-ignored, descriptions included — nothing here reaches a commit.
 """
 from __future__ import annotations
 
@@ -36,15 +37,10 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from run_output import RESULTS  # noqa: E402  (same directory, bare-name import)
 
-# Sibling of a run file: same stem, this suffix. `.note.md` and not `.md`, so a
-# glob for the run files themselves (`*_trace.log`, `*_traffic.jsonl`) never
-# picks a note up, and a glob for notes never picks anything else.
-NOTE_SUFFIX = ".note.md"
-
-# The description lives under this heading. Everything above it is metadata the
-# note carries for a human reader; everything below it is what the operator
-# typed, verbatim.
-BODY_HEADING = "## What the player did"
+# What replaces `_trace.log` / `_traffic.jsonl` in a run file's name to give the
+# description beside it. A distinct kind of its own, so a glob for the run files
+# never picks a description up and vice versa.
+NOTE_SUFFIX = "_desc.txt"
 
 # Run files as written by run_output.new_run_path():
 #   <YYYYMMDD_HHMMSS>[_<label>]_<kind>[_<n>].<ext>
@@ -75,44 +71,48 @@ def parse_run_name(path: str) -> dict | None:
 
 
 def note_path(run_path: str) -> str:
-    """Path of the note that belongs beside ``run_path`` (whether it exists or not)."""
-    base, _ext = os.path.splitext(os.path.abspath(run_path))
-    return base + NOTE_SUFFIX
+    """Path of the description beside ``run_path`` (whether it exists or not).
 
-
-def render_note(run_paths: list[str], description: str, label: str | None = None,
-                when: datetime | None = None) -> str:
-    """The Markdown a note file holds. Pure — the writing is :func:`write_note`."""
-    stamp = (when or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    title = (label or "").strip() or "no label"
-    lines = [f"# Sniffer run — {title}", "",
-             f"- label: {title}",
-             f"- saved: {stamp}",
-             "- files:"]
-    for path in run_paths:
-        lines.append(f"  - {_display(path)}")
-    lines += ["", BODY_HEADING, "", description.strip(), ""]
-    return "\n".join(lines)
+    The run file's own kind is what gets replaced, so both halves of a session
+    point at a name built the same way — ``…_Сбор_ресурсов_trace.log`` and
+    ``…_Сбор_ресурсов_traffic.jsonl`` become ``…_Сбор_ресурсов_desc.txt`` in
+    their respective directories. A name that is not a run file (a hand-made
+    one, say) keeps its stem and just gains the suffix.
+    """
+    path = os.path.abspath(run_path)
+    directory, name = os.path.split(path)
+    info = parse_run_name(name)
+    if info:
+        tag = f"_{info['label']}" if info["label"] else ""
+        # The same-second collision suffix travels with the name: two runs that
+        # started in one second must not share one description.
+        dup = f"_{info['dup']}" if info["dup"] else ""
+        return os.path.join(directory, f"{info['stamp']}{tag}{dup}{NOTE_SUFFIX}")
+    return os.path.splitext(path)[0] + NOTE_SUFFIX
 
 
 def write_note(run_paths, description: str, label: str | None = None,
                when: datetime | None = None) -> list[str]:
-    """Write the same note beside every run file; returns the note paths written.
+    """Write the description beside every file of the run; returns the paths written.
 
     Files that no longer exist are skipped (a child may have failed before
     opening its own), and an empty description writes nothing at all — a note
     saying nothing is worse than no note, because it looks like an answer.
+
+    ``label`` and ``when`` are accepted for the caller's convenience (the panel
+    knows both) but do not enter the file: it holds the operator's words alone,
+    ready to be pasted into an analysis prompt.
     """
     paths = [p for p in run_paths if p and os.path.exists(p)]
-    if not paths or not description.strip():
+    text = description.strip()
+    if not paths or not text:
         return []
-    text = render_note(paths, description, label=label, when=when)
     written = []
     for path in paths:
         dest = note_path(path)
         try:
             with open(dest, "w", encoding="utf-8") as fh:
-                fh.write(text)
+                fh.write(text + "\n")
         except OSError:
             continue          # one unwritable note must not lose the others
         written.append(dest)
@@ -120,24 +120,43 @@ def write_note(run_paths, description: str, label: str | None = None,
 
 
 def read_note(run_path: str) -> str | None:
-    """The description recorded for ``run_path``, or None if the run has no note.
-
-    A note whose heading is missing (hand-written, or a future format) is
-    returned whole rather than dropped — the caller wants context, and stale
-    metadata lines are cheaper than losing the description.
-    """
-    path = note_path(run_path)
+    """The description recorded for ``run_path``, or None if the run has none."""
     try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
+        with open(note_path(run_path), encoding="utf-8") as fh:
+            return fh.read().strip() or None
     except OSError:
         return None
-    head, sep, body = text.partition(BODY_HEADING)
-    return (body if sep else text).strip() or None
+
+
+def run_stats(path: str) -> dict:
+    """``{"size": bytes, "records": n}`` for one run file — what the panel shows.
+
+    ``records`` counts what the file is made of: decoded frames in a traffic
+    transcript (one JSON object per line) and traced calls in a Lua trace
+    (``XSCALL`` lines; the tracer's own status lines are not calls). It is the
+    honest answer to "did this run actually record anything", which a byte count
+    alone is not — a transcript of nothing but keepalives is still kilobytes.
+    """
+    out = {"size": 0, "records": 0}
+    try:
+        out["size"] = os.path.getsize(path)
+    except OSError:
+        return out
+    kind = (parse_run_name(path) or {}).get("kind")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if kind == "trace":
+                    out["records"] += "XSCALL" in line
+                elif line.strip():
+                    out["records"] += 1
+    except OSError:
+        pass
+    return out
 
 
 def discard_run(run_paths) -> list[str]:
-    """Delete the run's files and their notes; returns what was actually removed."""
+    """Delete the run's files and their descriptions; returns what was removed."""
     gone = []
     for path in run_paths:
         if not path:
@@ -194,13 +213,3 @@ def list_runs(results: str | None = None) -> list[dict]:
 def _age(stamp: str) -> float:
     """A run stamp as epoch seconds (for the pairing window)."""
     return datetime.strptime(stamp, "%Y%m%d_%H%M%S").timestamp()
-
-
-def _display(path: str) -> str:
-    """A run path as it reads in a note: relative to the repo when it is inside it."""
-    repo = os.path.dirname(RESULTS)
-    try:
-        rel = os.path.relpath(os.path.abspath(path), repo)
-    except ValueError:                      # different drive on Windows
-        return path
-    return path if rel.startswith("..") else rel.replace(os.sep, "/")

@@ -401,12 +401,25 @@ correlation in §8.6 trivial:
 Toggle **Develop → Sniffer** off (it stops both children), or Ctrl+C the
 standalone runs.
 
-The panel then asks what to do with the recording — **«Запись снифера»**:
+The panel then asks what to do with the recording — **«Запись снифера»**. The
+dialog opens with what was actually captured (duration, and per file: path, size
+and how much is in it — traced calls resp. decoded frames, which is what tells a
+real run from an empty one), a description box, and two answers:
 
 | answer | what happens |
 |---|---|
-| **Сохранить** (also the window's X, and `Ctrl+Enter`) | the run is kept; whatever was typed in the description box is written beside **both** files as `…_trace.note.md` / `…_traffic.note.md` (`tools/lib/run_notes.py`) |
-| **Удалить запись** | after a confirmation, the two files and their notes are deleted — a run that recorded the wrong thing is noise in a directory that is read by hand |
+| **Сохранить** (also the window's X, and `Ctrl+Enter`) | the run is kept; whatever was typed in the description box is written beside **both** files as `<stamp>_<label>_desc.txt` — same base name, `_desc.txt` instead of the file's own kind (`tools/lib/run_notes.py`) |
+| **Удалить запись** | after a confirmation, the two files and their descriptions are deleted — a run that recorded the wrong thing is noise in a directory that is read by hand |
+
+```
+results/traces/20260728_155726_сокровище_trace.log
+results/traces/20260728_155726_сокровище_desc.txt      <- "тапнул на сокровище и собрал его"
+results/traffic/20260728_155731_сокровище_traffic.jsonl
+results/traffic/20260728_155731_сокровище_desc.txt
+```
+
+The description file holds the operator's words and nothing else, so it can be
+read straight into an analysis prompt ("what the player did: …").
 
 **Fill the description in.** The two files say which Lua fired and what crossed
 the wire; they never say which buttons were pressed, in what order, or what
@@ -443,7 +456,7 @@ python3 tools/sniff_runs.py --undescribed # runs still missing one
 ```
 
 It lists each recorded session — both files, their sizes, and the operator's
-answer to «что делал в игре» (§8.3), read from the note beside them. That
+answer to «что делал в игре» (§8.3), read from the `_desc.txt` beside them. That
 description is the context both files lack; read it as the statement of what the
 run was supposed to record, and treat the files as the evidence for it.
 

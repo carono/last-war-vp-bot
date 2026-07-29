@@ -79,7 +79,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `scan_leaderboard.py` | **Windows** (Python) | collect ranking screens (name / uid / position / score) into JSON as you open them |
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |
 | `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
-| `sniff_runs.py` | **WSL** or **Windows** (Python) | list the recorded sniffer sessions — both files of each run and the operator's description of what was done in the game (the note the panel writes when a run is kept). **Read this before analysing a trace**; `--describe "…"` attaches a description to a headless run. See [`../docs/skills/sniff.md`](../docs/skills/sniff.md) §8.3-8.4 |
+| `sniff_runs.py` | **WSL** or **Windows** (Python) | list the recorded sniffer sessions — both files of each run and the operator's description of what was done in the game (the `_desc.txt` the panel writes when a run is kept). **Read this before analysing a trace**; `--describe "…"` attaches a description to a headless run. See [`../docs/skills/sniff.md`](../docs/skills/sniff.md) §8.3-8.4 |
 | `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
 | `attack.py` | **Windows** (Python, Lua daemon) | attack (`ATTACK_CITY`) or scout (`SCOUT_CITY`) an enemy base without clicking, and read back the scout report — see [`../docs/research/attack-and-scout.md`](../docs/research/attack-and-scout.md) |
 | `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
@@ -535,9 +535,9 @@ results/
 ├── traffic_<ts>.jsonl      # one JSON record per HTTP flow / WS frame (mitm addon)
 ├── analysis_<ts>.json      # offline pcap analysis
 ├── traffic/<ts>_traffic.jsonl  # one file per sniffer run (live_tshark / live_sniffer)
-├── traffic/<ts>_traffic.note.md # what the operator did in the game, that run
+├── traffic/<ts>_desc.txt        # what the operator did in the game, that run
 ├── traces/<ts>_trace.log       # one file per Lua tracer run (lua_trace.py)
-├── traces/<ts>_trace.note.md    # the same note, beside the other half of the run
+├── traces/<ts>_desc.txt         # the same description, beside the other half
 └── raw/                     # raw request/response bodies (*.bin)
 ```
 `<ts>` is `YYYYMMDD_HHMMSS` taken when the run starts, so a restart always

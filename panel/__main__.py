@@ -108,6 +108,19 @@ CAPTURE_OPTIONS = [
     {"key": "capture.ghost_op", "script": os.path.join("dev", "secret_mission_capture.py")},
 ]
 
+# Auto-loot watcher (the «Автолут ★» checkbox in the secret-task block).
+# Poll period of the capture checkpoint. Well under the capture's own tick
+# (15 s by default), so a target is acted on the tick it appears; a poll is a
+# small JSON parse off the Tk thread, so the cost of looking often is nil.
+AUTOLOOT_POLL = 5.0
+# Most targets handed to one robbery run — the day's whole budget, so a scan that
+# happens to show several stars of the best level can spend it in one go.
+AUTOLOOT_LIMIT = 5
+# The day's robberies are spent: sleep instead of re-firing at every new star.
+# Half an hour is short enough to pick the budget up soon after the daily reset
+# without a human, and long enough to keep the log quiet overnight.
+AUTOLOOT_SPENT_PAUSE = 1800.0
+
 # Develop-tab sniffers. Absolute paths, resolved at launch, so the working
 # directory the panel was started from is irrelevant.
 #   * Traffic  — tools/lib/live_sniffer.py: raw live decode of the game protocol,
@@ -275,6 +288,10 @@ class Panel(tk.Tk):
         self._mon_proc = None
         self._rally_proc = None
         self._autoloot_proc = None    # one auto-loot run at a time
+        self._autoloot_stop = None    # threading.Event of the watcher loop, when running
+        self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
+        self._autoloot_pause_until = 0.0   # wall clock the watcher may fire again at
+        self._autoloot_warned = False      # "no checkpoint yet" is said once per run
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
@@ -486,6 +503,7 @@ class Panel(tk.Tk):
             "filter_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
             "secret_monitor": self._mon_var.get(),
+            "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
         }
 
@@ -508,6 +526,7 @@ class Panel(tk.Tk):
             self._lvl_to_var.set(s.get("filter_level_to", ""))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
+            self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
         finally:
             self._loading = False
@@ -517,7 +536,8 @@ class Panel(tk.Tk):
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
                     self._pending_var, self._can_loot_var, self._lvl_from_var,
-                    self._lvl_to_var, self._rally_var, self._mon_var, self._chat_var):
+                    self._lvl_to_var, self._rally_var, self._mon_var, self._autoloot_var,
+                    self._chat_var):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
@@ -554,6 +574,11 @@ class Panel(tk.Tk):
         self._stop_monitor()
         if self._mon_var.get():
             self._start_monitor()
+        # Auto-loot reads the *profile's* checkpoint, so a profile switch has to
+        # bounce the watcher too — and clear the uuids it robbed under the old one.
+        self._stop_autoloot()
+        if self._autoloot_var.get():
+            self._start_autoloot()
         self._stop_chat()
         if self._chat_var.get():
             self._start_chat()
@@ -673,14 +698,20 @@ class Panel(tk.Tk):
         self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
         ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
-        # Auto-loot: rob the starred tasks of the highest level the capture has
-        # actually seen. Deliberately unrelated to the filter checkboxes above —
-        # those only decide what is printed, while this decides what is robbed,
-        # and a display filter silently changing who gets raided would be a nasty
+        # Auto-loot: a standing order, not a press. While it is ticked the panel
+        # watches the capture checkpoint and robs a starred task of the highest
+        # level the moment one shows up — the scan only finds a raidable star for
+        # as long as its loot window is open, so waiting for a human to notice
+        # the log line and click was losing targets.
+        # Deliberately unrelated to the filter checkboxes above — those only
+        # decide what is printed, while this decides what is robbed, and a
+        # display filter silently changing who gets raided would be a nasty
         # surprise. Stars only: with no star in the scan it robs nothing at all.
-        self._autoloot_btn = self._tr(ttk.Button(row2, command=self._autoloot_stars),
+        self._autoloot_var = tk.BooleanVar(value=False)
+        self._autoloot_chk = self._tr(ttk.Checkbutton(row2, variable=self._autoloot_var,
+                                                      command=self._toggle_autoloot),
                                       "secret.autoloot")
-        self._autoloot_btn.pack(side="right", padx=(8, 0), ipady=2)
+        self._autoloot_chk.pack(side="right", padx=(8, 0))
 
         rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
@@ -827,6 +858,8 @@ class Panel(tk.Tk):
             self._start_rally()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
             self._start_monitor()
+        if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
+            self._start_autoloot()
         if self._chat_var.get():            # chat monitor, if the profile had it on
             self._start_chat()
         self.after(0, self._load_chat_history)
@@ -1080,33 +1113,113 @@ class Panel(tk.Tk):
             except Exception:
                 pass
 
-    # -- auto-loot: rob the best starred tasks the capture has found ---------
-    def _autoloot_stars(self) -> None:
-        """Rob the starred secret tasks of the highest level currently on the map.
+    # -- auto-loot: rob the best starred tasks the capture finds -------------
+    #
+    # One checkbox, one rule: **starred only, best level only**. The day's budget is
+    # five robberies (`hero.dispatch.steal`), and a level-7 star pays several times
+    # what a plain tile does — so spending an attempt on anything less is a loss that
+    # cannot be taken back until the daily reset. With no star in the scan nothing
+    # happens at all.
+    #
+    # It is a standing order rather than a press because a raidable star is a
+    # perishable thing: the tile stops being raidable when its window closes or
+    # someone else fills the third loot slot, so the gap between the capture
+    # printing the finding and a human noticing it was where targets were lost.
+    # While the box is ticked a watcher thread re-reads the capture checkpoint and
+    # fires the moment the rule has a target.
+    #
+    # The decision and the robbery both go through `tools/steal_secret_task.py`
+    # (`targets_from_scan` for "is there a target", `--from-scan … --star-max` for
+    # the robbery itself), so the panel never grows a second copy of the rule. The
+    # robbery runs as a child process (like the monitors) because it walks the Lua
+    # daemon several times and must not sit on the Tk thread.
+    # See docs/research/secret-task-steal.md.
+    def _toggle_autoloot(self) -> None:
+        if self._autoloot_var.get():
+            self._start_autoloot()
+        else:
+            self._stop_autoloot()
 
-        One button, one rule: **starred only, best level only**. The day's budget is
-        five robberies (`hero.dispatch.steal`), and a level-7 star pays several times
-        what a plain tile does — so spending an attempt on anything less is a loss that
-        cannot be taken back until the daily reset. With no star in the scan the button
-        deliberately does nothing at all.
+    def _start_autoloot(self) -> None:
+        if self._autoloot_stop is not None:      # already watching
+            return
+        self._autoloot_stop = threading.Event()
+        self._autoloot_seen.clear()
+        self._autoloot_pause_until = 0.0
+        self._autoloot_warned = False
+        self._log_put("[autoloot] включён — жду звёздную цель максимального уровня")
+        if self._mon_proc is None:
+            self._log_put("[autoloot] мониторинг секреток выключен: без него скан "
+                          "не обновляется и целей не будет")
+        threading.Thread(target=self._autoloot_loop, args=(self._autoloot_stop,),
+                         daemon=True).start()
 
-        The work happens in `tools/steal_secret_task.py --from-scan … --star-max`, the
-        same entrypoint a human uses from the shell, so the panel adds a click and not a
-        second implementation of the rule. It runs as a child process (like the monitors)
-        because a robbery walks the Lua daemon several times and must not sit on the Tk
-        thread. See docs/research/secret-task-steal.md.
+    def _stop_autoloot(self) -> None:
+        stop, self._autoloot_stop = self._autoloot_stop, None
+        if stop is not None:
+            stop.set()
+            self._log_put("[autoloot] выключен")
+
+    def _autoloot_loop(self, stop: threading.Event) -> None:
+        """Poll the capture checkpoint until the checkbox is cleared.
+
+        A whole tick is wrapped in try/except: the watcher is a background loop the
+        operator cannot see, so one unreadable checkpoint (half-written by the
+        capture, say) must cost a log line and not the auto-loot for the session.
         """
+        while True:
+            try:
+                self._autoloot_tick()
+            except Exception as exc:      # noqa: BLE001 — never let one tick kill the loop
+                self._log_put(f"[autoloot] ошибка опроса скана: {exc}")
+            if stop.wait(AUTOLOOT_POLL):
+                return
+
+    def _autoloot_tick(self) -> None:
+        """One look at the scan: fire when the rule has a target we have not sent yet."""
+        if self._autoloot_proc is not None:          # a robbery is still running
+            return
+        if time.time() < self._autoloot_pause_until:  # the day's budget is spent
+            return
         checkpoint = self._profiles.tasks_json()
         if not os.path.exists(checkpoint):
-            self._log_put("[autoloot] нет данных скана — включи «Мониторинг» "
-                          "секреток и подвигай карту")
+            if not self._autoloot_warned:            # say it once, not every poll
+                self._autoloot_warned = True
+                self._log_put("[autoloot] нет данных скана — включи «Мониторинг» "
+                              "секреток и подвигай карту")
             return
-        if self._autoloot_proc is not None:
-            self._log_put("[autoloot] уже идёт")
+        self._autoloot_warned = False
+        targets = self._autoloot_targets(checkpoint)
+        # Already-sent uuids are skipped: the checkpoint keeps showing a tile the
+        # server refused (or that we robbed but whose loot count has not come back
+        # in a scan yet), and re-firing at it would burn the day's budget on a
+        # target that cannot pay. A fresh session forgets them again.
+        fresh = [t for t in targets if t[0] not in self._autoloot_seen]
+        if not fresh:
             return
+        for _uuid, _srv, label in fresh:
+            self._log_put(f"[autoloot] цель: {label}")
+        # Mark *every* target of the rule, not just the fresh ones: the child gets
+        # the same checkpoint and will attempt the whole list, so the panel must
+        # not treat the rest as new the next time round.
+        self._autoloot_seen.update(uuid for uuid, _srv, _label in targets)
+        self._autoloot_run(checkpoint)
+
+    def _autoloot_targets(self, checkpoint: str) -> list:
+        """Star-max targets in the checkpoint right now, as (uuid, server, label).
+
+        Pure file work — `targets_from_scan` parses the checkpoint and applies the
+        freshness/raidability rules; it does not touch the game or the daemon, so it
+        is safe to call from the watcher thread on every poll.
+        """
+        import steal_secret_task     # lazy: keeps panel start-up free of it
+        return steal_secret_task.targets_from_scan(checkpoint, limit=AUTOLOOT_LIMIT,
+                                                   star_max=True, say=lambda _m: None)
+
+    def _autoloot_run(self, checkpoint: str) -> None:
         cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, "steal_secret_task.py"),
-               "--from-scan", checkpoint, "--star-max"]
-        self._log_put("[autoloot] звёздные цели максимального уровня …")
+               "--from-scan", checkpoint, "--star-max", "--limit", str(AUTOLOOT_LIMIT)]
+        self._log_put("[autoloot] краду звёздные цели максимального уровня …")
         proc = self._spawn_sniffer(cmd, "autoloot")
         if proc is None:
             return
@@ -1114,13 +1227,22 @@ class Panel(tk.Tk):
         threading.Thread(target=self._autoloot_reader, args=(proc,), daemon=True).start()
 
     def _autoloot_reader(self, proc) -> None:
+        spent = False
         try:
             for raw in proc.stdout:
                 ln = raw.rstrip()
-                if ln:
-                    self._log_put(f"[autoloot] {ln}")
+                if not ln:
+                    continue
+                self._log_put(f"[autoloot] {ln}")
+                # The child says so in words when there is nothing left to spend.
+                if "robberies are spent" in ln or "robberies left today: 0" in ln:
+                    spent = True
         except Exception:
             pass
+        if spent:
+            self._autoloot_pause_until = time.time() + AUTOLOOT_SPENT_PAUSE
+            self._log_put("[autoloot] дневной лимит краж исчерпан — пауза %d мин "
+                          "(после сброса продолжу сам)" % int(AUTOLOOT_SPENT_PAUSE // 60))
         if self._autoloot_proc is proc:
             self._autoloot_proc = None
 
@@ -1366,9 +1488,10 @@ class Panel(tk.Tk):
         files = {k: p for k, p in files.items() if p and os.path.exists(p)}
         if not files:
             return
-        self._ask_run_outcome(files, label)
+        seconds = max(0.0, time.time() - self._sniff_t0) if self._sniff_t0 else 0.0
+        self._ask_run_outcome(files, label, seconds)
 
-    def _ask_run_outcome(self, files: dict, label: str) -> None:
+    def _ask_run_outcome(self, files: dict, label: str, seconds: float = 0.0) -> None:
         """The post-run dialog: a description field, Save and Delete.
 
         Both answers are worth having. A kept run needs the description — the
@@ -1391,22 +1514,48 @@ class Panel(tk.Tk):
         shown = label.strip() or self._t("develop.run.nolabel")
         ttk.Label(frm, text=self._t("develop.run.header", label=shown),
                   font=("", 10, "bold")).pack(anchor="w")
+        # What was actually recorded: how long, how much, and where it lies. The
+        # counts are what tells a real run from an empty one — a transcript of
+        # nothing but keepalives still weighs kilobytes.
+        ttk.Label(frm, foreground="#888",
+                  text=self._t("develop.run.duration",
+                               sec=f"{seconds:.0f}")).pack(anchor="w")
         for kind in ("trace", "traffic"):
             path = files.get(kind)
             if path:
                 ttk.Label(frm, foreground="#888",
-                          text=f"{kind}: {self._run_file_caption(path)}").pack(anchor="w")
+                          text=self._run_file_caption(kind, path)).pack(anchor="w")
         ttk.Label(frm, text=self._t("develop.run.prompt"), wraplength=520,
                   justify="left").pack(anchor="w", pady=(10, 2))
-        text = tk.Text(frm, height=6, width=64, wrap="word")
+        text = tk.Text(frm, height=4, width=64, wrap="word")
         text.pack(fill="both", expand=True)
         text.focus_set()
+
+        # Placeholder: greyed prompt text that is NOT an answer. A widget-level
+        # binding runs before the Text class binding that inserts the character,
+        # so the first keypress empties the box and the typing lands in a clean
+        # one. `showing` — not the widget's colour — is what `save()` trusts:
+        # the placeholder must never be storable as a description.
+        placeholder = self._t("develop.run.placeholder")
+        showing = {"placeholder": True}
+        text.insert("1.0", placeholder)
+        text.configure(foreground="#888")
+
+        def clear_placeholder(_event=None) -> None:
+            if showing["placeholder"]:
+                showing["placeholder"] = False
+                text.delete("1.0", "end")
+                text.configure(foreground="")
+
+        text.bind("<Key>", clear_placeholder)
+        text.bind("<Button-1>", clear_placeholder)
 
         btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=(10, 0))
 
         def save() -> None:
-            description = text.get("1.0", "end").strip()
+            typed = text.get("1.0", "end").strip()
+            description = "" if showing["placeholder"] or typed == placeholder else typed
             win.destroy()
             self._save_run_note(paths, label, description)
 
@@ -1441,14 +1590,13 @@ class Panel(tk.Tk):
         names = ", ".join(_repo_rel(p) for p in written)
         self._log_put(f"[sniff] запись сохранена, описание → {names or '—'}")
 
-    def _run_file_caption(self, path: str) -> str:
-        """`results/traces/…_trace.log (12 KB)` — what the dialog shows per file."""
-        try:
-            size = os.path.getsize(path)
-        except OSError:
-            size = 0
+    def _run_file_caption(self, kind: str, path: str) -> str:
+        """One line of the dialog's info block: path, size and what is inside."""
+        stats = run_notes.run_stats(path)
+        size = stats["size"]
         human = f"{size / 1024:.0f} KB" if size >= 1024 else f"{size} B"
-        return f"{_repo_rel(path)} ({human})"
+        return self._t(f"develop.run.file.{kind}", path=_repo_rel(path),
+                       size=human, records=stats["records"])
 
     def _restore_trace_hooks(self) -> None:
         """Unwrap the lua_trace hooks left in the game VM after a hard Stop.
@@ -1571,6 +1719,7 @@ class Panel(tk.Tk):
 
     def _on_close(self) -> None:
         self._stop_monitor()
+        self._stop_autoloot()
         self._stop_rally()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()

@@ -47,7 +47,7 @@ def _run(root: Path, stamp_trace: str, stamp_traffic: str | None = None,
 
 
 def test_note_lands_beside_every_file_of_the_run(tmp_path=None):
-    """Save writes the same note next to both halves — either one leads to it."""
+    """Save writes the same description next to both halves — either one leads to it."""
     root = _results(tmp_path)
     paths = _run(root, "20260728_171425", "20260728_171426", "Сбор_ресурсов")
     written = run_notes.write_note(paths, "opened the base, pressed collect on 4 buildings",
@@ -58,15 +58,55 @@ def test_note_lands_beside_every_file_of_the_run(tmp_path=None):
         assert run_notes.read_note(path) == "opened the base, pressed collect on 4 buildings"
 
 
+def test_description_is_named_after_the_run_and_holds_the_words_alone(tmp_path=None):
+    """`…_trace.log` -> `…_desc.txt` beside it, with nothing but what was typed.
+
+    The file is read straight into an analysis prompt, so a header would only
+    have to be stripped there.
+    """
+    root = _results(tmp_path)
+    paths = _run(root, "20260728_155726", "20260728_155731", "сокровище")
+    run_notes.write_note(paths, "тапнул на сокровище и собрал его", label="сокровище")
+    trace_desc = Path(run_notes.note_path(paths[0]))
+    assert trace_desc.name == "20260728_155726_сокровище_desc.txt", trace_desc
+    assert trace_desc.read_text(encoding="utf-8") == "тапнул на сокровище и собрал его\n"
+    assert Path(run_notes.note_path(paths[1])).name == \
+        "20260728_155731_сокровище_desc.txt"
+
+
+def test_unlabelled_and_same_second_runs_get_their_own_description(tmp_path=None):
+    """No label -> `<stamp>_desc.txt`; the `_2` collision suffix travels with it."""
+    root = _results(tmp_path)
+    plain = root / "traces" / "20260727_223311_trace.log"
+    plain.write_text("XSCALL A.b\n", encoding="utf-8")
+    assert Path(run_notes.note_path(str(plain))).name == "20260727_223311_desc.txt"
+    dup = root / "traces" / "20260727_223311_x_trace_2.log"
+    assert Path(run_notes.note_path(str(dup))).name == "20260727_223311_x_2_desc.txt"
+
+
 def test_note_names_do_not_collide_with_the_run_files(tmp_path=None):
-    """A note must not look like a run file — else listing runs would find them."""
+    """A description must not look like a run file — else listing runs would find them."""
     root = _results(tmp_path)
     paths = _run(root, "20260728_171425", "20260728_171426", "gifts")
     run_notes.write_note(paths, "alliance -> gifts -> collect all", label="gifts")
     for path in paths:
         note = Path(run_notes.note_path(path))
-        assert note.suffix == ".md" and note.name.endswith(run_notes.NOTE_SUFFIX), note
+        assert note.name.endswith(run_notes.NOTE_SUFFIX), note
         assert run_notes.parse_run_name(note.name) is None, note
+
+
+def test_run_stats_counts_what_the_file_is_made_of(tmp_path=None):
+    """The dialog's «calls» / «frames» — a byte count cannot tell an empty run."""
+    root = _results(tmp_path)
+    trace = root / "traces" / "20260728_171425_x_trace.log"
+    trace.write_text("XSTRACE installed wrapped=8730\n"
+                     "XSCALL A.b <- 1\nXSCALL C.d <- 2\n", encoding="utf-8")
+    traffic = root / "traffic" / "20260728_171426_x_traffic.jsonl"
+    traffic.write_text('{"cmd": "a"}\n{"cmd": "b"}\n\n', encoding="utf-8")
+    assert run_notes.run_stats(str(trace))["records"] == 2      # not the status line
+    assert run_notes.run_stats(str(traffic))["records"] == 2    # not the blank line
+    assert run_notes.run_stats(str(trace))["size"] == trace.stat().st_size
+    assert run_notes.run_stats(str(root / "traces" / "gone.log")) == {"size": 0, "records": 0}
 
 
 def test_empty_description_writes_nothing(tmp_path=None):
