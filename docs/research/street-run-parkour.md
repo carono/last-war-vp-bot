@@ -94,18 +94,42 @@ Network fetch (populate the manager): **`SendGetAllParkourInfosMessage`**,
    Up/Down = jump/slide is the genre default, but the exact keys must be tested live
    (or read off the user playing).
 
+## Input model (confirmed by the user)
+
+Keyboard arrows via `pydirectinput` (foreground): **← / →** switch lane, **↑** jump,
+**↓** slide. v1 of the bot uses lane-switch only.
+
+## Auto-play — how `detect()`/`decide()` work (v1)
+
+- **Player lane**: blue-helmet centroid in the bottom-centre ROI → x-threshold to
+  lane 0/1/2. Avatar sits at x≈0.499 (centre) by default. Reliable.
+- **Obstacles**: sampled in a danger band ahead (`_BAND_DEPTHS` 0.34/0.40/0.47) at
+  three perspective-converged lane centres. A fixed colour threshold FAILS (the
+  cartoon palette swings scene to scene), so the mask is **adaptive**: reference =
+  the clear road patch just in front of the avatar; an obstacle pixel is markedly
+  darker (`V < road_V−45`) or more saturated (`S > road_S+70`) than that, with bright
+  gold coins (`V>175, hue 12–45`) carved back out. Lane blocked if the band fraction
+  exceeds `_OBST_THRESH`.
+- **decide()**: if the player's lane is blocked, step to a clear neighbour (prefer
+  centre); if boxed in, jump. No jump/slide obstacle classification yet.
+- **Loop**: in-memory grab+detect at **~16 fps** (61 ms; the PNG-saving path was ~4).
+  A 0.28 s cooldown after each key stops lane-change overshoot. Death = the big
+  near-white «Испытание окончено» card centre-screen.
+
 ## Status vs. the task
 
-- ✅ **Manager identified & proven** — `LWSurfingDataManager`; probe reports OPEN
-  (28 attempts, best 8185, ~5 d left).
-- ✅ **Launch proven live** — `ReqFightStartCheck(false)` starts a real run;
-  `GoBackToActivityPanel()` clears the result popup between runs.
-- ✅ **Live gameplay captured** — 3-lane runner mapped (`live_*.png`).
-- 🟡 **Auto-play NOT built** — input keys unconfirmed; the `detect()`/`decide()`
-  perception layer is still a calibration stub. Cannot yet dodge, so a headless `run`
-  would just die at ~88 m. Next: confirm controls, tune `detect()` on `live_*.png`,
-  then `run` (leave 5 attempts for the user).
+- ✅ **Manager identified & proven** — `LWSurfingDataManager`; probe reports OPEN.
+- ✅ **Launch/loop proven live** — `ReqFightStartCheck(false)` starts a run;
+  `GoBackToActivityPanel()` clears the popup between runs; `run` chains attempts,
+  logs, screenshots each result, and keeps a reserve.
+- 🟡 **Auto-dodge works but is weak.** Live autonomous batch (10 attempts, server
+  935, 2026-07-29): distances **89, 317, 439, 132, 89, 132, 89, 316, 419, 132 m**
+  — best **439 m**, median ~132 m, vs the **~88 m** no-control baseline. So the bot
+  genuinely dodges (3–5× baseline on good runs) but is nowhere near the human record
+  (8185 m). To improve: jump/slide obstacle classification, a per-lane outlier
+  detector for reliability at distance, and a faster capture. Attempts left for the
+  user (reserve honoured).
 
 `tools/street_run_bot.py`: `probe` (state), `shot`, `watch` (durable poll + sentinel),
 `calibrate` (start a run + grab frames), `record` (capture-only for user play),
-`run` (reflex loop — blocked on the perception layer above).
+`run [reserve]` (the reflex loop; keeps `reserve` attempts, default 5).

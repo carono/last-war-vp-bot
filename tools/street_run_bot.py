@@ -110,6 +110,17 @@ def start_run():
     _eval(_START_LUA, settle=2.5)
 
 
+_DISMISS_LUA = r"""
+local m = DataCenter.LWSurfingDataManager
+pcall(function() m:GoBackToActivityPanel() end)
+"""
+
+
+def _dismiss_popup():
+    """Close the «Испытание окончено» result popup so the next run can start."""
+    _eval(_DISMISS_LUA, settle=1.0)
+
+
 # ---------------------------------------------------------------------------
 # Vision + input layer (real-time reflex loop)
 # ---------------------------------------------------------------------------
@@ -178,25 +189,106 @@ def press(key: str):
     pydirectinput.press(key)  # 'left' | 'right' | 'up' | 'down'
 
 
-# --- perception stub -------------------------------------------------------
-# CALIBRATE: on the first live run, capture a few frames of UIGhostParkourBattleMain
-# and fill in: the road ROI, number of lanes, the player-marker signature, and the
-# obstacle signature (colour/edge). Until then this returns "unknown" and the run
-# loop declines to act rather than flailing blindly.
+# --- perception (calibrated on results/street_run/frames/live_*.png) ---------
+# Frame is the full client window (≈1531×997). Everything below is expressed as
+# fractions of W/H so it survives a resize. Calibration facts from the live frames:
+#   • The avatar wears a saturated BLUE helmet; during play it sits at y≈0.60 and its
+#     x snaps to one of 3 lanes. Centre lane measured at x≈0.499.
+#   • Coins are vivid YELLOW (hue ~20–40) — must NOT be read as obstacles.
+#   • Obstacles (cars/trucks/containers/barriers) read as vivid non-yellow blobs or
+#     dark blobs inside the road ahead of the avatar.
+
+_HELMET_LO = (95, 110, 80)      # HSV lower for the blue helmet
+_HELMET_HI = (125, 255, 255)
+# lane x-centre at the avatar's depth, and classification thresholds
+_LANE_SPLIT = (0.44, 0.56)      # x < .44 → left(0), .44–.56 → centre(1), > .56 → right(2)
+# danger band ahead of the avatar (sampled at three depths) and per-depth lane spread
+_BAND_DEPTHS = (0.34, 0.40, 0.47)
+_OBST_THRESH = 0.12             # per-lane vivid-nonyellow+dark fraction that means "blocked"
+
+
+def _to_bgr(img):
+    """mss screenshot → BGR uint8 ndarray."""
+    import numpy as np
+    a = np.frombuffer(img.bgra, np.uint8).reshape(img.height, img.width, 4)
+    return a[:, :, :3]
+
+
+def _lane_centres(yr: float):
+    """3 lane x-centres at depth yr, converging toward the vanishing point."""
+    t = max(0.0, min(1.0, (yr - 0.28) / (0.60 - 0.28)))
+    spread = 0.02 + (0.12 - 0.02) * t
+    return (0.5 - spread, 0.5, 0.5 + spread)
+
 
 def detect(img) -> dict:
-    """Return {'player_lane': int|None, 'obstacle_lane': int|None, 'dead': bool}.
-    Placeholder — see CALIBRATE note above."""
-    return {"player_lane": None, "obstacle_lane": None, "dead": False}
+    """{'player_lane': 0|1|2|None, 'blocked': [bool,bool,bool], 'dead': bool}."""
+    import cv2, numpy as np
+    bgr = _to_bgr(img)
+    H, W = bgr.shape[:2]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+
+    # dead: the «Испытание окончено» card is a big near-white panel centre-screen
+    card = hsv[int(H * 0.20):int(H * 0.46), int(W * 0.34):int(W * 0.66)]
+    near_white = ((card[:, :, 1] < 60) & (card[:, :, 2] > 205)).mean()
+    dead = near_white > 0.25
+
+    # player lane from the blue-helmet centroid in the bottom-centre ROI
+    m = cv2.inRange(hsv, _HELMET_LO, _HELMET_HI)
+    roi = np.zeros((H, W), np.uint8)
+    roi[int(H * 0.50):int(H * 0.72), int(W * 0.34):int(W * 0.66)] = 255
+    m = cv2.bitwise_and(m, roi)
+    xs = np.where(m > 0)[1]
+    if len(xs) >= 80:
+        px = xs.mean() / W
+        player = 0 if px < _LANE_SPLIT[0] else (2 if px > _LANE_SPLIT[1] else 1)
+    else:
+        player = None
+
+    # obstacle per lane, ADAPTIVE to the current frame's lighting (a fixed threshold
+    # fails — road brightness swings scene to scene). Reference = the road patch right
+    # in front of the avatar (almost always clear). An obstacle pixel is markedly
+    # DARKER or MORE saturated than that reference; bright gold coins are carved out.
+    hue = hsv[:, :, 0].astype(int); sat = hsv[:, :, 1].astype(int); val = hsv[:, :, 2].astype(int)
+    ref = hsv[int(H * 0.53):int(H * 0.57), int(W * 0.47):int(W * 0.53)]
+    road_v = float(np.median(ref[:, :, 2])); road_s = float(np.median(ref[:, :, 1]))
+    coin = (val > 175) & (hue >= 12) & (hue <= 45) & (sat > 110)
+    obst = ((val < road_v - 45) | (sat > road_s + 70)) & (~coin)
+    blocked = [False, False, False]
+    for yr in _BAND_DEPTHS:
+        y = int(H * yr); dy = int(H * 0.03); dx = int(W * 0.03)
+        for lane, cx in enumerate(_lane_centres(yr)):
+            x = int(W * cx)
+            frac = obst[y - dy:y + dy, x - dx:x + dx].mean()
+            if frac > _OBST_THRESH:
+                blocked[lane] = True
+    return {"player_lane": player, "blocked": blocked, "dead": dead}
 
 
 def decide(state: dict) -> str | None:
-    """Given detect() output, return an arrow key or None. Dodge sideways away from
-    an obstacle sharing the player's lane."""
-    pl, ol = state.get("player_lane"), state.get("obstacle_lane")
-    if pl is None or ol is None or pl != ol:
+    """Lane-switch away from a blocked lane toward a clear one. (Jump/slide ↑/↓ are
+    left out of v1 — the frames don't yet distinguish a jumpable vs slideable obstacle,
+    and a wrong guess kills the run faster than a mis-timed lane change.)"""
+    pl = state.get("player_lane")
+    blocked = state.get("blocked") or [False, False, False]
+    if pl is None or not blocked[pl]:
         return None
-    return "left" if pl > 0 else "right"
+    # player's lane is blocked → step to a clear neighbour, preferring the centre
+    if pl == 1:
+        if not blocked[0] and blocked[2]:
+            return "left"
+        if not blocked[2] and blocked[0]:
+            return "right"
+        if not blocked[2]:
+            return "right"
+        if not blocked[0]:
+            return "left"
+        return "up"                    # both sides blocked → try a jump
+    if pl == 0:
+        return "right" if not blocked[1] else ("up")
+    if pl == 2:
+        return "left" if not blocked[1] else ("up")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -325,31 +417,54 @@ def cmd_run(reserve: int = 5):
         print("no game window"); return 1
     focus(h); time.sleep(0.8)
 
-    os.makedirs(os.path.join("results", "street_run"), exist_ok=True)
-    log = open(os.path.join("results", "street_run", "runs.log"), "a")
+    outdir = os.path.join("results", "street_run")
+    os.makedirs(outdir, exist_ok=True)
+    log = open(os.path.join(outdir, "runs.log"), "a", encoding="utf-8")
     remaining = int(st.get("remainTimes") or 0)
-    print(f"Event open, {remaining} attempt(s) available.")
-    # Leave `reserve` attempts for the user (task instruction: keep 5).
+    best0 = st.get("highest", "?")
+    print(f"Event open, {remaining} attempt(s); best so far {best0}. Reserve={reserve}.")
+    attempt = 0
     while remaining > reserve:
+        attempt += 1
+        focus(h); time.sleep(0.3)
         start_run()                    # ReqFightStartCheck → OnStartGame → runner scene
-        time.sleep(3.0)                # wait for the surfing runner scene to load
-        # reflex loop until death:
-        deadline = time.time() + 300
+        # wait for the runner scene: the avatar (blue helmet) appears
+        loaded = False
+        t_load = time.time() + 8
+        while time.time() < t_load:
+            if detect(grab(h)[0]).get("player_lane") is not None:
+                loaded = True; break
+            time.sleep(0.15)
+        if not loaded:
+            print(f"attempt {attempt}: scene did not load; abort this attempt")
+            _dismiss_popup(); remaining = int(read_state().get("remainTimes") or remaining - 1)
+            continue
+        # reflex loop until death (or a hard cap)
+        cooldown = 0.0
+        deadline = time.time() + 120
         while time.time() < deadline:
-            img, _ = grab(h)
-            s = detect(img)            # CALIBRATE: real lane/obstacle detection
+            s = detect(grab(h)[0])
             if s["dead"]:
                 break
-            key = decide(s)
-            if key:
-                press(key)
-            time.sleep(0.01)           # detect() must stay <16 ms once calibrated
+            now = time.time()
+            if now >= cooldown:
+                key = decide(s)
+                if key:
+                    press(key)
+                    cooldown = now + 0.28   # let the lane change settle before re-deciding
+        # record the result: snapshot the «Испытание окончено» popup + read best
+        grab(h, os.path.join("street_run", f"result_{attempt:02d}.png"))
         st = read_state()
-        dist = st.get("highest", "?")
-        log.write(f"attempt remaining={remaining} best={dist}\n"); log.flush()
+        best = st.get("highest", "?")
         remaining = int(st.get("remainTimes") or remaining - 1)
-        print("attempt done, remaining:", remaining, "best:", dist)
-    print("Stopped with", remaining, "attempts in reserve for the user.")
+        line = (f"attempt {attempt}: remaining={remaining} best={best} "
+                f"(popup=results/street_run/result_{attempt:02d}.png)")
+        log.write(line + "\n"); log.flush()
+        print(line)
+        _dismiss_popup(); time.sleep(0.6)   # clear the popup before the next start
+    print(f"Stopped with {remaining} attempts in reserve. Best distance: "
+          f"{read_state().get('highest', '?')}")
+    log.close()
     return 0
 
 

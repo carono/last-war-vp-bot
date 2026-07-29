@@ -84,9 +84,11 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the Surfing 3-lane endless runner) — the bot finds
-  the open event, reads attempts + best distance, launches a real run and clears the
-  result popup by itself (`tools/street_run_bot.py`, `LWSurfingDataManager`); the
-  obstacle-dodging reflex layer is not built yet, so it starts a run but cannot play it.
+  the open event, launches runs, dodges obstacles with a vision reflex loop
+  (blue-helmet lane + adaptive obstacle band, arrow-key lane switch), logs each
+  distance and keeps a reserve (`tools/street_run_bot.py`, `LWSurfingDataManager`). A
+  10-run batch reached 89–439 m (best 439) vs ~88 m with no control — so it genuinely
+  plays, but nowhere near the human record (8185); no jump/slide yet.
 
 ### Arms Race
 
