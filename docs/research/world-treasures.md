@@ -180,9 +180,17 @@ parks the targets for the recipe.
 ```
 C:\Python312\python.exe tools\find_treasures.py            # look and report
 C:\Python312\python.exe tools\find_treasures.py --queue    # ... and park the targets
+C:\Python312\python.exe tools\find_treasures.py --watch --for 40m --every 5m --queue
 ```
 
 Exit code 0 = something to dig, 1 = nothing — so a schedule can gate the recipe on it.
+
+**`--watch` — the wait.** A treasure is not a standing feature of the map: it exists
+only while a detect event has one out, and the alliance digs it away quickly. So one
+look answers "right now" and almost always says no; the watch repeats the ask-and-read
+(`--every`, default 120 s) until a treasure appears — then it parks it (with `--queue`)
+and exits 0 — or the window (`--for`, default 60 m) runs out and it exits 1. Intervals
+take units: `90` (bare `--every` = seconds), `3m`, `2h`; a bare `--for` is minutes.
 
 **Why it asks first.** `ActDetectTreasureDataManager` is a *pure reply cache*, and this
 matters: an empty `dataDict` does not mean "no treasure", it can equally mean "nobody
@@ -202,6 +210,15 @@ The ids to ask for are the manager's own `dailyGot` keys (on this account `25194
 `25196` — the treasure cfg groups it counts daily takes for; the captured treasure's
 own cfgId was `25193`). `get.detect.info` sends fine with no argument but does not fill
 `dataDict` — it is a different payload.
+
+**Which ids to ask for, and the fresh-client trap.** The ids normally come from the
+manager's own `dailyGot` keys — but `dailyGot` is filled by a *reply* as well, so a
+client that has just started tracks nothing: read live on 2026-07-29 right after a
+crash-restart, `dailyGot` was empty where the same account showed `25193 / 25194 /
+25196` minutes earlier. Asking for no ids means never asking at all, and the tool would
+have called the map empty without having looked once. The finder therefore falls back to
+those three known ids (`KNOWN_ACTIVITY_IDS`) whenever the client tracks none, and prints
+which source the ids came from; `--ids` still overrides both.
 
 Chunks live in `tools/lib/lua_actions.py`: `treasure_refresh_request(ids)`,
 `treasure_state()` (logs `treasures_num`, `dailyGot`, and every `dataDict` record as raw
@@ -235,3 +252,40 @@ pid/uuid/server, `dug` set from the operator uid and `cross` from the home serve
   `activity.detect.list` for both tracked ids the dict stayed empty, `dailyGot` was
   `25194=0 / 25196=0` (the daily allowance untouched), and the loaded world scene
   held no treasure object either.
+
+### Why the map stays empty — the event itself is not running (2026-07-29)
+
+The second #1116 pass looked past the treasure manager, at what the client says is
+running at all, and the answer is one level up: **there is no detect event on this
+server right now**, so there is nothing that could put a treasure out.
+
+* `DataCenter.ActivityListDataManager.nowActivityList` — 23 activities open
+  (secret task 94102, ghost recon 94111, parkour 80063, world boss 80002, treasure-map
+  minigames 2200001 / 2200033, …). None of them is a detect event; `laterActivityList`
+  is empty, so the client does not even know when the next one starts.
+* The treasure cfg ids the manager counts daily takes for (25193 / 25194 / 25196) are
+  *not* activity-list ids — the running list uses a different id space (94xxx / 4xxxx /
+  22xxxxx), and `DetectEventTemplateManager.detectEventTemplateDic` holds nine *point*
+  templates (10173, 15204, 24160-24164, 26314, 28170, 28171, 29171), not activity ids.
+  So "is a detect event running?" cannot currently be answered by an id match — the
+  reliable read stays "did the list reply bring a treasure".
+* `DataCenter.WorldPointDetailManager` (`worldPointDetailList`,
+  `worldSuppliesDataList`, `personalDiscoverSuppliesInfo`,
+  `worldAllianceResourceDataList`) was empty in the city scene — no on-map treasure
+  point loaded either.
+* Also read live: `activity_detect_dig_times_expire = 1785376800000` = 2026-07-30
+  02:00 UTC, i.e. the ordinary daily reset, not an event window.
+
+The 40 `detect.*` messages the client knows (from `MsgDefines`, dumped live) are listed
+for the follow-up that would make a treasure appear on demand rather than waiting for
+one: `start.detect.event.pve`, `detect.event.put.point.in.world`,
+`detect.event.batch.put.point.in.world`, `upgrade.detect.power`, `reset.detect.event`,
+`get.detect.info`, `push.itemuse.detect.info`, plus the whole claim family already
+mapped above. UI side: `UIDetectEvent`, `UILWActDetectTreasureALPanel` (the alliance
+treasure panel), `UIDetectDigTreasure`, `UILWActDetectEventTreasureClaimInfo*`.
+None of that was fired — sending the "start" family blind would poke a live event
+system, and it is not needed for the read path.
+
+**Practical consequence:** the honest way to catch a treasure is to wait for one, which
+is what `find_treasures.py --watch` does. Live on 2026-07-29 the watch ran repeated
+rounds against the game and stayed correctly empty throughout.

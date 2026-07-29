@@ -11,7 +11,9 @@ here, against an evaluator stub: no game, no capture. Run it anywhere::
 """
 from __future__ import annotations
 
+import io
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -89,11 +91,14 @@ def test_ids_can_be_forced():
     _check("--ids overrides the tracked ones", ev.asked == [25193, 25196])
 
 
-def test_no_ids_asks_nothing_but_still_reads():
+def test_a_client_tracking_nothing_falls_back_to_the_known_ids():
+    # right after a client restart `dailyGot` is empty; asking for nothing would report
+    # "no treasure" without ever having looked
     ev = FakeEval(daily=())
     code = _run(ev, [])
-    _check("nothing to ask for -> no request sent", ev.asked == [])
-    _check("...but the state is still read and reported empty", code == 1)
+    _check("falls back to the known activity ids",
+           ev.asked == list(F.KNOWN_ACTIVITY_IDS))
+    _check("...and still reports the empty map", code == 1)
 
 
 def test_reads_after_asking_not_before():
@@ -129,6 +134,63 @@ def test_queue_only_parks_when_something_was_found():
     ev2 = FakeEval(records=("25194 pointId=500553 uuid=1",), num=1, parked=1)
     _run(ev2, ["--queue"])
     _check("a found treasure gets parked", any("treasure_parked" in c for c in ev2.chunks))
+
+
+# -- the wait (--watch) -----------------------------------------------------
+
+def test_watch_gives_up_when_the_window_closes():
+    ev = FakeEval(records=(), num=0)
+    code = _run(ev, ["--watch", "--for", "0"])
+    _check("an expired window exits 1", code == 1)
+    _check("...after having looked at least once", ev.asked == [25194, 25196])
+
+
+def test_watch_returns_as_soon_as_a_treasure_appears():
+    # empty for two rounds, then a record shows up
+    ev = FakeEval(records=(), num=0)
+    rounds = {"n": 0}
+    plain_run = ev.run
+
+    def run(chunk, marker=None, settle=1.2):
+        if "treasures_num" in chunk:
+            rounds["n"] += 1
+            if rounds["n"] > 4:      # each round reads twice (before/after the ask)
+                ev.num, ev.records = 1, ["25194 pointId=500553 uuid=1"]
+        return plain_run(chunk, marker=marker, settle=settle)
+
+    ev.run = run
+    _check("waits, then exits 0 on the treasure", _run(ev, ["--watch", "--for", "10"]) == 0)
+    _check("it took more than one round", rounds["n"] > 2)
+
+
+def test_a_quiet_round_still_prints_the_treasure_it_found():
+    # the raw record lines are the only place the unconfirmed record shape shows up,
+    # so a silent repeat round must not swallow them
+    ev = FakeEval(records=("25194 pointId=500553 uuid=1",), num=1)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        found = F._look(ev, None, quiet=True)
+    _check("a quiet round that finds something reports it", found)
+    _check("...including the raw record line", "pointId=500553" in buf.getvalue())
+
+    ev2 = FakeEval(records=(), num=0)
+    buf2 = io.StringIO()
+    with redirect_stdout(buf2):
+        F._look(ev2, None, quiet=True)
+    _check("a quiet empty round stays silent", buf2.getvalue() == "")
+
+
+def test_watch_parks_what_it_waited_for():
+    ev = FakeEval(records=("25194 pointId=500553 uuid=1",), num=1, parked=1)
+    _run(ev, ["--watch", "--queue"])
+    _check("the awaited treasure gets parked", any("treasure_parked" in c for c in ev.chunks))
+
+
+def test_watch_interval_units():
+    _check("bare --every is seconds", F._duration("90") == 90)
+    _check("--every 3m is minutes", F._duration("3m") == 180)
+    _check("--for 2h is hours", F._duration("2h") == 7200)
+    _check("bare --for is minutes", F._duration("30", 60) == 1800)
 
 
 def test_evaluator_is_closed_even_on_the_empty_path():
