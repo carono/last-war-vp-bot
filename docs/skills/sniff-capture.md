@@ -308,7 +308,7 @@ share a name:
 | child | command the panel spawns | writes |
 |---|---|---|
 | traffic | `live_sniffer.py --label <L>` | `results/traffic/<YYYYMMDD_HHMMSS>_<L>_traffic.jsonl` |
-| functions | `lua_trace.py --filter SFS,Manager,Util --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
+| functions | `lua_trace.py --filter SFS --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
 
 Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
 **new** files, so a stop/start cycle never overwrites the previous session
@@ -337,7 +337,7 @@ confirmed within 25 s the panel says so instead of waiting silently.
 
 ```bash
 /mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "alliance gifts"   &
-/mnt/c/Python312/python.exe tools/lua_trace.py --filter SFS,Manager,Util --label "alliance gifts"
+/mnt/c/Python312/python.exe tools/lua_trace.py --filter SFS --label "alliance gifts"
 ```
 
 Prerequisites, in the order they bite:
@@ -362,12 +362,13 @@ amount of re-reading recovers them, and the gaps read exactly like "the player
 never pressed that". This cost task #1115 hours of chasing a message that looked
 absent (`queue.finish`) and an `armyArray` that looked like a single entry. Several
 keywords are allowed, so one narrow run covers both the wire and its caller:
-`--filter SFS,Manager,Util`, which is what the panel now spawns.
+`--filter SFS`, which is what the panel now spawns — it covers the whole wire and
+fires only when a message is built.
 
 Sanity line in the trace file — read it before anything else:
 
 ```
-XSTRACE installed wrapped=214 depth=2 filter="SFS,Manager,Util" dedup=false hook=false
+XSTRACE installed wrapped=61 depth=2 filter="SFS" dedup=false hook=false
 ```
 
 `dedup=true` in a file you are about to analyse as a session means the repeats are

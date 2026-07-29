@@ -142,14 +142,19 @@ AUTOLOOT_SPENT_PAUSE = 1800.0
 # lands in the panel log like the rest of its output, tagged [traffic] / [trace].
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
-# What the function tracer logs. A name matching ANY of these keywords is kept, so
-# one run covers both halves of an analysis: the messages that cross the wire
-# (`SFSNetwork.SendMessage`, `SFSObject.Put*`, `SFSArray.*`) and the manager or util
-# that assembled them — which is exactly the pair docs/skills/sniff.md §8.0 asks for
-# in steps 2 and 3. Everything else, above all the per-frame UI redraw traffic, stays
-# out: that noise is what freezes the game, and it is why the filterless run needs
-# --dedup at all. Widen this only with a filter, never by dropping it.
-TRACE_FILTER = "SFS,Manager,Util"
+# What the function tracer logs. A name matching ANY of these keywords is kept.
+#
+# `SFS` alone, deliberately. It covers the whole wire — `SFSNetwork.SendMessage`,
+# `SFSObject.Put*`, `SFSArray.*`, `SFSBaseMessage.*` — and those fire only when a
+# message is actually built, so a session costs a few hundred lines.
+#
+# Do NOT add `Manager` or `Util` here. The match is a plain substring against the
+# full `table.fn` name, so `Manager` also catches `UIManager`, `UpdateManager` and
+# `EventManager`, and `Util` catches `ProfilerUtil` — all of them per-frame. Tried
+# once: one hospital session wrote 79887 lines, and since every child line is piped
+# into the panel's own log widget, the panel froze. The game survived; the panel did
+# not. Widening this costs the panel, not just the file.
+TRACE_FILTER = "SFS"
 # How long to wait for both sniffer halves to report "ready" before saying so in
 # the log. Measured on this machine: capture is live ~1 s in, the Lua hooks
 # ~2 s in with a warm daemon and noticeably later when it has to attach first —

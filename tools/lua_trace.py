@@ -15,7 +15,10 @@ each name throws away every repeat, so a player who opens a window, picks an amo
 confirms and then collects sees one click and one message in the file instead of four
 actions. To record what somebody actually did, run without it and narrow with `--filter`
 instead — several keywords are allowed, comma-separated, and a name matching any of them is
-logged (`--filter SFS,Manager,Util` covers the wire and the code that drives it).
+logged. `--filter SFS` records the whole wire and stays small, because those names fire only
+when a message is built. Beware of broad words: the match is a plain substring on the full
+`table.fn`, so `Manager` also takes `UIManager`/`UpdateManager`/`EventManager` and `Util`
+takes `ProfilerUtil` — all per-frame. One session traced that way wrote 79887 lines.
 
 There is NO action-specific logic here — it is a raw tracer, useful while reverse
 engineering ANY behaviour (march, rally, scene switch, UI, ...).
@@ -23,7 +26,7 @@ engineering ANY behaviour (march, rally, scene switch, UI, ...).
 Single command, self-restoring::
 
     C:\Python312\python.exe tools\lua_trace.py --filter March  # every March call, full args
-    C:\Python312\python.exe tools\lua_trace.py --filter SFS,Manager,Util   # record a session
+    C:\Python312\python.exe tools\lua_trace.py --filter SFS            # record a session
     C:\Python312\python.exe tools\lua_trace.py --dedup         # filterless overview (safe)
     C:\Python312\python.exe tools\lua_trace.py                 # every call of everything (floods!)
     C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all     # + call-level hook (heavy)
@@ -71,10 +74,11 @@ def _lua_str(s):
 def split_filters(spec):
     """`--filter` -> the list of keywords a name may match, or None for "log everything".
 
-    Several keywords are accepted comma-separated, because one keyword cannot cover both
-    halves of a trace: the wire lives under `SFS*` while the code that drives it lives
-    under `*Manager` / `*Util`. Matching any one of them keeps a run narrow enough to log
-    EVERY call (no dedup) without flooding the frame loop with UI redraw noise.
+    Several keywords are accepted comma-separated and a name matching any of them is kept,
+    for the times one word cannot cover a subject. Keep them specific: the match is a plain
+    substring on the full `table.fn`, so a word like `Manager` or `Util` silently pulls in
+    per-frame names (`UIManager`, `UpdateManager`, `ProfilerUtil`) and turns a no-dedup run
+    into a flood.
     """
     if not spec:
         return None
@@ -104,9 +108,8 @@ def install_chunk(filter_kw, depth, hook_all, dedup=False):
     mode with a narrow `filter_kw` to keep it safe.
 
     `filter_kw` may name several keywords (a comma-separated string or a list) and a name
-    matching ANY of them is logged. One keyword is rarely enough: the wire lives under
-    `SFS*` and the code driving it under `*Manager` / `*Util`, so covering both is what
-    lets a run keep every repeat call instead of falling back to `dedup`.
+    matching ANY of them is logged — which is what lets a run keep every repeat call
+    instead of falling back to `dedup`. See `split_filters` on choosing them.
     """
     return r"""
 local FILTERS = %(filters)s
@@ -349,7 +352,8 @@ def _tail(path, offset):
 def main():
     ap = argparse.ArgumentParser(description="General live Lua tracer (auto install/restore).")
     ap.add_argument("--filter", help="only log calls whose name contains one of these "
-                                     "keywords (comma-separated, e.g. SFS,Manager,Util)")
+                                     "keywords (comma-separated; e.g. SFS — beware broad words "
+                                     "like Manager/Util, they match per-frame names)")
     ap.add_argument("--depth", type=int, default=2, help="how deep to descend nested tables (default 2)")
     ap.add_argument("--hook-all", action="store_true",
                     help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")
