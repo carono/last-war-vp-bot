@@ -1,36 +1,26 @@
-# Heal every wounded soldier in the base hospital ("Лечение юнитов").
+# Heal the wounded soldiers in the base hospital ("Лечение юнитов").
 #
-# The hospital (`LWUIHospital`) heals wounded soldiers. One press of its cure button
-# sends ONE message that heals a whole batch at once — captured whole in traces
-# 20260729_152749 / 152841 (docs/research/hospital-heal.md):
+# The operator's in-game routine is three steps — heal, ask the alliance to speed it up,
+# collect the healed soldiers when the timer ends — but only two of them are presses:
+# starting a heal registers it for alliance help by itself, so there is nothing to send
+# for the middle step (docs/research/hospital-heal.md).
 #
-#     hospital.cure  {armyArray = [ {armyId = <string>, healNum = <int>}, ... ]}
-#
-# one entry per wounded soldier type. As with the other recipes, the line below is just
-# "tap a button": the real Lua (that one hospital.cure, built from the wounded list the
-# window reads out of `T11Util.GetSelfCurSoldierData()`) lives in the button library
-# tools/lib/game_buttons.py -> `heal_all`.
-#
-# NB — `TAP heal_all` is NOT a screen tap. It is a headless Lua send: no hospital window
-# is opened, the wounded list is read straight off the game state and healed in one
-# message. `xall` means "send only if something is actually wounded", so a healthy army
-# costs no server round trip; a single press already covers every wounded type, so the
-# plain `TAP heal_all` is the usual call.
-#
-# The message SHAPE is proven on the wire. What is still best-effort (see
-# docs/research/hospital-heal.md §4) is the headless enumeration of *all* wounded: one
-# field name on `GetSelfCurSoldierData()` is not yet confirmed, so a mismatch heals
-# nothing (safe) rather than the wrong thing. Run tools/scratch/_hospital_probe.lua once
-# with wounded soldiers present to pin it down, then this recipe is fully proven.
-#
-# "Select quantity": the in-game window defaults each type's slider to the MAX (all
-# wounded), which is exactly what this heals — the whole batch. Heal a specific count
-# instead only through the primitive tools/lib/hospital.py `cure([(armyId, n)])`.
-#
-# "Request help" / "Collect": healing is sped up by the ALLIANCE HELP system, which is
-# the same `al.help.all` the `help_ally` recipe already sends — starting a heal registers
-# it for help automatically, there is no separate "request help for my heal" message. A
-# finished heal returns the soldiers on the queue timer; no distinct "collect" send was
-# captured. Both are documented in docs/research/hospital-heal.md §3.
+# Both lines below are headless Lua sends, not screen taps: no hospital window is opened,
+# the wounded list and the heal timer are read straight off the game state.
 
-TAP heal_all xall   # heal every wounded soldier type, or no-op if nothing is hurt
+# --- 1. Send every wounded soldier for treatment -------------------------------
+# One hospital.cure covers every wounded type at once, so one press is the whole heal.
+# `xall` means "only if somebody is actually hurt", so a healthy army costs no round trip.
+TAP heal_all xall
+
+# --- 2. Collect the healed soldiers --------------------------------------------
+# Only fires once the heal timer has finished — while one is still running this is a clean
+# no-op, so the recipe can be run on any schedule. A heal started by THIS run will not be
+# ready yet; the collect belongs to the previous one.
+TAP collect_healed xall
+
+# NB — a heal also takes one of the base's building queues. With all of them busy the game
+# refuses the heal and says so on screen only, so the run adds a line of its own when it
+# sent into a base with no free queue. Nothing here can work around that; it only means the
+# next run heals instead. Still not watched through end to end on a live game: every
+# attempt so far met a base with all four queues working.

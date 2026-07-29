@@ -388,19 +388,32 @@ BUTTONS: dict[str, Button] = {
         wait=0.5, label="dismiss treasure-reward popup",
     ),
     # --- Hospital: heal wounded soldiers ("Лечение юнитов") ------------------
-    # One press heals EVERY wounded soldier type in a single `hospital.cure`
-    # {armyArray = [{armyId, healNum}, ...]} — the message shape proven in traces
-    # 20260729_152749 / 152841 (docs/research/hospital-heal.md). The soldier list is
-    # read headlessly from `T11Util.GetSelfCurSoldierData()`, so no window is opened.
-    # `count_lua` is the number of wounded soldier types, so `TAP heal_all xall` is a
-    # clean no-op when nothing is hurt; one press already covers all types, so a plain
-    # `TAP heal_all` is the usual call. UNPROVEN LIVE: the per-entry field names on
-    # GetSelfCurSoldierData are still guessed (safe: a wrong guess heals nothing rather
-    # than the wrong thing) — pin them down with tools/scratch/_hospital_probe.lua.
+    # Two presses, the two halves of the in-game routine (docs/research/hospital-heal.md):
+    #   heal_all       — send every wounded soldier type for treatment in one
+    #                    `hospital.cure`, built from DataCenter.HospitalManager
+    #   collect_healed — take the healed ones back when the timer ends, which is the
+    #                    manager's own CheckSendFinish -> `queue.finish`
+    # Both run headless: the wounded list and the queue state are read off the game
+    # state, no hospital window is opened. Asking the alliance to speed the heal up is
+    # NOT a third press — starting a heal registers it for help by itself.
+    #
+    # `count_lua` makes each one `xall`-able and a clean no-op: 0 when nothing is hurt,
+    # 0 while the heal is still running. One heal press already covers every type, so a
+    # plain `TAP heal_all` is the usual call.
+    #
+    # UNPROVEN LIVE: the message shape and the wounded list are read off the game's own
+    # sender, but no heal has been seen through to soldiers coming back — every live
+    # attempt so far was refused by the base for having no free building queue.
     "heal_all": Button(
         lua=_lua_actions.hospital_heal_all(),
         wait=1.2, label="Heal all wounded soldiers",
         count_lua=_lua_actions.hospital_wounded_count(),
+        max_taps=1,
+    ),
+    "collect_healed": Button(
+        lua=_lua_actions.hospital_collect(),
+        wait=1.0, label="Collect the healed soldiers",
+        count_lua=_lua_actions.hospital_healed_ready(),
         max_taps=1,
     ),
     # --- general navigation --------------------------------------------------

@@ -5,7 +5,7 @@ from here, so the recipes never drift. Each function returns a Lua string; run i
 any evaluator with a `.run(chunk, marker, settle)` method (LuaEval or the daemon client).
 
 All recipes are the ones verified live this session — see docs/research/world-tiles.md and
-docs/skills/sniff.md §7.
+docs/skills/sniff-capture.md §7.
 """
 from __future__ import annotations
 
@@ -1584,44 +1584,62 @@ def park_treasures(home_server: int = 0) -> str:
 # --------------------------------------------------------------------------
 # Hospital — heal wounded soldiers ("Лечение юнитов")
 # --------------------------------------------------------------------------
-# The base hospital (`LWUIHospital`, controller `LWUIHospitalCtrl`) heals wounded
-# soldiers. One press of its cure button sends ONE message, captured whole in both
-# `20260729_152749` and `20260729_152841` (docs/research/hospital-heal.md):
+# The base hospital (`LWUIHospital`, view `LWUIHospitalView`) heals wounded soldiers.
+# One press of its cure button sends ONE message — the wire shape captured in
+# `20260729_152749` / `20260729_152841`, the caller side read off the live VM
+# (docs/research/hospital-heal.md):
 #
-#     SFSNetwork.SendMessage("hospital.cure", {
-#         armyArray = { {armyId = <string>, healNum = <int>}, ... }
+#     SFSNetwork.SendMessage(MsgDefines.HospitalCure, {      -- "hospital.cure"
+#         armyArray      = { {armyId = <string>, count = <int>}, ... },
+#         gold           = 0,      -- gold spent on the heal (0 = the free heal)
+#         goldForTime    = 0,      -- gold spent to skip the timer
+#         goldForResource= 0,      -- gold spent to cover missing resources
+#         itemIds        = "",     -- speed-up items used (empty = none)
 #     })
-#       -- armyId  : UtfString (e.g. "3014"), a stable soldier-type/config id
-#                    (identical across both runs; only healNum differed: 80 vs 361)
-#       -- healNum : Int, how many of that type to heal
-#       -- one entry per soldier type with a non-zero heal count
 #
-# `SFSNetwork.SendMessage` serialises a plain nested Lua table (string→UtfString,
-# number→Int, array-of-tables→SFSArray of SFSObjects), so the send is literally the
-# table above — no window need be open. The hospital's wounded list comes from the
-# global `T11Util.GetSelfCurSoldierData()` (seen in the trace right before the send),
-# whose per-entry field names are not yet pinned down — see hospital_wounded_probe().
+# The message class `HospitalCureMessage` renames the per-entry `count` to `healNum`
+# on the wire (`PutUtfString(armyId, tostring(one.armyId))` + `PutInt(healNum, …)`),
+# which is why the trace shows `healNum` and the caller passes `count`. The three gold
+# fields are NOT optional: the serialiser packs them as ints and a missing one aborts
+# the send ("bad argument #2 to 'pack'"). Sending them as 0 with `count` filled in was
+# confirmed live — the server answers `HospitalCureHandle` with a real errorCode.
+#
+# The wounded list is `DataCenter.HospitalManager.allHospital`, keyed by armyId. A row
+# carries exactly three server fields (`HospitalInfo`: armyId, heal, dead):
+#
+#     allHospital[3014] = {armyId = 3014, dead = 365, heal = 0}
+#       -- dead : wounded of that type waiting in the hospital — the pool to heal
+#       -- heal : how many of them are already in treatment
+#
+# (`curCount`, if present, is NOT from the server: the window stamps its own suggested
+# amount onto the row — the slice of the wounded that fits the player's chosen cure
+# time. Reading it as the wounded count gives a number that is only there after the
+# window has been opened, which is why the heal is built from `dead`.)
+#
+# so the whole thing runs headless — no window is opened.
 def _hospital_army_literal(entries) -> str:
-    """Render `[(armyId, healNum), ...]` as a Lua `armyArray` table literal.
+    """Render `[(armyId, count), ...]` as the Lua `armyArray` table literal.
 
-    armyId is forced to a string (UtfString on the wire), healNum to an int.
+    armyId is forced to a string (UtfString on the wire), the count to an int.
     """
     parts = []
-    for army_id, heal_num in entries:
-        parts.append('{armyId="%s",healNum=%d}' % (str(army_id), int(heal_num)))
+    for army_id, count in entries:
+        parts.append('{armyId="%s",count=%d}' % (str(army_id), int(count)))
     return "{" + ",".join(parts) + "}"
 
 
 def hospital_cure(entries) -> str:
-    """Heal the given soldier types in one `hospital.cure` (PROVEN message shape).
+    """Heal the given soldier types in one `hospital.cure`.
 
-    `entries` is an iterable of `(armyId, healNum)` pairs. This is the faithful,
-    parameterised reproduction of the captured send — the only fully proven path, for
-    when the caller already knows the armyId(s) and counts to heal.
+    `entries` is an iterable of `(armyId, count)` pairs — the faithful, parameterised
+    reproduction of the in-game press, for when the caller already knows which types to
+    heal and how many of each. The three gold fields go out as 0: the free heal, no
+    timer skip, no bought resources.
     """
     entries = list(entries)
     army = _hospital_army_literal(entries)
-    return ('pcall(function() SFSNetwork.SendMessage("hospital.cure", {armyArray=%s}) end) '
+    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.HospitalCure, '
+            '{armyArray=%s, gold=0, goldForTime=0, goldForResource=0, itemIds=""}) end) '
             'CS.UnityEngine.Debug.LogError("ACT hospital_cure entries=%d")'
             % (army, len(entries)))
 
@@ -1629,71 +1647,125 @@ def hospital_cure(entries) -> str:
 def hospital_wounded_count() -> str:
     """Lua *expression* -> how many soldier types currently have wounded to heal.
 
-    Reads the same source the window reads, `T11Util.GetSelfCurSoldierData()`, and counts
-    entries with a positive wounded field. The wounded-count field name is not yet
-    confirmed live, so several plausible names are tried (a wrong guess reads 0, i.e. a
-    safe "nothing to heal", never a false positive). Returns 0 when the util is missing.
+    Counts `DataCenter.HospitalManager.allHospital` rows with a positive `dead` — the
+    same rows the hospital window lists. Returns 0 when the manager is not loaded yet,
+    so the gate reads as a safe "nothing to heal" rather than an error.
     """
     return ("(function() "
-            "if not T11Util or not T11Util.GetSelfCurSoldierData then return 0 end "
-            "local ok,data = pcall(function() return T11Util.GetSelfCurSoldierData() end) "
-            "if not ok or type(data) ~= 'table' then return 0 end "
+            "local m = DataCenter and DataCenter.HospitalManager "
+            "if not m or type(m.allHospital) ~= 'table' then return 0 end "
             "local n = 0 "
-            "for _, s in pairs(data) do if type(s)=='table' then "
-            "local w = s.woundNum or s.hurtNum or s.injureNum or s.woundCount or s.hurtCount or 0 "
-            "if type(w)=='number' and w > 0 then n = n + 1 end end end "
+            "for _, h in pairs(m.allHospital) do "
+            "if type(h)=='table' and type(h.dead)=='number' and h.dead > 0 then n = n + 1 end end "
             "return n end)()")
 
 
 def hospital_heal_all() -> str:
-    """Heal EVERY wounded soldier type in one `hospital.cure` (best-effort, gated).
+    """Heal EVERY wounded soldier type in one `hospital.cure`.
 
-    Grounded on `T11Util.GetSelfCurSoldierData()` (the source the window reads), but the
-    per-entry field names for the soldier id and its wounded count are NOT yet confirmed
-    live — so this tries the plausible names, only ever emits armyArray entries it could
-    build with a positive count, and sends nothing (a safe no-op, logged) when it builds
-    an empty array. Once hospital_wounded_probe() pins the shape down, collapse the
-    field-name lists to the real names. See docs/research/hospital-heal.md.
+    Builds the armyArray from `DataCenter.HospitalManager.allHospital` — one entry per
+    type with `dead > 0`, healing the whole batch of each. That is more than the window
+    pre-fills (it suggests only as many as fit the player's chosen cure time), and it is
+    what "heal them all" means. Sends nothing (a logged no-op) when nothing is wounded.
+
+    The log line also carries how many building queues were free at the moment of the
+    send. A heal takes one, and a base with none gets the send refused server-side with
+    nothing to show for it down this call, so the count is what tells a busy base from a
+    broken heal afterwards. Reading it here costs no extra round trip.
     """
     return (
         "local ok,err = pcall(function() "
-        "if not T11Util or not T11Util.GetSelfCurSoldierData then error('no T11Util.GetSelfCurSoldierData') end "
-        "local data = T11Util.GetSelfCurSoldierData() "
-        "if type(data) ~= 'table' then error('GetSelfCurSoldierData returned '..type(data)) end "
+        "local m = DataCenter and DataCenter.HospitalManager "
+        "if not m or type(m.allHospital) ~= 'table' then error('HospitalManager not loaded') end "
         "local army = {} "
-        "for _, s in pairs(data) do if type(s)=='table' then "
-        "local id = s.armyId or s.id or s.soldierId or s.cfgId or s.configId "
-        "local w  = s.woundNum or s.hurtNum or s.injureNum or s.woundCount or s.hurtCount or 0 "
-        "if id and type(w)=='number' and w > 0 then "
-        "army[#army+1] = {armyId = tostring(id), healNum = math.floor(w)} end end end "
-        "if #army == 0 then error('no wounded (or T11Util shape differs — run _hospital_probe.lua)') end "
-        "SFSNetwork.SendMessage('hospital.cure', {armyArray = army}) "
-        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army) '
+        "for _, h in pairs(m.allHospital) do "
+        "if type(h)=='table' and h.armyId and type(h.dead)=='number' and h.dead > 0 then "
+        "army[#army+1] = {armyId = tostring(h.armyId), count = math.floor(h.dead)} end end "
+        "if #army == 0 then error('no wounded soldiers') end "
+        "SFSNetwork.SendMessage(MsgDefines.HospitalCure, "
+        "{armyArray = army, gold = 0, goldForTime = 0, goldForResource = 0, itemIds = ''}) "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army'
+        '.." freeq="..tostring(%s)) '
         "end) "
         'if not ok then CS.UnityEngine.Debug.LogError("ACT hospital_heal_all skip: "..tostring(err)) end'
+        % free_build_queues()
     )
 
 
-def hospital_wounded_probe() -> str:
-    """Dump the shape of `T11Util.GetSelfCurSoldierData()` so heal_all can be pinned down.
+def hospital_collect() -> str:
+    """Collect the healed soldiers — the game's own "receive" press, headless.
 
-    Prints, per entry, its keys and their (short) values — enough to read off which field
-    is the soldier id ("3014" in the capture) and which is the wounded count. Run it once
-    with wounded soldiers present; then collapse the field-name guesses in
-    hospital_heal_all() / hospital_wounded_count() to the confirmed names.
+    The window's receive button is `HospitalManager:CheckSendFinish(buildUuid)`, which
+    does all of the gating itself: it only sends `queue.finish` when the hospital queue
+    has actually reached the Finish state, and it refuses (with the game's own tip) when
+    the soldiers would overflow the barracks. So this is safe to press at any time — a
+    heal still running costs one no-op call.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "local m = DataCenter and DataCenter.HospitalManager "
+        "if not m or not m.CheckSendFinish then error('HospitalManager not loaded') end "
+        "m:CheckSendFinish(m:GetCurHospitalBuildUuid()) "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_collect pressed") '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT hospital_collect skip: "..tostring(err)) end'
+    )
+
+
+def hospital_healed_ready() -> str:
+    """Lua *expression* -> 1 when a finished heal is waiting to be collected, else 0.
+
+    The hospital queue (`NewQueueType.Hospital`) reaches `NewQueueState.Finish` (3) when
+    its timer runs out; until then collecting is a no-op, so this is what gates the
+    `collect_healed` press.
+    """
+    return ("(function() "
+            "local q = DataCenter and DataCenter.QueueDataManager "
+            "if not q or not NewQueueType or not NewQueueState then return 0 end "
+            "local ok, queue = pcall(function() return q:GetQueueByType(NewQueueType.Hospital) end) "
+            "if not ok or type(queue) ~= 'table' then return 0 end "
+            "if queue.state == NewQueueState.Finish then return 1 end "
+            "return 0 end)()")
+
+
+def hospital_wounded_probe() -> str:
+    """Dump the hospital's own wounded list — one line per soldier type.
+
+    Prints `DataCenter.HospitalManager.allHospital` (armyId, dead, heal) plus the
+    hospital queue's state and how many building queues are free, which together are
+    everything the heal and the collect press depend on. Handy to confirm before/after a
+    heal that the counts actually moved, and to tell a rejected heal from a busy base.
     """
     return (
         "local L=function(s) CS.UnityEngine.Debug.LogError('HOSP '..tostring(s)) end "
         "pcall(function() "
-        "if not (T11Util and T11Util.GetSelfCurSoldierData) then L('no T11Util.GetSelfCurSoldierData') return end "
-        "local data = T11Util.GetSelfCurSoldierData() "
-        "L('type='..type(data)) "
-        "if type(data) ~= 'table' then return end "
-        "local i=0 for k, s in pairs(data) do i=i+1 "
-        "if type(s)=='table' then local keys={} "
-        "for kk, vv in pairs(s) do keys[#keys+1]=tostring(kk)..'='..string.sub(tostring(vv),1,24) end "
-        "table.sort(keys) L('entry['..tostring(k)..'] '..table.concat(keys,', ')) "
-        "else L('entry['..tostring(k)..'] = '..tostring(s)) end "
-        "if i>=12 then L('... (truncated)') break end end "
-        "end)"
+        "local m = DataCenter and DataCenter.HospitalManager "
+        "if not m or type(m.allHospital) ~= 'table' then L('HospitalManager not loaded') return end "
+        "local rows = {} "
+        "for id, h in pairs(m.allHospital) do "
+        "rows[#rows+1] = tostring(id)..': dead='..tostring(h.dead)..' heal='..tostring(h.heal) end "
+        "table.sort(rows) "
+        "for _, r in ipairs(rows) do L(r) end "
+        "local q = DataCenter.QueueDataManager:GetQueueByType(NewQueueType.Hospital) "
+        "L('queue state='..tostring(q and q.state)..' endTime='..tostring(q and q.endTime)"
+        "..' helpNum='..tostring(q and q.helpNum)) "
+        "L('free build queues='..tostring(%s)) "
+        "end)" % free_build_queues()
     )
+
+
+def free_build_queues() -> str:
+    """Lua *expression* -> how many building queues (`NewQueueType.Default`) are idle.
+
+    A heal takes a building queue as well as the hospital's own: with every one of them
+    working, `hospital.cure` comes back refused with the game's «Очередь на строительство
+    заполнена». Reading this first tells a rejected heal from a busy base.
+    """
+    return ("(function() "
+            "local q = DataCenter and DataCenter.QueueDataManager "
+            "if not q or type(q.queueDic) ~= 'table' or not NewQueueType or not NewQueueState then return 0 end "
+            "local n = 0 "
+            "for _, v in pairs(q.queueDic) do "
+            "if type(v)=='table' and v.type == NewQueueType.Default and v.state == NewQueueState.Free then "
+            "n = n + 1 end end "
+            "return n end)()")

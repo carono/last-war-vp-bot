@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **25%** — 22 of 87
 
-🟩 22 done · 🟨 17 partly · 🟥 48 not automated
+🟩 22 done · 🟨 18 partly · 🟥 47 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -54,18 +54,18 @@ is a banked charge on a 23.5-hour-plus cooldown, so one left unspent is a day of
 that payout thrown away. (Previously logged under Ministry as "the buffs a serving
 minister hands out" — the recording shows it is the profession tree, not a post.)
 
-- 🟡 Firing the skills that need no target — production, instant collect, speed-up chest, a survivor, an instant step off the build or research queue: one press each, no window opened, whatever is off cooldown. The call path is proven against the live game, but no charge was free to spend, so a run has not been confirmed in-game yet
+- 🟡 Firing the skills that need no target — production, instant collect, speed-up chest, a survivor, an instant step off the build or research queue: one press each, no window opened, whatever is off cooldown. The press is proven against the live game, but no charge was free to spend, so a run has not been confirmed in-game yet
 - ❌ The skills that need a target — helping an alliancemate's build or research, planting the siege banner: they want a world point and nothing picks one yet
 
 ### Alliance support
 
 - ✅ Collecting alliance gifts — both ordinary and premium
 - ✅ Helping the alliance — a single press answers every pending request at once
-- ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») keeps an ear on the traffic and fires that same press the moment `push.al.help.new` lands, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered ~2 s after their push, with the `al.help.all` and the server's reply seen on the wire. It also found the reason the on-demand recipe kept helping nobody — the push does not fill the client's help list, so the gate now reads the red-point count as well
+- ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
-- 🟡 Healing units — one press heals every wounded soldier type in a single `hospital.cure`, headless, no window opened, and it no-ops when nothing is hurt. The message shape is proven from two traces; the headless read of the full wounded list still has one unconfirmed field name, so a first live run must confirm it actually heals (a probe is ready to pin the field down)
-- ❌ Collecting units from the hospital — no separate collect message was seen; a finished heal returns the soldiers on the heal-queue timer, so there may be nothing to send (unconfirmed)
-- ❌ Asking for help with healing — no distinct request message exists: starting a heal registers it for the alliance-help system automatically, and that is the same help the bot already answers for others
+- 🟡 Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. The list of wounded it works from has now been read off a live game and matches what the hospital shows. What is still missing is one heal the game actually accepts: healing takes one of the base's building slots, and every attempt so far ran into a base with all of them busy, so the game refused. The run now says out loud when that was the reason
+- 🟡 Collecting units from the hospital — the bot makes the "receive" press, and while a heal is still running it costs nothing, so it can be run on any schedule. Never yet seen bringing soldiers back, because no heal has been accepted to finish
+- ❌ Asking for help with healing — there is nothing separate to ask for: starting a heal already puts the request in front of the alliance, and that is the same help the bot answers for others
 - 🟡 Joining a rally — the bot can join or decline a live rally and pick which squad goes, but nothing decides *which* rallies to join or keeps count
 - ❌ Starting a rally
 - ❌ Treasure notifications
@@ -84,28 +84,17 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Code Name
 - ❌ Desert Storm
 - ❌ Snow Storm
-- 🟡 Street Run («Уличный забег», the Surfing 3-lane endless runner) — the bot finds
-  the open event, launches runs, dodges obstacles and extends each run with coin-priced
-  revives, logging every distance and keeping a reserve (`tools/street_run_bot.py`,
-  `LWSurfingDataManager`). **Obstacles are now read from Lua, not vision**
-  (`tools/lib/surfing_reader.py`): during a run every obstacle is a monster object in
-  `SurfingMonsterManager.showList`, exposing `.x` (lane — one of 32/36/40, centre=36),
-  `.dataZ` (world Z), `.unitType` (4=solid obstacle · 1=coin · 3=energy · 2=box) and
-  `.gameObject.name` (definitive type — barrel «mutong», fence «zhalan», container
-  «chexiang», truck). The player Z comes from `SurfingLogic.player:GetPosition()` and the
-  track scrolls at a constant `GetMoveSpeed()`=30 u/s, so distance-ahead → time-to-impact
-  is exact and obstacles are known ~150 u (~5 s) ahead — deterministic look-ahead instead
-  of a 15 fps pixel guess. The instances are captured by wrapping `SurfingLogic.OnStart` /
-  `SurfingMonsterManager.Init`. `decide()` steps to a genuinely-clear lane, else hops a
-  low barrel (height-gated — a jump into a tall fence/truck is fatal), else takes the
-  least-bad lane. `runlua` is the Lua-driven autopilot; `readtest` prints the live obstacle
-  field (observe-only). Revives are driven by clicking the «Воскрешение» button (the Lua
-  `ReqRebirthGame` does not revive). What runs by itself: the whole
-  launch→read→dodge→revive→log loop. Proven live (server 935, 2026-07-29): the reader is
-  pixel-perfect and the autopilot cleared the opening trap to **~132 m single life** (vs
-  ~88 m no control), zero vision. Left to the person: nothing required; the remaining
-  deaths are multi-lane traps (need L→M→R path-planning, not one-step reflex) — the exact
-  reader makes that solvable, but the record 8185 m / 20000 m target is still open.
+- 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot finds the open
+  event, starts a run, dodges what comes at it, buys a revive with coins when it dies,
+  writes down every distance and keeps a few attempts in reserve. **It no longer squints
+  at the screen to see the obstacles** — it knows what is coming, in which lane, and how
+  many seconds away, roughly five seconds ahead, so it steps into a lane that is genuinely
+  clear, jumps a low barrel when there is no clear lane, and never jumps into a fence or a
+  truck. What runs by itself: the whole start → dodge → revive → log loop. Proven live
+  (2026-07-29): it read the track exactly and got past the opening trap to **~132 m on a
+  single life**, against ~88 m with no control at all. Left to the person: nothing; the
+  deaths that remain are traps that need a lane change planned two moves ahead rather than
+  one, so the record 8185 m and the 20000 m target are still open.
 
 ### Arms Race
 
@@ -129,8 +118,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Raising the shield
 - ❌ Expedition
 - ❌ Levelling survivors and decorations
-- ✅ Accepting a survivor waiting at the base — one `visitor.operate` per waiting survivor, headless, no window opened, and it stops on its own when the queue holds none
-- 🟡 Collecting gifts a survivor brought to the base — the same `visitor.operate` per gift-bearing visitor (kind GIFT instead of RECRUITMENT), headless, no window opened, stopping on its own when the queue holds none. Reconstructed from a trace (send → coin-box reward → window closed); not yet confirmed in a live run
+- ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate
+- 🟡 Collecting gifts a survivor brought to the base — the same press per gift-bearing visitor, no window opened, stopping on its own when nobody is left. Rebuilt from a recording of a person doing it by hand (the gift arrives as a coin chest); not yet confirmed in a live run
 - ❌ Assembling the treasure from map pieces
 - ❌ Daily VIP gift and points
 - ❌ Collecting mail rewards
@@ -148,8 +137,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
-- 🟡 Robbing a ghost-recon squad — the robbery is one headless `ghost.recon.steal` off a squad's uuid, gated on the event day, the five-a-day budget and the game's own verdict on the tile. Every gate is confirmed against the live client (including that it sends nothing while the event is closed), but the event runs one day a week and no real squad was on the map to rob, so the send itself is still unproven
-- ✅ Robbing a secret task — the whole robbery runs headless off a task's uuid, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to `tools/steal_secret_task.py`
+- 🟡 Robbing a ghost-recon squad — one press per squad, no window opened, and it holds its fire unless it is the event day, the five-a-day budget still has room and the game itself says the squad can be robbed. Every one of those checks is confirmed against the live game (including that it does nothing at all while the event is closed), but the event runs one day a week and no real squad was on the map to rob, so the robbery itself is still unproven
+- ✅ Robbing a secret task — the whole robbery runs without a window ever opening, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to the bot
 - ✅ Auto-loot from the panel — it robs starred tasks at the level the «уровень до» filter asks for (the highest level found, when that field is empty), and does nothing at all when no star is raidable there. Both halves confirmed live: it held its fire with three stars still running their dispatch and 19 ordinary tiles raidable, then robbed the level-7 star the moment one came free. The scan it reads still needs the map to be moving
 - 🟡 Auto-loot as a standing order — the panel's auto-loot is a checkbox, not a press: while it is ticked the panel watches the scan itself and robs the moment a star of the best level becomes raidable, so a target is no longer lost in the gap between the finding printing and a person noticing it. It sends a given task once, runs one robbery at a time, pauses for half an hour when the day's five are spent, and robs only at the level «уровень до» asks for — «от 1 до 7» takes level-7 stars and leaves a level-6 one alone, because the five daily attempts are the scarce thing and one spent on a 6 is one a 7 cannot have until the reset. The rule it applies is the proven one above; the automatic trigger itself has not yet run a live session
 - ❌ Refreshing missions to UR — by tickets, diamonds or MEGA
@@ -271,7 +260,7 @@ bot has no sense of the calendar and does not notice an event starting.
    ability; nobody plays the routine in order, retries a step that failed, or
    keeps to a schedule. This is the single biggest gap versus the old script.
 2. **More of the game's screens.** Mail, radar, events, the duel, arena, heroes,
-   shop, hospital and the building queues are untouched.
+   shop and the building queues are untouched; the hospital is only half done.
 3. **Deciding, not just doing.** Attacking, gathering and rallying all work as
    actions, but nothing chooses targets or keeps daily counts.
 4. **Seeing the map without driving it.** Surveying the map still needs the game

@@ -1,124 +1,194 @@
 # Hospital — healing wounded soldiers (`hospital.cure`)
 
-Source: two live sniffer runs, both driven by hand in the game hospital
-(`LWUIHospital`):
+Sources:
 
-* `20260729_152749` «лечение юнитов» — heal, then select a quantity, then ask for help.
-* `20260729_152841` «Лечение юнитов» — heal, select quantity, ask for help, collect
-  the healed units.
+* two live sniffer runs driven by hand in the game hospital (`LWUIHospital`) —
+  `20260729_152749` «лечение юнитов» and `20260729_152841` «Лечение юнитов»;
+* a live read of the running Lua VM (the traces alone were misleading — see §6), including
+  a read of the window's own sender and of the message class, and a series of live sends.
 
-Only the **heal press** produced an up-message on the wire; the "ask for help" and
-"collect" parts of the operator's description did not (see §3). What is proven below is
-the heal message shape; the rest is grounded but still needs one live session to close.
+Neither run's `*_traffic.jsonl` holds anything but keepalives, so every wire fact below
+comes from the Lua trace and from the VM, not from decoded packets.
 
 ## 1. The window
 
-The player opens the hospital from the base — the click sound is `cureBtn` and the
-window is `LWUIHospital`, controller `LWUIHospitalCtrl`:
+The hospital is opened from the base: the click sound is `cureBtn`, the window
+`LWUIHospital` (view `LWUIHospitalView`, controller `LWUIHospitalCtrl`). It is opened
+with the hospital building's uuid as its user data —
+`UIManager.Instance:OpenWindow("LWUIHospital", buildUuid)`; without it the window closes
+again immediately.
 
-```
-XSCALL UIButton.GetClickSound <- ..., cureBtn ...
-XSCALL UIManager.OpenWindow  <- ..., LWUIHospital
-XSCALL BaseClass             <- LWUIHospitalCtrl, ...
-```
+The window lists one row per wounded soldier type, each with a slider, and pre-fills each
+slider with as many soldiers as fit the player's stored cure-time preference
+(PlayerPrefs `HOSPITAL_CURE_SOLDIER_TIME`, 1931 s in the capture). None of that is needed
+to heal — see §3.
 
-The window builds a slider + an input field per wounded soldier type. The wounded list
-comes from a **global util, not a DataCenter manager**:
+## 2. The heal message
 
-```
-XSCALL T11Util.GetSelfCurSoldierData <-           -- (no args) → the soldier data
-XSCALL T11Util.IsSuperSoldier        <- 10, 1     -- soldier level 10, type 1
-XSCALL UIImage.LoadSpriteAsync       <- .../ItemIcons/soldier_10
-XSCALL UIScrollViewSimple...SetTotalCount <- 2    -- 2 wounded soldier types listed
-XSCALL UIInput.SetText               <- 311       -- the input defaults to the MAX healable
-```
+One press of the confirm button sends one message. The wire side is from the traces, the
+caller side from `LWUIHospitalView.SendMessage` / `HospitalCureMessage.OnCreate`:
 
-`311` is the full wounded count of the shown type; the player then slid it down. So the
-**default input is "heal all of this type"** — a headless "heal all" is the default press.
-
-## 2. The heal message (PROVEN)
-
-One press of the cure button sends exactly one message. Captured whole in both runs:
-
-```
-XSCALL SFSNetwork.SendMessage <- hospital.cure, table
-XSCALL SFSObject.PutUtfString <- armyId,  3014
-XSCALL SFSObject.PutInt       <- healNum, 80          -- (361 in the 152749 run)
-XSCALL SFSArray.AddSFSObject  <- armyArray, {armyId, healNum}
-XSCALL SFSObject.PutSFSArray  <- armyArray, [ ... ]
+```lua
+SFSNetwork.SendMessage(MsgDefines.HospitalCure, {        -- "hospital.cure"
+    armyArray       = { {armyId = "3014", count = 93}, {armyId = "3013", count = 1} },
+    gold            = 0,   -- gold spent on the heal          (0 = the free heal)
+    goldForTime     = 0,   -- gold spent to skip the timer
+    goldForResource = 0,   -- gold spent to cover missing resources
+    itemIds         = "",  -- speed-up items used             (empty = none)
+})
 ```
 
-i.e. the message is
+* One `armyArray` entry per soldier type to heal. `armyId` is the soldier template id
+  (`DataCenter.SoldierDataManager.soldiers`), a **string** in the message; `count` is how
+  many of that type to treat.
+* `HospitalCureMessage` renames `count` to **`healNum`** on the wire, which is why the
+  trace reads `PutUtfString(armyId, "3014")` + `PutInt(healNum, 80)` while the caller
+  passes `count`.
+* The three gold fields are **not optional**. The serialiser packs them as ints, and a
+  missing one aborts the send before it leaves the client
+  (`SFSDataSerializer.lua:39: bad argument #2 to 'pack' (number expected, got nil)`).
+  Sending `armyArray` alone was tried live, with `count` and with `healNum` — both die on
+  that same `pack` error, so the four extra fields go out on every real press too. The
+  trace shows them only once because it dedups by *function name*, not by argument list:
+  that is why one `PutInt` line stands for four.
+* The message also carries a `worldType`, which the message class fills in itself from
+  `LuaEntry.Player:GetCurWorldType()` (0 in the base) — the caller neither knows nor
+  passes it.
+* No window has to be open: the message carries no window or building id, so the send is
+  the whole press.
+
+The five caller fields are exactly what the window itself passes: `LWUIHospitalView.SendMessage`
+builds `{armyArray = {{armyId = …, count = info.curCount}, …}, gold, goldForTime,
+goldForResource, itemIds}` and hands it to the same `SFSNetwork.SendMessage`. A headless
+send is therefore not an approximation of the press — it is the same call with the same
+argument.
+
+The reply comes back through `HospitalManager:HospitalCureHandle`, which either carries
+an `errorCode` (and shows the game's tip) or applies the heal: resources, gold, the queue,
+the army and the hospital rows, plus a `HospitalUpdate` broadcast.
+
+## 3. Who is wounded — `HospitalManager`, not `T11Util`
+
+`DataCenter.HospitalManager.allHospital` is keyed by soldier template id. A row
+(`HospitalInfo`) carries exactly three server fields:
 
 ```
-hospital.cure  {
-  armyArray = [ { armyId = <string>, healNum = <int> }, ... ]
-}
+allHospital[3014] = {armyId = 3014, dead = 365, heal = 0}
 ```
 
-* `armyId` is a **UtfString** (`"3014"`), `healNum` an **Int**. `SFSNetwork.SendMessage`
-  takes a plain nested Lua table and serialises it (string→UtfString, number→Int,
-  array-of-tables→SFSArray of SFSObjects), so the send is just:
+* **`dead`** — wounded of that type waiting in the hospital. This is the pool to heal
+  (`GetDeadHospital()` is literally what the window lists, and `IsHaveInjuredSolider()`
+  reads it).
+* **`heal`** — how many of them are already in treatment (`GetTreatingHospital()`).
 
-  ```lua
-  SFSNetwork.SendMessage("hospital.cure", {armyArray = {{armyId = "3014", healNum = 80}}})
+A row may also show a `curCount`, which is **not** from the server: the window stamps its
+own suggested amount onto the row when it opens. It is absent on a freshly started client
+and it is only ever a slice of `dead`, so a headless heal must not read it as "the
+wounded count".
+
+`T11Util.GetSelfCurSoldierData()`, which the trace shows the window calling, is a red
+herring. Called live it returns exactly two fields — `{stage = 0, type = 0}`, the player's
+current soldier tier, used to pick the icon. There is no wounded count in it and no name
+that a heal could read, so nothing about the heal depends on it.
+
+Read live on 2026-07-29, the same base gave:
+
+```
+3013: dead=41  heal=0
+3014: dead=746 heal=0
+queue state=0 endTime=0 helpNum=2     -- the hospital queue: idle
+```
+
+## 4. "Ask for help" and "collect" — the other two presses
+
+* **Ask for help — no message of its own.** The heal queue itself carries the help state
+  (`helpNum`, `isHelped`, `lastHelpTime`), i.e. starting a heal registers it for alliance
+  help; there is no player-initiated "request help for my heal" send. What the 152841
+  trace shows is the *inbound* half — an ally helping:
+
+  ```
+  UIUtil.ShowTips <- Vaserely предоставил помощь, ускорив исцеление ваших раненых
+                     солдат. 1/40!
   ```
 
-* `armyArray` carries **one entry per soldier type that has a non-zero heal count** — in
-  both captures the player healed a single type, so one entry went out even though the
-  list showed two.
-* `armyId == "3014"` is the **same value in both runs** (healNum differed: 80 vs 361),
-  so `armyId` is a stable soldier-type/config id, not a per-session record id. It is one
-  of the ids inside `T11Util.GetSelfCurSoldierData()`.
+  Helping *others* is the separate `al.help.all` press the `help_ally` recipe already
+  sends.
 
-After the send the client stamps `HOSPITAL_CURE_SOLDIER_TIME` into PlayerPrefs, destroys
-`LWUIHospital`, and the reply drives `QueueInfo.ParseData` + `HospitalInfo.UpdateInfo`
-(the heal queue/timer refresh). No window need stay open.
+* **Collect the healed — `queue.finish`.** The window's receive button is
+  `DataCenter.HospitalManager:CheckSendFinish(buildUuid)`, which
+  gets the hospital queue (`NewQueueType.Hospital`), checks it has reached
+  `NewQueueState.Finish`, checks the healed soldiers would not overflow the barracks
+  (else it shows `hospital_finish_drill_ground_full_tips`), and sends
+  `MsgDefines.QueueFinish` (`queue.finish`) with the queue uuid. Calling it directly is
+  therefore both the press and its gate — a heal still running costs one no-op.
 
-## 3. "Ask for help" and "collect" — NOT separate up-messages
+  Neither trace contains this press: the heal in 152841 was timed at ~32 minutes, so the
+  soldiers could not possibly have come back before the capture ended.
 
-The operator's description mentions asking allies for help and collecting the healed
-units, but **no second up-message was captured** for either — the only `SendMessage` in
-both traces is `hospital.cure`.
+## 5. A heal needs a free building queue
 
-* **Ask for help.** Healing is sped up through the *alliance help* system, which is
-  already covered by `help_ally` / `al.help.all` — the same "Помочь всем" press allies
-  use. In the 152841 trace we see the **inbound** side of it, not a request send:
+Healing occupies a building queue (`NewQueueType.Default`) on top of the hospital's own
+(`NewQueueType.Hospital`). With every building queue working, the server refuses the cure
+with `errorCode 130069` — «Очередь на строительство заполнена». `lua_actions.free_build_queues()`
+counts the idle ones, and both the probe and the heal itself print the count, so a refused
+heal can be told from a bug.
 
-  ```
-  XSCALL UIUtil.ShowTips <- <color=#54c4f2>Vaserely</color> предоставил помощь,
-                            ускорив исцеление ваших раненых солдат. 1/40!
-  XSCALL AllianceHelpInfo.SetNowCount <- 40
-  ```
+The counter was checked against the raw queue table live, and it is honest — the base at
+the time held twelve queues, of which four were `type=0` (`Default`) and all four were
+`state=2` (`Work`), the earliest of them finishing a day later:
 
-  So starting a heal registers it for alliance help automatically (the client filed an
-  `AllianceHelpInfo` with cap 40); there is no distinct player-initiated "request help
-  for this heal" message on the wire. The bot's `help_ally` recipe already answers such
-  requests for allies; a heal of our own is helped by *them* the same way.
+```
+queue[…866] type=0 state=2 endTime=…   -- Default,  working
+queue[…078] type=0 state=2 endTime=…   -- Default,  working
+queue[…587] type=0 state=2 endTime=…   -- Default,  working
+queue[…166] type=0 state=2 endTime=…   -- Default,  working
+queue[…879] type=3 state=0 endTime=0   -- Hospital, idle
+free build queues = 0
+```
 
-* **Collect the healed units.** No up-message was captured. In this game a completed heal
-  returns the soldiers on the heal-queue timer without a per-unit "collect" send (the
-  reply that refreshes `HospitalInfo`/`QueueInfo` does it). This is the least-certain
-  part — if a "collect" press exists it did not fire in these two runs. Confirm live.
+## 6. What is proven and what is not
 
-## 4. Open questions to close live (see `tools/scratch/_hospital_probe.lua`)
+Proven live: the message shape (it serialises, reaches the server, and comes back through
+the real reply handler), that the shape is byte-for-byte the window's own argument, the
+wounded list, the collect press and its gate, and the absence of a help-request message.
 
-1. **The shape of `T11Util.GetSelfCurSoldierData()`** — which field is the `armyId`
-   (`"3014"`) and which is the wounded count that becomes `healNum`. Needed to build
-   `armyArray` headlessly for *all* wounded, not just a hardcoded type.
-2. Whether a **"collect healed"** press/message exists after a heal finishes.
-3. Whether `T11Util.GetSelfCurSoldierData` is the only source or the hospital also reads
-   `DataCenter.HospitalManager` (it exists) for the queue state.
+**Not** proven: a heal seen through end to end. Every live attempt was refused. On
+2026-07-29 the refusal was reproduced five times from a base with 0 free building queues —
+all wounded at once, a single soldier, and an exact replay of the press the capture
+recorded (`3014` × 80), each with the hospital window shut and with it open. Every one came
+back the same way:
 
-Until (1) is confirmed, `tools/lib/hospital.py` can send a heal for a **known**
-`armyId`/`healNum` (proven), and its `heal_all` reads `GetSelfCurSoldierData()`
-best-effort with a positive-wounded gate — a safe no-op when the field names differ.
+```
+HospitalCureHandle <- {errorCode = "E000000"}    -- the ONLY field in the reply
+UIUtil.ShowTips    <- Извините, произошла неизвестная ошибка…
+```
 
-## 5. Code
+`E000000` is not in the client's error table, which is why the tip is the generic one; the
+earlier `130069` («Очередь на строительство заполнена») was the same base state answered
+with a code the client *does* know. Since the payload has now been shown identical to the
+window's own, what is left to differ is state, and the only state known to differ from the
+successful capture is the four busy building queues.
+
+The window's own sender cannot be used to check that from a script: `LWUIHospitalView.SendMessage`
+sums `curCount` over its own soldier list — not over `HospitalManager.allHospital` — and
+bails out with `hospital error soldierCount 0 ----->` when the list has not been through
+the cells. So replaying the press through the UI needs a real hand on the button.
+
+So the ability stays 🟡 until one heal is watched from the press to the soldiers coming
+back, on a base with a building queue free.
+
+A warning about the traces, which is why §3 exists at all: the first pass read this
+ability off the trace alone and got both halves wrong — `T11Util.GetSelfCurSoldierData()`
+was taken for the wounded list (it is not), and the message was reconstructed from the
+`SFSObject.Put*` calls as `{armyArray = [{armyId, healNum}]}` (which will not even
+serialise). The trace was recorded with dedup on, so the repeated `PutInt` calls for the
+gold fields never appeared in it. Read the sender out of the VM, not off the wire dump.
+
+## 7. Code
 
 * Lua chunks: `tools/lib/lua_actions.py` — `hospital_cure`, `hospital_heal_all`,
-  `hospital_wounded_probe`.
-* Button: `heal_all` in `tools/lib/game_buttons.py`.
+  `hospital_wounded_count`, `hospital_collect`, `hospital_healed_ready`,
+  `hospital_wounded_probe`, `free_build_queues`.
+* Buttons: `heal_all`, `collect_healed` in `tools/lib/game_buttons.py`.
 * Primitive: `tools/lib/hospital.py`.
 * Recipe: `src/lastwar_bot/actions/heal_units.md`.
-* Live probe: `tools/scratch/_hospital_probe.lua`.
