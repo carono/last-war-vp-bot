@@ -52,3 +52,10 @@ sslkeys.log
 
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/
+
+# Multi-instance account lists (tools/launch_as_user.py --config). They name real
+# Windows accounts and MAY carry a password, so no real one belongs in git — only
+# tools/data/accounts.example.json is tracked.
+/accounts.json
+accounts*.json
+!tools/data/accounts.example.json

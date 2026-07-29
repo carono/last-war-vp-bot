@@ -121,6 +121,13 @@ Controls, so the finding is about the token and not about a sick machine:
   session (session 1 `spame`, session 3 `casper`). ACE therefore does not object to
   two clients per machine.
 
+**The single-instance lock is not the barrier, and never was.** Two clients ran side
+by side on this machine before any of this work (one per Windows session), so
+whatever named object guards a second launch is already per-user or per-session and
+a different Windows account clears it by itself. Test 4 settles it from the other
+side: with *every* other client killed, the second-user launch still died. Nothing
+here is about instance counting — the kill is unconditional.
+
 What the tests rule out: the shared desktop (3), the second instance (4), the target
 user owning another session (5), the secondary-logon service as parent and the
 filtered/unprivileged token (6, which uses a proper primary token created by SYSTEM
@@ -167,7 +174,66 @@ visible in the process list) → `--password-env` (default `LW_ALT_PASSWORD`) �
 DPAPI-encrypted for the caller) → interactive prompt. `--save-credential` writes the
 Credential Manager entry, `--forget-credential` deletes it.
 
-Two gotchas worth knowing:
+### 5.1 Setting it up
+
+1. **Create the Windows account and install the game under it.** The account must
+   have logged in at least once — until then Windows has not created its profile
+   and there is nothing to load. `--list-users` shows which local accounts own a
+   profile, and whether a Last War install is visible in it (`private (cannot
+   tell)` for another user's profile is normal and harmless).
+2. **Store the password once**, so nothing runs interactively afterwards:
+   `--user user2 --save-credential`. It lands in Windows Credential Manager under
+   `LastWarVpBot/<domain>\<user>`, encrypted by DPAPI for the calling account.
+   `--forget-credential` removes it.
+3. **The ACLs need no manual work.** The tool applies the WinSta0/desktop grants
+   itself on every launch (§2.1) because they are volatile; `--grant-only`
+   applies them without starting anything, `--revoke` takes them back.
+4. **The exe path** defaults to that account's own
+   `%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe`
+   (`--game client` picks `Game\LastWar.exe` instead). Override with `--exe` or
+   the `exe` key in the accounts file when the install is elsewhere.
+   The caller does not need read access to it (§5, gotchas).
+
+### 5.2 Several accounts at once
+
+`--config accounts.json --all` runs one instance per entry, `--stagger SEC` spaces
+the cold starts out. `--config accounts.json --user user3` picks a single entry.
+The file (see `tools/data/accounts.example.json`, real ones are git-ignored):
+
+```json
+[
+  {"user": "user2"},
+  {"user": "user3", "exe": "C:\\Games\\LastWar\\LastWar.exe"}
+]
+```
+
+Omit `password` and it comes from Credential Manager, which keeps the file
+secret-free; omit `exe` and it resolves per profile. `domain`, `args` and `cwd`
+are accepted per entry too.
+
+### 5.3 The Lua daemon is single-instance — what would have to change
+
+If the ACE wall is ever cleared, the bot side is **not** ready for two clients,
+and the port is the smallest part of it. Three assumptions in the Lua stack are
+hardcoded to "there is exactly one client":
+
+| Where | Assumption | What multi-instance needs |
+|---|---|---|
+| `tools/lib/lua_client.py:23-24` | `HOST/PORT = 127.0.0.1:47654`, bound in `tools/lua_daemon.py:121` | a per-instance port, e.g. `base + index` (47654, 47655, …), passed to both the daemon and `get_evaluator()`; `DaemonClient` already takes `host`/`port` arguments, only the module-level default and the daemon's `bind` are fixed |
+| `tools/lib/il2cpp_probe.py:89` `find_game_pid()` | returns the **first** process whose name contains "lastwar" | an explicit pid (or a pid chosen by owning user), threaded through `LuaEval`/`XR.X()` — otherwise both daemons drive the same client |
+| `tools/lib/lua_eval.py:25` `player_log_path()` | `%LOCALAPPDATA%` of the **calling** process | the target account's `…\AppData\LocalLow\FunFly\…\Player.log`. Every Lua result is read back from that log, so a daemon pointed at the wrong one silently returns nothing — and another user's LocalLow is unreadable without a grant, so each daemon must run **as its own account** |
+
+The last row is the real constraint: the natural shape is not one daemon on many
+ports but **one daemon process per account, started with `launch_as_user.py`**,
+each inheriting its own profile and reading its own `Player.log`, each on its own
+port. That falls out of the tool for free — `--exe` the Windows Python and `--args`
+the daemon script — and needs no change to `lua_daemon.py` beyond making the port
+an argument (a `--port` flag defaulting to `lua_client.PORT`, plus passing it into
+`bind`). None of this was implemented: with the client dying at 9 s there is
+nothing to point a second daemon at, and untested changes to the daemon every
+other tool depends on would be a regression risk for no gain.
+
+### 5.4 Gotchas
 
 * The game sits in the target user's private profile, which the caller cannot
   read — and that does not matter: the secondary-logon service opens the path

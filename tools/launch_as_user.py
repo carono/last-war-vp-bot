@@ -72,7 +72,19 @@ Usage (Windows Python — pywin32 lives there, not in WSL's python3)::
     C:\Python312\python.exe tools\launch_as_user.py --user casper --save-credential
     C:\Python312\python.exe tools\launch_as_user.py --user casper --test    # charmap, not the game
     C:\Python312\python.exe tools\launch_as_user.py --user casper
+    C:\Python312\python.exe tools\launch_as_user.py --config accounts.json --all --stagger 60
+    C:\Python312\python.exe tools\launch_as_user.py --config accounts.json --user user3
     C:\Python312\python.exe tools\launch_as_user.py --user casper --revoke  # take the grants back
+
+The accounts file is a list of ``{"user", "exe"?, "password"?, "domain"?, "args"?,
+"cwd"?}`` — see ``tools/data/accounts.example.json``. Leave ``password`` out and it
+comes from Credential Manager, so the file itself holds no secret; leave ``exe`` out
+and it resolves to that account's own install. Real account lists are git-ignored.
+
+Importable::
+
+    from launch_as_user import launch_as_user
+    pid = launch_as_user("user2", None, r"C:\Games\LastWar\LastWar.exe")  # None => Credential Manager
 
 Known limits (read before blaming the script)
 ---------------------------------------------
@@ -100,6 +112,7 @@ import argparse
 import ctypes
 import ctypes.wintypes as wt
 import getpass
+import json
 import os
 import subprocess
 import sys
@@ -508,7 +521,7 @@ def _startupinfo_w(desktop: str, show: int) -> STARTUPINFOW:
     return si
 
 
-def launch_with_logon(user, domain, password, exe, cmdline, cwd, desktop, flags, log) -> int:
+def _via_logon(user, domain, password, exe, cmdline, cwd, desktop, flags, log) -> int:
     """CreateProcessWithLogonW — no privileges needed, profile loaded, same session."""
     si = _startupinfo_w(desktop, win32con.SW_SHOWNORMAL)
     pi = PROCESS_INFORMATION()
@@ -544,8 +557,8 @@ def _enable_privilege(name: str) -> bool:
         return False
 
 
-def launch_as_user(user, domain, password, exe, cmdline, cwd, desktop,
-                   flags, session, log) -> int:
+def _via_token(user, domain, password, exe, cmdline, cwd, desktop,
+               flags, session, log) -> int:
     """LogonUser + LoadUserProfile + CreateProcessAsUser — the privileged route."""
     for priv in ("SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege"):
         log(f"[asuser] enable {priv}: {'ok' if _enable_privilege(priv) else 'NOT held'}")
@@ -581,6 +594,98 @@ def launch_as_user(user, domain, password, exe, cmdline, cwd, desktop,
         del handle
     log(f"[asuser] started pid={pi[2]} on {desktop}")
     return int(pi[2])
+
+
+def launch_as_user(username, password, exe_path, domain=None, *, args="",
+                   cwd=None, desktop=DEFAULT_DESKTOP, method="logon",
+                   grant=True, session=None, log=print) -> int:
+    """Start `exe_path` as `username` on `desktop`, in the caller's session.
+
+    The importable entry point — grants the account access to the window station
+    and desktop (unless `grant=False`), then runs one of the two routes:
+
+    * ``method="logon"``  — CreateProcessWithLogonW; no privileges, works for a
+      plain user. The default, and the only one that works unelevated.
+    * ``method="asuser"`` — CreateProcessAsUser; needs SeAssignPrimaryToken,
+      i.e. SYSTEM. `session` retargets the token (default: this session).
+    * ``method="auto"``   — try "logon", fall back to "asuser".
+
+    `password` may be None, in which case it comes from Credential Manager
+    (`LastWarVpBot/<domain>\\<user>`). Returns the new pid; raises OSError /
+    pywintypes.error if every route failed.
+
+    Beware: a successful return means Windows created the process, not that it
+    survived. ACE terminates the game itself a few seconds in — see the note at
+    the top of this module.
+    """
+    dom, user, sid = resolve_account(username, domain)
+    if password is None:
+        password = cred_read(dom, user)
+        if password is None:
+            raise SystemExit(f"no password for {dom}\\{user}: pass one, or store it "
+                             f"with --user {user} --save-credential")
+    if grant:
+        grant_desktop_access(sid, desktop, False, log)
+
+    exe_path = os.path.expandvars(exe_path)
+    cmdline = f'"{exe_path}"' + (f" {args}" if args else "")
+    cwd = cwd or os.path.dirname(exe_path)
+    flags = CREATE_NEW_CONSOLE
+
+    last = None
+    for route in {"logon": ["logon"], "asuser": ["asuser"],
+                  "auto": ["logon", "asuser"]}[method]:
+        try:
+            if route == "logon":
+                return _via_logon(user, dom, password, exe_path, cmdline,
+                                  cwd, desktop, flags, log)
+            return _via_token(user, dom, password, exe_path, cmdline,
+                              cwd, desktop, flags, session, log)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            log(f"[{route}] failed: {exc}")
+    raise last
+
+
+# ---------------------------------------------------------------- accounts ---
+
+def load_accounts(path: str) -> list[dict]:
+    r"""Read an accounts file: a list of {"user", "password"?, "exe"?, "domain"?, "args"?}.
+
+    ``password`` is optional and better left out — without it the password comes
+    from Credential Manager, so the file holds no secret and can live anywhere.
+    ``exe`` is optional too: omitted, it resolves to that account's own
+    ``%LOCALAPPDATA%\FunFly\...\LastWarLauncher.exe``.
+
+        [
+          {"user": "user2"},
+          {"user": "user3", "exe": "C:\\Games\\LastWar\\LastWar.exe"}
+        ]
+    """
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if isinstance(data, dict):                 # tolerate {"accounts": [...]}
+        data = data.get("accounts", [])
+    if not isinstance(data, list):
+        raise SystemExit(f"{path}: expected a list of accounts")
+    out = []
+    for i, item in enumerate(data):
+        if not isinstance(item, dict) or not item.get("user"):
+            raise SystemExit(f"{path}: entry {i} has no \"user\"")
+        out.append(item)
+    return out
+
+
+def account_exe(entry: dict, sid, which: str) -> str:
+    """The executable for one accounts-file entry: explicit, or that user's install."""
+    if entry.get("exe"):
+        return os.path.expandvars(entry["exe"])
+    profile = profile_path(sid)
+    if not profile:
+        raise SystemExit(f"{entry['user']} has no profile on this machine — log in as "
+                         f"that user once, install the game, then retry")
+    launcher, client = game_paths(profile)
+    return launcher if which == "launcher" else client
 
 
 # ----------------------------------------------------------------- reports ---
@@ -717,6 +822,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="remove this tool's WinSta0/desktop grants for the user and exit")
     p.add_argument("--no-grant", action="store_true",
                    help="skip the grants (they are already in place, or you manage them yourself)")
+    p.add_argument("--config", metavar="accounts.json",
+                   help='accounts file: [{"user": "...", "exe"?, "password"?, "domain"?, "args"?}]'
+                        " — omit the password and it comes from Credential Manager")
+    p.add_argument("--all", action="store_true",
+                   help="launch every account in --config (one instance each)")
+    p.add_argument("--stagger", type=int, default=0, metavar="SEC",
+                   help="seconds to wait between --all launches (a cold start is heavy)")
     p.add_argument("--check", action="store_true", help="report the environment and exit")
     p.add_argument("--list-users", action="store_true",
                    help="list local accounts with profiles and exit")
@@ -739,9 +851,43 @@ def main(argv=None) -> int:
     if args.check:
         report_check(args, log)
         return 0
+
+    # ---- accounts file: launch every entry (--all) or one named entry (--user)
+    if args.config:
+        accounts = load_accounts(args.config)
+        if args.all:
+            log(f"[config] {args.config}: {len(accounts)} account(s) — "
+                f"{', '.join(a['user'] for a in accounts)}")
+            rc = 0
+            for i, entry in enumerate(accounts):
+                if i:
+                    log("")
+                    if args.stagger:
+                        log(f"[config] waiting {args.stagger}s before the next one")
+                        time.sleep(args.stagger)
+                try:
+                    if _launch_one(args, entry, log) != 0:
+                        rc = 1
+                # SystemExit is not an Exception — a bad entry must not abort the rest
+                except (SystemExit, Exception) as exc:  # noqa: BLE001
+                    log(f"[config] {entry['user']}: {exc}")
+                    rc = 1
+            return rc
+        if args.user:
+            match = [a for a in accounts if a["user"].lower() == args.user.lower()]
+            if not match:
+                log(f"error: {args.user!r} is not in {args.config}")
+                return 2
+            return _launch_one(args, match[0], log)
+        log("error: --config needs --all, or --user to pick one entry from it")
+        return 2
+    if args.all:
+        log("error: --all needs --config <accounts.json>")
+        return 2
+
     if not args.user:
         build_parser().print_usage()
-        log("error: --user is required (or use --check / --list-users)")
+        log("error: --user is required (or use --config/--check/--list-users)")
         return 2
 
     domain, user, sid = resolve_account(args.user, args.domain)
@@ -763,6 +909,13 @@ def main(argv=None) -> int:
         revoke_desktop_access(sid, args.desktop, args.dry_run, log)
         return 0
 
+    return _launch_one(args, {"user": args.user, "domain": args.domain}, log)
+
+
+def _launch_one(args, entry: dict, log) -> int:
+    """Run one account: grants, path resolution, password, launch, optional wait."""
+    domain, user, sid = resolve_account(entry["user"], entry.get("domain") or args.domain)
+
     if not args.no_grant:
         grant_desktop_access(sid, args.desktop, args.dry_run, log)
     if args.grant_only:
@@ -774,19 +927,14 @@ def main(argv=None) -> int:
         # app, which refuses a non-NULL lpDesktop and surfaces its UI in another
         # process — it proves nothing. charmap is a plain Win32 binary.
         exe = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "System32", "charmap.exe")
-    elif args.exe:
-        exe = os.path.expandvars(args.exe)
+    elif entry.get("exe") or args.exe:
+        exe = os.path.expandvars(entry.get("exe") or args.exe)
     else:
-        profile = profile_path(sid)
-        if not profile:
-            raise SystemExit(
-                f"{domain}\\{user} has no profile on this machine — log in as that user "
-                f"once (so Windows creates it), install the game there, then come back.")
-        launcher, client = game_paths(profile)
-        exe = launcher if args.game == "launcher" else client
+        exe = account_exe(entry, sid, args.game)
 
-    cwd = args.cwd or os.path.dirname(exe)
-    cmdline = f'"{exe}"' + (f" {args.args}" if args.args else "")
+    extra = entry.get("args") or args.args
+    cwd = entry.get("cwd") or args.cwd or os.path.dirname(exe)
+    cmdline = f'"{exe}"' + (f" {extra}" if extra else "")
     flags = CREATE_NEW_CONSOLE
 
     log(f"[plan] user    : {domain}\\{user}")
@@ -805,7 +953,7 @@ def main(argv=None) -> int:
         log("[dry-run] nothing was started")
         return 0
 
-    password = resolve_password(args, domain, user)
+    password = entry.get("password") or resolve_password(args, domain, user)
     before = lastwar_pids()
 
     attempts = {"logon": ["logon"], "asuser": ["asuser"], "auto": ["logon", "asuser"]}[args.method]
@@ -813,11 +961,11 @@ def main(argv=None) -> int:
     for method in attempts:
         try:
             if method == "logon":
-                pid = launch_with_logon(user, domain, password, exe, cmdline,
-                                        cwd, args.desktop, flags, log)
+                pid = _via_logon(user, domain, password, exe, cmdline,
+                                 cwd, args.desktop, flags, log)
             else:
-                pid = launch_as_user(user, domain, password, exe, cmdline,
-                                     cwd, args.desktop, flags, args.session, log)
+                pid = _via_token(user, domain, password, exe, cmdline,
+                                 cwd, args.desktop, flags, args.session, log)
             break
         except Exception as exc:  # noqa: BLE001
             last_error = exc
