@@ -127,10 +127,11 @@ AUTOLOOT_SPENT_PAUSE = 1800.0
 # directory the panel was started from is irrelevant.
 #   * Traffic  — tools/lib/live_sniffer.py: raw live decode of the game protocol,
 #     one line per command as it crosses the wire (see docs/research/protocol.md).
-#   * Functions — tools/lua_trace.py --dedup: wraps every reachable Lua function
-#     and logs the FIRST call of each name only. The unfiltered tracer floods
-#     Player.log and freezes the game, so --dedup is the safe discovery default
-#     (per task #1060: the monkey-patch tool is tools/lua_trace.py).
+#   * Functions — tools/lua_trace.py: wraps every reachable Lua function and logs
+#     EVERY call with its full argument list (per task #1060: the monkey-patch
+#     tool is tools/lua_trace.py). It is kept safe by TRACE_FILTER, not by the
+#     --dedup discovery mode: dedup keeps only the first call of each name, which
+#     silently drops the second, third and fourth thing the player pressed.
 # The two answer the same question from opposite ends — what crossed the wire vs
 # what the client called — so the menu runs them as ONE toggle: a single label is
 # asked once and handed to both children, which makes the two run files of a
@@ -141,6 +142,14 @@ AUTOLOOT_SPENT_PAUSE = 1800.0
 # lands in the panel log like the rest of its output, tagged [traffic] / [trace].
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
+# What the function tracer logs. A name matching ANY of these keywords is kept, so
+# one run covers both halves of an analysis: the messages that cross the wire
+# (`SFSNetwork.SendMessage`, `SFSObject.Put*`, `SFSArray.*`) and the manager or util
+# that assembled them — which is exactly the pair docs/skills/sniff.md §8.0 asks for
+# in steps 2 and 3. Everything else, above all the per-frame UI redraw traffic, stays
+# out: that noise is what freezes the game, and it is why the filterless run needs
+# --dedup at all. Widen this only with a filter, never by dropping it.
+TRACE_FILTER = "SFS,Manager,Util"
 # How long to wait for both sniffer halves to report "ready" before saying so in
 # the log. Measured on this machine: capture is live ~1 s in, the Lua hooks
 # ~2 s in with a warm daemon and noticeably later when it has to attach first —
@@ -1451,13 +1460,20 @@ class Panel(tk.Tk):
             threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
                              daemon=True).start()
 
-        # --dedup: log only the first call of each function name. Without it the
-        # tracer wraps every reachable Lua function and floods Player.log, which
-        # freezes the game — see the tools/lua_trace.py docstring. The safe
-        # discovery pass is the right default for a one-click panel button.
-        self._log_put("[trace] запуск трассировщика Lua-функций (lua_trace.py --dedup) …")
+        # NOT --dedup. That mode keeps only the FIRST call of each name, so a session
+        # where somebody opens a window, picks an amount, confirms and later collects
+        # lands in the file as one click and one message — the repeats are dropped at
+        # write time and no amount of reading gets them back. Whoever presses the panel
+        # button is recording what they did, not discovering which functions exist.
+        # Every call is logged instead, kept safe by a narrow filter rather than by
+        # throwing away repeats: TRACE_FILTER covers the wire (SFS*) and the code that
+        # drives it (*Manager / *Util), while the UI redraw noise that actually floods
+        # Player.log and freezes the game is left out.
+        self._log_put(f"[trace] запуск трассировщика Lua-функций "
+                      f"(lua_trace.py --filter {TRACE_FILTER}, без дедупа) …")
         self._trace_proc = self._spawn_sniffer(
-            [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--dedup"] + label_args, "trace")
+            [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--filter", TRACE_FILTER] + label_args,
+            "trace")
         if self._trace_proc is not None:
             self._sniff_ready["trace"] = None
             self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "

@@ -10,12 +10,20 @@ to Player.log and freezes the game, pair a broad run with a narrow `--filter`. F
 filterless overview use `--dedup`: it logs only the first call of each name (the rest are
 counted and summarised on exit) — a safe "which functions fire" discovery pass.
 
+`--dedup` is a DISCOVERY pass, not a recording of a session: keeping only the first call of
+each name throws away every repeat, so a player who opens a window, picks an amount,
+confirms and then collects sees one click and one message in the file instead of four
+actions. To record what somebody actually did, run without it and narrow with `--filter`
+instead — several keywords are allowed, comma-separated, and a name matching any of them is
+logged (`--filter SFS,Manager,Util` covers the wire and the code that drives it).
+
 There is NO action-specific logic here — it is a raw tracer, useful while reverse
 engineering ANY behaviour (march, rally, scene switch, UI, ...).
 
 Single command, self-restoring::
 
     C:\Python312\python.exe tools\lua_trace.py --filter March  # every March call, full args
+    C:\Python312\python.exe tools\lua_trace.py --filter SFS,Manager,Util   # record a session
     C:\Python312\python.exe tools\lua_trace.py --dedup         # filterless overview (safe)
     C:\Python312\python.exe tools\lua_trace.py                 # every call of everything (floods!)
     C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all     # + call-level hook (heavy)
@@ -60,6 +68,27 @@ def _lua_str(s):
     return "'" + esc + "'"
 
 
+def split_filters(spec):
+    """`--filter` -> the list of keywords a name may match, or None for "log everything".
+
+    Several keywords are accepted comma-separated, because one keyword cannot cover both
+    halves of a trace: the wire lives under `SFS*` while the code that drives it lives
+    under `*Manager` / `*Util`. Matching any one of them keeps a run narrow enough to log
+    EVERY call (no dedup) without flooding the frame loop with UI redraw noise.
+    """
+    if not spec:
+        return None
+    keys = [k.strip() for k in spec.split(",") if k.strip()]
+    return keys or None
+
+
+def _lua_list(items):
+    """Render a list of strings as a Lua array literal, or `nil` for None/empty."""
+    if not items:
+        return "nil"
+    return "{" + ", ".join(_lua_str(i) for i in items) + "}"
+
+
 def install_chunk(filter_kw, depth, hook_all, dedup=False):
     r"""Build the Lua chunk that wraps functions and arms the call hook.
 
@@ -73,9 +102,14 @@ def install_chunk(filter_kw, depth, hook_all, dedup=False):
     FIRST call of each name (the rest are counted) — a safe discovery pass for a filterless
     run, which otherwise floods Player.log and freezes the game. Pair the default (every)
     mode with a narrow `filter_kw` to keep it safe.
+
+    `filter_kw` may name several keywords (a comma-separated string or a list) and a name
+    matching ANY of them is logged. One keyword is rarely enough: the wire lives under
+    `SFS*` and the code driving it under `*Manager` / `*Util`, so covering both is what
+    lets a run keep every repeat call instead of falling back to `dedup`.
     """
     return r"""
-local FILTER = %(filter)s
+local FILTERS = %(filters)s
 local MAXDEPTH = %(depth)d
 local HOOKALL = %(hookall)s
 local DEDUP = %(dedup)s
@@ -114,8 +148,11 @@ end
 T.installed = false
 
 local function MATCH(nm)
-  if not FILTER then return true end
-  return sfind(nm, FILTER, 1, true) ~= nil
+  if not FILTERS then return true end
+  for i = 1, #FILTERS do
+    if sfind(nm, FILTERS[i], 1, true) then return true end
+  end
+  return false
 end
 
 local function argstr(...)
@@ -168,7 +205,7 @@ for _, k in ipairs({
 -- Broad mode (no filter): also skip per-frame / hot method names. Even with dedup these
 -- add pure call overhead to the game's frame loop and rarely tell you anything. A filter
 -- means the user is targeting on purpose, so honour it fully and skip nothing extra.
-if not FILTER then
+if not FILTERS then
   for _, k in ipairs({
     'Update', 'LateUpdate', 'FixedUpdate', 'OnGUI', 'OnUpdate', 'OnLateUpdate',
     'Tick', 'OnTick', 'OnFrame', 'OnRender', 'OnDrawGizmos', 'DoUpdate',
@@ -237,7 +274,7 @@ end
 
 T.installed = true
 Log('XSTRACE installed wrapped='..nwrap..' depth='..MAXDEPTH
-    ..' filter='..(FILTER and ('"'..FILTER..'"') or 'none')
+    ..' filter='..(FILTERS and ('"'..concat(FILTERS, ',')..'"') or 'none')
     ..' dedup='..tostring(DEDUP)..' hook='..tostring(HOOKALL))
 
 end)  -- end of install-body pcall
@@ -245,7 +282,8 @@ if not __ok then
   pcall(function() Log('XSTRACE INSTALL ERROR: '..tostring(__err)) end)
 end
 """ % {
-        "filter": _lua_str(filter_kw),
+        "filters": _lua_list(split_filters(filter_kw) if isinstance(filter_kw, str)
+                             else filter_kw),
         "depth": depth,
         "hookall": "true" if hook_all else "false",
         "dedup": "true" if dedup else "false",
@@ -310,7 +348,8 @@ def _tail(path, offset):
 
 def main():
     ap = argparse.ArgumentParser(description="General live Lua tracer (auto install/restore).")
-    ap.add_argument("--filter", help="only log calls whose name contains this keyword")
+    ap.add_argument("--filter", help="only log calls whose name contains one of these "
+                                     "keywords (comma-separated, e.g. SFS,Manager,Util)")
     ap.add_argument("--depth", type=int, default=2, help="how deep to descend nested tables (default 2)")
     ap.add_argument("--hook-all", action="store_true",
                     help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")

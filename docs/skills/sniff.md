@@ -172,10 +172,15 @@ have). The file name only carries the label, not the sequence.
 #### a) `results/traces/*_trace.log` — which Lua fired
 
 Format: raw `Player.log` lines the tracer tailed, one call per line —
-`XSCALL <table.fn> <- <arg>, <arg>, …`. With `--dedup` only the **first** call of
-each name is logged (the rest are counted and summarised at exit), so the file is
-a *set of names in first-call order*, not a call count. Arguments are never
-truncated.
+`XSCALL <table.fn> <- <arg>, <arg>, …`. Arguments are never truncated.
+
+**Check the `XSTRACE installed …` header before you read a line of it.** With
+`dedup=false` (what the panel records now) the file holds every call, in order.
+With `dedup=true` only the **first** call of each name was written and the rest were
+counted at exit — the file is then a *set of names*, not a session: a second
+message, a second click, the second entry of an array are all absent. Absence in a
+deduped file means nothing, so never reason from it — the one thing to do is
+re-record (`docs/skills/sniff-capture.md`).
 
 ```bash
 L=results/traces/20260728_171425_Сбор_ресурсов_trace.log
@@ -259,7 +264,7 @@ Be aware of the asymmetry before trying anything clever:
 | | timestamps | ordering |
 |---|---|---|
 | `*_traffic.jsonl` | yes, `ts` per line, 1 s resolution | wire order |
-| `*_trace.log` | **no** — they are raw `Player.log` lines | first-call order (deduped) |
+| `*_trace.log` | **no** — they are raw `Player.log` lines | call order; first-call order only if the header says `dedup=true` |
 
 So there is no join key. What works, in order of effort:
 

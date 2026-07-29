@@ -308,7 +308,7 @@ share a name:
 | child | command the panel spawns | writes |
 |---|---|---|
 | traffic | `live_sniffer.py --label <L>` | `results/traffic/<YYYYMMDD_HHMMSS>_<L>_traffic.jsonl` |
-| functions | `lua_trace.py --dedup --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
+| functions | `lua_trace.py --filter SFS,Manager,Util --label <L>` | `results/traces/<YYYYMMDD_HHMMSS>_<L>_trace.log` |
 
 Both stream into the panel log tagged `[traffic]` / `[trace]`. Each start opens
 **new** files, so a stop/start cycle never overwrites the previous session
@@ -337,7 +337,7 @@ confirmed within 25 s the panel says so instead of waiting silently.
 
 ```bash
 /mnt/c/Python312/python.exe tools/lib/live_sniffer.py --label "alliance gifts"   &
-/mnt/c/Python312/python.exe tools/lua_trace.py --dedup --label "alliance gifts"
+/mnt/c/Python312/python.exe tools/lua_trace.py --filter SFS,Manager,Util --label "alliance gifts"
 ```
 
 Prerequisites, in the order they bite:
@@ -349,14 +349,29 @@ Prerequisites, in the order they bite:
 3. The Lua tracer needs the VM: it goes through `get_evaluator()`, i.e. the warm
    daemon `tools/lua_daemon.py` if it is up, otherwise a fresh local `LuaEval`
    (slower to start, same result).
-4. `--dedup` is mandatory for a filterless run. Without it the tracer logs *every*
-   call of ~8700 wrapped functions and **freezes the client**.
+4. A filterless run **must** have `--dedup`, or the tracer logs *every* call of
+   ~8700 wrapped functions and **freezes the client**. But do not record a session
+   that way — see the warning below. Narrow with `--filter` and keep every call.
+
+**`--dedup` records which functions exist, not what somebody did.** It keeps only
+the FIRST call of each name and counts the rest, so a player who opens a window,
+picks an amount, confirms and later collects leaves *one* `UIButton.GetClickSound`
+and *one* `SFSNetwork.SendMessage` in the file. The other three actions, the second
+message, and every repeat of `SFSObject.PutInt` are dropped at write time — no
+amount of re-reading recovers them, and the gaps read exactly like "the player
+never pressed that". This cost task #1115 hours of chasing a message that looked
+absent (`queue.finish`) and an `armyArray` that looked like a single entry. Several
+keywords are allowed, so one narrow run covers both the wire and its caller:
+`--filter SFS,Manager,Util`, which is what the panel now spawns.
 
 Sanity line in the trace file — read it before anything else:
 
 ```
-XSTRACE installed wrapped=8730 depth=2 filter=none dedup=true hook=false
+XSTRACE installed wrapped=214 depth=2 filter="SFS,Manager,Util" dedup=false hook=false
 ```
+
+`dedup=true` in a file you are about to analyse as a session means the repeats are
+already gone; re-record instead of drawing conclusions from what is missing.
 
 `wrapped=0`, a missing line, or `XSTRACE INSTALL ERROR:` means nothing was armed
 and the run is void — fix that and re-record rather than analysing an empty file.
