@@ -1483,6 +1483,104 @@ def claim_head_treasure() -> str:
     )
 
 
+# --- The finder: is there a treasure right now? -----------------------------
+# `DataCenter.ActDetectTreasureDataManager` is a pure reply cache, verified live via
+# `string.dump` (task #1116): `GetArrData` only reads `self.dataDict[activityId]`, and
+# only `OnGetArrDataMsg` ever writes it (it also sets `treasures_num`). So the client
+# knows about a treasure exactly when a `activity.detect.list` reply has arrived —
+# nothing polls on its own, and the dict stays empty for a whole session when the
+# alliance's detect event dropped nothing.
+#
+# `treasure_refresh_request` re-asks the server (the message needs an activityId — sent
+# with none it dies in the serializer: "bad argument #2 to 'pack'"). The ids to ask for
+# are the manager's own `dailyGot` keys, which are the treasure cfg groups the account
+# tracks a per-day count for.
+
+
+def treasure_refresh_request(activity_ids) -> str:
+    """Ask the server to (re-)send the detect-treasure list for each activity id.
+
+    Fire-and-forget: the reply lands in `OnGetArrDataMsg`, so read the manager back a
+    couple of seconds later (`treasure_state`).
+    """
+    ids = ",".join(str(int(i)) for i in activity_ids)
+    return (
+        "for _,id in ipairs({%s}) do "
+        "local ok,err=pcall(function() SFSNetwork.SendMessage(MsgDefines.ActivityDetectList, id) end) "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_ask id="..tostring(id).." ok="..tostring(ok).." err="..tostring(err)) '
+        "end" % ids
+    )
+
+
+def treasure_state() -> str:
+    """Log the manager's treasure state — the "is there anything to dig?" read.
+
+    Emits, all prefixed `ACT`:
+      * `treasures_num=<n>`      — the count from the last list reply
+      * `treasure_daily <cfgId>=<n>` — per-group takes already used today
+      * `treasure_rec ...`       — one line per record found in `dataDict`, as raw
+        `key=value` pairs
+    The record lines are dumped raw on purpose: no treasure has ever been in the dict
+    while looking (it was empty in both the #1107 RE and the #1116 check), so the exact
+    field names are unconfirmed — the first live treasure prints its own shape here.
+    """
+    return (
+        "local m=DataCenter.ActDetectTreasureDataManager "
+        'CS.UnityEngine.Debug.LogError("ACT treasures_num="..tostring(m and m.treasures_num)) '
+        "if m then "
+        "for k,v in pairs(m.dailyGot or {}) do "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_daily "..tostring(k).."="..tostring(v)) end '
+        "local function dump(t,depth,path) "
+        "local flat,nested={},{} "
+        "for k,v in pairs(t) do if type(v)=='table' then nested[#nested+1]={k,v} "
+        "elseif type(v)~='function' then flat[#flat+1]=tostring(k)..'='..tostring(v) end end "
+        "if #flat>0 then CS.UnityEngine.Debug.LogError('ACT treasure_rec '..path..' '..table.concat(flat,' ')) end "
+        "if depth<3 then for _,kv in ipairs(nested) do dump(kv[2],depth+1,path..'.'..tostring(kv[1])) end end "
+        "end "
+        "local n=0 for k,v in pairs(m.dataDict or {}) do n=n+1 "
+        "if type(v)=='table' then dump(v,1,tostring(k)) end end "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_dict_count="..tostring(n)) '
+        "end"
+    )
+
+
+def park_treasures(home_server: int = 0) -> str:
+    """Fill `DataCenter.__lw_treasure_queue` from the manager, for `work_treasure.md`.
+
+    Walks `dataDict` for records carrying a point id and a uuid, and parks one queue
+    entry each: `{pid, uuid, server, dug, cross}`. `dug` comes from the operator-uid
+    field (present once the tile is fully dug — the split proven on the wire in
+    docs/research/world-treasures.md); `cross` from the treasure's server differing
+    from `home_server`. Field names are probed against several spellings because the
+    record shape has never been seen populated — see `treasure_state`.
+
+    Logs `ACT treasure_parked <n>` and one `ACT treasure_target ...` line per entry.
+    """
+    return (
+        "local m=DataCenter.ActDetectTreasureDataManager local q={} "
+        "local function pick(t,...) for _,k in ipairs({...}) do local v=t[k] "
+        "if v~=nil and v~='' and v~=0 then return v end end return nil end "
+        "local function take(rec) "
+        "local pid=pick(rec,'pointId','point_id','pid','index','tileIndex') "
+        "local uuid=pick(rec,'uuid','treasureUuid','treasure_uuid','id') "
+        "if not pid or not uuid then return end "
+        "local srv=pick(rec,'targetServer','serverId','srcServer','server') or %d "
+        "local op=pick(rec,'operatorUid','operator','operatorId','uid','userId') "
+        "q[#q+1]={pid=pid,uuid=uuid,server=srv,dug=(op~=nil),cross=(tonumber(srv)~=%d)} "
+        "CS.UnityEngine.Debug.LogError('ACT treasure_target pid='..tostring(pid)..' uuid='..tostring(uuid)"
+        "..' srv='..tostring(srv)..' dug='..tostring(op~=nil)) end "
+        "local function walk(t,depth) "
+        "local isrec=false for _,k in ipairs({'pointId','point_id','pid','uuid'}) do "
+        "if t[k]~=nil then isrec=true end end "
+        "if isrec then take(t) return end "
+        "if depth<3 then for _,v in pairs(t) do if type(v)=='table' then walk(v,depth+1) end end end end "
+        "if m then for _,v in pairs(m.dataDict or {}) do if type(v)=='table' then walk(v,1) end end end "
+        "DataCenter.__lw_treasure_queue=q "
+        "CS.UnityEngine.Debug.LogError('ACT treasure_parked '..tostring(#q))"
+        % (int(home_server), int(home_server))
+    )
+
+
 # --------------------------------------------------------------------------
 # Hospital — heal wounded soldiers ("Лечение юнитов")
 # --------------------------------------------------------------------------

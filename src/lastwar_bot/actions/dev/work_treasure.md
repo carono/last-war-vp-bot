@@ -17,10 +17,11 @@
 # `DataCenter.__lw_treasure_queue`, each entry:
 #     { pid=<tileIndex>, uuid=<long>, server=<int>, dug=<bool>, cross=<bool>,
 #       formation=<squad uuid, optional> }
-# `dug` is the operator-uid split above; `cross` is server ~= home. The finder is the
-# chat "new treasure" detector (coming later) or a map scan — until one runs, the
-# queue is empty and this recipe is a clean no-op. A shared dig squad for entries with
-# no `formation` can be set once: `DataCenter.__lw_treasure_formation = <formation uuid>`.
+# `dug` is the operator-uid split above; `cross` is server ~= home. The finder is
+# `tools/find_treasures.py --queue` (asks the server for the treasure list, parks what it
+# finds); run it first — with nothing parked this recipe is a clean no-op. A shared dig
+# squad for entries with no `formation` can be set once:
+# `DataCenter.__lw_treasure_formation = <formation uuid>`.
 
 # On the world map — the treasures live there.
 GAME WORLD

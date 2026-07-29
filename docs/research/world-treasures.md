@@ -171,9 +171,51 @@ finder sets `dug` from that. Buttons `dig_treasure` / `claim_treasure` /
 and the read-only helpers run (empty queue → clean no-op). It sits in `actions/dev/`
 until a live treasure confirms the round-trip.
 
-Still to come: the finder that FILLS `__lw_treasure_queue` — the chat-driven "new
-treasure" detector (its push is not in any trace yet — the user will add it) or a
-map scan. Until one runs, the recipe is an honest no-op.
+### The finder (task #1116)
+
+`tools/find_treasures.py` is the step that fills `__lw_treasure_queue`: it asks the
+server for the treasure list, reads the manager back, reports, and with `--queue`
+parks the targets for the recipe.
+
+```
+C:\Python312\python.exe tools\find_treasures.py            # look and report
+C:\Python312\python.exe tools\find_treasures.py --queue    # ... and park the targets
+```
+
+Exit code 0 = something to dig, 1 = nothing — so a schedule can gate the recipe on it.
+
+**Why it asks first.** `ActDetectTreasureDataManager` is a *pure reply cache*, and this
+matters: an empty `dataDict` does not mean "no treasure", it can equally mean "nobody
+ever asked". Read off the live VM with `string.dump` (the constants of each function):
+
+* `GetArrData` — constants `dataDict`, `activityId`, `data`: it only *reads*
+  `self.dataDict[activityId]`. Not a sender.
+* `OnGetArrDataMsg` — constants `treasures_num`, `dataDict`, `ArrExpireTime`: the sole
+  writer, i.e. the reply applier for the list message.
+* `CheckTreasureReachDailyLimit` — constants `TreasureTemplateManager`, `daily_max`,
+  `group`, `dailyGot`: the per-day gate, cfg-driven.
+
+So nothing polls by itself. The refresh is **`activity.detect.list`**, and it *needs an
+activity id* — sent bare it dies in the client serializer
+(`SFSDataSerializer.lua:39: bad argument #2 to 'pack' (number expected, got nil)`).
+The ids to ask for are the manager's own `dailyGot` keys (on this account `25194` and
+`25196` — the treasure cfg groups it counts daily takes for; the captured treasure's
+own cfgId was `25193`). `get.detect.info` sends fine with no argument but does not fill
+`dataDict` — it is a different payload.
+
+Chunks live in `tools/lib/lua_actions.py`: `treasure_refresh_request(ids)`,
+`treasure_state()` (logs `treasures_num`, `dailyGot`, and every `dataDict` record as raw
+`key=value` pairs) and `park_treasures(home_server)`.
+
+**Validation:** the read/refresh path is confirmed live — the request is accepted, the
+manager reads back cleanly, and the tool reports "nothing to dig" with exit 1. The
+*record field names* are still unconfirmed (the dict has never been seen populated), so
+`park_treasures` probes several spellings per field (`pointId|point_id|pid|index|
+tileIndex`, `uuid|treasureUuid|id`, `targetServer|serverId|srcServer|server`,
+`operatorUid|operator|operatorId|uid|userId`) and `treasure_state` prints records raw so
+the first live treasure shows its own shape. The extraction was exercised against a
+synthetic record shaped like the captured blob: two targets parked with the right
+pid/uuid/server, `dug` set from the operator uid and `cross` from the home server.
 
 ## Status / open ends
 
@@ -181,9 +223,15 @@ map scan. Until one runs, the recipe is an honest no-op.
   system message).
 * Take command: **confirmed** on the wire (`detect.event.claim.treasure` +
   `push.detect.treasure.claim`).
+* Finding (is there one?): **built and confirmed to run** — `tools/find_treasures.py`,
+  request + read + verdict. The record → queue-entry mapping inside it is still
+  unconfirmed (see above).
 * **Not yet built/proven headless:** driving march→claim from a script. The claim
   almost certainly gates on the dig being complete (a march must have worked the
   tile) and on per-day limits (`ActDetectTreasureDataManager:CheckTreasureReach
   DailyLimit`, cfg `treasureDailyLimit`). To prove end-to-end needs a live detect
   event with a treasure on the map — none was active during this analysis
-  (`treasures_num == 0`).
+  (`treasures_num == 0`), nor during the #1116 check on 2026-07-29: after asking
+  `activity.detect.list` for both tracked ids the dict stayed empty, `dailyGot` was
+  `25194=0 / 25196=0` (the daily allowance untouched), and the loaded world scene
+  held no treasure object either.
