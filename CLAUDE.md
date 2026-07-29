@@ -27,5 +27,23 @@ before starting anything else, and before reporting the task done:
    that disagrees with the list below it — without `--write` the script only
    reports, and exits non-zero when a file is out of date.
 
+### What a feature description may say
+
+Both farming files are a feature list for the person playing the game, not a
+technical reference. Describe only **what the bot does** in the game: what it
+collects, what it sends, what it presses, what appears on screen afterwards, and
+what the person still has to do.
+
+Never put implementation detail in them — no protocol or message names, no Lua or
+C# function names, no class or manager names, no wire field names, no file or
+tool paths. If a sentence would only make sense to someone who has read the
+code, it does not belong here.
+
+> ❌ heal wounded via `hospital.cure` with an `armyArray` payload, headless
+> ✅ heals the wounded in the hospital — one press, no window opened
+
+All of that belongs in `docs/research/` instead — one file per ability. The
+farming list does not link there; the two audiences are separate.
+
 Confirmation is the trigger: unproven work stays ❌ or 🟡, and a feature is not
 finished — and must not be marked done in the tracker — until both files say so.
