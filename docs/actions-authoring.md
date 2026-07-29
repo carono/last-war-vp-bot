@@ -106,8 +106,8 @@ made only of game primitives runs with `hwnd=0` — which is how the panel's
 **Scenarios** tab runs it (pick a script, Run, or Repeat on an interval).
 
 **Recipes read like button presses; engine names hide in the catalogue.** The
-everyday form is `TAP <button>` — see `donate_alliance_tech.md`, which is five
-`TAP` lines. The ugly `UIManager.Instance:OpenWindow(...)` calls live once in
+everyday form is `TAP <button>` — see `donate_alliance_tech.md`, which is a single
+`TAP` line. The ugly `UIManager.Instance:OpenWindow(...)` calls live once in
 `tools/lib/game_buttons.py` (`name -> {lua, wait, label}`); a recipe author adds a
 button there and then just `TAP`s it. `LUA`/`READ_LUA` are the authoring layer for
 defining buttons or a bespoke count-gated loop (spend *exactly* N attempts). Two hard

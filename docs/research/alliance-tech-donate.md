@@ -10,33 +10,51 @@ donate path spends no diamonds and touches no pixels.
 
 Consumers: the CLI `tools/alliance_donate.py` (via the shared core
 `tools/lib/alliance_science.py`); the DSL action
-`src/lastwar_bot/actions/donate_alliance_tech.md`, a five-line `TAP` recipe whose
-buttons (`alliance`, `alliance_tech`, `recommended_tech`, `donate_1000`, `close`) are
-defined in `tools/lib/game_buttons.py`; runnable from the panel's Scenarios tab. Raw
-Lua recipe: `actions/alliance_donate.lua`. Wire command: `al.science.donate`
-(up/down, `tools/known_commands.txt`).
+`src/lastwar_bot/actions/donate_alliance_tech.md`, now a **one-line** `TAP` recipe
+(`TAP donate_1000 xall`) whose button is defined in `tools/lib/game_buttons.py` and
+whose Lua lives in `lua_actions.alliance_donate_batch`; runnable from the panel's
+Scenarios tab. Raw Lua recipe: `actions/alliance_donate.lua`. Wire command:
+`al.science.donate` (up/down, `tools/known_commands.txt`).
+
+**No window needed.** `string.dump` of `UIAllianceScienceInfoCtrl.OnResDonateClick`
+shows a body of three statements — the resource check
+(`LuaEntry.Resource:GetCntByResType`, else `ShowTipsId` + `LWResourceLackUtil.GotoResLack`),
+the attempts check (`GetResDonateRestCount`), and
+`SFSNetwork.SendMessage(MsgDefines.AlScienceDonate, …)`. No `self` field is touched
+(`self`, `btnPos` and `techPointPos` are unused parameters — the last two only anchor
+the reward-fly animation). So the press is `require(<the ctrl module>)
+.OnResDonateClick(nil, scienceId, res, resNum)`, sent with nothing open. Confirmed
+live with `GetStackTopWindow() == nil`: attempts 14 → 13. `OnGoldDonateClick` has the
+same shape (`LuaEntry.Player.gold` gate, then `MsgDefines.AlScienceGoldDonate`, no
+`self` access); it is written the same way but has not been fired — it spends gems.
 
 **Freeze pitfall (important):** the remaining-attempts count (`GetResDonateRestCount`)
 only drops AFTER the server replies to `al.science.donate`. A tight in-Lua
 `while rest>0 do OnResDonateClick() end` therefore never sees it fall, spins on the
-main thread and **freezes the client**. Donate ONE press per chunk, from the Python
-side — `TAP donate_1000 xall` in the DSL recipe, `alliance_science.press_donate` for
-the CLI. Both loop the same way.
+main thread and **freezes the client**. Never wait for the server inside a chunk.
 
-**Pacing:** the count does NOT have to be re-read before every press. One press spends
-exactly one attempt, so the loop assumes the countdown and re-reads the real count once
-every `recheck_every` presses (5) to correct the drift. With that, a press costs ~0.2 s
-instead of ~1 s — the pace of holding the button down in game — and a full 30-attempt
-quota takes seconds, not half a minute. The knobs: `Button.recheck_every` /
-`Button.wait` in `tools/lib/game_buttons.py` for the DSL, the `settle_after` /
-`recheck_every` arguments of `press_donate` for the CLI.
+**Pacing — a whole quota is ONE call.** That same lag is what makes batching work: a
+donation in flight lowers neither counter until the reply lands, so `n` presses inside
+one chunk all pass the client-side gates and all reach the server. Since nothing in
+the chunk waits, the freeze pitfall does not apply — the loop counts to a **fixed**
+`n`, never to a condition. The caller reads the real count, spends exactly that many,
+pauses, and re-reads to confirm; the count is still the stop condition, just not once
+per press.
 
-Because a press in flight has not been counted yet, a re-read can report *more* left
-than the loop assumed, so a batch may overshoot the quota by a press or two. That is
-expected to be harmless — the quota is enforced server-side and a refused donation
-spends nothing (the same shape as the collect gate, refusal 602026) — but it has not
-been observed on the wire here. Watch for a rejection reply after the last press of a
-run before treating the overshoot as proven benign.
+Measured live (warm daemon, `tools/lua_daemon.py`): a round trip into the VM is
+~0.15 s, and the Lua loop inside it is free — 10 iterations cost the same as 1. One
+chunk with `n=5` took attempts 13 → 8 in 0.21 s; the next, with `n=8`, emptied the
+quota in 0.21 s. So a full 30-attempt quota is ~1 s including the confirming read,
+against ~30 s for one press per call.
+
+The knobs: `Button.batch_lua` / `Button.wait` in `tools/lib/game_buttons.py` for the
+DSL, the `settle_after` argument of `press_donate` for the CLI. A round that fires
+nothing ends the loop in both, so a count that refuses to fall cannot spin.
+
+The batch cannot overshoot the quota — it is sized by a fresh count read — and it
+stops early if the resources run out (the same gate the controller applies, checked
+before each press inside the chunk). That gate lags the server by a round trip too,
+so it catches "already broke", not "broke on this press".
 
 ## What the trace shows
 
@@ -106,6 +124,11 @@ send fires regardless. Each `OnResDonateClick` emits one `AlScienceDonateMessage
 
 ## The open → donate chain (verified live, end-to-end)
 
+This is how a *player* gets there, and it is what the trace shows; the bot no longer
+walks it (see "No window needed" above — the press is sent straight to the module).
+Kept because it is the ground truth the headless call was checked against, and because
+opening the panel is still the way to eyeball the result.
+
 Each step lands on the **next frame**, so it is staged as separate daemon chunks with a
 short settle between them (a single Lua chunk cannot see the window it just opened):
 
@@ -122,9 +145,9 @@ Confirmed live: `OpenWindow` → `top = UIAllianceScience`; `OnScienceInfoClick(
 resource quota was already `0` that day, the call **safely gated** (no spend, no error) —
 which is exactly the behaviour the loop relies on to stop.
 
-**Not yet observed:** an actual resource-count decrement, because the 30/day quota was
-spent at capture time, and the diamond path is not auto-fired (it costs gems). Re-run
-`tools/alliance_donate.py --status` after the daily reset to watch `resRest` count down.
+**Observed since** (2026-07-29, quota unspent): `resRest` counting down for real —
+14 → 13 on a single headless press, 13 → 8 on one chunk of five, 8 → 0 on one chunk of
+eight. The diamond path is still never auto-fired (it costs gems).
 
 ## Auto-donate
 

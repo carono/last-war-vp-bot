@@ -774,13 +774,11 @@ Grammar: [`../dsl.md`](../dsl.md); authoring conventions:
 ```
 # Donate to the alliance's priority (recommended) technology.
 #
-# Every line is just "tap a button". The messy engine calls behind each button
-# live in the button library tools/lib/game_buttons.py.
+# One line, because the donate press needs no window open: the controller method
+# behind "Donate 1000" touches no window state, so it is called straight on the
+# module. The messy engine calls live in tools/lib/game_buttons.py.
 
-TAP alliance_tech     # the "Alliance Tech" button (opens the tech list directly)
-TAP recommended_tech  # the tech marked as priority
 TAP donate_1000 xall  # press "Donate 1000" for every attempt currently banked
-TAP close x3          # close the windows we opened
 ```
 
 The patterns that keep recurring:
@@ -789,7 +787,7 @@ The patterns that keep recurring:
 |---|---|
 | `TAP <b> xall` | counter-gated repeats — donate, help, claim. Needs `count_lua`; re-reads the count each round, so it stops exactly when the server says so. |
 | `TAP <b> xN` | fixed, known repeats (rare — prefer `xall`) |
-| `TAP close xN` | unwind the window stack at the end — `close` pops the top window (`Ctrl:CloseSelf()`), so press it once per window the recipe opened. `donate_alliance_tech.md` ships `x3`. Don't over-press: past the recipe's own windows you start popping the HUD, and there is no in-session recovery from that. |
+| `TAP close xN` | unwind the window stack at the end — `close` pops the top window (`Ctrl:CloseSelf()`), so press it once per window the recipe opened. Don't over-press: past the recipe's own windows you start popping the HUD, and there is no in-session recovery from that. |
 | no `close` at all | the action was headless — a data-manager call that opened nothing (`help_ally.md`). Do not add windows the flow does not need. |
 | `WHILE <var> > 0` + `READ_LUA … INTO <var>` | a bespoke count-gated loop when `xall` does not fit |
 | `LUA <chunk>` | the authoring layer — a one-off engine call while a button is still being designed. Do not ship a whole multi-step flow inside one `LUA`. |

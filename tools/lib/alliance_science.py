@@ -17,15 +17,21 @@ docs/research/alliance-tech-donate.md. In short:
     :GetGoldDonateRestCount()   -> diamond-donate attempts left
     :GetCanDonate()             -> master gate
 
-  Open+donate chain (each step lands the next frame, so it is staged as separate
-  daemon chunks): OpenWindow(UIAllianceScience) -> list.Ctrl:OnScienceInfoClick(rec,tab)
-  -> info.Ctrl:OnResDonateClick(scienceId, resType, resNum). The press sends
-  `AlScienceDonateMessage` on the wire as `al.science.donate`.
+  The donation itself is `UIAllianceScienceInfoCtrl.OnResDonateClick(nil, scienceId,
+  resType, resNum)` — headless, no window open, and safe to repeat inside one chunk;
+  the Lua and the reverse-engineering behind it live in
+  `lua_actions.alliance_donate_batch`. Each press sends `AlScienceDonateMessage`, on
+  the wire `al.science.donate`.
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
 from typing import Callable
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lua_actions as _lua_actions  # noqa: E402
 
 # A "run" is any `evaluator.run(chunk, marker=None, settle=1.4) -> list[str]`.
 Run = Callable[..., list]
@@ -34,14 +40,11 @@ Log = Callable[[str], None]
 
 # How long a chunk is given to reach Player.log before its lines are read back.
 #
-# A press reports nothing the caller acts on — `press_donate` discards the lines — so
-# its settle is not a wait for an answer, it is half of the spacing between presses
-# (the other half is `settle_after`). Together they are the DSL's own donate pacing:
-# script_engine._press_button runs at settle=0.1 and donate_1000 at wait=0.03. Same
-# button, same server, so the same numbers, or the two paths donate at two speeds.
-#
-# A count read DOES have to see its line, so it keeps a real settle — 0.4 s, just above
-# the 0.35 the DSL's count reads (script_engine._eval_lua_value) have been running at.
+# Both numbers are read waits now: a donate round reports how many presses it fired
+# (`fired=`) and the caller acts on it, exactly as a count read reports `rest=`. 0.1 s
+# is enough for a line already written (measured: a round trip through the daemon plus
+# the log read is ~0.15 s at settle=0); the count read keeps the longer 0.4 s it has
+# always run at, just above the DSL's own 0.35 (script_engine._eval_lua_value).
 _PRESS_SETTLE = 0.1
 _READ_SETTLE = 0.4
 
@@ -77,33 +80,6 @@ L("DON end")''', "DON", 1.4)
     return out
 
 
-def open_detail(run: Run) -> bool:
-    """Open Alliance Tech and drill into the recommended tech's detail window.
-
-    Staged as separate chunks because OpenWindow / OnScienceInfoClick each take a
-    frame to land — the window is only reachable via GetStackTopWindow on the next
-    call. Returns True once the top window is UIAllianceScienceInfo.
-    """
-    run(_L("DON") + r'''
-pcall(function() UIManager.Instance:OpenWindow(UIWindowNames.UIAllianceScience) end)
-L("opened list")''', "DON", 2.0)
-    time.sleep(1.2)
-    run(_L("DON") + r'''
-local w=UIManager.Instance:GetStackTopWindow()
-if w and tostring(w.Name)=="UIAllianceScience" then
-  local rec=DataCenter.AllianceScienceDataManager:GetCurRecommendScience()
-  pcall(function() w.Ctrl:OnScienceInfoClick(rec, nil) end)
-  L("info clicked")
-else
-  L("list not on top: "..tostring(w and w.Name))
-end''', "DON", 2.0)
-    time.sleep(1.2)
-    lines = run(_L("DON") + r'''
-local w=UIManager.Instance:GetStackTopWindow()
-L("top="..tostring(w and w.Name))''', "DON", 1.4)
-    return any("top=UIAllianceScienceInfo" in ln for ln in lines)
-
-
 def _rest_count(run: Run, use_gold: bool) -> int:
     """Read the remaining donate attempts (resource or gold)."""
     getter = "GetGoldDonateRestCount" if use_gold else "GetResDonateRestCount"
@@ -120,58 +96,57 @@ def _rest_count(run: Run, use_gold: bool) -> int:
 
 
 def press_donate(run: Run, use_gold: bool, cap: int | None,
-                 settle_after: float = 0.03, recheck_every: int = 5) -> int:
-    """Press the donate button once per chunk until attempts run out (or `cap`). Returns presses.
+                 settle_after: float = 0.5) -> int:
+    """Donate every banked attempt (or `cap` of them). Returns the number of presses.
 
-    CRITICAL: one press per Lua chunk, with a pause between presses. A donation only
-    lowers the remaining-attempts count AFTER the server replies to `al.science.donate`,
-    so a tight in-Lua `while` loop never sees the count drop, spins forever on the
-    main thread and FREEZES the client. Looping here (Python side) with a pause between
-    presses lets the round-trip land — mirrors the DSL recipe donate_alliance_tech.md.
+    One round = read the real count, spend exactly that many presses inside ONE Lua
+    chunk, pause for the server, read again. Two or three rounds cover a whole quota,
+    so a full 30 attempts cost seconds instead of half a minute — the round trip into
+    the game VM (~0.15 s) is the entire cost of a press, and the loop inside the chunk
+    is free. The chunk itself is `lua_actions.alliance_donate_batch`, the same one the
+    DSL button `donate_1000` fires, and it needs no window open.
 
-    The remaining-attempts count is re-read once every `recheck_every` presses, not
-    before each one: a press spends exactly one attempt, so the countdown between reads
-    can simply be assumed, and the read that ends the batch corrects the drift. That,
-    plus the short `settle_after`, is what makes this run at the pace of holding the
-    button in game (~0.2 s a press instead of ~1 s).
+    CRITICAL, and the reason the chunk counts to a FIXED number: the remaining-attempts
+    count only drops AFTER the server replies to `al.science.donate`, so a
+    `while rest > 0` loop written in Lua never sees it fall, spins on the main thread
+    and FREEZES the client. Nothing inside a round waits; the waiting happens here,
+    between rounds, which is what `settle_after` is for.
 
-    Drift only ever runs one way — a press still in flight has not been counted, so a
-    re-read may report more left than assumed and the batch can overshoot the quota by
-    a press or two. Those land as refused donations, which spend nothing; see
-    docs/research/alliance-tech-donate.md ("Pacing") for what is and is not proven.
+    A round that fires nothing ends the loop, so a count that refuses to fall (or a
+    batch that ran out of resources) stops the run instead of looping on it.
     """
-    method = "OnGoldDonateClick" if use_gold else "OnResDonateClick"
-    # Res press: (scienceId, resType, resNum). Gold press: (scienceId, goldNum).
-    # btnPos/techPointPos are only the fly-animation anchors — nil is fine.
-    args = "rec.scienceId, rec.goldNum, nil, nil" if use_gold \
-        else "rec.scienceId, rec.res, rec.resNum, nil, nil"
-    press = _L("DON") + r'''
-local m=DataCenter.AllianceScienceDataManager
-local w=UIManager.Instance:GetStackTopWindow()
-if not (w and tostring(w.Name)=="UIAllianceScienceInfo") then L("no detail: "..tostring(w and w.Name)) return end
-local rec=m:GetCurRecommendScience()
-pcall(function() w.Ctrl:%s(%s) end)
-L("pressed one")''' % (method, args)
+    batch = _L("DON") + "\n" + _lua_actions.alliance_donate_batch(use_gold) \
+        + '\nL("fired="..tostring(fired))'
 
     n = 0
     limit = cap if cap is not None else 1000  # hard backstop against a runaway loop
-    every = max(1, recheck_every)
-    rest = 0
     while n < limit:
-        if n % every == 0:                 # re-read the real count once per batch
-            rest = _rest_count(run, use_gold)
-        if rest <= 0:
+        rest = _rest_count(run, use_gold)
+        want = min(rest, limit - n)
+        if want <= 0:
             break
-        run(press, "DON", _PRESS_SETTLE)
-        n += 1
-        rest -= 1                          # assumed; the next re-read corrects it
-        time.sleep(settle_after)   # let the server apply this donation before the next press
+        lines = run("local n=%d\n%s" % (want, batch), "DON", _PRESS_SETTLE)
+        fired = 0
+        for ln in lines:
+            if "fired=" in ln:
+                try:
+                    fired = int(float(ln.split("fired=", 1)[1].split()[0]))
+                except ValueError:
+                    fired = 0
+        if fired <= 0:
+            break
+        n += fired
+        time.sleep(settle_after)   # let the server apply this round before the next read
     return n
 
 
 def donate_priority(run: Run, *, use_gold: bool = False, cap: int | None = None,
                     log: Log = print) -> dict:
     """Donate every accumulated attempt to the priority tech. Orchestrates the chain.
+
+    No window is opened on the way: the donate call needs none (see `press_donate`), so
+    the whole job is read the counters, spend them, read them back — the player's view
+    is left exactly as it was found.
 
     Returns a result dict: {tech, level, pressed, before, after, skipped?}. `log` gets
     human-readable progress lines (defaults to print; the DSL passes its on_event).
@@ -187,11 +162,6 @@ def donate_priority(run: Run, *, use_gold: bool = False, cap: int | None = None,
 
     if st.get("canDonate") == "false" and not use_gold:
         log("nothing to do — GetCanDonate() is false (quota spent or no alliance)")
-        result["skipped"] = True
-        return result
-
-    if not open_detail(run):
-        log("could not reach the tech detail window (open Alliance Tech from the city view)")
         result["skipped"] = True
         return result
 

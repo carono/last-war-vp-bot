@@ -411,6 +411,83 @@ def ministry_fetch_board() -> str:
 
 
 # --------------------------------------------------------------------------
+# Alliance tech — the "Donate 1000" button of the priority science
+# --------------------------------------------------------------------------
+# `UIAllianceScienceInfoCtrl:OnResDonateClick(scienceId, resType, resNum, btnPos,
+# techPointPos)` is the whole donation. Read back with `string.dump`, its body is:
+#
+#     if LuaEntry.Resource:GetCntByResType(resType) < need then
+#         UIUtil.ShowTipsId(...); LWResourceLackUtil.GotoResLack(...); return end
+#     if DataCenter.AllianceScienceDataManager:GetResDonateRestCount() <= 0 then ... end
+#     SFSNetwork.SendMessage(MsgDefines.AlScienceDonate, ...)   -- 'al.science.donate'
+#
+# — no `self` field is touched (the dump lists `self` as an unused parameter, and
+# `btnPos`/`techPointPos` only anchor the reward-fly animation). So the press does NOT
+# need the detail window, or any window: `require`-ing the controller module and calling
+# the method with `nil` for self sends the donation from a closed base view. Confirmed
+# live with `GetStackTopWindow() == nil`: attempts 14 -> 13.
+#
+# Both gates read state the server has not yet updated — a donation in flight lowers
+# neither the resource count nor the attempt count until `al.science.donate` comes back —
+# which is what makes BATCHING work: `n` presses inside ONE Lua call all pass the gate
+# and all reach the server. Proven live: one chunk with n=5 took attempts 13 -> 8, and a
+# second with n=8 emptied the quota, each in ~0.2 s. That is the whole point of
+# `alliance_donate_batch`: a round trip to the VM costs ~0.15 s while the loop inside it
+# is free, so a full 30-attempt quota is one call, not thirty.
+#
+# The freeze pitfall of docs/research/alliance-tech-donate.md still stands and is the
+# reason the loop counts to a FIXED `n` instead of looping until the count drops: a
+# `while rest > 0` in Lua would spin on a value that cannot change before the frame ends
+# and hang the client. The caller reads the real count, presses exactly that many, and
+# re-reads to confirm — the count is still the stop condition, just not per press.
+_SCIENCE_CTRL = "UI.UIAlliance.UIAllianceScienceInfo.Controller.UIAllianceScienceInfoCtrl"
+
+
+def alliance_donate_rest(use_gold: bool = False) -> str:
+    """Lua *expression* -> donation attempts still banked today (resource, or diamond)."""
+    getter = "GetGoldDonateRestCount" if use_gold else "GetResDonateRestCount"
+    return "DataCenter.AllianceScienceDataManager:%s()" % getter
+
+
+def alliance_donate_press(use_gold: bool = False) -> str:
+    """One donation to the priority tech — headless, no window open."""
+    return alliance_donate_batch(use_gold, times="1", quiet=True)
+
+
+def alliance_donate_batch(use_gold: bool = False, times: str = "n",
+                          quiet: bool = False) -> str:
+    """Donate `times` times to the priority tech in ONE game-VM call.
+
+    `times` defaults to the Lua local `n`, which the caller prepends
+    (`local n = 7 ` .. this chunk). Unless `quiet`, the chunk reports how many
+    presses it actually fired as `ACT fired=<k>` — `k` is below `n` only when the
+    run went broke mid-batch.
+
+    The resource check mirrors the controller's own gate, so a batch that would run
+    out of resources stops instead of walking into `GotoResLack` (which pops the
+    buy-resources window). Like every other counter here it lags the server by a
+    round trip, so it catches "already broke", not "broke on this press".
+    """
+    method = "OnGoldDonateClick" if use_gold else "OnResDonateClick"
+    args = "rec.scienceId, rec.goldNum, nil, nil" if use_gold \
+        else "rec.scienceId, rec.res, rec.resNum, nil, nil"
+    afford = "true" if use_gold else \
+        "LuaEntry.Resource:GetCntByResType(rec.res) >= rec.resNum"
+    report = "" if quiet else \
+        ' CS.UnityEngine.Debug.LogError("ACT fired="..tostring(fired))'
+    return (
+        "local rec = DataCenter.AllianceScienceDataManager:GetCurRecommendScience() "
+        "local ctrl = require('%s') "
+        "local fired = 0 "
+        "if rec then for _ = 1, %s do "
+        "if not (%s) then break end "
+        "ctrl.%s(nil, %s) "
+        "fired = fired + 1 "
+        "end end%s" % (_SCIENCE_CTRL, times, afford, method, args, report)
+    )
+
+
+# --------------------------------------------------------------------------
 # Alliance help — the "Помочь всем" button
 # --------------------------------------------------------------------------
 # `DataCenter.AllianceHelpDataManager:OnHelpAll(otherHelpInfoList)` looks like the

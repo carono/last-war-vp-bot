@@ -41,6 +41,38 @@ class FakeEval:
         return []
 
 
+class FakeGame(FakeEval):
+    """A fake that donates for real: a batched press spends attempts, a read reports them.
+
+    Batched buttons send ONE chunk carrying `local n=<k>` and get back the tally the
+    real chunk logs (`ACT fired=<k>`), so a test sees the same feedback loop the game
+    gives — including a batch that asks for more than is banked.
+    """
+
+    def __init__(self, banked: int) -> None:
+        super().__init__()
+        self.rest = banked
+
+    def run(self, chunk, marker=None, settle=1.4):
+        self.chunks.append(chunk)
+        if marker == "RLUA":
+            return [f"RLUA {self.rest}"]
+        if chunk.startswith("local n="):
+            want = int(chunk.split("local n=", 1)[1].split()[0])
+            fired = min(want, self.rest)
+            self.rest -= fired
+            return [f"ACT fired={fired}"]
+        return []
+
+    @property
+    def batches(self) -> int:
+        return sum(1 for c in self.chunks if c.startswith("local n="))
+
+    @property
+    def reads(self) -> int:
+        return sum(1 for c in self.chunks if "GetResDonateRestCount" in c)
+
+
 def _run(script: str, evaluator) -> tuple[list[str], se.Context]:
     """Parse+run a script with a fake evaluator; return (log lines, context)."""
     log: list[str] = []
@@ -68,10 +100,19 @@ def test_parse_tap():
 
 
 def test_tap_presses_button_n_times():
-    ev = FakeEval()
+    # A batched button spends its repeat inside one call: `x3` = one chunk asking for 3.
+    ev = FakeGame(banked=10)
     _run("TAP donate_1000 x3", ev)
-    presses = sum(1 for c in ev.chunks if "OnResDonateClick" in c)
-    assert presses == 3, f"expected 3 button presses, got {presses}"
+    assert ev.batches == 1, f"expected 1 batched call, got {ev.batches}"
+    assert ev.rest == 7, f"expected 3 of 10 attempts spent, {ev.rest} left"
+
+
+def test_tap_without_a_batch_form_presses_once_per_call():
+    # help_ally_all has no batch_lua — its repeat stays one press per game-VM call.
+    ev = FakeEval()
+    _run("TAP help_ally_all x3", ev)
+    presses = sum(1 for c in ev.chunks if "AlHelpAll" in c)
+    assert presses == 3, f"expected 3 separate presses, got {presses}"
 
 
 def test_parse_tap_all():
@@ -80,30 +121,44 @@ def test_parse_tap_all():
 
 
 def test_tap_all_presses_until_count_zero():
-    # count_lua reads 3, 2, 1, 0 -> exactly 3 presses (one press per non-zero read).
+    # A button with no batch form presses once per non-zero read: 3, 2, 1, 0 -> 3 presses.
     ev = FakeEval(rluas=["3", "2", "1", "0"])
-    _run("TAP donate_1000 xall", ev)
-    presses = sum(1 for c in ev.chunks if "OnResDonateClick" in c)
+    _run("TAP help_ally_all xall", ev)
+    presses = sum(1 for c in ev.chunks if "AlHelpAll" in c)
     assert presses == 3, f"expected 3 presses for xall over 3->0, got {presses}"
 
 
-def test_tap_all_batches_the_count_reads_but_still_stops_at_zero():
-    """`recheck_every` buys speed by reading the count once per batch, not per press.
+def test_tap_all_spends_the_whole_quota_in_one_call():
+    """The speed-up: `xall` on a batched button is one call, not one call per press.
 
-    Donating is the case it exists for: one press spends exactly one attempt, so between
-    reads the loop may assume the countdown. What must NOT change is where it stops —
-    with 7 attempts banked and a batch of 5, it presses 7 times and no more, having paid
-    for 2 count reads instead of 8.
+    Donating is what it exists for — a round trip into the game VM costs ~0.15 s while
+    the loop inside it is free. 7 banked attempts must cost one donate call, sized by
+    the read before it and confirmed by the read after it, and must leave the quota at
+    zero: the count, not a guess, is still what stops the loop.
     """
     import game_buttons as gb
-    btn = gb.get("donate_1000")
-    assert btn.recheck_every > 1, "donate is the button that batches its count reads"
-    ev = FakeEval(rluas=["7", "2", "0"])
-    _run("TAP donate_1000 xall", ev)
-    presses = sum(1 for c in ev.chunks if "OnResDonateClick" in c)
-    reads = sum(1 for c in ev.chunks if "GetResDonateRestCount" in c)
-    assert presses == 7, f"expected 7 presses for 7 banked attempts, got {presses}"
-    assert reads == 2, f"expected 2 count reads (one per batch of 5), got {reads}"
+    assert gb.get("donate_1000").batch_lua, "donate is the button that batches its presses"
+    ev = FakeGame(banked=7)
+    log, _ctx = _run("TAP donate_1000 xall", ev)
+    assert ev.batches == 1, f"expected 1 batched call for 7 attempts, got {ev.batches}"
+    assert ev.reads == 2, f"expected 2 count reads (size it, confirm it), got {ev.reads}"
+    assert ev.rest == 0, f"expected the quota spent, {ev.rest} left"
+    assert any("-> 7 press(es)" in ln for ln in log), f"press tally missing from {log}"
+
+
+def test_tap_all_gives_up_when_a_batch_fires_nothing():
+    """A count that will not fall must end the loop instead of spinning on it."""
+    class Stuck(FakeGame):
+        def run(self, chunk, marker=None, settle=1.4):
+            self.chunks.append(chunk)
+            if marker == "RLUA":
+                return [f"RLUA {self.rest}"]
+            return ["ACT fired=0"] if chunk.startswith("local n=") else []
+
+    ev = Stuck(banked=5)
+    log, _ctx = _run("TAP donate_1000 xall", ev)
+    assert ev.batches == 1, f"expected exactly one attempted batch, got {ev.batches}"
+    assert any("-> 0 press(es)" in ln for ln in log), f"expected a zero tally, got {log}"
 
 
 def test_tap_all_without_count_is_error():

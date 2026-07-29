@@ -12,6 +12,9 @@ Each button is a `Button`:
                 its counter after the reply) — the pause is baked in here, not in the
                 recipe, which is why `TAP donate_1000 x30` is safe and never freezes.
   * ``label`` — a human phrase for the log.
+  * ``batch_lua`` — optional: the same press as an `n`-times loop, run in ONE call
+                into the game VM. Where it exists, a repeat costs one round trip
+                instead of one per press (see the field's comment below).
 
 The catalogue is deliberately small and readable. See docs/dsl.md ("TAP") and, for the
 alliance-science calls, docs/research/alliance-tech-donate.md.
@@ -39,12 +42,18 @@ class Button:
     count_lua: str | None = None
     # Safety cap on `xall` iterations, so a miscounting expression can't spin forever.
     max_taps: int = 60
-    # How many presses `xall` fires between two `count_lua` re-reads. 1 (the default)
-    # re-reads before every press — right when one press can clear the whole backlog
-    # (help-all). For a button that spends exactly one attempt per press and is a safe
-    # no-op once the quota is gone (donate), re-reading every time doubles the cost of a
-    # press for nothing; a batch of N presses per read is the in-game "hold the button".
-    recheck_every: int = 1
+    # Optional: the same press written to fire `n` times inside ONE game-VM call, where
+    # `n` is a Lua local the caller prepends. A call into the VM costs ~0.15 s and the
+    # loop inside it is free, so a button with a batch form empties a 30-press quota in
+    # one call instead of thirty — the difference between half a minute and a second.
+    # The chunk must report how many presses it really fired as `ACT fired=<k>`.
+    #
+    # Only for a press that is a plain fire-and-forget send: nothing inside the batch
+    # can wait for the server, because the counters it would wait on cannot change
+    # before the frame ends (that is the client freeze in
+    # docs/research/alliance-tech-donate.md). The caller still reads `count_lua` before
+    # the batch and again after it, so the real count remains the stop condition.
+    batch_lua: str | None = None
 
 
 # The recommended-science object is fetched fresh inside each press (it is cheap and
@@ -69,21 +78,18 @@ BUTTONS: dict[str, Button] = {
         wait=1.5, label="recommended tech",
     ),
     "donate_1000": Button(
-        # One "Donate 1000" press. No-op (safely gated) once the quota is spent, so
-        # repeating it more times than there are attempts is harmless. The in-game
-        # long-press does the same thing — repeat this click at an interval — so a
-        # small pause plus `xall` (which re-reads the count) reproduces "hold".
-        lua=("local rec = %s "
-             "local w = UIManager.Instance:GetStackTopWindow() "
-             "if w and tostring(w.Name) == 'UIAllianceScienceInfo' then "
-             "w.Ctrl:OnResDonateClick(rec.scienceId, rec.res, rec.resNum) end" % _REC),
-        wait=0.03, label="Donate 1000",
-        count_lua="DataCenter.AllianceScienceDataManager:GetResDonateRestCount()",
+        # One "Donate 1000" press — headless: the controller's donate method touches no
+        # `self`, so it is called on the module with no window open (proven live, see
+        # lua_actions.alliance_donate_batch). `batch_lua` is the same press written as
+        # an n-times loop, which is what makes a whole quota one call: the in-game
+        # long-press repeats the click, and this repeats it inside a single frame.
+        lua=_lua_actions.alliance_donate_press(),
+        batch_lua=_lua_actions.alliance_donate_batch(),
+        # Long enough for the server's replies to land, so the confirming re-read after
+        # a batch sees the new count rather than the one it started from.
+        wait=0.5, label="Donate 1000",
+        count_lua=_lua_actions.alliance_donate_rest(),
         max_taps=40,
-        # One press = one attempt, and a press past the quota is gated server-side, so
-        # the count only has to be checked once per batch — that is what makes this run
-        # at the speed of holding the button rather than one donation a second.
-        recheck_every=5,
     ),
     # --- Alliance -> help every member with an open help request -------------
     "help_ally_all": Button(

@@ -1015,10 +1015,13 @@ class Interpreter:
 
         Each press is its own game-VM call followed by the button's built-in pause, so
         even a big repeat can never busy-loop the client — the throttle/round-trip lands
-        in the gap. `xall` re-reads the button's own count and keeps pressing until it
-        hits zero (or a safety cap), which spends exactly what is available and quietly
-        recovers any presses the client's long-press throttle dropped. Unknown button =
-        a clear runtime error naming the ones that exist.
+        in the gap. A button that declares a `batch_lua` is the exception: its repeat
+        goes into the game in ONE call, because the round trip (~0.15 s) is the whole
+        cost and the loop inside the VM is free. `xall` re-reads the button's own count
+        and keeps pressing until it hits zero (or a safety cap), which spends exactly
+        what is available and quietly recovers any presses the client's long-press
+        throttle dropped. Unknown button = a clear runtime error naming the ones that
+        exist.
         """
         self._tools_lib_on_path()
         import game_buttons
@@ -1030,6 +1033,11 @@ class Interpreter:
             )
         if stmt.count is None:                      # xall
             self._tap_all(stmt, btn)
+            return
+        if btn.batch_lua and stmt.count > 1:
+            fired = self._press_batch(btn, stmt.count)
+            self._log(f"TAP {btn.label} x{stmt.count} -> {fired} press(es)")
+            time.sleep(btn.wait)
             return
         for n in range(1, stmt.count + 1):
             self._press_button(btn)
@@ -1048,28 +1056,64 @@ class Interpreter:
             if "ERR:" in out:
                 self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
 
+    def _press_batch(self, btn, n: int) -> int:
+        """Fire `n` presses in ONE game-VM call; returns how many the chunk really fired.
+
+        The chunk reports its own tally (`ACT fired=<k>`), which can be short of `n` when
+        the batch hit a gate of its own — donating stops there when the resources run out.
+        A Lua error, or no tally at all, counts as zero fired: the caller re-reads the
+        real count anyway, so an unreadable batch stalls the loop instead of inflating it.
+        """
+        chunk = (
+            'local n=%d local ok,err=pcall(function() %s end) '
+            'if not ok then CS.UnityEngine.Debug.LogError("ACT fired=ERR:"..tostring(err)) end'
+            % (n, btn.batch_lua)
+        )
+        for out in self._run_lua(chunk, settle=0.1):
+            if "fired=" not in out:
+                continue
+            raw = out.split("fired=", 1)[1].split()[0]
+            if raw.startswith("ERR"):
+                self._log(f"TAP {btn.label} error: {raw}")
+                return 0
+            try:
+                return int(float(raw))
+            except ValueError:
+                return 0
+        return 0
+
     def _tap_all(self, stmt: TapStmt, btn) -> None:
-        """`TAP <button> xall`: press while the button's count_lua stays above zero."""
+        """`TAP <button> xall`: press while the button's count_lua stays above zero.
+
+        One press per call for an ordinary button; for one with a `batch_lua`, a whole
+        round of presses per call — read the count, spend exactly that many in a single
+        chunk, re-read to confirm. Either way the count, not a guess, says when to stop,
+        and a round that presses nothing ends the loop.
+        """
         if not btn.count_lua:
             raise ScriptRuntimeError(
                 f"line {stmt.line_no}: button {stmt.name!r} does not support 'xall' "
                 "(no count defined in the catalogue)"
             )
         pressed = 0
-        every = max(1, getattr(btn, "recheck_every", 1))
-        remaining = 0.0
-        for i in range(btn.max_taps):
-            if i % every == 0:                      # re-read the count once per batch
-                remaining = self._eval_number(btn.count_lua)
-                if remaining is None:
-                    self._log(f"TAP {btn.label} xall — count unavailable, stopping")
-                    break
+        while pressed < btn.max_taps:
+            remaining = self._eval_number(btn.count_lua)
+            if remaining is None:
+                self._log(f"TAP {btn.label} xall — count unavailable, stopping")
+                break
             if remaining <= 0:
                 break
-            self._press_button(btn)
-            pressed += 1
-            remaining -= 1                          # assumed; the next re-read corrects it
-            self._log(f"TAP {btn.label} ({pressed}; {int(remaining) + 1} available)")
+            if btn.batch_lua:
+                want = int(min(remaining, btn.max_taps - pressed))
+                fired = self._press_batch(btn, want)
+                if not fired:
+                    break
+                pressed += fired
+                self._log(f"TAP {btn.label} ({pressed}; {int(remaining) - fired} left)")
+            else:
+                self._press_button(btn)
+                pressed += 1
+                self._log(f"TAP {btn.label} ({pressed}; {int(remaining)} available)")
             time.sleep(btn.wait)
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
 

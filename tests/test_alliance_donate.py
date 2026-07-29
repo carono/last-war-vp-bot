@@ -24,8 +24,10 @@ import alliance_science as al  # noqa: E402
 class FakeRun:
     """Records every chunk; answers a count read with the *real* remaining attempts.
 
-    `rest` is the server's view: it starts at `banked` and drops by one for every press
-    that lands, so a test can tell an assumed countdown from a re-read one.
+    Stands in for the game: a donate chunk carries `local n=<k>` and fires as many
+    presses as there are attempts left, reporting the tally the way the real chunk does
+    (`fired=`). `rest` is the server's view and drops by exactly what landed, so a test
+    can tell a batch that spent the quota from one that only claimed to.
     """
 
     def __init__(self, banked: int) -> None:
@@ -34,15 +36,17 @@ class FakeRun:
 
     def __call__(self, chunk, marker=None, settle=1.4):
         self.chunks.append(chunk)
+        if "OnResDonateClick" in chunk:
+            want = int(chunk.split("local n=", 1)[1].split()[0])
+            fired = min(want, self.rest)
+            self.rest -= fired
+            return ["DON fired=%d" % fired]
         if "GetResDonateRestCount" in chunk:
             return ["DON rest=%d" % self.rest]
-        if "OnResDonateClick" in chunk:
-            self.rest = max(0, self.rest - 1)
-            return ["DON pressed one"]
         return []
 
     @property
-    def presses(self) -> int:
+    def rounds(self) -> int:
         return sum(1 for c in self.chunks if "OnResDonateClick" in c)
 
     @property
@@ -54,42 +58,52 @@ def test_press_donate_spends_every_banked_attempt():
     run = FakeRun(banked=7)
     n = al.press_donate(run, use_gold=False, cap=None, settle_after=0)
     assert n == 7, f"expected 7 presses for 7 banked attempts, got {n}"
-    assert run.presses == 7, f"expected 7 press chunks, got {run.presses}"
     assert run.rest == 0, f"expected the quota spent, {run.rest} left"
 
 
-def test_press_donate_batches_the_count_reads():
-    """The speed-up: the count is read once per batch, not before every press.
+def test_press_donate_spends_the_quota_in_one_call():
+    """The speed-up: a whole quota is ONE chunk, not one chunk per press.
 
-    One press spends exactly one attempt, so between reads the loop may assume the
-    countdown; 7 attempts at a batch of 5 must still cost exactly 7 presses, paid for
-    with 2 reads instead of 8.
+    A round trip into the game VM costs ~0.15 s and the loop inside it is free, so 7
+    banked attempts must cost one donate call (plus the read that sizes it and the read
+    that confirms it) — not seven.
     """
     run = FakeRun(banked=7)
-    al.press_donate(run, use_gold=False, cap=None, settle_after=0, recheck_every=5)
-    assert run.presses == 7, f"expected 7 presses, got {run.presses}"
-    assert run.reads == 2, f"expected 2 count reads (one per batch of 5), got {run.reads}"
+    al.press_donate(run, use_gold=False, cap=None, settle_after=0)
+    assert run.rounds == 1, f"expected 1 donate call for 7 attempts, got {run.rounds}"
+    assert run.reads == 2, f"expected 2 count reads (size it, confirm it), got {run.reads}"
 
 
 def test_press_donate_stops_when_nothing_is_banked():
     run = FakeRun(banked=0)
     n = al.press_donate(run, use_gold=False, cap=None, settle_after=0)
-    assert n == 0 and run.presses == 0, f"nothing banked must press nothing, got {n}"
+    assert n == 0 and run.rounds == 0, f"nothing banked must press nothing, got {n}"
 
 
 def test_press_donate_honours_the_cap():
     run = FakeRun(banked=30)
-    n = al.press_donate(run, use_gold=False, cap=3, settle_after=0, recheck_every=5)
+    n = al.press_donate(run, use_gold=False, cap=3, settle_after=0)
     assert n == 3, f"cap=3 must stop at 3 presses, got {n}"
     assert run.rest == 27, f"expected 27 attempts left untouched, got {run.rest}"
 
 
-def test_press_donate_recheck_every_zero_is_treated_as_one():
-    """A bad `recheck_every` must not turn into a division by zero or a read-free loop."""
-    run = FakeRun(banked=3)
-    n = al.press_donate(run, use_gold=False, cap=None, settle_after=0, recheck_every=0)
-    assert n == 3, f"expected 3 presses, got {n}"
-    assert run.reads == 4, f"recheck_every=0 must read every press (+1 to stop), got {run.reads}"
+def test_press_donate_gives_up_when_a_round_fires_nothing():
+    """A count that will not fall must end the run, not spin on it.
+
+    The real hazard of batching is a round that reports zero presses (the client
+    refused, the resources ran out) while the count keeps saying attempts are banked.
+    """
+    class StuckRun(FakeRun):
+        def __call__(self, chunk, marker=None, settle=1.4):
+            self.chunks.append(chunk)
+            if "OnResDonateClick" in chunk:
+                return ["DON fired=0"]
+            return ["DON rest=%d" % self.rest]
+
+    run = StuckRun(banked=5)
+    n = al.press_donate(run, use_gold=False, cap=None, settle_after=0)
+    assert n == 0, f"a round that fires nothing must stop the loop, got {n}"
+    assert run.rounds == 1, f"expected exactly one attempted round, got {run.rounds}"
 
 
 def _run_standalone() -> int:

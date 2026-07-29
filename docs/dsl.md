@@ -305,7 +305,6 @@ is the human-facing primitive: the recipe names *what* to press, the catalogue k
 
 ```
 TAP alliance_tech           # open Alliance Tech
-TAP recommended_tech        # open the priority tech
 TAP donate_1000 xall        # press "Donate 1000" for every attempt currently banked
 TAP collect_base_resources  # harvest every ready resource building in one sweep
 TAP close x3                # pop 3 windows off the stack
@@ -313,11 +312,19 @@ TAP close x3                # pop 3 windows off the stack
 
 `xall` presses **as many times as the button reports it still can** — its `count_lua`
 in the catalogue (for `donate_1000`, the remaining-donations count). The real number
-is read at run time and substituted for you, and the loop re-reads it after each press
-and stops at zero, so it spends exactly what is available and recovers any press the
-client's long-press throttle dropped. (There is no single "donate all" call in the
-game — the in-game *hold* just repeats the click at an interval; `xall` reproduces
-that, fast.) A button with no `count_lua` cannot be `xall`'d (clear runtime error).
+is read at run time and substituted for you, and the loop re-reads it and stops at
+zero, so it spends exactly what is available and recovers any press the client's
+long-press throttle dropped. (There is no single "donate all" call in the game — the
+in-game *hold* just repeats the click at an interval; `xall` reproduces that, fast.)
+A button with no `count_lua` cannot be `xall`'d (clear runtime error).
+
+**Repeats are batched where the button allows it.** A call into the game VM costs
+~0.15 s and the Lua loop inside it is free, so a button may declare a `batch_lua` —
+the same press written as an `n`-times loop — and then `xN` / one round of `xall`
+becomes a single call rather than one per press. `donate_1000` does: a whole
+30-attempt quota is spent in about a second instead of half a minute. Only a
+fire-and-forget send can be batched; anything that has to see the server's answer
+between presses must not be (see the freeze warning above).
 
 Every button carries its own small post-press pause (in the catalogue), so even a long
 `xall` never busy-loops the client — the throttle/round-trip lands in the gap.
@@ -326,8 +333,8 @@ self-gates (`donate_1000` no-ops once the quota is spent). An unknown button nam
 runtime error listing the ones that exist.
 
 **Adding a button** = one entry in `tools/lib/game_buttons.py` (`name -> {lua, wait,
-label, count_lua?}`). Use `READ_LUA`/`LUA` while working it out, then fold the call
-into a button so recipes can just `TAP` it.
+label, count_lua?, batch_lua?}`). Use `READ_LUA`/`LUA` while working it out, then fold
+the call into a button so recipes can just `TAP` it.
 
 ### `LUA <chunk>`
 
