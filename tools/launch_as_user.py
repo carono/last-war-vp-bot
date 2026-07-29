@@ -977,6 +977,7 @@ def _launch_one(args, entry: dict, log) -> int:
     if args.wait:
         log(f"[wait] up to {args.wait}s for a new LastWar.exe …")
         deadline = time.monotonic() + args.wait
+        fresh: set[int] = set()
         while time.monotonic() < deadline:
             fresh = lastwar_pids() - before
             if fresh:
@@ -986,6 +987,25 @@ def _launch_one(args, entry: dict, log) -> int:
         else:
             log("[wait] no new LastWar.exe yet — a cold start with the updater can take "
                 "minutes; check with --check")
+
+        # Appearing is not surviving: ACE kills the client a few seconds in, so a
+        # bare "it started" reads as success when it is not. Watch the pid a while
+        # longer and say plainly whether it is still there. Liveness is read from
+        # the process list on purpose — OpenProcess on another user's process is
+        # denied unelevated, and GetExitCodeProcess on the resulting NULL handle
+        # silently leaves the exit code at STILL_ACTIVE, i.e. it lies.
+        if fresh:
+            watch = min(30, max(10, args.wait))
+            log(f"[wait] watching them for {watch}s (ACE kills the game ~9s in) …")
+            end = time.monotonic() + watch
+            while time.monotonic() < end:
+                gone = fresh - lastwar_pids()
+                if gone:
+                    log(f"[wait] pid(s) {sorted(gone)} DIED — the usual ACE 0xDEADC0DE; "
+                        f"see docs/research/multi-instance-second-user.md")
+                    return 1
+                time.sleep(2)
+            log(f"[wait] still running after {watch}s: {sorted(fresh)}")
     return 0
 
 

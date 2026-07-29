@@ -110,6 +110,10 @@ Every attempt below ended the same way — `LastWar.exe` exits after ~9 s with
 | 4 | same, after killing every other client | **no** | `WinSta0\Default` | `0xDEADC0DE` @ 9 s |
 | 5 | same, after logging the target's own RDP session off | no | `WinSta0\Default` | `0xDEADC0DE` @ 9 s |
 | 6 | `CreateProcessAsUser` **from SYSTEM**, token session forced to 1 | no | `WinSta0\Default` | `0xDEADC0DE` @ 9 s |
+| 7 | routes 2 and 6 again, on a **freshly updated install** of the target account | no | `WinSta0\Default` | died @ 9 s and @ 6 s |
+
+Row 7 is a re-run after the account's install was updated, in case the first
+attempts had been fighting a stale client. They were not: same wall, same timing.
 
 Controls, so the finding is about the token and not about a sick machine:
 
@@ -234,6 +238,17 @@ nothing to point a second daemon at, and untested changes to the daemon every
 other tool depends on would be a regression risk for no gain.
 
 ### 5.4 Gotchas
+
+* **Do not measure the child's liveness with `OpenProcess` + `GetExitCodeProcess`.**
+  Unelevated, `OpenProcess` on a process owned by another user is denied and
+  returns NULL; `GetExitCodeProcess` on a NULL handle fails without touching the
+  output variable, so a caller that initialised it to `STILL_ACTIVE` (259) sees
+  "still running" forever. That produced one false "survived 120 s" reading here
+  before the process list showed it had died at 9 s like all the others. Read
+  liveness from the process list, or from the handle `CreateProcess*` returned
+  (that one is valid — it is how rows 1–7 above were timed). `--wait` in the tool
+  now watches the new pid for a further 30 s and reports the death explicitly,
+  because "a pid appeared" on its own reads as success when it is not.
 
 * The game sits in the target user's private profile, which the caller cannot
   read — and that does not matter: the secondary-logon service opens the path
