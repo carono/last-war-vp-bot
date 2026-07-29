@@ -383,6 +383,22 @@ BUTTONS: dict[str, Button] = {
              "if w and w.Ctrl and w.Ctrl.CloseSelf then pcall(function() w.Ctrl:CloseSelf() end) end end"),
         wait=0.5, label="dismiss treasure-reward popup",
     ),
+    # --- Hospital: heal wounded soldiers ("Лечение юнитов") ------------------
+    # One press heals EVERY wounded soldier type in a single `hospital.cure`
+    # {armyArray = [{armyId, healNum}, ...]} — the message shape proven in traces
+    # 20260729_152749 / 152841 (docs/research/hospital-heal.md). The soldier list is
+    # read headlessly from `T11Util.GetSelfCurSoldierData()`, so no window is opened.
+    # `count_lua` is the number of wounded soldier types, so `TAP heal_all xall` is a
+    # clean no-op when nothing is hurt; one press already covers all types, so a plain
+    # `TAP heal_all` is the usual call. UNPROVEN LIVE: the per-entry field names on
+    # GetSelfCurSoldierData are still guessed (safe: a wrong guess heals nothing rather
+    # than the wrong thing) — pin them down with tools/scratch/_hospital_probe.lua.
+    "heal_all": Button(
+        lua=_lua_actions.hospital_heal_all(),
+        wait=1.2, label="Heal all wounded soldiers",
+        count_lua=_lua_actions.hospital_wounded_count(),
+        max_taps=1,
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.
@@ -412,6 +428,11 @@ for _pid, (_slug, _en, _ru) in _lua_actions.MINISTRY_POSTS.items():
         count_lua=_lua_actions.ministry_can_apply(_pid),
         max_taps=1,
     )
+
+
+# `heal_units` is an alias of `heal_all` — the task tracker refers to the ability by
+# that name, so both resolve to the one hospital.cure press.
+BUTTONS["heal_units"] = BUTTONS["heal_all"]
 
 
 def get(name: str) -> Button | None:

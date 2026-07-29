@@ -1451,3 +1451,121 @@ def claim_head_treasure() -> str:
         "if t then pcall(function() SFSNetwork.SendMessage(MsgDefines.DetectEventClaimTreasure, t.uuid, t.server) end) "
         'CS.UnityEngine.Debug.LogError("ACT treasure_claim uuid="..tostring(t.uuid).." srv="..tostring(t.server)) end'
     )
+
+
+# --------------------------------------------------------------------------
+# Hospital — heal wounded soldiers ("Лечение юнитов")
+# --------------------------------------------------------------------------
+# The base hospital (`LWUIHospital`, controller `LWUIHospitalCtrl`) heals wounded
+# soldiers. One press of its cure button sends ONE message, captured whole in both
+# `20260729_152749` and `20260729_152841` (docs/research/hospital-heal.md):
+#
+#     SFSNetwork.SendMessage("hospital.cure", {
+#         armyArray = { {armyId = <string>, healNum = <int>}, ... }
+#     })
+#       -- armyId  : UtfString (e.g. "3014"), a stable soldier-type/config id
+#                    (identical across both runs; only healNum differed: 80 vs 361)
+#       -- healNum : Int, how many of that type to heal
+#       -- one entry per soldier type with a non-zero heal count
+#
+# `SFSNetwork.SendMessage` serialises a plain nested Lua table (string→UtfString,
+# number→Int, array-of-tables→SFSArray of SFSObjects), so the send is literally the
+# table above — no window need be open. The hospital's wounded list comes from the
+# global `T11Util.GetSelfCurSoldierData()` (seen in the trace right before the send),
+# whose per-entry field names are not yet pinned down — see hospital_wounded_probe().
+def _hospital_army_literal(entries) -> str:
+    """Render `[(armyId, healNum), ...]` as a Lua `armyArray` table literal.
+
+    armyId is forced to a string (UtfString on the wire), healNum to an int.
+    """
+    parts = []
+    for army_id, heal_num in entries:
+        parts.append('{armyId="%s",healNum=%d}' % (str(army_id), int(heal_num)))
+    return "{" + ",".join(parts) + "}"
+
+
+def hospital_cure(entries) -> str:
+    """Heal the given soldier types in one `hospital.cure` (PROVEN message shape).
+
+    `entries` is an iterable of `(armyId, healNum)` pairs. This is the faithful,
+    parameterised reproduction of the captured send — the only fully proven path, for
+    when the caller already knows the armyId(s) and counts to heal.
+    """
+    entries = list(entries)
+    army = _hospital_army_literal(entries)
+    return ('pcall(function() SFSNetwork.SendMessage("hospital.cure", {armyArray=%s}) end) '
+            'CS.UnityEngine.Debug.LogError("ACT hospital_cure entries=%d")'
+            % (army, len(entries)))
+
+
+def hospital_wounded_count() -> str:
+    """Lua *expression* -> how many soldier types currently have wounded to heal.
+
+    Reads the same source the window reads, `T11Util.GetSelfCurSoldierData()`, and counts
+    entries with a positive wounded field. The wounded-count field name is not yet
+    confirmed live, so several plausible names are tried (a wrong guess reads 0, i.e. a
+    safe "nothing to heal", never a false positive). Returns 0 when the util is missing.
+    """
+    return ("(function() "
+            "if not T11Util or not T11Util.GetSelfCurSoldierData then return 0 end "
+            "local ok,data = pcall(function() return T11Util.GetSelfCurSoldierData() end) "
+            "if not ok or type(data) ~= 'table' then return 0 end "
+            "local n = 0 "
+            "for _, s in pairs(data) do if type(s)=='table' then "
+            "local w = s.woundNum or s.hurtNum or s.injureNum or s.woundCount or s.hurtCount or 0 "
+            "if type(w)=='number' and w > 0 then n = n + 1 end end end "
+            "return n end)()")
+
+
+def hospital_heal_all() -> str:
+    """Heal EVERY wounded soldier type in one `hospital.cure` (best-effort, gated).
+
+    Grounded on `T11Util.GetSelfCurSoldierData()` (the source the window reads), but the
+    per-entry field names for the soldier id and its wounded count are NOT yet confirmed
+    live — so this tries the plausible names, only ever emits armyArray entries it could
+    build with a positive count, and sends nothing (a safe no-op, logged) when it builds
+    an empty array. Once hospital_wounded_probe() pins the shape down, collapse the
+    field-name lists to the real names. See docs/research/hospital-heal.md.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "if not T11Util or not T11Util.GetSelfCurSoldierData then error('no T11Util.GetSelfCurSoldierData') end "
+        "local data = T11Util.GetSelfCurSoldierData() "
+        "if type(data) ~= 'table' then error('GetSelfCurSoldierData returned '..type(data)) end "
+        "local army = {} "
+        "for _, s in pairs(data) do if type(s)=='table' then "
+        "local id = s.armyId or s.id or s.soldierId or s.cfgId or s.configId "
+        "local w  = s.woundNum or s.hurtNum or s.injureNum or s.woundCount or s.hurtCount or 0 "
+        "if id and type(w)=='number' and w > 0 then "
+        "army[#army+1] = {armyId = tostring(id), healNum = math.floor(w)} end end end "
+        "if #army == 0 then error('no wounded (or T11Util shape differs — run _hospital_probe.lua)') end "
+        "SFSNetwork.SendMessage('hospital.cure', {armyArray = army}) "
+        'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army) '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT hospital_heal_all skip: "..tostring(err)) end'
+    )
+
+
+def hospital_wounded_probe() -> str:
+    """Dump the shape of `T11Util.GetSelfCurSoldierData()` so heal_all can be pinned down.
+
+    Prints, per entry, its keys and their (short) values — enough to read off which field
+    is the soldier id ("3014" in the capture) and which is the wounded count. Run it once
+    with wounded soldiers present; then collapse the field-name guesses in
+    hospital_heal_all() / hospital_wounded_count() to the confirmed names.
+    """
+    return (
+        "local L=function(s) CS.UnityEngine.Debug.LogError('HOSP '..tostring(s)) end "
+        "pcall(function() "
+        "if not (T11Util and T11Util.GetSelfCurSoldierData) then L('no T11Util.GetSelfCurSoldierData') return end "
+        "local data = T11Util.GetSelfCurSoldierData() "
+        "L('type='..type(data)) "
+        "if type(data) ~= 'table' then return end "
+        "local i=0 for k, s in pairs(data) do i=i+1 "
+        "if type(s)=='table' then local keys={} "
+        "for kk, vv in pairs(s) do keys[#keys+1]=tostring(kk)..'='..string.sub(tostring(vv),1,24) end "
+        "table.sort(keys) L('entry['..tostring(k)..'] '..table.concat(keys,', ')) "
+        "else L('entry['..tostring(k)..'] = '..tostring(s)) end "
+        "if i>=12 then L('... (truncated)') break end end "
+        "end)"
+    )
