@@ -28,6 +28,8 @@ The directory is split by role. **Run every script from the repo root** (paths l
   `ghost_recon_steal.py` (rob a ghost-recon squad during «Операция Призрак»),
   `ministry.py` (the kingdom-position board: holders, queues, and applying for a post),
   `occupation_skills.py` (the profession's active skills and firing the ready ones),
+  `rdp_instance.py` (the second account's client in its own Windows session) with
+  `session_launch.py` behind it,
   `secret_task_capture.py` (find secret tasks), `scan_leaderboard.py`,
   `scan_players.py`, `extract_hero_icons.py` and `extract_chat_assets.py` (pull
   hero-icon / chat-emoji / sticker sprites from the bundles).
@@ -84,7 +86,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `ministry.py` | **Windows** (Python, Lua daemon) | the ministry board — who holds each kingdom position, how long they have sat and how many applicants are queued — and `--apply <post>` to submit an application headlessly; see [`../docs/research/ministry.md`](../docs/research/ministry.md) |
 | `occupation_skills.py` | **Windows** (Python, Lua daemon) | the profession's («навыки профессии») active skills — state, banked charges and when the next one lands — and `--use` to fire the ready no-target ones headlessly; see [`../docs/research/occupation-skills.md`](../docs/research/occupation-skills.md) |
 | `extract_chat_assets.py` | **WSL** or **Windows** (Python, UnityPy) | extract chat emoji / sticker sprites from the cached asset bundles into `results/chat_assets/` |
-| `launch_as_user.py` | **Windows** (Python, pywin32) | start a process as **another Windows user on the current desktop** — grants that user's SID access to `WinSta0`/`Default`, then `CreateProcessWithLogonW` (or `CreateProcessAsUser`) with `lpDesktop`. `--config accounts.json --all` runs one instance per account; passwords live in Credential Manager, not in the file. Works for any program; **the game itself is killed by ACE a few seconds in**, so multi-instance still needs a second Windows session — see [`../docs/research/multi-instance-second-user.md`](../docs/research/multi-instance-second-user.md) |
+| `launch_as_user.py` | **Windows** (Python, pywin32) | start a process as **another Windows user on the current desktop** — grants that user's SID access to `WinSta0`/`Default`, then `CreateProcessWithLogonW` (or `CreateProcessAsUser`) with `lpDesktop`. `--config accounts.json --all` runs one instance per account; passwords live in Credential Manager, not in the file. Works for any program; **the game itself is killed by ACE a few seconds in**, so a second client needs a second Windows session (`rdp_instance.py`) — see [`../docs/research/multi-instance-second-user.md`](../docs/research/multi-instance-second-user.md) |
+| `rdp_instance.py` | **Windows** (Python, pywin32) | the **second client, in its own Windows session**, driven from this one over TCP: `--bring-up` creates the session (RDP to this machine by another address — not `localhost`), starts that user's client and a `lua_daemon` on its own port, and leaves the session disconnected. `--status` / `--ping` / `--lua` / `--stop` / `--logoff` / `--restore-console`. Any existing tool then drives it with `LW_DAEMON_PORT=47655`; headless abilities only. See [`../docs/research/multi-instance-rdp.md`](../docs/research/multi-instance-rdp.md) |
+| `session_launch.py` | **Windows** (Python, pywin32, **SYSTEM**) | start a process **inside an already logged-on session** under that session's own logon token (`WTSQueryUserToken` — no password). `--list` prints the sessions; used by `rdp_instance.py`, and it is the launch route ACE accepts |
 
 Capture (Wireshark/Npcap) must run **on Windows** — WSL2 is a separate NAT'd VM
 and cannot see the Windows game's traffic directly. WSL is for offline analysis

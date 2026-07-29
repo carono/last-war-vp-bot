@@ -12,16 +12,29 @@ local `LuaEval` otherwise — so standalone scripts keep working with or without
 
 This module imports NOTHING heavy (no il2cpp deps) — safe to import anywhere. The local
 `LuaEval` fallback is imported lazily, only when actually needed.
+
+One daemon per client. A second Last War client lives in its own Windows session with
+its own daemon on its own port (task #1106, `tools/rdp_instance.py`), so the port is not
+a constant: it comes from ``LW_DAEMON_PORT`` when set, which is all an existing script
+needs to be pointed at the other instance —
+
+    LW_DAEMON_PORT=47655 C:\Python312\python.exe tools\dispatch_tasks.py
+
+The local `LuaEval` fallback only ever drives the client in *this* session, so it is
+skipped when the port is not the default one: an unreachable foreign daemon must be an
+error, not a silent hijack of the wrong client.
 """
 from __future__ import annotations
 import json
+import os
 import socket
 import sys
 
 sys.path.insert(0, "tools/lib")
 
-HOST = "127.0.0.1"
-PORT = 47654
+HOST = os.environ.get("LW_DAEMON_HOST") or "127.0.0.1"
+DEFAULT_PORT = 47654
+PORT = int(os.environ.get("LW_DAEMON_PORT") or DEFAULT_PORT)
 
 
 class DaemonClient:
@@ -77,13 +90,21 @@ def is_running(host: str = HOST, port: int = PORT, timeout: float = 1.0) -> bool
         return False
 
 
-def get_evaluator(prefer_daemon: bool = True):
+def get_evaluator(prefer_daemon: bool = True, host: str = HOST, port: int = PORT):
     """Return a `.run(chunk, marker, settle)` evaluator.
 
     Daemon-backed when reachable, otherwise a fresh local `LuaEval` (imported lazily so
     this module stays dependency-light). Both expose `.run()` and `.close()`.
+
+    The fallback applies to the default port only. A non-default port names another
+    session's client, which a local `LuaEval` cannot reach — there, an unreachable
+    daemon raises instead of quietly driving the client of this session.
     """
-    if prefer_daemon and is_running():
-        return DaemonClient()
+    if prefer_daemon and is_running(host, port):
+        return DaemonClient(host, port)
+    if port != DEFAULT_PORT:
+        raise ConnectionRefusedError(
+            f"no Lua daemon on {host}:{port} — that is another session's client, and it "
+            f"cannot be driven locally. Bring it up with tools/rdp_instance.py --status")
     import lua_eval
     return lua_eval.LuaEval()

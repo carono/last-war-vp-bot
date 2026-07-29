@@ -16,8 +16,15 @@ the game restarted and the cached per-pid addresses are stale — triggers one a
 rebuild-and-retry. Run under the Windows Python:
 
     C:\Python312\python.exe tools\lua_daemon.py
+    C:\Python312\python.exe tools\lua_daemon.py --port 47655   # second client, own session
+
+One daemon per client: a second Windows session runs its own daemon on its own port and
+attaches to the client of *that* session (`LW_GAME_PID` / same-session preference in
+`il2cpp_probe.find_game_pid`). See tools/rdp_instance.py and
+docs/research/multi-instance-rdp.md.
 """
 from __future__ import annotations
+import argparse
 import json
 import os
 import socket
@@ -56,6 +63,10 @@ class Daemon:
     def is_warm(self) -> bool:
         return self._ev is not None
 
+    def target_pid(self) -> int | None:
+        """Which client this daemon is attached to — the thing to check when two run."""
+        return getattr(getattr(self._ev, "x", None), "pid", None)
+
     def run(self, chunk: str, marker, settle: float):
         with self._lock:
             for attempt in (1, 2):
@@ -84,7 +95,8 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
             op = req.get("op", "run")
             try:
                 if op == "ping":
-                    resp = {"ok": True, "warm": daemon.is_warm()}
+                    resp = {"ok": True, "warm": daemon.is_warm(),
+                            "pid": daemon.target_pid()}
                 elif op == "run":
                     lines = daemon.run(req.get("chunk", ""), req.get("marker"),
                                        float(req.get("settle", 1.2)))
@@ -108,6 +120,18 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="warm-LuaEval daemon for one game client")
+    ap.add_argument("--host", default=lua_client.HOST, help="bind address (default 127.0.0.1)")
+    ap.add_argument("--port", type=int, default=lua_client.PORT,
+                    help=f"bind port (default {lua_client.DEFAULT_PORT}; "
+                         f"a second session's client gets its own)")
+    ap.add_argument("--pid", type=int, default=None,
+                    help="attach to this LastWar.exe pid instead of picking one "
+                         "(same as the LW_GAME_PID environment variable)")
+    args = ap.parse_args()
+    if args.pid:
+        os.environ["LW_GAME_PID"] = str(args.pid)
+
     daemon = Daemon()
     try:
         daemon._ensure()
@@ -116,15 +140,18 @@ def main() -> int:
         print(f"[daemon] not warm yet (game offline?): {exc}", flush=True)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # SO_REUSEADDR on Windows lets a second bind *steal* a live port — with one daemon
+    # per client that would silently route a session's calls into the wrong game.
+    srv.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE",
+                                              socket.SO_REUSEADDR), 1)
     try:
-        srv.bind((lua_client.HOST, lua_client.PORT))
+        srv.bind((args.host, args.port))
     except OSError as exc:
-        print(f"[daemon] cannot bind {lua_client.HOST}:{lua_client.PORT}: {exc} "
+        print(f"[daemon] cannot bind {args.host}:{args.port}: {exc} "
               f"(already running?)", file=sys.stderr)
         return 1
     srv.listen(8)
-    print(f"[daemon] listening {lua_client.HOST}:{lua_client.PORT}", flush=True)
+    print(f"[daemon] listening {args.host}:{args.port}", flush=True)
     try:
         while True:
             conn, _ = srv.accept()

@@ -148,11 +148,18 @@ password, and it only refines the wording, not the outcome.
 
 ## 4. What to do instead
 
+> **Done, in [#1106](multi-instance-rdp.md).** The second client runs in a second
+> Windows session that is left *disconnected*, and the Lua daemon in that session
+> answers on its own TCP port — so it is driven from *this* session after all, by every
+> existing tool, with `LW_DAEMON_PORT=47655`. The conjecture at the end of §3 held: with
+> the session's own logon token (`WTSQueryUserToken`) ACE does not object. Screen-driven
+> abilities still cannot reach that desktop; everything headless can.
+
 * **One Windows session per client.** Log the second user in (RDP or fast user
   switching) and start the client there normally. Proven to work on this machine.
   The cost is that the bot's foreground input cannot reach a client on a different
-  desktop, so the second client has to be driven from a bot instance running inside
-  that session, not from this one.
+  desktop, so the screen-driven abilities have to run from a bot instance inside that
+  session — but the headless ones do not (see the note above).
 * **Headless abilities are unaffected.** Everything that goes through the Lua VM /
   il2cpp rather than through clicks does not care which desktop the window is on.
 * `tools/launch_as_user.py` stays useful for running *non-game* helpers as another

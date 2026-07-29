@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 20 of 83
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 20 of 84
 
-🟩 20 done · 🟨 13 partly · 🟥 50 not automated
+🟩 20 done · 🟨 14 partly · 🟥 50 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -192,7 +192,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Reacting to the "logged in from another device" screen — the reaction is written, but nothing watches for it yet
 - ❌ Pausing while the person at the keyboard is using the mouse. The screen-driven abilities need the game in front, so a person and the bot cannot share the computer during those
 - ✅ Separate profiles per account — own settings, filters and logs — and an interface in Russian or English
-- ❌ A second account's client next to the first one on the same screen. Starting it as another Windows user works for any other program, but the anti-cheat kills the game a few seconds in, so a second client still needs a second Windows session
+- 🟡 A second account in parallel. Its client is started and kept in a second Windows session in the background — the bot brings the session, the client and its own control channel up by itself, and every ability that works without the screen can be pointed at either account. What cannot reach it is anything screen-driven: clicks and screenshots only ever land on the client in front. Not yet played through a real session on the second account
+- ❌ A second account's client next to the first one *on the same screen*. Starting it as another Windows user works for any other program, but the anti-cheat kills the game a few seconds in
 
 ### Seasonal
 

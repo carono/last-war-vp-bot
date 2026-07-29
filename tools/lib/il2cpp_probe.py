@@ -86,11 +86,41 @@ class MODULEENTRY32W(C.Structure):
     ]
 
 
+def _session_of(pid: int) -> int | None:
+    sid = wintypes.DWORD()
+    if k32.ProcessIdToSessionId(pid, C.byref(sid)):
+        return int(sid.value)
+    return None
+
+
 def find_game_pid() -> int:
+    """The client to drive: `LW_GAME_PID` if set, else one in the caller's session.
+
+    With a second client running in a second Windows session (task #1106) "the first
+    LastWar.exe" is a coin toss, and the loser is a process this token usually cannot
+    even open. The caller's own session is the right default — a daemon started inside
+    a session belongs to the client of that session — and `LW_GAME_PID` overrides it.
+    Falls back to any client, so the single-instance case is unchanged.
+    """
+    import os
     import psutil
+    forced = os.environ.get("LW_GAME_PID")
+    if forced:
+        pid = int(forced)
+        if not psutil.pid_exists(pid):
+            raise SystemExit(f"LW_GAME_PID={pid} is not running")
+        return pid
+    mine = _session_of(k32.GetCurrentProcessId())
+    others = []
     for p in psutil.process_iter(["name"]):
-        if "lastwar" in (p.info["name"] or "").lower():
-            return p.pid
+        # The client itself — not LastWarLauncher.exe / LastWarSync.exe, which share the
+        # prefix, have no il2cpp in them, and disappear once the client is up.
+        if (p.info["name"] or "").lower() == "lastwar.exe":
+            if _session_of(p.pid) == mine:
+                return p.pid
+            others.append(p.pid)
+    if others:
+        return others[0]
     raise SystemExit("LastWar.exe not running")
 
 
