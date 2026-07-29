@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 21 of 86
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 21 of 86
 
-🟩 21 done · 🟨 15 partly · 🟥 50 not automated
+🟩 21 done · 🟨 16 partly · 🟥 49 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -129,7 +129,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Expedition
 - ❌ Levelling survivors and decorations
 - ✅ Accepting a survivor waiting at the base — one `visitor.operate` per waiting survivor, headless, no window opened, and it stops on its own when the queue holds none
-- ❌ Accepting survivor gifts
+- 🟡 Collecting gifts a survivor brought to the base — the same `visitor.operate` per gift-bearing visitor (kind GIFT instead of RECRUITMENT), headless, no window opened, stopping on its own when the queue holds none. Reconstructed from a trace (send → coin-box reward → window closed); not yet confirmed in a live run
 - ❌ Assembling the treasure from map pieces
 - ❌ Daily VIP gift and points
 - ❌ Collecting mail rewards

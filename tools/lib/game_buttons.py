@@ -108,6 +108,23 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.visitor_recruit_pending(),
         max_taps=10,
     ),
+    # --- Base -> collect a gift-bearing survivor ("Собрать подарки выжившего") -
+    "collect_visitor_gifts": Button(
+        # A survivor bringing gifts is a CityVisitorManager queue entry with
+        # visitorId == VisitorType.GIFT (2); collecting sends the same one-shot
+        # visitor.operate {uid, operate=1} as a recruit — captured whole in trace
+        # 20260729_151712, after which the client flew a coin-box reward and closed
+        # UICityVisitor. Only the visitor kind differs from recruit_survivor; the
+        # engine side is written up in lua_actions.visitor_gift_* and
+        # docs/research/city-visitor-recruit.md.
+        lua=_lua_actions.visitor_gift_collect(),
+        wait=1.0, label="Collect visitor gifts",
+        # How many gift-bearing survivors are still queued — the same gate the send
+        # applies, so `xall` collects them one message at a time and re-reads to let
+        # the server's push.user.visitor.change drain the queue instead of guessing.
+        count_lua=_lua_actions.visitor_gift_pending(),
+        max_taps=10,
+    ),
     # --- Alliance -> gifts: open the section, then claim each tab -------------
     # The "Подарки альянса" window has two "collect all" buttons — ordinary gifts
     # (type 1) and premium/privilege gifts (type 2) — handled by the same click

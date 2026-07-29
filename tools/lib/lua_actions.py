@@ -510,6 +510,53 @@ def visitor_recruit_survivor() -> str:
 
 
 # --------------------------------------------------------------------------
+# City visitor — collect a gift-bearing survivor ("Собрать подарки выжившего")
+# --------------------------------------------------------------------------
+# A *gift* visitor is the same CityVisitorManager queue mechanic as the recruit
+# survivor above — only the kind differs: `data.visitorId == VisitorType.GIFT`
+# (2) instead of RECRUITMENT (3). Tapping such a visitor and collecting its gift
+# sends the identical one-shot message, captured whole in trace 20260729_151712
+# «Собрать подарки выжившего»:
+#
+#     SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, uid, 1)
+#       -- visitor.operate  {uid = <visitor uid>, operate = 1}
+#
+# After the send the client flew a coin-box reward (`UIUtil.DoFly(7, 1,
+# icon_coinbox, ...)`) and destroyed the UICityVisitor window — i.e. operate=1
+# means "collect the gift" here just as it means "accept" for a recruit. Because
+# the body is only {uid, operate}, no window need be open: the uid is read
+# straight off the queued visitor's data, exactly like the recruit path.
+def visitor_gift_pending() -> str:
+    """Lua *expression* -> how many queued visitors are gift-bearing survivors.
+
+    Counts `CityVisitorManager` queue entries whose `data.visitorId` equals
+    `VisitorType.GIFT` (2). `GetQueueAllVisitorData(1)` yields `{data, model}`
+    wrappers, so the discriminator lives one level in, on `.data`.
+    """
+    return ("(function() local n = 0 "
+            "local G = (VisitorType and VisitorType.GIFT) or 2 "
+            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
+            "local d = e and e.data "
+            "if d and d.visitorId == G then n = n + 1 end end "
+            "return n end)()")
+
+
+def visitor_gift_collect() -> str:
+    """Collect the first gift-bearing survivor (`visitor.operate {uid, operate=1}`).
+
+    Gated on `visitor_gift_pending() > 0` so an empty queue never spends a server
+    round trip. Sends for exactly the front GIFT visitor's uid.
+    """
+    return ("if %s > 0 then "
+            "local G = (VisitorType and VisitorType.GIFT) or 2 "
+            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
+            "local d = e and e.data "
+            "if d and d.visitorId == G then "
+            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
+            % visitor_gift_pending())
+
+
+# --------------------------------------------------------------------------
 # Occupation ("profession") skills — the Mastery tree
 # --------------------------------------------------------------------------
 # In game these are «навыки профессии»: the active skills of the profession the

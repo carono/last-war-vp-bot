@@ -93,6 +93,32 @@ removal came back on `push.user.visitor.change`) — a reply applier could not d
 the server's visitor count, and the call was a bare `SFSNetwork.SendMessage`, so this is
 the real wire action, not a local state edit.
 
+## Gift-bearing visitors — same command, kind GIFT (trace 20260729_151712)
+
+A survivor can also arrive carrying gifts («Собрать подарки выжившего»). This is the
+same queue mechanic — only the kind differs: `data.visitorId == VisitorType.GIFT` (2)
+instead of RECRUITMENT (3). Tapping the visitor and collecting the gift sends the
+identical one-shot message, captured whole in trace `20260729_151712`:
+
+```
+XSCALL SFSNetwork.SendMessage <- visitor.operate, 1397117535811512114, 1
+XSCALL SFSObject.PutLong      <- uid, 1397117535811512114
+XSCALL SFSObject.PutInt       <- operate, 1
+XSCALL UIUtil.DoFly           <- 7, 1, .../ItemIcons/icon_coinbox, …   -- reward flew
+XSCALL UIManager.DestroyWindow <- UICityVisitor                        -- window closed
+```
+
+So `operate = 1` means "collect the gift" here just as it means "accept" for a recruit;
+after the send the client flew a coin-box reward (reward type 7) and destroyed the
+`UICityVisitor` window. The body is still exactly `{uid, operate}`, so the collect needs
+no window open. Primitives `visitor_gift_pending` / `visitor_gift_collect`
+(`tools/lib/lua_actions.py`), button `collect_visitor_gifts`, recipe
+`src/lastwar_bot/actions/collect_visitor_gifts.md`.
+
+The companion traffic capture for this run was empty (0 B), so the wire action is
+reconstructed from the trace alone — not yet confirmed by a live count 1→0 the way the
+recruit path was. Marked 🟡 in `docs/farming.md` until a live run confirms it.
+
 ## Related visitor commands (seen in MsgDefines, not exercised here)
 
 ```
