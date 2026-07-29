@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **25%** — 20 of 81
+🟩🟩🟩🟩🟩🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **24%** — 20 of 82
 
-🟩 20 done · 🟨 12 partly · 🟥 49 not automated
+🟩 20 done · 🟨 13 partly · 🟥 49 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -83,6 +83,10 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Code Name
 - ❌ Desert Storm
 - ❌ Snow Storm
+- 🟡 Street Run («Уличный забег», the Surfing 3-lane endless runner) — the bot finds
+  the open event, reads attempts + best distance, launches a real run and clears the
+  result popup by itself (`tools/street_run_bot.py`, `LWSurfingDataManager`); the
+  obstacle-dodging reflex layer is not built yet, so it starts a run but cannot play it.
 
 ### Arms Race
 

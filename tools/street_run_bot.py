@@ -38,42 +38,41 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
 
 _STATE_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRB "..tostring(s)) end
-local m = DataCenter.LWGhostParkourDataManager
+local m = DataCenter.LWSurfingDataManager
 local function try(label, fn)
   local ok,res = pcall(fn)
   if ok then L(label.."="..tostring(res)) else L(label.."=nil") end
 end
-try("now",            function() return ChatInterface.getServerTime() end)
-try("activityId",     function() return m:GetActivityId() end)
-try("beginTime",      function() return m:GetBeginTime() end)
-try("roundEndTime",   function() return m:GetRoundEndTime() end)
-try("nextRoundTime",  function() return m:GetNextRoundTime() end)
-try("remainTimes",    function() return m:GetRemainTimes() end)
-try("remainChallenge",function() return m:GetRemainChallengeTimes() end)
-try("allChallenge",   function() return m:GetAllChallengeTimes() end)
-try("endlessSwitch",  function() return m:GetEndlessModeSwitch() end)
-try("round",          function() return m:GetGhostParkourRound() end)
-try("highest",        function() return m:GetPersonalHightestScore() end)
+try("now",         function() return ChatInterface.getServerTime() end)
+try("activityId",  function() return m:GetActId() end)
+try("remainTimes", function() return m:GetRemainTimes() end)
+try("round",       function() return m:GetRound() end)
+try("highest",     function() return m:GetPersonalHightestScoreData() end)
+try("todayScore",  function() return m:GetTodayPersonalProgressScore() end)
+try("resurgeLimit",function() return m:GetResurgenceLimit() end)
+try("endTime",     function() return m:GetTheBattleEndTime() end)
 """
 
 _FETCH_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRB "..tostring(s)) end
-local m = DataCenter.LWGhostParkourDataManager
--- refresh the activity roster, then pull parkour-specific info
+local m = DataCenter.LWSurfingDataManager
+-- refresh the activity roster, then pull surfing/parkour-specific info
 pcall(function() DataCenter.ActivityListDataManager:RequestActivityData() end)
-pcall(function() m:SendGetGhostParkourInfosMessage() end)
+pcall(function() m:SendGetAllParkourInfosMessage() end)
 L("fetch-requested")
 """
 
-# Launch a run. ReqStartGame(fightType, restart) sends MsgDefines.GhostParkourFightStart;
-# the server reply lands in OnStartGame → LWBattleManager:Enter(PVEType.GhostParkour,...)
-# which loads the runner scene. fightType is an enum (personal vs endless etc.) — CONFIRM
-# LIVE via string.dump once the event is open. restart=false for a fresh run.
+# Launch a run. The in-game «Начать» button is ReqFightStartCheck(restart): it
+# validates the start-message cooldown (GetStartMsgCD/startMsgTs) and matching
+# state, then sends MsgDefines.ParkourFightStartCheck; the server-approved flow
+# lands in OnStartGame → the runner scene loads. (ReqStartGame(restart) sends the
+# raw MsgDefines.ParkourFightStart and skips the checks.) restart=false = fresh run.
+# Confirmed live 2026-07-29 via string.dump of LWSurfingDataManager.lua.
 _START_LUA = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRB "..tostring(s)) end
-local m = DataCenter.LWGhostParkourDataManager
-local ok,err = pcall(function() m:ReqStartGame(%d, false) end)
-L(ok and "start-sent" or ("start-err="..tostring(err)))
+local m = DataCenter.LWSurfingDataManager
+local ok,err = pcall(function() m:ReqFightStartCheck(false) end)
+L(ok and "start-check-sent" or ("start-err="..tostring(err)))
 """
 
 
@@ -107,8 +106,8 @@ def event_open(state: dict) -> bool:
     return aid not in ("nil", "", "0")
 
 
-def start_run(fight_type: int = 1):
-    _eval(_START_LUA % fight_type, settle=2.5)
+def start_run():
+    _eval(_START_LUA, settle=2.5)
 
 
 # ---------------------------------------------------------------------------
@@ -206,14 +205,13 @@ def decide(state: dict) -> str | None:
 
 def cmd_probe():
     st = read_state(fetch=True)
-    print("Ghost Parkour / «Уличный забег» state:")
-    for k in ("now", "activityId", "beginTime", "roundEndTime", "nextRoundTime",
-              "remainTimes", "remainChallenge", "allChallenge", "endlessSwitch",
-              "round", "highest"):
-        print(f"  {k:16s} = {st.get(k, '?')}")
+    print("«Уличный забег» / Surfing (LWSurfingDataManager) state:")
+    for k in ("now", "activityId", "remainTimes", "round", "highest",
+              "todayScore", "resurgeLimit", "endTime"):
+        print(f"  {k:14s} = {st.get(k, '?')}")
     if event_open(st):
-        print("\n=> EVENT OPEN. Attempts left:",
-              st.get("remainTimes", st.get("remainChallenge", "?")))
+        print("\n=> EVENT OPEN. Attempts left:", st.get("remainTimes", "?"),
+              "| best distance:", st.get("highest", "?"))
     else:
         print("\n=> EVENT CLOSED (activityId is nil). Cannot start a run yet.")
     return 0
@@ -231,36 +229,90 @@ def cmd_shot(name="sr_now.png"):
 
 def cmd_watch(interval: float = 300.0):
     """Poll until «Уличный забег» opens, then stop so a live calibration+run pass can
-    begin. Does NOT auto-play (the detector needs calibrating on real frames first)."""
-    print("Watching for «Уличный забег» to open (Ctrl-C to stop)...")
+    begin. Does NOT auto-play (the detector needs calibrating on real frames first).
+
+    Durable/observable for a detached pythonw launch: appends a heartbeat to
+    results/street_run/watch.log every poll, and on open drops a sentinel
+    results/street_run/EVENT_OPEN.txt (activityId + attempts) so a supervising
+    session can detect the open without watching stdout."""
+    outdir = os.path.join("results", "street_run")
+    os.makedirs(outdir, exist_ok=True)
+    logp = os.path.join(outdir, "watch.log")
+    sentinel = os.path.join(outdir, "EVENT_OPEN.txt")
+    # Stale sentinel from a previous window would falsely signal "open".
+    if os.path.exists(sentinel):
+        os.remove(sentinel)
+
+    def hb(msg: str):
+        line = f"{int(time.time())} {msg}"
+        print(line, flush=True)
+        with open(logp, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    hb("watch start; interval=%ds" % int(interval))
     while True:
-        st = read_state(fetch=True)
+        try:
+            st = read_state(fetch=True)
+        except Exception as e:  # daemon/game hiccup — keep the watcher alive
+            hb("probe-error: %r" % e)
+            time.sleep(interval)
+            continue
         if event_open(st):
-            print("EVENT OPEN! activityId=", st.get("activityId"),
-                  "attempts=", st.get("remainTimes", st.get("remainChallenge")))
-            print("Run `street_run_bot.py calibrate` then `run`.")
+            att = st.get("remainTimes", st.get("remainChallenge", "?"))
+            hb("EVENT OPEN activityId=%s attempts=%s" % (st.get("activityId"), att))
+            with open(sentinel, "w", encoding="utf-8") as f:
+                f.write("activityId=%s\nattempts=%s\nnow=%s\n"
+                        % (st.get("activityId"), att, st.get("now")))
+            hb("wrote sentinel %s; run calibrate then run" % sentinel)
             return 0
-        print("  closed; next check in", int(interval), "s")
+        hb("closed; next check in %ds" % int(interval))
         time.sleep(interval)
 
 
-def cmd_calibrate(n: int = 30, delay: float = 0.15):
-    """Capture N frames while a run is on screen, into results/street_run/, so the
-    lane geometry + obstacle signature in detect() can be tuned. Start a run first."""
-    outdir = os.path.join("results", "street_run")
+def cmd_calibrate(n: int = 60, delay: float = 0.08):
+    """Start one real run and capture N frames of the runner into
+    results/street_run/frames/, so the lane geometry + obstacle signature in
+    detect() (and the input model) can be tuned. Costs one attempt."""
+    st = read_state(fetch=True)
+    if not event_open(st):
+        print("Event «Уличный забег» is not open — nothing to calibrate."); return 2
+    outdir = os.path.join("results", "street_run", "frames")
     os.makedirs(outdir, exist_ok=True)
     h, _ = find_win()
     if h is None:
         print("no game window"); return 1
-    focus(h); time.sleep(0.5)
+    focus(h); time.sleep(0.6)
+    print("attempts before:", st.get("remainTimes"))
+    start_run()                        # ReqFightStartCheck → OnStartGame → runner scene
+    time.sleep(3.0)                    # let the scene load
     for i in range(n):
-        grab(h, os.path.join("street_run", f"frame_{i:03d}.png"))
+        grab(h, os.path.join("street_run", "frames", f"frame_{i:03d}.png"))
+        time.sleep(delay)
+    after = read_state().get("remainTimes")
+    print(f"saved {n} frames to {outdir}; attempts after: {after}")
+    return 0
+
+
+def cmd_record(n: int = 120, delay: float = 0.06):
+    """Capture-only: grab N frames at `delay` spacing into results/street_run/frames/
+    WITHOUT starting a run. Launch this (backgrounded), then fire a run — or let the
+    user play one — so the frames cover live gameplay from t≈0, not just the death
+    popup. Reveals lane geometry, obstacle look, and (watching the avatar) the input
+    model."""
+    outdir = os.path.join("results", "street_run", "frames")
+    os.makedirs(outdir, exist_ok=True)
+    h, _ = find_win()
+    if h is None:
+        print("no game window"); return 1
+    focus(h); time.sleep(0.3)
+    for i in range(n):
+        grab(h, os.path.join("street_run", "frames", f"rec_{i:03d}.png"))
         time.sleep(delay)
     print(f"saved {n} frames to {outdir}")
     return 0
 
 
-def cmd_run(fight_type: int = 1):
+def cmd_run(reserve: int = 5):
     st = read_state(fetch=True)
     if not event_open(st):
         print("Event «Уличный забег» is not open (activityId=nil). Nothing to run.")
@@ -275,13 +327,12 @@ def cmd_run(fight_type: int = 1):
 
     os.makedirs(os.path.join("results", "street_run"), exist_ok=True)
     log = open(os.path.join("results", "street_run", "runs.log"), "a")
-    remaining = int(st.get("remainTimes") or st.get("remainChallenge") or 0)
+    remaining = int(st.get("remainTimes") or 0)
     print(f"Event open, {remaining} attempt(s) available.")
-    # Leave 5 attempts in reserve for the user (task instruction).
-    reserve = 5
+    # Leave `reserve` attempts for the user (task instruction: keep 5).
     while remaining > reserve:
-        start_run(fight_type)          # ReqStartGame → OnStartGame → runner scene
-        time.sleep(3.0)                # wait for UIGhostParkourBattleMain / scene load
+        start_run()                    # ReqFightStartCheck → OnStartGame → runner scene
+        time.sleep(3.0)                # wait for the surfing runner scene to load
         # reflex loop until death:
         deadline = time.time() + 300
         while time.time() < deadline:
@@ -296,7 +347,7 @@ def cmd_run(fight_type: int = 1):
         st = read_state()
         dist = st.get("highest", "?")
         log.write(f"attempt remaining={remaining} best={dist}\n"); log.flush()
-        remaining = int(st.get("remainTimes") or st.get("remainChallenge") or remaining - 1)
+        remaining = int(st.get("remainTimes") or remaining - 1)
         print("attempt done, remaining:", remaining, "best:", dist)
     print("Stopped with", remaining, "attempts in reserve for the user.")
     return 0
@@ -311,9 +362,11 @@ def main(argv):
     if cmd == "watch":
         return cmd_watch(float(argv[1]) if len(argv) > 1 else 300.0)
     if cmd == "calibrate":
-        return cmd_calibrate(int(argv[1]) if len(argv) > 1 else 30)
+        return cmd_calibrate(int(argv[1]) if len(argv) > 1 else 60)
+    if cmd == "record":
+        return cmd_record(int(argv[1]) if len(argv) > 1 else 120)
     if cmd == "run":
-        return cmd_run(int(argv[1]) if len(argv) > 1 else 1)
+        return cmd_run(int(argv[1]) if len(argv) > 1 else 5)
     print(__doc__)
     return 1
 

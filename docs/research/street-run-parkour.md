@@ -1,192 +1,111 @@
-# «Уличный забег» / Street Run (Ghost Parkour endless runner)
+# «Уличный забег» / Street Run (Surfing endless runner)
 
-Reconnaissance for task #1101 — a Subway-Surfers-style endless runner event, arrow
-controlled, run as far as possible, limited attempts. Findings below are **proven
-by live inspection of the client**; what is still open is called out per section.
+Reconnaissance for task #1101 — a Subway-Surfers-style 3-lane endless runner event:
+run as far as possible, dodge obstacles, limited attempts. Findings are **proven by
+live inspection of the client** (server **935**, 2026-07-29); open items are called out.
+
+> **Correction (2026-07-29).** Earlier sessions mapped this to *Ghost Parkour*
+> (`LWGhostParkourDataManager`) — **wrong**. That manager reports `nil` even while the
+> event is open. On the correct account the event is internally **Surfing**:
+> `DataCenter.LWSurfingDataManager`, windows `UISurfingBattle*`, source
+> `Assets/Main/LuaScripts/DataCenter/LWSurfing/LWSurfingDataManager.lua`. The two
+> earlier blockers compounded: wrong account **and** wrong manager.
 
 ## TL;DR
 
-- The event display name is **«Уличный забег»** (`activity_parkour_name`). Internally
-  it is the **Ghost Parkour endless runner** — window family `UIGhostParkour*`,
-  data manager `DataCenter.LWGhostParkourDataManager`, locale keys `parkour_*` /
-  `ghost_parkour_*`.
-- **The event was NOT active at recon time** (2026-07-29). The manager reports
-  `activityId=nil, beginTime=0, roundEndTime=nil, remainTimes=nil,
-  endlessSwitch=false, personalHighest=0`. Opening its rank hub shows «Нет данных»;
-  opening the battle window `UIGhostParkourBattleMain` just hides the HUD and renders
-  nothing (no server session). **A run cannot be started until the event opens.**
-- Because the runner is real-time, per-frame state must be read by **vision**
-  (screenshot + image processing), not by Lua — a SafeDoString round-trip is ~1 s,
-  far too slow for a reflex loop. The manager holds only meta (records, attempts,
-  timings), not live lane/obstacle positions.
+- Display name **«Уличный забег»**; internally the **Surfing** minigame. Manager
+  `DataCenter.LWSurfingDataManager` (method names say *Parkour*, e.g.
+  `SendGetAllParkourInfosMessage`, `MsgDefines.ParkourFightStart` — the feature was
+  renamed «surfing» in code but keeps parkour message names).
+- **Event is OPEN** (live-proven). Fingerprint that pinned the manager: the panel shows
+  best distance **8185** and **28** attempts → `LWSurfingDataManager` is the *only*
+  manager whose `GetRemainTimes()==28` **and** `GetPersonalHightestScoreData()==8185`.
+  `GetActId()==80063` = activity `id=80063, type=349` in `ActivityListDataManager`.
+- Because the run is real-time, per-frame state must be read by **vision** (mss
+  screenshot + image processing), not Lua — a SafeDoString round-trip is ~1 s, far too
+  slow for a reflex loop. The manager holds only meta (records, attempts, timings).
 
-## Do NOT confuse with the other "parkour"
+## Three "parkour"-named things — do NOT confuse
 
-There are **two** unrelated features both called *parkour* internally:
-
-| Feature | Entry | What it is |
+| Feature | Manager / entry | What it is |
 |---|---|---|
-| **LW Parkour campaign** | `GoToUtil.GoLWParkourBattle()` → `UIParkourMap` | A **squad auto-battle** stage campaign («Этап 1 / Очистите квартал», gates `+1`, boss, `UIParkourFormation` "В бой!"). **NOT the task target.** Windows `UIParkour*`, manager `ParkourManager` (`curStageId`). |
-| **«Уличный забег» endless runner** | `LWGhostParkourDataManager` / activity panel | The Subway-Surfers dodge runner (meters, obstacles, resurrections, ranking). **Task target.** Windows `UIGhostParkour*`, manager `LWGhostParkourDataManager`. |
+| **«Уличный забег» runner** ✅ target | `DataCenter.LWSurfingDataManager`, windows `UISurfingBattle*` | The Subway-Surfers 3-lane dodge runner (metres, obstacles, revives). |
+| LW Parkour campaign | `ParkourManager`, `GoLWParkourBattle()` → `UIParkourMap` | A **squad auto-battle** stage campaign. NOT the target. |
+| Ghost Parkour co-op | `LWGhostParkourDataManager`, `UIGhostParkour*` | Weekly co-op «Операция Призрак» / ghost-recon. Reports `nil` here. NOT the target. |
 
-## Confirmed mechanics (from RU locale `parkour_*`)
+## `DataCenter.LWSurfingDataManager` API (dumped live, 92 methods)
 
-- Score is **distance in metres** (`parkour_meters_show = {0}м`,
-  `parkour_settlement_score = Итоговый результат: {0} м`). A "round" variant scores
-  in **Parkour Coins** (`..._round` keys).
-- **Obstacles spawn randomly** and must be dodged
-  (`activity_torch_relay_help_desc_2_new`: «случайным образом будут появляться
-  препятствия, которые необходимо…»).
-- On death you may **resurrect** a limited number of times
-  (`parkour_failed_start_btn = Воскрешение`,
-  `parkour_failed_start_count = Оставшиеся воскрешения: {0}/{1}`) before the run ends
-  (`parkour_failed_title = Испытание окончено`).
-- There is an **Endless** mode toggle (`ghost_parkour_endless_btn = Endless`,
-  manager `GetEndlessModeSwitch`).
-- Entry requires **base level ≥ 12** (`parkour_rule_desc`). Current account is L21 — OK.
-- Attempts: `allChallengeTimes = 10` per round (task says "~30 попыток" → likely
-  across multiple rounds/days). Track with `GetRemainTimes` / `GetRemainChallengeTimes`.
+State / meta (live values in parens):
 
-## UI windows (`results/ui_window_names.txt`)
+- `GetActId` (=80063 — the activityId) · `SetActId`
+- `GetRemainTimes` (=28 — «Попыток испытания») · `GetRound` (=4)
+- `GetPersonalHightestScoreData` (=8185 — best distance, metres, a plain number)
+- `GetTodayPersonalProgressScore` (=3282) · `GetTheBattleEndTime`
+  (=1785722400000 ms; `endTime−now ≈ 5.006 d`, matches on-screen «5d»)
+- `GetResurgenceLimit` (=3) · `GetResurgenceCost` (revive price, x100 coins)
+- `GetCoinId`/`GetCoinNum` (parkour coins) · `GetParkourRankInfo`, `GetSurfingRankInfo`,
+  `GetMvpPlayer`, `GetAllianceScore`, `GetSurfingBuffData`, buff/battlepass getters
 
-Gameplay & flow for the runner:
-`UIGhostParkourBattleMain` (the run itself), `UIGhostParkourPause`,
-`UIGhostParkourBattleResult`, `UIGhostParkourWaitLoading`,
-`UIGhostParkourRankPanelView` (ranking hub), `UIGhostParkourRecordListView`,
-`UIGhostParkourSettingView`, `UIGhostParkourChallengeResult`.
+Run control (send server requests — do NOT call idly, each `ReqFightStartCheck`
+**consumes an attempt**):
 
-Open a window via the Lua UI manager:
+- **`ReqFightStartCheck(restart)`** — the in-game «Начать» button. `string.dump`:
+  checks `ActWinterStormManager:CheckInMatchingViewState`, the start-msg cooldown
+  (`GetStartMsgCD`/`startMsgTs`; on cooldown → `UIUtil:ShowTipsId(avatar_tips002)`),
+  then `SFSNetwork:SendMessage(MsgDefines.ParkourFightStartCheck, restart, curTs)`.
+  Server-approved flow → `OnStartGame` → the runner scene loads. **Proven live:**
+  `ReqFightStartCheck(false)` started a real run (attempts 28→27).
+- `ReqStartGame(restart)` — raw `SFSNetwork:SendMessage(MsgDefines.ParkourFightStart,…)`,
+  skips the checks. `restart=false` = fresh run.
+- `ReqRebirthGame` / `ReqRebirthInfo` — revive on the death popup (3 available, x100 coins).
+- `ReqEndGame`, `ReqEndStage`, `ReqMonsterCheck`, `ReqTimeCheck`, `FightStartCheck`.
+- **`GoBackToActivityPanel()`** — dismisses the «Испытание окончено» result popup and
+  returns to the event panel. **Proven live** — required between runs (the popup blocks
+  a fresh `ReqFightStartCheck`).
 
-```lua
-UIManager:GetInstance():OpenWindow(UIWindowNames.UIGhostParkourRankPanelView)
-```
+Network fetch (populate the manager): **`SendGetAllParkourInfosMessage`**,
+`SendGetParkourAllianceBattlePassInfoMessage`. Rank refresh:
+`UpdateSurfingBattleRankInfo`, `UpdateAllianceBattleList`.
 
-(Proven: this opened the ranking hub. `UIGhostParkourBattleMain` opened but was empty
-because no event session exists.)
+## Confirmed mechanics (live frames — `results/street_run/frames/live_*.png`)
 
-## `DataCenter.LWGhostParkourDataManager` API (dumped live)
+- **3-lane endless runner**, third-person behind-the-back. The avatar auto-runs
+  forward and starts in the **centre** lane (screen x ≈ 0.49·W, y ≈ 0.63·H).
+- **Obstacles**: cars, container trucks, side barriers/blocks, streetlamps — occupy
+  specific lanes; dodge by switching lanes (jump/slide likely exist — unconfirmed).
+- **Coins** float along a lane (collectible; top-right counter).
+- **Score = distance in metres** (top-left «NNм» + running icon). Best so far 8185.
+- **Uncontrolled the run dies at ~88 m** (first obstacle) in <3 s — deterministic;
+  useful as a control-signal baseline.
+- **Death popup** «Испытание окончено»: result metres, parkour coins earned, buttons
+  **«Выйти»** and **«Воскрешение ×100»**, «Оставшиеся воскрешения: 3/3». Dismiss via
+  `GoBackToActivityPanel()` (or click «Выйти»). A **«Пауза»** button sits bottom-left
+  during the run.
 
-Meta / state (all currently empty because the event is off):
+## Vision reflex loop — approach & open items
 
-- `GetActivityId` / `SetActivityId`
-- `GetBeginTime`, `GetRoundEndTime`, `GetNextRoundTime`, `GetDelayTime` (=120000)
-- `GetRemainTimes`, `GetRemainChallengeTimes`, `GetAllChallengeTimes` (=10)
-- `GetEndlessModeSwitch`, `GetGhostParkourRound`
-- `GetPersonalHightestScore`, `GetGhostParkourRecord`, `GetNewRecordList`
-- `GetMainUIDisplayInfo`, `GetTier`, `GetTierMaxExp`, `GetGhostParkourTierList`
-
-Run control (send server requests):
-
-- **`ReqStartGame`** — start a run · `OnStartGame` · `FightStartCheck`
-- `ReqEndGame`, `ReqEndStage`
-- `ReqFightChallenge`, `ReqFightMatch`, `ReqSyncChallengeInfo`, `ReqTimeCheck`
-- `GetStartMsgCD`, `GetNitrogenBuffId`
-
-Network fetch (populate the manager once the event is live):
-
-- `SendGetGhostParkourInfosMessage`, `SendGetGhostParkourTierInfoMessage`,
-  `SendGhostParkourRankInfoMessage`, `GetGhostParkourInfos…` etc.
-
-Network commands (`tools/known_commands.txt`): `get.parkour.activity.info`,
-`get.parkour.alliance.battlepass`, `parkour.accept.invite`.
-
-## Reading live state — approach
-
-Per-frame Lua is too slow, so the run loop is **vision-based** (this is the standard
-Subway-Surfers-bot approach and matches the confirmed-fast mss capture on this client):
-
-1. **Capture** the road region with `mss` in a tight loop (no per-frame focus trick —
-   the game must already be foreground). Full-window grab measured fine and NOT black
-   on this client (the old "3D renders black" note does not apply here).
-2. **Detect** the player's current lane and the nearest obstacle's lane from a fixed
-   ROI band a little ahead of the character. Lane count and obstacle appearance must be
-   **calibrated on the first live frames** (unknown until the event runs — likely 3
-   lanes given the genre).
-3. **React** with `pydirectinput` arrow keys (foreground input; PostMessage is ignored
-   on this client — see memory `project_input_model`). Left/Right = change lane; Up =
-   jump; Down = slide/roll (exact mapping to confirm live).
-
-## Entry path & `activityId` (how to reach the run)
-
-**Lua name of the event.** Display «Уличный забег» = locale key `activity_parkour_name`.
-Internally it is the *Ghost Parkour* runner: manager `DataCenter.LWGhostParkourDataManager`,
-windows `UIGhostParkour*`, locale `parkour_*` / `ghost_parkour_*`.
-
-**`activityId`.** A server-assigned integer identifying the currently-running round of
-the event. It is `SetActivityId`/`GetActivityId` on the manager and is **`nil` while the
-event is closed** (recon state). It is populated when the server pushes the parkour
-activity info — trigger the fetch with
-`LWGhostParkourDataManager:SendGetGhostParkourInfosMessage()` once the event is live.
-The same activity also appears in `DataCenter.ActivityListDataManager.nowActivityList`
-when open — the entry whose name resolves to `activity_parkour_name`; its `activityId`
-matches. (At recon the 28 active activities did NOT include parkour — that is how we know
-the event is off. To re-check: `street_run_bot.py probe`, or scan `nowActivityList` for the
-parkour entry.)
-
-**Entry path (player flow).** Not reachable from the «События» panel — its tabs are
-Чёрный рынок / Вызов ЧР II / Поле боя в пустыне / **Соревнование на игровых автоматах**
-(arcade) / Разыскиваемый Босс / Сообщество. The arcade («Соревнование на игровых
-автоматах», `s6_minigame_battle`) is a carousel of *other* minigames — «Сбор сыворотки»
-(a Tetris/block puzzle), «Полдень настал» (S5 western), «Рётэй», «Под руинами» — **none
-is the runner**. `UIRaceEntrance` is the warzone «Командный центр», also unrelated. When
-live, «Уличный забег» is a timed seasonal activity with its own panel → Start button →
-`UIGhostParkourBattleMain`.
-
-**Headless launch flow** (confirmed by `string.dump`):
-
-```
-LWGhostParkourDataManager:ReqStartGame(fightType, restart)   -- restart=false for a fresh run
-  → SFSNetwork:SendMessage(MsgDefines.GhostParkourFightStart, {...})
-  → server reply → OnStartGame(message)   -- reads message.remainTimes / stageId / uuid
-  → LWBattleManager:Enter(PVEType.GhostParkour, levelId, RestartParam)  -- loads the runner scene
-```
-
-`fightType` is an enum (personal vs endless / stage type) — **confirm the value live**
-(`GhostParkourPassType` = {Personal=3, Alliance=4} is the *pass* type, not fightType).
-While the event is closed the request is silently dropped (no `OnStartGame`, no attempt
-spent) — verified: `ReqStartGame(1,false)` did nothing. Directly
-`OpenWindow(UIWindowNames.UIGhostParkourBattleMain)` while closed only hides the HUD.
-
-## Launch / attempt-tracking plan (once the event is open)
-
-1. Fetch info: call `SendGetGhostParkourInfosMessage()` then read `GetActivityId`,
-   `GetRemainTimes`. If `activityId` is nil/`remainTimes` 0 → event closed / no attempts.
-2. Start a run headless with `LWGhostParkourDataManager:ReqStartGame(...)` (arg shape
-   to confirm from `string.dump` when live) **or** by pressing the activity-panel Start
-   button, then wait for `UIGhostParkourBattleMain`.
-3. Run the vision reflex loop until death; on the death popup press **Воскрешение**
-   while resurrections remain, else close and read the result (`GetPersonalHightestScore`).
-4. Loop until `GetRemainTimes` reaches 0.
+1. **Capture** the road ROI with `mss` in a tight **in-memory** loop (no per-frame PNG
+   save — the calibration capture ran ~4 fps only because it wrote a PNG each frame;
+   in-memory grab+detect should hit <30 ms, fast enough).
+2. **Detect** the avatar's current lane and the nearest obstacle's lane from a fixed
+   band ahead of the avatar. Lane x-boundaries to calibrate from `live_*.png`.
+3. **React** with `pydirectinput` (foreground input; PostMessage ignored — see memory
+   `project_input_model`). **Input model UNCONFIRMED** — Left/Right = change lane and
+   Up/Down = jump/slide is the genre default, but the exact keys must be tested live
+   (or read off the user playing).
 
 ## Status vs. the task
 
-- ✅ Found the UI and the manager; mapped the launch/attempt/record API.
-- ✅ Confirmed the state-reading strategy (vision; Lua only for meta/launch).
-- ⛔ **Blocked on the event being inactive** — cannot observe the live runner, calibrate
-  the detector, or run the ~30 attempts until «Уличный забег» is scheduled/open on the
-  account. `tools/street_run_bot.py` is the ready harness (`probe`/`shot`/`watch` work
-  now; `calibrate` + `run` need a live event); the perception layer is a calibration
-  stub pending live frames.
+- ✅ **Manager identified & proven** — `LWSurfingDataManager`; probe reports OPEN
+  (28 attempts, best 8185, ~5 d left).
+- ✅ **Launch proven live** — `ReqFightStartCheck(false)` starts a real run;
+  `GoBackToActivityPanel()` clears the result popup between runs.
+- ✅ **Live gameplay captured** — 3-lane runner mapped (`live_*.png`).
+- 🟡 **Auto-play NOT built** — input keys unconfirmed; the `detect()`/`decide()`
+  perception layer is still a calibration stub. Cannot yet dodge, so a headless `run`
+  would just die at ~88 m. Next: confirm controls, tune `detect()` on `live_*.png`,
+  then `run` (leave 5 attempts for the user).
 
-### Exhaustively verified NOT accessible (session 2)
-
-The user reported ~30 attempts available, but the event is not reachable from this
-client. Confirmed closed five independent ways:
-
-1. `LWGhostParkourDataManager` state all empty — `activityId=nil, beginTime=0,
-   remainTimes=nil, endlessSwitch=false, highest=0` — **even after** a forced
-   `ActivityListDataManager:RequestActivityData()` resync + `SendGetGhostParkourInfosMessage()`.
-2. Deep scan of `nowActivityList` (28) / `laterActivityList` / `overActivityList` —
-   **zero** parkour references.
-3. `ReqStartGame(1,false)` — silently dropped, no scene, no attempt spent.
-4. Every «События» tab and the whole arcade carousel inspected — no runner.
-5. `UIGhostParkourRankPanelView` = «Нет данных», `UIGhostParkourBattleMain` = empty HUD-hide.
-
-Most likely: the event round is currently **closed / time-gated** (the user's "~30
-attempts" is their remaining allowance from an open window, and it reopens on
-schedule), **or** this automation drives a **different account** than the user plays
-(the launch doc recommends a throwaway) where the event isn't active. Either way it
-cannot be forced from here. Use `street_run_bot.py watch` to catch the next open
-window, then `calibrate` + `run`.
-
-Do not mark this ✅ in `docs/farming.md` until a run is proven live.
+`tools/street_run_bot.py`: `probe` (state), `shot`, `watch` (durable poll + sentinel),
+`calibrate` (start a run + grab frames), `record` (capture-only for user play),
+`run` (reflex loop — blocked on the perception layer above).
