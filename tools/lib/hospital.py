@@ -11,14 +11,13 @@ soldier type, ``dead`` being the wounded waiting and ``heal`` those already in
 treatment. Collecting the healed soldiers is the manager's own
 ``CheckSendFinish``, which sends ``queue.finish`` once the heal timer has run out.
 
-The shape above is what a recorded human press actually sends — `armyArray` and `gold`,
-nothing else. Sending the pay-to-finish fields alongside (`goldForTime`, `goldForResource`,
-`itemIds`) makes the client build the message WITHOUT `armyArray` and the server answer
-`E000000`; that bug is fixed, but a scripted heal has not yet been watched moving the
-wounded count, so treat :func:`heal_all` as unproven in outcome.
+Both halves are proven live (2026-07-29): one :func:`heal_all` sent 681 wounded for
+treatment, and :func:`collect` brought a finished batch back and freed the hospital.
 
-Building queues are NOT a gate: the player's own heal went through with all four of them
-working. An earlier version of this module claimed otherwise.
+The message cannot go out through `SFSNetwork.SendMessage` — it is assembled and handed
+to the transport instead, see `lua_actions` and the research note §2a. Building queues are
+NOT a gate; `errorCode 130069` means the HOSPITAL queue is busy (a heal running, or a
+finished one still waiting to be collected), so collect before healing.
 
 Everything runs through any evaluator exposing ``.run(chunk, marker, settle)`` — the warm
 daemon client or a local ``LuaEval`` (see ``tools/lib/lua_client.py``).

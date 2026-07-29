@@ -152,26 +152,37 @@ def test_heal_all_never_blames_the_building_queues():
 def test_heal_all_builds_from_the_hospital_rows():
     chunk = lua_actions.hospital_heal_all()
     _check("heal_all reads the hospital", "allHospital" in chunk)
-    _check("...takes the whole wounded batch", "count = math.floor(h.dead)" in chunk)
-    _check("...and sends hospital.cure", "MsgDefines.HospitalCure" in chunk)
+    _check("...takes the whole wounded batch", "math.floor(h.dead)" in chunk)
+    _check("...and sends hospital.cure", "SendLuaMessage('hospital.cure'" in chunk)
 
 
 # -- cure: the message shape -------------------------------------------------
 
 def test_cure_builds_the_message():
+    # The message is assembled and handed to the transport directly: SendMessage() refuses
+    # to build armyArray for this command (docs/research/hospital-heal.md §2a).
     chunk = lua_actions.hospital_cure([("3014", 80)])
-    _check("cure names hospital.cure", "SFSNetwork.SendMessage(MsgDefines.HospitalCure" in chunk)
-    _check("cure carries armyArray", "armyArray=" in chunk)
-    _check("armyId is a string", 'armyId="3014"' in chunk)
-    _check("the per-entry count is an int", "count=80" in chunk)
+    _check("cure names hospital.cure", "'hospital.cure'" in chunk)
+    _check("cure puts armyArray on the message", "PutSFSArray('armyArray'" in chunk)
+    _check("armyId goes out as a string", "PutUtfString('armyId'" in chunk)
+    _check("the per-entry count is healNum on the wire", "PutInt('healNum'" in chunk)
+    _check("the entry is carried through", '{"3014",80}' in chunk)
+
+
+def test_cure_sends_through_the_transport_with_the_command_name():
+    # `SendLuaMessage(bin)` without the command is accepted by the client and never
+    # reaches the server — the name is what routes it.
+    chunk = lua_actions.hospital_cure([("3014", 1)])
+    _check("resolves the transport", "GetMsgType" in chunk and "Network" in chunk)
+    _check("sends with the command name", "SendLuaMessage('hospital.cure'" in chunk)
+    _check("...and the serialised message", "ToBinary()" in chunk)
 
 
 def test_cure_carries_gold_and_nothing_else():
-    # `gold` is mandatory (the serialiser packs it as an int). The pay-to-finish fields are
-    # NOT: sending them takes the client down the branch that omits armyArray entirely and
-    # the server answers E000000 — which is what the 20260729_182527 recording showed.
+    # `gold` is what NewMessage needs; the pay-to-finish fields belong to another branch
+    # and must never be sent with a plain heal.
     chunk = lua_actions.hospital_cure([("3014", 1)])
-    _check("cure carries gold=0", "gold=0" in chunk)
+    _check("cure carries gold = 0", "gold = 0" in chunk)
     for field in ("goldForTime", "goldForResource", "itemIds"):
         _check("cure does NOT carry %s" % field, field not in chunk)
 
@@ -185,7 +196,7 @@ def test_heal_all_carries_gold_and_nothing_else():
 
 def test_cure_multiple_types():
     chunk = lua_actions.hospital_cure([("3014", 80), ("3015", 5)])
-    _check("both types present", 'armyId="3014"' in chunk and 'armyId="3015"' in chunk)
+    _check("both types present", '{"3014",80}' in chunk and '{"3015",5}' in chunk)
     _check("entry count logged", "entries=2" in chunk)
 
 

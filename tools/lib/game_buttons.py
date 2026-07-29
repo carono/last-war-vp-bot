@@ -401,9 +401,10 @@ BUTTONS: dict[str, Button] = {
     # 0 while the heal is still running. One heal press already covers every type, so a
     # plain `TAP heal_all` is the usual call.
     #
-    # UNPROVEN LIVE: the shape is exactly what a recorded human press sends, but a heal
-    # sent by THIS code has not yet been watched moving the wounded count. Building queues
-    # are not a gate — the recorded press went through with all four of them working.
+    # PROVEN LIVE (2026-07-29): heal_all sent 681 wounded for treatment in one press, and
+    # collect_healed brought a finished batch back. A heal is refused (errorCode 130069)
+    # while the hospital queue is busy — including when finished soldiers are still waiting
+    # to be collected — so run collect_healed first, which is the order the recipe uses.
     "heal_all": Button(
         lua=_lua_actions.hospital_heal_all(),
         wait=1.2, label="Heal all wounded soldiers",

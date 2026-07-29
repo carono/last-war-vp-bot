@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **25%** — 22 of 87
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 24 of 87
 
-🟩 22 done · 🟨 18 partly · 🟥 47 not automated
+🟩 24 done · 🟨 16 partly · 🟥 47 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -63,8 +63,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Helping the alliance — a single press answers every pending request at once
 - ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
-- 🟡 Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. The list of wounded it works from has been read off a live game and matches what the hospital shows, and a recording of a person healing by hand has now given the exact request the game sends. What is missing is one heal sent by the bot that the game accepts — the earlier attempts were built wrong and were turned down
-- 🟡 Collecting units from the hospital — the bot makes the "receive" press, and while a heal is still running it costs nothing, so it can be run on any schedule. Not yet seen bringing soldiers back
+- ✅ Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. Proven live: 681 wounded went in on a single press. If the hospital is busy — a heal already running, or finished soldiers still waiting to be picked up — the game turns the press down, so collect first
+- ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
 - ❌ Asking for help with healing — a press of its own, and the recording shows exactly what it sends, but the bot does not make it yet
 - 🟡 Joining a rally — the bot can join or decline a live rally and pick which squad goes, but nothing decides *which* rallies to join or keeps count
 - ❌ Starting a rally

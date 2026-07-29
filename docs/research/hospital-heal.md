@@ -68,6 +68,49 @@ PutSFSArray(armyArray, …)   PutInt(gold, 0)       PutInt(worldType, 0)
 > The 20260729_182527 re-recording (no dedup) shows the whole message, and it is three keys.
 > Never reason from what a deduped trace does not contain — see `docs/skills/sniff.md` §8.5a.
 
+### 2a. How to send it from a script
+
+`SFSNetwork.SendMessage("hospital.cure", param)` **does not work for this message**.
+`HospitalCureMessage:OnCreate` will not build `armyArray` from a param handed to it that
+way: the message leaves with only `gold` + `worldType` and the server answers
+`errorCode E000000`. That was verified to exhaustion — every spelling of the entry fields
+(`count` / `healNum` / both, armyId as string and as number), with and without the extra
+gold fields, on a freshly restarted client, with the hospital window shut and open, and
+with `param` confirmed intact *inside* `OnCreate` by a trap. The cause inside `OnCreate`
+was never found; the function does not raise, it simply skips the block.
+
+What works is to assemble the message and hand it to the transport — which is all
+`SendMessage` does anyway, minus the `OnCreate` step:
+
+```lua
+local GetMsgType, Network = <upvalues of SFSNetwork.SendMessage>
+local cls = GetMsgType("hospital.cure")
+local msg = cls:NewMessage({gold = 0})          -- fills gold + worldType
+local arr = SFSArray.New()
+for _, e in ipairs(entries) do                  -- e = {armyId, count}
+    local o = SFSObject.New()
+    o:PutUtfString("armyId", tostring(e[1]))
+    o:PutInt("healNum", math.floor(e[2]))
+    arr:AddSFSObject(o)
+end
+msg.sfsObj:PutSFSArray("armyArray", arr)
+Network:SendLuaMessage("hospital.cure", msg:ToBinary())
+```
+
+**The command name is required.** `SendLuaMessage(bin)` alone is accepted by the client and
+never reaches the server — no reply, no effect, no error.
+
+Proven live on 2026-07-29: the server answered
+`{_id, _time, gold, hospitalArray, queue, resource}` with **no** errorCode, and the whole
+base went to treatment in one press — `3013` dead 34 -> 0 (heal 34), `3014` dead 647 -> 0
+(heal 647), the hospital queue moving to `state=2` with a timer.
+
+### 2b. `errorCode 130069` — the queue is occupied
+
+The old "building queues are full" reading of `130069` was wrong, but the code is real: it
+comes back when the **hospital** queue is not free — either a heal is already running, or a
+finished one is still waiting to be collected (`state=3`). Collect first, then heal.
+
 The reply comes back through `HospitalManager:HospitalCureHandle`, which either carries
 an `errorCode` (and shows the game's tip) or applies the heal: resources, gold, the queue,
 the army and the hospital rows, plus a `HospitalUpdate` broadcast.
@@ -164,21 +207,23 @@ one.
 
 ## 6. What is proven and what is not
 
-Proven live: the message and every field in it (from the no-dedup recording of a real
-press), the wounded list, the three other presses of the routine, and that a heal is
-accepted with the building queues full.
-
-**Not** proven: a heal sent **from a script**. The headless send reaches the server and is
-answered `errorCode E000000` with the generic "unknown error" tip, because the message
-leaves without `armyArray`:
+**Proven live, end to end (2026-07-29).** Collect then heal, both headless, both moving
+real numbers:
 
 ```
-HospitalCureHandle <- {errorCode = "E000000"}    -- the ONLY field in the reply
+collect  -> queue state=3 -> 0,  3013 heal=5 -> 0      (the healed came back)
+heal_all -> reply with no errorCode
+            3013 dead=34  -> 0, heal=34
+            3014 dead=647 -> 0, heal=647
+            queue state=2, timer running
 ```
 
-The cause of the missing `armyArray` was the three extra fields (§2) — a plain heal must
-send only `armyArray` and `gold`. Dropping them is the fix under test; until a scripted
-heal is watched moving the wounded count, the ability stays 🟡.
+Also proven: the message and every field in it (from the no-dedup recording of a real
+press), the wounded list, and the three other presses of the routine.
+
+**Not** proven: the heal *timer* running down to soldiers rejoining the army from a
+bot-started heal (the collect above belonged to a heal started minutes earlier, which is
+the same path), and `al.call.help`, which is understood but not yet wired to a button.
 
 The window's own sender cannot stand in for it from a script: `LWUIHospitalView.SendMessage`
 sums `curCount` over its own soldier list — not over `HospitalManager.allHospital` — and

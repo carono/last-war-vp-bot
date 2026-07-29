@@ -1629,21 +1629,60 @@ def _hospital_army_literal(entries) -> str:
     return "{" + ",".join(parts) + "}"
 
 
+# `SFSNetwork.SendMessage("hospital.cure", param)` CANNOT be used for this message.
+# `HospitalCureMessage:OnCreate` silently declines to build `armyArray` from a param
+# handed to it that way — the message goes out with only `gold` + `worldType`, and the
+# server answers `errorCode E000000` (verified live many times, with every spelling of
+# the entry fields, on a clean VM, with and without the hospital window open).
+#
+# What works is to build the message and hand it to the transport directly — which is
+# all `SendMessage` itself does, minus the OnCreate step we cannot make cooperate:
+#
+#     local cls = GetMsgType("hospital.cure")     -- both live in SendMessage's upvalues
+#     local msg = cls:NewMessage({gold = 0})      -- fills gold + worldType
+#     ... build the SFSArray of {armyId, healNum} by hand ...
+#     msg.sfsObj:PutSFSArray("armyArray", arr)
+#     Network:SendLuaMessage("hospital.cure", msg:ToBinary())
+#
+# The command name is required as the first argument — `SendLuaMessage(bin)` alone is
+# accepted by the client and never reaches the server. Proven live 2026-07-29: the
+# server replied `{_id, _time, gold, hospitalArray, queue, resource}` (no errorCode) and
+# 3013 moved dead=39 -> dead=34, heal=5.
+_HOSPITAL_TRANSPORT = (
+    "local __f = SFSNetwork.SendMessage local __GMT, __NET local __i = 1 "
+    "while true do local n, v = debug.getupvalue(__f, __i) if not n then break end "
+    "if n == 'GetMsgType' then __GMT = v end "
+    "if n == 'Network' then __NET = v end __i = __i + 1 end "
+    "if not (__GMT and __NET) then error('hospital: transport not found') end "
+    "local __cure = function(army) "
+    "if #army == 0 then error('no wounded soldiers') end "
+    "local cls = __GMT('hospital.cure') "
+    "local msg = cls:NewMessage({gold = 0}) "
+    "local arr = SFSArray.New() "
+    "for _, e in ipairs(army) do "
+    "local o = SFSObject.New() "
+    "o:PutUtfString('armyId', tostring(e[1])) "
+    "o:PutInt('healNum', math.floor(e[2])) "
+    "arr:AddSFSObject(o) end "
+    "msg.sfsObj:PutSFSArray('armyArray', arr) "
+    "__NET:SendLuaMessage('hospital.cure', msg:ToBinary()) "
+    "return #army end "
+)
+
+
 def hospital_cure(entries) -> str:
     """Heal the given soldier types in one `hospital.cure`.
 
     `entries` is an iterable of `(armyId, count)` pairs — the faithful, parameterised
     reproduction of the in-game press, for when the caller already knows which types to
-    heal and how many of each. The three gold fields go out as 0: the free heal, no
-    timer skip, no bought resources.
+    heal and how many of each. `gold` goes out as 0: the free heal.
     """
     entries = list(entries)
-    army = _hospital_army_literal(entries)
-    return ('local ok,err = pcall(function() SFSNetwork.SendMessage(MsgDefines.HospitalCure, '
-            '{armyArray=%s, gold=0}) end) '
+    army = "{" + ",".join('{"%s",%d}' % (str(a), int(c)) for a, c in entries) + "}"
+    return ('local ok,err = pcall(function() %s __cure(%s) end) '
             'CS.UnityEngine.Debug.LogError("ACT hospital_cure entries=%d ok="..tostring(ok)'
             '..(ok and "" or (" err="..tostring(err))))'
-            % (army, len(entries)))
+            % (_HOSPITAL_TRANSPORT, army, len(entries)))
 
 
 def hospital_wounded_count() -> str:
@@ -1673,14 +1712,14 @@ def hospital_heal_all() -> str:
     """
     return (
         "local ok,err = pcall(function() "
+        + _HOSPITAL_TRANSPORT +
         "local m = DataCenter and DataCenter.HospitalManager "
         "if not m or type(m.allHospital) ~= 'table' then error('HospitalManager not loaded') end "
         "local army = {} "
         "for _, h in pairs(m.allHospital) do "
         "if type(h)=='table' and h.armyId and type(h.dead)=='number' and h.dead > 0 then "
-        "army[#army+1] = {armyId = tostring(h.armyId), count = math.floor(h.dead)} end end "
-        "if #army == 0 then error('no wounded soldiers') end "
-        "SFSNetwork.SendMessage(MsgDefines.HospitalCure, {armyArray = army, gold = 0}) "
+        "army[#army+1] = {tostring(h.armyId), math.floor(h.dead)} end end "
+        "__cure(army) "
         'CS.UnityEngine.Debug.LogError("ACT hospital_heal_all types="..#army) '
         "end) "
         'if not ok then CS.UnityEngine.Debug.LogError("ACT hospital_heal_all skip: "..tostring(err)) end'
