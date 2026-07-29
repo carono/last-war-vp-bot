@@ -15,6 +15,7 @@
   "tab.main": "Основные",
   "tab.scenarios": "Сценарии",
   "tab.timers": "Таймеры",
+  "tab.settings": "Настройки",
   "tab.chat": "Чат",
   "scenarios.placeholder": "Сценарии — скоро",
   "scenarios.actions": "Скрипты-действия",
@@ -67,6 +68,20 @@
   "timers.log.tick_error": "ошибка расписания: {error}",
   "timers.log.step_failed": "шаг не отработал: {step}",
   "timers.log.reloaded": "конфиг перечитан — таймеров: {n}",
+
+  "settings.placeholder": "Скоро",
+  "settings.tab.autorally": "Авторалли",
+  "settings.tab.general": "Общие",
+  "settings.tab.game": "Игра",
+
+  "autorally.frame": "Авторалли",
+  "autorally.squads": "Отряды:",
+  "autorally.hint": "Отряды, которые можно отправлять в ралли. Каждый идёт в своё ралли.",
+  "autorally.drill.frame": "Учения альянса",
+  "autorally.drill.enabled": "Участвовать в авторалли учений",
+  "autorally.drill.banner": "Создавать стяг",
+  "autorally.drill.squads": "Отряды:",
+  "autorally.drill.hint": "Клик по отряду меняет его роль: пусто — не участвует · ✓ — идёт · 🚩 — флагман (создаёт стяг). Флагман только один; чтобы перенести стяг, сначала сними его с текущего.",
 
   "top.game": "Игра:",
   "top.daemon": "демон:",

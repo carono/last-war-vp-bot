@@ -15,6 +15,7 @@
   "tab.main": "Main",
   "tab.scenarios": "Scenarios",
   "tab.timers": "Timers",
+  "tab.settings": "Settings",
   "tab.chat": "Chat",
   "scenarios.placeholder": "Scenarios — coming soon",
   "scenarios.actions": "Action scripts",
@@ -67,6 +68,20 @@
   "timers.log.tick_error": "schedule error: {error}",
   "timers.log.step_failed": "the step did not finish: {step}",
   "timers.log.reloaded": "config re-read — {n} timer(s)",
+
+  "settings.placeholder": "Coming soon",
+  "settings.tab.autorally": "Auto-rally",
+  "settings.tab.general": "General",
+  "settings.tab.game": "Game",
+
+  "autorally.frame": "Auto-rally",
+  "autorally.squads": "Squads:",
+  "autorally.hint": "The squads that may be sent to a rally. Each goes to a rally of its own.",
+  "autorally.drill.frame": "Alliance drill",
+  "autorally.drill.enabled": "Join drill rallies automatically",
+  "autorally.drill.banner": "Raise the banner",
+  "autorally.drill.squads": "Squads:",
+  "autorally.drill.hint": "Click a squad to change what it does: blank — stays home · ✓ — joins · 🚩 — leads (raises the banner). Only one squad can lead; clear the current one to move the banner.",
 
   "top.game": "Game:",
   "top.daemon": "daemon:",

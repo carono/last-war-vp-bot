@@ -14,6 +14,11 @@ Blocks:
     or secret_mission_capture.py) in the background and streams findings into the log, plus
     «Автолут ★» — a standing order that watches the capture's checkpoint and robs a starred
     task of the best level the moment one becomes raidable (tools/steal_secret_task.py).
+  * Настройки — a page of sub-tabs (SETTINGS_TABS is the whole list; a tab with no builder
+    yet shows a placeholder). «Авторалли» is the filled one: which squads may be sent to a
+    rally, and the alliance-drill variant where each squad is out / in / leading and exactly
+    one can carry the banner. Saved into the active profile as it changes; nothing reads it
+    yet — actions/join_rally.md takes its squads as an argument.
   * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech and
     then claim the gifts) has a switch and a period, and runs itself once that long has
     passed since it last ran. Everything scheduled runs single-file on one worker thread
@@ -181,6 +186,25 @@ SNIFF_FLUSH_MS = 600
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
 # non-recursive glob below deliberately skips, so the picker offers only what works.
 ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
+# The Settings page: one entry per sub-tab, in the order they appear. `builder` is
+# the Panel method that fills the tab; None means "not written yet" and gets the
+# placeholder. ADDING A TAB IS ADDING A LINE HERE plus its two locale strings —
+# nothing else knows the list.
+SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
+    ("autorally", "_build_autorally_settings"),
+    ("general", None),
+    ("game", None),
+)
+
+# The squads the panel offers for a rally. The game's own squad slots are read
+# live where they matter (the formation whose `index` is the slot, see
+# tools/lib/lua_actions.py); this is only how many the page draws.
+RALLY_SQUADS = (1, 2, 3, 4)
+
+# The three states of a drill squad, in the order a click walks them.
+DRILL_OFF, DRILL_ON, DRILL_FLAG = "", "on", "flag"
+DRILL_MARKS = {DRILL_OFF: " ", DRILL_ON: "✓", DRILL_FLAG: "🚩"}
+
 # How long the scenario editor waits after the last keystroke before writing the
 # file. Long enough that a burst of typing is one write, short enough that a run
 # started right after an edit reads what is on screen (and a run flushes first
@@ -569,6 +593,9 @@ class Panel(tk.Tk):
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
+            # Settings page -> «Авторалли»: which squads may be sent, and the
+            # alliance-drill variant with its single banner-carrier.
+            "autorally": self._autorally_config(),
             # The schedule is NOT here: a timer's switch and period live in the
             # profile's own timers.json beside its scenario, and when each last
             # ran in timers_last_run.json (see panel/timers.py).
@@ -597,6 +624,7 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
+            self._apply_autorally_config(s.get("autorally"))
         finally:
             self._loading = False
         self._update_path_hints()
@@ -606,7 +634,9 @@ class Panel(tk.Tk):
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
                     self._pending_var, self._can_loot_var, self._lvl_from_var,
                     self._lvl_to_var, self._rally_var, self._help_var, self._mon_var,
-                    self._autoloot_var, self._chat_var):
+                    self._autoloot_var, self._chat_var,
+                    self._drill_on_var, self._drill_banner_var,
+                    *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
@@ -679,17 +709,21 @@ class Panel(tk.Tk):
         main = ttk.Frame(nb)
         scenarios = ttk.Frame(nb)
         timers_tab = ttk.Frame(nb)
+        settings_tab = ttk.Frame(nb)
         chat_tab = ttk.Frame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
+        nb.add(settings_tab, text=self._t("tab.settings"))
         nb.add(chat_tab, text=self._t("tab.chat"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(timers_tab, text=self._t("tab.timers")),
+                                       nb.tab(settings_tab, text=self._t("tab.settings")),
                                        nb.tab(chat_tab, text=self._t("tab.chat"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
+        self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
 
         top = ttk.Frame(main, padding=8)
@@ -2598,6 +2632,161 @@ class Panel(tk.Tk):
             return self._t("timers.span.hour", h=seconds // 3600,
                            m=(seconds % 3600) // 60)
         return self._t("timers.span.day", d=seconds // 86400)
+
+    # -- settings page (sub-tabs; SETTINGS_TABS is the whole list) -----------
+
+    def _build_settings_tab(self, parent: ttk.Frame) -> None:
+        """The Settings page: a Notebook whose tabs come from SETTINGS_TABS.
+
+        A tab with no builder yet shows the placeholder, so the page is complete
+        from the first day and filling one in is writing its builder — nothing
+        here or in the tab bar has to change.
+        """
+        sub_nb = ttk.Notebook(parent)
+        sub_nb.pack(fill="both", expand=True, padx=4, pady=4)
+
+        for key, builder in SETTINGS_TABS:
+            frame = ttk.Frame(sub_nb, padding=8)
+            sub_nb.add(frame, text=self._t(f"settings.tab.{key}"))
+            self._tr_hooks.append(
+                lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}"))
+            )
+            fill = getattr(self, builder) if builder else None
+            if fill is None:
+                self._tr(ttk.Label(frame, foreground="#888"),
+                         "settings.placeholder").pack(anchor="w")
+            else:
+                fill(frame)
+
+    # -- settings: auto-rally -----------------------------------------------
+
+    def _build_autorally_settings(self, parent: ttk.Frame) -> None:
+        """Which squads may be sent to a rally, and the alliance-drill variant.
+
+        Two independent things share the page because they are the same decision
+        asked twice. An ordinary rally only needs "which squads may go" — four
+        plain checkboxes, saved as the list `[1, 3]`. The drill also needs to know
+        WHO raises the banner, so each squad there has three states instead of two
+        (out / in / in and leading) and only one of them can be the leader.
+
+        Everything is written to the active profile the moment it changes; nothing
+        reads it yet — the rally recipe takes its squads as an argument
+        (`actions/join_rally.md`), and pointing it at this page is the next step.
+        """
+        rally = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.frame")
+        rally.pack(fill="x")
+        self._tr(ttk.Label(rally), "autorally.squads").pack(side="left", padx=(0, 6))
+        self._rally_squad_vars: dict[int, tk.BooleanVar] = {}
+        for squad in RALLY_SQUADS:
+            var = tk.BooleanVar(value=False)
+            self._rally_squad_vars[squad] = var
+            ttk.Checkbutton(rally, text=str(squad), variable=var).pack(side="left", padx=4)
+        self._tr(ttk.Label(parent, foreground="#888", wraplength=620, justify="left"),
+                 "autorally.hint").pack(anchor="w", pady=(4, 0))
+
+        drill = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.drill.frame")
+        drill.pack(fill="x", pady=(10, 0))
+        self._drill_on_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(drill, variable=self._drill_on_var),
+                 "autorally.drill.enabled").pack(anchor="w")
+        self._drill_banner_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(drill, variable=self._drill_banner_var),
+                 "autorally.drill.banner").pack(anchor="w", pady=(2, 6))
+
+        row = ttk.Frame(drill)
+        row.pack(fill="x")
+        self._tr(ttk.Label(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
+        # Tri-state, so a checkbox will not do: each squad is a button whose text
+        # is its state, and a click walks the states round.
+        self._drill_state: dict[int, str] = {s: DRILL_OFF for s in RALLY_SQUADS}
+        self._drill_buttons: dict[int, ttk.Button] = {}
+        for squad in RALLY_SQUADS:
+            btn = ttk.Button(row, width=5,
+                             command=lambda s=squad: self._cycle_drill_squad(s))
+            btn.pack(side="left", padx=3)
+            self._drill_buttons[squad] = btn
+        self._tr(ttk.Label(drill, foreground="#888", wraplength=620, justify="left"),
+                 "autorally.drill.hint").pack(anchor="w", pady=(6, 0))
+        self._paint_drill_squads()
+
+    def _cycle_drill_squad(self, squad: int) -> None:
+        """Walk one squad's state: out -> in -> leading -> out.
+
+        `leading` is skipped when another squad already holds the banner, so a
+        click can never quietly take it away from the squad the operator chose;
+        clearing that one first is how it moves.
+        """
+        state = self._drill_state.get(squad, DRILL_OFF)
+        if state == DRILL_OFF:
+            self._drill_state[squad] = DRILL_ON
+        elif state == DRILL_ON:
+            taken = any(s != squad and st == DRILL_FLAG
+                        for s, st in self._drill_state.items())
+            self._drill_state[squad] = DRILL_OFF if taken else DRILL_FLAG
+        else:
+            self._drill_state[squad] = DRILL_OFF
+        if self._drill_state[squad] == DRILL_FLAG:
+            # One banner: whatever else claimed it stays in, just not leading.
+            for other in self._drill_state:
+                if other != squad and self._drill_state[other] == DRILL_FLAG:
+                    self._drill_state[other] = DRILL_ON
+        self._paint_drill_squads()
+        self._save_settings()
+
+    def _paint_drill_squads(self) -> None:
+        """Redraw the four buttons from `_drill_state`."""
+        for squad, btn in getattr(self, "_drill_buttons", {}).items():
+            mark = DRILL_MARKS[self._drill_state.get(squad, DRILL_OFF)]
+            try:
+                btn.configure(text=f"{squad} {mark}")
+            except tk.TclError:
+                pass
+
+    def _autorally_config(self) -> dict:
+        """The page as it is stored: squad lists, not a widget per squad.
+
+        `[1, 3]` says what it means to a reader of the config file, and survives
+        the page offering a different number of squads later. The drill's leader
+        is a separate field rather than a fourth list, because there is only ever
+        one of it — and it is always also in `squads`.
+        """
+        drill_squads = [s for s in RALLY_SQUADS
+                        if self._drill_state.get(s, DRILL_OFF) != DRILL_OFF]
+        flagship = next((s for s in RALLY_SQUADS
+                         if self._drill_state.get(s) == DRILL_FLAG), None)
+        return {
+            "squads": [s for s in RALLY_SQUADS if self._rally_squad_vars[s].get()],
+            "drill": {
+                "enabled": bool(self._drill_on_var.get()),
+                "create_banner": bool(self._drill_banner_var.get()),
+                "squads": drill_squads,
+                "flagship": flagship,
+            },
+        }
+
+    def _apply_autorally_config(self, raw) -> None:
+        """Restore the page from a profile's saved block (anything odd -> off)."""
+        raw = raw if isinstance(raw, dict) else {}
+        squads = raw.get("squads")
+        squads = squads if isinstance(squads, list) else []
+        for squad, var in self._rally_squad_vars.items():
+            var.set(squad in squads)
+
+        drill = raw.get("drill")
+        drill = drill if isinstance(drill, dict) else {}
+        self._drill_on_var.set(bool(drill.get("enabled", False)))
+        self._drill_banner_var.set(bool(drill.get("create_banner", False)))
+        chosen = drill.get("squads")
+        chosen = chosen if isinstance(chosen, list) else []
+        flagship = drill.get("flagship")
+        self._drill_state = {
+            s: (DRILL_ON if s in chosen else DRILL_OFF) for s in RALLY_SQUADS
+        }
+        # The leader is only honoured if it is in the list at all, and only once —
+        # a hand-edited config cannot end up with two banners.
+        if flagship in self._drill_state and flagship in chosen:
+            self._drill_state[flagship] = DRILL_FLAG
+        self._paint_drill_squads()
 
     # -- chat tab -----------------------------------------------------------
 
