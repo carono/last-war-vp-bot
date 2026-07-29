@@ -87,6 +87,25 @@ def test_tap_all_presses_until_count_zero():
     assert presses == 3, f"expected 3 presses for xall over 3->0, got {presses}"
 
 
+def test_tap_all_batches_the_count_reads_but_still_stops_at_zero():
+    """`recheck_every` buys speed by reading the count once per batch, not per press.
+
+    Donating is the case it exists for: one press spends exactly one attempt, so between
+    reads the loop may assume the countdown. What must NOT change is where it stops —
+    with 7 attempts banked and a batch of 5, it presses 7 times and no more, having paid
+    for 2 count reads instead of 8.
+    """
+    import game_buttons as gb
+    btn = gb.get("donate_1000")
+    assert btn.recheck_every > 1, "donate is the button that batches its count reads"
+    ev = FakeEval(rluas=["7", "2", "0"])
+    _run("TAP donate_1000 xall", ev)
+    presses = sum(1 for c in ev.chunks if "OnResDonateClick" in c)
+    reads = sum(1 for c in ev.chunks if "GetResDonateRestCount" in c)
+    assert presses == 7, f"expected 7 presses for 7 banked attempts, got {presses}"
+    assert reads == 2, f"expected 2 count reads (one per batch of 5), got {reads}"
+
+
 def test_tap_all_without_count_is_error():
     # `close` has no count_lua, so xall on it must fail loudly.
     ev = FakeEval()

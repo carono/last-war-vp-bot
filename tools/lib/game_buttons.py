@@ -39,6 +39,12 @@ class Button:
     count_lua: str | None = None
     # Safety cap on `xall` iterations, so a miscounting expression can't spin forever.
     max_taps: int = 60
+    # How many presses `xall` fires between two `count_lua` re-reads. 1 (the default)
+    # re-reads before every press — right when one press can clear the whole backlog
+    # (help-all). For a button that spends exactly one attempt per press and is a safe
+    # no-op once the quota is gone (donate), re-reading every time doubles the cost of a
+    # press for nothing; a batch of N presses per read is the in-game "hold the button".
+    recheck_every: int = 1
 
 
 # The recommended-science object is fetched fresh inside each press (it is cheap and
@@ -71,9 +77,13 @@ BUTTONS: dict[str, Button] = {
              "local w = UIManager.Instance:GetStackTopWindow() "
              "if w and tostring(w.Name) == 'UIAllianceScienceInfo' then "
              "w.Ctrl:OnResDonateClick(rec.scienceId, rec.res, rec.resNum) end" % _REC),
-        wait=0.12, label="Donate 1000",
+        wait=0.03, label="Donate 1000",
         count_lua="DataCenter.AllianceScienceDataManager:GetResDonateRestCount()",
         max_taps=40,
+        # One press = one attempt, and a press past the quota is gated server-side, so
+        # the count only has to be checked once per batch — that is what makes this run
+        # at the speed of holding the button rather than one donation a second.
+        recheck_every=5,
     ),
     # --- Alliance -> help every member with an open help request -------------
     "help_ally_all": Button(

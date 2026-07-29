@@ -95,7 +95,7 @@ def _rest_count(run: Run, use_gold: bool) -> int:
     getter = "GetGoldDonateRestCount" if use_gold else "GetResDonateRestCount"
     lines = run(
         _L("DON") + '\nL("rest="..tostring(DataCenter.AllianceScienceDataManager:%s()))'
-        % getter, "DON", 1.2)
+        % getter, "DON", 0.4)
     for ln in lines:
         if "rest=" in ln:
             try:
@@ -106,14 +106,19 @@ def _rest_count(run: Run, use_gold: bool) -> int:
 
 
 def press_donate(run: Run, use_gold: bool, cap: int | None,
-                 settle_after: float = 0.6) -> int:
+                 settle_after: float = 0.12, recheck_every: int = 5) -> int:
     """Press the donate button once per chunk until attempts run out (or `cap`). Returns presses.
 
     CRITICAL: one press per Lua chunk, with a pause between presses. A donation only
     lowers the remaining-attempts count AFTER the server replies to `al.science.donate`,
     so a tight in-Lua `while` loop never sees the count drop, spins forever on the
-    main thread and FREEZES the client. Looping here (Python side) with a re-read each
-    turn lets the round-trip land — mirrors the DSL recipe donate_alliance_tech.md.
+    main thread and FREEZES the client. Looping here (Python side) with a pause between
+    presses lets the round-trip land — mirrors the DSL recipe donate_alliance_tech.md.
+
+    The remaining-attempts count is re-read once every `recheck_every` presses, not
+    before each one: a press spends exactly one attempt, and one past the quota is
+    gated server-side, so the extra read only cost wall-clock. That, plus the short
+    `settle_after`, is what makes this run at the pace of holding the button in game.
     """
     method = "OnGoldDonateClick" if use_gold else "OnResDonateClick"
     # Res press: (scienceId, resType, resNum). Gold press: (scienceId, goldNum).
@@ -130,10 +135,17 @@ L("pressed one")''' % (method, args)
 
     n = 0
     limit = cap if cap is not None else 1000  # hard backstop against a runaway loop
-    while n < limit and _rest_count(run, use_gold) > 0:
-        run(press, "DON", 1.2)
+    every = max(1, recheck_every)
+    rest = 0
+    while n < limit:
+        if n % every == 0:                 # re-read the real count once per batch
+            rest = _rest_count(run, use_gold)
+        if rest <= 0:
+            break
+        run(press, "DON", 0.3)
         n += 1
-        time.sleep(settle_after)   # let the server apply this donation before the next read
+        rest -= 1                          # assumed; the next re-read corrects it
+        time.sleep(settle_after)   # let the server apply this donation before the next press
     return n
 
 

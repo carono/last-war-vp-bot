@@ -1056,16 +1056,20 @@ class Interpreter:
                 "(no count defined in the catalogue)"
             )
         pressed = 0
-        for _ in range(btn.max_taps):
-            remaining = self._eval_number(btn.count_lua)
-            if remaining is None:
-                self._log(f"TAP {btn.label} xall — count unavailable, stopping")
-                break
+        every = max(1, getattr(btn, "recheck_every", 1))
+        remaining = 0.0
+        for i in range(btn.max_taps):
+            if i % every == 0:                      # re-read the count once per batch
+                remaining = self._eval_number(btn.count_lua)
+                if remaining is None:
+                    self._log(f"TAP {btn.label} xall — count unavailable, stopping")
+                    break
             if remaining <= 0:
                 break
             self._press_button(btn)
             pressed += 1
-            self._log(f"TAP {btn.label} ({pressed}; {int(remaining)} available)")
+            remaining -= 1                          # assumed; the next re-read corrects it
+            self._log(f"TAP {btn.label} ({pressed}; {int(remaining) + 1} available)")
             time.sleep(btn.wait)
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")
 
