@@ -299,20 +299,94 @@ the instance where the trace came back empty (§8.11).
  2  the player performs ONE in-game action
  3  panel: Develop → Sniffer OFF   → the panel asks: keep it (+ describe what was
                                      done) or delete the run
- 4  read the description:  python3 tools/sniff_runs.py --last 1
-    missing?  ASK the player before analysing anything
- 5  read results/traces/*<label>*_trace.log   (XSCALL — which Lua fired)
-    read results/traffic/*<label>*_traffic.jsonl (wire — which command was sent)
- 6  line the two up (order + the panel log; per-line timestamps exist only on the wire side)
- 7  pin the real API by probing the LIVE Lua VM — the trace only nominates candidates
- 8  add the named buttons to tools/lib/game_buttons.py
- 9  write src/lastwar_bot/actions/<name>.md as TAP lines
-10  run it from the panel's Scenarios tab, write the research note, commit
+ 4  read the description:  python3 tools/sniff_runs.py --last 1  (missing? ASK)
+ 5  list the outgoing wire msgs — that IS the action (empty? then, only then, §8.11)
+ 6  name the 1-2 key msgs (cmd + payload fields) + one grep for the owning manager
+ 7  primitive → tools/lib/lua_actions.py     (no live probe)
+ 8  button    → tools/lib/game_buttons.py
+ 9  scenario  → src/lastwar_bot/actions/dev/<name>.md  as TAP lines
+10  farming.md + farming.ru.md 🟡, one line each → farming_progress.py --write → commit
 ```
+Steps 4-10 in strict, do-exactly-this form with the commands are [§8.0](#80-the-strict-checklist--analysis-in-10-minutes).
 
 Steps 1-3 are the operator's; 4-10 are the worker's. The two files are the whole
 handover: they answer the same question from opposite ends — *what the client
-called* vs *what crossed the socket*.
+called* vs *what crossed the socket*. **The strict, do-exactly-this version of
+steps 4-10 is [§8.0](#80-the-strict-checklist--analysis-in-10-minutes); the rest
+of §8 is reference, read only when a step of §8.0 sends you there.**
+
+### 8.0 The strict checklist — analysis in ≤10 minutes
+
+> **STRICT RULE. Trace analysis must complete in ≤10 minutes.** Do the nine steps
+> below in order and nothing else. **No** exploratory reading, **no** live Lua
+> probes (unless step 2's gate fires on an empty wire), **no** research note
+> (unless the user asks for one), **no** re-checking the farming bar between
+> steps, **no** "let me also verify X live." The recipe ships **🟡** — written
+> from the wire, proven later by the player. §8.1-§8.12 are reference; open one
+> only when a step here names it.
+
+The whole of the worker's job (steps 4-10), as nine actions — one action, one
+command, one output each. The only branch in the list is step 2's gate. Name the
+files once:
+
+```bash
+L=$(ls -t results/traces/*_trace.log | head -1)
+T=$(ls -t results/traffic/*_traffic.jsonl | head -1)
+```
+
+1. **Read what the player did** (~30 s).
+   ```bash
+   python3 tools/sniff_runs.py --last 1
+   ```
+   No description, or too terse to know the button / order / result? → **stop and
+   ask the player (§8.4).** That one wait is the exception to "no branching."
+
+2. **List the outgoing messages** (~30 s) — this is the answer.
+   ```bash
+   jq -c 'select(.dir=="up" and .cmd!="(keepalive)")' "$T"
+   ```
+   The `up` lines minus keepalives **are the action**: command + payload.
+   **GATE — the only branch.** Zero `up` lines → the wire is silent, so *only
+   then* fall to the live VM (**§8.11**). Otherwise **never touch the VM** — go on.
+
+3. **Name the 1-2 key messages** (~2 min). Pick the command(s) that *are* the
+   action — ignore the list/refresh reads around them — and note in one line the
+   `cmd` and the payload fields that are parameters (`{type:2}`, `{scienceId:…}`).
+   One grep of the trace for the owning manager, no more:
+   ```bash
+   grep XSCALL "$L" | grep -vE '\.(getters|super)\.' \
+     | grep -E 'DataCenter\.|Utils?\.|Manager\.|Message' | grep -i <noun>
+   ```
+   Take the `DataCenter.<X>Manager` / `<X>Util` carrying that noun — **not the
+   loudest line** (§8.7a). That name + the wire command *is* the recipe. Do not
+   probe it live.
+
+4. **Write the primitive** (~30 s) — one named chunk in `tools/lib/lua_actions.py`
+   that presses it: the manager method from step 3, args from step 2's payload.
+
+5. **Write the button** (~15 s) — one `Button` in `tools/lib/game_buttons.py`
+   (`lua=…` / `wait` / `label`; add `count_lua` only if the action is
+   counter-gated). Fields → §8.8.
+
+6. **Write the scenario** (~1 min) — `src/lastwar_bot/actions/dev/<name>.md`,
+   `TAP` lines. Grammar → §8.9. It lands in `dev/` because it is not proven live.
+
+7. **One line in the farming list** (~30 s) — `docs/farming.md` (EN) **then**
+   `docs/farming.ru.md` (RU): same section, same position, marked **🟡** (recipe
+   written, not yet proven in a real session). Both files, same edit — never one
+   without the other.
+
+8. **Redraw the bar, once** (~10 s).
+   ```bash
+   python3 tools/farming_progress.py --write
+   ```
+
+9. **Commit** (~15 s) — primitive + button + scenario + both farming files + bar,
+   one commit. Message: what the wire showed, and that it is 🟡 pending live proof.
+
+That is the whole job. The player proves it live in a later session; only then
+does the mark flip 🟡 → ✅. Do not verify it yourself, do not write a research
+note, do not grep a second time.
 
 ### 8.1 Start the sniffer
 
