@@ -459,6 +459,57 @@ def alliance_help_all() -> str:
 
 
 # --------------------------------------------------------------------------
+# City visitor — recruit a waiting survivor ("Собрать выжившего")
+# --------------------------------------------------------------------------
+# Visitors queue up outside the base in `DataCenter.CityVisitorManager`; a new
+# arrival pushes `push.user.visitor.change`. Each queue entry is a wrapper
+# `{data = <visitor>, model = <view>}`, and `GetQueueAllVisitorData(1)` returns
+# that list (arg 1 is the main on-base queue; 2 is empty here). The visitor's
+# kind is `data.visitorId`, which indexes the global `VisitorType` enum —
+# MERCHANT=1, GIFT=2, RECRUITMENT=3, WORKER_LOTTERY=5, ALLIANCE_INVITE_MOVE_CITY=8,
+# AllianceCongratulation=14, … — so a waiting survivor is `visitorId == 3`.
+#
+# The recruit press (the «Нанять»/agree button of UIWorkerDetailRecruit) sends
+# ONE message, seen whole in trace 20260729_145441 «Собрать выжившего»:
+#
+#     SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, uid, 1)
+#       -- MsgDefines.VisitorOperateMessage == 'visitor.operate'
+#       -- SFSObject: PutLong('uid', <visitor uid>) + PutInt('operate', 1)
+#
+# `operate = 1` is accept/recruit (the button was `agreeBtn`); no other operate
+# value was observed. The message body is exactly {uid, operate}, so the send
+# needs no window open — the uid is read straight off the queued visitor's data.
+def visitor_recruit_pending() -> str:
+    """Lua *expression* -> how many queued visitors are recruitable survivors.
+
+    Counts `CityVisitorManager` queue entries whose `data.visitorId` equals
+    `VisitorType.RECRUITMENT` (3). `GetQueueAllVisitorData(1)` yields `{data, model}`
+    wrappers, so the discriminator lives one level in, on `.data`.
+    """
+    return ("(function() local n = 0 "
+            "local R = (VisitorType and VisitorType.RECRUITMENT) or 3 "
+            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
+            "local d = e and e.data "
+            "if d and d.visitorId == R then n = n + 1 end end "
+            "return n end)()")
+
+
+def visitor_recruit_survivor() -> str:
+    """Recruit the first waiting survivor visitor (`visitor.operate {uid, operate=1}`).
+
+    Gated on `visitor_recruit_pending() > 0` so an empty queue never spends a
+    server round trip. Sends for exactly the front RECRUITMENT visitor's uid.
+    """
+    return ("if %s > 0 then "
+            "local R = (VisitorType and VisitorType.RECRUITMENT) or 3 "
+            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
+            "local d = e and e.data "
+            "if d and d.visitorId == R then "
+            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
+            % visitor_recruit_pending())
+
+
+# --------------------------------------------------------------------------
 # Occupation ("profession") skills — the Mastery tree
 # --------------------------------------------------------------------------
 # In game these are «навыки профессии»: the active skills of the profession the

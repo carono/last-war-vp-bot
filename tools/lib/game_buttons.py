@@ -91,6 +91,23 @@ BUTTONS: dict[str, Button] = {
         count_lua=_lua_actions.alliance_help_pending(),
         max_taps=10,
     ),
+    # --- Base -> recruit a waiting survivor ("Собрать выжившего") -------------
+    "recruit_survivor": Button(
+        # A survivor knocking at the base is a CityVisitorManager queue entry with
+        # visitorId == VisitorType.RECRUITMENT (3); accepting sends one
+        # visitor.operate {uid, operate=1} — the agree button of UIWorkerDetailRecruit,
+        # captured whole in trace 20260729_145441. No window need be open: the send
+        # reads the uid straight off the queued visitor. The engine side and why the
+        # queue wrapper is {data, model} is written up in lua_actions.visitor_recruit_*
+        # and docs/research/city-visitor-recruit.md.
+        lua=_lua_actions.visitor_recruit_survivor(),
+        wait=1.0, label="Recruit survivor",
+        # How many recruitable survivors are still queued — the same gate the send
+        # applies, so `xall` recruits them one message at a time and re-reads to let
+        # the server's push.user.visitor.change drain the queue instead of guessing.
+        count_lua=_lua_actions.visitor_recruit_pending(),
+        max_taps=10,
+    ),
     # --- Alliance -> gifts: open the section, then claim each tab -------------
     # The "Подарки альянса" window has two "collect all" buttons — ordinary gifts
     # (type 1) and premium/privilege gifts (type 2) — handled by the same click

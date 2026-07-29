@@ -314,6 +314,19 @@ none of which the earlier captures exercised:
 | `train.batch.reward` | — → claims pending alliance-training rewards |
 | `train.record.batch.detail` | `info` (`"<uuid>;<serverId>"`) → `detailInfo[]` |
 
+**City visitors** — the queue of characters that walk up to the base (`DataCenter.CityVisitorManager`).
+A visitor's `data.visitorId` indexes the global `VisitorType` enum (`RECRUITMENT=3`,
+`MERCHANT=1`, `GIFT=2`, `WORKER_LOTTERY=5`, `ALLIANCE_INVITE_MOVE_CITY=8`, …). See
+`docs/research/city-visitor-recruit.md`.
+
+| Command | Parameters |
+|---|---|
+| `visitor.operate` | `uid` (Long), `operate` (Int; `1` = accept/recruit) — accept a queued visitor; recruits a waiting survivor when its `visitorId == RECRUITMENT` |
+| `finish.visitor` | `uid` — dismiss/finish a visitor |
+| `visitor.receive.reward` | claim a visitor's reward |
+| `visitor.fresh` | refresh the visitor queue |
+| `survivor.visitor.receive.free` / `.score` / `.bubble` / `.info` | the survivor-rating mini-game |
+
 ### Server → client
 
 Responses echo the request's command name. Pushes are unsolicited:
@@ -335,6 +348,7 @@ Responses echo the request's command name. Pushes are unsolicited:
 | `push.resource.item.update` | `resource_items[]` |
 | `push.batch.effect.change` | `reasons` |
 | `push.al.sign` | `signNum`, `allianceWageNum` |
+| `push.user.visitor.change` | fires when the city-visitor queue changes (a visitor arrives or is removed after `visitor.operate`) |
 | `push.alliance.march.refresh` | `worldId`, `uuid`, `type` (+30 fields) — full restate of an allied march, not a delta |
 | `push.alliance.march.remove` | `teamUuid`, `isCancel` (distinguishes a recall from an arrival) |
 | `push.al.zombieRushPoint.change` | `allianceId` (+1) — fires in bursts during a Zombie Rush event |
