@@ -25,6 +25,32 @@ the feature is fully covered by `help_ally_all` / `alliance_help_all` / `help_al
 Do not re-record "help allies": recapture only with a request pending and confirm the
 `--> al.help.all` up-frame.
 
+### "Always-visible button, not the separate window" (task #1111)
+
+A follow-up worried the recipe only helps "from a separate window" because the
+`20260729_145629` operator pressed the button inside the alliance-help popup. It does
+not: the bot never touches a window or a button. The always-visible main-UI help
+bubble and the window's "Help All" button funnel into the **same** controller method —
+`UI.UILWAlliance.UILWAlHelp.Controller.UILWAlHelpCtrl:OnClickHelpAll`, whose only
+network line is `SFSNetwork.SendMessage(MsgDefines.AlHelpAll, …)` (constant dump live:
+`… SFSNetwork | SendMessage | MsgDefines | AlHelpAll | … can_help | helpList | curTime`).
+`alliance_help_all()` sends that one `al.help.all` directly, so no on-screen button of
+either kind has to exist.
+
+Verified live with the alliance-help window **never opened this session** (cold read
+via `tools/lib/lua_eval.py`):
+
+```
+DataCenter.AllianceHelpDataManager ~= nil   -> true
+#GetAllianceHelpList()                       -> 6      # push-populated, no window
+helpable (isSelf == false) / self            -> 0 / 6  # all 6 were my own requests
+```
+
+The list is kept current by the `push.al.help.new` handler regardless of window state,
+so the `alliance_help_pending()` gate is accurate cold. The `20260729_145629` trace
+carried no `al.help.all` precisely because every entry was `isSelf` (0 helpable) — the
+same gate the bot honours before sending. Nothing to rework.
+
 ## The decoy
 
 The first version of this recipe pressed
