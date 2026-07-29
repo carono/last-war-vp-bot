@@ -181,6 +181,14 @@ SNIFF_FLUSH_MS = 600
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
 # non-recursive glob below deliberately skips, so the picker offers only what works.
 ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
+# How long the scenario editor waits after the last keystroke before writing the
+# file. Long enough that a burst of typing is one write, short enough that a run
+# started right after an edit reads what is on screen (and a run flushes first
+# anyway, so this is about disk chatter, not correctness).
+SCENARIO_SAVE_DELAY_MS = 1000
+# Marks the row of the script that is running right now.
+RUNNING_MARK = "▶"
+
 # Actions that are runtime plumbing rather than user-facing scenarios — hidden from
 # the picker even if present here. `watchdog` is ticked by the runner, not run by hand.
 _HIDDEN_ACTIONS = frozenset({"watchdog"})
@@ -1943,6 +1951,9 @@ class Panel(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_close(self) -> None:
+        # A debounced edit is still pending for up to a second — write it before
+        # the window goes, or the last thing typed is the thing that is lost.
+        self._flush_scenario_save()
         self._stop_monitor()
         self._stop_autoloot()
         self._stop_rally()
@@ -1957,34 +1968,63 @@ class Panel(tk.Tk):
     # -- scenarios tab (run .md action scripts) -----------------------------
 
     def _build_scenarios_tab(self, parent: ttk.Frame) -> None:
-        """List the DSL action scripts and let the operator run or loop one.
+        """List the DSL action scripts, edit one, and run or loop it.
 
         Each `src/lastwar_bot/actions/*.md` is one runnable action. Run executes it
         once through the interpreter on a worker thread (output streams into the
         shared log); Repeat re-runs it on an interval until switched off. Game-VM
         actions (LUA/READ_LUA/GAME/JUMP) go through the Lua daemon and need no
         window; vision actions (FIND/CLICK) resolve the game window on demand.
+
+        Selecting a row opens that script in the editor below, which writes itself
+        back a second after the last keystroke — so a recipe is fixed and re-run
+        without leaving the panel.
+
+        While a run is in flight the list is locked and its row carries a marker:
+        one script at a time, and it is visible WHICH one. Stop asks the
+        interpreter to halt at its next step (a flag it checks between statements),
+        rather than killing the thread in the middle of a call into the game.
         """
         self._scn_loop_stop = threading.Event()
         self._scn_loop_thread: threading.Thread | None = None
+        # Which script is running right now, and the flag that asks it to stop.
+        # Both live here rather than in the worker so the Stop button, the row
+        # marker and the lock all read the same truth.
+        self._scn_running: str | None = None
+        self._scn_cancel: threading.Event | None = None
+        # Editor state: which file is loaded (name and the path it came from —
+        # the two are not interchangeable, a script may live in actions/dev/), and
+        # the pending debounced save.
+        self._scn_editor_name: str | None = None
+        self._scn_editor_path: str | None = None
+        self._scn_save_job = None
+        self._scn_loading = False
 
         frame = self._tr(ttk.LabelFrame(parent, padding=8), "scenarios.actions")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         listwrap = ttk.Frame(frame)
-        listwrap.pack(fill="both", expand=True)
-        self._scn_list = tk.Listbox(listwrap, height=10, activestyle="dotbox",
+        listwrap.pack(fill="x")
+        self._scn_list = tk.Listbox(listwrap, height=8, activestyle="dotbox",
                                     exportselection=False)
         scroll = ttk.Scrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
         self._scn_list.configure(yscrollcommand=scroll.set)
         self._scn_list.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
         self._scn_list.bind("<Double-Button-1>", lambda _e: self._run_selected_action())
+        # Selecting a script opens it in the editor below.
+        self._scn_list.bind("<<ListboxSelect>>", self._on_scenario_selected)
 
         controls = ttk.Frame(frame)
         controls.pack(fill="x", pady=(8, 0))
-        self._tr(ttk.Button(controls, command=self._run_selected_action),
-                 "scenarios.run").pack(side="left", padx=(0, 4), ipady=2)
+        self._scn_run_btn = self._tr(ttk.Button(controls, command=self._run_selected_action),
+                                     "scenarios.run")
+        self._scn_run_btn.pack(side="left", padx=(0, 4), ipady=2)
+        # Stop is enabled only while a run is in flight; it asks the interpreter to
+        # halt between steps rather than killing the thread mid-call.
+        self._scn_stop_btn = self._tr(ttk.Button(controls, command=self._stop_scenario,
+                                                 state="disabled"), "scenarios.stop")
+        self._scn_stop_btn.pack(side="left", padx=(0, 4), ipady=2)
         self._scn_loop_var = tk.BooleanVar(value=False)
         self._tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
                                  command=self._toggle_scenario_loop),
@@ -2006,19 +2046,34 @@ class Panel(tk.Tk):
         ttk.Entry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
                                                                 expand=True)
 
+        # The editor. The selected script is loaded here and written back a second
+        # after the last keystroke — no Save button to forget, and no write per
+        # character either. Undo is Tk's own (`undo=True`), reset on every load so
+        # Ctrl+Z can never reach back into the previously opened file.
+        edit = self._tr(ttk.LabelFrame(frame, padding=4), "scenarios.editor")
+        edit.pack(fill="both", expand=True, pady=(8, 0))
+        self._scn_editor = scrolledtext.ScrolledText(
+            edit, wrap="none", height=12, undo=True, autoseparators=True, maxundo=-1,
+            font=("Consolas", 9))
+        self._scn_editor.pack(fill="both", expand=True)
+        self._scn_editor.bind("<<Modified>>", self._on_editor_modified)
+        # Ctrl+Z / Ctrl+Y by physical key, so they work under a Cyrillic layout —
+        # Tk's own <<Undo>> binding matches the Latin keysym only (same fix as the
+        # log's copy, see _install_log_copy).
+        self._scn_editor.bind("<Control-KeyPress>", self._on_editor_ctrl_key)
+
         self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
         self._scn_actions: list[dict] = []
         self._refresh_actions()
+        self._load_scenario_into_editor(self._selected_action_name())
 
     def _refresh_actions(self) -> None:
         """(Re)load the action list into the listbox, keeping the selection if possible."""
         prev = self._selected_action_name()
         self._scn_actions = list_actions()
-        self._scn_list.delete(0, "end")
-        for item in self._scn_actions:
-            self._scn_list.insert("end", f"{item['title']}   ·   {item['name']}")
+        self._paint_action_rows()
         if not self._scn_actions:
             self._log_put("[action] " + self._t("scenarios.empty"))
             return
@@ -2026,6 +2081,24 @@ class Panel(tk.Tk):
         self._scn_list.selection_clear(0, "end")
         self._scn_list.selection_set(idx)
         self._scn_list.see(idx)
+
+    def _paint_action_rows(self) -> None:
+        """Rewrite every row, marking the one that is running.
+
+        Done wholesale rather than in place because the marker changes a row's
+        width; the list is briefly re-enabled because a disabled Listbox is the
+        state it sits in for the whole run.
+        """
+        keep = self._scn_list.cget("state")
+        sel = self._scn_list.curselection()
+        self._scn_list.configure(state="normal")
+        self._scn_list.delete(0, "end")
+        for item in self._scn_actions:
+            mark = RUNNING_MARK if item["name"] == self._scn_running else "   "
+            self._scn_list.insert("end", f"{mark} {item['title']}   ·   {item['name']}")
+        for idx in sel:
+            self._scn_list.selection_set(idx)
+        self._scn_list.configure(state=keep)
 
     def _selected_action_name(self) -> str | None:
         sel = self._scn_list.curselection() if hasattr(self, "_scn_list") else ()
@@ -2075,11 +2148,17 @@ class Panel(tk.Tk):
         are substituted for `{name}` in its text (see docs/dsl.md). Passing none runs
         the script on its own defaults.
         """
+        # Whatever is being typed lands on disk before the run reads the file —
+        # otherwise a change made a second ago would silently not be in the run.
+        self._flush_scenario_save()
         if not self._claim_busy():
             self._log_put("[action] " + self._t("busy"))
             return
         shown = f"{name} {json.dumps(args, ensure_ascii=False)}" if args else name
         self._log_put(f"[action] {shown}: {self._t('scenarios.running')}")
+        cancel = threading.Event()
+        self._scn_cancel = cancel
+        self._set_scenario_running(name)
 
         def work() -> None:
             try:
@@ -2089,15 +2168,149 @@ class Panel(tk.Tk):
                 script_engine.run_action(
                     name, hwnd=0,
                     on_event=lambda msg: self._log_put(f"[action] {msg}"),
-                    profile=None, variables=args,
+                    profile=None, variables=args, cancel=cancel,
                 )
             except Exception as exc:                       # noqa: BLE001
                 self._log_put(f"[action] {name}: error: {exc}")
             finally:
                 self._release_busy()
+                self._scn_cancel = None
+                # Tk from a worker thread only through `after` — the marker, the
+                # lock and the buttons are all widget state.
+                self.after(0, lambda: self._set_scenario_running(None))
                 self.after(400, self._refresh_status)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _set_scenario_running(self, name: str | None) -> None:
+        """Lock the list and mark the running row — or undo both when it ends."""
+        self._scn_running = name
+        running = name is not None
+        try:
+            self._paint_action_rows()
+            self._scn_list.configure(state="disabled" if running else "normal")
+            self._scn_run_btn.configure(state="disabled" if running else "normal")
+            self._scn_stop_btn.configure(state="normal" if running else "disabled")
+        except tk.TclError:
+            pass                            # the tab is gone (panel closing)
+
+    def _stop_scenario(self) -> None:
+        """«Стоп» — ask the running script to halt at its next step.
+
+        Not a kill: the interpreter checks the flag between statements, between the
+        presses of a repeat and between the polls of a WAIT, so the step in flight
+        finishes and nothing is left half-sent to the game. A looping run is stopped
+        too, or the loop would start the next pass a second later.
+        """
+        cancel = self._scn_cancel
+        if cancel is None:
+            return
+        cancel.set()
+        if getattr(self, "_scn_loop_var", None) is not None and self._scn_loop_var.get():
+            self._stop_scenario_loop()
+        self._log_put("[action] " + self._t("scenarios.stopping",
+                                            name=self._scn_running or ""))
+
+    # -- scenario editor ----------------------------------------------------
+
+    def _on_scenario_selected(self, _event=None) -> None:
+        """A row was clicked: put that script in the editor (saving the old one)."""
+        name = self._selected_action_name()
+        if name is None or name == self._scn_editor_name:
+            return
+        self._flush_scenario_save()         # never carry edits into another file
+        self._load_scenario_into_editor(name)
+
+    def _load_scenario_into_editor(self, name: str | None) -> None:
+        """Read a script into the editor and start its undo history fresh."""
+        if name is None:
+            return
+        from lastwar_bot import script_engine
+        resolved = script_engine.resolve_action(name)
+        if resolved is None:
+            self._log_put(f"[action] {name}: not found")
+            return
+        path = str(resolved)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            self._log_put(f"[action] {name}: {exc}")
+            return
+        self._scn_loading = True            # the fill is not an edit to save back
+        try:
+            self._scn_editor.delete("1.0", "end")
+            self._scn_editor.insert("1.0", text)
+            # Reset AFTER the fill, or Ctrl+Z would undo its way back into whatever
+            # file was open before this one.
+            self._scn_editor.edit_reset()
+            self._scn_editor.edit_modified(False)
+        finally:
+            self._scn_loading = False
+        self._scn_editor_name = name
+        self._scn_editor_path = path
+
+    def _on_editor_modified(self, _event=None) -> None:
+        """Tk's <<Modified>> fires once until reset — use it to debounce the save."""
+        if not self._scn_editor.edit_modified():
+            return
+        self._scn_editor.edit_modified(False)
+        if self._scn_loading or self._scn_editor_name is None:
+            return
+        self._schedule_scenario_save()
+
+    def _schedule_scenario_save(self) -> None:
+        """Write a second after the last keystroke, not on every character."""
+        if self._scn_save_job is not None:
+            try:
+                self.after_cancel(self._scn_save_job)
+            except tk.TclError:
+                pass
+        self._scn_save_job = self.after(SCENARIO_SAVE_DELAY_MS, self._save_scenario)
+
+    def _flush_scenario_save(self) -> None:
+        """Write a pending edit right now (before a run, or before another file)."""
+        if self._scn_save_job is None:
+            return
+        try:
+            self.after_cancel(self._scn_save_job)
+        except tk.TclError:
+            pass
+        self._scn_save_job = None
+        self._save_scenario()
+
+    def _save_scenario(self) -> None:
+        """Write the editor back to the file it was loaded from."""
+        self._scn_save_job = None
+        name, path = self._scn_editor_name, self._scn_editor_path
+        if name is None or path is None:
+            return
+        text = self._scn_editor.get("1.0", "end-1c")
+        try:
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+        except OSError as exc:
+            self._log_put("[action] " + self._t("scenarios.save_failed",
+                                                name=name, error=exc))
+            return
+        self._log_put("[action] " + self._t("scenarios.saved", name=name))
+
+    def _on_editor_ctrl_key(self, event):
+        """Undo / redo by physical key, so a Cyrillic layout works too."""
+        keysym = (event.keysym or "").lower()
+        if event.keycode == 90 or keysym in ("z", "cyrillic_ya"):
+            try:
+                self._scn_editor.edit_undo()
+            except tk.TclError:
+                pass                        # nothing left to undo
+            return "break"
+        if event.keycode == 89 or keysym in ("y", "cyrillic_en"):
+            try:
+                self._scn_editor.edit_redo()
+            except tk.TclError:
+                pass
+            return "break"
+        return None                         # other Ctrl+combos pass through
 
     def _toggle_scenario_loop(self) -> None:
         if self._scn_loop_var.get():

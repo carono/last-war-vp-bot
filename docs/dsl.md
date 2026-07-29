@@ -586,6 +586,12 @@ A `FIND` that doesn't match is **not** a failure on its own — it simply
 skips its body. Wrap it in an `IF FOUND ... ELSE ...` if you want to
 react explicitly.
 
+**Stopping from outside.** A caller can pass `cancel=<threading.Event>` (or set
+`ctx.cancel`); the interpreter checks it between statements, between the presses
+of a `TAP` repeat and between the polls of a `WAIT`. A set flag unwinds through
+the same path `STOP` uses — the run ends **halted, not failed**, and never in the
+middle of a call into the game. That is what the panel's «Стоп» button sets.
+
 ## Style
 
 - Indent with 4 spaces (the parser accepts any consistent step, but 4

@@ -632,6 +632,13 @@ class Context:
     evaluator: Any = None
     # Script variables written by READ_LUA and tested by numeric IF/WHILE conditions.
     vars: dict = field(default_factory=dict)
+    # Optional stop flag — anything with `.is_set()` (a threading.Event). Checked
+    # BETWEEN statements, between the presses of a repeat and between the polls of
+    # a WAIT, so a caller (the panel's «Стоп») can end a run without killing a
+    # thread mid-call. A set flag unwinds through the same _HaltSignal that STOP
+    # uses, so the run ends the way a script's own STOP ends: cleanly, with a
+    # reason, and reported as halted rather than failed.
+    cancel: Any = None
 
 
 class _HaltSignal(Exception):
@@ -650,6 +657,14 @@ class Interpreter:
 
     def _log(self, msg: str) -> None:
         self.ctx.on_event("  " * self._depth + msg)
+
+    def _check_cancel(self) -> None:
+        """Raise if the caller asked the run to stop. Called between steps."""
+        cancel = self.ctx.cancel
+        if cancel is not None and cancel.is_set():
+            self.ctx.halt = True
+            self.ctx.halt_reason = self.ctx.halt_reason or "stopped by the operator"
+            raise _HaltSignal()
 
     # ---- entry point ----
 
@@ -685,6 +700,7 @@ class Interpreter:
 
     def _run_block(self, statements: list[Any]) -> None:
         for stmt in statements:
+            self._check_cancel()
             self._run_stmt(stmt)
 
     def _run_stmt(self, stmt: Any) -> None:
@@ -1119,6 +1135,7 @@ class Interpreter:
             time.sleep(btn.wait)
             return
         for n in range(1, stmt.count + 1):
+            self._check_cancel()
             self._press_button(btn)
             suffix = f" ({n}/{stmt.count})" if stmt.count > 1 else ""
             self._log(f"TAP {btn.label}{suffix}")
@@ -1176,6 +1193,7 @@ class Interpreter:
             )
         pressed = 0
         while pressed < btn.max_taps:
+            self._check_cancel()
             remaining = self._eval_number(btn.count_lua)
             if remaining is None:
                 self._log(f"TAP {btn.label} xall — count unavailable, stopping")
@@ -1358,6 +1376,7 @@ class Interpreter:
         # Otherwise, poll the condition until True or timeout.
         deadline = time.monotonic() + stmt.timeout
         while time.monotonic() < deadline:
+            self._check_cancel()
             if self.eval_condition(stmt.condition, stmt.line_no):
                 self._log(f"WAIT {stmt.condition} -> matched")
                 return
@@ -1372,6 +1391,7 @@ def new_context(
     on_event: EventCallback | None = None,
     profile: Any = None,
     variables: dict | None = None,
+    cancel: Any = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -1383,7 +1403,8 @@ def new_context(
     as one session: variables, the last FIND and the Lua evaluator are shared, so
     a sequence costs one daemon connection rather than one per step.
     """
-    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile)
+    ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
+                  cancel=cancel)
     if variables:
         ctx.vars.update(variables)
     return ctx
@@ -1396,6 +1417,7 @@ def run_action(
     profile: Any = None,
     variables: dict | None = None,
     ctx: Context | None = None,
+    cancel: Any = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -1408,7 +1430,7 @@ def run_action(
     actions into one session.
     """
     if ctx is None:
-        ctx = new_context(hwnd, on_event, profile, variables)
+        ctx = new_context(hwnd, on_event, profile, variables, cancel)
     return Interpreter(ctx).run_action(name)
 
 
@@ -1419,6 +1441,7 @@ def run_text(
     profile: Any = None,
     variables: dict | None = None,
     ctx: Context | None = None,
+    cancel: Any = None,
     label: str = "inline",
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
@@ -1432,7 +1455,7 @@ def run_text(
     a failing action file would be.
     """
     if ctx is None:
-        ctx = new_context(hwnd, on_event, profile, variables)
+        ctx = new_context(hwnd, on_event, profile, variables, cancel)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

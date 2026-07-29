@@ -106,6 +106,11 @@ read the screen and click through a window handle; the **game primitives**
 made only of game primitives runs with `hwnd=0` — which is how the panel's
 **Scenarios** tab runs it (pick a script, Run, or Repeat on an interval).
 
+**You can edit a recipe from the panel.** The Scenarios tab opens the selected
+script in an editor and saves it a second after you stop typing (Ctrl+Z undoes),
+so the fix → run → read-the-log loop needs no other window. A run in flight locks
+the list and marks its row; «Стоп» halts it at the next step.
+
 **Parameters belong in `ARGS`, not in a copy of the script.** A recipe that
 differs only by a number or a list takes an argument instead of being duplicated:
 `join_rally.md` declares `ARGS squads = [1, 2, 3]` and is run as-is, from the
