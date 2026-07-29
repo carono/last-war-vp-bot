@@ -32,11 +32,17 @@ Run = Callable[..., list]
 Log = Callable[[str], None]
 
 
-# How long a chunk is given to reach Player.log before its lines are read back. A press
-# reports nothing the caller acts on, so it only needs enough for the invoke to return;
-# a count read has to actually see its line, and 0.4 s is the value the DSL's own count
-# reads (script_engine._eval_lua_value, settle=0.35) have been running at.
-_PRESS_SETTLE = 0.3
+# How long a chunk is given to reach Player.log before its lines are read back.
+#
+# A press reports nothing the caller acts on — `press_donate` discards the lines — so
+# its settle is not a wait for an answer, it is half of the spacing between presses
+# (the other half is `settle_after`). Together they are the DSL's own donate pacing:
+# script_engine._press_button runs at settle=0.1 and donate_1000 at wait=0.03. Same
+# button, same server, so the same numbers, or the two paths donate at two speeds.
+#
+# A count read DOES have to see its line, so it keeps a real settle — 0.4 s, just above
+# the 0.35 the DSL's count reads (script_engine._eval_lua_value) have been running at.
+_PRESS_SETTLE = 0.1
 _READ_SETTLE = 0.4
 
 
@@ -114,7 +120,7 @@ def _rest_count(run: Run, use_gold: bool) -> int:
 
 
 def press_donate(run: Run, use_gold: bool, cap: int | None,
-                 settle_after: float = 0.12, recheck_every: int = 5) -> int:
+                 settle_after: float = 0.03, recheck_every: int = 5) -> int:
     """Press the donate button once per chunk until attempts run out (or `cap`). Returns presses.
 
     CRITICAL: one press per Lua chunk, with a pause between presses. A donation only
