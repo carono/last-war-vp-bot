@@ -114,7 +114,7 @@ BUTTONS: dict[str, Button] = {
     # --- Base -> recruit a waiting survivor ("Собрать выжившего") -------------
     "recruit_survivor": Button(
         # A survivor knocking at the base is a CityVisitorManager queue entry with
-        # visitorId == VisitorType.RECRUITMENT (3); accepting sends one
+        # eventType == VisitorType.RECRUITMENT (3); accepting sends one
         # visitor.operate {uid, operate=1} — the agree button of UIWorkerDetailRecruit,
         # captured whole in trace 20260729_145441. No window need be open: the send
         # reads the uid straight off the queued visitor. The engine side and why the
@@ -131,7 +131,7 @@ BUTTONS: dict[str, Button] = {
     # --- Base -> collect a gift-bearing survivor ("Собрать подарки выжившего") -
     "collect_visitor_gifts": Button(
         # A survivor bringing gifts is a CityVisitorManager queue entry with
-        # visitorId == VisitorType.GIFT (2); collecting sends the same one-shot
+        # eventType == VisitorType.GIFT (2); collecting sends the same one-shot
         # visitor.operate {uid, operate=1} as a recruit — captured whole in trace
         # 20260729_151712, after which the client flew a coin-box reward and closed
         # UICityVisitor. Only the visitor kind differs from recruit_survivor; the

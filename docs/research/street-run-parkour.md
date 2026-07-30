@@ -289,12 +289,30 @@ for the centre lane, for acting early rather than late, and for picking things u
 obstacles are projected through their own drift rather than frozen. The first move of the
 route is issued when it comes due; the whole thing is re-planned next frame.
 
-**Buffs are routed to, not stumbled on.** Shield / jetpack / morph / ally are priced at 0.9
-and magnet / double / box at 0.25 against a lane change at 1.0, so the route takes a
-one-step detour for a shield and never trades safety for a pickup (unsafe routes are not
-in the search at all). **On a jetpack** (`player:IsFlying()`) the runner is above the whole
-track: the planner drops every ground obstacle from the field for as long as it lasts and
-routes purely by pickups, instead of dodging things it cannot hit.
+**Safety is absolute; greed decides the rest.** Nothing unsafe is ever weighed against
+anything — the search only expands collision-free states, so an unsafe route cannot be
+chosen at any price. Among the routes that survive, the cost ordering is, against a lane
+change at 1.0:
+
+| | value | effect |
+|---|---|---|
+| shield / jetpack / morph / ally | **1.4** | worth fetching one lane away; two lanes costs two changes and stays out of reach |
+| magnet / double / box | 0.25 | tie-break only |
+| coins | 0.01 each | tie-break only — a lane lined for the whole 200-unit horizon is worth 0.50, so coins can tip a close call but never buy a swerve |
+| being off the centre lane | 0.3 per horizon | mild preference for keeping both escapes open |
+
+Two of those numbers were wrong until they were tested rather than asserted. Coins at 0.02
+made a full trail worth exactly a lane change — greed ahead of safety, not behind it. And
+the centre-lane preference was a fixed 0.006 per unit, which silently grew from a 0.72 nudge
+at a 120-unit horizon into a 1.2 penalty at 200 — dearer than a lane change, drowning out
+everything else, including the shield the route was supposed to fetch. Both are now
+expressed relative to the lane change and checked with direct probes of `planRoute`:
+centre blocked with coins on one side picks that side; a shield one step away is fetched; a
+shield behind a carriage is not; coins alone never move it.
+
+**On a jetpack** (`player:IsFlying()`) the runner is above the whole track: the planner
+drops every ground obstacle from the field for as long as it lasts and routes purely by
+pickups, instead of dodging things it cannot hit.
 
 **Offline iteration.** `tools/dev/surfing_simulate.py` replays every dumped band through
 the *same* `AI.planRoute` at 60 Hz against the measured collider sizes, from each starting

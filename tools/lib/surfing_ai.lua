@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 18
+AI.version = 21
 if AI.enabled == nil then AI.enabled = true end
 AI.cfg = AI.cfg or {}
 local cfg = AI.cfg
@@ -51,14 +51,28 @@ cfg.padExtra     = cfg.padExtra     or 1.5   -- timing slack added at both ends
 cfg.costSwitch   = cfg.costSwitch   or 1.0
 cfg.costJump     = cfg.costJump     or 1.6
 cfg.costSlide    = cfg.costSlide    or 1.6
-cfg.outerBias    = cfg.outerBias    or 0.006 -- per unit spent off the centre lane
+-- Mild preference for the centre lane, per unit spent off it. Expressed as a FRACTION of a
+-- lane change over the whole horizon, because a fixed per-unit figure silently grows with
+-- the horizon: 0.006 was a 0.72 nudge at a 120-unit view and became a 1.2 penalty at 200 —
+-- dearer than the lane change itself, which drowned out every other consideration.
+cfg.outerShare   = cfg.outerShare   or 0.3   -- centre preference, in lane-changes per horizon
 cfg.earlyBias    = cfg.earlyBias    or 0.004 -- per unit of delay before a move: act early
-cfg.coinBonus    = cfg.coinBonus    or 0.02  -- per coin on the route (secondary to safety)
+-- Coins are a TIE-BREAK, not a reason. Safety is already absolute — the search only ever
+-- expands collision-free states, so nothing unsafe can be chosen at any price. What is left
+-- is the choice between routes that are all safe, and there the greedier one wins. The value
+-- is bounded so it stays a tie-break: a lane lined with coins for the whole 200-unit horizon
+-- (one every 4 units, so 50 of them) is worth 0.50 against a lane change at 1.00, which means
+-- coins can tip a decision that is otherwise close but can never buy a swerve on their own.
+cfg.coinBonus    = cfg.coinBonus    or 0.01
 -- Buffs are worth a detour: a shield eats one fatal hit, a jetpack/morph flies over the
 -- track outright. Priced just under a lane change so the route grabs one when it is
 -- one step away, and never at the cost of safety (the DP only ever considers safe routes).
-cfg.buffBonus    = cfg.buffBonus    or 0.9   -- shield / jetpack / morph / ally
-cfg.pickupBonus  = cfg.pickupBonus  or 0.25  -- magnet / double / box
+-- A shield eats a fatal hit and a jetpack flies over the track outright, so those are worth
+-- MORE than a lane change (1.0) — they buy safety rather than spend it, and priced under it
+-- the route simply never went and fetched one. Two lanes away costs two changes and stays
+-- out of reach, which is the intended limit: fetch what is one step away, no lunging.
+cfg.buffBonus    = cfg.buffBonus    or 1.4   -- shield / jetpack / morph / ally
+cfg.pickupBonus  = cfg.pickupBonus  or 0.25  -- magnet / double / box: a tie-break like coins
 cfg.allowJump    = (cfg.allowJump ~= false)  -- hop barrels/fences; carriages never
 
 AI.stat = AI.stat or {}
@@ -178,6 +192,7 @@ end
 -- among routes that survive the whole horizon, takes the cheapest one.
 local function planRoute(pz, lane0, speed, obstacles, flying)
   local H = cfg.horizon
+  local outerBias = cfg.outerShare * cfg.costSwitch / cfg.horizon
   local SW = max(1, ceil(cfg.switchTime * speed))
   local JL = max(2, ceil(cfg.jumpTime * speed))
   local SLD = max(2, ceil(cfg.slideTime * speed))
@@ -293,6 +308,14 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
     end
   end
 
+  -- what a stretch of one lane is worth in pickups, so the tie-break is the same whether the
+  -- route runs the stretch, changes lane across it or flies over it
+  local function rewardOf(l, a, b)
+    local sum = 0
+    for j = max(0, a), min(H, b) do sum = sum + (reward[l][j] or 0) end
+    return sum
+  end
+
   local function freeRun(l, a, b)         -- every bucket in [a,b] clear of solids
     for j = max(0, a), min(H, b) do
       if solid[l][j] then return false end
@@ -360,7 +383,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
         end
         if i < H then
           local a0, z0 = fact[idx], faz[idx]
-          local outer = (l == 1) and 0 or cfg.outerBias
+          local outer = (l == 1) and 0 or outerBias
           -- 1. run on
           if not solid[l][i + 1] then
             relax(i + 1, l, c + outer - (reward[l][i + 1] or 0), a0, z0)
@@ -373,21 +396,24 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
             if t >= 0 and t <= 2 and freeRun(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
-              relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW, a, az)
+              relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
+                    - rewardOf(t, i + 1, i + SW), a, az)
             end
           end
           -- 3. hop — clears barrels and fences; a jump into a carriage is still fatal
           if cfg.allowJump and clears(noJump, l, i, JL) then
             local a, az = a0, z0
             if a == 0 then a = 3 az = i end
-            relax(i + JL, l, c + cfg.costJump + cfg.earlyBias * i + outer * JL, a, az)
+            relax(i + JL, l, c + cfg.costJump + cfg.earlyBias * i + outer * JL
+                  - rewardOf(l, i + 1, i + JL), a, az)
           end
           -- 4. slide — the other way past a fence, and the only way through a bridge gate
           --    that spans every lane
           if clears(noSlide, l, i, SLD) then
             local a, az = a0, z0
             if a == 0 then a = 4 az = i end
-            relax(i + SLD, l, c + cfg.costSlide + cfg.earlyBias * i + outer * SLD, a, az)
+            relax(i + SLD, l, c + cfg.costSlide + cfg.earlyBias * i + outer * SLD
+                  - rewardOf(l, i + 1, i + SLD), a, az)
           end
         end
       end

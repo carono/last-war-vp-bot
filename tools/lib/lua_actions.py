@@ -566,18 +566,72 @@ def alliance_help_send() -> str:
 
 
 # --------------------------------------------------------------------------
-# City visitor — recruit a waiting survivor ("Собрать выжившего")
+# City visitor — the queue, and which field says what kind a visitor is
 # --------------------------------------------------------------------------
 # Visitors queue up outside the base in `DataCenter.CityVisitorManager`; a new
 # arrival pushes `push.user.visitor.change`. Each queue entry is a wrapper
 # `{data = <visitor>, model = <view>}`, and `GetQueueAllVisitorData(1)` returns
-# that list (arg 1 is the main on-base queue; 2 is empty here). The visitor's
-# kind is `data.visitorId`, which indexes the global `VisitorType` enum —
-# MERCHANT=1, GIFT=2, RECRUITMENT=3, WORKER_LOTTERY=5, ALLIANCE_INVITE_MOVE_CITY=8,
-# AllianceCongratulation=14, … — so a waiting survivor is `visitorId == 3`.
+# that list (arg 1 is the main on-base queue; 2 is empty here), so every field
+# below lives one level in, on `.data` / `.model`.
 #
-# The recruit press (the «Нанять»/agree button of UIWorkerDetailRecruit) sends
-# ONE message, seen whole in trace 20260729_145441 «Собрать выжившего»:
+# The kind is `data.eventType`, and *that* is what indexes the global `VisitorType`
+# enum — MERCHANT=1, GIFT=2, RECRUITMENT=3, BATTLE=4, WORKER_LOTTERY=5, …
+# The client agrees: `AddVisitor` compares `eventType` against
+# `VisitorType.AllianceCongratulation`, and `GetReceiveAllGiftUidList` filters the
+# queue on `data.eventType == <the VisitorType asked for>`.
+#
+# `data.visitorId` is NOT the kind — it is a plain per-arrival counter. A live
+# queue read (task #1122) showed four visitors numbered 3, 4, 5, 6 that were all
+# `eventType == 2` (GIFT), which is how the earlier `visitorId == VisitorType.X`
+# test came to be wrong in both directions: the gift press matched nothing at all
+# (no visitor is ever numbered 2 while queued), and the recruit press fired at
+# whoever happened to be the *third* visitor of the session regardless of kind.
+#
+# A visitor is only pressable once it has walked up: `model.isArrival` is true and
+# `model.isFinish` false. A queue entry can exist before that (the fourth visitor
+# above had a bare model — not spawned yet) and the client leaves those alone.
+_VISITOR_QUEUE = "DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}"
+
+
+def _visitor_kind_ready(kind: str, fallback: int) -> str:
+    """Lua condition snippet: `d` is a waiting visitor of `VisitorType.<kind>`.
+
+    Expects the loop variables `d` (the entry's `.data`) and `m` (its `.model`) to
+    be in scope; `fallback` is the enum value to use if the `VisitorType` global
+    is missing.
+    """
+    return ("d and m and d.eventType == ((VisitorType and VisitorType.%s) or %d) "
+            "and m.isArrival and not m.isFinish" % (kind, fallback))
+
+
+def _visitor_count(kind: str, fallback: int) -> str:
+    """Lua *expression* -> how many waiting visitors of that kind are in the queue."""
+    return ("(function() local n = 0 "
+            "for _, e in ipairs(%s) do local d, m = e and e.data, e and e.model "
+            "if %s then n = n + 1 end end "
+            "return n end)()" % (_VISITOR_QUEUE, _visitor_kind_ready(kind, fallback)))
+
+
+def _visitor_operate_first(kind: str, fallback: int) -> str:
+    """Send `visitor.operate {uid, operate = 1}` for the front waiting visitor of a kind.
+
+    Gated on the matching count so a queue with nobody of that kind waiting never
+    spends a server round trip.
+    """
+    return ("if %s > 0 then "
+            "for _, e in ipairs(%s) do local d, m = e and e.data, e and e.model "
+            "if %s then "
+            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
+            % (_visitor_count(kind, fallback), _VISITOR_QUEUE,
+               _visitor_kind_ready(kind, fallback)))
+
+
+# --------------------------------------------------------------------------
+# City visitor — recruit a waiting survivor ("Собрать выжившего")
+# --------------------------------------------------------------------------
+# A waiting survivor is a queue entry of kind `VisitorType.RECRUITMENT` (3). The
+# recruit press (the «Нанять»/agree button of UIWorkerDetailRecruit) sends ONE
+# message, seen whole in trace 20260729_145441 «Собрать выжившего»:
 #
 #     SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, uid, 1)
 #       -- MsgDefines.VisitorOperateMessage == 'visitor.operate'
@@ -587,42 +641,22 @@ def alliance_help_send() -> str:
 # value was observed. The message body is exactly {uid, operate}, so the send
 # needs no window open — the uid is read straight off the queued visitor's data.
 def visitor_recruit_pending() -> str:
-    """Lua *expression* -> how many queued visitors are recruitable survivors.
-
-    Counts `CityVisitorManager` queue entries whose `data.visitorId` equals
-    `VisitorType.RECRUITMENT` (3). `GetQueueAllVisitorData(1)` yields `{data, model}`
-    wrappers, so the discriminator lives one level in, on `.data`.
-    """
-    return ("(function() local n = 0 "
-            "local R = (VisitorType and VisitorType.RECRUITMENT) or 3 "
-            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
-            "local d = e and e.data "
-            "if d and d.visitorId == R then n = n + 1 end end "
-            "return n end)()")
+    """Lua *expression* -> how many queued visitors are recruitable survivors."""
+    return _visitor_count("RECRUITMENT", 3)
 
 
 def visitor_recruit_survivor() -> str:
-    """Recruit the first waiting survivor visitor (`visitor.operate {uid, operate=1}`).
-
-    Gated on `visitor_recruit_pending() > 0` so an empty queue never spends a
-    server round trip. Sends for exactly the front RECRUITMENT visitor's uid.
-    """
-    return ("if %s > 0 then "
-            "local R = (VisitorType and VisitorType.RECRUITMENT) or 3 "
-            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
-            "local d = e and e.data "
-            "if d and d.visitorId == R then "
-            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
-            % visitor_recruit_pending())
+    """Recruit the first waiting survivor visitor (`visitor.operate {uid, operate=1}`)."""
+    return _visitor_operate_first("RECRUITMENT", 3)
 
 
 # --------------------------------------------------------------------------
 # City visitor — collect a gift-bearing survivor ("Собрать подарки выжившего")
 # --------------------------------------------------------------------------
 # A *gift* visitor is the same CityVisitorManager queue mechanic as the recruit
-# survivor above — only the kind differs: `data.visitorId == VisitorType.GIFT`
-# (2) instead of RECRUITMENT (3). Tapping such a visitor and collecting its gift
-# sends the identical one-shot message, captured whole in trace 20260729_151712
+# survivor above — only the kind differs: `data.eventType == VisitorType.GIFT` (2)
+# instead of RECRUITMENT (3). Tapping such a visitor and collecting its gift sends
+# the identical one-shot message, captured whole in trace 20260729_151712
 # «Собрать подарки выжившего»:
 #
 #     SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, uid, 1)
@@ -633,34 +667,18 @@ def visitor_recruit_survivor() -> str:
 # means "collect the gift" here just as it means "accept" for a recruit. Because
 # the body is only {uid, operate}, no window need be open: the uid is read
 # straight off the queued visitor's data, exactly like the recruit path.
+#
+# The count is cross-checked against the client's own batch-claim list,
+# `GetReceiveAllGiftUidList(VisitorType.GIFT, 1, n)`: on a live queue of four gift
+# visitors, one of them not yet arrived, both said 3.
 def visitor_gift_pending() -> str:
-    """Lua *expression* -> how many queued visitors are gift-bearing survivors.
-
-    Counts `CityVisitorManager` queue entries whose `data.visitorId` equals
-    `VisitorType.GIFT` (2). `GetQueueAllVisitorData(1)` yields `{data, model}`
-    wrappers, so the discriminator lives one level in, on `.data`.
-    """
-    return ("(function() local n = 0 "
-            "local G = (VisitorType and VisitorType.GIFT) or 2 "
-            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
-            "local d = e and e.data "
-            "if d and d.visitorId == G then n = n + 1 end end "
-            "return n end)()")
+    """Lua *expression* -> how many queued visitors are gift-bearing survivors."""
+    return _visitor_count("GIFT", 2)
 
 
 def visitor_gift_collect() -> str:
-    """Collect the first gift-bearing survivor (`visitor.operate {uid, operate=1}`).
-
-    Gated on `visitor_gift_pending() > 0` so an empty queue never spends a server
-    round trip. Sends for exactly the front GIFT visitor's uid.
-    """
-    return ("if %s > 0 then "
-            "local G = (VisitorType and VisitorType.GIFT) or 2 "
-            "for _, e in ipairs(DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}) do "
-            "local d = e and e.data "
-            "if d and d.visitorId == G then "
-            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
-            % visitor_gift_pending())
+    """Collect the first gift-bearing survivor (`visitor.operate {uid, operate=1}`)."""
+    return _visitor_operate_first("GIFT", 2)
 
 
 # --------------------------------------------------------------------------
