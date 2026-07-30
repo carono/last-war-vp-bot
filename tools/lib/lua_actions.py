@@ -2134,3 +2134,93 @@ def truck_reward_collect() -> str:
         'if not ok then CS.UnityEngine.Debug.LogError("ACT truck_reward_collect skip: "..tostring(err)) end'
         % _TRUCK_REWARD_MSG
     )
+
+
+# --- Base decorations: upgrade one ("ремонт" in the decoration handbook) -----
+# Session `20260730_142543_Повышение_украшений`: the player opened the building that
+# carries decorations, switched to its handbook, picked a decoration that could be
+# upgraded and pressed the upgrade button. The whole flow put ONE message on the wire
+# (everything else in the run is keepalives and unrelated pushes):
+#
+#     SFSNetwork.SendMessage <- decorator.progress.upgrade, 1156814307842051185, 1
+#       -> up   decorator.progress.upgrade {buildUuid:<long>, num:1}
+#       -> down decorator.progress.upgrade {state:1, deleteNewArr:[{num:1,lv:1}],
+#                                           buildInfo:{uuid:<same>, decorNum:1, lv:6, …}}
+#
+# So the press is a plain positional send of the building's uuid plus the decoration
+# slot `num` — no window has to be open, nothing is selected first, and the reply is
+# the building's refreshed info (its `decorNum` / `lv`), not a reward list. The three
+# windows the player walked through (building -> handbook -> the decoration cell) are
+# pure UI: none of them touched the socket.
+#
+# The owning client-side manager is `DataCenter.DecorationDataManager` (the DataCenter
+# key dump); its reader API is not mapped yet, which is why the queue below is parked
+# from outside instead of being scanned in-game.
+
+_DECOR_UPGRADE_MSG = "decorator.progress.upgrade"
+
+
+def decoration_upgrade(build_uuid, num: int = 1) -> str:
+    """Upgrade decoration slot `num` on the base building `build_uuid` — one press.
+
+    The literal reproduction of the recorded send. Headless: no building tapped, no
+    handbook opened, no cell selected. A slot that cannot be upgraded right now (not
+    enough materials, already at the cap) is refused by the server the same way the
+    in-game button would be — the send itself always goes out.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage("%s", %s, %d) end) '
+            'CS.UnityEngine.Debug.LogError("ACT decor_upgrade uuid=%s num=%d")'
+            % (_DECOR_UPGRADE_MSG, build_uuid, int(num), build_uuid, int(num)))
+
+
+# The work queue. A DSL `TAP` takes no arguments, so which decorations to upgrade is
+# parked on the VM first, exactly like the treasure queue:
+#
+#     DataCenter.__lw_decor_queue = { {uuid=<buildUuid>, num=<slot>}, ... }
+#
+# `decoration_queue_set` fills it, `upgrade_next_decoration` pops one entry per press,
+# so `TAP upgrade_decoration xall` spends the whole parked list.
+
+
+def decoration_queue_set(targets) -> str:
+    """Park the decorations to upgrade: an iterable of `(build_uuid, num)` pairs."""
+    items = ",".join("{uuid=%s,num=%d}" % (u, int(n)) for u, n in targets)
+    return ("DataCenter.__lw_decor_queue={%s} "
+            'CS.UnityEngine.Debug.LogError("ACT decor_queue="..tostring(#DataCenter.__lw_decor_queue))'
+            % items)
+
+
+def decoration_queue_len() -> str:
+    """Lua *expression* -> how many decorations are still queued for an upgrade."""
+    return "(function() return #(DataCenter.__lw_decor_queue or {}) end)()"
+
+
+def upgrade_next_decoration() -> str:
+    """Pop the head of the parked queue and send its upgrade.
+
+    The head is removed before the send (same shape as the treasure/ghost-recon
+    presses), so a refused upgrade costs one queue entry instead of wedging `xall` on
+    a slot the server keeps rejecting.
+    """
+    return (
+        "local q=DataCenter.__lw_decor_queue or {} local t=table.remove(q,1) "
+        'if t then pcall(function() SFSNetwork.SendMessage("%s", t.uuid, t.num) end) '
+        'CS.UnityEngine.Debug.LogError("ACT decor_upgrade uuid="..tostring(t.uuid)..'
+        '" num="..tostring(t.num)) '
+        'else CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip empty queue") end'
+        % _DECOR_UPGRADE_MSG
+    )
+
+
+def decoration_manager_dump() -> str:
+    """Log the shape of `DataCenter.DecorationDataManager` — the finder's groundwork.
+
+    Names and value types only (no calls), so the next session can write the "which
+    decorations can be upgraded right now" scan without guessing method names.
+    """
+    return (
+        "local m=DataCenter.DecorationDataManager "
+        'if not m then CS.UnityEngine.Debug.LogError("ACT decor_dump none") return end '
+        "for k,v in pairs(m) do "
+        'CS.UnityEngine.Debug.LogError("ACT decor_key "..tostring(k).." "..type(v)) end'
+    )

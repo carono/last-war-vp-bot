@@ -480,6 +480,25 @@ BUTTONS: dict[str, Button] = {
         # Three squads is the whole army; the cap is only a backstop.
         max_taps=5,
     ),
+    # --- base decorations: the handbook's upgrade ("ремонт") press ------------
+    # One press upgrades one decoration slot of one building. Which ones is parked
+    # first (`DataCenter.__lw_decor_queue`, see lua_actions.decoration_queue_set)
+    # because `TAP` takes no arguments, so `TAP upgrade_decoration xall` spends the
+    # whole parked list, one slot per press. Headless — the building, its handbook
+    # and the decoration cell are UI the recorded session showed sending nothing.
+    "upgrade_decoration": Button(
+        lua=_lua_actions.upgrade_next_decoration(),
+        # The reply carries the building's refreshed info; a short pause keeps the
+        # client's numbers current before the next slot is pressed.
+        wait=1.0, label="Upgrade a decoration",
+        count_lua=_lua_actions.decoration_queue_len(),
+        max_taps=20,
+    ),
+    "dump_decorations": Button(
+        # Debug helper: log the decoration manager's shape (no press, no send).
+        lua=_lua_actions.decoration_manager_dump(),
+        wait=0.3, label="dump decoration manager",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.
