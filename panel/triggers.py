@@ -198,6 +198,16 @@ def _as_scenario(raw) -> tuple[str, ...]:
     return tuple(step for step in (s.strip() for s in steps) if step)
 
 
+def _as_interval(raw, fallback: int) -> int:
+    """A poll cadence in seconds, floored so a hand-edited file cannot ask for a
+    check every fraction of a second."""
+    try:
+        value = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return fallback
+    return max(MIN_POLL_INTERVAL_SEC, value)
+
+
 class TriggerCatalogue:
     """The configured list of triggers, plus whatever was wrong with the file.
 
@@ -252,7 +262,9 @@ class TriggerCatalogue:
         """
         config = self.normalize_config(config)
         updated = [Trigger(
-            name=t.name, event_pattern=t.event_pattern, scenario=t.scenario,
+            name=t.name, scenario=t.scenario, kind=t.kind,
+            event_pattern=t.event_pattern, check=t.check,
+            interval_sec=t.interval_sec, cooldown_sec=t.cooldown_sec,
             enabled=bool(config[t.name]), args=dict(t.args),
             title=t.title, label_key=t.label_key) for t in self.triggers]
         return TriggerCatalogue(updated, self.path, self.errors)
@@ -294,11 +306,9 @@ def parse_catalogue(data, path: str | None = None,
             errors.append(f"{name}: listed twice — the later entry is ignored")
             continue
         base = builtin.get(name)
-        pattern = str(raw.get("event_pattern") or "").strip()
-        if not pattern:
-            pattern = base.event_pattern if base else ""
-        if not pattern:
-            errors.append(f"{name}: no event_pattern to watch for — skipped")
+        kind = str(raw.get("kind") or (base.kind if base else KIND_WIRE)).strip()
+        if kind not in (KIND_WIRE, KIND_POLL):
+            errors.append(f"{name}: unknown kind '{kind}' — skipped")
             continue
         scenario = _as_scenario(raw.get("scenario"))
         if not scenario:
@@ -306,11 +316,30 @@ def parse_catalogue(data, path: str | None = None,
         if not scenario:
             errors.append(f"{name}: no scenario to run — skipped")
             continue
+        # A wire trigger needs a pattern to listen for; a poll trigger needs a check
+        # to evaluate. Missing the one its kind requires costs the entry, not the set.
+        pattern = str(raw.get("event_pattern") or "").strip() or \
+            (base.event_pattern if base else "")
+        check = str(raw.get("check") or "").strip() or (base.check if base else "")
+        if kind == KIND_WIRE and not pattern:
+            errors.append(f"{name}: no event_pattern to watch for — skipped")
+            continue
+        if kind == KIND_POLL and not check:
+            errors.append(f"{name}: no check to poll — skipped")
+            continue
         args = raw.get("args")
         triggers.append(Trigger(
             name=name,
-            event_pattern=pattern,
             scenario=scenario,
+            kind=kind,
+            event_pattern=pattern,
+            check=check,
+            interval_sec=_as_interval(
+                raw.get("interval_sec"),
+                base.interval_sec if base else DEFAULT_POLL_INTERVAL_SEC),
+            cooldown_sec=_as_interval(
+                raw.get("cooldown_sec"),
+                base.cooldown_sec if base else DEFAULT_POLL_COOLDOWN_SEC),
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
@@ -377,22 +406,32 @@ class TriggerWatcher:
       * ``catalogue()``      -> the current :class:`TriggerCatalogue`;
       * ``config()``         -> the switches read fresh (``{name: enabled}``), so a
                               ticked box applies without a restart;
-      * ``spawn(trigger, fire)`` -> start a listener that calls ``fire()`` on every
-                              matching push; returns a handle with ``.stop()`` (or
-                              ``None`` if it would not start);
+      * ``spawn(trigger, fire)`` -> start a WIRE listener that calls ``fire()`` on
+                              every matching push; returns a handle with ``.stop()``
+                              (or ``None`` if it would not start);
+      * ``poll(trigger)``    -> evaluate a POLL trigger's check once, returning truthy
+                              when it should fire (the panel reads it through the
+                              daemon). Runs on the watcher's own poll thread, so it may
+                              block; it must not touch Tk.
       * ``submit(trigger)``  -> put the scenario on the shared work queue (the panel
                               hands this to ``TimerScheduler.submit``);
       * ``log(key, **fmt)``  -> a locale key plus its placeholders.
+
+    Two kinds of listener, one bookkeeping. A *wire* trigger's listener is the child
+    ``spawn`` returns; a *poll* trigger's is an internal thread that calls ``poll``
+    every ``interval_sec`` and fires when it comes back true, then sits out
+    ``cooldown_sec``. Both are stored the same way and stopped the same way.
     """
 
-    def __init__(self, *, catalogue, config, spawn, submit, log) -> None:
+    def __init__(self, *, catalogue, config, spawn, submit, log, poll=None) -> None:
         self._catalogue = catalogue
         self._config = config
         self._spawn = spawn
         self._submit = submit
         self._log = log
+        self._poll = poll
         self._lock = threading.Lock()
-        self._listeners: dict[str, object] = {}   # trigger name -> child handle
+        self._listeners: dict[str, object] = {}   # trigger name -> handle (.stop())
         self._started = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -432,12 +471,23 @@ class TriggerWatcher:
                 self._start_one(trigger)
 
     def _start_one(self, trigger) -> None:
+        if trigger.is_poll:
+            handle = _PollHandle(trigger, self._poll,
+                                 lambda t=trigger: self._fire(t), self._log)
+            with self._lock:
+                self._listeners[trigger.name] = handle
+            self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
+            handle.start()
+            # No arm-sweep: the poll's own first iteration reads the current state, so
+            # a kick already on screen is caught at once — submitting here would run
+            # the recovery every time the box is ticked.
+            return
         handle = self._spawn(trigger, lambda t=trigger: self._fire(t))
         if handle is None:               # the child would not start; spawn logged it
             return
         with self._lock:
             self._listeners[trigger.name] = handle
-        self._log("triggers.log.on", name=trigger.name, event=trigger.event_pattern)
+        self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
         # An initial sweep: a request already waiting when the ear opens had its push
         # sent before we started listening, so no trigger is coming for it. Run the
         # errand once to clear whatever is already there. Safe because the scenario is
@@ -457,13 +507,14 @@ class TriggerWatcher:
         self._log("triggers.log.off", name=name)
 
     def _fire(self, trigger) -> None:
-        """A matching push landed — put the scenario on the shared queue.
+        """The trigger's moment came — put the scenario on the shared queue.
 
-        Runs on the listener's reader thread. ``submit`` is thread-safe (it hands to
-        the scheduler's queue) and coalesces a burst: a second push while the errand
-        is still queued or running is dropped, so ten requests together cost one press.
+        Runs on the listener's thread (a wire child's reader, or a poll thread).
+        ``submit`` is thread-safe (it hands to the scheduler's queue) and coalesces a
+        burst: a second fire while the errand is still queued or running is dropped, so
+        a flurry of pushes — or a modal seen twice — costs one press.
         """
-        self._log("triggers.log.fire", name=trigger.name, event=trigger.event_pattern)
+        self._log("triggers.log.fire", name=trigger.name, event=trigger.signal())
         self._submit(trigger)
 
     def on_listener_exit(self, name: str) -> None:
@@ -475,3 +526,45 @@ class TriggerWatcher:
         """Names of the triggers with a live listener — for the row painter."""
         with self._lock:
             return set(self._listeners)
+
+
+class _PollHandle:
+    """A poll trigger's "listener": a thread that checks, and fires when it's true.
+
+    The wire triggers hand their watching to a child process; a poll trigger has no
+    packet to hear, so the watcher runs it here — every ``interval_sec`` it asks
+    ``poll(trigger)``, and on a truthy answer it fires and then sits out
+    ``cooldown_sec`` before checking again (so a kick modal that lingers until the
+    relaunch lands does not re-fire the recovery each interval). Same ``.stop()`` the
+    watcher calls on a wire child, so the two are managed identically.
+    """
+
+    def __init__(self, trigger, poll, on_fire, log) -> None:
+        self._trigger = trigger
+        self._poll = poll
+        self._on_fire = on_fire
+        self._log = log
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name=f"trigger-poll-{trigger.name}")
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        t = self._trigger
+        while not self._stop.is_set():
+            fired = False
+            try:
+                if self._poll is not None and self._poll(t):
+                    self._on_fire()
+                    fired = True
+            except Exception as exc:              # noqa: BLE001 — a bad read must not
+                # kill the watch; log once and carry on to the next interval.
+                self._log("triggers.log.poll_error", name=t.name, error=exc)
+            # Wait on the stop event so a stop is noticed at once, not at the end of a
+            # full interval: `wait` returns True the moment it is set.
+            self._stop.wait(t.cooldown_sec if fired else t.interval_sec)

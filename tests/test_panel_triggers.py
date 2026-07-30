@@ -61,6 +61,39 @@ def test_the_builtin_alliance_help_trigger_ships():
     assert not ah.enabled                      # opt-in, exactly as the old box was
 
 
+def test_the_builtin_session_kick_trigger_is_a_poll():
+    sk = triggersmod.default_catalogue().by_name("session_kick")
+    assert sk is not None
+    assert sk.is_poll and sk.kind == triggersmod.KIND_POLL
+    assert sk.check                            # a Lua check, not a wire pattern
+    assert sk.scenario == ("recover_from_kick",)
+    assert sk.interval_sec >= triggersmod.MIN_POLL_INTERVAL_SEC
+    assert not sk.enabled                      # opt-in
+
+
+def test_a_poll_trigger_round_trips_and_keeps_its_kind():
+    entries = [{"name": "k", "kind": "poll", "check": "foo()",
+                "scenario": "bar", "interval_sec": 20, "cooldown_sec": 40}]
+    cat = triggersmod.parse_catalogue(entries)
+    k = cat.by_name("k")
+    assert k.is_poll and k.check == "foo()"
+    assert k.interval_sec == 20 and k.cooldown_sec == 40
+    d = k.as_dict()
+    assert d["kind"] == "poll" and d["check"] == "foo()"
+    assert "event_pattern" not in d            # a poll writes no wire pattern
+
+
+def test_a_poll_without_a_check_is_dropped():
+    # A valid entry alongside, so the junk one is dropped rather than the whole file
+    # falling back to the built-in defaults ("no usable triggers → use defaults").
+    cat = triggersmod.parse_catalogue([
+        {"name": "ok", "event_pattern": "al.help.new", "scenario": "help_ally"},
+        {"name": "k", "kind": "poll", "scenario": "x"},
+    ])
+    assert cat.names() == ["ok"]
+    assert any("no check" in e for e in cat.errors)
+
+
 def test_with_enabled_moves_only_the_switch():
     cat = triggersmod.default_catalogue()
     flipped = cat.with_enabled({"alliance_help": True})
@@ -181,6 +214,56 @@ def test_stop_takes_every_listener_down():
     assert h.spawned[0].stopped is True
     h.watcher.sync()                            # stopped → sync does nothing
     assert h.watcher.watching() == set()
+
+
+# -- poll triggers ----------------------------------------------------------
+def _poll_catalogue():
+    return triggersmod.TriggerCatalogue([
+        triggersmod.Trigger(name="kick", kind=triggersmod.KIND_POLL,
+                            check="x", scenario=("recover",),
+                            interval_sec=5, cooldown_sec=5),
+    ])
+
+
+def test_a_poll_trigger_fires_when_the_check_is_true():
+    """The poll thread submits the scenario the moment the check comes back true."""
+    import threading
+    fired = threading.Event()
+    submitted = []
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=_poll_catalogue,
+        config=lambda: {"kick": True},
+        spawn=lambda t, f: None,                # no wire triggers here
+        submit=lambda t: (submitted.append(t.name), fired.set()),
+        log=lambda *a, **k: None,
+        poll=lambda t: True,                    # the kick is on screen
+    )
+    watcher.start()
+    try:
+        assert watcher.watching() == {"kick"}   # a poll handle, not a wire child
+        assert fired.wait(2.0), "the poll never fired"
+        assert submitted == ["kick"]
+    finally:
+        watcher.stop()
+    assert watcher.watching() == set()
+
+
+def test_a_poll_trigger_that_reads_false_never_fires():
+    import threading
+    fired = threading.Event()
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=_poll_catalogue,
+        config=lambda: {"kick": True},
+        spawn=lambda t, f: None,
+        submit=lambda t: fired.set(),
+        log=lambda *a, **k: None,
+        poll=lambda t: False,                   # no kick
+    )
+    watcher.start()
+    try:
+        assert not fired.wait(0.5)              # nothing fired
+    finally:
+        watcher.stop()
 
 
 def _run_standalone() -> int:

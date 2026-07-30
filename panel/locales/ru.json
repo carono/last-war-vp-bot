@@ -7,6 +7,10 @@
 
   "app.title": "Last War — навигация",
 
+  "autorally.create.elite": "Уровень элиты:",
+  "autorally.create.frame": "Создание ралли",
+  "autorally.create.hint": "Выбери один отряд, который поднимает стяг и создаёт ралли, и уровень элиты (1–35), против которого ралли идёт. Флагман только один; повторный клик снимает его.",
+  "autorally.create.squads": "Отряд-создатель:",
   "autorally.drill.banner": "Создавать стяг",
   "autorally.drill.enabled": "Участвовать в авторалли учений",
   "autorally.drill.frame": "Учения альянса",
@@ -88,6 +92,9 @@
   "dash.visitors": "выживших у ворот",
   "dash.wounded": "раненых",
 
+  "debug.frame": "Debug-лог (технический)",
+  "debug.send": "Отправить архив",
+
   "develop.label.prompt": "Метка сессии (необязательно).\nПопадёт в имя файла лога; пробелы станут подчёркиваниями.",
   "develop.label.title": "Метка сессии",
   "develop.run.confirm": "Удалить файлы записи «{label}»? Отменить это будет нельзя.",
@@ -144,6 +151,11 @@
   "log.daemon.starting": "не запущен — запускаю…",
   "log.daemon.timeout": "не поднялся за отведённое время",
   "log.dash.unreadable": "сводка не читается: {error}",
+  "log.debug.failed": "Не удалось отправить debug-лог: {error}",
+  "log.debug.no_dest": "Архив готов: {path}. Адрес отправки не задан (Настройки → Общие).",
+  "log.debug.packing": "Упаковываю debug-лог…",
+  "log.debug.sent": "debug-лог отправлен: {dest} ({path})",
+  "log.debug.stub": "Архив готов: {path}. Отправка не настроена (заглушка), адрес «{dest}».",
   "log.done": "готово",
   "log.error": "ошибка: {error}",
   "log.filter": "Показывать:",
@@ -218,6 +230,14 @@
   "opt.autoloot_poll.hint": "Как часто перечитывается чекпойнт захвата.",
   "opt.daemon_port": "Порт lua-демона",
   "opt.daemon_port.hint": "47654 — клиент этой сессии Windows. Другой порт (47655) — клиент в отдельной сессии: профиль с ним управляет ВТОРЫМ аккаунтом.",
+  "opt.debug_log_backups": "Копий debug-лога",
+  "opt.debug_log_backups.hint": "Сколько свёрнутых файлов debug-лога хранить, чтобы он не разрастался.",
+  "opt.debug_log_level": "Уровень debug-лога",
+  "opt.debug_log_level.hint": "DEBUG / INFO / WARNING / ERROR — что писать в технический debug-лог.",
+  "opt.debug_log_max_kb": "Размер файла, КБ",
+  "opt.debug_log_max_kb.hint": "При каком размере файл debug-лога сворачивается и начинается новый.",
+  "opt.debug_send_dest": "Куда слать архив",
+  "opt.debug_send_dest.hint": "Адрес отправки архива debug-лога. Пока заглушка — транспорт не подключён.",
   "opt.game_exe": "Процесс игры",
   "opt.game_exe.hint": "Имя процесса, по которому игра считается запущенной.",
   "opt.launcher": "LastWarLauncher.exe",
@@ -402,6 +422,9 @@
   "triggers.log.on": "{name}: слушаю {event}",
   "triggers.log.reloaded": "триггеры перечитаны — {n}",
   "triggers.off": "выкл",
+  "triggers.item.session_kick": "Восстановление после кика",
+  "triggers.log.poll_error": "{name}: не удалось прочитать проверку: {error}",
+  "triggers.poll": "опрос",
 
   "top.daemon": "демон:",
   "top.game": "Игра:"

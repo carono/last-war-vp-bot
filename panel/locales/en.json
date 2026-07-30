@@ -7,6 +7,10 @@
 
   "app.title": "Last War — Navigation",
 
+  "autorally.create.elite": "Elite level:",
+  "autorally.create.frame": "Create a rally",
+  "autorally.create.hint": "Pick the one squad that raises the banner to create a rally, and the elite level (1–35) the rally targets. Only one squad can lead; click it again to clear it.",
+  "autorally.create.squads": "Creator squad:",
   "autorally.drill.banner": "Raise the banner",
   "autorally.drill.enabled": "Join drill rallies automatically",
   "autorally.drill.frame": "Alliance drill",
@@ -88,6 +92,9 @@
   "dash.visitors": "survivors at the gate",
   "dash.wounded": "wounded",
 
+  "debug.frame": "Debug log (technical)",
+  "debug.send": "Send archive",
+
   "develop.label.prompt": "Session label (optional).\nGoes into the log file name; spaces become underscores.",
   "develop.label.title": "Session label",
   "develop.run.confirm": "Delete the recorded files of “{label}”? This cannot be undone.",
@@ -144,6 +151,11 @@
   "log.daemon.starting": "not running — starting it…",
   "log.daemon.timeout": "did not come up in the time allowed",
   "log.dash.unreadable": "the summary cannot be read: {error}",
+  "log.debug.failed": "Could not send the debug log: {error}",
+  "log.debug.no_dest": "Archive ready: {path}. No destination set (Settings → General).",
+  "log.debug.packing": "Packing the debug log…",
+  "log.debug.sent": "debug log sent: {dest} ({path})",
+  "log.debug.stub": "Archive ready: {path}. Sending is not configured (stub), destination «{dest}».",
   "log.done": "done",
   "log.error": "error: {error}",
   "log.filter": "Show:",
@@ -218,6 +230,14 @@
   "opt.autoloot_poll.hint": "How often the capture's checkpoint is re-read.",
   "opt.daemon_port": "Lua daemon port",
   "opt.daemon_port.hint": "47654 is this Windows session's client. Another port (47655) is a client in its own session: a profile naming it drives the SECOND account.",
+  "opt.debug_log_backups": "Debug log backups",
+  "opt.debug_log_backups.hint": "How many rolled-over debug-log files to keep so it cannot grow without bound.",
+  "opt.debug_log_level": "Debug log level",
+  "opt.debug_log_level.hint": "DEBUG / INFO / WARNING / ERROR — what to write to the technical debug log.",
+  "opt.debug_log_max_kb": "File size, KB",
+  "opt.debug_log_max_kb.hint": "The size at which the debug log rolls over into a fresh file.",
+  "opt.debug_send_dest": "Archive destination",
+  "opt.debug_send_dest.hint": "Where the debug-log archive is sent. A stub for now — no transport is wired.",
   "opt.game_exe": "Game process",
   "opt.game_exe.hint": "The process name that means the game is running.",
   "opt.launcher": "LastWarLauncher.exe",
@@ -402,6 +422,9 @@
   "triggers.log.on": "{name}: watching for {event}",
   "triggers.log.reloaded": "triggers re-read — {n}",
   "triggers.off": "off",
+  "triggers.item.session_kick": "Recover from a session kick",
+  "triggers.log.poll_error": "{name}: the check could not be read: {error}",
+  "triggers.poll": "polling",
 
   "top.daemon": "daemon:",
   "top.game": "Game:"

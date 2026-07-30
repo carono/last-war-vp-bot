@@ -67,11 +67,15 @@ def _page():
         _opt_row = pm.Panel._opt_row
         _build_settings_tab = pm.Panel._build_settings_tab
         _build_general_settings = pm.Panel._build_general_settings
+        _build_debug_log_settings = pm.Panel._build_debug_log_settings
         _build_game_settings = pm.Panel._build_game_settings
         _refresh_sweep_settings_hint = pm.Panel._refresh_sweep_settings_hint
         _build_autorally_settings = pm.Panel._build_autorally_settings
         _cycle_drill_squad = pm.Panel._cycle_drill_squad
         _paint_drill_squads = pm.Panel._paint_drill_squads
+        _cycle_create_squad = pm.Panel._cycle_create_squad
+        _paint_create_squads = pm.Panel._paint_create_squads
+        _create_elite_level = pm.Panel._create_elite_level
         _autorally_config = pm.Panel._autorally_config
         _apply_autorally_config = pm.Panel._apply_autorally_config
 
@@ -222,6 +226,98 @@ def test_the_page_round_trips_through_the_profile_config():
         assert page._autorally_config()["squads"] == []
         page._apply_autorally_config(None)
         assert page._autorally_config()["drill"]["squads"] == []
+    finally:
+        root.destroy()
+
+
+def _autorally_page():
+    """A stand-in with ONLY the Auto-rally settings built.
+
+    Built on its own rather than through `_page()`, so this stays a test of the
+    rally-creation section alone and does not ride on every other Settings tab.
+    """
+    import tkinter as tk
+    import customtkinter as ctk
+    from panel import i18n as i18nmod
+    import panel.__main__ as pm
+
+    root = ctk.CTk()          # a CustomTkinter app (#1129)
+    root.withdraw()
+
+    class _Page:
+        def __init__(self):
+            self._i18n = i18nmod.I18n("ru")
+            self._tr_widgets: list = []
+            self._tr_hooks: list = []
+            self.saves = 0
+
+        _t = pm.Panel._t
+        _tr = pm.Panel._tr
+        _build_autorally_settings = pm.Panel._build_autorally_settings
+        _cycle_drill_squad = pm.Panel._cycle_drill_squad
+        _paint_drill_squads = pm.Panel._paint_drill_squads
+        _cycle_create_squad = pm.Panel._cycle_create_squad
+        _paint_create_squads = pm.Panel._paint_create_squads
+        _create_elite_level = pm.Panel._create_elite_level
+        _autorally_config = pm.Panel._autorally_config
+        _apply_autorally_config = pm.Panel._apply_autorally_config
+
+        def _save_settings(self):
+            self.saves += 1
+
+    page = _Page()
+    page._build_autorally_settings(ctk.CTkFrame(root))
+    return root, page, pm
+
+
+def test_create_rally_squad_is_a_single_banner_and_a_bounded_level():
+    try:
+        import tkinter  # noqa: F401
+    except Exception:                                   # noqa: BLE001
+        _skip()
+        return
+    try:
+        root, page, pm = _autorally_page()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        # Blank at the start, level at the floor.
+        assert page._create_flagship is None
+        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+
+        # blank -> 🚩, and each click persists.
+        page._cycle_create_squad(2)
+        assert page._create_flagship == 2 and page.saves == 1
+        assert page._create_buttons[2].cget("text").endswith("🚩")
+
+        # Only one banner: picking another moves it, it is never in two places.
+        page._cycle_create_squad(3)
+        assert page._create_flagship == 3
+        assert not page._create_buttons[2].cget("text").endswith("🚩")
+
+        # Clicking the holder clears it.
+        page._cycle_create_squad(3)
+        assert page._create_flagship is None
+
+        # The level is clamped, not obeyed blindly.
+        page._create_elite_var.set(str(pm.RALLY_ELITE_MAX + 5))
+        assert page._create_elite_level() == pm.RALLY_ELITE_MAX
+        page._create_elite_var.set("0")
+        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+        page._create_elite_var.set("not a level")
+        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+
+        # It round-trips through the profile block, and junk falls back to safe.
+        page._create_elite_var.set("17")
+        page._cycle_create_squad(4)
+        assert page._autorally_config()["create"] == {"flagship": 4, "elite_level": 17}
+        page._apply_autorally_config({"create": {"flagship": 1, "elite_level": 22}})
+        assert page._create_flagship == 1 and page._create_elite_level() == 22
+        assert page._create_buttons[1].cget("text").endswith("🚩")
+        page._apply_autorally_config({"create": {"flagship": 99, "elite_level": "x"}})
+        assert page._create_flagship is None
+        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
     finally:
         root.destroy()
 

@@ -1,3 +1,10 @@
+# SUPERSEDED by the «session_kick» trigger (panel/triggers.py). That one detects the
+# same "logged in from another device" kick HEADLESSLY — it reads the disconnect state
+# through the daemon every few seconds instead of matching a screenshot — and RECOVERS
+# (relaunches the client via actions/recover_from_kick.md) rather than only halting.
+# This pixel-based recipe is kept for reference; it needs a captured kicked_modal.png
+# and a foreground window, neither of which the trigger does.
+#
 # Watchdog: runs on every bot tick. Reacts to interrupt conditions that
 # ru: Сторож: реагирует на модалку «вход с другого устройства».
 # must halt the bot regardless of what the main routine is doing.

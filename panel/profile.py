@@ -33,6 +33,11 @@ DEFAULT_PROFILE = "default"
 RALLY_LOG = "rally_log.jsonl"
 SECRET_LOG = "secret_tasks_log.jsonl"
 CHAT_LOG = "chat_log.jsonl"
+# The queryable chat store (panel/chat_history.py): every message the monitor sees
+# is written here, and the panel reads the newest page from it at startup and pages
+# older chunks in on scroll. Kept apart from CHAT_LOG, which stays the raw capture
+# append-log written by the reader process itself.
+CHAT_DB = "chat_history.db"
 # Live checkpoint of the secret-task capture (tools/secret_task_capture.py --json).
 # Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
 # current state of the map, which is what an auto-loot decision has to read.
@@ -221,6 +226,10 @@ class ProfileManager:
     def chat_log(self, name: str | None = None) -> str:
         """JSONL log of chat messages captured on the plain-TCP leg."""
         return os.path.join(self.dir(name), CHAT_LOG)
+
+    def chat_db(self, name: str | None = None) -> str:
+        """SQLite store of chat history the panel pages through (chat_history.py)."""
+        return os.path.join(self.dir(name), CHAT_DB)
 
     def panel_log(self, name: str | None = None) -> str:
         """Plain-text mirror of everything shown in the panel log widget."""

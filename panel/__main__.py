@@ -110,11 +110,13 @@ from .ctk_widgets import (
 from . import childmon as childmonmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
+from . import debug_sender as dbgsender
 from . import i18n as i18nmod
 from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
 from . import triggers as triggersmod
+from . import chat_history as chathistmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -139,7 +141,8 @@ import chat_assets      # noqa: E402  (token -> local sprite PNG for chat render
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
 try:
-    from PIL import Image as _PILImage, ImageTk as _PILImageTk  # noqa: E402
+    from PIL import (Image as _PILImage, ImageTk as _PILImageTk,  # noqa: E402
+                     ImageDraw as _PILImageDraw)
     _PIL_OK = True
 except Exception:       # noqa: BLE001
     _PIL_OK = False
@@ -376,24 +379,22 @@ SETTINGS_DEFAULTS: dict = {
     "sweep_step": mapsweepmod.DEFAULT_STEP,
     "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
     "sweep_rest_min": 5,           # pause between two full passes, minutes
-    # Technical debug log (panel/debug_log.py) — separate from the human-facing
-    # panel.log. Rotated by size so an overnight session cannot grow it; the level
-    # is one of DEBUG/INFO/WARNING/ERROR; `debug_send_dest` is where «Отправить
-    # архив» ships the zip (TBD — no transport is wired, so it is a stub for now).
-    "debug_log_max_kb": dbgmod.DEFAULT_MAX_KB,
-    "debug_log_backups": dbgmod.DEFAULT_BACKUPS,
-    "debug_log_level": dbgmod.DEFAULT_LEVEL,
-    "debug_send_dest": dbgmod.DEFAULT_DESTINATION,
+    # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
+    # Empty = do not send: the archive is still written, but nothing leaves the box.
+    # A stub for now — no transport is wired. The rotating debug log itself is not
+    # configured here: it is a fixed 5 MiB × 3 (panel/debug_log.py).
+    "debug_send_url": "",
 }
 
 # The chat sub-tabs, in order. `system` is on the list: `_chat_msgs` always carried
 # the bucket, so those messages were counted and never shown anywhere.
 CHAT_TABS: tuple[str, ...] = ("world", "alliance", "national", "dm", "other", "system")
 
-# Lazy-load: the full history of a tab lives in memory, but only a window of it is
-# ever rendered into the (slow) Text widget. CHAT_PAGE is how many messages the tab
-# opens with and how many more a scroll-to-top pages in. CHAT_MSGS_MAX caps the
-# in-memory list so a marathon session cannot grow it without bound.
+# Lazy-load: chat history lives in the per-profile SQLite store; only the newest
+# CHAT_PAGE of a tab is read into memory and rendered at startup, and a scroll to the
+# top pages the next CHAT_PAGE in from the store. CHAT_MSGS_MAX caps the in-memory
+# (rendered) list so a marathon live session cannot grow it without bound — overflow
+# is dropped from the front but stays in the store, reachable again by scrolling up.
 CHAT_PAGE = 100
 CHAT_MSGS_MAX = 2000
 
@@ -401,6 +402,8 @@ CHAT_MSGS_MAX = 2000
 # live where they matter (the formation whose `index` is the slot, see
 # tools/lib/lua_actions.py); this is only how many the page draws.
 RALLY_SQUADS = (1, 2, 3, 4)
+# The elite-monster level a created rally may target.
+RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
 
 # The three states of a drill squad, in the order a click walks them.
 DRILL_OFF, DRILL_ON, DRILL_FLAG = "", "on", "flag"
@@ -594,6 +597,19 @@ class Panel(ctk.CTk):
         self._log_fh = None
         self._log_lines = 0           # lines in the widget, for the retention cap
         self._log_kept: list = []     # every line this session, for a filter redraw
+        # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
+        # kept apart from panel.log and the UI widget. Pointed at the active profile
+        # here — before any _log_put — so the very first line and any start-up
+        # traceback already land in it. Two component loggers: `panel` for lifecycle
+        # and errors, `ui` for the mirror of every widget line. _dbg_status_prev
+        # remembers the last systems snapshot so only transitions are logged at INFO.
+        self._configure_debug_log()
+        self._dbg = dbgmod.get_logger("panel")
+        self._dbg_ui = dbgmod.get_logger("ui")
+        self._dbg_status_prev = None
+        self._install_exception_logging()
+        self._dbg.info("panel starting — profile %r, version %s",
+                       self._profiles.active, APP_VERSION)
         self._busy = False
         # Guards the flag above: buttons claim it on the Tk thread, the timer
         # scheduler from its own, so a plain read-then-set would let two recipes
@@ -654,10 +670,17 @@ class Panel(ctk.CTk):
         self._chat_trees: dict = {}
         # Count of lines already rendered into each view (for incremental appends)
         self._chat_tree_rows: dict = {}
-        # Lazy-load window: the index into _chat_msgs of the FIRST record currently
-        # rendered. Everything before it is in memory but not drawn; a scroll to the
-        # top pages another CHAT_PAGE of it into view. 0 = the whole tab is shown.
-        self._chat_offset: dict = {t: 0 for t in CHAT_TABS}
+        # Lazy-load: `_chat_msgs` holds only the records currently in memory (the
+        # newest page at startup); `_chat_has_more` is True while the SQLite store
+        # still holds OLDER messages for that tab than the oldest one in memory. A
+        # scroll to the top (or the load-more header) pages the next chunk in from
+        # the store. `_chat_store` is the per-profile ChatHistoryStore, re-pointed on
+        # a profile switch.
+        self._chat_has_more: dict = {t: False for t in CHAT_TABS}
+        self._chat_store = None
+        # Cache of inline sprite images keyed by (path, height) -- also keeps the
+        # PhotoImage refs alive (tk.Text does not hold a Python reference).
+        self._chat_img_cache: dict = {}
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
         # PhotoImage refs alive (tk.Text does not hold a Python reference).
         self._chat_img_cache: dict = {}
@@ -698,6 +721,7 @@ class Panel(ctk.CTk):
             config=self._trigger_config,
             spawn=self._spawn_trigger_listener,
             submit=self._timers.submit,
+            poll=self._poll_trigger,
             log=lambda key, **fmt: self._log_put("[trigger] " + self._t(key, **fmt)),
         )
         # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
@@ -955,6 +979,8 @@ class Panel(ctk.CTk):
             self._apply_language()
         self._apply_settings_to_ui()
         self._open_panel_log()                # the mirror follows the active profile
+        self._configure_debug_log()           # …and so does the debug log
+        self._dbg.info("active profile is now %r", self._profiles.active)
         self._rebind_daemon()                 # …and so does the client it drives
         self._sync_monitors()                 # restart captures into the new profile's logs
         self._load_chat_history()             # reload chat messages for the new profile
@@ -1132,6 +1158,7 @@ class Panel(ctk.CTk):
                     self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var,
                     self._drill_on_var, self._drill_banner_var,
+                    self._create_elite_var,
                     *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
         # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
@@ -1772,7 +1799,118 @@ class Panel(ctk.CTk):
 
     # -- logging ------------------------------------------------------------
     def _log_put(self, line: str) -> None:
+        self._dbg_mirror(line)        # the debug log gets every line, at its severity
         self._log_q.put(line)
+
+    # -- the technical debug log (panel/debug_log.py) -----------------------
+    def _configure_debug_log(self) -> None:
+        """Point the shared rotating debug handler at the active profile's debug.log.
+
+        Idempotent — the same call re-points the file on a profile switch without
+        stacking handlers. The rotation is fixed (5 MiB × 3); only the destination
+        follows the profile.
+        """
+        dbgmod.configure(self._profiles.debug_log())
+
+    def _install_exception_logging(self) -> None:
+        """Route uncaught errors — Tk callbacks and worker threads — into the debug log.
+
+        Half the panel's work runs off the Tk thread (captures, robberies, the
+        dashboard poll); an exception there vanished with the thread and left no
+        trace. These hooks give every one of them a traceback in the debug log while
+        keeping the default behaviour (the interpreter still prints it).
+        """
+        self.report_callback_exception = self._dbg_tk_exception
+        prev = threading.excepthook
+
+        def hook(args):
+            dbg = getattr(self, "_dbg", None)
+            if dbg is not None:
+                name = getattr(args.thread, "name", "?")
+                dbg.error("uncaught in thread %s", name,
+                          exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+            prev(args)
+
+        threading.excepthook = hook
+
+    def _dbg_tk_exception(self, exc, val, tb) -> None:
+        """Tk's ``report_callback_exception``: log the traceback, then print it."""
+        dbg = getattr(self, "_dbg", None)
+        if dbg is not None:
+            dbg.error("uncaught in a Tk callback", exc_info=(exc, val, tb))
+        traceback.print_exception(exc, val, tb)
+
+    def _dbg_mirror(self, line: str) -> None:
+        """Mirror one widget line into the debug log, at its severity, under `ui`."""
+        dbg = getattr(self, "_dbg_ui", None)
+        if dbg is None:
+            return
+        clean = _ANSI.sub("", line)
+        level = {"error": logging.ERROR, "warn": logging.WARNING}.get(
+            self._log_severity(clean), logging.INFO)
+        try:
+            dbg.log(level, "%s", clean)
+        except Exception:             # noqa: BLE001 — logging must never crash the panel
+            pass
+
+    def _dbg_status(self, game_ok: bool, daemon_warm: bool) -> None:
+        """Record a systems snapshot: DEBUG every poll, INFO only when it changes.
+
+        Runs on the Tk thread (the status poll's after-callback), so it can read the
+        timer/trigger checkbuttons safely. This is the "statuses of systems" stream —
+        daemon, game, how many timers/triggers are armed, and whether the dashboard
+        poll is up or complaining.
+        """
+        dbg = getattr(self, "_dbg", None)
+        if dbg is None:
+            return
+        try:
+            timers_on = sum(1 for v in self._timer_vars.values()
+                            if v.get("enabled") and v["enabled"].get())
+            triggers_on = sum(1 for v in self._trigger_vars.values() if v.get())
+        except (tk.TclError, AttributeError):
+            timers_on = triggers_on = -1
+        dash = "err" if self._dash_err else ("on" if self._dash_stop else "off")
+        snap = (bool(game_ok), bool(daemon_warm), timers_on, triggers_on, dash)
+        msg = ("systems: game=%s daemon=%s timers_on=%s triggers_on=%s dashboard=%s"
+               % ("up" if game_ok else "down",
+                  "warm" if daemon_warm else "down", timers_on, triggers_on, dash))
+        if snap != self._dbg_status_prev:
+            self._dbg_status_prev = snap
+            dbg.info(msg)
+        else:
+            dbg.debug(msg)
+
+    def _send_debug_archive(self) -> None:
+        """«Отправить диагностику»: zip the debug logs and hand them to `debug_send_url`.
+
+        The destination is a stub for now (no transport wired), so this always
+        produces the zip and reports where it went — an empty URL means "do not send",
+        which is not an error: the archive is still written for a by-hand hand-off.
+        """
+        url = self._opt_str("debug_send_url")
+        path = self._profiles.debug_log()
+        self._say("debug", "log.debug.packing")
+
+        def work():
+            try:
+                status, archive, _detail = dbgsender.send(
+                    url, path=path, logger=dbgmod.get_logger("sender"))
+            except Exception as exc:  # noqa: BLE001
+                self.after(0, lambda: self._say("debug", "log.debug.failed", error=exc))
+                return
+            rel = _repo_rel(archive)
+
+            def done():
+                if status == "disabled":
+                    self._say("debug", "log.debug.no_dest", path=rel)
+                elif status == "sent":
+                    self._say("debug", "log.debug.sent", dest=url, path=rel)
+                else:                 # "stub" — archive is ready, transport is not
+                    self._say("debug", "log.debug.stub", path=rel, dest=url)
+            self.after(0, done)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _say(self, tag: str, key: str, **fmt) -> None:
         """Log one translated line under ``[tag]``.
@@ -2077,6 +2215,7 @@ class Panel(ctk.CTk):
                 self._status_var.set(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
+                self._dbg_status(ok, warm),
                 self._watchdog_check(ok)))
         threading.Thread(target=work, daemon=True).start()
 
@@ -2444,6 +2583,28 @@ class Panel(ctk.CTk):
         """
         self._triggers.on_listener_exit(name)
         self._say("trigger", "triggers.log.died", name=name)
+
+    def _poll_trigger(self, trigger) -> bool:
+        """Evaluate a poll trigger's check through the daemon; ``True`` to fire.
+
+        Runs on the watcher's own poll thread (not Tk), every ``interval_sec``. Reads
+        the boolean off a marked log line the way the dashboard reads its numbers, and
+        uses its own evaluator so it does not share the dashboard client's socket. A
+        closed game / no daemon reads as ``False`` — there is no kick to recover from
+        if the client is not even up, and firing then would relaunch a game nobody
+        started.
+        """
+        if not self._daemon_up():
+            return False
+        chunk = ('local ok, v = pcall(function() return %s end) '
+                 'CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(ok and v and true or false))'
+                 % trigger.check)
+        try:
+            ev = lua_client.get_evaluator(port=self._daemon_port())
+            lines = ev.run(chunk, marker="TRIGCHK", settle=0.6)
+        except Exception:                       # noqa: BLE001 — a bad read is not a kick
+            return False
+        return any("TRIGCHK=true" in ln.lower() for ln in (lines or []))
 
     def _migrate_autohelp(self) -> None:
         """Carry the retired «Авто-помощь» checkbox onto the `alliance_help` trigger.
@@ -3655,10 +3816,15 @@ class Panel(ctk.CTk):
         self._stop_rally()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
+        if self._chat_store is not None:
+            self._chat_store.close()
+            self._chat_store = None
         self._stop_scenario_loop()
         self._triggers.stop()
         self._timers.stop()
         self._close_panel_log()
+        self._dbg.info("panel closing")
+        dbgmod.shutdown()
         self.destroy()
 
     # -- window geometry, remembered per profile -----------------------------
@@ -4379,7 +4545,10 @@ class Panel(ctk.CTk):
             else:
                 box.configure(text=trig.name)
             box.grid(row=row, column=0, sticky="w", pady=2)
-            CTkLabel(grid, foreground="#888", text=trig.event_pattern).grid(
+            # The wire event a listener waits for, or a short label for a poll check
+            # (the raw Lua is unreadable in a narrow column).
+            signal = trig.event_pattern if not trig.is_poll else self._t("triggers.poll")
+            CTkLabel(grid, foreground="#888", text=signal).grid(
                 row=row, column=1, sticky="w", padx=(0, 10))
             status = CTkLabel(grid, foreground="#888", width=14)
             status.grid(row=row, column=2, sticky="w", padx=(0, 10))
@@ -4904,6 +5073,33 @@ class Panel(ctk.CTk):
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):
             self._opt_row(grid, row, key, **kwargs)
+        self._build_debug_log_settings(parent)
+
+    def _build_debug_log_settings(self, parent: ttk.Frame) -> None:
+        """The technical debug log: rotation knobs, the send target, and «Отправить архив».
+
+        The debug file is separate from panel.log — a developer diagnostic that keeps
+        every action, every traceback and a systems snapshot. Editing a knob re-points
+        the logger live (`_reconfigure_debug_log`); the send button zips it and hands
+        it to `debug_send_dest` (a stub until a transport is wired).
+        """
+        frame = self._tr(CTkLabelFrame(parent, padding=8), "debug.frame")
+        frame.pack(fill="x", pady=(12, 0))
+        frame.columnconfigure(2, weight=1)
+        for row, (key, kwargs) in enumerate((
+                ("debug_log_level", {"width": 12}),
+                ("debug_log_max_kb", {"spin": (16, 1048576), "width": 10}),
+                ("debug_log_backups", {"spin": (0, 100), "width": 10}),
+                ("debug_send_dest", {"width": 34}),
+        )):
+            self._opt_row(frame, row, key, **kwargs)
+        self._tr(CTkButton(frame, command=self._send_debug_archive),
+                 "debug.send").grid(row=4, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        # A knob edit re-points the logger without a restart; the writes made while
+        # settings are being applied are ignored inside _reconfigure_debug_log.
+        for key in ("debug_log_level", "debug_log_max_kb", "debug_log_backups"):
+            self._opt_vars[key].trace_add(
+                "write", lambda *a: self._reconfigure_debug_log())
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
         """«Игра»: where the client is, whether to put it back, and the sweep box."""
@@ -5006,6 +5202,58 @@ class Panel(ctk.CTk):
                  "autorally.drill.hint").pack(anchor="w", pady=(6, 0))
         self._paint_drill_squads()
 
+        # -- creating a rally ----------------------------------------------------
+        #
+        # Two decisions: which single squad raises the banner (creates the rally),
+        # and what elite level the rally is against. The creator is a banner, so at
+        # most one squad carries it — the squad buttons toggle blank <-> 🚩 and
+        # picking one clears any other, the same one-banner rule the drill enforces.
+        create = self._tr(CTkLabelFrame(parent, padding=8), "autorally.create.frame")
+        create.pack(fill="x", pady=(10, 0))
+        crow = CTkFrame(create)
+        crow.pack(fill="x")
+        self._tr(CTkLabel(crow), "autorally.create.squads").pack(side="left", padx=(0, 6))
+        self._create_flagship: int | None = None
+        self._create_buttons: dict[int, ttk.Button] = {}
+        for squad in RALLY_SQUADS:
+            btn = CTkButton(crow, width=5,
+                            command=lambda s=squad: self._cycle_create_squad(s))
+            btn.pack(side="left", padx=3)
+            self._create_buttons[squad] = btn
+
+        erow = CTkFrame(create)
+        erow.pack(fill="x", pady=(6, 0))
+        self._tr(CTkLabel(erow), "autorally.create.elite").pack(side="left", padx=(0, 6))
+        self._create_elite_var = tk.StringVar(value=str(RALLY_ELITE_MIN))
+        ttk.Spinbox(erow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
+                    textvariable=self._create_elite_var).pack(side="left")
+        self._tr(CTkLabel(create, foreground="#888", wraplength=620, justify="left"),
+                 "autorally.create.hint").pack(anchor="w", pady=(6, 0))
+        self._paint_create_squads()
+
+    def _cycle_create_squad(self, squad: int) -> None:
+        """Toggle the banner between blank and this squad — only one may carry it."""
+        self._create_flagship = None if self._create_flagship == squad else squad
+        self._paint_create_squads()
+        self._save_settings()
+
+    def _paint_create_squads(self) -> None:
+        """Redraw the creator buttons: the flagship shows 🚩, the rest blank."""
+        for squad, btn in getattr(self, "_create_buttons", {}).items():
+            mark = "🚩" if self._create_flagship == squad else " "
+            try:
+                btn.configure(text=f"{squad} {mark}")
+            except tk.TclError:
+                pass
+
+    def _create_elite_level(self) -> int:
+        """The chosen elite level, clamped to the allowed range (bad input -> min)."""
+        try:
+            level = int(self._create_elite_var.get())
+        except (TypeError, ValueError):
+            return RALLY_ELITE_MIN
+        return max(RALLY_ELITE_MIN, min(RALLY_ELITE_MAX, level))
+
     def _cycle_drill_squad(self, squad: int) -> None:
         """Walk one squad's state: out -> in -> leading -> out.
 
@@ -5059,6 +5307,10 @@ class Panel(ctk.CTk):
                 "squads": drill_squads,
                 "flagship": flagship,
             },
+            "create": {
+                "flagship": self._create_flagship,
+                "elite_level": self._create_elite_level(),
+            },
         }
 
     def _apply_autorally_config(self, raw) -> None:
@@ -5084,6 +5336,16 @@ class Panel(ctk.CTk):
         if flagship in self._drill_state and flagship in chosen:
             self._drill_state[flagship] = DRILL_FLAG
         self._paint_drill_squads()
+
+        create = raw.get("create")
+        create = create if isinstance(create, dict) else {}
+        creator = create.get("flagship")
+        self._create_flagship = creator if creator in RALLY_SQUADS else None
+        level = create.get("elite_level")
+        if not isinstance(level, int) or not RALLY_ELITE_MIN <= level <= RALLY_ELITE_MAX:
+            level = RALLY_ELITE_MIN
+        self._create_elite_var.set(str(level))
+        self._paint_create_squads()
 
     # -- chat tab -----------------------------------------------------------
 
@@ -5317,6 +5579,47 @@ class Panel(ctk.CTk):
         self._chat_img_cache[key] = img
         return img
 
+    _AVATAR_PX = 20
+
+    def _chat_avatar(self, record: dict):
+        """The avatar image for a message: the sender's cached JPG, else a placeholder.
+
+        Returns a Tk image (never None when PIL is available); only if the image
+        machinery is missing entirely does it return None, and the caller draws a
+        text glyph instead.
+        """
+        uid = record.get("sender_uid") or ""
+        ver = record.get("head_pic_ver") or ""
+        path = chat_assets.avatar_path(uid, ver) if uid and ver else None
+        if path:
+            img = self._chat_image(path, self._AVATAR_PX)
+            if img is not None:
+                return img
+        return self._chat_avatar_placeholder()
+
+    def _chat_avatar_placeholder(self):
+        """A cached neutral head-and-shoulders silhouette, sized like a real avatar."""
+        key = ("__avatar_placeholder__", self._AVATAR_PX)
+        img = self._chat_img_cache.get(key)
+        if img is not None:
+            return img
+        px = self._AVATAR_PX
+        try:
+            if not _PIL_OK:
+                return None
+            im = _PILImage.new("RGBA", (px, px), (0, 0, 0, 0))
+            d = _PILImageDraw.Draw(im)
+            d.ellipse((0, 0, px - 1, px - 1), fill=(74, 78, 86, 255))        # disc
+            head = (px * 0.32, px * 0.16, px * 0.68, px * 0.52)
+            body = (px * 0.18, px * 0.56, px * 0.82, px * 1.04)
+            d.ellipse(head, fill=(176, 180, 188, 255))
+            d.ellipse(body, fill=(176, 180, 188, 255))
+            img = _PILImageTk.PhotoImage(im)
+        except Exception:       # noqa: BLE001
+            return None
+        self._chat_img_cache[key] = img
+        return img
+
     @staticmethod
     def _chat_clear_view(view: "tk.Text") -> None:
         view.configure(state="normal")
@@ -5351,14 +5654,13 @@ class Panel(ctk.CTk):
         view.insert("end", (t_str + " ") if t_str else "", ("time",))
         # Sender avatar, drawn inline before the nick. It resolves to the JPG the
         # client already cached under ChatPhotos (keyed by uid+headPicVer); a
-        # built-in head with no cached file simply leaves the line avatar-less.
-        av_uid, av_ver = record.get("sender_uid") or "", record.get("head_pic_ver") or ""
-        av_path = chat_assets.avatar_path(av_uid, av_ver) if av_uid and av_ver else None
-        if av_path:
-            av_img = self._chat_image(av_path, 20)
-            if av_img is not None:
-                view.image_create("end", image=av_img)
-                view.insert("end", " ")
+        # built-in head with no cached file falls back to a neutral placeholder.
+        av_img = self._chat_avatar(record)
+        if av_img is not None:
+            view.image_create("end", image=av_img)
+            view.insert("end", " ")
+        else:
+            view.insert("end", "👤 ", ("token",))    # PIL/Tk image unavailable
         if alliance:
             view.insert("end", f"[{alliance}] ", ("alliance",))
         view.insert("end", nick + ": ", (nick_tag,))
@@ -5448,24 +5750,26 @@ class Panel(ctk.CTk):
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
                 msgs = self._chat_msgs[chat_type]
+                # Persist first: the SQLite store is the history of record, so a
+                # message is durable the moment it arrives (idempotent on identity).
+                if self._chat_store is not None:
+                    self._chat_store.append(record)
                 # Order by the message's own serverTime (record["ts"]). The live
                 # stream is already monotonic; only history re-parsed on scroll-up
                 # arrives "from the past" -- resort and rebuild that tree then, so
                 # old messages land in their proper place, not at the bottom. A plain
-                # append leaves the window's top (offset) fixed and just grows the
-                # bottom — no rebuild, only the new tail is drawn.
+                # append just grows the bottom — no rebuild, only the new tail draws.
                 out_of_order = bool(msgs) and record.get("ts", 0) < msgs[-1].get("ts", 0)
                 msgs.append(record)
                 if out_of_order:
                     msgs.sort(key=lambda r: r.get("ts", 0))
                     rebuild.add(chat_type)
                 if len(msgs) > CHAT_MSGS_MAX:
-                    # Bound memory: drop the oldest overflow, and slide the window
-                    # top down by as much so the same records stay in view.
-                    k = len(msgs) - CHAT_MSGS_MAX
-                    del msgs[:k]
-                    self._chat_offset[chat_type] = max(
-                        0, self._chat_offset.get(chat_type, 0) - k)
+                    # Bound the rendered list: drop the oldest overflow from memory.
+                    # It is still in the store, so mark the tab as having more to page
+                    # back in, and redraw so the load-more header appears.
+                    del msgs[:len(msgs) - CHAT_MSGS_MAX]
+                    self._chat_has_more[chat_type] = True
                     rebuild.add(chat_type)
                 changed.add(chat_type)
                 # Unread only counts somebody else's message in a tab nobody is
@@ -5487,7 +5791,9 @@ class Panel(ctk.CTk):
             if self._active_chat_type() in changed:
                 self._update_chat_target()
 
-        total = sum(len(v) for v in self._chat_msgs.values())
+        # The count reflects the whole stored history, not just the loaded window.
+        total = (self._chat_store.count() if self._chat_store is not None
+                 else sum(len(v) for v in self._chat_msgs.values()))
         self._chat_count_var.set(self._t("chat.count", n=total))
         self.after(1000, self._pump_chat)
 
@@ -5528,8 +5834,9 @@ class Panel(ctk.CTk):
         return None
 
     def _rebuild_chat_view(self, chat_type: str, keep_index: int | None = None) -> None:
-        """Redraw a tab's whole visible window from scratch: the load-more header (when
-        older history is hidden) followed by every record from the window start.
+        """Redraw a tab's whole in-memory window from scratch: the load-more header
+        (when the store holds older messages than are in memory) followed by every
+        loaded record.
 
         ``keep_index`` is the absolute index in ``_chat_msgs`` of the record to hold
         under the viewport after the redraw — used when paging in older messages so
@@ -5539,17 +5846,15 @@ class Panel(ctk.CTk):
         if view is None:
             return
         msgs = self._chat_msgs.get(chat_type, [])
-        offset = max(0, min(self._chat_offset.get(chat_type, 0), len(msgs)))
-        self._chat_offset[chat_type] = offset
         self._chat_clear_view(view)
         view.configure(state="normal")
-        if offset > 0:
+        if self._chat_has_more.get(chat_type):
             view.insert("end", self._t("chat.load_more") + "\n", ("loadmore",))
         keep_mark = None
-        for i in range(offset, len(msgs)):
+        for i, record in enumerate(msgs):
             if keep_index is not None and i == keep_index:
                 keep_mark = view.index("end -1c")
-            self._render_msg_line(view, msgs[i])
+            self._render_msg_line(view, record)
         view.configure(state="disabled")
         self._chat_tree_rows[chat_type] = len(msgs)
         if keep_mark is not None:
@@ -5558,18 +5863,26 @@ class Panel(ctk.CTk):
             view.see("end")
 
     def _chat_load_older(self, chat_type: str) -> None:
-        """Page the previous CHAT_PAGE of history into view (top-anchored)."""
-        offset = self._chat_offset.get(chat_type, 0)
-        if offset <= 0:
+        """Page the previous CHAT_PAGE of history in from the store (top-anchored)."""
+        if not self._chat_has_more.get(chat_type) or self._chat_store is None:
             return
-        new_offset = max(0, offset - CHAT_PAGE)
-        self._chat_offset[chat_type] = new_offset
-        # `offset` was the first shown record; keep it under the viewport so the
-        # newly-revealed page appears above where the reader already was.
-        self._rebuild_chat_view(chat_type, keep_index=offset)
+        msgs = self._chat_msgs.get(chat_type, [])
+        oldest_ts = msgs[0].get("ts", 0) if msgs else float("inf")
+        older = self._chat_store.older(chat_type, oldest_ts, CHAT_PAGE)
+        if not older:
+            self._chat_has_more[chat_type] = False
+            self._rebuild_chat_view(chat_type)
+            return
+        # Prepend the chunk; the record that WAS first is now at index len(older),
+        # so hold it under the viewport — the new page appears above where the
+        # reader already was.
+        msgs[:0] = older
+        self._chat_has_more[chat_type] = self._chat_store.has_older(
+            chat_type, older[0].get("ts", 0))
+        self._rebuild_chat_view(chat_type, keep_index=len(older))
 
     def _on_chat_scroll(self, view) -> None:
-        """A scroll settled: if it reached the top and more history is hidden, page it in."""
+        """A scroll settled: if it reached the top and the store holds more, page it in."""
         try:
             top = float(view.yview()[0])
         except (tk.TclError, ValueError, IndexError):
@@ -5577,7 +5890,7 @@ class Panel(ctk.CTk):
         if top > 0.001:
             return
         chat_type = self._chat_type_of_view(view)
-        if chat_type and self._chat_offset.get(chat_type, 0) > 0:
+        if chat_type and self._chat_has_more.get(chat_type):
             self._chat_load_older(chat_type)
 
     def _chat_click_load_more(self, view) -> None:
@@ -5644,89 +5957,67 @@ class Panel(ctk.CTk):
             mon.stop()
 
     def _clear_chat(self) -> None:
-        """Remove all in-memory chat messages and clear all views."""
+        """Remove all in-memory chat messages and clear all views.
+
+        Only the on-screen state is cleared; the SQLite store is untouched, so the
+        history is still there after a restart or profile switch. The tabs are left
+        able to page it back in (has_more), rather than looking permanently empty.
+        """
         for chat_type in list(self._chat_msgs):
             self._chat_msgs[chat_type].clear()
             view = self._chat_trees.get(chat_type)
             if view is not None:
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
-            self._chat_offset[chat_type] = 0
+            self._chat_has_more[chat_type] = bool(
+                self._chat_store and self._chat_store.count(chat_type))
+            if self._chat_has_more[chat_type]:
+                self._rebuild_chat_view(chat_type)      # draw the load-more header
         self._chat_count_var.set(self._t("chat.count", n=0))
 
     def _load_chat_history(self) -> None:
-        """Load the tail of the active profile's chat_log.jsonl into memory.
+        """Open the active profile's SQLite store and render the newest page per tab.
 
-        Called on startup and on profile switch. Clears the current in-memory
-        state first, then repopulates from the file (up to CHAT_MSGS_MAX records)
-        and renders only the newest page per tab — the rest pages in on scroll-up.
+        Called on startup and on profile switch. Clears the current in-memory state,
+        re-points the store at the new profile (importing a legacy chat_log.jsonl the
+        first time), then loads only CHAT_PAGE messages per tab — older chunks page in
+        from the store on scroll-up.
         """
-        # Clear current state
+        # Clear current state.
         for chat_type in list(self._chat_msgs):
             self._chat_msgs[chat_type].clear()
             view = self._chat_trees.get(chat_type)
             if view is not None:
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
-            self._chat_offset[chat_type] = 0
+            self._chat_has_more[chat_type] = False
 
-        path = self._profiles.chat_log()
-        if not os.path.isfile(path):
-            return
-
-        # Older logs were appended by two processes at once (the panel and
-        # `chat_reader --out`), so their buffers could interleave and split a
-        # multi-byte character across a line boundary -- a strict utf-8 read
-        # then died with UnicodeDecodeError on startup. Decode leniently: a
-        # mangled line simply fails the json parse below and is skipped.
-        raw_records: list = []
+        # Re-point the store at this profile.
+        if self._chat_store is not None:
+            self._chat_store.close()
+            self._chat_store = None
         try:
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                        if isinstance(rec, dict):
-                            raw_records.append(rec)
-                    except json.JSONDecodeError:
-                        pass
-        except OSError:
+            store = chathistmod.ChatHistoryStore(self._profiles.chat_db())
+        except Exception as exc:        # noqa: BLE001 -- a bad store must not kill startup
+            self._say("chat", "log.error", error=exc)
             return
+        self._chat_store = store
+        # One-time migration: fold a pre-existing raw JSONL log into the store.
+        if store.count() == 0:
+            store.import_jsonl(self._profiles.chat_log())
 
-        # Same history: every message landed in the file twice (once per writer).
-        # Drop repeats by the identity chat_reader itself dedupes on.
-        seen: set = set()
-        unique: list = []
-        for rec in raw_records:
-            key = (rec.get("room_id"), rec.get("seq_id"),
-                   rec.get("sender_uid"), rec.get("msg"))
-            if key in seen:
+        total = 0
+        for chat_type in CHAT_TABS:
+            recs = store.recent(chat_type, CHAT_PAGE)
+            if not recs:
                 continue
-            seen.add(key)
-            unique.append(rec)
-        raw_records = unique
-
-        # Keep a generous slice in memory (bounded like the live cap) so scrolling up
-        # has history to page in; only the last CHAT_PAGE per tab is rendered up front.
-        for record in raw_records[-CHAT_MSGS_MAX:]:
-            chat_type = record.get("chat_type", "other")
-            if chat_type not in self._chat_msgs:
-                chat_type = "other"
-            self._chat_msgs[chat_type].append(record)
-
-        for chat_type, msgs in self._chat_msgs.items():
-            if not msgs:
-                continue
-            # Match the live ordering invariant (a re-parsed history line can land
-            # out of file order), then open on the newest page.
-            msgs.sort(key=lambda r: r.get("ts", 0))
-            self._chat_offset[chat_type] = max(0, len(msgs) - CHAT_PAGE)
+            self._chat_msgs[chat_type] = recs
+            self._chat_has_more[chat_type] = store.has_older(
+                chat_type, recs[0].get("ts", 0))
             self._chat_tree_rows[chat_type] = 0
             self._rebuild_chat_view(chat_type)
+            total += store.count(chat_type)
 
-        total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
         if total:
             self._say("chat", "log.chat.history", n=total)

@@ -193,14 +193,26 @@ C:\Python312\python.exe tools\extract_chat_assets.py
 
 ### Panel history & lazy-load
 
-The panel persists chat to `<profile>/chat_log.jsonl` (written by `chat_reader
---out` as each message arrives) and reloads it on startup / profile switch. To
-keep the Text widget fast with a long log, each tab keeps its full history in
-memory but renders only the newest **page** (`CHAT_PAGE = 100`); a scroll to the
-top — or a click on the "↑ show earlier messages" header — pages in the previous
-chunk, top-anchored so the reader stays put. A live message only appends (the
-window top does not move), and the view auto-scrolls to the newest line only when
-the reader is already at the bottom.
+The panel persists chat to a per-profile SQLite store,
+`<profile>/chat_history.db` (`panel/chat_history.py`): every message the monitor
+sees is written there as it arrives — table `messages(id, ts, uid, name, text,
+room, chat_type, raw_json)`, idempotent on `(room, uid, ts, text)`. The raw
+`<profile>/chat_log.jsonl` the reader still writes (`chat_reader --out`) is kept
+as the raw capture log and is folded into the store once, the first time a profile
+has no DB yet.
+
+Lazy-load reads out of the store, never the whole log: on startup each tab loads
+only its newest **page** (`CHAT_PAGE = 100`) into memory and renders it; a scroll
+to the top — or a click on the "↑ show earlier messages" header — pages the
+previous chunk in *from the store*, prepended and top-anchored so the reader stays
+put. A live message only appends (and is written straight to the store); the view
+auto-scrolls to the newest line only when the reader is already at the bottom. The
+in-memory list is capped (`CHAT_MSGS_MAX`) — overflow is dropped from memory but
+stays in the store, reachable again by scrolling up.
+
+The sender avatar is drawn inline (20 px) before the nickname, resolved from the
+ChatPhotos cache (see above); a sender with no cached avatar gets a neutral
+head-and-shoulders placeholder rather than a blank.
 
 ## Open follow-ups
 

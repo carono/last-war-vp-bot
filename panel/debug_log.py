@@ -1,47 +1,53 @@
 """Rotating technical debug log for the control panel.
 
-This is a developer diagnostic, kept apart from the per-profile ``panel.log`` that
-mirrors the human-facing log widget. Where ``panel.log`` is the record of what the
-bot said, this file is the record of what the panel *did*: every log line at its
-severity, every uncaught error with its traceback, and a running snapshot of the
-systems' state (daemon, timers, triggers, dashboard) at DEBUG. It is rotated by
-size so an overnight session cannot grow it without bound.
+This is a developer diagnostic, kept apart from the panel's user-facing log — that
+one streams into the Tkinter widget (and its per-profile ``panel.log`` mirror). This
+file is the record of what the panel *did*: every component's key events, every error
+with its traceback, and the systems' state, at DEBUG / INFO / WARNING / ERROR.
 
-The panel owns one debug file per profile (next to that profile's ``panel.log``),
-re-pointed when the active profile changes — :func:`setup` is idempotent for
-exactly that reason. Levels are the standard DEBUG / INFO / WARNING / ERROR.
+One file per profile, ``panel/profiles/<name>/debug.log``, rotated by size (5 MiB ×
+3 backups by default) so an overnight session cannot grow it without bound. Every
+line is stamped and tagged with the component that wrote it::
 
-The auto-send half zips the current debug file together with its rotated backups
-and hands the archive to a configured destination. No transport is wired yet:
-:func:`send_archive` always writes the archive to disk (so it can be handed off by
-any means) and reports back that the destination is a stub until one is chosen —
-the config field that names it is ``debug_send_dest`` on the Settings page.
+    [2026-07-30 16:23:11.123] [INFO] [timers] fired collect_base_resources
+
+Usage. A component asks for its own logger by name and logs to it; the panel wires
+the single rotating file under all of them::
+
+    from . import debug_log
+    log = debug_log.get_logger("timers")
+    log.info("fired %s", name)
+    log.error("step failed", exc_info=True)
+
+The panel calls :func:`configure` at start-up and on every profile switch to point
+that shared file at the active profile (idempotent — it never stacks two handlers).
+Zipping and shipping the files lives next door in :mod:`panel.debug_sender`.
 """
 from __future__ import annotations
 
 import logging
 import os
-import zipfile
 from logging.handlers import RotatingFileHandler
 
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# The single global fallback path. In practice the panel points the logger at the
-# active profile's directory (panel/profiles/<name>/debug.log) via setup(path=...).
+# The single global fallback path. In practice the panel points the shared handler
+# at the active profile's directory (panel/profiles/<name>/debug.log) via configure().
 DEBUG_LOG = os.path.join(PANEL_DIR, "panel_debug.log")
 
-# One shared logger; setup() swaps its file handler rather than making a new one,
-# so re-pointing on a profile switch never leaves two handlers writing at once.
-LOGGER_NAME = "lastwar.panel"
+# The parent of every component logger. get_logger("timers") returns the child
+# "lastwar.panel.timers"; the one rotating handler lives on this parent and every
+# child propagates up to it, so components never touch the file themselves.
+ROOT_NAME = "lastwar.panel"
 
-# Rotation defaults — mirrored into SETTINGS_DEFAULTS so a profile can override them.
-DEFAULT_MAX_KB = 2048        # 2 MiB per file before it rolls over
-DEFAULT_BACKUPS = 5          # debug.log + debug.log.1 … debug.log.5
+# Rotation defaults — 5 MiB per file, three rolled-over backups (debug.log.1 … .3).
+DEFAULT_MAX_BYTES = 5 * 1024 * 1024
+DEFAULT_BACKUPS = 3
 DEFAULT_LEVEL = "DEBUG"
 
-# Where the auto-send archive goes. TBD — no transport is wired; this is the config
-# field the person points somewhere, and send_archive refuses politely until it does.
-DEFAULT_DESTINATION = ""
+# The line format the docstring shows: a millisecond stamp, the level, the component.
+_FORMAT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(component)s] %(message)s"
+_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 _LEVELS = {
     "DEBUG": logging.DEBUG,
@@ -57,28 +63,53 @@ def level_of(name) -> int:
     return _LEVELS.get(str(name or "").strip().upper(), logging.DEBUG)
 
 
-def get_logger() -> logging.Logger:
-    """The shared panel debug logger (configured by :func:`setup`)."""
-    return logging.getLogger(LOGGER_NAME)
+class _ComponentFilter(logging.Filter):
+    """Give every record a ``component`` field derived from its logger name.
+
+    ``lastwar.panel.timers`` → ``timers``; the bare ``lastwar.panel`` → ``panel``.
+    Without this the ``[%(component)s]`` in the format would raise on a record that
+    did not set it, so it is attached to the handler and covers all of them.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        name = record.name
+        if name == ROOT_NAME:
+            record.component = "panel"
+        elif name.startswith(ROOT_NAME + "."):
+            record.component = name[len(ROOT_NAME) + 1:]
+        else:
+            record.component = name
+        return True
 
 
-def setup(path: str | None = None, *, max_kb: int = DEFAULT_MAX_KB,
-          backups: int = DEFAULT_BACKUPS, level: str = DEFAULT_LEVEL) -> logging.Logger:
-    """Point the shared logger at ``path`` with size rotation. Idempotent.
+def get_logger(component: str = "panel") -> logging.Logger:
+    """The debug logger for one component (``timers`` / ``triggers`` / …).
+
+    Configured centrally by :func:`configure`; usable before it is called (records
+    are simply dropped until the handler exists), so a module can grab its logger at
+    import time and the panel wires the file later.
+    """
+    component = str(component or "panel").strip() or "panel"
+    return logging.getLogger(f"{ROOT_NAME}.{component}")
+
+
+def configure(path: str | None = None, *, max_bytes: int = DEFAULT_MAX_BYTES,
+              backups: int = DEFAULT_BACKUPS, level: str = DEFAULT_LEVEL) -> logging.Logger:
+    """Point the shared rotating handler at ``path``. Idempotent.
 
     Replaces any handler this module installed before, so calling it again on a
-    profile switch (or a settings edit) re-points the file and re-reads the caps
-    without ever stacking two handlers. Never raises: logging must not be the thing
-    that stops the panel, so a directory that cannot be created just leaves the
-    logger handler-less (it swallows records) rather than crashing the caller.
+    profile switch re-points the file without ever stacking two handlers. Never
+    raises: logging must not be the thing that stops the panel, so a directory that
+    cannot be created just leaves the parent handler-less (records are dropped)
+    rather than crashing the caller.
     """
     path = path or DEBUG_LOG
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(level_of(level))
-    logger.propagate = False        # ours alone — never up to the root logger
-    for handler in list(logger.handlers):
+    root = logging.getLogger(ROOT_NAME)
+    root.setLevel(level_of(level))
+    root.propagate = False        # ours alone — never up to the process root logger
+    for handler in list(root.handlers):
         if getattr(handler, "_panel_debug", False):
-            logger.removeHandler(handler)
+            root.removeHandler(handler)
             try:
                 handler.close()
             except Exception:        # noqa: BLE001
@@ -86,23 +117,23 @@ def setup(path: str | None = None, *, max_kb: int = DEFAULT_MAX_KB,
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         handler = RotatingFileHandler(
-            path, maxBytes=max(0, int(max_kb)) * 1024,
+            path, maxBytes=max(0, int(max_bytes)),
             backupCount=max(0, int(backups)), encoding="utf-8")
     except (OSError, ValueError):
-        return logger
-    handler._panel_debug = True      # our marker, so the next setup() finds it
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
-    logger.addHandler(handler)
-    return logger
+        return root
+    handler._panel_debug = True      # our marker, so the next configure() finds it
+    handler.addFilter(_ComponentFilter())
+    handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    root.addHandler(handler)
+    return root
 
 
-def shutdown(logger: logging.Logger | None = None) -> None:
-    """Close our file handler(s) — called when the panel is going away."""
-    logger = logger or get_logger()
-    for handler in list(logger.handlers):
+def shutdown() -> None:
+    """Close our rotating handler — called when the panel is going away."""
+    root = logging.getLogger(ROOT_NAME)
+    for handler in list(root.handlers):
         if getattr(handler, "_panel_debug", False):
-            logger.removeHandler(handler)
+            root.removeHandler(handler)
             try:
                 handler.close()
             except Exception:        # noqa: BLE001
@@ -110,7 +141,11 @@ def shutdown(logger: logging.Logger | None = None) -> None:
 
 
 def log_files(path: str | None = None) -> list[str]:
-    """The active debug file plus its rotated backups (``debug.log``, ``.1``, …)."""
+    """The active debug file plus its rotated backups (``debug.log``, ``.1``, …).
+
+    Newest first: the live file, then ``.1`` (the most recently rolled) onwards —
+    which is the order the sender wants when it keeps only the last N.
+    """
     path = path or DEBUG_LOG
     files = [path] if os.path.exists(path) else []
     index = 1
@@ -121,44 +156,3 @@ def log_files(path: str | None = None) -> list[str]:
         files.append(backup)
         index += 1
     return files
-
-
-def make_archive(dest: str | None = None, *, path: str | None = None) -> str:
-    """Zip the debug file and its backups into ``dest`` (``<path>.zip`` by default).
-
-    Always writes the archive, even when there is nothing to log yet — an empty zip
-    is a truthful "nothing was captured" rather than a missing file the caller has
-    to special-case.
-    """
-    path = path or DEBUG_LOG
-    dest = dest or (path + ".zip")
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as bundle:
-        for entry in log_files(path):
-            try:
-                bundle.write(entry, arcname=os.path.basename(entry))
-            except OSError:
-                continue             # a file rotated out from under us — skip it
-    return dest
-
-
-def send_archive(destination, *, path: str | None = None,
-                 logger: logging.Logger | None = None) -> tuple[str, str, str]:
-    """Zip the debug log and (eventually) ship it to ``destination``.
-
-    Returns ``(status, archive_path, detail)`` where ``status`` is one of
-    ``"sent"`` / ``"no_dest"`` / ``"stub"``. No transport is wired yet: this is the
-    seam a real uploader fills. The archive is written to disk regardless, so it is
-    always ready to hand off by any means the person has.
-    """
-    logger = logger or get_logger()
-    archive = make_archive(path=path)
-    dest = str(destination or "").strip()
-    if not dest:
-        logger.warning("debug archive ready at %s, but no destination is configured",
-                       archive)
-        return ("no_dest", archive, "no destination configured")
-    # >>> Wire the real transport here (upload / mail / copy) and return "sent". <<<
-    logger.info("debug archive ready at %s; destination %r is not wired yet",
-                archive, dest)
-    return ("stub", archive, f"destination {dest!r} is not wired yet")

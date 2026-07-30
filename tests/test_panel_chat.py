@@ -1,19 +1,21 @@
-r"""Chat: the avatar field, and the lazy-load render window.
+r"""Chat: the avatar field, the SQLite history store, and the lazy-load paging.
 
-Three things are pinned here:
+Four things are pinned here:
 
-  * the reader now carries the sender's avatar version out of `getSenderInfo`
+  * the reader carries the sender's avatar version out of `getSenderInfo`
     (`head_pic_ver`), and the panel resolves it to the SAME on-disk ChatPhotos
     copy a message photo uses (`md5(f"{uid}_{ver}").jpg`);
-  * a tab opens showing only the last page of its history, not the whole log —
-    everything older stays in memory and pages in a chunk at a time;
-  * paging in older history walks the window's top down by one page each step and
-    stops at 0, and a plain live message never rebuilds the window (it only
-    appends, leaving the top where the reader put it).
+  * the SQLite store (`panel/chat_history.py`) files each message under its tab,
+    dedupes on identity, and pages newest→oldest;
+  * a tab opens showing only the last page (`CHAT_PAGE`) read from the store, and
+    scrolling to the top pages the next chunk in FROM the store — memory holds only
+    what has been paged in, never the whole log;
+  * paging older prepends the chunk and holds the reader's line in place; a live
+    message only appends.
 
-The first two blocks are pure (no Tk); the window-math block needs the panel and
-so SKIPs under a python without customtkinter/PIL (e.g. the WSL python3). Run the
-full set under the Windows Python:
+The parse, avatar and store blocks are pure (sqlite3 is stdlib, no Tk) and always
+run. The window-math block needs the panel and so SKIPs under a python without
+customtkinter/PIL/Tk (e.g. the WSL python3). Run the full set under Windows:
 
     C:\Python312\python.exe tests\test_panel_chat.py
     python3 tests/test_panel_chat.py        # runs the pure blocks, SKIPs the rest
@@ -21,6 +23,7 @@ full set under the Windows Python:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -28,7 +31,7 @@ import types
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
-for _p in (_REPO, _REPO / "tools", _REPO / "tools" / "lib"):
+for _p in (_REPO, _REPO / "panel", _REPO / "tools", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -40,8 +43,9 @@ try:
     import lua_client   # noqa: F401
 except Exception:        # noqa: BLE001
     sys.modules["lua_client"] = types.ModuleType("lua_client")
-import chat_reader   # noqa: E402
-import chat_assets   # noqa: E402
+import chat_reader        # noqa: E402
+import chat_assets        # noqa: E402
+import chat_history       # noqa: E402  (panel/chat_history.py — pure sqlite3)
 
 
 # --- the reader captures the avatar version --------------------------------
@@ -59,7 +63,6 @@ def test_parse_captures_avatar_version():
 
 
 def test_parse_missing_avatar_is_blank():
-    """A record with no head fields (older drain line) parses with empty avatar."""
     line = ("ACT R roomId=country_1 seqId=5 st=1785000000000 uid=9 "
             "msg=" + b"hi".hex())
     rec = chat_reader._parse_record_line(line)
@@ -88,15 +91,58 @@ def test_avatar_path_matches_photo_scheme():
             chat_assets.PHOTOS_DIR = old
 
 
+# --- the SQLite store ------------------------------------------------------
+
+def _rec(i, room="alliance_935"):
+    return {"ts": float(i), "sender_uid": f"u{i}", "sender_name": f"n{i}",
+            "msg": f"m{i}", "room_id": room, "seq_id": str(i),
+            "chat_type": chat_history.classify_room(room)}
+
+
+def _store(tmp):
+    return chat_history.ChatHistoryStore(os.path.join(tmp, "p", "chat_history.db"))
+
+
+def test_store_pages_newest_then_older():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = _store(tmp)
+        for i in range(250):
+            s.append(_rec(i))
+        s.append(_rec(0))                      # a repeat is dropped on identity
+        assert s.count() == 250 and s.count("alliance") == 250
+
+        recent = s.recent("alliance", 100)
+        assert len(recent) == 100
+        assert [r["ts"] for r in recent] == [float(i) for i in range(150, 250)]  # oldest→newest
+
+        older = s.older("alliance", recent[0]["ts"], 100)
+        assert [r["ts"] for r in older] == [float(i) for i in range(50, 150)]
+        assert s.has_older("alliance", 150.0) is True
+        assert s.has_older("alliance", 0.0) is False
+        s.close()
+
+
+def test_store_files_by_tab_and_imports_jsonl():
+    with tempfile.TemporaryDirectory() as tmp:
+        # A legacy raw log to migrate.
+        jsonl = os.path.join(tmp, "chat_log.jsonl")
+        with open(jsonl, "w", encoding="utf-8") as fh:
+            for i in range(5):
+                fh.write(json.dumps(_rec(i, "country_1"), ensure_ascii=False) + "\n")
+            for i in range(3):
+                fh.write(json.dumps(_rec(100 + i, "alliance_9"), ensure_ascii=False) + "\n")
+        s = _store(tmp)
+        n = s.import_jsonl(jsonl)
+        assert n == 8, n
+        assert s.count("world") == 5 and s.count("alliance") == 3
+        assert s.import_jsonl(jsonl) == 0          # idempotent — nothing new
+        s.close()
+
+
 # --- the lazy-load render window (needs the panel) -------------------------
 
 class _FakeText:
-    """A stand-in for the chat Text view that only counts rendered message lines.
-
-    Every message line ends in a bare "\n" insert; the load-more header and the
-    per-message spans carry other text, so counting exact "\n" inserts is exactly
-    the number of records drawn. A clear (delete) resets the count.
-    """
+    """Counts rendered message lines (each ends in a bare '\n'); a clear resets it."""
 
     def __init__(self):
         self.lines = 0
@@ -133,67 +179,73 @@ class _FakeText:
         return (0.0, 1.0)
 
 
-def _stand_in(pm, msgs):
-    """A Panel stand-in with just the state the window methods touch."""
+def _stand_in(pm, store):
     from panel import i18n as i18nmod
 
     P = types.SimpleNamespace()
     P._i18n = i18nmod.I18n("en")
-    P._chat_msgs = {"world": list(msgs)}
-    P._chat_offset = {"world": 0}
+    P._chat_store = store
+    P._chat_msgs = {"world": []}
+    P._chat_has_more = {"world": False}
     P._chat_tree_rows = {"world": 0}
     P._chat_img_cache = {}
     P._photo_seq = 0
     P._chat_trees = {"world": _FakeText()}
-    # Bound instance methods; the two staticmethods are taken as plain functions.
     for name in ("_t", "_render_msg_line", "_insert_chat_text", "_update_chat_tree",
-                 "_rebuild_chat_view", "_chat_load_older", "_chat_type_of_view"):
+                 "_rebuild_chat_view", "_chat_load_older", "_chat_type_of_view",
+                 "_chat_avatar", "_chat_avatar_placeholder"):
         setattr(P, name, pm.Panel.__dict__[name].__get__(P))
     P._chat_clear_view = pm.Panel._chat_clear_view
     P._chat_view_at_bottom = pm.Panel._chat_view_at_bottom
+    P._AVATAR_PX = pm.Panel._AVATAR_PX
     return P
 
 
-def _records(n):
-    return [{"ts": i + 1, "room_id": "country_1", "sender_uid": "",
-             "head_pic_ver": "", "sender_name": f"u{i}", "alliance": "",
-             "is_mine": False, "msg": f"m{i}"} for i in range(n)]
-
-
-def test_lazy_window_pages_in_chunks():
+def test_lazy_window_pages_from_store():
     try:
         import panel.__main__ as pm
     except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
-        print(f"  SKIP test_lazy_window_pages_in_chunks: {exc}")
+        print(f"  SKIP test_lazy_window_pages_from_store: {exc}")
         return
 
     page = pm.CHAT_PAGE
     total = page * 2 + 50               # 250 with the default page of 100
-    P = _stand_in(pm, _records(total))
-    fake = P._chat_trees["world"]
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        for i in range(total):
+            store.append(_rec(i, "country_1"))
+        P = _stand_in(pm, store)
+        fake = P._chat_trees["world"]
 
-    # Open on the newest page only.
-    P._chat_offset["world"] = max(0, total - page)
-    P._chat_tree_rows["world"] = 0
-    P._rebuild_chat_view("world")
-    assert fake.lines == page, fake.lines
-    assert P._chat_offset["world"] == total - page
+        # Open on the newest page only.
+        recent = store.recent("world", page)
+        P._chat_msgs["world"] = recent
+        P._chat_has_more["world"] = store.has_older("world", recent[0]["ts"])
+        P._rebuild_chat_view("world")
+        assert fake.lines == page, fake.lines
+        assert P._chat_has_more["world"] is True
 
-    # Scroll-up pages in one more chunk, and the whole window is redrawn.
-    P._chat_load_older("world")
-    assert P._chat_offset["world"] == total - 2 * page
-    assert fake.lines == 2 * page, fake.lines
+        # Scroll-up pages in the next chunk from the store; the window is redrawn.
+        P._chat_load_older("world")
+        assert len(P._chat_msgs["world"]) == 2 * page
+        assert fake.lines == 2 * page, fake.lines
+        assert P._chat_has_more["world"] is True
 
-    # A second page reaches the very top (offset clamps at 0) and shows everything.
-    P._chat_load_older("world")
-    assert P._chat_offset["world"] == 0
-    assert fake.lines == total, fake.lines
+        # A second page reaches the very start; nothing older remains.
+        P._chat_load_older("world")
+        assert len(P._chat_msgs["world"]) == total
+        assert fake.lines == total, fake.lines
+        assert P._chat_has_more["world"] is False
 
-    # A live message only appends; the window top (offset) does not move.
-    P._chat_msgs["world"].append(_records(1)[0])
-    P._update_chat_tree("world")
-    assert P._chat_offset["world"] == 0
-    assert fake.lines == total + 1, fake.lines
+        # Exhausted: another page-older is a no-op.
+        P._chat_load_older("world")
+        assert len(P._chat_msgs["world"]) == total
+
+        # A live message only appends (no rebuild, one more line).
+        P._chat_msgs["world"].append(_rec(total, "country_1"))
+        P._update_chat_tree("world")
+        assert fake.lines == total + 1, fake.lines
+        store.close()
 
 
 def _run_standalone() -> int:
