@@ -47,6 +47,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 
 from . import debug_log
@@ -85,6 +86,133 @@ MIN_POLL_INTERVAL_SEC = 5
 
 
 @dataclass(frozen=True)
+class BackoffPolicy:
+    """An adaptive delay before a trigger's scenario runs, that grows while the fault
+    it recovers from keeps returning and resets once it stays away.
+
+    Generic on purpose — any trigger whose recovery should ease off under a repeating
+    fault can carry one; it lives in the trigger's config, not in a scenario. The
+    first user is ``session_kick``: a login on another device that keeps kicking the
+    session must not be answered by an instant relaunch each time (that is a relaunch
+    war — kick, relaunch, kick), but by waiting longer and longer before trying
+    again, and forgetting that escalation once the session finally holds.
+
+    All fields are seconds:
+
+      * ``initial_sec``       — the first delay, and the value a reset falls back to;
+      * ``step_sec``          — how much each consecutive quick fire adds;
+      * ``max_sec``           — the ceiling the delay never grows past;
+      * ``stability_sec``     — a fire this long or longer after the last run is a
+                                fresh incident: reset the delay to ``initial_sec``;
+      * ``refire_window_sec`` — a fire sooner than this after the last run is the
+                                same fault returning: add ``step_sec`` (capped).
+
+    Elapsed is measured from when the scenario last ran (the restart), not from the
+    fire that queued it, because "did the session hold?" is a question about the time
+    after the relaunch. Between the two windows
+    (``refire_window_sec <= elapsed < stability_sec``) the delay is held where it is —
+    neither escalated nor reset; with the two equal (the ``session_kick`` default,
+    both 10 min) there is no such gap.
+
+    A missing or malformed field falls back to the default here rather than costing
+    the whole policy, so a hand-edited catalogue that sets only ``max_sec`` still
+    parses.
+    """
+
+    initial_sec: int = 900
+    step_sec: int = 900
+    max_sec: int = 2700
+    stability_sec: int = 600
+    refire_window_sec: int = 600
+
+    def as_dict(self) -> dict:
+        """The policy as it is written under a trigger's ``backoff`` key."""
+        return {
+            "initial_sec": self.initial_sec,
+            "step_sec": self.step_sec,
+            "max_sec": self.max_sec,
+            "stability_sec": self.stability_sec,
+            "refire_window_sec": self.refire_window_sec,
+        }
+
+    @classmethod
+    def from_raw(cls, raw, base: "BackoffPolicy | None" = None) -> "BackoffPolicy | None":
+        """Build a policy from a decoded ``backoff`` object, field by field.
+
+        Returns ``None`` when ``raw`` is not an object (the trigger simply has no
+        backoff). Each field falls back to ``base`` — the same-named trigger's policy,
+        and behind it these defaults — so an entry may set only what it wants to change.
+        """
+        if not isinstance(raw, dict):
+            return None
+        ref = base or cls()
+
+        def _num(key: str, fallback: int) -> int:
+            try:
+                return max(0, int(float(str(raw[key]).strip())))
+            except (KeyError, TypeError, ValueError):
+                return fallback
+
+        return cls(
+            initial_sec=_num("initial_sec", ref.initial_sec),
+            step_sec=_num("step_sec", ref.step_sec),
+            max_sec=_num("max_sec", ref.max_sec),
+            stability_sec=_num("stability_sec", ref.stability_sec),
+            refire_window_sec=_num("refire_window_sec", ref.refire_window_sec),
+        )
+
+
+class BackoffState:
+    """The running state of one trigger's :class:`BackoffPolicy` — how long to wait
+    before the next run, and when the last run was.
+
+    Mutable and not thread-safe: it is only ever touched from one poll thread. Kept
+    apart from the (frozen) policy so the same policy can drive many triggers while
+    each keeps its own escalation. The watcher holds one per trigger by name, so it
+    survives a listener respawn (a :meth:`TriggerWatcher.sync` after a re-read).
+    """
+
+    def __init__(self, policy: BackoffPolicy) -> None:
+        self._policy = policy
+        self._current = policy.initial_sec
+        self._last_run_ts: float | None = None
+
+    @property
+    def policy(self) -> BackoffPolicy:
+        return self._policy
+
+    @property
+    def current_delay(self) -> int:
+        return self._current
+
+    @property
+    def last_run_ts(self) -> float | None:
+        return self._last_run_ts
+
+    def plan(self, now: float) -> int:
+        """A fire landed at ``now`` — pick and remember the delay before the run.
+
+        The delay is the current one; whether it escalates, resets or holds is decided
+        by how long the session held since the last run (see :class:`BackoffPolicy`).
+        Returns the number of seconds to wait before the scenario runs.
+        """
+        p = self._policy
+        if self._last_run_ts is not None:
+            elapsed = now - self._last_run_ts
+            if elapsed < p.refire_window_sec:
+                self._current = min(self._current + p.step_sec, p.max_sec)
+            elif elapsed >= p.stability_sec:
+                self._current = p.initial_sec
+            # else: between the windows — hold the delay where it is.
+        return self._current
+
+    def mark_run(self, now: float) -> None:
+        """The scenario has just run (the restart): remember when, so the next fire
+        can tell a quick refire from a session that settled."""
+        self._last_run_ts = now
+
+
+@dataclass(frozen=True)
 class Trigger:
     """One wire- or poll-driven errand, as configured.
 
@@ -108,6 +236,7 @@ class Trigger:
     check: str = ""                 # poll: Lua expression -> truthy when it should fire
     interval_sec: int = DEFAULT_POLL_INTERVAL_SEC   # poll: how often the check runs
     cooldown_sec: int = DEFAULT_POLL_COOLDOWN_SEC   # poll: quiet time after a fire
+    backoff: BackoffPolicy | None = None            # adaptive pre-run delay (opt-in)
     enabled: bool = False
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
@@ -134,6 +263,8 @@ class Trigger:
             out["check"] = self.check
             out["interval_sec"] = self.interval_sec
             out["cooldown_sec"] = self.cooldown_sec
+            if self.backoff is not None:
+                out["backoff"] = self.backoff.as_dict()
         else:
             out["event_pattern"] = self.event_pattern
         if self.args:
@@ -261,6 +392,16 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         check=_KICK_CHECK,
         interval_sec=DEFAULT_POLL_INTERVAL_SEC,
         cooldown_sec=DEFAULT_POLL_COOLDOWN_SEC,
+        # A repeating kick (someone logging in on the same account over and over) must
+        # not draw an instant relaunch each time — that is a relaunch war. The backoff
+        # waits longer and longer before each relaunch (15 → 30 → 45 min) while the
+        # kicks keep coming within 10 min of a restart, and forgets that escalation
+        # (back to 15 min) once a session finally holds for 10 min. cooldown_sec above
+        # stays a short settle AFTER a relaunch so the fading modal is not read as a
+        # fresh kick; the backoff is the adaptive wait BEFORE it.
+        backoff=BackoffPolicy(
+            initial_sec=900, step_sec=900, max_sec=2700,
+            stability_sec=600, refire_window_sec=600),
         scenario=("recover_from_kick",),
         enabled=False,
         label_key="triggers.item.session_kick",
@@ -360,6 +501,7 @@ class TriggerCatalogue:
             name=t.name, scenario=t.scenario, kind=t.kind,
             event_pattern=t.event_pattern, check=t.check,
             interval_sec=t.interval_sec, cooldown_sec=t.cooldown_sec,
+            backoff=t.backoff,
             enabled=bool(config[t.name]), args=dict(t.args),
             title=t.title, label_key=t.label_key) for t in self.triggers]
         return TriggerCatalogue(updated, self.path, self.errors)
@@ -435,6 +577,9 @@ def parse_catalogue(data, path: str | None = None,
             cooldown_sec=_as_interval(
                 raw.get("cooldown_sec"),
                 base.cooldown_sec if base else DEFAULT_POLL_COOLDOWN_SEC),
+            backoff=BackoffPolicy.from_raw(
+                raw.get("backoff"), base.backoff if base else None)
+            if "backoff" in raw else (base.backoff if base else None),
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
@@ -571,6 +716,11 @@ class TriggerWatcher:
         self._poll = poll
         self._lock = threading.Lock()
         self._listeners: dict[str, object] = {}   # trigger name -> handle (.stop())
+        # One BackoffState per trigger that carries a BackoffPolicy, kept here (not on
+        # the handle) so the escalation survives a listener respawn — a re-read or a
+        # profile switch runs `sync`, which stops and re-starts the handle, but a kick
+        # war in progress must not have its count reset by that.
+        self._backoff: dict[str, BackoffState] = {}
         self._started = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -613,8 +763,10 @@ class TriggerWatcher:
 
     def _start_one(self, trigger) -> None:
         if trigger.is_poll:
+            state = self._backoff_state(trigger)
             handle = _PollHandle(trigger, self._poll,
-                                 lambda t=trigger: self._fire(t), self._log)
+                                 lambda t=trigger: self._fire(t), self._log,
+                                 state=state)
             with self._lock:
                 self._listeners[trigger.name] = handle
             self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
@@ -637,6 +789,22 @@ class TriggerWatcher:
         # gated — it no-ops when there is nothing to do — and the scheduler drops the
         # run if the game is closed rather than failing it.
         self._submit(trigger)
+
+    def _backoff_state(self, trigger) -> "BackoffState | None":
+        """The trigger's :class:`BackoffState`, made on first need and kept by name.
+
+        ``None`` when the trigger carries no policy — the poll handle then fires at
+        once, the way it always did. A stored state is reused across respawns; if the
+        policy has since changed (a hand-edited catalogue re-read), it is rebuilt.
+        """
+        if trigger.backoff is None:
+            self._backoff.pop(trigger.name, None)
+            return None
+        state = self._backoff.get(trigger.name)
+        if state is None or state.policy != trigger.backoff:
+            state = BackoffState(trigger.backoff)
+            self._backoff[trigger.name] = state
+        return state
 
     def _stop_one(self, name: str) -> None:
         with self._lock:
@@ -683,13 +851,21 @@ class _PollHandle:
     ``cooldown_sec`` before checking again (so a kick modal that lingers until the
     relaunch lands does not re-fire the recovery each interval). Same ``.stop()`` the
     watcher calls on a wire child, so the two are managed identically.
+
+    When the trigger carries a :class:`BackoffPolicy`, a truthy answer does not fire
+    at once: the handle waits the policy's current delay first (:class:`BackoffState`),
+    so a fault that keeps returning is answered later and later instead of instantly.
+    ``state`` is that running delay (shared by the watcher across respawns) and ``now``
+    is the clock it reads — injected so a test can drive time by hand.
     """
 
-    def __init__(self, trigger, poll, on_fire, log) -> None:
+    def __init__(self, trigger, poll, on_fire, log, state=None, now=None) -> None:
         self._trigger = trigger
         self._poll = poll
         self._on_fire = on_fire
         self._log = log
+        self._state = state          # a BackoffState, or None for fire-at-once
+        self._now = now or time.monotonic   # injectable clock, for the tests
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name=f"trigger-poll-{trigger.name}")
@@ -705,12 +881,27 @@ class _PollHandle:
         while not self._stop.is_set():
             fired = False
             try:
-                if self._poll is not None and self._poll(t):
-                    self._on_fire()
-                    fired = True
+                hit = self._poll is not None and bool(self._poll(t))
             except Exception as exc:              # noqa: BLE001 — a bad read must not
                 # kill the watch; log once and carry on to the next interval.
                 self._log("triggers.log.poll_error", name=t.name, error=exc)
+                hit = False
+            if hit and self._state is not None:
+                # Adaptive backoff: wait longer and longer before each run while the
+                # fault keeps returning, so a repeating kick is not met with a relaunch
+                # war. The wait itself sits quiet — no polling until it is over.
+                delay = self._state.plan(self._now())
+                self._log("triggers.log.backoff", name=t.name,
+                          minutes=max(1, int(round(delay / 60.0))))
+                if self._stop.wait(delay):        # stopped while waiting → clean exit
+                    break
+                self._on_fire()
+                self._state.mark_run(self._now())
+                fired = True
+            elif hit:
+                self._on_fire()
+                fired = True
             # Wait on the stop event so a stop is noticed at once, not at the end of a
-            # full interval: `wait` returns True the moment it is set.
+            # full interval: `wait` returns True the moment it is set. cooldown_sec is
+            # a short settle after a run so the fading state is not read as a new fire.
             self._stop.wait(t.cooldown_sec if fired else t.interval_sec)

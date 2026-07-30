@@ -446,6 +446,7 @@
   "triggers.listening": "listening",
   "triggers.log.died": "{name}: the listener exited — no longer watching",
   "triggers.log.fire": "{name}: {event} landed — running the scenario",
+  "triggers.log.backoff": "{name}: kicked again — waiting {minutes} min before relaunching",
   "triggers.log.off": "{name}: stopped watching",
   "triggers.log.on": "{name}: watching for {event}",
   "triggers.log.poll_error": "{name}: the check could not be read: {error}",

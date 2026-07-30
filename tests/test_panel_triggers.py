@@ -385,6 +385,114 @@ def test_a_poll_trigger_that_reads_false_never_fires():
         watcher.stop()
 
 
+# -- adaptive backoff -------------------------------------------------------
+def test_backoff_escalates_caps_and_resets():
+    """The whole session-kick story on the state alone, driving time by hand.
+
+    A quick refire (sooner than refire_window after the last run) grows the delay by
+    a step, capped at max; a fire after the session held past stability resets it.
+    """
+    p = triggersmod.BackoffPolicy(initial_sec=900, step_sec=900, max_sec=2700,
+                                  stability_sec=600, refire_window_sec=600)
+    st = triggersmod.BackoffState(p)
+
+    # First kick ever: no prior run → the initial delay (15 min). Run lands at +delay.
+    assert st.plan(0) == 900
+    st.mark_run(900)
+    # Kicked 100 s after that run (100 < 600) → +step → 30 min.
+    assert st.plan(1000) == 1800
+    st.mark_run(2800)
+    # Kicked quickly again → +step → 45 min.
+    assert st.plan(2900) == 2700
+    st.mark_run(5600)
+    # Quick again → capped at max, does not pass 45 min.
+    assert st.plan(5700) == 2700
+    st.mark_run(8400)
+    # The session finally holds: kicked 700 s after the run (700 >= 600) → reset.
+    assert st.plan(9100) == 900
+
+
+def test_backoff_holds_between_the_windows():
+    """With the two windows apart, an elapsed that falls between them changes nothing:
+    not a quick refire (no escalation), not yet settled (no reset)."""
+    p = triggersmod.BackoffPolicy(initial_sec=900, step_sec=900, max_sec=2700,
+                                  stability_sec=1200, refire_window_sec=600)
+    st = triggersmod.BackoffState(p)
+    assert st.plan(0) == 900
+    st.mark_run(900)
+    st.plan(1000)                       # 100 s → escalate to 1800
+    st.mark_run(2800)
+    # 800 s after the run: 600 <= 800 < 1200 → held where it is.
+    assert st.plan(3600) == 1800
+
+
+def test_backoff_policy_reads_partial_and_junk():
+    base = triggersmod.BackoffPolicy(initial_sec=900, step_sec=900, max_sec=2700,
+                                     stability_sec=600, refire_window_sec=600)
+    # Only max_sec set — the rest fall back to the base.
+    pol = triggersmod.BackoffPolicy.from_raw({"max_sec": 3600}, base)
+    assert pol.max_sec == 3600 and pol.initial_sec == 900 and pol.step_sec == 900
+    # A junk value falls back rather than crashing the whole policy.
+    pol2 = triggersmod.BackoffPolicy.from_raw({"initial_sec": "oops"}, base)
+    assert pol2.initial_sec == 900
+    # Not an object → no policy at all.
+    assert triggersmod.BackoffPolicy.from_raw(None) is None
+
+
+def test_the_session_kick_trigger_carries_a_backoff_policy():
+    sk = triggersmod.default_catalogue().by_name("session_kick")
+    assert sk.backoff is not None
+    assert sk.backoff.initial_sec == 900        # 15 min
+    assert sk.backoff.step_sec == 900           # +15 min a step
+    assert sk.backoff.max_sec == 2700           # cap at 45 min
+    assert sk.backoff.stability_sec == 600 and sk.backoff.refire_window_sec == 600
+
+
+def test_a_backoff_policy_round_trips_through_the_file():
+    entries = [{"name": "k", "kind": "poll", "check": "x", "scenario": "recover",
+                "backoff": {"initial_sec": 60, "step_sec": 30, "max_sec": 120,
+                            "stability_sec": 90, "refire_window_sec": 90}}]
+    k = triggersmod.parse_catalogue(entries).by_name("k")
+    assert k.backoff is not None and k.backoff.initial_sec == 60 and k.backoff.max_sec == 120
+    d = k.as_dict()
+    assert d["backoff"]["step_sec"] == 30
+    # …and back in again unchanged.
+    k2 = triggersmod.parse_catalogue([d]).by_name("k")
+    assert k2.backoff == k.backoff
+
+
+def test_a_backoff_poll_waits_then_fires_and_remembers_the_run():
+    """The watcher end to end: an enabled backoff poll fires (initial delay 0 here, so
+    no real wait) and the run is stamped on the state it keeps by name."""
+    import threading
+    fired = threading.Event()
+    submitted = []
+    cat = triggersmod.TriggerCatalogue([
+        triggersmod.Trigger(
+            name="kick", kind=triggersmod.KIND_POLL, check="x",
+            scenario=("recover",), interval_sec=5, cooldown_sec=5,
+            backoff=triggersmod.BackoffPolicy(
+                initial_sec=0, step_sec=900, max_sec=2700,
+                stability_sec=600, refire_window_sec=600)),
+    ])
+    watcher = triggersmod.TriggerWatcher(
+        catalogue=lambda: cat,
+        config=lambda: {"kick": True},
+        spawn=lambda t, f: None,
+        submit=lambda t: (submitted.append(t.name), fired.set()),
+        log=lambda *a, **k: None,
+        poll=lambda t: True,
+    )
+    watcher.start()
+    try:
+        assert fired.wait(2.0), "the backoff poll never fired"
+        assert submitted[:1] == ["kick"]
+        state = watcher._backoff.get("kick")
+        assert state is not None and state.last_run_ts is not None
+    finally:
+        watcher.stop()
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]
