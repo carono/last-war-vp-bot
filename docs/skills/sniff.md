@@ -134,6 +134,35 @@ That is the whole job. The player proves it live in a later session; only then
 does the mark flip 🟡 → ✅. Do not verify it yourself, do not write a research
 note, do not grep a second time.
 
+#### 8.0a What this checklist cannot see — the gates
+
+Step 3 says the manager name plus the wire command *is* the recipe. For a press
+the server may **refuse**, that is not enough, and the shortfall is invisible here:
+a recording only ever shows the press the player made **succeed**, so the
+conditions that had to hold first leave no trace at all.
+
+Decoration upgrade (#1125) is the worked example, and it cost two commits. The wire
+was complete and unambiguous — `decorator.progress.upgrade` with `{buildUuid, num}`
+— and the recipe built from it did nothing in game, twice:
+
+* both parameters looked free-form and were not (`buildUuid` is the decoration
+  group's representative building, `num` is a count of steps, not a slot index);
+* the press needs two gates that appear nowhere on the wire. One was found only by
+  reading the server's **refusal** (`building_center_tips4`, "building no
+  extra_lvup_para"); the other was read off a plausible neighbouring function that
+  turned out to price something else entirely, so the button reported "nothing is
+  affordable" forever.
+
+So: ship 🟡 from the wire as the nine steps say, but **write the recipe so a missing
+gate is loud.** A press that cannot tell "not ready" from "sent and ignored" hides
+its own bug — and a readiness count that reads zero for every unit on the account is
+a claim that needs evidence the gate itself cannot supply. When the player comes back
+saying it did nothing, the wire has already told you everything it knows; go to the
+VM (§8.7) and read the window's own sender, then `string.dump` the gate before
+trusting it.
+
+Full post-mortem: `docs/research/decoration-upgrade.md` §6.
+
 ### 8.4 Read the description first — no description? Ask
 
 **Start every analysis here**, before opening either file:
