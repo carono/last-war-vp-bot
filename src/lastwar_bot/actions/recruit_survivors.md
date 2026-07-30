@@ -22,6 +22,10 @@
 # server's push.user.visitor.change drain the queue instead of guessing a fixed
 # number.
 #
+# Run it from the base, for the same reason as collect_visitor_gifts: a visitor is
+# only ever walking up while the base is on screen, so from the world map nobody
+# is "waiting" and the run is a quiet no-op.
+#
 # A visitor left the queue live on 2026-07-29 (pending 1 -> 0, total 5 -> 4), but
 # the kind was then read off `visitorId` — a per-arrival counter, not the
 # VisitorType — so what that send actually picked was "the third visitor of the

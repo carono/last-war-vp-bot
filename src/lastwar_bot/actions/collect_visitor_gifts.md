@@ -22,6 +22,12 @@
 # message at a time and re-reads the count, letting the server's
 # push.user.visitor.change drain the queue instead of guessing a number.
 #
+# Run it from the base. Visitors are only ever walking up while the base is on
+# screen: leaving it deletes their models, entering it starts them again, and the
+# spawn is on a timer of its own. From the world map, then, nothing is "arrived"
+# and this is a quiet no-op — nothing is lost, the gifts keep waiting, but the run
+# does nothing until the base is back on screen.
+#
 # Proven live 2026-07-30 (task #1122): a queue of four gift visitors, one of them
 # not yet arrived, collected 3 -> 0 in three sends; the visitor count went 3 -> 0
 # server-side and the unarrived one stayed queued. Until then the recipe pressed

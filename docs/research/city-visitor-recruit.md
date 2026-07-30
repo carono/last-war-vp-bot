@@ -101,6 +101,22 @@ that queue), so the gate is `model.isArrival and not model.isFinish` on top of t
 Both counts agreed at 3, which is how the readiness rule was checked against the
 client's own list rather than guessed.
 
+### …and readiness only exists in the city scene
+
+The models are a city-scene thing, from the manager's own code:
+
+```
+BeforeReleaseCity  -> DeleteAllVisitorModel, ReleaseData     -- leaving the base drops them
+OnEnterCity        -> GetIsInCity, StartCreateVisitor        -- entering starts them again
+StartCreateVisitorByType -> GetIsInCity … TimerManager.DelayInvoke(delay)
+```
+
+So `model.isArrival` can only be true while the base is on screen, and even there the
+spawn runs on a delay of its own. Both presses are therefore base-screen actions: run
+from the world map they are a quiet no-op (nothing is lost — the queue is server-side and
+the visitors keep waiting). Switching to the city and pressing straight away would not
+help either; the models arrive on that timer, not on the scene change.
+
 Note `HasWorkerToRecuit()` reads **nil** even with a RECRUITMENT visitor queued — it is
 a narrower check (a free worker slot / lottery worker), not "is a survivor waiting", so
 it is the wrong gate. Count the queue by `eventType` instead.
