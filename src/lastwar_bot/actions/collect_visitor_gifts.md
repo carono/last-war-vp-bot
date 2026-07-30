@@ -13,8 +13,9 @@
 # button"; the real Lua lives in tools/lib/game_buttons.py (collect_visitor_gifts),
 # and the engine side is written up in docs/research/city-visitor-recruit.md.
 #
-# Detection & gate: visitors queue in DataCenter.CityVisitorManager; a gift
-# visitor is a queue entry whose eventType == VisitorType.GIFT (2) — versus
+# Detection & gate: visitors queue in DataCenter.CityVisitorManager — in two
+# queues, both of which are searched, because a kind is not tied to one of them. A
+# gift visitor is a queue entry whose eventType == VisitorType.GIFT (2) — versus
 # RECRUITMENT (3) for a recruitable survivor — and which has walked up to the
 # base already (a queue entry exists before the visitor is spawned; the client
 # leaves those alone too). The press is gated on there being at least one such

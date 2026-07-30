@@ -570,9 +570,17 @@ def alliance_help_send() -> str:
 # --------------------------------------------------------------------------
 # Visitors queue up outside the base in `DataCenter.CityVisitorManager`; a new
 # arrival pushes `push.user.visitor.change`. Each queue entry is a wrapper
-# `{data = <visitor>, model = <view>}`, and `GetQueueAllVisitorData(1)` returns
-# that list (arg 1 is the main on-base queue; 2 is empty here), so every field
-# below lives one level in, on `.data` / `.model`.
+# `{data = <visitor>, model = <view>}` returned by `GetQueueAllVisitorData(<queue>)`,
+# so every field below lives one level in, on `.data` / `.model`.
+#
+# There is more than ONE queue, and a kind does not get to pick which: the manager
+# keeps two, `GetQueueAllVisitorData(1)` and `(2)` (0 and 3+ raise). Live, gift
+# visitors sat in queue 1 while the waiting survivor sat in queue 2 — so anything
+# that reads a single queue silently cannot see half the visitors, which is what
+# `recruit_survivors` was doing. The client itself takes the queue as a parameter
+# next to the kind (`GetReceiveAllGiftUidList(<eventType>, <queue>, <max>)`). Both
+# queues are therefore scanned, each in its own pcall so a queue the manager does
+# not keep is skipped rather than fatal.
 #
 # The kind is `data.eventType`, and *that* is what indexes the global `VisitorType`
 # enum — MERCHANT=1, GIFT=2, RECRUITMENT=3, BATTLE=4, WORKER_LOTTERY=5, …
@@ -590,7 +598,23 @@ def alliance_help_send() -> str:
 # A visitor is only pressable once it has walked up: `model.isArrival` is true and
 # `model.isFinish` false. A queue entry can exist before that (the fourth visitor
 # above had a bare model — not spawned yet) and the client leaves those alone.
-_VISITOR_QUEUE = "DataCenter.CityVisitorManager:GetQueueAllVisitorData(1) or {}"
+_VISITOR_QUEUES = (1, 2)
+
+
+def _visitor_scan(body: str) -> str:
+    """Lua statements: run `body` for every entry of every visitor queue.
+
+    `body` is spliced in with the loop variables `d` (the entry's `.data`) and `m`
+    (its `.model`) in scope. Each queue is fetched in its own pcall: the manager
+    answers for 1 and 2 and raises for the rest, and a client that keeps a different
+    number of them should cost this a queue, not the whole reading.
+    """
+    return ("local __M = DataCenter.CityVisitorManager "
+            "for __q = %d, %d do "
+            "local __ok, __lst = pcall(__M.GetQueueAllVisitorData, __M, __q) "
+            "if __ok and __lst then "
+            "for _, e in ipairs(__lst) do local d, m = e and e.data, e and e.model "
+            "%s end end end" % (_VISITOR_QUEUES[0], _VISITOR_QUEUES[1], body))
 
 
 def _visitor_kind_ready(kind: str, fallback: int) -> str:
@@ -605,25 +629,23 @@ def _visitor_kind_ready(kind: str, fallback: int) -> str:
 
 
 def _visitor_count(kind: str, fallback: int) -> str:
-    """Lua *expression* -> how many waiting visitors of that kind are in the queue."""
-    return ("(function() local n = 0 "
-            "for _, e in ipairs(%s) do local d, m = e and e.data, e and e.model "
-            "if %s then n = n + 1 end end "
-            "return n end)()" % (_VISITOR_QUEUE, _visitor_kind_ready(kind, fallback)))
+    """Lua *expression* -> how many waiting visitors of that kind are queued anywhere."""
+    return ("(function() local n = 0 %s return n end)()"
+            % _visitor_scan("if %s then n = n + 1 end" % _visitor_kind_ready(kind, fallback)))
 
 
 def _visitor_operate_first(kind: str, fallback: int) -> str:
     """Send `visitor.operate {uid, operate = 1}` for the front waiting visitor of a kind.
 
     Gated on the matching count so a queue with nobody of that kind waiting never
-    spends a server round trip.
+    spends a server round trip. The send returns out of both loops, so exactly one
+    visitor is pressed however many queues had a candidate.
     """
-    return ("if %s > 0 then "
-            "for _, e in ipairs(%s) do local d, m = e and e.data, e and e.model "
-            "if %s then "
-            "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) break end end end"
-            % (_visitor_count(kind, fallback), _VISITOR_QUEUE,
-               _visitor_kind_ready(kind, fallback)))
+    return ("(function() if %s <= 0 then return end %s end)()"
+            % (_visitor_count(kind, fallback),
+               _visitor_scan("if %s then "
+                             "SFSNetwork.SendMessage(MsgDefines.VisitorOperateMessage, d.uid, 1) "
+                             "return end" % _visitor_kind_ready(kind, fallback))))
 
 
 # --------------------------------------------------------------------------

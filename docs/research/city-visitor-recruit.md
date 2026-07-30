@@ -38,10 +38,10 @@ decline value (if any) is unconfirmed.
 ## The queue and the discriminator
 
 Visitors line up in `DataCenter.CityVisitorManager`. A new arrival pushes
-`push.user.visitor.change`. The queue is read with
+`push.user.visitor.change`. A queue is read with
 
 ```lua
-DataCenter.CityVisitorManager:GetQueueAllVisitorData(1)   -- arg 1 = the on-base queue
+DataCenter.CityVisitorManager:GetQueueAllVisitorData(q)   -- q = 1 or 2; 0 and 3+ raise
 ```
 
 which returns a list of **wrappers**, each `{data = <visitor>, model = <view>}` — the
@@ -101,6 +101,31 @@ that queue), so the gate is `model.isArrival and not model.isFinish` on top of t
 Both counts agreed at 3, which is how the readiness rule was checked against the
 client's own list rather than guessed.
 
+### There are TWO queues, and reading one is reading half the visitors
+
+`GetQueueAllVisitorData` takes a queue index, and the manager keeps two of them:
+
+```
+GetQueueVisitorCount(0) -> raises (CityVisitorManager.lua:733, index a nil field)
+GetQueueVisitorCount(1) -> 1        -- the gift visitor, not arrived yet
+GetQueueVisitorCount(2) -> 1        -- the waiting survivor, arrived
+GetQueueVisitorCount(3..8) -> raise
+```
+
+Live (task #1122, second pass): the gift visitors sat in **queue 1** and the
+RECRUITMENT one in **queue 2**, with its model `CallerUnit<uid>` active in the scene —
+the "?" figure walking around the base. So `recruit_survivors` was reading queue 1 only
+and could not see the survivor at all: the kind test was right by then, the queue index
+was the thing left hardcoded. Both primitives now scan queue 1 and queue 2, each in its
+own pcall, and match on the kind wherever it turns up.
+
+The mapping of kind → queue is not exposed: `VisitorTypeToQueue` is a module-local of
+`CityVisitorManager.lua` (not on the instance) and `Const.CallerQueueList` is not a
+global, so which queue a kind lands in cannot be read out of the VM. Scanning both
+sidesteps the question — and the client itself takes the queue as a parameter beside the
+kind, `GetReceiveAllGiftUidList(<eventType>, <queue>, <max>)`, so a kind is not tied to
+one queue by construction anyway.
+
 ### …and readiness only exists in the city scene
 
 The models are a city-scene thing, from the manager's own code:
@@ -116,6 +141,13 @@ spawn runs on a delay of its own. Both presses are therefore base-screen actions
 from the world map they are a quiet no-op (nothing is lost — the queue is server-side and
 the visitors keep waiting). Switching to the city and pressing straight away would not
 help either; the models arrive on that timer, not on the scene change.
+
+The queue *data* thins out too, not just the models — `ReleaseData` runs on the way out.
+Read from the world map, the manager showed `queue=1 total=0`; back in the city the same
+queue read `queue=1 total=1` and the survivor's queue-2 entry was there. So a visitor
+reading taken outside the base is not just short of models, it is not to be trusted at
+all — which is the other reason a run from the world map cannot be made to work by
+loosening the readiness test.
 
 Note `HasWorkerToRecuit()` reads **nil** even with a RECRUITMENT visitor queued — it is
 a narrower check (a free worker slot / lottery worker), not "is a survivor waiting", so
@@ -134,10 +166,21 @@ after:  pending=0  total=4
 A visitor left the queue and the total dropped, both server-side (the removal came back
 on `push.user.visitor.change`) — a reply applier could not decrement the server's visitor
 count, and the call was a bare `SFSNetwork.SendMessage`, so this is the real wire action,
-not a local state edit. What it does **not** prove is that the visitor was a RECRUITMENT
-one: the pick was `visitorId == 3`, i.e. the third arrival of the session. The recruit
-path still wants a re-run with a survivor actually knocking; the send itself is the same
-one the gift path now exercises every time.
+not a local state edit. What it did **not** prove is that the visitor was a RECRUITMENT
+one: the pick was then `visitorId == 3`, i.e. the third arrival of the session.
+
+Re-run on 2026-07-30 with a survivor actually knocking, after the queue scan landed:
+
+```
+before: recruit=1  total=1   -- q1: gift, not arrived · q2: survivor, arrived
+        --> visitor.operate  {uid = …974, operate = 1}
+after:  recruit=0  total=0   -- q2 empty, q1 untouched
+```
+
+Three independent readings, not one: the count, the server's visitor total, and the
+scene — `CallerUnit…974` was gone and so was the "?" figure walking the base in the
+screenshot. The gift visitor in queue 1 was left alone, as it should be: not its kind,
+and not arrived either.
 
 ## Gift-bearing visitors — same command, kind GIFT (trace 20260729_151712)
 

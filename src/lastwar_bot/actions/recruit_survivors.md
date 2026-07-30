@@ -26,12 +26,15 @@
 # only ever walking up while the base is on screen, so from the world map nobody
 # is "waiting" and the run is a quiet no-op.
 #
-# A visitor left the queue live on 2026-07-29 (pending 1 -> 0, total 5 -> 4), but
-# the kind was then read off `visitorId` — a per-arrival counter, not the
-# VisitorType — so what that send actually picked was "the third visitor of the
-# session", whatever kind it was. Fixed on 2026-07-30 (task #1122) to test
-# eventType, the field the client itself keys on; the same fix is what made
-# collect_visitor_gifts work at all, and it is proven live there. Re-confirm this
-# recipe the next time a survivor is actually knocking.
+# Proven live 2026-07-30 (task #1122), with a survivor actually knocking: one press,
+# the survivor left (waiting 1 -> 0, visitor total 1 -> 0), its model disappeared
+# from the base, and the gift visitor standing in the other queue was left alone.
+#
+# It took two fixes to get there, both of them a hardcoded value that read like a
+# lookup. The kind was read off `visitorId`, a per-arrival counter, so the press
+# picked "the third visitor of the session" whatever kind it was. And the queue was
+# hardcoded to the first one, while the manager keeps two — survivors were queueing
+# in the second, so the recipe could not see them at all and did nothing. Now it
+# matches the kind across both queues.
 
 TAP recruit_survivor xall   # recruit until no survivor is left waiting

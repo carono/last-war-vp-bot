@@ -557,6 +557,37 @@ def test_visitor_presses_key_on_the_kind_not_the_arrival_number():
     assert gb.get("recruit_survivor").count_lua == la.visitor_recruit_pending()
 
 
+def test_visitor_presses_search_every_queue():
+    """The manager keeps two visitor queues and a kind is not tied to either of them.
+
+    Reading one queue is reading half the visitors: live, gift visitors were queued in
+    queue 1 while the waiting survivor was in queue 2, which is why `recruit_survivors`
+    saw nobody and did nothing even with the kind test already right (#1122). So the
+    queue index must never be a constant in one of these expressions — both are walked,
+    and each fetch is its own pcall so a queue the client does not keep costs a queue
+    rather than the whole reading.
+    """
+    import lua_actions as la
+
+    for name, expr in (
+        ("gift count", la.visitor_gift_pending()),
+        ("gift press", la.visitor_gift_collect()),
+        ("recruit count", la.visitor_recruit_pending()),
+        ("recruit press", la.visitor_recruit_survivor()),
+    ):
+        assert "GetQueueAllVisitorData(1)" not in expr, \
+            f"{name} still pins the queue index: {expr}"
+        assert "for __q = 1, 2 do" in expr, f"{name} does not walk every queue: {expr}"
+        assert "pcall(__M.GetQueueAllVisitorData" in expr, \
+            f"{name} lets one missing queue take the whole reading down: {expr}"
+
+    # One press, whichever queue the visitor turns up in — the send returns out of both
+    # loops, so a second candidate in the other queue is not pressed in the same call.
+    for press in (la.visitor_gift_collect(), la.visitor_recruit_survivor()):
+        assert press.count("SFSNetwork.SendMessage") == 1, press
+        assert "d.uid, 1) return end" in press, f"the send must stop the scan: {press}"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
