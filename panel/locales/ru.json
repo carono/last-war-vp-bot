@@ -30,7 +30,10 @@
   "chat.col.msg": "Сообщение",
   "chat.col.nick": "Ник",
   "chat.col.time": "Время",
+  "chat.contacts": "Контакты",
+  "chat.contacts.empty": "диалогов пока нет",
   "chat.count": "{n} сообщений",
+  "chat.dm.pick": "← выберите контакт",
   "chat.hint": "Только TCP: личные сообщения, подарки, шары. Broadcast (world/alliance) идёт по TLS WSS — не перехватывается.",
   "chat.load_more": "↑ показать более ранние сообщения",
   "chat.monitor": "Монитор чата",
@@ -47,6 +50,7 @@
   "chat.tab.system": "Системные",
   "chat.tab.world": "Мировой",
   "chat.to": "куда:",
+  "chat.you": "Вы:",
 
   "cmd.failed": "не выполнено — смотри строки выше",
   "cmd.label": "Команда:",

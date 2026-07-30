@@ -139,6 +139,58 @@ def test_store_files_by_tab_and_imports_jsonl():
         s.close()
 
 
+# --- the DM contact list ---------------------------------------------------
+
+def _dm(peer, i, self_uid="1000", mine=False, name=None):
+    room = f"custom_{peer}_{self_uid}_v2"
+    return {"ts": float(i), "sender_uid": (self_uid if mine else peer),
+            "sender_name": (name or f"peer{peer}"), "msg": f"m{i}",
+            "room_id": room, "chat_type": "dm",
+            "head_pic_ver": ("" if mine else "7")}
+
+
+def test_dm_peer_uid_from_either_room_order():
+    assert chat_history.dm_peer_uid("custom_A_1000_v2", "1000") == "A"   # peer first
+    assert chat_history.dm_peer_uid("custom_1000_B_v2", "1000") == "B"   # self first
+    assert chat_history.dm_peer_uid("custom_A_1000_v2", "") == "A"       # fallback
+    assert chat_history.dm_peer_uid("country_1", "1000") == ""           # not a DM
+
+
+def test_dm_contacts_order_and_fields():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = _store(tmp)
+        for i in range(1, 6):
+            s.append(_dm("A", i))              # peer A: five older messages
+        for i in range(10, 13):
+            s.append(_dm("B", i))              # peer B: three, newer
+        s.append(_dm("A", 20, mine=True))      # my reply to A — newest overall
+        contacts = s.dm_contacts("1000")
+        assert [c["peer_uid"] for c in contacts] == ["A", "B"]     # newest first
+        a = contacts[0]
+        assert a["last_ts"] == 20.0 and a["last_mine"] is True
+        assert a["last_text"] == "m20"
+        assert a["name"] == "peerA"            # from the peer's own message, not mine
+        assert a["head_pic_ver"] == "7"
+        s.close()
+
+
+def test_dm_room_paging():
+    with tempfile.TemporaryDirectory() as tmp:
+        s = _store(tmp)
+        room = "custom_A_1000_v2"
+        for i in range(150):
+            s.append(_dm("A", i))
+        s.append(_dm("B", 500))                # noise in another room
+        recent = s.recent_room(room, 100)
+        assert len(recent) == 100
+        assert [r["ts"] for r in recent] == [float(i) for i in range(50, 150)]
+        older = s.older_room(room, recent[0]["ts"], 100)
+        assert [r["ts"] for r in older] == [float(i) for i in range(0, 50)]
+        assert s.has_older_room(room, 50.0) is True
+        assert s.has_older_room(room, 0.0) is False
+        s.close()
+
+
 # --- history is per character, not per profile -----------------------------
 
 def test_chat_db_path_is_per_character():
@@ -192,6 +244,12 @@ class _FakeText:
         pass
 
     def tag_configure(self, *a, **k):
+        pass
+
+    def tag_names(self, *a):
+        return ()
+
+    def tag_delete(self, *a):
         pass
 
     def index(self, *a):
@@ -270,6 +328,83 @@ def test_lazy_window_pages_from_store():
         P._chat_msgs["world"].append(_rec(total, "country_1"))
         P._update_chat_tree("world")
         assert fake.lines == total + 1, fake.lines
+        store.close()
+
+
+class _FakeVar:
+    def __init__(self, v=""):
+        self._v = v
+
+    def set(self, v):
+        self._v = v
+
+    def get(self):
+        return self._v
+
+
+def _dm_stand_in(pm, store):
+    from panel import i18n as i18nmod
+
+    P = types.SimpleNamespace()
+    P._i18n = i18nmod.I18n("en")
+    P._chat_store = store
+    P._chat_uid = "1000"
+    P._chat_msgs = {"dm": []}
+    P._chat_has_more = {"dm": False}
+    P._chat_tree_rows = {"dm": 0}
+    P._chat_img_cache = {}
+    P._photo_seq = 0
+    P._chat_trees = {"dm": _FakeText()}
+    P._dm_list = _FakeText()
+    P._dm_active_room = ""
+    P._dm_active_peer = ""
+    P._dm_unread = {}
+    P._dm_header_var = _FakeVar()
+    P._chat_room_var = _FakeVar()
+    P._active_chat_type = lambda: "dm"
+    P._AVATAR_PX = pm.Panel._AVATAR_PX
+    for name in ("_t", "_render_msg_line", "_insert_chat_text", "_rebuild_chat_view",
+                 "_chat_load_older", "_chat_type_of_view", "_chat_avatar",
+                 "_chat_avatar_placeholder", "_open_dm", "_refresh_dm_contacts",
+                 "_render_contact_row", "_update_chat_target", "_chat_room"):
+        setattr(P, name, pm.Panel.__dict__[name].__get__(P))
+    P._chat_clear_view = pm.Panel._chat_clear_view
+    P._chat_view_at_bottom = pm.Panel._chat_view_at_bottom
+    P._dm_contact_time = pm.Panel._dm_contact_time
+    return P
+
+
+def test_dm_open_contact_filters_and_pages():
+    try:
+        import panel.__main__ as pm
+    except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
+        print(f"  SKIP test_dm_open_contact_filters_and_pages: {exc}")
+        return
+
+    page = pm.CHAT_PAGE
+    with tempfile.TemporaryDirectory() as tmp:
+        store = _store(tmp)
+        room_a = "custom_A_1000_v2"
+        for i in range(page + 50):            # peer A: a page and a half
+            store.append(_dm("A", i))
+        store.append(_dm("B", 999))           # peer B: one, and newest overall
+        P = _dm_stand_in(pm, store)
+        convo = P._chat_trees["dm"]
+
+        # Opening A filters the conversation to A's room, newest page only.
+        P._open_dm({"room": room_a, "peer_uid": "A", "name": "peerA"})
+        assert P._dm_active_room == room_a
+        assert convo.lines == page, convo.lines
+        assert P._chat_has_more["dm"] is True
+        assert P._chat_room("dm") == room_a           # a reply goes to A, not to B
+        assert P._dm_list.lines > 0                    # the sidebar drew contacts
+
+        # Scroll-up pages A's older messages in — from A's room only.
+        P._chat_load_older("dm")
+        assert len(P._chat_msgs["dm"]) == page + 50
+        assert convo.lines == page + 50, convo.lines
+        assert P._chat_has_more["dm"] is False
+        assert all(r["room_id"] == room_a for r in P._chat_msgs["dm"])   # no B leaked in
         store.close()
 
 

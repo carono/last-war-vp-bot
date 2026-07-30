@@ -30,7 +30,10 @@
   "chat.col.msg": "Message",
   "chat.col.nick": "Nick",
   "chat.col.time": "Time",
+  "chat.contacts": "Contacts",
+  "chat.contacts.empty": "no conversations yet",
   "chat.count": "{n} messages",
+  "chat.dm.pick": "← pick a contact",
   "chat.hint": "TCP-leg only: DMs, gifts, shares. World/alliance broadcast (TLS WSS) is not captured.",
   "chat.load_more": "↑ show earlier messages",
   "chat.monitor": "Chat monitor",
@@ -47,6 +50,7 @@
   "chat.tab.system": "System",
   "chat.tab.world": "World",
   "chat.to": "to:",
+  "chat.you": "You:",
 
   "cmd.failed": "did not run — see the lines above",
   "cmd.label": "Command:",

@@ -220,6 +220,17 @@ The sender avatar is drawn inline (20 px) before the nickname, resolved from the
 ChatPhotos cache (see above); a sender with no cached avatar gets a neutral
 head-and-shoulders placeholder rather than a blank.
 
+The **DM tab is a contact list beside one conversation**. The list has one entry
+per DM peer, built from the store (`dm_contacts`): avatar, name, last message and
+its time, newest conversation on top. The peer of a room `custom_<a>_<b>_v2` is the
+uid that is not ours (`dm_peer_uid`); the name/avatar come from the peer's own most
+recent message. Clicking a contact opens **only** that peer's thread — the
+conversation view is filtered to that room and pages just that room on scroll-up
+(`recent_room` / `older_room`). A live DM always refreshes the contact list; it is
+appended to the conversation only when it belongs to the peer currently open, and
+otherwise bumps that contact's unread count. This is DM-only — world/alliance/
+national rooms are still one stream per tab.
+
 ## Open follow-ups
 
 - **On-demand backlog.** Reading the full on-screen history without waiting for

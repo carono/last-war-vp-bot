@@ -685,6 +685,16 @@ class Panel(ctk.CTk):
         self._chat_store = None
         self._chat_uid = ""            # current character's uid; "" until resolved
         self._chat_resolving = False   # guards against overlapping uid resolves
+        # DM contact list. The DM tab is split: a contact list (one peer per DM
+        # conversation, read from the store) beside a conversation view that shows
+        # ONE peer at a time. `_dm_active_room`/`_dm_active_peer` is the open
+        # conversation; `_dm_unread` counts messages that arrived for a contact while
+        # it was not the open one; `_dm_contacts_dirty` asks for a sidebar repaint.
+        self._dm_active_room = ""
+        self._dm_active_peer = ""
+        self._dm_unread: dict = {}
+        self._dm_contacts_dirty = False
+        self._dm_list = None           # the contact-list textbox (built in _build_dm_tab)
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
         # PhotoImage refs alive (tk.Text does not hold a Python reference).
         self._chat_img_cache: dict = {}
@@ -5400,7 +5410,10 @@ class Panel(ctk.CTk):
             frame = CTkFrame(sub_nb)
             sub_nb.add(frame, text=self._t(f"chat.tab.{type_key}"))
             self._chat_frames[type_key] = frame
-            tree = self._make_chat_tree(frame)
+            # The DM tab is a contact list beside the conversation; every other tab
+            # is just the message view.
+            tree = (self._build_dm_tab(frame) if type_key == "dm"
+                    else self._make_chat_tree(frame))
             self._chat_trees[type_key] = tree
             self._chat_tree_rows[type_key] = 0
         # One hook for all of them: the labels carry an unread count, so they are
@@ -5468,6 +5481,8 @@ class Panel(ctk.CTk):
         """A tab was selected: it is read now, and it is the send target."""
         active = self._active_chat_type()
         self._chat_unread[active] = 0
+        if active == "dm":
+            self._refresh_dm_contacts()     # show the freshest ordering on open
         self._paint_chat_tabs()
         self._update_chat_target()
 
@@ -5487,7 +5502,14 @@ class Panel(ctk.CTk):
                 pass
 
     def _chat_room(self, chat_type: str) -> str:
-        """The room to answer in: the one the last message of that tab came from."""
+        """The room to answer in.
+
+        For a DM that is the open conversation's room (a reply must go to the peer
+        whose thread is on screen, not to whoever spoke last across all DMs). For any
+        other tab it is the room of that tab's last message.
+        """
+        if chat_type == "dm":
+            return self._dm_active_room
         for record in reversed(self._chat_msgs.get(chat_type, [])):
             room = str(record.get("room_id") or "").strip()
             if room:
@@ -5550,6 +5572,130 @@ class Panel(ctk.CTk):
         if srv.isdigit():
             args += ["--coord-server", srv]
         self._chat_send(args, coords.fmt(int(x), int(y), srv or None))
+
+    def _build_dm_tab(self, parent: ttk.Frame) -> "tk.Text":
+        """The DM tab: a contact list on the left, one conversation on the right.
+
+        Returns the conversation Text view (which becomes ``_chat_trees['dm']`` so the
+        generic lazy-load machinery drives it), while the contact list is its own
+        read-only textbox drawn from the store. A contact = one DM peer; clicking it
+        opens that peer's conversation and nothing else.
+        """
+        left = CTkFrame(parent, width=210)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)          # keep the fixed sidebar width
+        self._tr(CTkLabel(left, foreground="#8a8a8a"),
+                 "chat.contacts").pack(anchor="w", padx=6, pady=(4, 2))
+        lst = CTkTextbox(left, wrap="none", state="disabled", cursor="arrow",
+                         font=("Segoe UI", 9), borderwidth=0, highlightthickness=0,
+                         padx=4, pady=2)
+        lst.tag_configure("dmname", foreground="#d8d8d8")
+        lst.tag_configure("dmlast", foreground="#8a8a8a")
+        lst.tag_configure("time", foreground="#6f6f6f")
+        lst.tag_configure("dmunread", foreground="#66bb6a")
+        lst.tag_configure("dmactive", background="#2a3a52")
+        lst.pack(fill="both", expand=True, padx=(2, 0), pady=(0, 4))
+        self._dm_list = lst
+
+        right = CTkFrame(parent)
+        right.pack(side="left", fill="both", expand=True)
+        self._dm_header_var = tk.StringVar(value=self._t("chat.dm.pick"))
+        CTkLabel(right, textvariable=self._dm_header_var, anchor="w",
+                 foreground="#c8c8c8").pack(fill="x", padx=6, pady=(4, 0))
+        return self._make_chat_tree(right)
+
+    def _refresh_dm_contacts(self) -> None:
+        """Repaint the contact sidebar from the store, newest conversation on top."""
+        lst = self._dm_list
+        if lst is None:
+            return
+        # Drop the previous rows' per-contact tags (and their click bindings): the
+        # idx->contact mapping changes on every repaint, so a stale binding would
+        # open the wrong peer. Style tags (dmname/…) are kept.
+        for tag in lst.tag_names():
+            if tag[:2] == "dm" and tag[2:].isdigit():
+                lst.tag_delete(tag)
+        lst.configure(state="normal")
+        lst.delete("1.0", "end")
+        contacts: list = []
+        if self._chat_store is not None:
+            try:
+                contacts = self._chat_store.dm_contacts(self._chat_uid)
+            except Exception:       # noqa: BLE001
+                contacts = []
+        if not contacts:
+            lst.insert("end", self._t("chat.contacts.empty"), ("dmlast",))
+            lst.configure(state="disabled")
+            return
+        for idx, contact in enumerate(contacts):
+            self._render_contact_row(lst, idx, contact)
+        lst.configure(state="disabled")
+
+    def _render_contact_row(self, lst: "tk.Text", idx: int, contact: dict) -> None:
+        """One contact: avatar + name + time on the first line, last message below."""
+        tag = f"dm{idx}"
+        start = lst.index("end -1c")
+        img = self._chat_avatar({"sender_uid": contact.get("peer_uid", ""),
+                                 "head_pic_ver": contact.get("head_pic_ver", "")})
+        if img is not None:
+            lst.image_create("end", image=img)
+        lst.insert("end", " ")
+        lst.insert("end", (contact.get("name") or "")[:16], ("dmname",))
+        t_str = self._dm_contact_time(contact.get("last_ts", 0))
+        if t_str:
+            lst.insert("end", "  " + t_str, ("time",))
+        unread = self._dm_unread.get(contact.get("room"), 0)
+        if unread:
+            lst.insert("end", f"  ●{unread}", ("dmunread",))
+        lst.insert("end", "\n")
+        prefix = (self._t("chat.you") + " ") if contact.get("last_mine") else ""
+        preview = (prefix + (contact.get("last_text") or "")).replace("\n", " ")[:26]
+        lst.insert("end", "    " + preview + "\n", ("dmlast",))
+        end = lst.index("end -1c")
+        lst.tag_add(tag, start, end)
+        if contact.get("room") and contact.get("room") == self._dm_active_room:
+            lst.tag_add("dmactive", start, end)
+        lst.tag_bind(tag, "<Button-1>", lambda _e, c=contact: self._open_dm(c))
+        lst.tag_bind(tag, "<Enter>", lambda _e: lst.configure(cursor="hand2"))
+        lst.tag_bind(tag, "<Leave>", lambda _e: lst.configure(cursor="arrow"))
+
+    @staticmethod
+    def _dm_contact_time(ts) -> str:
+        """A compact last-message stamp: HH:MM today, DD.MM on an earlier day."""
+        from datetime import datetime as _dt
+        if not ts:
+            return ""
+        try:
+            when = _dt.fromtimestamp(ts)
+        except (OSError, ValueError, OverflowError):
+            return ""
+        now = _dt.now()
+        return when.strftime("%H:%M") if when.date() == now.date() else when.strftime("%d.%m")
+
+    def _open_dm(self, contact: dict) -> None:
+        """Show one DM peer's conversation in the DM tab, filtered to their room."""
+        room = contact.get("room") or ""
+        if not room:
+            return
+        self._dm_active_room = room
+        self._dm_active_peer = contact.get("peer_uid") or ""
+        self._dm_unread[room] = 0
+        try:
+            self._dm_header_var.set(contact.get("name") or room)
+        except (tk.TclError, AttributeError):
+            pass
+        msgs: list = []
+        self._chat_has_more["dm"] = False
+        if self._chat_store is not None:
+            msgs = self._chat_store.recent_room(room, CHAT_PAGE)
+            if msgs:
+                self._chat_has_more["dm"] = self._chat_store.has_older_room(
+                    room, msgs[0].get("ts", 0))
+        self._chat_msgs["dm"] = msgs
+        self._chat_tree_rows["dm"] = 0
+        self._rebuild_chat_view("dm")
+        self._refresh_dm_contacts()      # re-highlight the open contact, clear its dot
+        self._update_chat_target()
 
     def _make_chat_tree(self, parent: ttk.Frame) -> "tk.Text":
         """Build a read-only Text view for one chat type, with a scrollbar.
@@ -5782,11 +5928,26 @@ class Panel(ctk.CTk):
                 chat_type = record.get("chat_type", "other")
                 if chat_type not in self._chat_msgs:
                     chat_type = "other"
-                msgs = self._chat_msgs[chat_type]
                 # Persist first: the SQLite store is the history of record, so a
                 # message is durable the moment it arrives (idempotent on identity).
                 if self._chat_store is not None:
                     self._chat_store.append(record)
+                # A DM does NOT go into one shared stream: it belongs to a contact.
+                # The sidebar always updates; the conversation view only grows when
+                # the message is for the peer currently open.
+                if chat_type == "dm":
+                    self._dm_contacts_dirty = True
+                    room = str(record.get("room_id") or "")
+                    if room and room == self._dm_active_room:
+                        if self._dm_append(record):
+                            rebuild.add("dm")
+                        changed.add("dm")
+                    elif not record.get("is_mine"):
+                        self._dm_unread[room] = self._dm_unread.get(room, 0) + 1
+                    if not record.get("is_mine") and "dm" != self._active_chat_type():
+                        self._chat_unread["dm"] = self._chat_unread.get("dm", 0) + 1
+                    continue
+                msgs = self._chat_msgs[chat_type]
                 # Order by the message's own serverTime (record["ts"]). The live
                 # stream is already monotonic; only history re-parsed on scroll-up
                 # arrives "from the past" -- resort and rebuild that tree then, so
@@ -5813,6 +5974,10 @@ class Panel(ctk.CTk):
         except queue.Empty:
             pass
 
+        if self._dm_contacts_dirty:
+            self._dm_contacts_dirty = False
+            self._refresh_dm_contacts()
+
         for chat_type in changed:
             if chat_type in rebuild:
                 self._rebuild_chat_view(chat_type)
@@ -5829,6 +5994,26 @@ class Panel(ctk.CTk):
                  else sum(len(v) for v in self._chat_msgs.values()))
         self._chat_count_var.set(self._t("chat.count", n=total))
         self.after(1000, self._pump_chat)
+
+    def _dm_append(self, record: dict) -> bool:
+        """Append a live DM to the OPEN conversation. True if a full rebuild is needed.
+
+        Same ordering/cap rules as the generic append, but scoped to the DM tab's
+        single-conversation window.
+        """
+        msgs = self._chat_msgs["dm"]
+        need_rebuild = False
+        if msgs and record.get("ts", 0) < msgs[-1].get("ts", 0):
+            msgs.append(record)
+            msgs.sort(key=lambda r: r.get("ts", 0))
+            need_rebuild = True
+        else:
+            msgs.append(record)
+        if len(msgs) > CHAT_MSGS_MAX:
+            del msgs[:len(msgs) - CHAT_MSGS_MAX]
+            self._chat_has_more["dm"] = True
+            need_rebuild = True
+        return need_rebuild
 
     def _update_chat_tree(self, chat_type: str) -> None:
         """Append records not yet rendered into the view, and autoscroll if at the bottom.
@@ -5896,12 +6081,24 @@ class Panel(ctk.CTk):
             view.see("end")
 
     def _chat_load_older(self, chat_type: str) -> None:
-        """Page the previous CHAT_PAGE of history in from the store (top-anchored)."""
+        """Page the previous CHAT_PAGE of history in from the store (top-anchored).
+
+        The DM tab pages ONE conversation (its open room); every other tab pages its
+        whole chat_type bucket.
+        """
         if not self._chat_has_more.get(chat_type) or self._chat_store is None:
             return
         msgs = self._chat_msgs.get(chat_type, [])
         oldest_ts = msgs[0].get("ts", 0) if msgs else float("inf")
-        older = self._chat_store.older(chat_type, oldest_ts, CHAT_PAGE)
+        if chat_type == "dm":
+            room = self._dm_active_room
+            if not room:
+                return
+            older = self._chat_store.older_room(room, oldest_ts, CHAT_PAGE)
+            has_more = (lambda ts: self._chat_store.has_older_room(room, ts))
+        else:
+            older = self._chat_store.older(chat_type, oldest_ts, CHAT_PAGE)
+            has_more = (lambda ts: self._chat_store.has_older(chat_type, ts))
         if not older:
             self._chat_has_more[chat_type] = False
             self._rebuild_chat_view(chat_type)
@@ -6006,10 +6203,19 @@ class Panel(ctk.CTk):
             if view is not None:
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
+            if chat_type == "dm":
+                # Close the open conversation; the contact list stays (it is the store).
+                self._chat_has_more["dm"] = False
+                continue
             self._chat_has_more[chat_type] = bool(
                 self._chat_store and self._chat_store.count(chat_type))
             if self._chat_has_more[chat_type]:
                 self._rebuild_chat_view(chat_type)      # draw the load-more header
+        self._dm_active_room = ""
+        self._dm_active_peer = ""
+        if getattr(self, "_dm_header_var", None) is not None:
+            self._dm_header_var.set(self._t("chat.dm.pick"))
+        self._refresh_dm_contacts()
         self._chat_count_var.set(self._t("chat.count", n=0))
 
     def _load_chat_history(self) -> None:
@@ -6062,12 +6268,20 @@ class Panel(ctk.CTk):
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
             self._chat_has_more[chat_type] = False
+        # The DM tab starts with no conversation open — the contact list is the entry
+        # point, and a conversation loads only when a contact is clicked.
+        self._dm_active_room = ""
+        self._dm_active_peer = ""
+        self._dm_unread = {}
+        if getattr(self, "_dm_header_var", None) is not None:
+            self._dm_header_var.set(self._t("chat.dm.pick"))
         if self._chat_store is not None:
             self._chat_store.close()
             self._chat_store = None
         self._chat_uid = char_uid or ""
         self._chat_count_var.set(self._t("chat.count", n=0))
         if not char_uid:
+            self._refresh_dm_contacts()      # empties the sidebar too
             return
 
         try:
@@ -6079,6 +6293,10 @@ class Panel(ctk.CTk):
 
         total = 0
         for chat_type in CHAT_TABS:
+            total += store.count(chat_type)
+            # DMs are shown per contact, not as one stream — the sidebar handles them.
+            if chat_type == "dm":
+                continue
             recs = store.recent(chat_type, CHAT_PAGE)
             if not recs:
                 continue
@@ -6087,8 +6305,8 @@ class Panel(ctk.CTk):
                 chat_type, recs[0].get("ts", 0))
             self._chat_tree_rows[chat_type] = 0
             self._rebuild_chat_view(chat_type)
-            total += store.count(chat_type)
 
+        self._refresh_dm_contacts()
         self._chat_count_var.set(self._t("chat.count", n=total))
         if total:
             self._say("chat", "log.chat.history", n=total)

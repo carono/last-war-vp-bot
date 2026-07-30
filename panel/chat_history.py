@@ -45,6 +45,32 @@ def classify_room(room_id: str) -> str:
     return "other"
 
 
+def dm_peer_uid(room: str, self_uid: str = "") -> str:
+    """The OTHER party's uid in a DM room `custom_<a>_<b>_v2`.
+
+    A DM room id carries both participants' uids (uids are all-digit, so the split
+    is unambiguous). With ``self_uid`` known, the peer is simply the uid that is not
+    ours; without it we fall back to the first uid, which is the peer under the
+    ``custom_<peer>_<self>_v2`` convention `chat_share.dm_room` builds.
+    """
+    room = str(room or "")
+    if not (room.startswith("custom_") and room.endswith("_v2")):
+        return ""
+    mid = room[len("custom_"):-len("_v2")]
+    parts = [p for p in mid.split("_") if p]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    a, b = parts[0], parts[-1]
+    su = str(self_uid or "")
+    if su and su == a:
+        return b
+    if su and su == b:
+        return a
+    return a
+
+
 class ChatHistoryStore:
     """A thin SQLite wrapper: append a record, read the newest page, page older."""
 
@@ -160,6 +186,74 @@ class ChatHistoryStore:
             (chat_type, float(before_ts)),
         ).fetchone()
         return row is not None
+
+    # -- one DM conversation (a single room) --------------------------------
+    def recent_room(self, room: str, limit: int) -> list[dict]:
+        """The newest ``limit`` records of one room, oldest→newest (render order)."""
+        rows = self._conn.execute(
+            "SELECT raw_json FROM messages WHERE room=? "
+            "ORDER BY ts DESC, id DESC LIMIT ?",
+            (room, int(limit)),
+        ).fetchall()
+        return [r for r in (_load(row[0]) for row in reversed(rows)) if r is not None]
+
+    def older_room(self, room: str, before_ts: float, limit: int) -> list[dict]:
+        """Up to ``limit`` records of one room older than ``before_ts`` (oldest→newest)."""
+        rows = self._conn.execute(
+            "SELECT raw_json FROM messages WHERE room=? AND ts<? "
+            "ORDER BY ts DESC, id DESC LIMIT ?",
+            (room, float(before_ts), int(limit)),
+        ).fetchall()
+        return [r for r in (_load(row[0]) for row in reversed(rows)) if r is not None]
+
+    def has_older_room(self, room: str, before_ts: float) -> bool:
+        """Whether any record of one room is older than ``before_ts``."""
+        row = self._conn.execute(
+            "SELECT 1 FROM messages WHERE room=? AND ts<? LIMIT 1",
+            (room, float(before_ts)),
+        ).fetchone()
+        return row is not None
+
+    # -- the DM contact list ------------------------------------------------
+    def dm_contacts(self, self_uid: str = "") -> list[dict]:
+        """One entry per DM peer, newest conversation first.
+
+        Each entry is ``{room, peer_uid, name, head_pic_ver, last_text, last_ts,
+        last_mine}``: enough to draw a contact row (avatar, name, last message,
+        time) and to open the conversation. ``name``/``head_pic_ver`` come from the
+        most recent message the PEER authored (so the avatar is theirs, not ours);
+        with only our own outgoing messages the uid stands in for the name.
+        """
+        self_uid = str(self_uid or "")
+        rooms = self._conn.execute(
+            "SELECT room FROM messages WHERE chat_type='dm' GROUP BY room"
+        ).fetchall()
+        out: list[dict] = []
+        for (room,) in rooms:
+            last = self._conn.execute(
+                "SELECT text, ts, uid FROM messages WHERE room=? "
+                "ORDER BY ts DESC, id DESC LIMIT 1", (room,),
+            ).fetchone()
+            if last is None:
+                continue
+            last_text, last_ts, last_uid = last[0] or "", last[1] or 0, str(last[2] or "")
+            peer = dm_peer_uid(room, self_uid)
+            name, head_pic_ver = (peer or room), ""
+            prow = self._conn.execute(
+                "SELECT raw_json FROM messages WHERE room=? AND uid=? "
+                "ORDER BY ts DESC, id DESC LIMIT 1", (room, peer),
+            ).fetchone()
+            if prow is not None:
+                pr = _load(prow[0]) or {}
+                name = pr.get("sender_name") or name
+                head_pic_ver = pr.get("head_pic_ver") or ""
+            out.append({
+                "room": room, "peer_uid": peer, "name": name,
+                "head_pic_ver": head_pic_ver, "last_text": last_text,
+                "last_ts": last_ts, "last_mine": last_uid == self_uid,
+            })
+        out.sort(key=lambda c: c["last_ts"], reverse=True)
+        return out
 
     def count(self, chat_type: str | None = None) -> int:
         if chat_type is None:
