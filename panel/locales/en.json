@@ -279,6 +279,11 @@
   "rally.joining": "joining with squads: {squads}",
   "rally.monitor": "Rally monitor",
   "rally.no_squads": "no squad is ticked — tick them in Settings → Auto-rally",
+  "rally_limit.frame": "Daily rally caps by monster type",
+  "rally_limit.hint": "How many rallies of each type auto-join may join per day. 0 = no cap. The count resets daily.",
+  "rally_limit.type.alliance_drill": "Alliance drill",
+  "rally_limit.type.monster": "Monsters",
+  "rally_limit.type.zombie_invasion": "Zombie invasion",
 
   "scenarios.actions": "Action scripts",
   "scenarios.args": "arguments (JSON):",
@@ -322,6 +327,13 @@
   "settings.tab.autorally": "Auto-rally",
   "settings.tab.game": "Game",
   "settings.tab.general": "General",
+
+  "splash.daemon": "Connecting to the daemon…",
+  "splash.profile": "Loading the profile…",
+  "splash.ready": "Ready",
+  "splash.systems": "Starting the systems…",
+  "splash.triggers": "Loading the triggers…",
+  "splash.ui": "Building the interface…",
 
   "status.checking": "checking…",
 
@@ -426,6 +438,7 @@
   "triggers.poll": "polling",
   "triggers.item.rally_auto_join": "Auto-join alliance rallies",
   "triggers.log.no_squads": "rally auto-join: no squads ticked on the «Авторалли» page — nothing to send",
+  "triggers.log.rally_capped": "rally auto-join: every rally type is at its daily cap — nothing joined",
 
   "top.daemon": "daemon:",
   "top.game": "Game:"

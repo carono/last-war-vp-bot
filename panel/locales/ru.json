@@ -279,6 +279,11 @@
   "rally.joining": "присоединяюсь отрядами: {squads}",
   "rally.monitor": "Монитор ралли",
   "rally.no_squads": "не отмечен ни один отряд — отметь их в «Настройки → Авторалли»",
+  "rally_limit.frame": "Дневные лимиты ралли по типу монстра",
+  "rally_limit.hint": "Сколько ралли каждого типа автоджойн присоединяет за день. 0 = без лимита. Счётчик сбрасывается ежедневно.",
+  "rally_limit.type.alliance_drill": "Учения альянса",
+  "rally_limit.type.monster": "Монстры",
+  "rally_limit.type.zombie_invasion": "Зомби-вторжение",
 
   "scenarios.actions": "Скрипты-действия",
   "scenarios.args": "аргументы (JSON):",
@@ -322,6 +327,13 @@
   "settings.tab.autorally": "Авторалли",
   "settings.tab.game": "Игра",
   "settings.tab.general": "Общие",
+
+  "splash.daemon": "Подключение к daemon…",
+  "splash.profile": "Загрузка профиля…",
+  "splash.ready": "Готово",
+  "splash.systems": "Запуск систем…",
+  "splash.triggers": "Загрузка триггеров…",
+  "splash.ui": "Построение интерфейса…",
 
   "status.checking": "проверяю…",
 
@@ -426,6 +438,7 @@
   "triggers.poll": "опрос",
   "triggers.item.rally_auto_join": "Автоприсоединение к ралли альянса",
   "triggers.log.no_squads": "автоджойн ралли: на странице «Авторалли» не отмечен ни один отряд — отправлять нечего",
+  "triggers.log.rally_capped": "автоджойн ралли: все типы ралли достигли дневного лимита — ничего не присоединено",
 
   "top.daemon": "демон:",
   "top.game": "Игра:"

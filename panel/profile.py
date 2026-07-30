@@ -51,6 +51,10 @@ TIMERS_STATE = "timers_last_run.json"
 # The wire-driven errands (panel/triggers.py), seeded from the template
 # panel/triggers.json exactly as the timers are from panel/timers.json.
 TRIGGERS_CONFIG = "triggers.json"
+# Per-monster-type daily caps on rally auto-join and today's running count
+# (panel/rally_limits.py). Limits are seeded from the built-ins; counts reset daily.
+RALLY_LIMITS_CONFIG = "rally_limits.json"
+RALLY_COUNTS_STATE = "rally_counts.json"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -213,6 +217,14 @@ class ProfileManager:
 
     def rally_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), RALLY_LOG)
+
+    def rally_limits_json(self, name: str | None = None) -> str:
+        """This profile's per-monster-type rally-join caps (panel/rally_limits.py)."""
+        return os.path.join(self.dir(name), RALLY_LIMITS_CONFIG)
+
+    def rally_counts_json(self, name: str | None = None) -> str:
+        """Today's per-type rally-join count for this profile (resets daily)."""
+        return os.path.join(self.dir(name), RALLY_COUNTS_STATE)
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)

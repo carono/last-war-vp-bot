@@ -109,6 +109,7 @@ from .ctk_widgets import (
     CTkTextbox,
     numeric_spinbox,
 )
+from .splash import SplashScreen
 from . import childmon as childmonmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
@@ -118,6 +119,7 @@ from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
 from . import triggers as triggersmod
+from . import rally_limits as rallylimitsmod
 from . import chat_history as chathistmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -594,6 +596,16 @@ class Panel(ctk.CTk):
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
+        # Hide the main window and put a splash up while the systems come online;
+        # `_startup` finishes wiring the live game link in the background. A splash
+        # must never be the reason the panel fails to open, so it is best-effort.
+        self.withdraw()
+        self._splash = None
+        try:
+            self._splash = SplashScreen(self, subtitle=self._t("about.name"))
+        except Exception:             # noqa: BLE001
+            self._splash = None
+        self._splash_step("splash.profile", 0.12)
         self._log_q: "queue.Queue[str]" = queue.Queue()
         # The on-disk mirror of the log, held open instead of reopened per line.
         # Re-pointed on a profile switch (_open_panel_log).
@@ -729,6 +741,7 @@ class Panel(ctk.CTk):
         # period; the watcher keeps a listener alive per switched-on trigger and, on a
         # matching push, hands the scenario to the scheduler's own queue (submit) so a
         # triggered press runs single-file with the scheduled timers.
+        self._splash_step("splash.triggers", 0.35)
         self._trigger_catalogue = triggersmod.default_catalogue()
         self._trigger_vars: dict[str, tk.BooleanVar] = {}   # name -> enabled Var
         self._trigger_rows: dict[str, dict] = {}            # name -> {"status" Label}
@@ -753,6 +766,7 @@ class Panel(ctk.CTk):
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
         self._client = lua_client.DaemonClient(port=self._daemon_port())
+        self._splash_step("splash.ui", 0.6)
         self._build_menu()
         self._build_profile_bar()
         self._build_ui()
@@ -763,9 +777,28 @@ class Panel(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._open_panel_log()
+        self._splash_step("splash.daemon", 0.85)
         self._refresh_status()
         self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
+        self._splash_step("splash.systems", 1.0)
         threading.Thread(target=self._startup, daemon=True).start()
+        # Fade the splash and reveal the fully-built window.
+        if self._splash is not None:
+            try:
+                self._splash.finish(self._t("splash.ready"))
+            except Exception:        # noqa: BLE001
+                pass
+            self._splash = None
+        self.deiconify()
+
+    def _splash_step(self, key: str, progress: float) -> None:
+        """Advance the boot splash (a no-op once it is gone or was never built)."""
+        if getattr(self, "_splash", None) is None:
+            return
+        try:
+            self._splash.step(self._t(key), progress)
+        except Exception:            # noqa: BLE001 — the splash is never load-bearing
+            self._splash = None
 
     # -- the Settings page's knobs ------------------------------------------
     #
@@ -1156,6 +1189,7 @@ class Panel(ctk.CTk):
                 if var is not None:
                     var.set(s.get(key, default))
             self._apply_autorally_config(s.get("autorally"))
+            self._reload_rally_limits_ui()
         finally:
             self._loading = False
         self._update_path_hints()
@@ -4944,6 +4978,14 @@ class Panel(ctk.CTk):
         try:
             if not self._daemon_up() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
+            # Rally auto-join is capped per monster type per day (panel/rally_limits.py).
+            # Read the types out; if every one is at its cap, skip the whole join. `None`
+            # = the types could not be read — let the join proceed, uncounted.
+            join_types = None
+            if getattr(timer, "name", "") == "rally_auto_join":
+                join_types = self._rally_join_gate()
+                if join_types is not None and not join_types:
+                    return True                  # all types at their daily cap — no-op
             from lastwar_bot import script_engine
             ctx = script_engine.new_context(
                 hwnd=0,
@@ -4958,6 +5000,10 @@ class Panel(ctk.CTk):
                                                 label=step.splitlines()[0])
                 if not ok:
                     raise RuntimeError(self._t("timers.log.step_failed", step=step))
+            # The join ran clean — count what we let through, one per rally that was
+            # out and under its cap (best-effort: join_rally joins all it can).
+            if join_types:
+                self._record_rally_joins(join_types)
             return True
         finally:
             self._release_busy()
@@ -4980,6 +5026,74 @@ class Panel(ctk.CTk):
                 self._say("trigger", "triggers.log.no_squads")
             args["squads"] = squads
         return args
+
+    # -- rally auto-join daily caps (panel/rally_limits.py) ------------------
+    def _rally_types_out(self) -> list:
+        """Best-effort monster-type key per rally currently out, read off the game.
+
+        The push carries no type, so the rallies are read from the VM
+        (WorldMarchDataManager) and each is classified by its target. Classification is
+        BEST-EFFORT: the reliable headless signals for zombie-invasion vs alliance-drill
+        vs a plain monster are not yet confirmed live, so every rally currently counts
+        under the fallback type ('monster'). The Lua has the one spot to refine when a
+        signal is known. Returns ``[]`` when the game / daemon cannot answer — the
+        caller then lets the join proceed uncounted rather than blocking it.
+        """
+        if not self._daemon_up():
+            return []
+        chunk = (
+            'local wm=DataCenter.WorldMarchDataManager local col=wm and wm:GetAllMarches() '
+            'if not col then CS.UnityEngine.Debug.LogError("RTYPE end") return end '
+            'local e=col:GetEnumerator() '
+            'local function g(mo,k) local ok,v=pcall(function() return mo[k] end) '
+            'if ok then return v end return nil end '
+            'while e:MoveNext() do local mo=e.Current.Value if mo==nil then mo=e.Current end '
+            'local team=g(mo,"teamUuid") local ts=tostring(team) '
+            'if team~=nil and ts~="0" and ts~="nil" then local isL=false '
+            'pcall(function() isL=(tostring(g(mo,"uuid"))==tostring(team-1)) end) '
+            # One line per rally LEADER. `kind` is where a confirmed zombie/drill signal
+            # would classify; until then every rally is the fallback monster type.
+            'if isL then local kind="%s" '
+            'CS.UnityEngine.Debug.LogError("RTYPE="..kind) end end end '
+            'CS.UnityEngine.Debug.LogError("RTYPE end")' % rallylimitsmod.UNKNOWN_TYPE
+        )
+        try:
+            ev = lua_client.get_evaluator(port=self._daemon_port())
+            lines = ev.run(chunk, marker="RTYPE", settle=0.8)
+        except Exception:                        # noqa: BLE001 — a bad read is not a cap
+            return []
+        out = []
+        for ln in lines or []:
+            if "RTYPE=" in ln:
+                key = ln.split("RTYPE=", 1)[1].split()[0].strip()
+                if key and key != "end":
+                    out.append(key)
+        return out
+
+    def _rally_join_gate(self):
+        """The rally types out that are still under their daily cap.
+
+        ``None`` when the types could not be read (the join then proceeds uncounted);
+        ``[]`` when every type out is at its cap (the caller skips the join); otherwise
+        the eligible types, which are counted after a clean join.
+        """
+        types = self._rally_types_out()
+        if not types:
+            return None
+        limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
+        counts = rallylimitsmod.load_counts(self._profiles.rally_counts_json())
+        eligible = [t for t in types if counts.allowed(t, limits)]
+        if not eligible:
+            self._say("trigger", "triggers.log.rally_capped")
+        return eligible
+
+    def _record_rally_joins(self, types) -> None:
+        """Count one join per eligible rally type, persisted for today."""
+        path = self._profiles.rally_counts_json()
+        counts = rallylimitsmod.load_counts(path)
+        for t in types:
+            counts = counts.record(t)
+        rallylimitsmod.save_counts(counts, path)
 
     def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.
@@ -5273,6 +5387,53 @@ class Panel(ctk.CTk):
         self._tr(CTkLabel(create, foreground="#888", wraplength=620, justify="left"),
                  "autorally.create.hint").pack(anchor="w", pady=(6, 0))
         self._paint_create_squads()
+
+        # -- daily caps per monster type (panel/rally_limits.py) -----------------
+        #
+        # A cap on how many rallies of each type the auto-join spends in a day: a
+        # squad sent is a squad that cannot go elsewhere for the march. One editable
+        # number per monster type, 0 = no cap. The list of types is the caps file's
+        # own keys (seeded from the built-ins), so adding a type is a data change, not
+        # a code one. The count itself resets daily (panel/rally_limits.py).
+        limits_frame = self._tr(CTkLabelFrame(parent, padding=8), "rally_limit.frame")
+        limits_frame.pack(fill="x", pady=(10, 0))
+        self._rally_limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
+        self._rally_limit_vars: dict = {}
+        lgrid = CTkFrame(limits_frame)
+        lgrid.pack(fill="x")
+        for r, key in enumerate(self._rally_limits.types()):
+            self._tr(CTkLabel(lgrid), f"rally_limit.type.{key}").grid(
+                row=r, column=0, sticky="w", padx=(0, 10), pady=2)
+            var = tk.StringVar(value=str(self._rally_limits.limit_for(key)))
+            self._rally_limit_vars[key] = var
+            numeric_spinbox(lgrid, from_=0, to=999, width=6,
+                            textvariable=var).grid(row=r, column=1, sticky="w")
+            var.trace_add("write", lambda *a: self._save_rally_limits())
+        self._tr(CTkLabel(limits_frame, foreground="#888", wraplength=620,
+                          justify="left"), "rally_limit.hint").pack(anchor="w", pady=(6, 0))
+
+    def _save_rally_limits(self) -> None:
+        """Persist the edited per-type caps to the profile's rally_limits.json."""
+        if getattr(self, "_loading", False) or not getattr(self, "_rally_limit_vars", None):
+            return
+        limits = self._rally_limits
+        for key, var in self._rally_limit_vars.items():
+            limits = limits.with_limit(key, var.get())
+        self._rally_limits = limits
+        rallylimitsmod.save_limits(limits, self._profiles.rally_limits_json())
+
+    def _reload_rally_limits_ui(self) -> None:
+        """Re-read the active profile's caps into the fields (on a profile switch).
+
+        The caps live in their own per-profile file, not in the settings blob, so a
+        switch has to re-read them; done inside the `_loading` guard so setting the
+        fields does not write them straight back.
+        """
+        if not getattr(self, "_rally_limit_vars", None):
+            return
+        self._rally_limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
+        for key, var in self._rally_limit_vars.items():
+            var.set(str(self._rally_limits.limit_for(key)))
 
     def _cycle_create_squad(self, squad: int) -> None:
         """Toggle the banner between blank and this squad — only one may carry it."""
@@ -6107,8 +6268,7 @@ class Panel(ctk.CTk):
         # so hold it under the viewport — the new page appears above where the
         # reader already was.
         msgs[:0] = older
-        self._chat_has_more[chat_type] = self._chat_store.has_older(
-            chat_type, older[0].get("ts", 0))
+        self._chat_has_more[chat_type] = has_more(older[0].get("ts", 0))
         self._rebuild_chat_view(chat_type, keep_index=len(older))
 
     def _on_chat_scroll(self, view) -> None:
