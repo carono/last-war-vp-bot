@@ -248,7 +248,10 @@ lane change can answer. The `xiepo` pieces carry a **ramp**: the runner drives u
 then runs along the roof, and the roof carries on over the plain carriages that follow in
 the same lane. A carriage is therefore a wall only when nothing leads up onto it, and what
 kills is swerving into one from the side — which is exactly how a run ended, changing lane
-off the middle ramp into the rampless carriage beside it.
+off the middle ramp into the rampless carriage beside it. **The roof is not continuous**:
+between two carriages there is a hole down to the road, and it has to be hopped — a run
+rode a truck and fell off its far end. The planner marks those holes solid-but-jumpable so
+the route schedules the hop.
 
 **`dataZ` is a spawn point, not a position.** For the driving trucks it never moves, so a
 planner that reads it aims at a ghost: a run swerved into a moving truck that, by `dataZ`,
@@ -296,7 +299,31 @@ routes purely by pickups, instead of dodging things it cannot hit.
 **Offline iteration.** `tools/dev/surfing_simulate.py` replays every dumped band through
 the *same* `AI.planRoute` at 60 Hz against the measured collider sizes, from each starting
 lane, without spending an attempt — so a policy change is checked against the real track
-before it is flown.
+before it is flown. `surfing_simulate.py score` does the whole set in one round trip and
+returns a single number (bands survived, distance covered). Keep it to **one start lane per
+call**: replaying all thirty combinations inside one frame froze the client badly enough to
+lose the process.
+
+## Learning between attempts (#1121)
+
+The day's ~30 attempts are the scarce resource, so each one has to leave something behind.
+`tools/lib/surfing_stats.py` classifies every death from the obstacle field the autopilot
+froze at that instant — `ramp_head_on`, `roof`, `side_entry`, `wall`, `fence`, `bridge`,
+`unknown` — accumulates them in `results/street_run/deaths.json`, and derives bounded
+tuning overrides that the driver pushes into the live autopilot.
+
+**A suggestion is a hypothesis, not an improvement.** The obvious rule — "we keep clipping
+things, so add margin" — makes the runner strictly *worse*: extra padding closes gaps that
+are genuinely passable (`padExtra` 4.0 drops the offline replay from 9 bands to 8). Every
+proposal is therefore scored against the real track before and after and kept only when it
+is actually better; ties are rejected, so a working configuration is never traded for a
+guess.
+
+**What the record says so far** (23 attempts): the largest single cause is `unknown` — 11
+deaths where nothing the model knows about was in the player's lane. Those are not tuned
+against, deliberately; they are the signal that the model is blind somewhere, and two of
+them have since been explained by watching a run (a driving truck read at its stale spawn
+point, and a fall through the gap between two carriage roofs).
 
 ## Status vs. the task
 

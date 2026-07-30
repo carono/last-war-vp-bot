@@ -17,6 +17,13 @@ whose templates the client has not loaded still simulates correctly.
     C:\Python312\python.exe tools\dev\surfing_simulate.py            # every band, every start lane
     C:\Python312\python.exe tools\dev\surfing_simulate.py 3001       # one band
     C:\Python312\python.exe tools\dev\surfing_simulate.py 3001 0     # one band, starting left
+    C:\Python312\python.exe tools\dev\surfing_simulate.py score      # one number, one round trip
+
+``score`` replays every band from every start lane in a SINGLE call and prints how many
+survive and how far they get in total. That is what makes the between-attempt learning
+safe: a tuning the death record suggests can be judged offline, against the real track,
+before it is ever allowed near a live attempt — and a suggestion that scores worse (adding
+margin closes gaps that are genuinely passable) is simply not applied.
 
 A band that dies prints the killing obstacle — the exact input for retuning
 ``tools/lib/surfing_ai.lua`` before burning a live attempt.
@@ -235,6 +242,8 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+    if argv and argv[0] == "score":
+        return cmd_score(argv[1:])
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -262,6 +271,130 @@ def main(argv):
         ev.close()
     print("\n%d failing (band, start lane) combinations" % failures)
     return 1 if failures else 0
+
+
+
+
+_SCORE = r"""
+local function L(s) CS.UnityEngine.Debug.LogError("SSIM "..tostring(s)) end
+local AI = _G.__SR_AI
+if not AI or not AI.planRoute then L("no-autopilot") return end
+AI.kindOverride = { %s }
+if AI.resetKinds then AI.resetKinds() end
+local bands = { %s }
+local LANE0, ZMAX = %s, 340
+local function laneOf(x)
+  local l = math.floor((x - 36) / 4 + 0.5) + 1
+  if l < 0 then l = 0 elseif l > 2 then l = 2 end
+  return l
+end
+local function once(obs, LANE0)
+  local speed, dt = 30, 1/60
+  local pz, lane = 0, LANE0
+  local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
+  local dead, frame, t = nil, 0, 0
+  local live, window = {}, {}
+  for i = 1, #obs do live[i] = {x = obs[i].x, z = obs[i].z, mid = obs[i].mid, speed = obs[i].speed} end
+  while pz < ZMAX and not dead do
+    frame = frame + 1
+    t = t + dt
+    for i = 1, #live do
+      if live[i].speed > 0 then live[i].z = obs[i].z + live[i].speed * t end
+    end
+    if frame %% 2 == 1 and swT <= 0 and jT <= 0 and slT <= 0 then
+      local n = 0
+      for i = 1, #live do
+        local o = live[i]
+        if o.z > pz - 10 and o.z < pz + 220 then n = n + 1 window[n] = o end
+      end
+      for i = #window, n + 1, -1 do window[i] = nil end
+      local reach, act, az = AI.planRoute(pz, lane, speed, window)
+      if az == 0 and act ~= 0 then
+        if act == 1 and lane > 0 then swT, swFrom, swTo, lane = 0.16, lane, lane - 1, lane - 1
+        elseif act == 2 and lane < 2 then swT, swFrom, swTo, lane = 0.16, lane, lane + 1, lane + 1
+        elseif act == 3 then jT = 0.72
+        elseif act == 4 then slT = 0.50 end
+      end
+    end
+    local z0, z1 = pz, pz + speed * dt
+    for i = 1, #live do
+      local o = live[i]
+      local k = AI.kindOverride[o.mid]
+      if k and k.solid then
+        if z1 > o.z - k.back and z0 < o.z + k.front then
+          local ol = laneOf(o.x)
+          local hit
+          if k.lanes >= 3 then hit = true
+          elseif swT > 0 then hit = (ol == swFrom or ol == swTo)
+          else hit = (ol == lane) end
+          if k.sideOnly and swT <= 0 then hit = false end
+          if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
+        end
+      end
+    end
+    if swT > 0 then swT = swT - dt end
+    if jT > 0 then jT = jT - dt end
+    if slT > 0 then slT = slT - dt end
+    pz = z1
+  end
+  return pz, dead == nil
+end
+local passed, total, dist = 0, 0, 0
+for _, band in ipairs(bands) do
+  local z, ok = once(band, LANE0)
+  total = total + 1
+  dist = dist + z
+  if ok then passed = passed + 1 end
+end
+AI.kindOverride = {}
+L(string.format("SCORE passed=%%d of=%%d dist=%%.0f", passed, total, dist))
+"""
+
+
+def cmd_score(argv):
+    """One number for the whole track: how many bands survive from one start lane.
+
+    Kept to a single start lane per call on purpose — replaying all thirty combinations
+    inside one frame froze the client badly enough to lose the process."""
+    lane0 = int(argv[0]) if argv else 1
+    ev = get_evaluator()
+    try:
+        res = score(ev, lane0)
+    finally:
+        ev.close()
+    print("SCORE passed=%d of=%d dist=%.0f" % res)
+    return 0
+
+
+def score(ev, lane0: int = 1):
+    """Replay every band from one start lane through the live planner. Returns
+    ``(passed, total, distance)`` — the objective the between-attempt learner is judged on."""
+    born, mon = load_config()
+    bounds = load_bounds()
+    kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
+    per_band = bands(born, mon)
+    band_src = []
+    for band in sorted(per_band):
+        rows = per_band[band]
+        for _, _, mid in rows:
+            kind_for(kinds, mid)
+        band_src.append("{" + ",".join(
+            "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
+            for x, z, mid in rows) + "}")
+    ov = ",".join(
+        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
+        % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
+           str(k.get("sideOnly", False)).lower(),
+           k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
+           repr(k["buff"]) if k.get("buff") else "nil")
+        for mid, k in kinds.items())
+    lines = ev.run(_SCORE % (ov, ",".join(band_src), lane0), marker=MARK, settle=8.0)
+    for ln in lines:
+        body = ln.split(MARK, 1)[-1].strip()
+        if body.startswith("SCORE "):
+            d = dict(p.split("=", 1) for p in body[6:].split())
+            return int(d["passed"]), int(d["of"]), float(d["dist"])
+    return 0, 0, 0.0
 
 
 if __name__ == "__main__":

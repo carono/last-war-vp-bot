@@ -16,7 +16,16 @@ the game's own input handler makes.
     C:\Python312\python.exe tools\street_run_ai.py install
     C:\Python312\python.exe tools\street_run_ai.py status
     C:\Python312\python.exe tools\street_run_ai.py run [reserve] [revives]
+    C:\Python312\python.exe tools\street_run_ai.py stats      # what the deaths say so far
+    C:\Python312\python.exe tools\street_run_ai.py learn      # re-derive the record from the log
     C:\Python312\python.exe tools\street_run_ai.py off        # disable the autopilot
+
+`run` loops over attempts until only `reserve` are left, and between them it LEARNS: each
+death is classified against the obstacle field frozen at that instant, folded into
+`results/street_run/deaths.json`, and any tuning that record implies is scored offline
+against the real track before it is allowed near the next attempt. The number of attempts
+a day is the game's, not ours — about 30 — so an attempt that teaches nothing is the one
+resource actually worth protecting.
 """
 from __future__ import annotations
 
@@ -27,6 +36,10 @@ import time
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
 
+sys.path.insert(0, os.path.join(_HERE, "dev"))
+
+import surfing_simulate  # noqa: E402
+import surfing_stats  # noqa: E402
 from lua_client import get_evaluator  # noqa: E402
 
 MARK = "SRAI "
@@ -135,6 +148,54 @@ AI.log = {} AI.trace = {} AI.death = nil
 """
 
 
+_APPLY_CFG = r"""
+local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
+local AI = _G.__SR_AI
+if not AI then L("ST cfg=0") return end
+%s
+if AI.resetKinds then AI.resetKinds() end
+L("ST cfg=1")
+"""
+
+
+def _push_cfg(ev, cfg: dict):
+    if not cfg:
+        return
+    body = "\n".join(
+        "AI.cfg[%r] = %s" % (k, "true" if v is True else "false" if v is False else repr(v))
+        for k, v in sorted(cfg.items()))
+    body = body.replace("'", '"')
+    _lines(ev, _APPLY_CFG % body, settle=0.5)
+
+
+def _apply_cfg(ev, cfg: dict, baseline: dict | None = None):
+    """Adopt the learner's overrides only if the track agrees with them.
+
+    What the death record suggests is a hypothesis, not an improvement: the obvious rule —
+    "we keep clipping things, so add margin" — makes the runner strictly worse, because the
+    extra margin closes gaps that are genuinely passable (measured: padExtra 4.0 drops the
+    offline replay from 9 bands to 8). So a proposal is scored against the real track before
+    and after, and kept only when it does not lose ground. Nothing reaches a live attempt on
+    a guess.
+    """
+    if not cfg:
+        return False
+    before = surfing_simulate.score(ev)
+    _push_cfg(ev, cfg)
+    after = surfing_simulate.score(ev)
+    # a tie is not evidence: leave a working configuration alone unless the replay is
+    # actually better on it
+    better = (after[0], after[2]) > (before[0], before[2])
+    if better:
+        print("  tuning kept: %s  (offline %d/%d -> %d/%d bands)"
+              % (cfg, before[0], before[1], after[0], after[1]))
+        return True
+    _push_cfg(ev, dict(baseline or {}))
+    print("  tuning REJECTED: %s would score %d/%d vs %d/%d — reverted"
+          % (cfg, after[0], after[1], before[0], before[1]))
+    return False
+
+
 _RESTORE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
 pcall(function() SceneUtils.ChangeToCity() end)
@@ -215,16 +276,28 @@ def _one_attempt(ev, revives: int, log):
         time.sleep(0.5)
     print(" " * 60, end="\r")
     log.write("# attempt ended at z=%.0f, lives=%d\n" % (best_z, lives))
+    death = None
     for ln in _lines(ev, _DRAIN, settle=0.8):
         tag, _, body = ln.partition(" ")
         if tag in ("MOVES", "TRACE", "DOBS"):
             for row in body.split(";"):
                 log.write("%s %s\n" % (tag.lower(), row))
+            if tag == "DOBS" and death is not None:
+                for row in body.split(";"):
+                    f = row.split("|")
+                    if len(f) >= 5:
+                        death["obs"].append({"x": float(f[0]), "z": float(f[1]), "mid": f[2],
+                                             "speed": float(f[3] or 0),
+                                             "name": f[4].replace("(Clone)", "")})
         elif tag == "DEATH":
             log.write("death %s\n" % body)
-            print("  death: %s" % body)
+            death = {"obs": []}
+            for part in body.split():
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    death[k] = v
     log.flush()
-    return best_z, lives
+    return best_z, lives, death
 
 
 # Reviving through `logic:RebirthGame()` sends the proper server request, but it is the
@@ -272,12 +345,19 @@ def cmd_run(ev, reserve: int, revives: int):
     os.makedirs(RESULT_DIR, exist_ok=True)
     runlog = open(os.path.join(RESULT_DIR, "ai_moves.log"), "a", encoding="utf-8")
     summary = open(os.path.join(RESULT_DIR, "ai_runs.log"), "a", encoding="utf-8")
+    # Everything learnt so far goes in before the first attempt of the session, so a run
+    # never repeats a lesson an earlier one already paid an attempt for.
+    store = surfing_stats.load_store()
+    baseline = dict(store.get("cfg") or {})
+    if _apply_cfg(ev, surfing_stats.derive_cfg(store), baseline):
+        store["cfg"] = surfing_stats.derive_cfg(store)
+        surfing_stats.save_store(store)
     attempt = 0
     try:
         while remaining > reserve:
             attempt += 1
             print("attempt %d (attempts left %d)" % (attempt, remaining))
-            dist, lives = _one_attempt(ev, revives, runlog)
+            dist, lives, death = _one_attempt(ev, revives, runlog)
             _lines(ev, _DISMISS, settle=1.0)
             time.sleep(0.8)
             meta = _kv(_lines(ev, _META, settle=0.4))
@@ -288,6 +368,18 @@ def cmd_run(ev, reserve: int, revives: int):
             print("  " + line)
             summary.write(line + "\n")
             summary.flush()
+            # Learn from this attempt before spending the next one: classify what killed
+            # it, fold it into the record, and push any resulting tuning into the VM.
+            if death:
+                entry = surfing_stats.record(store, death, dist, lives, version="v16")
+                surfing_stats.save_store(store)
+                print("  death: %s at %.0f m (%s)"
+                      % (entry["cause"], entry["z"], entry["killer"] or "nothing in that lane"))
+                proposal = surfing_stats.derive_cfg(store)
+                if proposal != baseline and _apply_cfg(ev, proposal, baseline):
+                    baseline = proposal
+                    store["cfg"] = proposal
+                    surfing_stats.save_store(store)
             if new_remaining >= remaining:      # the attempt was not consumed — stop looping
                 print("  attempt count did not drop; stopping to avoid a spin")
                 break
@@ -295,6 +387,8 @@ def cmd_run(ev, reserve: int, revives: int):
     finally:
         runlog.close()
         summary.close()
+        print()
+        print(surfing_stats.summary(store))
     _restore_ui(ev)
     print("done; %d attempts left in reserve" % remaining)
     return 0
@@ -321,6 +415,19 @@ def main(argv):
             _lines(ev, 'local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end\n'
                        'if _G.__SR_AI then _G.__SR_AI.enabled = true end L("ST on=1")', settle=0.4)
             print("autopilot enabled")
+            return 0
+        if cmd == "stats":
+            print(surfing_stats.summary(surfing_stats.load_store()))
+            return 0
+        if cmd == "learn":
+            # Re-derive the whole record from the raw run log. The log is the source of
+            # truth; deaths.json is only the digest, so a wrong inference can be undone by
+            # re-running this after the classifier changes.
+            store = {"deaths": []}
+            for rec in surfing_stats.parse_log(os.path.join(RESULT_DIR, "ai_moves.log")):
+                surfing_stats.record(store, rec, float(rec.get("z", 0)), 1, version="replay")
+            surfing_stats.save_store(store)
+            print(surfing_stats.summary(store))
             return 0
         if cmd == "bounds":
             # The collider extents the autopilot measured this session. Persisted so the

@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 15
+AI.version = 17
 if AI.enabled == nil then AI.enabled = true end
 AI.cfg = AI.cfg or {}
 local cfg = AI.cfg
@@ -44,6 +44,7 @@ cfg.padSmall     = cfg.padSmall     or 1.0   -- default half-length of a small o
 cfg.carUnit      = cfg.carUnit      or 8.24  -- one carriage segment; "_N" suffix = N of them
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
 cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
+if cfg.rampSolid == nil then cfg.rampSolid = false end  -- learned: are ramps really rideable?
 cfg.padExtra     = cfg.padExtra     or 1.5   -- timing slack added at both ends
 -- route costs
 cfg.costSwitch   = cfg.costSwitch   or 1.0
@@ -126,7 +127,7 @@ local function kindOf(mid)
       back, front = cfg.carUnit * n, 0.2
       if (t.move_speed or 0) == 0 then
         carriage = true
-        ramp = string.find(a, "xiepo", 1, true) ~= nil
+        ramp = (not cfg.rampSolid) and string.find(a, "xiepo", 1, true) ~= nil
       end
     elseif string.find(a, "qiao", 1, true) then
       -- Bridge pieces span the whole road (a collider 20-64 units wide, so no lane change
@@ -146,6 +147,12 @@ local function kindOf(mid)
   return k
 end
 AI.kindOf = kindOf
+
+-- The classification is derived from cfg, so anything that retunes cfg (the learner in
+-- tools/lib/surfing_stats.py) has to drop the cache or the old verdicts survive.
+function AI.resetKinds()
+  kindCache = {}
+end
 
 local function laneOfX(x)
   local l = floor((x - cfg.baseX) / cfg.lineOffset + 0.5) + 1   -- 0 = left, 1 = centre, 2 = right
@@ -188,7 +195,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
       t[#t + 1] = {z0 = o.z - (o.back or k.back), z1 = o.z + (o.front or k.front), ramp = k.ramp}
     end
   end
-  local onRoof = {}
+  local gaps = {}
   for l = 0, 2 do
     local t = cars[l]
     table.sort(t, function(p, q) return p.z0 < q.z0 end)
@@ -196,12 +203,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
     for i = 1, #t do
       local c = t[i]
       if c.ramp or (roofUntil and c.z0 - roofUntil <= cfg.roofGap) then
+        -- carrying on along the roof: the hole between this carriage and the last one is a
+        -- drop to the road and must be HOPPED, not run across (told by the player after a
+        -- run rode a truck and fell off its far end)
+        if roofUntil and c.z0 > roofUntil then
+          gaps[#gaps + 1] = {l = l, z0 = roofUntil, z1 = c.z0}
+        end
         c.roof = true
         roofUntil = c.z1
       else
         roofUntil = nil
       end
-      onRoof[c] = c.roof
     end
   end
 
@@ -259,6 +271,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
         local w = k.buff or cfg.coinBonus
         if (reward[l][j] or 0) < w then reward[l][j] = w end
       end
+    end
+  end
+
+  for i = 1, #gaps do
+    local g = gaps[i]
+    local aj = ceil(g.z0 - pz)
+    local bj = floor(g.z1 - pz)
+    for j = max(0, aj), min(H, bj) do
+      solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
+      noSlide[g.l][j] = true    -- ...not something a duck helps with...
+      -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
     end
   end
 
@@ -547,7 +570,11 @@ local function tick(logic)
   if (st.frames % 20) == 0 then
     local c = 0
     for _, mon in pairs(mm.showList or {}) do
-      if type(mon) == "table" and (mon.dataZ or 0) > pz and (mon.dataZ or 0) < pz + 60 then
+      local mz = mon.dataZ or 0
+      if type(mon) == "table" and (mon.move_speed or 0) > 0 then
+        pcall(function() mz = mon:GetPosition().z end)
+      end
+      if type(mon) == "table" and mz > pz and mz < pz + 60 then
         measure(mon)
         c = c + 1
         if c >= 6 then break end
