@@ -659,12 +659,13 @@ class RallyTab:
     """The «Ралли» tab: raise a rally on a «Роковая Элита», one squad each, N times.
 
     The player picks an elite level, ticks the squads that should each raise a rally,
-    and a repeat count; «Запустить» then loops «find an elite of that level → raise the
-    rally with the next squad», N times over, and «Стоп» interrupts it. A status line
-    narrates each step and the daily per-type cap (panel/rally_limits.py) is honoured —
-    a run stops when the «monster» budget for today is spent.
+    and a repeat count; «Запустить» then loops «search the map «лупа» for an elite of
+    that level → raise the rally with the next squad», N times over, and «Стоп»
+    interrupts it. A status line narrates each step and the daily per-type cap
+    (panel/rally_limits.py) is honoured — a run stops when the «monster» budget for
+    today is spent.
 
-    The game work is tools/rally_create.py (find + create); this tab is the loop, the
+    The game work is tools/rally_create.py (search + create); this tab is the loop, the
     controls and the bookkeeping around it. It runs on a background thread, takes the
     panel's shared game-busy flag for each send so it never races the timers or a jump,
     and touches Tk only through ``app.after``.

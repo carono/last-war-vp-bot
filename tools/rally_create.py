@@ -1,40 +1,43 @@
 r"""Create (raise) an alliance rally on a «Роковая Элита» of a chosen level — no-click.
 
 This is the CREATE side of a rally; the JOIN side (walking a squad onto a rally that is
-already out) is tools/rally_join.py. Creating one means finding a live rally-elite of the
-wanted level on the world map and raising the banner («Стягивание») on it.
+already out) is tools/rally_join.py. Creating one means getting a rally-elite of the wanted
+level onto the map and raising the banner («Стягивание») on it.
 
 Two steps, both driven through xLua SafeDoString (docs/research/xlua-state.md):
 
-  FIND  — a «Роковая Элита» is a rally-only world monster: its popup reads
-          `GetMonsterData(uuid).canAttack == 0` (a soloable monster reads `1`). Monsters are
-          not carried in any data manager (docs/research/world-monsters.md Findings 1-10), so
-          the only way to read a monster's level + uuid is the clone-hunt: scan the
-          `WorldMonster*(Clone)` objects through their `TouchObjectEventTrigger`, `:OnClick()`
-          one to open its `UIWorldPoint` popup, read `Ctrl.pointId/uuid/serverId` and
-          `Ctrl:GetMonsterData(uuid).level/.canAttack`, then `Ctrl:CloseSelf()` (NEVER
-          DestroyAllWindow — it kills the HUD). Keep the first whose `canAttack==0` and whose
-          level is the wanted one. The already-clicked clones are remembered on the VM
-          (`DataCenter.__lw_elite_seen`) so repeated calls walk fresh ones.
+  SPAWN  — use the game's own world-map search («лупа», the `UISearch` window), not a scan of
+           whatever clones happen to be loaded on screen. Open `UISearch`, set the search level
+           for the wanted kind (`Ctrl:SetCurNumBySearchType(type, level, 0)`), then press the
+           magnifier (`Ctrl:OnSearchClick(type, 0)`). That sends the server the "find a monster
+           of this level near me" request; when the server answers, the game flies the camera to
+           the monster it produced and opens its `UIWorldPoint` popup by itself
+           (`OnSearchEnd` → `GoToUtil.MoveToWorldMarchAndOpen`). We then read the popup's
+           `pointId/uuid/serverId` and `GetMonsterData(uuid).level/.canAttack` and close it with
+           `Ctrl:CloseSelf()` (NEVER DestroyAllWindow — it kills the HUD). A rally elite reads
+           `canAttack == 0` (a soloable monster reads `1`); a soloable result is treated as
+           "no rally elite of that level".
 
   CREATE — raise the banner: schedule `MarchUtil.SendCreateMarchMessage(...)` on the game's own
           main thread (a cold send from the hijack thread is created but dropped by the server —
           docs/research/world-monsters.md Finding 17), warming the formation first the way the
           join does (`OnClickStartMarch` + `GoToUtil.CloseAllWindows()`).
 
-⚠ UNPROVEN. The FIND read path (clone-hunt + `GetMonsterData(uuid)`) is the same one the solo
-attack proved live. The CREATE wire, however, was never captured: the solo launch is target
-type 1, the JOIN is type 6 (docs/research/rally-join.md), but the exact «Стягивание» *create*
-send has no live capture. RALLY_CREATE_TARGET below is the best hypothesis and is a single
-constant to flip once a real create is sniffed. Do not mark this ability ✅ until then.
+⚠ UNPROVEN. The SPAWN path drives the real «лупа» (its `OnSearchClick` was seen to fire the
+server request live); whether a monster of the asked level comes back depends on one being
+available in the game, and the CREATE wire itself was never captured (the solo launch is target
+type 1, the JOIN is type 6 — docs/research/rally-join.md — but the «Стягивание» *create* send has
+no live capture). RALLY_CREATE_TARGET below is the best hypothesis and is a single constant to
+flip once a real create is sniffed. Do not mark this ability ✅ until then.
 
 Usage::
 
-    python tools/rally_create.py --find [--level N]        # just report the elites in view
-    python tools/rally_create.py --level N --squad M [--server S]
+    python tools/rally_create.py --find --level N [--type monster|boss]   # search + report only
+    python tools/rally_create.py --level N --squad M [--type monster|boss] [--server S]
 
 `--squad` picks which squad raises the banner (its formation uuid, read live off the game, same
-resolver as rally_join.py). `--server` defaults to LW_DEFAULT_SERVER; the elite carries its own
+resolver as rally_join.py). `--type` picks the «лупа» tab the elite is searched under (defaults
+to the module constant). `--server` defaults to LW_DEFAULT_SERVER; the elite carries its own
 server, which wins when found.
 """
 import argparse
@@ -55,6 +58,13 @@ RALLY_CREATE_TARGET = 6
 # the join's warm step uses.
 RALLY_FOR_BOSS = 7
 
+# «лупа» search tabs (UISearchType enum, read live): the field monsters (incl. the red «Роковая
+# Элита» behemoths) are searched under `Monster`; event bosses under `Boss`. The Fatal Elite has
+# been seen as a Monster-tab clone, so that is the default — flip RALLY_ELITE_SEARCH to "boss"
+# here if a live search shows the elite comes back only under the Boss tab.
+UISEARCH_TYPE = {"monster": 1, "boss": 5}
+RALLY_ELITE_SEARCH = "monster"
+
 DEFAULT_SERVER = default_server()
 
 
@@ -62,105 +72,91 @@ def _one(lines, needle):
     return " ".join(x for x in lines if needle in x)
 
 
-def _reset_seen(run):
-    """Forget the clones a previous scan already opened (start a fresh hunt)."""
-    run('DataCenter.__lw_elite_seen = {} CS.UnityEngine.Debug.LogError("EL reset")',
-        "EL reset", 0.6)
+# Open the world-map search window («лупа»).
+_OPEN_SEARCH = (
+    'pcall(function() UIManager.Instance:OpenWindow(UIWindowNames.UISearch) end) '
+    'CS.UnityEngine.Debug.LogError("EL search-open")'
+)
 
-
-# Open the NEXT not-yet-seen WorldMonster clone's popup (its TouchObjectEventTrigger:OnClick),
-# remembering it on the VM so the next call takes a different one. Boss clones are skipped — the
-# rally elite is a WorldMonster clone, and a Boss clone is the alliance world-boss, a different
-# thing. Emits `EL clicked <name>` or `EL none` when every clone in view has been seen.
-_CLICK_NEXT = r'''
-local L = function(s) CS.UnityEngine.Debug.LogError("EL "..tostring(s)) end
-DataCenter.__lw_elite_seen = DataCenter.__lw_elite_seen or {}
-local seen = DataCenter.__lw_elite_seen
-local ok, err = pcall(function()
-  local arr = CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour))
-  for i = 0, arr.Length - 1 do
-    local mb = arr[i]
-    if mb and mb:GetType().Name == 'TouchObjectEventTrigger' then
-      local okgo, go = pcall(function() return mb.gameObject end)
-      if okgo and go then
-        local p, depth = go, 0
-        while p and not string.find(p.name, 'WorldMonster') and p.transform.parent and depth < 6 do
-          p = p.transform.parent.gameObject; depth = depth + 1
-        end
-        if p and string.find(p.name, 'WorldMonster') and not string.find(p.name, 'Boss') then
-          local id = p:GetInstanceID()
-          if not seen[id] then
-            seen[id] = true
-            pcall(function() mb:OnClick() end)
-            L("clicked " .. tostring(p.name))
-            return
-          end
-        end
-      end
-    end
-  end
-  L("none")
-end)
-if err then L("error " .. tostring(err)) end
-'''
-
-# Read the open UIWorldPoint popup: point/uuid/server and the monster's level + canAttack (the
-# uuid arg is REQUIRED for the full detail — docs/research/world-monsters.md Finding 8).
-_READ_POPUP = r'''
+# Set the search level for the wanted kind and press the magnifier. `OnSearchClick(type, subType)`
+# reads the level back via `GetCurNumBySearchType` and fires the server request; the subType 0 is
+# the default sub-tab (a nil subType trips the recorder — SearchPanelDataManager). Emits
+# `EL search-fired` when the request went out, or `EL search-err <e>` / `EL search-notopen`.
+_FIRE_SEARCH = r'''
 local L = function(s) CS.UnityEngine.Debug.LogError("EL "..tostring(s)) end
 local ok, err = pcall(function()
   local w = UIManager.Instance:GetStackTopWindow()
-  local c = w and w.Ctrl
-  if not c then L("popup none") return end
+  if not w or w.Name ~= "UISearch" then L("search-notopen win=" .. tostring(w and w.Name)) return end
+  local c = w.Ctrl
+  c:SetCurNumBySearchType(%(type)d, %(level)d, 0)
+  c:OnSearchClick(%(type)d, 0)
+  L("search-fired level=%(level)d type=%(type)d")
+end)
+if err then L("search-err " .. tostring(err)) end
+'''
+
+# Read the popup the search opened on its own (`OnSearchEnd` → `MoveToWorldMarchAndOpen` opens
+# `UIWorldPoint`). While the server has not answered yet the top window is still `UISearch`
+# (`EL popup waiting`); once it flips to `UIWorldPoint` we read point/uuid/server + the monster's
+# level and canAttack (the uuid arg is REQUIRED — docs/research/world-monsters.md Finding 8).
+_READ_POPUP = r'''
+local L = function(s) CS.UnityEngine.Debug.LogError("EL "..tostring(s)) end
+pcall(function()
+  local w = UIManager.Instance:GetStackTopWindow()
+  if not w then L("popup none") return end
+  if w.Name ~= "UIWorldPoint" then L("popup waiting win=" .. tostring(w.Name)) return end
+  local c = w.Ctrl
   local lvl, ca = "?", "?"
   pcall(function() local md = c:GetMonsterData(c.uuid) lvl = tostring(md.level) ca = tostring(md.canAttack) end)
   L("popup pid=" .. tostring(c.pointId) .. " uuid=" .. tostring(c.uuid)
     .. " server=" .. tostring(c.serverId) .. " level=" .. lvl .. " canAttack=" .. ca)
 end)
-if err then L("popup err " .. tostring(err)) end
 '''
 
-# Close ONLY the monster popup (keep the HUD): the game's own CloseSelf, never DestroyAllWindow.
-_CLOSE_POPUP = (
-    'pcall(function() UIManager.Instance:GetStackTopWindow().Ctrl:CloseSelf() end) '
+# Close whatever the search left on top (the monster popup, or UISearch if nothing was found),
+# keeping the HUD: the game's own CloseSelf, never DestroyAllWindow.
+_CLOSE_TOP = (
+    'pcall(function() local w = UIManager.Instance:GetStackTopWindow() '
+    'if w and w.Ctrl and w.Ctrl.CloseSelf then w.Ctrl:CloseSelf() end end) '
     'CS.UnityEngine.Debug.LogError("EL closed")'
 )
 
 
-def find_elite(ev, level=None, max_scan=15):
-    """Return the first rally elite in view (dict pid/uuid/server/level), or ``None``.
+def spawn_elite(ev, level, search_type=None, wait_s=10.0):
+    """Search the «лупа» for a monster of ``level`` and return its popup (dict), or ``None``.
 
-    ``level`` filters to that exact level; ``None`` returns the first rally elite of any level.
-    A "rally elite" is a monster whose popup reads ``canAttack == 0`` (soloable monsters, which
-    have their own solo attack, are skipped). Opens each candidate's popup, reads it, and closes
-    it again — so the map is left as it was found.
+    Drives the real world-map search: open `UISearch`, set the level, press the magnifier, then
+    wait for the game to fly to the monster the server produced and open its `UIWorldPoint`
+    popup. Returns a dict ``{pid, uuid, server, level, canAttack}`` for whatever came back, or
+    ``None`` when the search fired but no monster of that level was returned in ``wait_s`` seconds
+    (or the search could not be fired). The caller decides whether the result is a rally elite
+    (``canAttack == 0``). The popup is closed again before returning, so the map is left as found.
     """
+    st = UISEARCH_TYPE.get(search_type or RALLY_ELITE_SEARCH, UISEARCH_TYPE["monster"])
 
     def run(chunk, marker, settle=1.4):
         return ev.run(chunk, marker=marker, settle=settle)
 
-    _reset_seen(run)
-    for _ in range(max_scan):
-        clicked = _one(run(_CLICK_NEXT, "EL", 2.0), "EL ")
-        if "none" in clicked or "clicked" not in clicked:
+    run(_OPEN_SEARCH, "EL search-open", 1.6)
+    fired = _one(run(_FIRE_SEARCH % {"type": st, "level": int(level)}, "EL", 1.8), "EL ")
+    if "search-fired" not in fired:
+        run(_CLOSE_TOP, "EL closed", 0.8)
+        return None
+
+    # The popup arrives after a server round-trip — poll until it opens or the wait runs out.
+    popup = ""
+    for _ in range(max(1, int(wait_s))):
+        popup = _one(run(_READ_POPUP, "EL", 1.0), "popup ")
+        if ("pid=" in popup and "pid=nil" not in popup
+                and "waiting" not in popup and "popup none" not in popup
+                and "level=?" not in popup and "canAttack=?" not in popup):
             break
-        # The popup detail arrives after a server round-trip — retry the read a few times.
-        popup = ""
-        for _ in range(4):
-            popup = _one(run(_READ_POPUP, "EL", 1.0), "popup ")
-            if "pid=nil" not in popup and "canAttack=?" not in popup and "level=?" not in popup:
-                break
-            time.sleep(0.8)
-        run(_CLOSE_POPUP, "EL closed", 0.8)
-        if "pid=nil" in popup or "popup none" in popup:
-            continue
-        info = _parse_popup(popup)
-        if info is None or info["canAttack"] != 0:
-            continue                     # not a rally elite (soloable / unreadable)
-        if level is not None and info["level"] != int(level):
-            continue                     # wrong level
-        return info
-    return None
+        time.sleep(0.9)
+
+    run(_CLOSE_TOP, "EL closed", 0.8)
+    if "pid=" not in popup or "pid=nil" in popup or "waiting" in popup or "popup none" in popup:
+        return None
+    return _parse_popup(popup)
 
 
 def _parse_popup(line):
@@ -213,19 +209,21 @@ def create_rally(ev, pid, uuid, server, formation):
     return any("RC armed" in ln for ln in out)
 
 
-def create_on_level(ev, level, squad, server=None):
-    """Find a rally elite of ``level`` and raise a rally on it with ``squad``.
+def create_on_level(ev, level, squad, server=None, search_type=None):
+    """Search a rally elite of ``level`` («лупа») and raise a rally on it with ``squad``.
 
     Returns a result dict ``{ok, reason, pid, uuid, server, level, formation}``. ``ok`` is True
-    only when an elite was found AND the create send was armed. ``reason`` names the miss
-    (``no_elite`` / ``no_formation``) so a caller (the panel loop) can report it.
+    only when a rally elite was found AND the create send was armed. ``reason`` names the miss
+    (``no_elite`` when the search returned nothing or a soloable monster, ``no_formation`` when
+    the squad is not loaded) so a caller (the panel loop) can report it.
     """
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)
 
-    elite = find_elite(ev, level)
-    if elite is None:
+    elite = spawn_elite(ev, level, search_type)
+    # A search miss, or a soloable monster (canAttack != 0) is not a rally elite.
+    if elite is None or elite.get("canAttack") != 0:
         return {"ok": False, "reason": "no_elite", "level": level}
     srv = elite["server"] or (str(server) if server is not None else DEFAULT_SERVER)
     formation = formation_by_squad(run, squad)
@@ -240,51 +238,42 @@ def main():
     ap = argparse.ArgumentParser(
         description="Create (raise) an alliance rally on a «Роковая Элита» of a chosen level.")
     ap.add_argument("--find", action="store_true",
-                    help="only report the rally elites in view, do not raise anything")
+                    help="only search the «лупа» for the level and report, do not raise anything")
     ap.add_argument("--level", type=int,
-                    help="target elite level (required unless --find with no level)")
+                    help="target elite level (required)")
     ap.add_argument("--squad", type=int, choices=(1, 2, 3, 4),
                     help="which squad raises the banner (1/2/3/4)")
+    ap.add_argument("--type", choices=sorted(UISEARCH_TYPE), default=RALLY_ELITE_SEARCH,
+                    help="which «лупа» tab to search under (default %(default)s)")
     ap.add_argument("--server", type=int, help="target server (defaults to LW_DEFAULT_SERVER)")
     args = ap.parse_args()
 
     ev = get_evaluator()
     try:
         if args.find:
-            # Walk every clone in view once and print each rally elite found.
-            def run(chunk, marker, settle=1.4):
-                return ev.run(chunk, marker=marker, settle=settle)
-            _reset_seen(run)
-            seen_any = False
-            for _ in range(15):
-                clicked = _one(run(_CLICK_NEXT, "EL", 2.0), "EL ")
-                if "none" in clicked or "clicked" not in clicked:
-                    break
-                popup = ""
-                for _ in range(4):
-                    popup = _one(run(_READ_POPUP, "EL", 1.0), "popup ")
-                    if "pid=nil" not in popup and "level=?" not in popup:
-                        break
-                    time.sleep(0.8)
-                run(_CLOSE_POPUP, "EL closed", 0.8)
-                info = _parse_popup(popup)
-                if info and info["canAttack"] == 0:
-                    seen_any = True
-                    print("elite level=%s pid=%s uuid=%s server=%s"
-                          % (info["level"], info["pid"], info["uuid"], info["server"]), flush=True)
-            if not seen_any:
-                print("no rally elite in view", flush=True)
+            if args.level is None:
+                ap.error("--find needs --level N")
+            elite = spawn_elite(ev, args.level, args.type)
+            if elite is None:
+                print("no monster of level %s returned by the search" % args.level, flush=True)
+            elif elite.get("canAttack") != 0:
+                print("found a SOLOABLE monster level=%s pid=%s uuid=%s server=%s (not a rally "
+                      "elite)" % (elite["level"], elite["pid"], elite["uuid"], elite["server"]),
+                      flush=True)
+            else:
+                print("rally elite level=%s pid=%s uuid=%s server=%s"
+                      % (elite["level"], elite["pid"], elite["uuid"], elite["server"]), flush=True)
             return
 
         if args.level is None or args.squad is None:
-            ap.error("--level and --squad are required (or use --find)")
-        res = create_on_level(ev, args.level, args.squad, args.server)
+            ap.error("--level and --squad are required (or use --find --level N)")
+        res = create_on_level(ev, args.level, args.squad, args.server, args.type)
         if res["ok"]:
             print("RALLY ARMED level=%s squad=%s pid=%s server=%s (create wire UNPROVEN — "
                   "confirm a march/banner appears)" % (res.get("level"), args.squad,
                                                        res.get("pid"), res.get("server")), flush=True)
         elif res["reason"] == "no_elite":
-            print("no rally elite of level %s in view" % args.level, flush=True)
+            print("no rally elite of level %s found by the search" % args.level, flush=True)
         elif res["reason"] == "no_formation":
             print("no squad %s found (nothing raised)" % args.squad, flush=True)
         else:

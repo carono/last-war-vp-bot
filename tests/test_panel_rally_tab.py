@@ -1,10 +1,10 @@
 """The «Ралли» tab (panel/tabs_extra.py RallyTab) and its engine (tools/rally_create.py).
 
-Two halves. The engine's decision logic — parse a monster popup, pick the first rally
-elite of the wanted level, branch create_on_level on what was found — is pure once the
-game is replaced by a scripted fake evaluator, so it is tested directly and always runs.
-The tab widget needs Tk, so it is built on a CustomTkinter root and only checked to
-construct and read its controls without raising; skips without a Tk display.
+Two halves. The engine's decision logic — press the «лупа» search for a level, read back
+the monster popup the game opens, branch create_on_level on whether it is a rally elite —
+is pure once the game is replaced by a scripted fake evaluator, so it is tested directly
+and always runs. The tab widget needs Tk, so it is built on a CustomTkinter root and only
+checked to construct and read its controls without raising; skips without a Tk display.
 """
 from __future__ import annotations
 
@@ -25,36 +25,34 @@ def _skip(exc=None) -> None:
 
 # --- a scripted evaluator: serve canned Player.log lines per chunk kind ------
 class FakeEv:
-    """Stands in for the live Lua evaluator. Serves one elite popup per scan step.
+    """Stands in for the live Lua evaluator. Answers the «лупа» search with one popup.
 
-    ``elites`` is a list of dicts (pid/uuid/server/level/canAttack); the finder walks
-    them one clone at a time and then reports the map exhausted, exactly as the real
-    clone-hunt would. Formation reads answer with a warm squad so no UI is opened.
+    ``result`` is the monster the search returns — a dict (pid/uuid/server/level/canAttack),
+    or ``None`` to model a search that came back empty (no monster of that level). The read
+    chunk serves that popup once the search has been "fired"; formation reads answer with a
+    warm squad so no UI is opened.
     """
 
-    def __init__(self, elites, formation="F123"):
-        self._elites = list(elites)
-        self._i = 0
+    def __init__(self, result, formation="F123"):
+        self._result = result
+        self._fired = False
         self._formation = formation
         self.closed = False
         self.armed = False
 
     def run(self, chunk, marker=None, settle=None):
-        if "reset" in chunk and "__lw_elite_seen" in chunk:
-            self._i = 0
-            return ["EL reset"]
-        if "FindObjectsOfType" in chunk and "clicked" in chunk:       # _CLICK_NEXT
-            if self._i < len(self._elites):
-                return ["EL clicked WorldMonster0%d(Clone)" % (self._i + 1)]
-            return ["EL none"]
+        if "OpenWindow" in chunk and "UISearch" in chunk:             # _OPEN_SEARCH
+            return ["EL search-open"]
+        if "OnSearchClick" in chunk:                                  # _FIRE_SEARCH
+            self._fired = True
+            return ["EL search-fired level=? type=?"]
         if "GetStackTopWindow" in chunk and "GetMonsterData" in chunk:  # _READ_POPUP
-            if self._i < len(self._elites):
-                e = self._elites[self._i]
-                self._i += 1
+            if self._fired and self._result is not None:
+                e = self._result
                 return ["EL popup pid=%s uuid=%s server=%s level=%s canAttack=%s"
                         % (e["pid"], e["uuid"], e["server"], e["level"], e["canAttack"])]
-            return ["EL popup none"]
-        if "CloseSelf" in chunk:                                      # _CLOSE_POPUP
+            return ["EL popup waiting win=UISearch"]
+        if "CloseSelf" in chunk:                                      # _CLOSE_TOP
             return ["EL closed"]
         if "FM PICK" in chunk:                                        # pick_formation (warm)
             return ["FM PICK uuid=%s soldiers=3123" % self._formation]
@@ -77,32 +75,34 @@ def test_parse_popup_reads_the_fields():
     assert rc._parse_popup("EL popup none") is None
 
 
-def test_find_elite_matches_level_and_skips_soloable():
-    # A soloable lvl-5 (canAttack=1) and a rally lvl-9 come first; the rally lvl-5 is third.
-    ev = FakeEv([
-        {"pid": "1", "uuid": "11", "server": "935", "level": 5, "canAttack": 1},   # soloable
-        {"pid": "2", "uuid": "22", "server": "935", "level": 9, "canAttack": 0},   # wrong level
-        {"pid": "3", "uuid": "33", "server": "935", "level": 5, "canAttack": 0},   # the match
-    ])
-    got = rc.find_elite(ev, level=5)
+def test_spawn_elite_returns_the_searched_monster():
+    ev = FakeEv({"pid": "3", "uuid": "33", "server": "935", "level": 5, "canAttack": 0})
+    got = rc.spawn_elite(ev, level=5, wait_s=2)
     assert got is not None and got["uuid"] == "33" and got["level"] == 5, got
 
 
-def test_find_elite_none_when_no_rally_elite():
-    ev = FakeEv([{"pid": "1", "uuid": "11", "server": "935", "level": 5, "canAttack": 1}])
-    assert rc.find_elite(ev, level=5) is None
+def test_spawn_elite_none_when_search_empty():
+    ev = FakeEv(None)
+    assert rc.spawn_elite(ev, level=5, wait_s=2) is None
 
 
 def test_create_on_level_arms_when_elite_found():
-    ev = FakeEv([{"pid": "7", "uuid": "77", "server": "935", "level": 3, "canAttack": 0}])
+    ev = FakeEv({"pid": "7", "uuid": "77", "server": "935", "level": 3, "canAttack": 0})
     res = rc.create_on_level(ev, level=3, squad=1)
     assert res["ok"] is True and res["reason"] == "armed", res
     assert res["pid"] == "7" and res["server"] == "935"
     assert ev.armed, "the create send must have been armed"
 
 
-def test_create_on_level_reports_no_elite():
-    ev = FakeEv([])
+def test_create_on_level_reports_no_elite_when_empty():
+    ev = FakeEv(None)
+    res = rc.create_on_level(ev, level=3, squad=1)
+    assert res["ok"] is False and res["reason"] == "no_elite", res
+
+
+def test_create_on_level_soloable_is_not_a_rally_elite():
+    # The search returned a monster, but it is soloable (canAttack=1) — not a rally elite.
+    ev = FakeEv({"pid": "9", "uuid": "99", "server": "935", "level": 3, "canAttack": 1})
     res = rc.create_on_level(ev, level=3, squad=1)
     assert res["ok"] is False and res["reason"] == "no_elite", res
 
