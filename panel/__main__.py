@@ -297,9 +297,12 @@ FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
 # here only shows MORE of what is already on disk — it costs the panel log's
 # readability, never the recording.
 #
-# The game-side cost is separate and lives with the tracer itself: wrapping every
-# Lua function unfiltered is heavy on the client (see tools/lua_trace.py). That is
-# the price of a complete trace and is the tracer's tradeoff, not this filter's.
+# The game-side flood is handled by the tracer itself, not by this filter: in broad
+# mode (which is how the panel runs it) tools/lua_trace.py drops the per-frame noise
+# at wrap time — metamethods (`__index`/`__tostring`) and Unity value types
+# (`Vector3`, …), the 100%-of-127145-lines flood that froze the game in #1128 — while
+# keeping SFS / UI / Manager. So a complete recording no longer costs the client a
+# freeze; widen `--exclude` there if a new value type shows up.
 TRACE_FILTER = "SFS"
 # How long to wait for both sniffer halves to report "ready" before saying so in
 # the log. Measured on this machine: capture is live ~1 s in, the Lua hooks

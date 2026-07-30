@@ -5,10 +5,15 @@ logging shim that writes `XSCALL <table.fn> <- <args>` to Player.log, which this
 to the terminal in real time. Everything the game does through those Lua functions shows up.
 
 By default every call is logged with its FULL (untruncated) argument list — the real trace
-you usually want. Because logging every call unfiltered writes thousands of lines per frame
-to Player.log and freezes the game, pair a broad run with a narrow `--filter`. For a
-filterless overview use `--dedup`: it logs only the first call of each name (the rest are
-counted and summarised on exit) — a safe "which functions fire" discovery pass.
+you usually want. A filterless (broad) run still wraps nearly everything, but a built-in
+exclude list keeps the worst per-frame flood out of the hooks entirely: metamethods on any
+table (`__index`/`__tostring`/…) and Unity value types (`Vector3`, `Quaternion`, …), whose
+math fires per frame and per field access. Without it one decoration-upgrade session wrote
+127145 lines, ALL of them `Vector3.__index`/`Vector3.__tostring`, and froze the game (task
+#1128). `Manager`/`Util`/`UI…` are deliberately kept — that is the logic a trace is for.
+Add more with `--exclude a,b`, or drop the built-ins with `--no-default-excludes`. For an
+even lighter filterless overview use `--dedup`: it logs only the first call of each name
+(the rest are counted and summarised on exit) — a "which functions fire" discovery pass.
 
 `--dedup` is a DISCOVERY pass, not a recording of a session: keeping only the first call of
 each name throws away every repeat, so a player who opens a window, picks an amount,
@@ -28,7 +33,8 @@ Single command, self-restoring::
     C:\Python312\python.exe tools\lua_trace.py --filter March  # every March call, full args
     C:\Python312\python.exe tools\lua_trace.py --filter SFS            # record a session
     C:\Python312\python.exe tools\lua_trace.py --dedup         # filterless overview (safe)
-    C:\Python312\python.exe tools\lua_trace.py                 # every call of everything (floods!)
+    C:\Python312\python.exe tools\lua_trace.py                 # broad, minus the built-in flood excludes
+    C:\Python312\python.exe tools\lua_trace.py --exclude Rigidbody,Transform  # add your own
     C:\Python312\python.exe tools\lua_trace.py --depth 3 --hook-all     # + call-level hook (heavy)
 
 Patches install immediately on start. On Ctrl+C (or any exit) the original functions are
@@ -93,7 +99,21 @@ def _lua_list(items):
     return "{" + ", ".join(_lua_str(i) for i in items) + "}"
 
 
-def install_chunk(filter_kw, depth, hook_all, dedup=False):
+# Broad-mode (no --filter) exclusions, applied at WRAP time so the flood never reaches
+# Player.log at all. Substring-matched against the full `table.fn` name. These are Unity
+# value types whose metamethods and math methods fire per frame and per field access —
+# a single decoration-upgrade session with no excludes wrote 127145 lines, ALL of them
+# Vector3.__index / Vector3.__tostring (task #1128). Metamethods on ANY table (keys that
+# start with `__`) are dropped in broad mode too, separately from this list, so a value
+# type not named here is still safe. Deliberately NOT here: `Manager`, `Util`, `UI…` —
+# those are the game logic a trace is FOR, and the user asked to keep them.
+DEFAULT_EXCLUDES = [
+    "Vector2", "Vector3", "Vector4", "Quaternion",
+    "Color", "Color32", "Matrix4x4", "Rect", "Bounds", "Ray", "Plane", "LayerMask",
+]
+
+
+def install_chunk(filter_kw, depth, hook_all, dedup=False, excludes=None):
     r"""Build the Lua chunk that wraps functions and arms the call hook.
 
     State lives in `_G.__XSTRACE.saved` = list of {tbl, key, orig} so restore can put every
@@ -113,6 +133,7 @@ def install_chunk(filter_kw, depth, hook_all, dedup=False):
     """
     return r"""
 local FILTERS = %(filters)s
+local EXCLUDES = %(excludes)s
 local MAXDEPTH = %(depth)d
 local HOOKALL = %(hookall)s
 local DEDUP = %(dedup)s
@@ -156,6 +177,26 @@ local function MATCH(nm)
     if sfind(nm, FILTERS[i], 1, true) then return true end
   end
   return false
+end
+
+-- Broad-mode (no --filter) flood guard. A name is dropped — neither wrapped nor
+-- descended into — when it is a metamethod (key starting with '__', e.g.
+-- Vector3.__index / __tostring; the latter self-amplifies because the shim
+-- tostring()s every arg and most args are Vector3s) or matches one of EXCLUDES
+-- (Unity value types whose math methods fire per frame). An explicit filter means
+-- the user is targeting on purpose, so this never fires then.
+local function EXCLUDED(nm)
+  if not EXCLUDES then return false end
+  for i = 1, #EXCLUDES do
+    if sfind(nm, EXCLUDES[i], 1, true) then return true end
+  end
+  return false
+end
+
+local function DROP_BROAD(k, name)
+  if FILTERS then return false end
+  if sfind(k, '__', 1, true) == 1 then return true end   -- metamethod
+  return EXCLUDED(name)
 end
 
 local function argstr(...)
@@ -232,11 +273,15 @@ local function walk(tbl, prefix, depth)
       if ok2 then
         local name = (prefix == '' and k) or (prefix..'.'..k)
         local tv = type(v)
-        if tv == 'function' then
+        if DROP_BROAD(k, name) then
+          -- Excluded flood in broad mode: neither wrap the function nor descend into
+          -- the table. Skipping the table (e.g. Vector3) is what stops its whole set
+          -- of metamethods/methods from ever being wrapped.
+        elseif tv == 'function' then
           -- only wrap names that pass the filter: wrapping ALL ~9k game functions and
           -- then MATCH-checking every call is what floods Player.log and freezes the
           -- game. With a filter we wrap just the targets; MATCH inside the shim then
-          -- always passes. No filter still wraps everything (the explicit noisy mode).
+          -- always passes. No filter still wraps everything (minus the broad excludes).
           if MATCH(name) then
             wrap(tbl, k, name, v)
             nwrap = nwrap + 1
@@ -278,6 +323,7 @@ end
 T.installed = true
 Log('XSTRACE installed wrapped='..nwrap..' depth='..MAXDEPTH
     ..' filter='..(FILTERS and ('"'..concat(FILTERS, ',')..'"') or 'none')
+    ..' excludes='..(EXCLUDES and #EXCLUDES or 0)
     ..' dedup='..tostring(DEDUP)..' hook='..tostring(HOOKALL))
 
 end)  -- end of install-body pcall
@@ -287,6 +333,7 @@ end
 """ % {
         "filters": _lua_list(split_filters(filter_kw) if isinstance(filter_kw, str)
                              else filter_kw),
+        "excludes": _lua_list(excludes),
         "depth": depth,
         "hookall": "true" if hook_all else "false",
         "dedup": "true" if dedup else "false",
@@ -359,6 +406,14 @@ def main():
                     help="also arm debug.sethook (fires on EVERY Lua call — heaviest, may stall the game)")
     ap.add_argument("--dedup", action="store_true",
                     help="log only the FIRST call of each name (safe discovery pass; default logs every call)")
+    ap.add_argument("--exclude",
+                    help="extra comma-separated substrings of full table.fn names to NEVER "
+                         "wrap in broad (no --filter) mode, on top of the built-in flood "
+                         "list (Vector3, Quaternion, …). Metamethods (__index/__tostring/…) "
+                         "are always dropped in broad mode. Ignored when --filter is given.")
+    ap.add_argument("--no-default-excludes", action="store_true",
+                    help="do not apply the built-in broad-mode exclude list (use only --exclude, "
+                         "if any) — the metamethod drop still applies")
     ap.add_argument("--all", action="store_true", help="print every Player.log line, not just XSCALL/XSTRACE")
     ap.add_argument("--out", help="trace file path (default: a new "
                                   "results/traces/<timestamp>_trace.log per run)")
@@ -369,6 +424,12 @@ def main():
     args = ap.parse_args()
 
     dedup = args.dedup
+
+    # Broad-mode exclusions: the built-in flood list unless opted out, plus any the
+    # caller adds. Only consulted when there is no --filter (see DROP_BROAD in the Lua).
+    excludes = [] if args.no_default_excludes else list(DEFAULT_EXCLUDES)
+    if args.exclude:
+        excludes += [k.strip() for k in args.exclude.split(",") if k.strip()]
 
     log = player_log_path()
 
@@ -422,11 +483,16 @@ def main():
 
     atexit.register(restore)
 
-    emit("[lua_trace] installing patches (filter=%s depth=%d dedup=%s hook=%s) ..."
-         % (args.filter or "none", args.depth, dedup, args.hook_all))
+    # Excludes only bite in broad mode; say so, and how many, so a frozen-game report
+    # can be checked against what was actually skipped.
+    excl_note = "none" if args.filter else ("%d default+extra" % len(excludes)
+                                            if excludes else "metamethods only")
+    emit("[lua_trace] installing patches (filter=%s excludes=%s depth=%d dedup=%s hook=%s) ..."
+         % (args.filter or "none", excl_note, args.depth, dedup, args.hook_all))
     if trace_path:
         emit("[lua_trace] trace file: %s" % trace_path)
-    lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all, dedup), marker="XSTRACE", settle=1.5)
+    lines = ev.run(install_chunk(args.filter, args.depth, args.hook_all, dedup, excludes),
+                   marker="XSTRACE", settle=1.5)
     for ln in lines:
         emit(ln)
     # One machine-readable verdict on top of the game-side wording, so a driver
