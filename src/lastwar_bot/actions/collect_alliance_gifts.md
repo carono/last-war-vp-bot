@@ -1,4 +1,5 @@
 # Claim the alliance gifts — ordinary and premium.
+# ru: Подарки альянса — обычные и премиальные.
 #
 # Reproduces exactly what the player did in the "Подарки альянса" recording: open
 # the alliance Gifts section, then press its two "collect all" buttons — ordinary

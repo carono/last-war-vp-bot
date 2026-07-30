@@ -1,4 +1,5 @@
 # Navigate to the World map if we're not already there.
+# ru: Перейти на карту мира.
 
 IF screen != world
     CALL click_world_button

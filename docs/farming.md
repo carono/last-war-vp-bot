@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 25 of 89
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **26%** — 25 of 97
 
-🟩 25 done · 🟨 18 partly · 🟥 46 not automated
+🟩 25 done · 🟨 26 partly · 🟥 46 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -80,6 +80,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
 - ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
 - 🟡 Joining a rally — the bot can join or decline a live rally and pick which squad goes, and it can now be told «join with squads 2 and 3»: it reads the rallies that are out, sends each named squad to a different one, and skips any rally it is already in. Which rallies are worth joining is still nobody's decision, and no count is kept. The joining itself is the proven one; sending several squads in one go has not been tried on live rallies yet
+- 🟡 Being told a rally has gone out, and joining it without hunting for it — the moment one appears the panel says so and rings, once per rally rather than once per event; one button joins with the squads ticked on the settings page, and a switch makes it join by itself as the alert lands. Which squads may go is finally the setting it always looked like — it used to be saved and read by nothing. Not yet seen against a live rally
 - ❌ Starting a rally
 - ❌ Treasure notifications
 - ❌ Digging the treasure, collecting the treasure gift
@@ -153,8 +154,10 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
 - 🟡 Robbing a ghost-recon squad — one press per squad, no window opened, and it holds its fire unless it is the event day, the five-a-day budget still has room and the game itself says the squad can be robbed. Every one of those checks is confirmed against the live game (including that it does nothing at all while the event is closed), but the event runs one day a week and no real squad was on the map to rob, so the robbery itself is still unproven
 - ✅ Robbing a secret task — the whole robbery runs without a window ever opening, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to the bot
-- ✅ Auto-loot from the panel — it robs starred tasks at the level the «уровень до» filter asks for (the highest level found, when that field is empty), and does nothing at all when no star is raidable there. Both halves confirmed live: it held its fire with three stars still running their dispatch and 19 ordinary tiles raidable, then robbed the level-7 star the moment one came free. The scan it reads still needs the map to be moving
-- 🟡 Auto-loot as a standing order — the panel's auto-loot is a checkbox, not a press: while it is ticked the panel watches the scan itself and robs the moment a star of the best level becomes raidable, so a target is no longer lost in the gap between the finding printing and a person noticing it. It sends a given task once, runs one robbery at a time, pauses for half an hour when the day's five are spent, and robs only at the level «уровень до» asks for — «от 1 до 7» takes level-7 stars and leaves a level-6 one alone, because the five daily attempts are the scarce thing and one spent on a 6 is one a 7 cannot have until the reset. The rule it applies is the proven one above; the automatic trigger itself has not yet run a live session
+- ✅ Auto-loot from the panel — it robs starred tasks at the level its own «уровень до» asks for (the highest level found, when that field is empty), and does nothing at all when no star is raidable there. Both halves confirmed live: it held its fire with three stars still running their dispatch and 19 ordinary tiles raidable, then robbed the level-7 star the moment one came free
+- 🟡 Auto-loot as a standing order — the panel's auto-loot is a checkbox, not a press: while it is ticked the panel watches the scan itself and robs the moment a star of the best level becomes raidable, so a target is no longer lost in the gap between the finding printing and a person noticing it. It sends a given task once, runs one robbery at a time, pauses for half an hour when the day's five are spent, and robs only at the level its own level row asks for — «от 1 до 7» takes level-7 stars and leaves a level-6 one alone, because the five daily attempts are the scarce thing and one spent on a 6 is one a 7 cannot have until the reset. That level row is its own now, separate from the level filter on the findings list: narrowing what is printed no longer quietly re-aims the robberies. The rule it applies is the proven one above; the automatic trigger itself has not yet run a live session
+- 🟡 Panning the map by itself, so the scan has something to read — a checkbox walks the camera over a square of tiles around a point you choose, one hop at a time, and rests between passes; it says up front how many hops the square costs and how long a lap takes. That was the last manual thing left in the auto-loot: the scan only sees what the map shows while it is moving, and until now the moving was somebody's wrist. Nothing appears on screen while it works, and it stands aside whenever the bot is busy with anything else. Not yet run through a live session
+- 🟡 Ghost-recon robbery as a standing order — the same checkbox idea, and it needs no map scan at all: the game already knows which squads are out, so while it is ticked the bot looks once a minute, robs everything the game says can be robbed, and stops at the five-a-day cap. Six days a week the event is closed and it does nothing but check in hourly. The robbery it makes is the one above, still unproven on a live squad
 - ❌ Refreshing missions to UR — by tickets, diamonds or MEGA
 - ❌ Sending own secret missions out
 - ❌ Collecting own or alliance missions
@@ -195,7 +198,12 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### General
 
 - ✅ Launching the game and waiting until the base is actually ready to be used
+- 🟡 Noticing the game has gone and putting it back — the panel now checks the client every few seconds instead of only when asked, says so the moment it disappears, and (if asked to) starts it again on its own, no oftener than once every five minutes. Before this the panel could sit for an hour claiming the game was running while every scheduled errand quietly failed. Not yet seen through a real crash
 - 🟡 Reacting to the "logged in from another device" screen — the reaction is written, but nothing watches for it yet
+- 🟡 A summary of the account on one line — how many robberies are left today of each kind, how many donations are banked, how many alliancemates are waiting for help, how many wounded are lying in the hospital, how many survivors are at the gate, how many profession skills are ready, how many rallies can still be joined. Read straight out of the game every half a minute with no window opened, and quiet about everything that has nothing waiting, so what is on it is what needs doing. Not yet watched through a whole day
+- 🟡 Building your own list of errands — the schedule is edited in the panel now: add an errand, give it its steps (any of the abilities above, or a command written out by hand), its period and its arguments, copy one, delete one. Two errands due at the same moment still take their turn rather than pressing at once, a failed one is retried whole, and the clock survives a restart. This is what "play the whole session" needs; nothing ships a ready-made routine yet
+- 🟡 Firing any single named press by hand — a one-line command box under the log speaks the same vocabulary a saved errand does, with a list of every press beside it. Nothing new happens in the game; what changed is that all thirty-odd of them are reachable without writing a file first
+- 🟡 Driving two accounts at once — which client a profile talks to is a setting now, so the profile switch moves everything: the presses, the captures and the robberies. Bringing the second client up is still a step outside the panel, and no live session has been played this way
 - ❌ Pausing while the person at the keyboard is using the mouse. The screen-driven abilities need the game in front, so a person and the bot cannot share the computer during those
 - ✅ Separate profiles per account — own settings, filters, logs and schedule — and an interface in Russian or English
 - 🟡 A second account in parallel. Its client is started and kept in a second Windows session in the background — the bot brings the session, the client and its own control channel up by itself, and every ability that works without the screen can be pointed at either account. What cannot reach it is anything screen-driven: clicks and screenshots only ever land on the client in front. Not yet played through a real session on the second account
@@ -242,9 +250,9 @@ The routine as it is actually played, against what the bot covers.
 | Collect the base and the resource truck | ✅ base, on a schedule 🟡 · 🟡 truck |
 | Send secret missions out | ❌ |
 | Help with 5 UR or star secret tasks | ❌ |
-| Steal 5 star tasks | 🟡 finding, picking the best star and robbing work; nothing chains the five together or pans the map on its own |
+| Steal 5 star tasks | 🟡 finding, picking the best star and robbing work; the map is panned on its own now, and the five are still not chained together |
 | Radar tasks | ❌ |
-| 20 rally joins per monster type | 🟡 joining works, counting and choosing do not |
+| 20 rally joins per monster type | 🟡 joining works and a rally now announces itself and can be joined on the spot; counting and choosing do not |
 | Attack marked players, scouting before and after | 🟡 attacking and scouting work, picking targets does not |
 | Send squads to gather resources | 🟡 |
 | Dig and collect treasures | ❌ |
@@ -270,16 +278,20 @@ bot has no sense of the calendar and does not notice an event starting.
 
 ## What is needed before it can be left alone
 
-1. **Something to run the whole session.** Today the panel repeats one chosen
-   ability and keeps two errands — collecting the base, and the alliance
-   donation with its gifts — to a schedule of their own; nobody plays the
-   routine in order or decides what to do next. This is still the single biggest
-   gap versus the old script.
+1. **Something to run the whole session.** The list of errands is now built in the
+   panel — several steps to one switch, its own period, its own arguments — so a
+   morning routine is a matter of filling the list in rather than editing files by
+   hand. What is still missing is the routine itself: nobody has written the daily
+   list out, and nothing decides what to do next when the list runs dry. This
+   remains the biggest gap versus the old script, but it is no longer blocked.
 2. **More of the game's screens.** Mail, radar, events, the duel, arena, heroes,
    shop and the building queues are untouched; the hospital is only half done.
 3. **Deciding, not just doing.** Attacking, gathering and rallying all work as
    actions, but nothing chooses targets or keeps daily counts.
-4. **Seeing the map without driving it.** Surveying the map still needs the game
-   in front and the map being moved; a quiet, background survey is not possible yet.
+4. **Seeing the map without driving it.** The moving is no longer a person's job —
+   the bot walks the camera over a square around a chosen point by itself, without
+   the game in front — but it is still *driving* the map: the scan learns tiles only
+   from what the client asks the server for while it moves. A survey that costs the
+   client nothing is not possible yet.
 5. **Sharing the computer.** Anything that works through the screen needs the
    game focused, so the bot occupies the machine while it runs.

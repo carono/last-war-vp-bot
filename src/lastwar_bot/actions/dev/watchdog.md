@@ -1,4 +1,5 @@
 # Watchdog: runs on every bot tick. Reacts to interrupt conditions that
+# ru: Сторож: реагирует на модалку «вход с другого устройства».
 # must halt the bot regardless of what the main routine is doing.
 #
 # Currently watching for the "logged in from another device" modal: when

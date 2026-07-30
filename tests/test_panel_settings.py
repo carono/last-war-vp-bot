@@ -1,8 +1,10 @@
-r"""The Settings page — its sub-tabs, and the auto-rally one that has content.
+r"""The Settings page — its sub-tabs, and the auto-rally one that drives a recipe.
 
-The page is a Notebook driven by `SETTINGS_TABS`: a tab with a builder is filled,
-one without gets the placeholder. What is worth pinning down is the auto-rally tab,
-because two of its rules are easy to break and quiet when broken:
+The page is a Notebook driven by `SETTINGS_TABS`: every entry has a builder now
+(«Общие» and «Игра» hold the knobs that used to be constants in the panel's own
+source, and their values are read back through `_opt_*`). What is worth pinning down
+is the auto-rally tab, because two of its rules are easy to break and quiet when
+broken:
 
   * the drill squads are TRI-state (out / in / leading) and exactly one squad can
     lead — a click must never quietly take the banner off the squad that has it,
@@ -44,10 +46,28 @@ def _page():
             self._tr_widgets: list = []
             self._tr_hooks: list = []
             self.saves = 0
+            # The Settings page's knobs live in one dict of Tk variables created
+            # before any tab is built (see Panel.__init__), and «Общие» / «Игра»
+            # bind their rows to it. Without them the two tabs cannot be built,
+            # and the page under test is the page with all three tabs filled.
+            self._settings: dict = {}
+            self._opt_vars: dict = {}
+            for key, default in pm.SETTINGS_DEFAULTS.items():
+                self._opt_vars[key] = (tk.BooleanVar(value=bool(default))
+                                       if isinstance(default, bool)
+                                       else tk.StringVar(value=str(default)))
 
         _t = pm.Panel._t
         _tr = pm.Panel._tr
+        _opt = pm.Panel._opt
+        _opt_int = pm.Panel._opt_int
+        _opt_float = pm.Panel._opt_float
+        _sweep_box = pm.Panel._sweep_box
+        _opt_row = pm.Panel._opt_row
         _build_settings_tab = pm.Panel._build_settings_tab
+        _build_general_settings = pm.Panel._build_general_settings
+        _build_game_settings = pm.Panel._build_game_settings
+        _refresh_sweep_settings_hint = pm.Panel._refresh_sweep_settings_hint
         _build_autorally_settings = pm.Panel._build_autorally_settings
         _cycle_drill_squad = pm.Panel._cycle_drill_squad
         _paint_drill_squads = pm.Panel._paint_drill_squads
@@ -88,11 +108,17 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         labels = [notebooks[0].tab(t, "text") for t in tabs]
         assert labels[0] == page._t("settings.tab.autorally"), labels
 
-        # A tab with no builder yet is not empty — it says so.
-        empty = notebooks[0].nametowidget(tabs[1])
-        texts = [w.cget("text") for w in empty.winfo_children()
-                 if "text" in w.configure()]
-        assert page._t("settings.placeholder") in texts, texts
+        # Every tab in the registry has a builder now, so none of them is the
+        # placeholder — «Общие» and «Игра» hold the knobs that used to be constants
+        # in panel/__main__.py.
+        assert all(builder for _key, builder in pm.SETTINGS_TABS), pm.SETTINGS_TABS
+        for key in ("win_python", "daemon_port", "watchdog", "sweep_step"):
+            assert key in page._opt_vars, key
+        # …and the panel reads them back through the same accessors, defaults and all.
+        assert page._opt_int("daemon_port") == pm.SETTINGS_DEFAULTS["daemon_port"]
+        page._opt_vars["daemon_port"].set("not a port")
+        assert page._opt_int("daemon_port") == pm.SETTINGS_DEFAULTS["daemon_port"], \
+            "a half-typed port must fall back, not be obeyed"
     finally:
         root.destroy()
 

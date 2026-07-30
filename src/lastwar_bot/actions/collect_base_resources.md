@@ -1,4 +1,5 @@
 # Collect every ready resource from the base's production buildings.
+# ru: Сбор ресурсов со всех готовых производств базы.
 #
 # One tap = the base's own "Collect All". The base's resource generators are
 # production lines (DataCenter.ProductLineManager); collecting one is

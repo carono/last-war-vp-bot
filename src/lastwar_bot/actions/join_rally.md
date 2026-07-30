@@ -1,4 +1,5 @@
 # Join the alliance rallies that are out, one squad each.
+# ru: Присоединиться к выставленным ралли альянса — по отряду на ралли.
 #
 # `squads` is which squad slots may be spent, in order — the 1/2/3 the player sees
 # in the dispatch panel. Each squad goes to a DIFFERENT rally: `squads = [1]` joins

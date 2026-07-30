@@ -79,12 +79,25 @@ class _Watcher:
         self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
         self._log_put = self.logs.append
         self._autoloot_run = self.runs.append          # the child is never spawned here
-        # The «уровень от / до» entries duck-typed: `_autoloot_levels` only reads
-        # `.get()`, so the rule can be exercised without a Tk root window.
+        self._busy = False
+        # The auto-loot budget is a Settings knob now, read through `_opt_*`. With no
+        # widget and no saved config both fall back to SETTINGS_DEFAULTS, which is the
+        # constant it used to be — so the watcher under test behaves as it always did.
+        self._settings: dict = {}
+        self._opt_vars: dict = {}
+        # The «уровень от / до» entries — auto-loot's OWN pair, not the display
+        # filter's — duck-typed: `_autoloot_levels` only reads `.get()`, so the rule
+        # can be exercised without a Tk root window.
         self._lvl_from_var = types.SimpleNamespace(get=lambda: level_from)
         self._lvl_to_var = types.SimpleNamespace(get=lambda: level_to)
-        self._autoloot_levels = types.MethodType(Panel._autoloot_levels, self)
-        self._autoloot_targets = types.MethodType(Panel._autoloot_targets, self)
+        # Everything the panel says goes through the locale files now, so the
+        # watcher's own lines come out of `_say` — bound here, with a real I18n
+        # behind it, so the test asserts on the words the operator actually reads.
+        from panel import i18n as i18nmod
+        self._i18n = i18nmod.I18n("ru")
+        for name in ("_t", "_say", "_opt", "_opt_int", "_autoloot_limit",
+                     "_autoloot_levels", "_autoloot_targets"):
+            setattr(self, name, types.MethodType(getattr(Panel, name), self))
         self.tick = types.MethodType(Panel._autoloot_tick, self)
 
 

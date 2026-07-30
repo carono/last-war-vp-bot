@@ -1,4 +1,5 @@
 # Donate to the alliance's priority (recommended) technology.
+# ru: Донат в приоритетную (рекомендованную) технологию альянса.
 #
 # One line, because the donate press needs no window open: the controller method
 # behind "Donate 1000" touches no window state, so it is called straight on the

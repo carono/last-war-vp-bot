@@ -1,0 +1,137 @@
+r"""One child process, streamed into the panel's log — the shape all the monitors share.
+
+Four of the panel's features are the same forty lines: spawn a Windows-Python child,
+read its stdout line by line on a thread, put each line in the log with a tag, and
+untick the checkbox when it dies. The secret-task capture, the rally monitor, the
+alliance auto-help watcher and the chat reader each had their own copy
+(``_start_x`` / ``_x_reader`` / ``_stop_x``), and every fix — utf-8 on the pipe, «no
+console window», "did it start at all" — had to be made four times or was made
+three.
+
+:class:`ChildMonitor` is that shape once. What differs between the four becomes
+arguments:
+
+  * ``cmd``      — the command, already built (each feature knows its own flags).
+  * ``tag``      — the ``[secret]`` / ``[rally]`` prefix its lines are logged under.
+  * ``on_line``  — what to do with a line, when a plain "log it" will not do: the
+                   secret capture filters and records, the chat reader parses JSON
+                   into a queue. Returning ``False`` swallows the line (it has been
+                   dealt with); returning ``None``/``True`` logs it as usual.
+  * ``on_exit``  — run when the child has gone *on its own* (not via :meth:`stop`),
+                   which is what unticks the checkbox.
+
+The child is always launched the same way, and that is the point: unbuffered, utf-8
+forced on the pipe (a Windows child's piped stdout otherwise falls back to the ANSI
+code page and its em-dashes arrive as ``�``), stderr folded into stdout so a
+traceback lands in the log instead of nowhere, and no console window.
+
+Nothing here imports Tk. The panel passes in ``log`` and a ``schedule`` callable
+(its own ``after``), so every widget touch still happens on the Tk thread while this
+module stays a plain object a test can drive with two lambdas.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import threading
+
+# CREATE_NO_WINDOW: a child spawned from a windowed process would otherwise flash
+# its own console. Same constant the panel uses for everything else it launches.
+NO_WINDOW = 0x08000000
+
+
+class ChildMonitor:
+    """A background child whose output is the panel's log.
+
+    Not restartable: one monitor object is one run of the child. The panel keeps a
+    slot per feature and puts a fresh monitor in it, which is what makes "is it
+    running" a plain ``is not None`` test on the slot instead of a flag that can
+    disagree with the process.
+    """
+
+    def __init__(self, cmd: list, tag: str, *, log, cwd: str,
+                 on_line=None, on_exit=None, schedule=None, env=None,
+                 capture_stderr: bool = True) -> None:
+        self.cmd = list(cmd)
+        self.tag = tag
+        self.proc: "subprocess.Popen | None" = None
+        self._log = log
+        self._cwd = cwd
+        self._on_line = on_line
+        self._on_exit = on_exit
+        self._schedule = schedule
+        # The panel supplies this (it carries LW_DAEMON_PORT, so a child drives the
+        # same client the panel does). The fallback keeps a bare ChildMonitor usable.
+        self._env = env
+        self._capture_stderr = capture_stderr
+        # Set by stop(): tells the reader thread that the child's death was asked
+        # for, so it does not report it as one and does not run on_exit.
+        self._stopping = False
+        self._thread: "threading.Thread | None" = None
+
+    # -- lifecycle ----------------------------------------------------------
+    def start(self) -> bool:
+        """Launch the child and start reading it. ``False`` if it would not start."""
+        env = self._env or dict(os.environ, PYTHONIOENCODING="utf-8")
+        try:
+            self.proc = subprocess.Popen(
+                self.cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT if self._capture_stderr else subprocess.DEVNULL,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
+                cwd=self._cwd, env=env, creationflags=NO_WINDOW)
+        except Exception as exc:      # noqa: BLE001 — a failed launch is a log line
+            self._log(f"[{self.tag}] ошибка запуска: {exc}")
+            self.proc = None
+            return False
+        self._thread = threading.Thread(target=self._read, daemon=True,
+                                        name=f"panel-{self.tag}")
+        self._thread.start()
+        return True
+
+    @property
+    def pid(self) -> "int | None":
+        return self.proc.pid if self.proc is not None else None
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def stop(self) -> None:
+        """Ask the child to go. Idempotent, and never raises.
+
+        The flag goes up *before* the kill so the reader thread — which may be
+        mid-line — knows the death was deliberate by the time it notices it.
+        """
+        self._stopping = True
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+        except Exception:             # noqa: BLE001 — already gone is a fine outcome
+            pass
+
+    # -- the reader ---------------------------------------------------------
+    def _read(self) -> None:
+        proc = self.proc
+        try:
+            if proc is not None and proc.stdout is not None:
+                for raw in proc.stdout:
+                    line = raw.rstrip()
+                    if self._on_line is not None:
+                        # False = "handled, do not log it"; anything else logs.
+                        if self._on_line(line) is False:
+                            continue
+                    if line:
+                        self._log(f"[{self.tag}] {line}")
+        except Exception:             # noqa: BLE001 — a broken pipe ends the stream
+            pass
+        if self._stopping or self.proc is not proc:
+            return                    # asked for, or already replaced: not news
+        self.proc = None
+        if self._on_exit is not None:
+            if self._schedule is not None:
+                self._schedule(0, self._on_exit)
+            else:
+                self._on_exit()

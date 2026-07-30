@@ -1,4 +1,5 @@
 # Collect every supply truck that has arrived at the base.
+# ru: Забрать готовые грузовики с базы.
 #
 # A truck shows up on the base as a build bubble: BuildBubbleType.TruckTravelling
 # while it is en route, TruckReward / TruckReady once it has arrived. This taps the

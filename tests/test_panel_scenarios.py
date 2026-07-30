@@ -65,6 +65,9 @@ def _tab(tmp: Path):
         # everything the tab builder and the paths under test touch
         _t = pm.Panel._t
         _tr = pm.Panel._tr
+        # Everything the panel says goes through the locale files now, so the tab's
+        # own lines come out of `_say`.
+        _say = pm.Panel._say
         _claim_busy = pm.Panel._claim_busy
         _release_busy = pm.Panel._release_busy
         _build_scenarios_tab = pm.Panel._build_scenarios_tab
@@ -85,6 +88,12 @@ def _tab(tmp: Path):
         _on_editor_ctrl_key = pm.Panel._on_editor_ctrl_key
         _toggle_scenario_loop = pm.Panel._toggle_scenario_loop
         _stop_scenario_loop = pm.Panel._stop_scenario_loop
+        # The tab grew a «Справочник TAP» button and a parse check on save.
+        _show_button_reference = pm.Panel._show_button_reference
+        # Static on Panel (it needs no state) — so it has to be re-wrapped here, or
+        # the class body would turn it back into a method and eat `text` as `self`.
+        _scenario_problem = staticmethod(pm.Panel._scenario_problem)
+        _show_scenario_problem = pm.Panel._show_scenario_problem
 
         def _log_put(self, line):
             self.logs.append(line)

@@ -1,4 +1,5 @@
 # Fire every profession skill that is off cooldown and needs no target.
+# ru: Применить все профессиональные навыки, вышедшие из отката и не требующие цели.
 #
 # «Навыки профессии» — the active skills of the profession the account picked
 # (Инженер / Военный лидер). Each is a banked charge on a long cooldown (23.5 h for

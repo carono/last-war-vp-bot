@@ -1,4 +1,5 @@
 # Find secret tasks (hero dispatch) worth raiding.
+# ru: Просканировать секретные миссии на карте.
 #
 # Unlike every other action here, this one does not read the screen. Secret
 # tasks arrive as exact numbers in the game's own `world.get.block` traffic —

@@ -3,25 +3,30 @@
 Actions run through the warm Lua daemon (tools/lua_daemon.py) so every button dispatches
 in ~0.1 s instead of spawning a fresh process that re-resolves the il2cpp hijack (~5 s). The
 panel auto-starts the daemon if it is not already running. In-game recipes live in
-tools/lua_actions.py (shared with the standalone scripts, so nothing drifts).
+tools/lib/lua_actions.py (shared with the standalone scripts, so nothing drifts) and the
+named presses `TAP` speaks in tools/lib/game_buttons.py.
 
 Blocks:
   * Сводка — the account dashboard: the day's budgets and everything waiting for the
     person, polled off the warm daemon in ONE call every half-minute (panel/dashboard.py
     holds the list). It answers "does today need me at all" without opening a window.
   * Навигация — Домой / Мир (SceneUtils.ChangeToCity / ChangeToWorld) and a coordinate jump
-    (X / Y / Сервер). Same server -> in-server camera jump; a different server -> the
-    cross-server load recipe. The server field defaults to the current server
-    (DataCenter.WorldFavoDataManager.curServerId).
+    (X / Y / Сервер) with a history of where it has been. Same server -> in-server camera
+    jump; a different server -> the cross-server load recipe. The server field defaults to
+    the current server (DataCenter.WorldFavoDataManager.curServerId).
   * Секретные задания — a checkbox that runs the passive capture (tools/secret_task_capture.py
     or secret_mission_capture.py) in the background and streams findings into the log, plus
     «Автолут ★» — a standing order that watches the capture's checkpoint and robs a starred
-    task of the best level the moment one becomes raidable (tools/steal_secret_task.py).
-  * Настройки — a page of sub-tabs (SETTINGS_TABS is the whole list; a tab with no builder
-    yet shows a placeholder). «Авторалли» is the filled one: which squads may be sent to a
-    rally, and the alliance-drill variant where each squad is out / in / leading and exactly
-    one can carry the banner. Saved into the active profile as it changes; nothing reads it
-    yet — actions/join_rally.md takes its squads as an argument.
+    task of the best level the moment one becomes raidable (tools/steal_secret_task.py) —
+    and «Автообъезд карты», which walks the camera over a box of tiles around the base so
+    the passive capture has traffic to read without anybody dragging the map
+    (panel/mapsweep.py decides where to look next).
+  * Настройки — a page of sub-tabs (SETTINGS_TABS is the whole list). «Авторалли» says
+    which squads may be sent to a rally, and the alliance-drill variant where each squad is
+    out / in / leading and exactly one can carry the banner — and it IS what the rally
+    recipe is handed now. «Общие» and «Игра» hold the knobs that used to be constants in
+    this file: the Python that runs the children, the daemon port, the auto-loot budget,
+    the log's retention cap, the game paths and the map-sweep box.
   * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech and
     then claim the gifts) has a switch and a period, and runs itself once that long has
     passed since it last ran. Rows are ADDED, COPIED, EDITED and DELETED from the tab
@@ -83,6 +88,7 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 from . import __version__ as APP_VERSION
+from . import childmon as childmonmod
 from . import dashboard as dashmod
 from . import i18n as i18nmod
 from . import mapsweep as mapsweepmod
@@ -109,6 +115,7 @@ import lua_trace        # noqa: E402  (RESTORE_CHUNK — unwrap tracer hooks aft
 import run_notes        # noqa: E402  (keep/discard a sniffer run + its description)
 import coords           # noqa: E402
 import chat_assets      # noqa: E402  (token -> local sprite PNG for chat rendering)
+import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
 try:
     from PIL import Image as _PILImage, ImageTk as _PILImageTk  # noqa: E402
@@ -237,6 +244,15 @@ AUTOLOOT_LIMIT = 5
 # without a human, and long enough to keep the log quiet overnight.
 AUTOLOOT_SPENT_PAUSE = 1800.0
 
+# «Операция Призрак» standing order. Slower than the secret-task poll on purpose:
+# its targets are read off the client's own task list (no capture, no map panning),
+# a squad's loot window is minutes rather than seconds, and the event runs ONE day a
+# week — so a minute between looks is plenty.
+GHOST_POLL = 60.0
+# The event is not running today: look again in an hour instead of every minute. Six
+# days out of seven this is the branch that runs, and it should cost nothing.
+GHOST_CLOSED_PAUSE = 3600.0
+
 # Develop-tab sniffers. Absolute paths, resolved at launch, so the working
 # directory the panel was started from is irrelevant.
 #   * Traffic  — tools/lib/live_sniffer.py: raw live decode of the game protocol,
@@ -290,8 +306,8 @@ ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
 # nothing else knows the list.
 SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
     ("autorally", "_build_autorally_settings"),
-    ("general", None),
-    ("game", None),
+    ("general", "_build_general_settings"),
+    ("game", "_build_game_settings"),
 )
 
 # Every knob the Settings page owns, with the value a profile that has never been
@@ -341,6 +357,8 @@ DRILL_MARKS = {DRILL_OFF: " ", DRILL_ON: "✓", DRILL_FLAG: "🚩"}
 SCENARIO_SAVE_DELAY_MS = 1000
 # Marks the row of the script that is running right now.
 RUNNING_MARK = "▶"
+# Marks a row that came out of actions/dev/ — experimental, shown only on request.
+DEV_MARK = "⚙ "
 
 # Actions that are runtime plumbing rather than user-facing scenarios — hidden from
 # the picker even if present here. `watchdog` is ticked by the runner, not run by hand.
@@ -361,37 +379,77 @@ def _repo_rel(path: str) -> str:
     return path if rel.startswith("..") else rel.replace(os.sep, "/")
 
 
-def list_actions() -> list[dict]:
-    """Enumerate the blessed action scripts (actions/*.md, not actions/dev/) as {name, title}.
+def _action_titles(path: str, name: str) -> dict:
+    """The title lines of one action script, by language.
 
-    `title` is the first `#` comment line of the .md (falling back to the name),
-    so the picker shows a human sentence instead of a bare file stem.
+    A script's first `#` line is its English title, which is why the picker read
+    English while the rest of the UI was Russian. A script may now add a language
+    tag to any of its leading comment lines —
+
+        # Claim the alliance gifts — ordinary and premium
+        # ru: Подарки альянса — обычные и премиальные
+
+    — and the picker prefers the one matching the UI. Untagged is the fallback, so
+    every existing script keeps working untouched and translating one is adding a
+    line to it.
     """
+    out: dict = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                s = raw.strip()
+                if not s:
+                    if out:
+                        break             # the leading comment block is over
+                    continue
+                if not s.startswith("#"):
+                    break
+                body = s.lstrip("#").strip()
+                if not body:
+                    continue
+                tag, sep, rest = body.partition(":")
+                if sep and tag.strip().isalpha() and len(tag.strip()) == 2:
+                    out.setdefault(tag.strip().lower(), rest.strip())
+                else:
+                    out.setdefault("", body)
+    except OSError:
+        pass
+    if not out:
+        out[""] = name
+    return out
+
+
+def list_actions(include_dev: bool = False, lang: str | None = None) -> list[dict]:
+    """Enumerate the action scripts as ``{name, title, dev}``.
+
+    The blessed ones (``actions/*.md``) always; ``actions/dev/*.md`` too when asked
+    for. The dev folder is hidden by default so the picker offers only what works —
+    but hiding it also hid `work_treasure` and `collect_trucks`, and reaching those
+    used to be a code change rather than a checkbox.
+
+    `title` is the script's own title line, in the UI's language when the script
+    offers one (see :func:`_action_titles`), falling back to the untagged line and
+    then to the bare file stem.
+    """
+    paths = sorted(glob.glob(os.path.join(ACTIONS_DIR, "*.md")))
+    if include_dev:
+        paths += sorted(glob.glob(os.path.join(ACTIONS_DIR, "dev", "*.md")))
     out = []
-    for path in sorted(glob.glob(os.path.join(ACTIONS_DIR, "*.md"))):
+    for path in paths:
         name = os.path.splitext(os.path.basename(path))[0]
         if name in _HIDDEN_ACTIONS:
             continue
-        title = name
-        try:
-            with open(path, encoding="utf-8") as fh:
-                for raw in fh:
-                    s = raw.strip()
-                    if s.startswith("#"):
-                        title = s.lstrip("#").strip() or name
-                        break
-                    if s:
-                        break
-        except OSError:
-            pass
-        out.append({"name": name, "title": title})
+        titles = _action_titles(path, name)
+        title = titles.get(lang or "") or titles.get("") or name
+        out.append({"name": name, "title": title,
+                    "dev": os.path.basename(os.path.dirname(path)) == "dev"})
     return out
 
 
 _NON_GAME_PORTS = frozenset({80, 443})
 
 
-def _server_connection() -> str | None:
+def _server_connection(game_exe: str = GAME_EXE) -> str | None:
     """The game-server TCP endpoint, if a connection is currently ESTABLISHED.
 
     Purely supplementary detail. Its absence (VPN off, mid-reconnect, or the OS
@@ -405,7 +463,7 @@ def _server_connection() -> str | None:
     try:
         import psutil
         pids = {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
-                if (p.info["name"] or "").lower() == GAME_EXE.lower()}
+                if (p.info["name"] or "").lower() == game_exe.lower()}
         if not pids:
             return None
         for c in psutil.net_connections(kind="tcp"):
@@ -417,13 +475,17 @@ def _server_connection() -> str | None:
     return None
 
 
-def game_status() -> tuple[bool, str]:
+def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
     """Whether the game is running, detected by process name only.
 
     Detection is deliberately independent of network state: the game is "found"
     whenever its process exists, regardless of VPN presence or whether a TCP
     connection to the game server is currently established. The connection state,
     when available, is appended as supplementary detail.
+
+    ``game_exe`` is a parameter because the executable is a profile setting (a
+    second client in its own Windows session, an install somewhere else); the
+    default keeps every existing caller — and the tests — unchanged.
 
     Returns ``(running, label)``.
     """
@@ -435,7 +497,7 @@ def game_status() -> tuple[bool, str]:
     pid = None
     try:
         for proc in psutil.process_iter(["name"]):
-            if (proc.info["name"] or "").lower() == GAME_EXE.lower():
+            if (proc.info["name"] or "").lower() == game_exe.lower():
                 pid = proc.pid
                 break
     except Exception as exc:
@@ -444,7 +506,7 @@ def game_status() -> tuple[bool, str]:
     if pid is None:
         return False, "game not found"
 
-    conn = _server_connection()
+    conn = _server_connection(game_exe)
     if conn:
         return True, f"running (pid {pid}) -> {conn}"
     return True, f"running (pid {pid})"
@@ -484,18 +546,30 @@ class Panel(tk.Tk):
         self._coord_seq = 0
         self._mon_proc = None
         self._rally_proc = None
+        # teamUuids already alerted on this session. A rally emits create AND
+        # refresh events, so without this one стяг would ring four times.
+        self._rally_seen: set = set()
         self._help_proc = None        # live auto-help watcher (push.al.help.new)
         self._autoloot_proc = None    # one auto-loot run at a time
         self._autoloot_stop = None    # threading.Event of the watcher loop, when running
         self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
         self._autoloot_pause_until = 0.0   # wall clock the watcher may fire again at
         self._autoloot_warned = False      # "no checkpoint yet" is said once per run
+        self._ghost_proc = None       # one ghost-recon robbery at a time
+        self._ghost_stop = None       # threading.Event of its watcher, when running
+        # Map sweep: the wrist that keeps the passive scan fed (panel/mapsweep.py).
         self._sweep_stop = None       # threading.Event of the sweep loop, when running
         self._sweep_at = 0            # index into the current pass's waypoints
         self._sweep_pass = 0          # completed passes this session (for the log)
+        # Liveness: how many consecutive polls have found the game gone, and when
+        # the watchdog last relaunched it (see _refresh_status / _watchdog_check).
         self._game_gone = 0
         self._game_was_up = False
         self._watchdog_last = 0.0
+        # Account dashboard: the last readings and the poller's stop flag.
+        self._dash_values: dict = {}
+        self._dash_stop = None
+        self._dash_err = ""          # last complaint, so it is said once not per poll
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
@@ -512,8 +586,12 @@ class Panel(tk.Tk):
         self._chat_var = tk.BooleanVar(value=False)
         self._chat_q: "queue.Queue[dict]" = queue.Queue()
         self._chat_proc = None
-        # In-memory chat messages keyed by chat_type
-        self._chat_msgs: dict = {t: [] for t in ("world", "alliance", "national", "dm", "other", "system")}
+        # In-memory chat messages keyed by chat_type. `system` has a tab of its own
+        # now — it used to be counted here and shown nowhere.
+        self._chat_msgs: dict = {t: [] for t in CHAT_TABS}
+        # Unread marks: how many messages have arrived in a tab nobody is looking
+        # at. Cleared when that tab is selected.
+        self._chat_unread: dict = {t: 0 for t in CHAT_TABS}
         # Text-view widgets per chat type (populated by _build_chat_tab). Named
         # _chat_trees for historical reasons; they are tk.Text now, not Treeviews.
         self._chat_trees: dict = {}
@@ -563,6 +641,7 @@ class Panel(tk.Tk):
         self._apply_settings_to_ui()  # restore this profile's saved values
         self._loading = False
         self._install_autosave()      # persist every subsequent change immediately
+        self._restore_geometry()      # window size/position and the log sash
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._open_panel_log()
@@ -790,7 +869,7 @@ class Panel(tk.Tk):
         self._profiles.set_active(name)
         self._settings = self._profiles.load()
         self._reload_active_profile()
-        self._log_put(f"[profile] активный профиль: {name}")
+        self._say("profile", "log.profile.active", name=name)
 
     def _reload_active_profile(self) -> None:
         """Re-apply language, all UI values, and monitor state from self._settings."""
@@ -798,6 +877,8 @@ class Panel(tk.Tk):
         if lang and lang != self._i18n.lang and self._i18n.set_lang(lang):
             self._apply_language()
         self._apply_settings_to_ui()
+        self._open_panel_log()                # the mirror follows the active profile
+        self._rebind_daemon()                 # …and so does the client it drives
         self._sync_monitors()                 # restart captures into the new profile's logs
         self._load_chat_history()             # reload chat messages for the new profile
 
@@ -833,12 +914,17 @@ class Panel(tk.Tk):
         # the next run would write into a re-created old directory.
         self._timer_store.set_path(self._profiles.timers_state())
         self._reload_timers(quiet=True)
-        self._log_put(f"[profile] переименован: {cur} → {newn}")
+        self._say("profile", "log.profile.renamed", old=cur, new=newn)
 
     def _delete_profile(self) -> None:
         cur = self._profiles.active
-        if not messagebox.askyesno(self._t("profile.delete"),
-                                   self._t("profile.confirm_delete", name=cur), parent=self):
+        # The confirmation used to name the profile and nothing else, while the delete
+        # is an `rmtree` of its whole directory — its chat history, its rally log, its
+        # panel.log and the record of when every timer last ran. Say what goes.
+        if not messagebox.askyesno(
+                self._t("profile.delete"),
+                self._t("profile.confirm_delete", name=cur,
+                        path=_repo_rel(self._profiles.dir(cur))), parent=self):
             return
         try:
             now_active = self._profiles.delete(cur)
@@ -848,7 +934,7 @@ class Panel(tk.Tk):
         self._refresh_profile_combo(select=now_active)
         self._settings = self._profiles.load()
         self._reload_active_profile()
-        self._log_put(f"[profile] удалён {cur}; активный → {now_active}")
+        self._say("profile", "log.profile.deleted", name=cur, active=now_active)
 
     # -- persistent settings ------------------------------------------------
     def _collect_settings(self) -> dict:
@@ -858,17 +944,26 @@ class Panel(tk.Tk):
             "coord_x": self._x_var.get(),
             "coord_y": self._y_var.get(),
             "coord_server": self._srv_var.get(),
+            "coord_history": list(self._jump_hist),
             "monitor_kind": self._mon_combo.current(),
             "monitor_interval": self._interval_var.get(),
             "filter_star": self._star_var.get(),
             "filter_pending": self._pending_var.get(),
             "filter_can_loot": self._can_loot_var.get(),
-            "filter_level_from": self._lvl_from_var.get(),
-            "filter_level_to": self._lvl_to_var.get(),
+            # The display filter…
+            "filter_level_from": self._flt_from_var.get(),
+            "filter_level_to": self._flt_to_var.get(),
+            # …and, separately, the level auto-loot actually robs at. One pair used
+            # to be both, which is how a robbery got spent on a level-6 star.
+            "autoloot_level_from": self._lvl_from_var.get(),
+            "autoloot_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
             "alliance_autohelp": self._help_var.get(),
+            "rally_autojoin": self._rally_autojoin_var.get(),
+            "rally_alert": self._rally_alert_var.get(),
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
+            "ghost_autoloot": self._ghost_autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
             "map_sweep": self._sweep_var.get(),
             "sweep_centre_x": self._sweep_cx_var.get(),
@@ -879,6 +974,8 @@ class Panel(tk.Tk):
             "scenario_args": self._scn_args_var.get(),
             "scenario_interval": self._scn_interval_var.get(),
             "log_filter": self._log_filter_var.get(),
+            "window_geometry": self._current_geometry(),
+            "log_sash": self._current_sash(),
             # Settings page -> «Авторалли»: which squads may be sent, and the
             # alliance-drill variant with its single banner-carrier.
             "autorally": self._autorally_config(),
@@ -902,6 +999,7 @@ class Panel(tk.Tk):
             self._x_var.set(s.get("coord_x", ""))
             self._y_var.set(s.get("coord_y", ""))
             self._srv_var.set(s.get("coord_server", DEFAULT_SERVER))
+            self._set_jump_history(s.get("coord_history"))
             idx = s.get("monitor_kind", 0)
             if isinstance(idx, int) and 0 <= idx < len(CAPTURE_OPTIONS):
                 self._mon_combo.current(idx)
@@ -909,13 +1007,23 @@ class Panel(tk.Tk):
             self._star_var.set(bool(s.get("filter_star", False)))
             self._pending_var.set(bool(s.get("filter_pending", False)))
             self._can_loot_var.set(bool(s.get("filter_can_loot", False)))
-            self._lvl_from_var.set(s.get("filter_level_from", ""))
-            self._lvl_to_var.set(s.get("filter_level_to", ""))
+            self._flt_from_var.set(s.get("filter_level_from", ""))
+            self._flt_to_var.set(s.get("filter_level_to", ""))
+            # A profile saved before the two were split has only the one pair, and
+            # it was aiming the robberies as well as filtering the log — so seed the
+            # auto-loot range from it rather than silently widening the rule.
+            self._lvl_from_var.set(s.get("autoloot_level_from",
+                                         s.get("filter_level_from", "")))
+            self._lvl_to_var.set(s.get("autoloot_level_to",
+                                       s.get("filter_level_to", "")))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
             # Off by default: it answers on its own, so it is opted into, not out of.
             self._help_var.set(bool(s.get("alliance_autohelp", False)))
+            self._rally_autojoin_var.set(bool(s.get("rally_autojoin", False)))
+            self._rally_alert_var.set(bool(s.get("rally_alert", True)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
+            self._ghost_autoloot_var.set(bool(s.get("ghost_autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
             self._sweep_var.set(bool(s.get("map_sweep", False)))
             self._sweep_cx_var.set(s.get("sweep_centre_x", ""))
@@ -932,25 +1040,66 @@ class Panel(tk.Tk):
             self._loading = False
         self._update_path_hints()
         self._select_saved_scenario(s.get("scenario_selected"))
+        self._refresh_rule_hints()
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
                     self._pending_var, self._can_loot_var,
+                    self._flt_from_var, self._flt_to_var,
                     self._lvl_from_var, self._lvl_to_var,
                     self._rally_var, self._help_var, self._mon_var,
+                    self._autoloot_var, self._ghost_autoloot_var, self._chat_var,
+                    self._rally_autojoin_var, self._rally_alert_var,
                     self._sweep_var, self._sweep_cx_var, self._sweep_cy_var,
                     self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var,
                     self._drill_on_var, self._drill_banner_var,
                     *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
+        # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
+        # boxes are about to do; keep them true as the numbers are typed.
+        for var in (self._lvl_from_var, self._lvl_to_var,
+                    self._sweep_cx_var, self._sweep_cy_var):
+            var.trace_add("write", lambda *a: self._refresh_rule_hints())
+        # The Settings page's own knobs. The daemon port is the one that needs more
+        # than a save: the panel's client has to be re-pointed at it.
+        for key, var in self._opt_vars.items():
+            if key == "daemon_port":
+                var.trace_add("write", lambda *a: self._on_daemon_port_change())
+            else:
+                var.trace_add("write", lambda *a: self._save_settings())
         self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
         # The interval is a child-process argument, not a live panel-side filter,
         # so a change only takes effect on the next capture launch. Bounce a
         # running monitor so a new value applies at once instead of on the next
         # manual toggle. Saved too (via _save_settings inside _restart_monitor).
         self._interval_var.trace_add("write", lambda *a: self._on_interval_change())
+
+    def _on_daemon_port_change(self) -> None:
+        self._save_settings()
+        if not self._loading:
+            self._rebind_daemon()
+
+    def _refresh_rule_hints(self) -> None:
+        """Re-render the two "this is what the checkbox will do" lines.
+
+        Both standing orders are invisible otherwise, and an invisible rule is how a
+        robbery got spent on a level-6 star: the operator has to be able to read
+        what a checkbox is about to do without opening the source.
+        """
+        lbl = getattr(self, "_autoloot_rule_lbl", None)
+        if lbl is not None:
+            try:
+                lbl.configure(text=self._autoloot_rule_text())
+            except tk.TclError:
+                pass
+        hint = getattr(self, "_sweep_hint", None)
+        if hint is not None:
+            try:
+                hint.configure(text=self._sweep_rule_text())
+            except tk.TclError:
+                pass
 
     def _on_interval_change(self) -> None:
         self._save_settings()
@@ -990,6 +1139,11 @@ class Panel(tk.Tk):
         self._stop_autoloot()
         if self._autoloot_var.get():
             self._start_autoloot()
+        # The ghost-recon order and the map sweep both drive THIS profile's client,
+        # so a switch has to bounce them as well.
+        self._stop_ghost_autoloot()
+        if self._ghost_autoloot_var.get():
+            self._start_ghost_autoloot()
         self._stop_sweep()
         if self._sweep_var.get():
             self._start_sweep()
@@ -1007,7 +1161,10 @@ class Panel(tk.Tk):
         """Refresh labels that show the active profile's log path (rally hint)."""
         if hasattr(self, "_rally_hint"):
             try:
-                rel = os.path.relpath(self._profiles.rally_log(), REPO)
+                # _repo_rel, not os.path.relpath: a profile directory on
+                # another drive makes the bare call RAISE, and a display helper
+                # must never be the thing that breaks the UI.
+                rel = _repo_rel(self._profiles.rally_log())
                 self._rally_hint.configure(text=self._t("rally.hint", path=rel))
             except tk.TclError:
                 pass
@@ -1058,9 +1215,26 @@ class Panel(tk.Tk):
         self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
                  "daemon.restart").pack(side="left", padx=(2, 0))
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
+        # One control that stops everything: monitors, watchers, the sweep, a running
+        # scenario and the schedule. It used to be five clicks across three tabs,
+        # which is exactly the wrong shape for the moment you actually need it.
+        self._tr(ttk.Button(top, command=self._panic),
+                 "panic.stop_all").pack(side="right", padx=(0, 6))
+
         # -- the account dashboard: every daily budget on one strip -------------
         self._build_dashboard(main)
 
+        # Everything above the log is fixed-height and the log used to get whatever
+        # was left — a few lines at the 640×500 minimum. A sash makes that the
+        # operator's choice, and its position is remembered per profile.
+        split = ttk.PanedWindow(main, orient="vertical")
+        split.pack(fill="both", expand=True)
+        self._main_split = split
+        upper = ttk.Frame(split)
+        lower = ttk.Frame(split)
+        split.add(upper, weight=0)
+        split.add(lower, weight=1)
+        main = upper                  # the control blocks below fill the top pane
 
         game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
@@ -1082,11 +1256,13 @@ class Panel(tk.Tk):
 
         scene = self._tr(ttk.LabelFrame(nav, padding=6), "nav.scene")
         scene.pack(fill="x", pady=(0, 6))
-        self._tr(ttk.Button(scene,
-                 command=lambda: self._act(lua_actions.scene_city(), "scene", "Домой")),
+        # The label `_act` logs is looked up when the button is PRESSED, not when it
+        # is built, so switching the language re-labels the log line too.
+        self._tr(ttk.Button(scene, command=lambda: self._act(
+                     lua_actions.scene_city(), "scene", self._t("nav.home.log"))),
                  "nav.home").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(ttk.Button(scene,
-                 command=lambda: self._act(lua_actions.scene_world(), "scene", "Мир")),
+        self._tr(ttk.Button(scene, command=lambda: self._act(
+                     lua_actions.scene_world(), "scene", self._t("nav.world.log"))),
                  "nav.world").pack(side="left", padx=4, ipadx=8, ipady=6)
         self._tr(ttk.Label(scene, foreground="#888"),
                  "nav.scene_hint").pack(side="left", padx=10)
@@ -1106,6 +1282,16 @@ class Panel(tk.Tk):
                  "coord.jump").pack(side="left", padx=4, ipady=2)
         self._tr(ttk.Button(coord, command=self._load_current_server),
                  "coord.reload_server").pack(side="left", padx=4)
+        # Where it has been. Jumping between a handful of known tiles is routine and
+        # the triple X/Y/server was the only memory there was — retyping it was the
+        # whole cost. Picking an entry fills the three fields and jumps.
+        self._jump_hist: list = []
+        self._jump_hist_var = tk.StringVar()
+        self._jump_hist_combo = ttk.Combobox(coord, textvariable=self._jump_hist_var,
+                                             state="readonly", width=18, values=[])
+        self._jump_hist_combo.pack(side="right", padx=(4, 0))
+        self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
+        self._tr(ttk.Label(coord), "coord.history").pack(side="right", padx=(8, 2))
 
         sec = self._tr(ttk.LabelFrame(main, padding=8), "secret.frame")
         sec.pack(fill="x", padx=8, pady=(0, 6))
@@ -1140,30 +1326,49 @@ class Panel(tk.Tk):
         self._can_loot_var = tk.BooleanVar(value=False)
         self._tr(ttk.Checkbutton(row2, variable=self._can_loot_var),
                  "secret.can_loot_only").pack(side="left", padx=(6, 0))
-        self._tr(ttk.Label(row2), "secret.level_from").pack(side="left", padx=(12, 2))
-        self._lvl_from_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        self._tr(ttk.Label(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
+        self._flt_from_var = tk.StringVar()
+        ttk.Entry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
         self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
-        self._lvl_to_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self._lvl_to_var, width=4).pack(side="left")
-        # Auto-loot: a standing order, not a press. While it is ticked the panel
+        self._flt_to_var = tk.StringVar()
+        ttk.Entry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
+
+        # -- Auto-loot: its own frame, and its own level row --------------------
+        #
+        # «уровень от/до» above is now ONLY the display filter. It used to be both
+        # that and the rule deciding which star got one of the day's five robberies
+        # — two different decisions on one pair of entries, and the reason a
+        # level-6 star once cost a level-7 one (2026-07-29). A person narrowing the
+        # log must not be quietly re-aiming the robberies.
+        #
+        # Auto-loot is a standing order, not a press. While it is ticked the panel
         # watches the capture checkpoint and robs a starred task of the highest
-        # level the moment one shows up — the scan only finds a raidable star for
-        # as long as its loot window is open, so waiting for a human to notice
-        # the log line and click was losing targets.
-        # The «уровень до» entry to the left IS the level it robs — not a ceiling
-        # over "whatever is lying around". «от 1 до 7» means 7s are taken and a
-        # level-6 star waits, however alone it is on the map: the five daily
-        # robberies are the scarce thing, and one spent on a 6 is one a 7 cannot
-        # have until the reset (that is exactly what happened on 2026-07-29).
-        # The star/PENDING/LOOTABLE checkboxes stay display-only — those decide
-        # what is printed, and a display filter silently changing who gets raided
-        # would be a nasty surprise.
+        # level in ITS range the moment one shows up — the scan only finds a
+        # raidable star for as long as its loot window is open, so waiting for a
+        # human to notice the log line and click was losing targets.
+        #
+        # «до» is the level it robs, not a ceiling over "whatever is lying around".
+        # «от 1 до 7» means 7s are taken and a level-6 star waits, however alone it
+        # is on the map: the five daily robberies are the scarce thing, and one
+        # spent on a 6 is one a 7 cannot have until the reset.
         # Stars only: with no star at that level it robs nothing at all.
+        loot = self._tr(ttk.LabelFrame(sec, padding=6), "secret.autoloot.frame")
+        loot.pack(fill="x", pady=(8, 0))
         self._autoloot_var = tk.BooleanVar(value=False)
-        self._autoloot_chk = self._tr(ttk.Checkbutton(row2, variable=self._autoloot_var,
+        self._autoloot_chk = self._tr(ttk.Checkbutton(loot, variable=self._autoloot_var,
                                                       command=self._toggle_autoloot),
                                       "secret.autoloot")
+        self._autoloot_chk.pack(side="left")
+        self._tr(ttk.Label(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
+        self._lvl_from_var = tk.StringVar()
+        ttk.Entry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        self._tr(ttk.Label(loot), "secret.level_to").pack(side="left", padx=(6, 2))
+        self._lvl_to_var = tk.StringVar()
+        ttk.Entry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
+        self._autoloot_rule_lbl = ttk.Label(loot, foreground="#888", wraplength=380,
+                                            justify="left")
+        self._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
+
         # -- The map sweep: the wrist the passive scan needed -------------------
         #
         # The capture only learns tiles from the responses the client sends while the
@@ -1187,15 +1392,47 @@ class Panel(tk.Tk):
                                      justify="left")
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
+        # -- «Операция Призрак»: the same five-a-day budget, its own standing order --
+        #
+        # Secret tasks had «Автолут ★» and ghost recon had only a manual recipe,
+        # though the targets perish the same way. It needs NO capture and no map
+        # panning: the client already knows every squad
+        # (`ghost.recon.get.task.list`), so the watcher is a poll of the game's own
+        # verdict rather than a reader of a pcap checkpoint — which is why this is a
+        # checkbox of its own and not the secret-task watcher pointed elsewhere.
+        # Six days a week `IsOpenDay()` is false and the whole thing is a no-op.
+        ghost = self._tr(ttk.LabelFrame(main, padding=8), "ghost.frame")
+        ghost.pack(fill="x", padx=8, pady=(0, 6))
+        self._ghost_autoloot_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(ghost, variable=self._ghost_autoloot_var,
+                                 command=self._toggle_ghost_autoloot),
+                 "ghost.autoloot").pack(side="left")
+        self._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
+                 "ghost.hint").pack(side="left", padx=10)
 
         rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
+        rally_top = ttk.Frame(rally)
+        rally_top.pack(fill="x")
         self._rally_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally, variable=self._rally_var, command=self._toggle_rally),
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
+                                 command=self._toggle_rally),
                  "rally.monitor").pack(side="left")
+        # A rally is worth minutes and the alert used to be one log line that
+        # scrolled past. Now it is a line the log paints as news, a bell, and — if
+        # the operator asks for it — the join itself.
+        self._rally_alert_var = tk.BooleanVar(value=True)
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
+                 "rally.alert").pack(side="left", padx=(12, 0))
+        self._rally_autojoin_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
+                 "rally.autojoin").pack(side="left", padx=(12, 0))
+        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
+                 "rally.join_now").pack(side="right")
         # Hint shows the active profile's rally log; refreshed on language/profile change.
-        self._rally_hint = ttk.Label(rally, foreground="#888")
-        self._rally_hint.pack(side="left", padx=10)
+        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
+                                     justify="left")
+        self._rally_hint.pack(anchor="w", pady=(4, 0))
         self._tr_hooks.append(self._update_path_hints)
 
         # Alliance auto-help: a standing order like «Автолут ★», but driven by the
@@ -1243,6 +1480,31 @@ class Panel(tk.Tk):
         for tag, colour in LOG_COLOURS.items():
             self._log.tag_config(tag, foreground=colour)
         self._install_log_copy(self._log)
+
+        # -- one DSL line, run through the same interpreter a recipe runs on ------
+        #
+        # Thirty-odd named presses exist in tools/lib/game_buttons.py and the only
+        # way to fire one from the panel was if some actions/*.md happened to wrap
+        # it — pressing "collect the trucks" once, by hand, meant writing a file
+        # first. This is that file's one line, typed. It also makes debugging a
+        # recipe interactive instead of edit-save-run.
+        cmdrow = ttk.Frame(lower, padding=(8, 0, 8, 6))
+        cmdrow.pack(fill="x")
+        self._tr(ttk.Label(cmdrow), "cmd.label").pack(side="left")
+        self._cmd_var = tk.StringVar()
+        cmd_entry = ttk.Entry(cmdrow, textvariable=self._cmd_var, font=("Consolas", 9))
+        cmd_entry.pack(side="left", fill="x", expand=True, padx=(4, 4))
+        cmd_entry.bind("<Return>", lambda _e: self._run_command())
+        # Up/Down walk what has been typed before — a debugging loop is the same
+        # line with one number changed, over and over.
+        cmd_entry.bind("<Up>", lambda _e: self._cmd_recall(-1))
+        cmd_entry.bind("<Down>", lambda _e: self._cmd_recall(1))
+        self._cmd_hist: list = []
+        self._cmd_at = 0
+        self._tr(ttk.Button(cmdrow, command=self._run_command),
+                 "cmd.run").pack(side="left")
+        self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
+                 "cmd.reference").pack(side="left", padx=(4, 0))
 
     # -- the account dashboard ----------------------------------------------
     #
@@ -1639,6 +1901,8 @@ class Panel(tk.Tk):
             self._start_monitor()
         if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
             self._start_autoloot()
+        if self._ghost_autoloot_var.get():  # the ghost-recon standing order likewise
+            self._start_ghost_autoloot()
         if self._sweep_var.get():           # the map sweep, if the profile had it on
             self._start_sweep()
         if self._chat_var.get():            # chat monitor, if the profile had it on
@@ -1655,27 +1919,28 @@ class Panel(tk.Tk):
         self._start_dashboard()
 
     def _ensure_daemon(self) -> bool:
-        if lua_client.is_running():
+        if self._daemon_up():
             self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
             return True
-        self._log_put("[daemon] не запущен — стартую tools/lua_daemon.py…")
+        self._say("daemon", "log.daemon.starting")
         self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
         try:
             subprocess.Popen(
-                [WIN_PYTHON, os.path.join(TOOLS, "lua_daemon.py")],
+                [self._python(), os.path.join(TOOLS, "lua_daemon.py")],
                 cwd=REPO, creationflags=NO_WINDOW | DETACHED,
+                env=self._child_env(),
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         except Exception as exc:
-            self._log_put(f"[daemon] не удалось запустить: {exc}")
+            self._say("daemon", "log.daemon.launch_failed", error=exc)
             self.after(0, lambda: self._set_daemon(self._t("daemon.error"), False))
             return False
         for _ in range(60):
-            if lua_client.is_running():
-                self._log_put("[daemon] готов (warm)")
+            if self._daemon_up():
+                self._say("daemon", "log.daemon.ready")
                 self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
                 return True
             time.sleep(0.5)
-        self._log_put("[daemon] не поднялся за отведённое время")
+        self._say("daemon", "log.daemon.timeout")
         self.after(0, lambda: self._set_daemon(self._t("daemon.none"), False))
         return False
 
@@ -1721,8 +1986,8 @@ class Panel(tk.Tk):
 
     def _refresh_status(self) -> None:
         def work() -> None:
-            ok, s = game_status()
-            warm = lua_client.is_running()
+            ok, s = game_status(self._game_exe())
+            warm = self._daemon_up()
             self.after(0, lambda: (
                 self._status_var.set(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
@@ -1766,11 +2031,43 @@ class Panel(tk.Tk):
         self._say("game", "log.game.watchdog_relaunch")
         self._run_md_action("launch_game")
 
+    # -- one control that stops everything ----------------------------------
+    def _panic(self) -> None:
+        """«Стоп всё» — every monitor, watcher, sweep, scenario and the schedule.
+
+        The moment you want this is the moment the game is misbehaving, and until now
+        it was five separate clicks across three tabs. The schedule is stopped too:
+        leaving it running would have a timer fire into whatever went wrong a few
+        seconds later.
+
+        A scenario in flight is ASKED to stop (it halts at its next step) rather than
+        killed, so nothing is left half-sent to the game — same as the Scenarios
+        tab's own Stop.
+        """
+        self._say("panel", "panic.log")
+        for var, stop in ((self._mon_var, self._stop_monitor),
+                          (self._autoloot_var, self._stop_autoloot),
+                          (self._ghost_autoloot_var, self._stop_ghost_autoloot),
+                          (self._sweep_var, self._stop_sweep),
+                          (self._rally_var, self._stop_rally),
+                          (self._help_var, self._stop_help),
+                          (self._chat_var, self._stop_chat)):
+            var.set(False)
+            stop()
+        self._stop_scenario_loop()
+        self._stop_scenario()
+        self._timers.stop()
+        # …and say so on the Timers tab, or the schedule would be silently dead for
+        # the rest of the session. That switch is how it comes back.
+        if getattr(self, "_sched_var", None) is not None:
+            self._sched_var.set(False)
+        self._say("panel", "panic.done")
+
     def _load_current_server(self) -> None:
         def work() -> None:
             srv = self._current_server()
             self.after(0, lambda: (self._srv_var.set(srv),
-                                   self._log_put(f"[server] текущий сервер: {srv}")))
+                                   self._say("server", "log.server.current", srv=srv)))
         threading.Thread(target=work, daemon=True).start()
 
     def _current_server(self) -> str:
@@ -1779,13 +2076,29 @@ class Panel(tk.Tk):
                 if "curserver=" in ln:
                     return ln.split("curserver=")[1].split()[0]
         except Exception as exc:
-            self._log_put(f"[server] ошибка чтения: {exc}")
+            self._say("server", "log.server.read_failed", error=exc)
         return DEFAULT_SERVER
 
     def _retranslate_capture_combo(self) -> None:
         idx = self._mon_combo.current()
         self._mon_combo.configure(values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
         self._mon_combo.current(idx if idx >= 0 else 0)
+
+    # -- one way to run a child ---------------------------------------------
+    def _child(self, tag: str, cmd: list, *, on_line=None, on_exit=None,
+               capture_stderr: bool = True) -> "childmonmod.ChildMonitor":
+        """A :class:`panel.childmon.ChildMonitor` wired to this panel.
+
+        The four monitors used to carry a copy each of "spawn a child, stream it
+        into the log, untick the box when it dies" — four places for every fix to be
+        made, or forgotten in three. What differs between them is the command, the
+        tag, what a line means and what its death means; that is exactly the
+        signature here.
+        """
+        return childmonmod.ChildMonitor(
+            cmd, tag, log=self._log_put, cwd=REPO, on_line=on_line, on_exit=on_exit,
+            schedule=self.after, env=self._child_env(),
+            capture_stderr=capture_stderr)
 
     # -- secret-task monitoring ---------------------------------------------
     def _toggle_monitor(self) -> None:
@@ -1807,7 +2120,7 @@ class Panel(tk.Tk):
         # kernel, no flood) but found nothing when the panel forced --all-tcp.
         # Let the capture auto-detect the game's live port; --all-tcp stays a
         # manual last resort for when detection genuinely fails.
-        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, script)]
+        cmd = [self._python(), "-u", os.path.join(TOOLS, script)]
         # Checkpoint what the capture currently sees into the profile, so the
         # auto-loot button has a machine-readable view of the map instead of the
         # log lines this panel prints for the human. Rewritten every tick; the
@@ -1828,33 +2141,23 @@ class Panel(tk.Tk):
         # only learns the server from a map response, which arrives only while the
         # map moves). VPN-independent; the capture's own weight-of-traffic election
         # still overrides this seed the moment real map data disagrees.
-        if lua_client.is_running():
+        if self._daemon_up():
             srv = self._current_server()
             if srv and str(srv).isdigit():
                 cmd += ["--seed-server", str(srv)]
-                self._log_put(f"[secret] сервер из игры (Lua): {srv}")
-        # The child is Windows Python whose piped stdout defaults to the ANSI code
-        # page (cp1251/cp1252), so its em-dash / ellipsis progress glyphs arrived
-        # here as � under our utf-8 decode. Force the child to emit utf-8 to match.
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        self._log_put(f"[secret] запуск захвата: {script} …")
-        try:
-            self._mon_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                env=env, creationflags=NO_WINDOW)
-        except Exception as exc:
-            self._log_put(f"[secret] ошибка запуска: {exc}")
-            self._mon_proc = None
+                self._say("secret", "log.secret.seed_server", srv=srv)
+        self._say("secret", "log.secret.starting", script=script)
+        mon = self._child("secret", cmd, on_line=self._on_secret_line,
+                          on_exit=self._on_secret_exit)
+        if not mon.start():
             self._mon_var.set(False)
             return
+        self._mon_proc = mon
         # Confirm the child really started (so a silent monitor is never mistaken
-        # for a crash) and stream its stdout+stderr into the log. A passive pcap
-        # only yields tiles while the map is scrolling, so remind the user.
-        self._log_put(f"[secret] захват запущен (pid {self._mon_proc.pid}); "
-                      f"вывод идёт в лог — двигай карту, иначе трафика не будет")
-        threading.Thread(target=self._mon_reader, args=(self._mon_proc,), daemon=True).start()
+        # for a crash). A passive pcap only yields tiles while the map is scrolling —
+        # so say so, unless «Автообъезд карты» is already doing the scrolling.
+        self._say("secret", "log.secret.started" if self._sweep_stop is not None
+                  else "log.secret.started_move_map", pid=mon.pid)
 
     def _task_passes(self, ln: str) -> bool:
         """Panel-side filters for a secret-task finding line. Non-task lines always pass.
@@ -1867,7 +2170,10 @@ class Panel(tk.Tk):
         if not m or not coords.parse(ln):
             return True  # header / progress / summary line — never filtered
         lvl = int(m.group(1))
-        lo, hi = self._lvl_from_var.get().strip(), self._lvl_to_var.get().strip()
+        # The DISPLAY filter's own entries — not the auto-loot rule's. The two used
+        # to share one pair and a person narrowing the log silently re-aimed the
+        # robberies with it.
+        lo, hi = self._flt_from_var.get().strip(), self._flt_to_var.get().strip()
         if lo.isdigit() and lvl < int(lo):
             return False
         if hi.isdigit() and lvl > int(hi):
@@ -1888,20 +2194,19 @@ class Panel(tk.Tk):
                 return False
         return True
 
-    def _mon_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                ln = raw.rstrip()
-                if self._task_passes(ln):
-                    self._log_put(f"[secret] {ln}")
-                    if coords.parse(ln):   # a coordinate present -> an actual finding; record it
-                        self._append_secret(ln)
-        except Exception:
-            pass
-        if self._mon_proc is proc:      # ended on its own, not via _stop_monitor
-            self._log_put("[secret] поток мониторинга завершён")
-            self._mon_proc = None
-            self.after(0, lambda: self._mon_var.set(False))
+    def _on_secret_line(self, line: str) -> bool:
+        """One capture line: log it if the display filter lets it through, and record
+        a real finding into the profile's own log."""
+        if not self._task_passes(line):
+            return False                # filtered out — handled, do not log
+        if coords.parse(line):          # a coordinate present -> an actual finding
+            self._append_secret(line)
+        return True
+
+    def _on_secret_exit(self) -> None:
+        self._say("secret", "log.secret.ended")
+        self._mon_proc = None
+        self._mon_var.set(False)
 
     def _append_secret(self, line: str) -> None:
         """Append a secret-task finding to the active profile's log (best-effort)."""
@@ -1912,13 +2217,10 @@ class Panel(tk.Tk):
             pass
 
     def _stop_monitor(self) -> None:
-        proc, self._mon_proc = self._mon_proc, None
-        if proc is not None:
-            self._log_put("[secret] стоп мониторинга")
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        mon, self._mon_proc = self._mon_proc, None
+        if mon is not None:
+            self._say("secret", "log.secret.stopped")
+            mon.stop()
 
     # -- rally monitoring ---------------------------------------------------
     def _toggle_rally(self) -> None:
@@ -1931,46 +2233,85 @@ class Panel(tk.Tk):
         if self._rally_proc is not None:
             return
         out = self._profiles.rally_log()   # per-profile log
-        rel = os.path.relpath(out, REPO)
+        rel = _repo_rel(out)
         try:
             os.makedirs(os.path.dirname(out), exist_ok=True)
         except Exception:
             pass
-        self._log_put(f"[rally] старт мониторинга ралли → {rel}")
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")   # utf-8 to match our decode
-        try:
-            self._rally_proc = subprocess.Popen(
-                [WIN_PYTHON, "-u", os.path.join(TOOLS, "rally_monitor.py"),
-                 "--out", out],   # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                env=env, creationflags=NO_WINDOW)
-        except Exception as exc:
-            self._log_put(f"[rally] ошибка запуска: {exc}")
-            self._rally_proc = None
+        self._say("rally", "log.rally.started", path=rel)
+        # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
+        mon = self._child("rally",
+                          [self._python(), "-u", os.path.join(TOOLS, "rally_monitor.py"),
+                           "--out", out],
+                          on_line=self._on_rally_line, on_exit=self._on_rally_exit)
+        if not mon.start():
             self._rally_var.set(False)
             return
-        threading.Thread(target=self._rally_reader, args=(self._rally_proc,), daemon=True).start()
+        self._rally_proc = mon
 
-    def _rally_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                self._log_put(f"[rally] {raw.rstrip()}")
-        except Exception:
-            pass
-        if self._rally_proc is proc:      # ended on its own, not via _stop_rally
-            self._log_put("[rally] поток мониторинга завершён")
-            self._rally_proc = None
-            self.after(0, lambda: self._rally_var.set(False))
+    def _on_rally_exit(self) -> None:
+        self._say("rally", "log.rally.ended")
+        self._rally_proc = None
+        self._rally_var.set(False)
 
     def _stop_rally(self) -> None:
-        proc, self._rally_proc = self._rally_proc, None
-        if proc is not None:
-            self._log_put("[rally] стоп мониторинга")
+        mon, self._rally_proc = self._rally_proc, None
+        if mon is not None:
+            self._say("rally", "log.rally.stopped")
+            mon.stop()
+
+    # -- the rally alert: a rally is worth minutes ---------------------------
+    #
+    # The monitor's line used to scroll past in a log six producers write to, and
+    # that was the whole of it: the Settings → «Авторалли» page said which squads
+    # may go and NOTHING read it. Now a rally can (a) be announced loudly, (b) be
+    # joined with one press, and (c) be joined by itself.
+    #
+    # `team=<uuid>` in the monitor's own output is what makes a march a rally — a
+    # solo march is tagged `solo` (tools/rally_monitor.py). The uuid is also the
+    # de-duplicator: a rally emits create AND refresh events, and an alert per event
+    # would ring four times for one стяг.
+    def _on_rally_line(self, line: str) -> bool:
+        # The monitor's own line first, then the alert about it — the other way round
+        # reads as an alert with no event under it.
+        if line:
+            self._log_put(f"[rally] {line}")
+        clean = _ANSI.sub("", line)
+        if "team=" not in clean:
+            return False                  # a solo march, or a progress line
+        team = clean.split("team=")[1].split()[0].strip()
+        if not team or team in self._rally_seen:
+            return False
+        self._rally_seen.add(team)
+        if self._rally_alert_var.get():
+            self._say("rally", "rally.alert.fired", team=team)
             try:
-                proc.terminate()
-            except Exception:
+                self.bell()               # not just a line in a scrolling log
+            except tk.TclError:
                 pass
+        if self._rally_autojoin_var.get():
+            self.after(0, self._join_rally_now)
+        return False                      # already logged above
+
+    def _autorally_squads(self) -> list:
+        """The squads the «Авторалли» page allows, as `join_rally` wants them."""
+        raw = self._autorally_config().get("squads")
+        return [int(s) for s in raw] if isinstance(raw, list) else []
+
+    def _join_rally_now(self) -> None:
+        """Join the rallies that are out, with the squads the settings page allows.
+
+        This is what makes the «Авторалли» page real: its squad list IS the recipe's
+        `squads` argument. With no squad ticked the join would be a silent no-op that
+        looked like it had worked, so it refuses and says which page to visit.
+        """
+        squads = self._autorally_squads()
+        if not squads:
+            self._say("rally", "rally.no_squads")
+            return
+        self._say("rally", "rally.joining",
+                  squads=", ".join(str(s) for s in squads))
+        self._run_md_action("join_rally", {"squads": squads})
 
     # -- alliance auto-help: answer push.al.help.new the moment it lands ------
     #
@@ -1994,42 +2335,27 @@ class Panel(tk.Tk):
     def _start_help(self) -> None:
         if self._help_proc is not None:
             return
-        self._log_put("[help] авто-помощь включена — слушаю push.al.help.new")
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")   # utf-8 to match our decode
-        try:
-            self._help_proc = subprocess.Popen(
-                [WIN_PYTHON, "-u", os.path.join(TOOLS, "alliance_help_monitor.py")],
-                # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                env=env, creationflags=NO_WINDOW)
-        except Exception as exc:
-            self._log_put(f"[help] ошибка запуска: {exc}")
-            self._help_proc = None
+        self._say("help", "log.help.on")
+        # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
+        mon = self._child("help",
+                          [self._python(), "-u",
+                           os.path.join(TOOLS, "alliance_help_monitor.py")],
+                          on_exit=self._on_help_exit)
+        if not mon.start():
             self._help_var.set(False)
             return
-        threading.Thread(target=self._help_reader, args=(self._help_proc,),
-                         daemon=True).start()
+        self._help_proc = mon
 
-    def _help_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                self._log_put(f"[help] {raw.rstrip()}")
-        except Exception:
-            pass
-        if self._help_proc is proc:      # ended on its own, not via _stop_help
-            self._log_put("[help] авто-помощь остановлена (процесс завершился)")
-            self._help_proc = None
-            self.after(0, lambda: self._help_var.set(False))
+    def _on_help_exit(self) -> None:
+        self._say("help", "log.help.died")
+        self._help_proc = None
+        self._help_var.set(False)
 
     def _stop_help(self) -> None:
-        proc, self._help_proc = self._help_proc, None
-        if proc is not None:
-            self._log_put("[help] авто-помощь выключена")
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        mon, self._help_proc = self._help_proc, None
+        if mon is not None:
+            self._say("help", "log.help.off")
+            mon.stop()
 
     # -- auto-loot: rob the best starred tasks the capture finds -------------
     #
@@ -2065,10 +2391,9 @@ class Panel(tk.Tk):
         self._autoloot_seen.clear()
         self._autoloot_pause_until = 0.0
         self._autoloot_warned = False
-        self._log_put(f"[autoloot] включён — {self._autoloot_rule_text()}")
+        self._say("autoloot", "log.autoloot.on", rule=self._autoloot_rule_text())
         if self._mon_proc is None:
-            self._log_put("[autoloot] мониторинг секреток выключен: без него скан "
-                          "не обновляется и целей не будет")
+            self._say("autoloot", "log.autoloot.no_monitor")
         threading.Thread(target=self._autoloot_loop, args=(self._autoloot_stop,),
                          daemon=True).start()
 
@@ -2076,7 +2401,7 @@ class Panel(tk.Tk):
         stop, self._autoloot_stop = self._autoloot_stop, None
         if stop is not None:
             stop.set()
-            self._log_put("[autoloot] выключен")
+            self._say("autoloot", "log.autoloot.off")
 
     def _autoloot_loop(self, stop: threading.Event) -> None:
         """Poll the capture checkpoint until the checkbox is cleared.
@@ -2096,8 +2421,8 @@ class Panel(tk.Tk):
                 err = f"{type(exc).__name__}: {exc}"
                 if err != last_err:
                     last_err = err
-                    self._log_put(f"[autoloot] ошибка опроса скана: {err}")
-            if stop.wait(AUTOLOOT_POLL):
+                    self._say("autoloot", "log.autoloot.poll_error", error=err)
+            if stop.wait(self._opt_float("autoloot_poll", low=1.0, high=600.0)):
                 return
 
     def _autoloot_tick(self) -> None:
@@ -2110,8 +2435,7 @@ class Panel(tk.Tk):
         if not os.path.exists(checkpoint):
             if not self._autoloot_warned:            # say it once, not every poll
                 self._autoloot_warned = True
-                self._log_put("[autoloot] нет данных скана — включи «Мониторинг» "
-                              "секреток и подвигай карту")
+                self._say("autoloot", "log.autoloot.no_scan")
             return
         self._autoloot_warned = False
         targets = self._autoloot_targets(checkpoint)
@@ -2123,7 +2447,7 @@ class Panel(tk.Tk):
         if not fresh:
             return
         for _uuid, _srv, label in fresh:
-            self._log_put(f"[autoloot] цель: {label}")
+            self._say("autoloot", "log.autoloot.target", label=label)
         # Mark *every* target of the rule, not just the fresh ones: the child gets
         # the same checkpoint and will attempt the whole list, so the panel must
         # not treat the rest as new the next time round.
@@ -2139,7 +2463,7 @@ class Panel(tk.Tk):
         """
         import steal_secret_task     # lazy: keeps panel start-up free of it
         lo, hi = self._autoloot_levels()
-        return steal_secret_task.targets_from_scan(checkpoint, limit=AUTOLOOT_LIMIT,
+        return steal_secret_task.targets_from_scan(checkpoint, limit=self._autoloot_limit(),
                                                    star_max=True, level_min=lo,
                                                    level_max=hi, say=lambda _m: None)
 
@@ -2171,8 +2495,9 @@ class Panel(tk.Tk):
                        lo=lo if lo is not None else "—")
 
     def _autoloot_run(self, checkpoint: str) -> None:
-        cmd = [WIN_PYTHON, "-u", os.path.join(TOOLS, "steal_secret_task.py"),
-               "--from-scan", checkpoint, "--star-max", "--limit", str(AUTOLOOT_LIMIT)]
+        cmd = [self._python(), "-u", os.path.join(TOOLS, "steal_secret_task.py"),
+               "--from-scan", checkpoint, "--star-max",
+               "--limit", str(self._autoloot_limit())]
         # The child re-reads the checkpoint and re-applies the rule, so the range
         # has to travel with it: without these the watcher would agree to a
         # target inside the range and the child would then rob outside it.
@@ -2202,9 +2527,9 @@ class Panel(tk.Tk):
         except Exception:
             pass
         if spent:
-            self._autoloot_pause_until = time.time() + AUTOLOOT_SPENT_PAUSE
-            self._log_put("[autoloot] дневной лимит краж исчерпан — пауза %d мин "
-                          "(после сброса продолжу сам)" % int(AUTOLOOT_SPENT_PAUSE // 60))
+            pause = self._opt_int("autoloot_pause_min", low=1, high=1440) * 60
+            self._autoloot_pause_until = time.time() + pause
+            self._say("autoloot", "log.autoloot.spent", mins=int(pause // 60))
         if self._autoloot_proc is proc:
             self._autoloot_proc = None
 
@@ -2217,14 +2542,13 @@ class Panel(tk.Tk):
         ANSI code page and mangle its glyphs under our utf-8 decode), no console
         window. Returns the process, or None if it failed to start.
         """
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
         try:
             return subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                env=env, creationflags=NO_WINDOW)
+                env=self._child_env(), creationflags=NO_WINDOW)
         except Exception as exc:
-            self._log_put(f"[{tag}] ошибка запуска: {exc}")
+            self._say(tag, "log.launch_failed", error=exc)
             return None
 
     def _ask_run_label(self) -> "str | None":
@@ -2272,13 +2596,12 @@ class Panel(tk.Tk):
         self._sniff_label = label
         self._sniff_files = {}
 
-        self._log_put("[traffic] запуск сырого снифера трафика (live_sniffer.py) …")
+        self._say("traffic", "log.traffic.starting")
         self._sniff_proc = self._spawn_sniffer(
-            [WIN_PYTHON, "-u", TRAFFIC_SNIFFER] + label_args, "traffic")
+            [self._python(), "-u", TRAFFIC_SNIFFER] + label_args, "traffic")
         if self._sniff_proc is not None:
             self._sniff_ready["traffic"] = None
-            self._log_put(f"[traffic] снифер запущен (pid {self._sniff_proc.pid}); "
-                          f"вывод идёт в лог, запись — в results/traffic/")
+            self._say("traffic", "log.traffic.started", pid=self._sniff_proc.pid)
             threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
                              daemon=True).start()
 
@@ -2291,23 +2614,22 @@ class Panel(tk.Tk):
         # throwing away repeats: TRACE_FILTER covers the wire (SFS*) and the code that
         # drives it (*Manager / *Util), while the UI redraw noise that actually floods
         # Player.log and freezes the game is left out.
-        self._log_put(f"[trace] запуск трассировщика Lua-функций "
-                      f"(lua_trace.py --filter {TRACE_FILTER}, без дедупа) …")
+        self._say("trace", "log.trace.starting", filter=self._trace_filter())
         self._trace_proc = self._spawn_sniffer(
-            [WIN_PYTHON, "-u", FUNCTION_SNIFFER, "--filter", TRACE_FILTER] + label_args,
+            [self._python(), "-u", FUNCTION_SNIFFER,
+             "--filter", self._trace_filter()] + label_args,
             "trace")
         if self._trace_proc is not None:
             self._sniff_ready["trace"] = None
-            self._log_put(f"[trace] трассировщик запущен (pid {self._trace_proc.pid}); "
-                          f"вывод идёт в лог, запись — в results/traces/")
+            self._say("trace", "log.trace.started", pid=self._trace_proc.pid)
             threading.Thread(target=self._trace_reader, args=(self._trace_proc,),
                              daemon=True).start()
 
         if self._sniff_proc is None and self._trace_proc is None:
             self._sniff_var.set(False)
             return
-        self._log_put("[sniff] жду готовности обоих потоков — пока не действуй в игре …")
-        self.after(int(SNIFF_READY_TIMEOUT * 1000), self._sniff_ready_watchdog)
+        self._say("sniff", "log.sniff.waiting")
+        self.after(int(self._sniff_timeout() * 1000), self._sniff_ready_watchdog)
 
     def _mark_sniff_ready(self, part: str, ok: bool) -> None:
         """Record one half's verdict; announce as soon as both have reported.
@@ -2325,13 +2647,12 @@ class Panel(tk.Tk):
         dt = time.time() - self._sniff_t0
         live = [p for p, v in state.items() if v]
         if len(live) == len(state):
-            self._log_put(f"[sniff] ГОТОВ ({dt:.1f} с) — оба потока пишут, "
-                          f"можно выполнять действия в игре")
+            self._say("sniff", "log.sniff.ready", sec=f"{dt:.1f}")
         elif live:
-            self._log_put(f"[sniff] ЧАСТИЧНО ГОТОВ ({dt:.1f} с) — пишет только "
-                          f"{', '.join(live)}; вторая половина сессии потеряна")
+            self._say("sniff", "log.sniff.partial", sec=f"{dt:.1f}",
+                      live=", ".join(live))
         else:
-            self._log_put(f"[sniff] НЕ ГОТОВ ({dt:.1f} с) — ни один поток не пишет")
+            self._say("sniff", "log.sniff.not_ready", sec=f"{dt:.1f}")
 
     def _sniff_ready_watchdog(self) -> None:
         """Never leave the log on "жду готовности" if a marker never arrives."""
@@ -2339,9 +2660,8 @@ class Panel(tk.Tk):
             return                                   # session already over
         pending = [p for p, v in self._sniff_ready.items() if v is None]
         if pending:
-            self._log_put(f"[sniff] готовность не подтверждена за "
-                          f"{SNIFF_READY_TIMEOUT:.0f} с: {', '.join(pending)} — "
-                          f"проверь лог выше")
+            self._say("sniff", "log.sniff.unconfirmed",
+                      sec=f"{self._sniff_timeout():.0f}", pending=", ".join(pending))
 
     def _note_run_file(self, kind: str, line: str, marker: str) -> None:
         """Remember the run file a child says it opened (`marker` precedes the path).
@@ -2369,7 +2689,7 @@ class Panel(tk.Tk):
         except Exception:
             pass
         if self._sniff_proc is proc:      # ended on its own, not via _stop_sniff
-            self._log_put("[traffic] снифер завершён")
+            self._say("traffic", "log.traffic.ended")
             self._sniff_proc = None
             self._mark_sniff_ready("traffic", False)  # died before reporting: nothing captured
             self._sync_sniff_var()
@@ -2388,7 +2708,7 @@ class Panel(tk.Tk):
         except Exception:
             pass
         if self._trace_proc is proc:      # ended on its own, not via _stop_sniff
-            self._log_put("[trace] трассировщик завершён")
+            self._say("trace", "log.trace.ended")
             self._trace_proc = None
             self._mark_sniff_ready("trace", False)   # died before reporting: no hooks
             self._sync_sniff_var()
@@ -2412,14 +2732,14 @@ class Panel(tk.Tk):
     def _stop_sniff(self) -> None:
         proc, self._sniff_proc = self._sniff_proc, None
         if proc is not None:
-            self._log_put("[traffic] стоп снифера трафика")
+            self._say("traffic", "log.traffic.stopped")
             try:
                 proc.terminate()
             except Exception:
                 pass
         proc, self._trace_proc = self._trace_proc, None
         if proc is not None:
-            self._log_put("[trace] стоп трассировщика")
+            self._say("trace", "log.trace.stopped")
             try:
                 proc.terminate()
             except Exception:
@@ -2535,7 +2855,7 @@ class Panel(tk.Tk):
                 return
             win.destroy()
             gone = run_notes.discard_run(paths)
-            self._log_put(f"[sniff] запись удалена ({len(gone)} файл(ов))")
+            self._say("sniff", "log.sniff.discarded", n=len(gone))
 
         ttk.Button(btns, text=self._t("develop.run.discard"),
                    command=discard).pack(side="left")
@@ -2548,16 +2868,15 @@ class Panel(tk.Tk):
     def _save_run_note(self, paths: list, label: str, description: str) -> None:
         """Keep the run; write the description beside every file of it."""
         if not description:
-            self._log_put("[sniff] запись сохранена без описания — при анализе "
-                          "придётся спрашивать, что делалось в игре")
+            self._say("sniff", "log.sniff.kept_bare")
             return
         try:
             written = run_notes.write_note(paths, description, label=label)
         except Exception as exc:      # noqa: BLE001  (a note must never break the panel)
-            self._log_put(f"[sniff] описание не сохранено: {exc}")
+            self._say("sniff", "log.sniff.note_failed", error=exc)
             return
         names = ", ".join(_repo_rel(p) for p in written)
-        self._log_put(f"[sniff] запись сохранена, описание → {names or '—'}")
+        self._say("sniff", "log.sniff.kept", path=names or "—")
 
     def _run_file_caption(self, kind: str, path: str) -> str:
         """One line of the dialog's info block: path, size and what is inside."""
@@ -2580,20 +2899,19 @@ class Panel(tk.Tk):
         clear).
         """
         try:
-            ev = lua_client.get_evaluator()
+            ev = lua_client.get_evaluator(port=self._daemon_port())
         except Exception as exc:      # noqa: BLE001
-            self._log_put(f"[trace] снятие хуков: evaluator недоступен ({exc})")
+            self._say("trace", "log.trace.no_evaluator", error=exc)
             return
         try:
             for attempt in range(3):
                 out = ev.run(lua_trace.RESTORE_CHUNK, marker="XSTRACE", settle=1.5 + attempt)
                 if any("XSTRACE restored" in ln for ln in out):
-                    self._log_put("[trace] хуки сняты: " + "; ".join(out))
+                    self._say("trace", "log.trace.unhooked", detail="; ".join(out))
                     return
-            self._log_put("[trace] снятие хуков НЕ подтверждено за 3 попытки — "
-                          "проверь игру (rerun tools/lua_trace.py или перезапуск)")
+            self._say("trace", "log.trace.unhook_unconfirmed")
         except Exception as exc:      # noqa: BLE001  (teardown must never crash)
-            self._log_put(f"[trace] ошибка снятия хуков: {exc}")
+            self._say("trace", "log.trace.unhook_failed", error=exc)
         finally:
             try:
                 ev.close()
@@ -2625,8 +2943,8 @@ class Panel(tk.Tk):
 
         def work() -> None:
             try:
-                if not lua_client.is_running() and not self._ensure_daemon():
-                    self._log_put("[coord] daemon недоступен")
+                if not self._daemon_up() and not self._ensure_daemon():
+                    self._say("coord", "log.no_daemon")
                     return
                 cur = self._current_server()
                 target = int(server) if server is not None else int(cur)
@@ -2638,8 +2956,9 @@ class Panel(tk.Tk):
                     self._log_put(f"[coord] {ln}")
                 if not quiet:
                     self._say("coord", "log.done")
+                    self.after(0, lambda: self._remember_jump(x, y, target))
             except Exception as exc:
-                self._log_put(f"[coord] ошибка: {exc}")
+                self._say("coord", "log.error", error=exc)
             finally:
                 self._release_busy()
                 self.after(400, self._refresh_status)
@@ -2648,16 +2967,57 @@ class Panel(tk.Tk):
         return True
 
     def _on_coord_click(self, x: int, y: int, server) -> None:
-        self._log_put(f"[coord] клик → ({x},{y})" + (f" сервер {server}" if server is not None else ""))
+        self._say("coord", "log.coord.clicked", where=coords.fmt(x, y, server))
         self._jump(x, y, server)
 
     def _goto_coord(self) -> None:
         x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
         if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
-            self._log_put("[coord] X и Y должны быть целыми числами")
+            self._say("coord", "log.coord.bad_xy")
             return
         srv = srv if srv.isdigit() else DEFAULT_SERVER
         self._jump(int(x), int(y), int(srv))
+
+    # -- where the jump has been --------------------------------------------
+    #
+    # X/Y/server was one triple and there was no memory of it at all, though
+    # hopping between a handful of known tiles (the base, an alliance city, the
+    # mine somebody keeps taking) is the routine use. The most recent jump is
+    # first, the list is capped, and it belongs to the profile like everything
+    # else — one account's tiles are not the other's.
+    JUMP_HISTORY_MAX = 20
+
+    def _remember_jump(self, x: int, y: int, server) -> None:
+        token = coords.fmt(x, y, server)
+        hist = [t for t in self._jump_hist if t != token]
+        hist.insert(0, token)
+        self._set_jump_history(hist[:self.JUMP_HISTORY_MAX])
+        self._save_settings()
+
+    def _set_jump_history(self, tokens) -> None:
+        """Replace the history and repaint the combobox (tolerant of junk)."""
+        self._jump_hist = [str(t) for t in (tokens or []) if str(t).strip()]
+        combo = getattr(self, "_jump_hist_combo", None)
+        if combo is None:
+            return
+        try:
+            combo.configure(values=self._jump_hist)
+            self._jump_hist_var.set("")
+        except tk.TclError:
+            pass
+
+    def _on_jump_history(self, _event=None) -> None:
+        """A history entry was picked: fill the three fields from it and jump."""
+        token = self._jump_hist_var.get().strip()
+        found = coords.parse(token)
+        if not found:
+            return
+        _s, _e, x, y, srv = found[0]
+        self._x_var.set(str(x))
+        self._y_var.set(str(y))
+        if srv is not None:
+            self._srv_var.set(str(srv))
+        self._jump(int(x), int(y), int(srv) if srv is not None else None)
 
     # -- generic action -----------------------------------------------------
     # -- one game action at a time ------------------------------------------
@@ -2680,20 +3040,20 @@ class Panel(tk.Tk):
 
     def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
         if not self._claim_busy():
-            self._log_put("[panel] занят — дождись завершения текущего действия")
+            self._say("panel", "busy")
             return
         self._log_put(f"[{tag}] {label}")
 
         def work() -> None:
             try:
-                if not lua_client.is_running() and not self._ensure_daemon():
-                    self._log_put(f"[{tag}] daemon недоступен")
+                if not self._daemon_up() and not self._ensure_daemon():
+                    self._say(tag, "log.no_daemon")
                     return
                 for ln in self._client.run(chunk, marker="ACT", settle=settle):
                     self._log_put(f"[{tag}] {ln}")
-                self._log_put(f"[{tag}] готово")
+                self._say(tag, "log.done")
             except Exception as exc:
-                self._log_put(f"[{tag}] ошибка: {exc}")
+                self._say(tag, "log.error", error=exc)
             finally:
                 self._release_busy()
                 self.after(400, self._refresh_status)
@@ -2705,18 +3065,20 @@ class Panel(tk.Tk):
         # Launch through the same DSL recipe the bot uses: actions/launch_game.md
         # (LAUNCH the launcher, then WAIT for the base screen). One source of truth
         # for "start the game", shared by the panel and any scripted run.
-        self._log_put("[game] запуск через рецепт launch_game…")
+        self._say("game", "log.game.launching")
         self._run_md_action("launch_game")
 
     def _restart_game(self) -> None:
+        exe = self._game_exe()
+
         def work() -> None:
-            self._log_put(f"[game] убиваю {GAME_EXE}…")
+            self._say("game", "log.game.killing", exe=exe)
             try:
-                r = subprocess.run(["taskkill", "/F", "/IM", GAME_EXE],
+                r = subprocess.run(["taskkill", "/F", "/IM", exe],
                                    capture_output=True, text=True, creationflags=NO_WINDOW)
                 self._log_put(f"[game] taskkill: {(r.stdout or r.stderr).strip() or 'ok'}")
             except Exception as exc:
-                self._log_put(f"[game] ошибка kill: {exc}")
+                self._say("game", "log.game.kill_failed", error=exc)
             time.sleep(1.0)
             # Relaunch via the recipe (waits for the base screen, then daemon
             # re-initialises on the next action).
@@ -2841,12 +3203,205 @@ class Panel(tk.Tk):
             if stop.wait(dwell):
                 return
 
+    # -- «Операция Призрак»: the same standing order, no capture needed -------
+    #
+    # Secret tasks needed a pcap because their tiles only arrive while the map moves.
+    # Ghost recon does not: the client keeps the whole squad list
+    # (`ghost.recon.get.task.list`) and its own verdict on each, so the watcher polls
+    # the game rather than a checkpoint. tools/ghost_recon_steal.py --all does the
+    # deciding and the robbing, exactly as steal_secret_task.py does for the other.
+    def _toggle_ghost_autoloot(self) -> None:
+        if self._ghost_autoloot_var.get():
+            self._start_ghost_autoloot()
+        else:
+            self._stop_ghost_autoloot()
+
+    def _start_ghost_autoloot(self) -> None:
+        if self._ghost_stop is not None:
+            return
+        self._ghost_stop = threading.Event()
+        self._say("ghost", "ghost.on")
+        threading.Thread(target=self._ghost_loop, args=(self._ghost_stop,),
+                         daemon=True).start()
+
+    def _stop_ghost_autoloot(self) -> None:
+        stop, self._ghost_stop = self._ghost_stop, None
+        if stop is not None:
+            stop.set()
+            self._say("ghost", "ghost.off")
+
+    def _ghost_loop(self, stop: threading.Event) -> None:
+        """Poll the event's budget; rob when it is open and something is robbable."""
+        last_err = ""
+        while not stop.is_set():
+            wait = GHOST_POLL
+            try:
+                wait = self._ghost_tick()
+                last_err = ""
+            except Exception as exc:      # noqa: BLE001
+                err = f"{type(exc).__name__}: {exc}"
+                if err != last_err:
+                    last_err = err
+                    self._say("ghost", "log.ghost.error", error=err)
+            if stop.wait(wait):
+                return
+
+    def _ghost_tick(self) -> float:
+        """One look. Returns how long to wait before the next one.
+
+        Six days a week the event is shut, `IsOpenDay()` says so in one cheap read,
+        and the answer is "look again in an hour" — a minute-by-minute poll of a
+        closed event is a log nobody wants and a round trip nobody needs.
+        """
+        if self._ghost_proc is not None:      # a robbery is still running
+            return GHOST_POLL
+        if self._busy or not self._daemon_up():
+            return GHOST_POLL
+        running, _text = game_status(self._game_exe())
+        if not running:
+            return GHOST_POLL
+        chunk = ('CS.UnityEngine.Debug.LogError("GHOST open=" .. tostring(%s) '
+                 '.. " left=" .. tostring(%s))'
+                 % (lua_actions.ghost_recon_is_open(),
+                    lua_actions.ghost_recon_steals_left()))
+        text = " ".join(self._client.run(chunk, marker="GHOST", settle=0.6))
+        if "open=1" not in text:
+            return GHOST_CLOSED_PAUSE
+        left = 0
+        if "left=" in text:
+            try:
+                left = int(float(text.split("left=")[1].split()[0]))
+            except (ValueError, IndexError):
+                left = 0
+        if left <= 0:
+            # Open, but today's five are spent. The reset is at the server's day
+            # boundary, so the same pause the secret-task watcher uses fits.
+            return self._opt_int("autoloot_pause_min", low=1, high=1440) * 60.0
+        self._ghost_run(left)
+        return GHOST_POLL
+
+    def _ghost_run(self, left: int) -> None:
+        cmd = [self._python(), "-u", os.path.join(TOOLS, "ghost_recon_steal.py"),
+               "--all", "--limit", str(min(left, self._autoloot_limit()))]
+        self._say("ghost", "ghost.robbing", n=left)
+        proc = self._spawn_sniffer(cmd, "ghost")
+        if proc is None:
+            return
+        self._ghost_proc = proc
+        threading.Thread(target=self._ghost_reader, args=(proc,), daemon=True).start()
+
+    def _ghost_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                ln = raw.rstrip()
+                if ln:
+                    self._log_put(f"[ghost] {ln}")
+        except Exception:
+            pass
+        if self._ghost_proc is proc:
+            self._ghost_proc = None
+
+    # -- one DSL line, typed --------------------------------------------------
+    def _run_command(self) -> None:
+        """Run whatever is in the command box through the recipe interpreter.
+
+        The very same `run_text` a timer's inline step goes through, so a line that
+        works here works verbatim in a timer or a recipe — which is the point. It
+        claims the busy flag like every other game action, so it queues behind
+        nothing and races nothing.
+        """
+        text = self._cmd_var.get().strip()
+        if not text:
+            return
+        if not self._cmd_hist or self._cmd_hist[-1] != text:
+            self._cmd_hist.append(text)
+        self._cmd_at = len(self._cmd_hist)
+        self._cmd_var.set("")
+        if not self._claim_busy():
+            self._say("cmd", "busy")
+            return
+        self._log_put(f"[cmd] {text}")
+
+        def work() -> None:
+            try:
+                if not self._daemon_up() and not self._ensure_daemon():
+                    self._say("cmd", "log.no_daemon")
+                    return
+                from lastwar_bot import script_engine
+                ctx = script_engine.new_context(
+                    hwnd=0, on_event=lambda msg: self._log_put(f"[cmd] {msg}"))
+                ok = script_engine.run_text(text, ctx=ctx, label="cmd")
+                self._say("cmd", "cmd.ok" if ok else "cmd.failed")
+            except Exception as exc:                       # noqa: BLE001
+                self._say("cmd", "log.error", error=exc)
+            finally:
+                self._release_busy()
+                self.after(400, self._refresh_status)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cmd_recall(self, delta: int) -> str:
+        """Up / Down through what has been typed — a debugging loop is one line
+        with one number changed, over and over."""
+        if not self._cmd_hist:
+            return "break"
+        self._cmd_at = max(0, min(len(self._cmd_hist), self._cmd_at + delta))
+        self._cmd_var.set(self._cmd_hist[self._cmd_at]
+                          if self._cmd_at < len(self._cmd_hist) else "")
+        return "break"
+
+    def _show_button_reference(self) -> None:
+        """The `TAP` vocabulary as a window: name · label · xall · cap.
+
+        tools/lib/game_buttons.py is what `TAP` speaks and a person writing a recipe
+        in the panel's own editor had no way to see the list without opening the
+        source. Double-clicking a row drops `TAP <name>` into the command box, so the
+        reference and the box are one tool.
+        """
+        win = tk.Toplevel(self)
+        win.title(self._t("cmd.reference.title"))
+        win.transient(self)
+        win.geometry("620x460")
+        frm = ttk.Frame(win, padding=8)
+        frm.pack(fill="both", expand=True)
+        self._tr(ttk.Label(frm, foreground="#888", wraplength=580, justify="left"),
+                 "cmd.reference.hint").pack(anchor="w", pady=(0, 6))
+        cols = ("name", "label", "xall")
+        tree = ttk.Treeview(frm, columns=cols, show="headings", height=16)
+        for col, width in zip(cols, (170, 330, 60)):
+            tree.heading(col, text=self._t(f"cmd.reference.col.{col}"))
+            tree.column(col, width=width, anchor="w")
+        sb = ttk.Scrollbar(frm, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        for name in game_buttons.names():
+            btn = game_buttons.get(name)
+            if btn is None:
+                continue
+            xall = f"≤{btn.max_taps}" if btn.count_lua else "—"
+            tree.insert("", "end", values=(name, btn.label, xall))
+
+        def take(_event=None) -> None:
+            sel = tree.selection()
+            if not sel:
+                return
+            name = tree.item(sel[0], "values")[0]
+            self._cmd_var.set(f"TAP {name}")
+            win.destroy()
+
+        tree.bind("<Double-Button-1>", take)
+        ttk.Button(frm, text=self._t("cmd.reference.take"), command=take).pack(
+            side="bottom", anchor="e", pady=(6, 0))
+
     def _on_close(self) -> None:
         # A debounced edit is still pending for up to a second — write it before
         # the window goes, or the last thing typed is the thing that is lost.
         self._flush_scenario_save()
+        self._save_settings()   # geometry and the sash, as the operator left them
         self._stop_monitor()
         self._stop_autoloot()
+        self._stop_ghost_autoloot()
         self._stop_sweep()
         self._stop_dashboard()
         self._stop_rally()
@@ -2857,6 +3412,53 @@ class Panel(tk.Tk):
         self._timers.stop()
         self._close_panel_log()
         self.destroy()
+
+    # -- window geometry, remembered per profile -----------------------------
+    def _current_geometry(self) -> str:
+        try:
+            return self.winfo_geometry()
+        except tk.TclError:
+            return ""
+
+    def _current_sash(self) -> int:
+        """Where the operator left the log's sash, in pixels from the top."""
+        split = getattr(self, "_main_split", None)
+        if split is None:
+            return 0
+        try:
+            return int(split.sashpos(0))
+        except (tk.TclError, IndexError):
+            return 0
+
+    def _restore_geometry(self) -> None:
+        """Put the window and the sash back where they were.
+
+        The sash needs the window to have been laid out first (its position is in
+        pixels and there are none before the first idle pass), which is why this is
+        an `after` rather than a call.
+        """
+        geom = str(self._settings.get("window_geometry") or "").strip()
+        if geom:
+            try:
+                self.geometry(geom)
+            except tk.TclError:
+                pass
+        sash = self._settings.get("log_sash")
+        try:
+            sash = int(sash)
+        except (TypeError, ValueError):
+            return
+        if sash > 0:
+            self.after(200, lambda: self._apply_sash(sash))
+
+    def _apply_sash(self, sash: int) -> None:
+        split = getattr(self, "_main_split", None)
+        if split is None:
+            return
+        try:
+            split.sashpos(0, sash)
+        except (tk.TclError, IndexError):
+            pass
 
 
     # -- scenarios tab (run .md action scripts) -----------------------------
@@ -2929,6 +3531,15 @@ class Panel(tk.Tk):
                     textvariable=self._scn_interval_var).pack(side="left")
         self._tr(ttk.Button(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
+        # actions/dev/ is deliberately hidden from the picker — but it also hid
+        # work_treasure and collect_trucks, and reaching those meant a code change.
+        # A checkbox is the right size for "show the experimental ones too".
+        self._scn_dev_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(controls, variable=self._scn_dev_var,
+                                 command=self._refresh_actions),
+                 "scenarios.show_dev").pack(side="right", padx=(0, 8))
+        self._tr(ttk.Button(controls, command=self._show_button_reference),
+                 "cmd.reference").pack(side="right", padx=(0, 8))
 
         # Arguments for the run — the script's own `ARGS` defaults fill in the rest.
         # JSON, because that is what a timer's `args` block is too, so a line that
@@ -2956,6 +3567,13 @@ class Panel(tk.Tk):
         # log's copy, see _install_log_copy).
         self._scn_editor.bind("<Control-KeyPress>", self._on_editor_ctrl_key)
 
+        # The first parse error of what is in the editor, shown where it is typed —
+        # a debounced save now refuses a recipe that does not parse instead of
+        # replacing a working one with it.
+        self._scn_problem_lbl = ttk.Label(frame, foreground="#c33", wraplength=680,
+                                          justify="left")
+        self._scn_problem_lbl.pack(anchor="w", pady=(4, 0))
+
         self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
@@ -2966,10 +3584,13 @@ class Panel(tk.Tk):
     def _refresh_actions(self) -> None:
         """(Re)load the action list into the listbox, keeping the selection if possible."""
         prev = self._selected_action_name()
-        self._scn_actions = list_actions()
+        self._scn_actions = list_actions(
+            include_dev=bool(getattr(self, "_scn_dev_var", None)
+                             and self._scn_dev_var.get()),
+            lang=self._i18n.lang)
         self._paint_action_rows()
         if not self._scn_actions:
-            self._log_put("[action] " + self._t("scenarios.empty"))
+            self._say("action", "scenarios.empty")
             return
         idx = next((i for i, a in enumerate(self._scn_actions) if a["name"] == prev), 0)
         self._scn_list.selection_clear(0, "end")
@@ -3009,7 +3630,9 @@ class Panel(tk.Tk):
         self._scn_list.delete(0, "end")
         for item in self._scn_actions:
             mark = RUNNING_MARK if item["name"] == self._scn_running else "   "
-            self._scn_list.insert("end", f"{mark} {item['title']}   ·   {item['name']}")
+            dev = DEV_MARK if item.get("dev") else ""
+            self._scn_list.insert("end",
+                                  f"{mark} {dev}{item['title']}   ·   {item['name']}")
         for idx in sel:
             self._scn_list.selection_set(idx)
         self._scn_list.configure(state=keep)
@@ -3023,7 +3646,7 @@ class Panel(tk.Tk):
     def _run_selected_action(self) -> None:
         name = self._selected_action_name()
         if name is None:
-            self._log_put("[action] " + self._t("scenarios.none_selected"))
+            self._say("action", "scenarios.none_selected")
             return
         args = self._scenario_args()
         if args is None:                      # unreadable JSON — already complained
@@ -3043,11 +3666,11 @@ class Panel(tk.Tk):
         try:
             args = json.loads(raw)
         except ValueError as exc:
-            self._log_put("[action] " + self._t("scenarios.bad_args", error=exc))
+            self._say("action", "scenarios.bad_args", error=exc)
             return None
         if not isinstance(args, dict):
-            self._log_put("[action] " + self._t("scenarios.bad_args",
-                                                error="expected {\"name\": value}"))
+            self._say("action", "scenarios.bad_args",
+                      error="expected {\"name\": value}")
             return None
         return args
 
@@ -3066,7 +3689,7 @@ class Panel(tk.Tk):
         # otherwise a change made a second ago would silently not be in the run.
         self._flush_scenario_save()
         if not self._claim_busy():
-            self._log_put("[action] " + self._t("busy"))
+            self._say("action", "busy")
             return
         shown = f"{name} {json.dumps(args, ensure_ascii=False)}" if args else name
         self._log_put(f"[action] {shown}: {self._t('scenarios.running')}")
@@ -3122,8 +3745,7 @@ class Panel(tk.Tk):
         cancel.set()
         if getattr(self, "_scn_loop_var", None) is not None and self._scn_loop_var.get():
             self._stop_scenario_loop()
-        self._log_put("[action] " + self._t("scenarios.stopping",
-                                            name=self._scn_running or ""))
+        self._say("action", "scenarios.stopping", name=self._scn_running or "")
 
     # -- scenario editor ----------------------------------------------------
 
@@ -3163,6 +3785,8 @@ class Panel(tk.Tk):
             self._scn_loading = False
         self._scn_editor_name = name
         self._scn_editor_path = path
+        # A freshly opened file's own problems, if any — not the last file's.
+        self._show_scenario_problem(self._scenario_problem(text))
 
     def _on_editor_modified(self, _event=None) -> None:
         """Tk's <<Modified>> fires once until reset — use it to debounce the save."""
@@ -3194,20 +3818,68 @@ class Panel(tk.Tk):
         self._save_scenario()
 
     def _save_scenario(self) -> None:
-        """Write the editor back to the file it was loaded from."""
+        """Write the editor back to the file it was loaded from — checked, and backed up.
+
+        Two things the editor used to be missing, both of which cost work:
+
+          * **The text is parsed first.** The editor wrote whatever was in it a second
+            after the last keystroke, so a typo was discovered when the run failed —
+            and by then the file had already replaced a working recipe. The DSL
+            parser was right there; now the first error lands under the editor and
+            the previous file is left alone.
+          * **A `.bak` of the previous text.** Tk's own undo is in-session only, so a
+            panel restart between the mistake and noticing it meant the recipe was
+            gone. One copy of the last good version, beside the file.
+        """
         self._scn_save_job = None
         name, path = self._scn_editor_name, self._scn_editor_path
         if name is None or path is None:
             return
         text = self._scn_editor.get("1.0", "end-1c")
+        problem = self._scenario_problem(text)
+        self._show_scenario_problem(problem)
+        if problem is not None:
+            # Not a save. The file on disk is still the last thing that parsed.
+            return
         try:
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as fh:
+                    previous = fh.read()
+                if previous != text:
+                    with open(path + ".bak", "w", encoding="utf-8", newline="\n") as fh:
+                        fh.write(previous)
             with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
         except OSError as exc:
-            self._log_put("[action] " + self._t("scenarios.save_failed",
-                                                name=name, error=exc))
+            self._say("action", "scenarios.save_failed", name=name, error=exc)
             return
-        self._log_put("[action] " + self._t("scenarios.saved", name=name))
+        self._say("action", "scenarios.saved", name=name)
+
+    @staticmethod
+    def _scenario_problem(text: str) -> "str | None":
+        """The first thing wrong with this recipe text, or ``None`` if it parses.
+
+        The parser is run over the source with its `ARGS` defaults already
+        substituted, exactly as a run would — otherwise a `{squads}` placeholder
+        would read as a syntax error in a file that runs perfectly.
+        """
+        try:
+            from lastwar_bot import script_engine
+            source, _defaults = script_engine.prepare_source(text, None)
+            script_engine.parse_text(source)
+        except Exception as exc:      # noqa: BLE001 — any parse complaint, verbatim
+            return str(exc)
+        return None
+
+    def _show_scenario_problem(self, problem: "str | None") -> None:
+        lbl = getattr(self, "_scn_problem_lbl", None)
+        if lbl is None:
+            return
+        try:
+            lbl.configure(text="" if problem is None
+                          else self._t("scenarios.parse_error", error=problem))
+        except tk.TclError:
+            pass
 
     def _on_editor_ctrl_key(self, event):
         """Undo / redo by physical key, so a Cyrillic layout works too."""
@@ -3236,7 +3908,7 @@ class Panel(tk.Tk):
         name = self._selected_action_name()
         if name is None:
             self._scn_loop_var.set(False)
-            self._log_put("[action] " + self._t("scenarios.none_selected"))
+            self._say("action", "scenarios.none_selected")
             return
         args = self._scenario_args()
         if args is None:                      # unreadable JSON — already complained
@@ -3247,7 +3919,7 @@ class Panel(tk.Tk):
         except ValueError:
             interval = 60
         self._scn_loop_stop.clear()
-        self._log_put("[action] " + self._t("scenarios.loop_on", sec=interval))
+        self._say("action", "scenarios.loop_on", sec=interval)
 
         def loop() -> None:
             while not self._scn_loop_stop.is_set():
@@ -3268,7 +3940,7 @@ class Panel(tk.Tk):
         stop.set()
         if getattr(self, "_scn_loop_var", None) is not None:
             self._scn_loop_var.set(False)
-        self._log_put("[action] " + self._t("scenarios.loop_off"))
+        self._say("action", "scenarios.loop_off")
 
     # -- timers tab (scheduled repeats of an action) ------------------------
 
@@ -3656,8 +4328,7 @@ class Panel(tk.Tk):
         if hasattr(self, "_timer_grid"):
             self._fill_timer_grid()
         if not quiet:
-            self._log_put("[timer] " + self._t("timers.log.reloaded",
-                                               n=len(self._timer_catalogue)))
+            self._say("timer", "timers.log.reloaded", n=len(self._timer_catalogue))
 
     def _load_timer_catalogue(self) -> None:
         """Read the active profile's catalogue, reporting what it made no sense of.
@@ -3694,7 +4365,7 @@ class Panel(tk.Tk):
         nothing. The daemon is not checked here — the runner starts it on demand,
         exactly like a button press does.
         """
-        running, _text = game_status()
+        running, _text = game_status(self._game_exe())
         return None if running else "timers.log.skip_game"
 
     def _run_timer_action(self, timer) -> bool:
@@ -3718,7 +4389,7 @@ class Panel(tk.Tk):
         if not self._claim_busy():
             return False
         try:
-            if not lua_client.is_running() and not self._ensure_daemon():
+            if not self._daemon_up() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
             from lastwar_bot import script_engine
             ctx = script_engine.new_context(
@@ -3752,8 +4423,7 @@ class Panel(tk.Tk):
         not then collect it again a minute later.
         """
         if not self._timers.request(timer):
-            self._log_put("[timer] " + self._t("timers.log.already_queued",
-                                               name=timer.name))
+            self._say("timer", "timers.log.already_queued", name=timer.name)
 
     def _refresh_timer_rows(self) -> None:
         """Repaint the "last / next run" columns; re-armed once a second."""
@@ -3823,6 +4493,81 @@ class Panel(tk.Tk):
             else:
                 fill(frame)
 
+    # -- settings: the knobs that used to be constants in this file -----------
+    #
+    # Both tabs said "Скоро" while WIN_PYTHON, the auto-loot budget, the trace
+    # filter, the game paths and the sweep box were all edit-the-source. Every row
+    # below is one entry in SETTINGS_DEFAULTS bound to its `_opt_vars` variable, so
+    # a new knob is a line there plus a row here plus two locale strings.
+    def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
+                 width: int = 12, spin: "tuple | None" = None) -> None:
+        """One labelled field on a Settings tab, bound to ``_opt_vars[key]``."""
+        self._tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
+                                                       padx=(0, 8), pady=3)
+        var = self._opt_vars[key]
+        if isinstance(var, tk.BooleanVar):
+            ttk.Checkbutton(parent, variable=var).grid(row=row, column=1, sticky="w")
+        elif spin is not None:
+            ttk.Spinbox(parent, from_=spin[0], to=spin[1], width=width,
+                        textvariable=var).grid(row=row, column=1, sticky="w")
+        else:
+            ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1,
+                                                                  sticky="we")
+        self._tr(ttk.Label(parent, foreground="#888", wraplength=340, justify="left"),
+                 f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
+
+    def _build_general_settings(self, parent: ttk.Frame) -> None:
+        """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
+        grid = ttk.Frame(parent)
+        grid.pack(fill="x")
+        grid.columnconfigure(1, weight=0)
+        grid.columnconfigure(2, weight=1)
+        for row, (key, kwargs) in enumerate((
+                ("win_python", {"width": 34}),
+                ("daemon_port", {"spin": (1, 65535), "width": 10}),
+                ("log_max_lines", {"spin": (200, 200000), "width": 10}),
+                ("autoloot_limit", {"spin": (1, 50), "width": 10}),
+                ("autoloot_poll", {"spin": (1, 600), "width": 10}),
+                ("autoloot_pause_min", {"spin": (1, 1440), "width": 10}),
+                ("trace_filter", {"width": 20}),
+                ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
+        )):
+            self._opt_row(grid, row, key, **kwargs)
+
+    def _build_game_settings(self, parent: ttk.Frame) -> None:
+        """«Игра»: where the client is, whether to put it back, and the sweep box."""
+        grid = ttk.Frame(parent)
+        grid.pack(fill="x")
+        grid.columnconfigure(2, weight=1)
+        for row, (key, kwargs) in enumerate((
+                ("launcher", {"width": 34}),
+                ("game_exe", {"width": 20}),
+                ("watchdog", {}),
+        )):
+            self._opt_row(grid, row, key, **kwargs)
+
+        sweep = self._tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
+        sweep.pack(fill="x", pady=(12, 0))
+        sweep.columnconfigure(2, weight=1)
+        for row, (key, kwargs) in enumerate((
+                ("sweep_radius", {"spin": (mapsweepmod.MIN_RADIUS,
+                                           mapsweepmod.MAX_RADIUS), "width": 10}),
+                ("sweep_step", {"spin": (mapsweepmod.MIN_STEP,
+                                         mapsweepmod.MAX_STEP), "width": 10}),
+                ("sweep_dwell", {"spin": (mapsweepmod.MIN_DWELL,
+                                          mapsweepmod.MAX_DWELL), "width": 10}),
+                ("sweep_rest_min", {"spin": (0, 1440), "width": 10}),
+        )):
+            self._opt_row(sweep, row, key, **kwargs)
+        # The box in words, so the numbers above are not abstract.
+        hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
+        hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self._sweep_settings_hint = hint
+        for key in ("sweep_radius", "sweep_step", "sweep_dwell"):
+            self._opt_vars[key].trace_add(
+                "write", lambda *a: self._refresh_sweep_settings_hint())
+        self._refresh_sweep_settings_hint()
+
     def _refresh_sweep_settings_hint(self) -> None:
         hint = getattr(self, "_sweep_settings_hint", None)
         if hint is None:
@@ -3848,9 +4593,11 @@ class Panel(tk.Tk):
         WHO raises the banner, so each squad there has three states instead of two
         (out / in / in and leading) and only one of them can be the leader.
 
-        Everything is written to the active profile the moment it changes; nothing
-        reads it yet — the rally recipe takes its squads as an argument
-        (`actions/join_rally.md`), and pointing it at this page is the next step.
+        Everything is written to the active profile the moment it changes, and the
+        `squads` list IS what the rally recipe is handed: «Присоединиться» on the main
+        tab, and the auto-join that fires on the alert, both pass it as
+        `actions/join_rally.md`'s `squads` argument (`_join_rally_now`). With no squad
+        ticked the join refuses rather than being a no-op that looks like a success.
         """
         rally = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.frame")
         rally.pack(fill="x")
@@ -3970,7 +4717,7 @@ class Panel(tk.Tk):
     # -- chat tab -----------------------------------------------------------
 
     def _build_chat_tab(self, parent: ttk.Frame) -> None:
-        """Build the Chat tab: monitor toggle + sub-tabs per chat type."""
+        """Build the Chat tab: monitor toggle, sub-tabs per chat type, and a box to answer in."""
         ctrl = ttk.Frame(parent, padding=(8, 6, 8, 4))
         ctrl.pack(fill="x")
         self._tr(ttk.Checkbutton(ctrl, variable=self._chat_var, command=self._toggle_chat),
@@ -3980,17 +4727,46 @@ class Panel(tk.Tk):
 
         sub_nb = ttk.Notebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=(0, 2))
+        self._chat_nb = sub_nb
+        self._chat_frames: dict = {}
 
-        for type_key in ("world", "alliance", "national", "dm", "other"):
+        for type_key in CHAT_TABS:
             frame = ttk.Frame(sub_nb)
             sub_nb.add(frame, text=self._t(f"chat.tab.{type_key}"))
-            _k = type_key  # capture for lambda
-            self._tr_hooks.append(
-                lambda nb=sub_nb, f=frame, k=_k: nb.tab(f, text=self._t(f"chat.tab.{k}"))
-            )
+            self._chat_frames[type_key] = frame
             tree = self._make_chat_tree(frame)
             self._chat_trees[type_key] = tree
             self._chat_tree_rows[type_key] = 0
+        # One hook for all of them: the labels carry an unread count, so they are
+        # rewritten together and by the same code that draws the marks.
+        self._tr_hooks.append(self._paint_chat_tabs)
+        # A DM that arrived while another tab was open used to be silent. Selecting a
+        # tab is what marks it read.
+        sub_nb.bind("<<NotebookTabChanged>>", self._on_chat_tab_changed)
+
+        # -- the box to answer in ------------------------------------------------
+        #
+        # chat_send.py, tools/lib/chat_share.py and actions/send_chat_message.md all
+        # existed and the tab had no input at all, so answering a mate or sharing a
+        # coordinate meant leaving the panel. The target is the room of the last
+        # message in the tab that is open — and it is SHOWN, so it is never a guess:
+        # a message sent to the wrong room cannot be unsent.
+        send = ttk.Frame(parent, padding=(6, 2, 6, 2))
+        send.pack(fill="x")
+        self._chat_room_var = tk.StringVar(value="—")
+        self._tr(ttk.Label(send), "chat.to").pack(side="left")
+        ttk.Label(send, textvariable=self._chat_room_var, foreground="#888",
+                  width=26).pack(side="left", padx=(4, 6))
+        self._chat_msg_var = tk.StringVar()
+        entry = ttk.Entry(send, textvariable=self._chat_msg_var)
+        entry.pack(side="left", fill="x", expand=True)
+        entry.bind("<Return>", lambda _e: self._chat_send_text())
+        self._tr(ttk.Button(send, command=self._chat_send_text),
+                 "chat.send").pack(side="left", padx=(4, 0))
+        # The coordinate in the main tab's X/Y/server fields, shared as a map pin —
+        # not as text. A pin is tappable in the game; "567,471" is not.
+        self._tr(ttk.Button(send, command=self._chat_send_coords),
+                 "chat.send_coords").pack(side="left", padx=(4, 0))
 
         bot = ttk.Frame(parent, padding=(6, 2, 6, 4))
         bot.pack(fill="x")
@@ -4008,6 +4784,107 @@ class Panel(tk.Tk):
         total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
 
+    # -- which tab is open, and what has arrived in the others ---------------
+    def _active_chat_type(self) -> str:
+        nb = getattr(self, "_chat_nb", None)
+        if nb is None:
+            return CHAT_TABS[0]
+        try:
+            current = nb.select()
+        except tk.TclError:
+            return CHAT_TABS[0]
+        for key, frame in self._chat_frames.items():
+            if str(frame) == str(current):
+                return key
+        return CHAT_TABS[0]
+
+    def _on_chat_tab_changed(self, _event=None) -> None:
+        """A tab was selected: it is read now, and it is the send target."""
+        active = self._active_chat_type()
+        self._chat_unread[active] = 0
+        self._paint_chat_tabs()
+        self._update_chat_target()
+
+    def _paint_chat_tabs(self) -> None:
+        """Tab labels, each carrying its unread count."""
+        nb = getattr(self, "_chat_nb", None)
+        if nb is None:
+            return
+        for key, frame in self._chat_frames.items():
+            unread = self._chat_unread.get(key, 0)
+            label = self._t(f"chat.tab.{key}")
+            if unread:
+                label = f"{label} ({unread})"
+            try:
+                nb.tab(frame, text=label)
+            except tk.TclError:
+                pass
+
+    def _chat_room(self, chat_type: str) -> str:
+        """The room to answer in: the one the last message of that tab came from."""
+        for record in reversed(self._chat_msgs.get(chat_type, [])):
+            room = str(record.get("room_id") or "").strip()
+            if room:
+                return room
+        return ""
+
+    def _update_chat_target(self) -> None:
+        room = self._chat_room(self._active_chat_type())
+        try:
+            self._chat_room_var.set(room or "—")
+        except tk.TclError:
+            pass
+
+    # -- sending -------------------------------------------------------------
+    def _chat_send(self, args: list, what: str) -> None:
+        """Run tools/chat_send.py with ``args``, streaming its output into the log.
+
+        A child, like the monitors: the send walks the Lua VM several times and must
+        not sit on the Tk thread. It does not claim the busy flag — a chat message is
+        not a game action competing for the camera, and making a reply wait behind a
+        collect run would be its own kind of wrong.
+        """
+        room = self._chat_room(self._active_chat_type())
+        if not room:
+            self._say("chat", "chat.no_room")
+            return
+        cmd = [self._python(), "-u", os.path.join(TOOLS, "chat_send.py"),
+               "--room", room] + args
+        self._say("chat", "chat.sending", room=room, what=what)
+        proc = self._spawn_sniffer(cmd, "chat")
+        if proc is None:
+            return
+        threading.Thread(target=self._chat_send_reader, args=(proc,),
+                         daemon=True).start()
+
+    def _chat_send_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                line = raw.rstrip()
+                if line:
+                    self._log_put(f"[chat] {line}")
+        except Exception:
+            pass
+
+    def _chat_send_text(self) -> None:
+        text = self._chat_msg_var.get().strip()
+        if not text:
+            return
+        self._chat_msg_var.set("")
+        self._chat_send(["--text", text], text[:40])
+
+    def _chat_send_coords(self) -> None:
+        """Share the main tab's X/Y/server as a map pin in the open room."""
+        x, y = self._x_var.get().strip(), self._y_var.get().strip()
+        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+            self._say("chat", "chat.no_coords")
+            return
+        srv = self._srv_var.get().strip()
+        args = ["--coords", f"{x},{y}"]
+        if srv.isdigit():
+            args += ["--coord-server", srv]
+        self._chat_send(args, coords.fmt(int(x), int(y), srv or None))
+
     def _make_chat_tree(self, parent: ttk.Frame) -> "tk.Text":
         """Build a read-only Text view for one chat type, with a scrollbar.
 
@@ -4024,6 +4901,9 @@ class Panel(tk.Tk):
         txt.tag_configure("nick", foreground="#333333")
         txt.tag_configure("mine", foreground="#2e7d32")
         txt.tag_configure("token", foreground="#6a4fb0")
+        # Same look the log gives a coordinate, so a clickable one reads as clickable
+        # here too (on a light background, hence the darker blue).
+        txt.tag_configure("coordlink", foreground="#0d47a1", underline=True)
         sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=sb.set)
         txt.pack(side="left", fill="both", expand=True)
@@ -4057,6 +4937,22 @@ class Panel(tk.Tk):
         view.delete("1.0", "end")
         view.configure(state="disabled")
 
+    def _insert_chat_text(self, view: "tk.Text", text: str) -> None:
+        """Write chat text, turning coordinates into the same links the log makes.
+
+        Chat is where coordinates actually ARRIVE — a rally target, a treasure, a base
+        to hit — and it was the one place that inserted them as dead text while the
+        log made them clickable.
+        """
+        pos = 0
+        for (s, e, x, y, srv) in coords.parse(text):
+            if s > pos:
+                view.insert("end", text[pos:s])
+            self._insert_coord_link(view, text[s:e], x, y, srv)
+            pos = e
+        if pos < len(text):
+            view.insert("end", text[pos:])
+
     def _render_msg_line(self, view: "tk.Text", record: dict) -> None:
         """Append one chat message as a line, with sprites drawn inline."""
         from datetime import datetime as _dt
@@ -4073,7 +4969,7 @@ class Panel(tk.Tk):
         uid = record.get("sender_uid") or ""
         for kind, val in chat_assets.segments((record.get("msg") or "")[:300]):
             if kind == "text":
-                view.insert("end", val)
+                self._insert_chat_text(view, val)
             elif kind == "token":
                 # A photo token resolves to a JPG the client already cached on disk
                 # (keyed by uid+picVer) -> render it; else a friendly placeholder.
@@ -4096,7 +4992,7 @@ class Panel(tk.Tk):
                         view.tag_bind(tag, "<Leave>",
                                       lambda e, v=view: v.configure(cursor="arrow"))
                         continue
-                view.insert("end", "🖼 фото" if m else val, ("token",))
+                view.insert("end", self._t("chat.photo") if m else val, ("token",))
             elif kind == "image":
                 # stickers are bigger objects than inline emoji
                 height = 56 if (os.sep + "sticker") in val else 18
@@ -4128,7 +5024,7 @@ class Panel(tk.Tk):
             else:
                 photo = tk.PhotoImage(file=path)
         except Exception as exc:       # noqa: BLE001
-            self._log_put(f"[chat] не удалось открыть фото: {exc}")
+            self._say("chat", "log.chat.photo_failed", error=exc)
             return
         top = tk.Toplevel(self)
         top.title(self._t("tab.chat"))
@@ -4175,11 +5071,21 @@ class Panel(tk.Tk):
                     if view is not None:
                         self._chat_clear_view(view)
                 changed.add(chat_type)
+                # Unread only counts somebody else's message in a tab nobody is
+                # looking at: my own echo back is not news, and neither is a message
+                # in the tab that is open.
+                if not record.get("is_mine") and chat_type != self._active_chat_type():
+                    self._chat_unread[chat_type] = self._chat_unread.get(chat_type, 0) + 1
         except queue.Empty:
             pass
 
         for chat_type in changed:
             self._update_chat_tree(chat_type)
+        if changed:
+            # A DM that arrives while another tab is open used to be silent.
+            self._paint_chat_tabs()
+            if self._active_chat_type() in changed:
+                self._update_chat_target()
 
         total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
@@ -4212,56 +5118,48 @@ class Panel(tk.Tk):
             os.makedirs(os.path.dirname(out), exist_ok=True)
         except Exception:
             pass
-        rel = os.path.relpath(out, REPO)
-        self._log_put(f"[chat] старт чтения (Lua VM) → {rel}")
-        self._log_put("[chat] нужен тёплый lua_daemon (окно чата открывать не нужно)")
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        try:
-            self._chat_proc = subprocess.Popen(
-                [WIN_PYTHON, "-u", os.path.join(TOOLS, "chat_reader.py"),
-                 "--seconds", "0", "--out", out],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-                encoding="utf-8", errors="replace", bufsize=1, cwd=REPO,
-                env=env, creationflags=NO_WINDOW)
-        except Exception as exc:
-            self._log_put(f"[chat] ошибка запуска: {exc}")
-            self._chat_proc = None
+        rel = _repo_rel(out)
+        self._say("chat", "log.chat.starting", path=rel)
+        self._say("chat", "log.chat.needs_daemon")
+        # stderr is dropped, not folded in: chat_reader's stdout is a JSONL stream and
+        # a traceback interleaved into it would be parsed as a message.
+        mon = self._child("chat",
+                          [self._python(), "-u", os.path.join(TOOLS, "chat_reader.py"),
+                           "--seconds", "0", "--out", out],
+                          on_line=self._on_chat_line, on_exit=self._on_chat_exit,
+                          capture_stderr=False)
+        if not mon.start():
             self._chat_var.set(False)
             return
-        self._log_put(f"[chat] монитор запущен (pid {self._chat_proc.pid})")
-        threading.Thread(target=self._chat_reader, args=(self._chat_proc,), daemon=True).start()
+        self._chat_proc = mon
+        self._say("chat", "log.chat.started", pid=mon.pid)
 
-    def _chat_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    record = json.loads(raw)
-                    if isinstance(record, dict):
-                        self._chat_q.put(record)
-                except json.JSONDecodeError:
-                    pass
-        except Exception:
-            pass
-        if self._chat_proc is proc:
-            self._log_put("[chat] монитор завершён")
-            self._chat_proc = None
-            self.after(0, lambda: self._chat_var.set(False))
+    def _on_chat_line(self, line: str) -> bool:
+        """One JSONL record from the reader into the queue the Tk pump drains."""
+        line = line.strip()
+        if line:
+            try:
+                record = json.loads(line)
+                if isinstance(record, dict):
+                    self._chat_q.put(record)
+            except json.JSONDecodeError:
+                pass
+        return False                    # never logged: it is data, not prose
+
+    def _on_chat_exit(self) -> None:
+        self._say("chat", "log.chat.ended")
+        self._chat_proc = None
+        self._chat_var.set(False)
 
     # chat_log.jsonl is written by chat_reader.py itself (`--out`), so the panel
     # does NOT append here: two processes appending to one file interleaved
     # their buffers, duplicating every record and corrupting utf-8 mid-line.
 
     def _stop_chat(self) -> None:
-        proc, self._chat_proc = self._chat_proc, None
-        if proc is not None:
-            self._log_put("[chat] стоп монитора")
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        mon, self._chat_proc = self._chat_proc, None
+        if mon is not None:
+            self._say("chat", "log.chat.stopped")
+            mon.stop()
 
     def _clear_chat(self) -> None:
         """Remove all in-memory chat messages and clear all views."""
@@ -4338,7 +5236,7 @@ class Panel(tk.Tk):
         total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
         if total:
-            self._log_put(f"[chat] история загружена: {total} сообщений")
+            self._say("chat", "log.chat.history", n=total)
 
 
 def main(argv: list[str] | None = None) -> int:

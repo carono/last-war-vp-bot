@@ -1,4 +1,5 @@
 # Press ESC repeatedly until the bot can identify the current screen
+# ru: Закрыть открытые модальные окна.
 # again (base or world). Useful as a recovery step before any flow that
 # expects to start from a known screen — popups, tutorials, event
 # splashes, etc. all dismiss on ESC.

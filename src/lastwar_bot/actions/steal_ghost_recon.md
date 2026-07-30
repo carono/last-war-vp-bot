@@ -1,4 +1,5 @@
 # Rob the queued ghost-recon squads — «Операция Призрак».
+# ru: Обокрасть отряды «Операции Призрак», стоящие в очереди.
 #
 # NOT the same robbery as steal_secret_task.md. That one takes a hero dispatch
 # («секретка») off a player's tile with `hero.dispatch.steal`; this one takes the

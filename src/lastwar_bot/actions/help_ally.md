@@ -1,4 +1,5 @@
 # Help every alliancemate who has an open help request.
+# ru: Помочь всем союзникам, у кого открыт запрос помощи.
 #
 # Alliancemates ask for a speed-up on their builds / research; a single "Help All"
 # press answers ALL of the pending requests at once. As with the other recipes,

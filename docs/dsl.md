@@ -592,6 +592,23 @@ of a `TAP` repeat and between the polls of a `WAIT`. A set flag unwinds through
 the same path `STOP` uses — the run ends **halted, not failed**, and never in the
 middle of a call into the game. That is what the panel's «Стоп» button sets.
 
+## The title line (and its translations)
+
+A script's **first `#` line is its title** — what the control panel's Scenarios
+picker shows instead of the bare file stem. Any of the leading comment lines may
+carry a two-letter language tag, and the panel prefers the one matching the UI
+language:
+
+```
+# Claim the alliance gifts — ordinary and premium.
+# ru: Подарки альянса — обычные и премиальные.
+```
+
+The untagged line is the fallback, so a script with no tags keeps working exactly
+as before and translating one is adding a line to it. Keep the title one sentence
+about what the script does in the game — the paragraphs below it are for the
+reader of the file, not for the picker.
+
 ## Style
 
 - Indent with 4 spaces (the parser accepts any consistent step, but 4

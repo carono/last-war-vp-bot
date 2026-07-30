@@ -1,4 +1,5 @@
 # Recruit every survivor waiting at the base.
+# ru: Принять всех выживших, ждущих у ворот базы.
 
 # Survivors walk up to the base and knock ("Собрать выжившего"); accepting one
 # adds it as a worker. In game the flow is: tap the survivor, then tap the

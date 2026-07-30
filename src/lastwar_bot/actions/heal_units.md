@@ -1,4 +1,5 @@
 # Heal the wounded soldiers in the base hospital ("Лечение юнитов").
+# ru: Лечение раненых в госпитале базы («Лечение юнитов»).
 #
 # The operator's in-game routine is three presses — collect what has finished, send the
 # wounded in, ask the alliance to speed it up — and all three are real messages

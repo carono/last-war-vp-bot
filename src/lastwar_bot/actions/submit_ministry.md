@@ -1,4 +1,5 @@
 # Apply for a post in the server's ministry (the President's kingdom positions).
+# ru: Подать заявку на должность в министерстве сервера.
 #
 # Reproduces the "министерство / министр внутр. дел" recording: the player opened the
 # government screen, picked a post and pressed «Подать заявку». Only the last of those

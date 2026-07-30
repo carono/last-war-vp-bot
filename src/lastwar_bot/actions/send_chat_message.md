@@ -1,4 +1,5 @@
 # Send a chat message (text / emoji / sticker / coordinates) to a player DM or a channel.
+# ru: Отправить сообщение в чат (текст / эмодзи / стикер / координаты) — в ЛС или в канал.
 #
 # Unlike the other recipes, a chat send is PARAMETERISED (who + what), so it is not
 # a fixed "tap a button" script — it is driven by the tool that carries the payload:

@@ -1,4 +1,5 @@
 # Rob every queued secret task — «кража секретки».
+# ru: Обокрасть все секретки из очереди («кража секретки»).
 #
 # For the OTHER robbery — the weekly co-op event «Операция Призрак», which rides
 # `ghost.recon.steal` and has its own five-a-day budget — see

@@ -1,4 +1,5 @@
 # Work the map treasures — «сокровище на карте»: если ещё копается — копаем,
+# ru: Отработать клад: отправить отряд копать и забрать выкопанное.
 # если уже раскопано — собираем.
 #
 # UNPROVEN (in actions/dev/ on purpose). The sends and the dig-vs-dug rule are

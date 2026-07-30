@@ -1,4 +1,5 @@
 # Collect every gift a survivor brought to the base.
+# ru: Забрать подарки, принесённые выжившими.
 
 # Some survivors walk up to the base carrying gifts ("Собрать подарки
 # выжившего"); tapping one and collecting flies a reward (a coin box in trace

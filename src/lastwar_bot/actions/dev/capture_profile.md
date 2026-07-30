@@ -1,4 +1,5 @@
 # Capture the active player's metadata into the bot profile.
+# ru: Снять профиль игрока в файл (отладка).
 #
 # Run this once per profile (per game account) to populate
 # profiles/<id>.json with `name`, `level`, and `server`. Other actions

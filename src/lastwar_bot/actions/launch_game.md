@@ -1,4 +1,5 @@
 # Start the Last War launcher and wait for the home base to be ready.
+# ru: Запустить лаунчер Last War и дождаться готовности базы.
 #
 # The path uses %LOCALAPPDATA% so it resolves correctly under any
 # Windows user. If the launcher is installed elsewhere on this machine
