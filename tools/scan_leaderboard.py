@@ -105,6 +105,7 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402
+import leaderboard_store  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, dump_records, human_size,
@@ -246,6 +247,12 @@ def main() -> int:
     ap.add_argument("--json", default=None,
                     help="checkpoint every row collected to this file, "
                          "rewritten on every tick (default: no file is written)")
+    ap.add_argument("--sqlite", default=None, metavar="PATH",
+                    help="accumulate a HISTORY of the boards in this SQLite file: "
+                         "each time a board is captured it is saved as a timestamped "
+                         "snapshot (unchanged repeats are skipped), so the slices "
+                         "build up over runs instead of --json overwriting them "
+                         "(tools/lib/leaderboard_store.py)")
     ap.add_argument("--interval", type=int, default=15,
                     help="seconds between processing ticks — each one prints "
                          "the progress line and rewrites --json if given "
@@ -269,6 +276,17 @@ def main() -> int:
         pass
 
     index = LeaderboardIndex(boards=args.board, known_only=args.known_only)
+    # The history store, if asked for — opened once and written on every tick and at
+    # the end (a snapshot per board, unchanged repeats skipped). Opened up front so a
+    # bad path fails now, not after a long run.
+    store = None
+    if args.sqlite:
+        try:
+            store = leaderboard_store.connect(args.sqlite)
+        except Exception as exc:                 # noqa: BLE001 — a bad path is a message
+            print(f"{C_ERR}cannot open the SQLite history {args.sqlite}: {exc}{C_RESET}",
+                  file=sys.stderr)
+            return 1
     stop, bpf = start_capture(index, args)
 
     print("Last War leaderboard scan — scapy/npcap, no dumpcap")
@@ -307,6 +325,12 @@ def main() -> int:
                     print(f"{C_DIM}  transcript: "
                           f"{index.transcript.frames} frame(s), "
                           f"{human_size(index.transcript.size())}{C_RESET}")
+                if store is not None:
+                    saved = leaderboard_store.save_records(
+                        store, index.records(), int(time.time()))
+                    if saved:
+                        print(f"{C_DIM}  history: +{len(saved)} snapshot(s) "
+                              f"({', '.join(sorted(saved))}){C_RESET}")
             for row in index.take_new():
                 if row.board not in announced:
                     announced.add(row.board)
@@ -386,6 +410,14 @@ def main() -> int:
             print(f"{C_ERR}could not write {args.json} — the file is held by "
                   f"another process.{C_RESET} Close whatever has it open and "
                   f"re-run, or point --json somewhere else.")
+
+    if store is not None:
+        # A last flush, then the running total so the history's growth is visible.
+        saved = leaderboard_store.save_records(store, index.records(), int(time.time()))
+        total = store.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+        note = f" (+{len(saved)} on the final flush)" if saved else ""
+        print(f"{C_OK}history: {total} snapshot(s) in {args.sqlite}{note}{C_RESET}")
+        store.close()
 
     if index.transcript is not None:
         index.transcript.close()
