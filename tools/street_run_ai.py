@@ -125,8 +125,10 @@ local tail = {}
 for i = math.max(1, #t - 60), #t do tail[#tail + 1] = t[i] end
 flush("TRACE", tail)
 if AI.death then
-  L(string.format("DEATH z=%.1f speed=%s lane=%s", AI.stat.deathz or 0,
-    tostring(AI.stat.deathspeed), tostring(AI.stat.deathlane)))
+  L(string.format("DEATH z=%.1f speed=%s lane=%s y=%.2f x=%.2f anim=%s units=%s",
+    AI.stat.deathz or 0, tostring(AI.stat.deathspeed), tostring(AI.stat.deathlane),
+    AI.stat.deathy or 0, AI.stat.deathx or 0, tostring(AI.stat.deathanim),
+    tostring(AI.stat.deathunits)))
   flush("DOBS", AI.death)
 end
 AI.log = {} AI.trace = {} AI.death = nil

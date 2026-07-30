@@ -234,13 +234,26 @@ correction: an obstacle's `z` is **not its centre**. The subway carriages hang e
 | `A_Monster_surfing_mutong` (barrel) | 1.5 (±0.75) | hoppable |
 | `O_Object_high_zhalan1/2` (high fence) | ~1.0 | **cannot be jumped** — ducked under |
 | `O_env_ditiepaoku_chexiang_N` (carriage) | **8.24 × N behind z**, ~0 ahead | N = 2..5 → 16–41 units |
-| `O_env_ditiepaoku_chexiangxiepo_N` (ramp carriage) | same rule | the ramp ON-piece: run up it, not an obstacle |
+| `O_env_ditiepaoku_chexiangxiepo_N` (ramp carriage) | same rule | carries a ramp — drive up and run the roof |
 | `O_env_ditiepaoku_qiaodong` (bridge gate) | ~34 behind z, **20–64 wide** | spans every lane |
 | `O_Object_high_truck_gold_move_N` | driving, `move_speed` 20 or 40 | closes/opens at 10 or −10 u/s |
 
 Modelling a carriage as "half a length around z" is wrong in both directions at once — it
 blocks free track ahead of the anchor and misses the 40 units of body that actually kill.
 That single fix is worth more than any amount of policy tuning.
+
+**Carriages are ridden, not dodged** (watched by the player, 2026-07-30). The bands put a
+carriage body in all three lanes at the same metre — 741 / 742 / 745 in one run, which no
+lane change can answer. The `xiepo` pieces carry a **ramp**: the runner drives up it and
+then runs along the roof, and the roof carries on over the plain carriages that follow in
+the same lane. A carriage is therefore a wall only when nothing leads up onto it, and what
+kills is swerving into one from the side — which is exactly how a run ended, changing lane
+off the middle ramp into the rampless carriage beside it.
+
+**`dataZ` is a spawn point, not a position.** For the driving trucks it never moves, so a
+planner that reads it aims at a ghost: a run swerved into a moving truck that, by `dataZ`,
+was nowhere near. Movers have to be read at their live transform; the parked pieces keep
+`dataZ`, which is exact for them.
 
 ## In-VM autopilot (#1121) — supersedes the Python loop
 

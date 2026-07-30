@@ -78,9 +78,6 @@ def classify(rec: dict, bounds: dict) -> dict:
         strong = mt in (5, 7, 8, 9)
         return {"solid": False, "jump": False, "slide": False, "back": 0.0, "front": 0.0,
                 "lanes": 1, "speed": 0.0, "buff": (0.9 if strong else 0.25) if mt else 0.02}
-    if "xiepo" in asset:      # ramp on-piece: the runner mounts it (see surfing_ai.lua)
-        return {"solid": False, "jump": False, "slide": False, "back": 0.0, "front": 0.0,
-                "lanes": 1, "speed": 0.0}
     jump = "mutong" in asset or "dizhalan" in asset
     slide = "zhalan" in asset or "qiao" in asset
     b = bounds.get(name)
@@ -98,8 +95,11 @@ def classify(rec: dict, bounds: dict) -> dict:
     if "qiao" in asset:
         # the gate is the near edge of the deck, not the whole deck (see surfing_ai.lua)
         back, front, lanes = 34.0, -31.5, 3
+    # ramps are ridden head-on and only kill from the side; plain carriages are walls
+    side_only = "xiepo" in asset and not (rec.get("move_speed") or 0)
     return {"solid": True, "jump": jump, "slide": slide, "back": back, "front": front,
-            "lanes": lanes, "speed": float(rec.get("move_speed") or 0)}
+            "lanes": lanes, "sideOnly": side_only,
+            "speed": float(rec.get("move_speed") or 0)}
 
 
 def bands(born, mon):
@@ -178,6 +178,7 @@ while pz < ZMAX and not dead do
         else
           hit = (ol == lane)
         end
+        if k.sideOnly and swT <= 0 then hit = false end   -- ridden head-on, fatal only sideways
         if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
       end
     end
@@ -215,8 +216,9 @@ def simulate(ev, rows, kinds, lane0, zmax):
     for _, _, mid in rows:
         kind_for(kinds, mid)
     ov = ",".join(
-        "[%d]={solid=%s,jump=%s,slide=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
+        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
         % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
+           str(k.get("sideOnly", False)).lower(),
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())

@@ -26,12 +26,12 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 9
+AI.version = 15
 if AI.enabled == nil then AI.enabled = true end
 AI.cfg = AI.cfg or {}
 local cfg = AI.cfg
 -- geometry / motion (live-read constants; see docs/research/street-run-parkour.md)
-cfg.horizon      = cfg.horizon      or 120   -- units of track planned ahead
+cfg.horizon      = cfg.horizon      or 200   -- units of track planned ahead
 cfg.switchTime   = cfg.switchTime   or 0.16  -- Const.LineChangeTime
 cfg.jumpTime     = cfg.jumpTime     or 0.72  -- player.jumpDurationValue
 cfg.slideTime    = cfg.slideTime    or 0.50  -- Const.SlideTime
@@ -43,6 +43,7 @@ cfg.baseX        = cfg.baseX        or 36    -- Const.ParkourSceneCenter (centre
 cfg.padSmall     = cfg.padSmall     or 1.0   -- default half-length of a small obstacle
 cfg.carUnit      = cfg.carUnit      or 8.24  -- one carriage segment; "_N" suffix = N of them
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
+cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
 cfg.padExtra     = cfg.padExtra     or 1.5   -- timing slack added at both ends
 -- route costs
 cfg.costSwitch   = cfg.costSwitch   or 1.0
@@ -113,19 +114,20 @@ local function kindOf(mid)
     local slideable = (string.find(a, "zhalan", 1, true) ~= nil)
         or (string.find(a, "qiao", 1, true) ~= nil)
     -- Carriage pieces are named ..._N and are N segments long, hanging behind the anchor.
-    -- The "xiepo" (slope) variants are the ramp on-pieces: their collider sits at roof
-    -- height like the flat carriages, but they are what gets the runner UP there, and the
-    -- bands place two of them side by side with a carriage in the third lane — a layout
-    -- with no answer at all if a ramp is a wall. Treated as passable.
-    if string.find(a, "xiepo", 1, true) then
-      k = {solid = false, jump = false, back = 0, front = 0, lanes = 1, speed = 0}
-      kindCache[mid] = k
-      return k
-    end
-    local back, front, lanes = cfg.padSmall, cfg.padSmall, 1
+    -- The "xiepo" (slope) variants carry a RAMP: those are driven up and ridden along the
+    -- roof, so they are entered head-on and are lethal only from the SIDE. The plain
+    -- carriages have no ramp and are a wall from every direction. Both facts are from the
+    -- player watching a run: three carriages abreast at 741/742/745 with ramps on the
+    -- middle and right ones, and the run died by swerving LEFT off the middle ramp into the
+    -- rampless carriage. `sideOnly` is that distinction — run into it, never swerve into it.
+    local back, front, lanes, ramp, carriage = cfg.padSmall, cfg.padSmall, 1, false, false
     if string.find(a, "chexiang", 1, true) or string.find(a, "truck", 1, true) then
       local n = tonumber(string.match(a, "_(%d+)%.prefab$") or "1") or 1
       back, front = cfg.carUnit * n, 0.2
+      if (t.move_speed or 0) == 0 then
+        carriage = true
+        ramp = string.find(a, "xiepo", 1, true) ~= nil
+      end
     elseif string.find(a, "qiao", 1, true) then
       -- Bridge pieces span the whole road (a collider 20-64 units wide, so no lane change
       -- answers them) and a live run died on the LEADING EDGE of one, 748.2 m against a
@@ -138,7 +140,7 @@ local function kindOf(mid)
     -- it slowly, at 40 it runs away — either way it blocks its lane for far longer than a
     -- static obstacle does, which a static model gets badly wrong.
     k = {solid = true, jump = jumpable, slide = slideable, back = back, front = front,
-         lanes = lanes, speed = t.move_speed or 0}
+         lanes = lanes, ramp = ramp, carriage = carriage, speed = t.move_speed or 0}
   end
   kindCache[mid] = k
   return k
@@ -167,31 +169,72 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
 
   -- occupancy per lane: solid = kills a runner; noJump / noSlide = still kills while
   -- airborne / while sliding; reward = coins and buffs, priced as a negative cost
-  local solid, noJump, noSlide, reward = {}, {}, {}, {}
-  for l = 0, 2 do solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} end
+  local solid, noJump, noSlide, reward, side = {}, {}, {}, {}, {}
+  for l = 0, 2 do solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} end
+  -- Carriages are ridden, not dodged. A "xiepo" piece carries a ramp: the runner drives
+  -- up it and then runs along the roof, and the roof carries on over the plain carriages
+  -- that follow in the same lane. So a carriage body is only a wall when NOTHING leads up
+  -- onto it — which is exactly the layout that killed a run: three carriages abreast with
+  -- ramps on two of them, and the rampless one taken by a lane change off the ramp.
+  -- Per lane, walk the carriage bodies in order and carry the roof forward across a small
+  -- gap; what is on the roof is safe to run into head-on and fatal to swerve into.
+  local cars = {[0] = {}, [1] = {}, [2] = {}}
+  for i = 1, #obstacles do
+    local o = obstacles[i]
+    local k = kindOf(o.mid)
+    if k.carriage then
+      local l = laneOfX(o.x)
+      local t = cars[l]
+      t[#t + 1] = {z0 = o.z - (o.back or k.back), z1 = o.z + (o.front or k.front), ramp = k.ramp}
+    end
+  end
+  local onRoof = {}
+  for l = 0, 2 do
+    local t = cars[l]
+    table.sort(t, function(p, q) return p.z0 < q.z0 end)
+    local roofUntil = nil
+    for i = 1, #t do
+      local c = t[i]
+      if c.ramp or (roofUntil and c.z0 - roofUntil <= cfg.roofGap) then
+        c.roof = true
+        roofUntil = c.z1
+      else
+        roofUntil = nil
+      end
+      onRoof[c] = c.roof
+    end
+  end
+
   for i = 1, #obstacles do
     local o = obstacles[i]
     local k = kindOf(o.mid)
     local l = laneOfX(o.x)
-    -- On a jetpack the runner flies over the whole track: nothing on the ground can touch
-    -- it, so the route stops dodging and simply goes where the pickups are.
-    if k.solid and not flying then
+    if k.solid then
       local back = (o.back or k.back) + cfg.padExtra
       local front = (o.front or k.front) + cfg.padExtra
       local l0, l1 = l, l
       if (o.lanes or k.lanes or 1) >= 3 then l0, l1 = 0, 2 end
+      -- is this body one the runner can be on top of?
+      local sideOnly = false
+      if k.carriage then
+        if k.ramp then
+          sideOnly = true
+        else
+          local z0 = o.z - (o.back or k.back)
+          for _, c in ipairs(cars[l]) do
+            if math.abs(c.z0 - z0) < 0.01 and c.roof then sideOnly = true break end
+          end
+        end
+      end
       local v = max(o.speed or 0, k.speed or 0)
       if v > 0 then
-        -- a driving obstacle: at bucket j the avatar has run j units (t = j / speed) and
-        -- the obstacle has moved v * t, so its position relative to the avatar drifts.
-        -- Solve for the buckets where the avatar is inside [z - back, z + front].
         local drift = v / speed - 1
         local rel0 = o.z - pz
         for j = 0, H do
           local rel = rel0 + j * drift
           if rel > -front and rel < back then
             for ll = l0, l1 do
-              solid[ll][j] = true
+              if sideOnly then side[ll][j] = true else solid[ll][j] = true end
               if not k.jump then noJump[ll][j] = true end
               if not k.slide then noSlide[ll][j] = true end
             end
@@ -203,7 +246,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
         if bj >= 0 and aj <= H then
           for j = max(0, aj), min(H, bj) do
             for ll = l0, l1 do
-              solid[ll][j] = true
+              if sideOnly then side[ll][j] = true else solid[ll][j] = true end
               if not k.jump then noJump[ll][j] = true end
               if not k.slide then noSlide[ll][j] = true end
             end
@@ -222,6 +265,12 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
   local function freeRun(l, a, b)         -- every bucket in [a,b] clear of solids
     for j = max(0, a), min(H, b) do
       if solid[l][j] then return false end
+    end
+    return true
+  end
+  local function freeEnter(l, a, b)      -- as above, plus nothing that kills a side entry
+    for j = max(0, a), min(H, b) do
+      if solid[l][j] or side[l][j] then return false end
     end
     return true
   end
@@ -290,7 +339,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
           --    state means it was survived; the lane being entered is checked in full.
           for d = -1, 1, 2 do
             local t = l + d
-            if t >= 0 and t <= 2 and freeRun(l, i + 1, i + SW) and freeRun(t, i, i + SW) then
+            if t >= 0 and t <= 2 and freeRun(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
               relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW, a, az)
@@ -325,13 +374,23 @@ local function gather(mm, pz, out)
   local lim = pz + cfg.horizon + 20
   for _, mon in pairs(mm.showList or {}) do
     if type(mon) == "table" then
+      -- `dataZ` is where the thing was PLACED. For the driving trucks that is the spawn
+      -- point and never moves, so planning against it aims at a ghost: the truck the run
+      -- swerved into was, by dataZ, nowhere near. Movers must be read at their live
+      -- position; the parked pieces keep dataZ, which is exact for them.
+      local sp = mon.move_speed or 0
       local z = mon.dataZ or mon.z or 0
+      if sp > 0 then
+        local live = nil
+        pcall(function() live = mon:GetPosition().z end)
+        if live == nil and type(mon.curWorldPos) == "table" then live = mon.curWorldPos[3] end
+        if live then z = live end
+      end
       if z > pz - 50 and z < lim then
         n = n + 1
         local mid = mon.monsterId or 0
         local e = AI.extent[mid]
-        out[n] = {x = mon.x or cfg.baseX, z = z, mid = mid,
-                  speed = mon.move_speed or 0,
+        out[n] = {x = mon.x or cfg.baseX, z = z, mid = mid, speed = sp,
                   back = e and e.back, front = e and e.front, lanes = e and e.lanes}
       end
     end
@@ -423,11 +482,32 @@ local function tick(logic)
       st.deathz = pz
       st.deathspeed = speed
       st.deathlane = laneOfX(pos.x)
+      -- Height and lane offset say what the obstacle list cannot: y well above 0 means the
+      -- avatar was up on a carriage roof, and an x between lanes means it died mid-change.
+      st.deathy = pos.y
+      st.deathx = pos.x
+      st.deathanim = tostring(p.curAnimName)
+      -- anything else alive in the scene (the runner has a chasing hunter NPC)
+      local u = {}
+      pcall(function()
+        for _, un in pairs(logic.unitMgr and logic.unitMgr.units or {}) do
+          if type(un) == "table" and un ~= p then
+            local nm = tostring(un.__cname or un.name or "?")
+            local uz = 0
+            pcall(function() uz = un:GetPosition().z end)
+            u[#u + 1] = string.format("%s@%.0f", nm, uz)
+          end
+        end
+      end)
+      st.deathunits = table.concat(u, ",")
       local d = {}
       for _, mon in pairs(mm.showList or {}) do
         if type(mon) == "table" then
           local z = mon.dataZ or mon.z or 0
-          if z > pz - 25 and z < pz + 60 then
+          if (mon.move_speed or 0) > 0 then
+            pcall(function() z = mon:GetPosition().z end)
+          end
+          if z > pz - 25 and z < pz + 130 then
             local nm = "?"
             pcall(function() nm = mon.gameObject.name end)
             d[#d + 1] = string.format("%s|%.1f|%s|%s|%s", tostring(mon.x), z,
