@@ -14,12 +14,20 @@
 # and the engine side is written up in docs/research/city-visitor-recruit.md.
 #
 # Detection & gate: visitors queue in DataCenter.CityVisitorManager; a survivor
-# is a queue entry with visitorId == VisitorType.RECRUITMENT (3). The press is
-# gated on there being at least one such visitor, so an empty queue costs no
-# server round trip. `xall` recruits them one message at a time and re-reads the
-# count, letting the server's push.user.visitor.change drain the queue instead
-# of guessing a fixed number.
+# is a queue entry whose eventType == VisitorType.RECRUITMENT (3) and which has
+# walked up to the base already (a queue entry exists before the visitor is
+# spawned; the client leaves those alone too). The press is gated on there being
+# at least one such visitor, so an empty queue costs no server round trip. `xall`
+# recruits them one message at a time and re-reads the count, letting the
+# server's push.user.visitor.change drain the queue instead of guessing a fixed
+# number.
 #
-# Proven live 2026-07-29: pending 1 -> 0, total visitors 5 -> 4 after one send.
+# A visitor left the queue live on 2026-07-29 (pending 1 -> 0, total 5 -> 4), but
+# the kind was then read off `visitorId` — a per-arrival counter, not the
+# VisitorType — so what that send actually picked was "the third visitor of the
+# session", whatever kind it was. Fixed on 2026-07-30 (task #1122) to test
+# eventType, the field the client itself keys on; the same fix is what made
+# collect_visitor_gifts work at all, and it is proven live there. Re-confirm this
+# recipe the next time a survivor is actually knocking.
 
 TAP recruit_survivor xall   # recruit until no survivor is left waiting

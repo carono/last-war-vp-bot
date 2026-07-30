@@ -513,6 +513,50 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     assert all("__lw_rally_joined" in c for c in presses), "each press must claim its rally"
 
 
+def test_visitor_presses_key_on_the_kind_not_the_arrival_number():
+    """Gift / recruit visitors are told apart by `eventType`, never by `visitorId`.
+
+    `visitorId` reads like a kind and is not one — it counts arrivals, so a queue can
+    hold 3, 4, 5, 6 with every one of them the same kind (that is task #1122: the gift
+    press matched nothing, and the recruit press fired at whoever was the third visitor
+    of the session). Both primitives must therefore name `eventType` and the enum they
+    mean, and must not mention `visitorId` at all. The readiness half matters as much:
+    a queue entry exists before the visitor walks up, and pressing one of those spends
+    a round trip on somebody who is not there yet.
+    """
+    import lua_actions as la
+
+    for name, expr in (
+        ("gift count", la.visitor_gift_pending()),
+        ("gift press", la.visitor_gift_collect()),
+        ("recruit count", la.visitor_recruit_pending()),
+        ("recruit press", la.visitor_recruit_survivor()),
+    ):
+        assert "visitorId" not in expr, f"{name} still reads the arrival counter: {expr}"
+        assert "d.eventType ==" in expr, f"{name} does not test the kind: {expr}"
+        assert "m.isArrival" in expr and "m.isFinish" in expr, \
+            f"{name} presses visitors that have not walked up: {expr}"
+
+    assert "VisitorType.GIFT" in la.visitor_gift_collect()
+    assert "VisitorType.RECRUITMENT" in la.visitor_recruit_survivor()
+    # The two kinds must not be confusable: a gift press may not mention RECRUITMENT
+    # and vice versa, which is what a copy-paste of one into the other would look like.
+    assert "RECRUITMENT" not in la.visitor_gift_collect()
+    assert "GIFT" not in la.visitor_recruit_survivor()
+
+    # Both presses send visitor.operate for the front matching visitor and nothing else.
+    for press in (la.visitor_gift_collect(), la.visitor_recruit_survivor()):
+        assert press.count("SFSNetwork.SendMessage") == 1, press
+        assert "MsgDefines.VisitorOperateMessage, d.uid, 1" in press, press
+
+    # The buttons' xall count is the same gate as the press, or the loop would either
+    # stop early or keep pressing at a visitor the press refuses.
+    import game_buttons as gb
+
+    assert gb.get("collect_visitor_gifts").count_lua == la.visitor_gift_pending()
+    assert gb.get("recruit_survivor").count_lua == la.visitor_recruit_pending()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

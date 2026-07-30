@@ -315,13 +315,14 @@ none of which the earlier captures exercised:
 | `train.record.batch.detail` | `info` (`"<uuid>;<serverId>"`) → `detailInfo[]` |
 
 **City visitors** — the queue of characters that walk up to the base (`DataCenter.CityVisitorManager`).
-A visitor's `data.visitorId` indexes the global `VisitorType` enum (`RECRUITMENT=3`,
-`MERCHANT=1`, `GIFT=2`, `WORKER_LOTTERY=5`, `ALLIANCE_INVITE_MOVE_CITY=8`, …). See
+A visitor's `data.eventType` indexes the global `VisitorType` enum (`RECRUITMENT=3`,
+`MERCHANT=1`, `GIFT=2`, `WORKER_LOTTERY=5`, `ALLIANCE_INVITE_MOVE_CITY=8`, …); the
+neighbouring `data.visitorId` looks like a kind but is a per-arrival counter. See
 `docs/research/city-visitor-recruit.md`.
 
 | Command | Parameters |
 |---|---|
-| `visitor.operate` | `uid` (Long), `operate` (Int; `1` = accept/recruit) — accept a queued visitor; recruits a waiting survivor when its `visitorId == RECRUITMENT` |
+| `visitor.operate` | `uid` (Long), `operate` (Int; `1` = accept/recruit) — accept a queued visitor; recruits a waiting survivor when its `eventType == RECRUITMENT`, collects the gifts when it is `GIFT` |
 | `finish.visitor` | `uid` — dismiss/finish a visitor |
 | `visitor.receive.reward` | claim a visitor's reward |
 | `visitor.fresh` | refresh the visitor queue |

@@ -136,8 +136,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Raising the shield
 - ❌ Expedition
 - ❌ Levelling survivors and decorations
-- ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate
-- 🟡 Collecting gifts a survivor brought to the base — the same press per gift-bearing visitor, no window opened, stopping on its own when nobody is left. Rebuilt from a recording of a person doing it by hand (the gift arrives as a coin chest); not yet confirmed in a live run
+- 🟡 Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate. It used to press whoever was standing at the gate rather than the survivors; that is fixed, but nobody has been knocking since, so it wants one more look the next time a survivor turns up
+- ✅ Collecting gifts a survivor brought to the base — one press per gift-bearing visitor, no window opened, stopping on its own when nobody is left; a visitor still walking up to the base is left for the next round
 - ❌ Assembling the treasure from map pieces
 - ❌ Daily VIP gift and points
 - ❌ Collecting mail rewards

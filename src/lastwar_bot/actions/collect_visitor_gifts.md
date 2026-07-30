@@ -14,14 +14,18 @@
 # and the engine side is written up in docs/research/city-visitor-recruit.md.
 #
 # Detection & gate: visitors queue in DataCenter.CityVisitorManager; a gift
-# visitor is a queue entry with visitorId == VisitorType.GIFT (2) — versus
-# RECRUITMENT (3) for a recruitable survivor. The press is gated on there being
-# at least one such visitor, so an empty queue costs no server round trip.
-# `xall` collects them one message at a time and re-reads the count, letting the
-# server's push.user.visitor.change drain the queue instead of guessing a number.
+# visitor is a queue entry whose eventType == VisitorType.GIFT (2) — versus
+# RECRUITMENT (3) for a recruitable survivor — and which has walked up to the
+# base already (a queue entry exists before the visitor is spawned; the client
+# leaves those alone too). The press is gated on there being at least one such
+# visitor, so an empty queue costs no server round trip. `xall` collects them one
+# message at a time and re-reads the count, letting the server's
+# push.user.visitor.change drain the queue instead of guessing a number.
 #
-# Not yet proven live: the send is reconstructed from trace 20260729_151712
-# (SendMessage(visitor.operate, uid, 1) → coin-box DoFly → UICityVisitor closed).
-# The companion traffic capture was empty (0 B), so only the trace attests it.
+# Proven live 2026-07-30 (task #1122): a queue of four gift visitors, one of them
+# not yet arrived, collected 3 -> 0 in three sends; the visitor count went 3 -> 0
+# server-side and the unarrived one stayed queued. Until then the recipe pressed
+# nothing at all: the kind was read off `visitorId`, which is a per-arrival
+# counter, not the VisitorType.
 
 TAP collect_visitor_gifts xall   # collect until no gift-bearing survivor is left

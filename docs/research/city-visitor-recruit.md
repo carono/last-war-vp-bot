@@ -50,33 +50,60 @@ returns the front `.data` directly. A visitor's `.data` carries:
 
 ```
 uid          1397117535698265960     -- what visitor.operate sends
-visitorId    3                       -- the kind; indexes the global VisitorType enum
-eventId      2006
-eventType    2
+eventType    2                       -- the kind; indexes the global VisitorType enum
+visitorId    3                       -- NOT the kind: a per-arrival counter (see below)
+eventId      2006                    -- the City_Visitor config row
 appearCfgId  3002
 name         440401
 modelPath    …/City/Worker/A_Hero_nvzhuboqban01.prefab
 startTime    1785295387399
+line         <the config row, lazily resolved>
 ```
 
-`visitorId` is the kind, and it indexes the global `VisitorType` enum:
+`eventType` is the kind, and it indexes the global `VisitorType` enum:
 
 ```
 MERCHANT=1  GIFT=2  RECRUITMENT=3  BATTLE=4  WORKER_LOTTERY=5  NOTIFY=6  OPEN_PANEL=7
-ALLIANCE_INVITE_MOVE_CITY=8  SeasonDayGift=10  DOMINATOR_COCKATRICE=13
-AllianceCongratulation=14  AD_REMINDER=15  PLANE_FEATURE=17  S0_ALLIANCE_BOSS=18
-SURVIVOR_PACK_GiFT=19  ProtectCoverVisitor=20  SKY_BATTLE=1
+ALLIANCE_INVITE_MOVE_CITY=8  DOMINATOR=9  SeasonDayGift=10  VisitorActivity=11
+ALLIANCE_INVITE=12  DOMINATOR_COCKATRICE=13  AllianceCongratulation=14  AD_REMINDER=15
+SKY_BATTLE=16  PLANE_FEATURE=17  S0_ALLIANCE_BOSS=18  SURVIVOR_PACK_GiFT=19
+ProtectCoverVisitor=20  SystemGift=30
 ```
 
-A waiting survivor is `visitorId == VisitorType.RECRUITMENT` (3). `visitor_recruit_pending()`
-counts those; `visitor_recruit_survivor()` sends `visitor.operate {uid, 1}` for the
-first one and is gated on the count so a quiet queue costs no round trip. Other
-`visitorId`s ride the same `visitor.operate` message but are a different feature
-(merchant, gift, alliance invite …) and are left alone.
+The client keys on the same field: `AddVisitor` compares `eventType` against
+`VisitorType.AllianceCongratulation`, and `GetReceiveAllGiftUidList(<VisitorType>, …)`
+filters the queue on `data.eventType == <that type>`.
+
+### `visitorId` is not the kind — the bug this note used to carry
+
+This note first read the kind off `data.visitorId`, on the strength of one trace where a
+survivor happened to show `visitorId 3` next to `RECRUITMENT = 3`. It is a coincidence:
+`visitorId` is a **per-arrival counter**. A live queue read (task #1122) settled it —
+four visitors numbered 3, 4, 5, 6, every one of them `eventType == 2` (GIFT):
+
+```
+i=1 uid=…240 visitorId=3 eventId=2003 eventType=2   isArrival=true
+i=2 uid=…246 visitorId=4 eventId=2005 eventType=2   isArrival=true
+i=3 uid=…379 visitorId=5 eventId=2001 eventType=2   isArrival=true
+i=4 uid=…974 visitorId=6 eventId=2005 eventType=2   isArrival=nil   -- not spawned yet
+```
+
+So the old `visitorId == VisitorType.X` test was wrong both ways: the gift press matched
+nothing at all (no queued visitor is ever numbered 2), and the recruit press fired at
+whoever was the third visitor of the session, whatever kind it was. Both primitives now
+test `eventType`.
+
+### Readiness — the visitor has to have walked up
+
+A queue entry exists before the visitor is spawned: entry `i=4` above had a bare model,
+no `isArrival`. The client skips those (`GetReceiveAllGiftUidList` yields 3, not 4, on
+that queue), so the gate is `model.isArrival and not model.isFinish` on top of the kind.
+Both counts agreed at 3, which is how the readiness rule was checked against the
+client's own list rather than guessed.
 
 Note `HasWorkerToRecuit()` reads **nil** even with a RECRUITMENT visitor queued — it is
 a narrower check (a free worker slot / lottery worker), not "is a survivor waiting", so
-it is the wrong gate. Count the queue by `visitorId` instead.
+it is the wrong gate. Count the queue by `eventType` instead.
 
 ## Acceptance
 
@@ -88,15 +115,18 @@ before: pending=1  total=5
 after:  pending=0  total=4
 ```
 
-The RECRUITMENT visitor left the queue and the total dropped, both server-side (the
-removal came back on `push.user.visitor.change`) — a reply applier could not decrement
-the server's visitor count, and the call was a bare `SFSNetwork.SendMessage`, so this is
-the real wire action, not a local state edit.
+A visitor left the queue and the total dropped, both server-side (the removal came back
+on `push.user.visitor.change`) — a reply applier could not decrement the server's visitor
+count, and the call was a bare `SFSNetwork.SendMessage`, so this is the real wire action,
+not a local state edit. What it does **not** prove is that the visitor was a RECRUITMENT
+one: the pick was `visitorId == 3`, i.e. the third arrival of the session. The recruit
+path still wants a re-run with a survivor actually knocking; the send itself is the same
+one the gift path now exercises every time.
 
 ## Gift-bearing visitors — same command, kind GIFT (trace 20260729_151712)
 
 A survivor can also arrive carrying gifts («Собрать подарки выжившего»). This is the
-same queue mechanic — only the kind differs: `data.visitorId == VisitorType.GIFT` (2)
+same queue mechanic — only the kind differs: `data.eventType == VisitorType.GIFT` (2)
 instead of RECRUITMENT (3). Tapping the visitor and collecting the gift sends the
 identical one-shot message, captured whole in trace `20260729_151712`:
 
@@ -115,9 +145,32 @@ no window open. Primitives `visitor_gift_pending` / `visitor_gift_collect`
 (`tools/lib/lua_actions.py`), button `collect_visitor_gifts`, recipe
 `src/lastwar_bot/actions/collect_visitor_gifts.md`.
 
-The companion traffic capture for this run was empty (0 B), so the wire action is
-reconstructed from the trace alone — not yet confirmed by a live count 1→0 the way the
-recruit path was. Marked 🟡 in `docs/farming.md` until a live run confirms it.
+### Acceptance (2026-07-30, task #1122)
+
+The companion traffic capture for that trace was empty (0 B), so the send stayed
+trace-only until the `eventType` fix made the press fire at all. Then, driving the recipe
+`collect_visitor_gifts` (`TAP … xall`) against a queue of four gift visitors:
+
+```
+before: gift=3  queue=4  total=3      -- the fourth had not walked up yet
+        --> visitor.operate  {uid, 1}   x3
+after:  gift=0  queue=1  total=0
+```
+
+Three sends, three visitors gone, and the not-yet-arrived one left alone — the removals
+came back from the server on `push.user.visitor.change`, so this is the wire action. The
+count the recipe reads is the same gate the send applies, which is why `xall` drains the
+queue exactly and stops.
+
+### The client's own batch list
+
+`GetReceiveAllGiftUidList(VisitorType.GIFT, <queue>, <max>)` returns the uids the client
+itself considers claimable right now — it filters on `data.eventType`, skips a visitor
+with a `dialog_type`, one already `isFinish`, and one `IsGiftUidReceiving`. On the queue
+above it answered 3, the same as the primitive's count, which is what the readiness gate
+was checked against. It belongs to the season "claim all" feature (`CheckUnlockReceiveAll`,
+`GetBatchAllMaxCount`, `MarkGiftUidsReceiving`) — the per-visitor collect here does not
+depend on that unlock, so the primitives read the queue themselves.
 
 ## Related visitor commands (seen in MsgDefines, not exercised here)
 
