@@ -85,6 +85,7 @@ from tkinter import messagebox, scrolledtext, simpledialog, ttk
 from . import __version__ as APP_VERSION
 from . import dashboard as dashmod
 from . import i18n as i18nmod
+from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
 
@@ -300,6 +301,10 @@ SETTINGS_DEFAULTS: dict = {
     "launcher": LAUNCHER,
     "game_exe": GAME_EXE,
     "watchdog": False,
+    "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
+    "sweep_step": mapsweepmod.DEFAULT_STEP,
+    "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
+    "sweep_rest_min": 5,           # pause between two full passes, minutes
 }
 
 # The chat sub-tabs, in order. `system` is on the list: `_chat_msgs` always carried
@@ -471,6 +476,9 @@ class Panel(tk.Tk):
         self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
         self._autoloot_pause_until = 0.0   # wall clock the watcher may fire again at
         self._autoloot_warned = False      # "no checkpoint yet" is said once per run
+        self._sweep_stop = None       # threading.Event of the sweep loop, when running
+        self._sweep_at = 0            # index into the current pass's waypoints
+        self._sweep_pass = 0          # completed passes this session (for the log)
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
@@ -629,6 +637,18 @@ class Panel(tk.Tk):
 
     def _sniff_timeout(self) -> float:
         return self._opt_float("sniff_ready_timeout", low=1.0, high=600.0)
+
+    def _sweep_box(self) -> tuple[int, int, float, float]:
+        """``(radius, step, dwell, rest)`` of the map sweep, all bounded."""
+        return (
+            self._opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
+                          high=mapsweepmod.MAX_RADIUS),
+            self._opt_int("sweep_step", low=mapsweepmod.MIN_STEP,
+                          high=mapsweepmod.MAX_STEP),
+            self._opt_float("sweep_dwell", low=mapsweepmod.MIN_DWELL,
+                            high=mapsweepmod.MAX_DWELL),
+            self._opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
+        )
 
     def _child_env(self) -> dict:
         """The environment every child is launched with.
@@ -832,6 +852,9 @@ class Panel(tk.Tk):
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
+            "map_sweep": self._sweep_var.get(),
+            "sweep_centre_x": self._sweep_cx_var.get(),
+            "sweep_centre_y": self._sweep_cy_var.get(),
             # The Scenarios tab used to forget all three on every restart, so a
             # launch always started on the first row with an empty args box.
             "scenario_selected": self._scn_editor_name or "",
@@ -876,6 +899,9 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
+            self._sweep_var.set(bool(s.get("map_sweep", False)))
+            self._sweep_cx_var.set(s.get("sweep_centre_x", ""))
+            self._sweep_cy_var.set(s.get("sweep_centre_y", ""))
             self._scn_args_var.set(s.get("scenario_args", ""))
             self._scn_interval_var.set(str(s.get("scenario_interval", "60")))
             self._log_filter_var.set(s.get("log_filter") or LOG_FILTER_ALL)
@@ -895,6 +921,7 @@ class Panel(tk.Tk):
                     self._pending_var, self._can_loot_var,
                     self._lvl_from_var, self._lvl_to_var,
                     self._rally_var, self._help_var, self._mon_var,
+                    self._sweep_var, self._sweep_cx_var, self._sweep_cy_var,
                     self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var,
                     self._drill_on_var, self._drill_banner_var,
@@ -945,6 +972,9 @@ class Panel(tk.Tk):
         self._stop_autoloot()
         if self._autoloot_var.get():
             self._start_autoloot()
+        self._stop_sweep()
+        if self._sweep_var.get():
+            self._start_sweep()
         self._stop_chat()
         if self._chat_var.get():
             self._start_chat()
@@ -1106,7 +1136,29 @@ class Panel(tk.Tk):
         self._autoloot_chk = self._tr(ttk.Checkbutton(row2, variable=self._autoloot_var,
                                                       command=self._toggle_autoloot),
                                       "secret.autoloot")
-        self._autoloot_chk.pack(side="right", padx=(8, 0))
+        # -- The map sweep: the wrist the passive scan needed -------------------
+        #
+        # The capture only learns tiles from the responses the client sends while the
+        # map is MOVING, so «Автолут ★» was a standing order that stood still unless
+        # somebody dragged the map. This walks the camera over a box of tiles around
+        # a centre, one coordinate jump at a time (panel/mapsweep.py decides where),
+        # which is the same primitive a clickable coordinate in the log uses.
+        sweep = self._tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
+        sweep.pack(fill="x", pady=(8, 0))
+        self._sweep_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(sweep, variable=self._sweep_var,
+                                 command=self._toggle_sweep), "sweep.enabled").pack(side="left")
+        self._tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
+        self._sweep_cx_var = tk.StringVar()
+        ttk.Entry(sweep, textvariable=self._sweep_cx_var, width=6).pack(side="left", padx=(0, 2))
+        self._sweep_cy_var = tk.StringVar()
+        ttk.Entry(sweep, textvariable=self._sweep_cy_var, width=6).pack(side="left")
+        self._tr(ttk.Button(sweep, command=self._sweep_centre_from_coords),
+                 "sweep.take_centre").pack(side="left", padx=(4, 0))
+        self._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
+                                     justify="left")
+        self._sweep_hint.pack(side="left", padx=(10, 0))
+
 
         rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
@@ -1559,6 +1611,8 @@ class Panel(tk.Tk):
             self._start_monitor()
         if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
             self._start_autoloot()
+        if self._sweep_var.get():           # the map sweep, if the profile had it on
+            self._start_sweep()
         if self._chat_var.get():            # chat monitor, if the profile had it on
             self._start_chat()
         self.after(0, self._load_chat_history)
@@ -2570,12 +2624,131 @@ class Panel(tk.Tk):
             self._run_md_action("launch_game")
         threading.Thread(target=work, daemon=True).start()
 
+    # -- the map sweep: walk the camera so the passive scan sees something ----
+    #
+    # The capture only learns tiles while the map is MOVING (it is a pcap of the
+    # client's own `world.get.block` traffic), so «Автолут ★» stood still unless a
+    # person dragged the map. panel/mapsweep.py decides the waypoints; this drives
+    # them, one `_jump` at a time.
+    #
+    # Every jump goes through the SAME busy claim a button press does, so a sweep
+    # never overlaps a timer errand or a recipe — it simply loses that waypoint's
+    # turn and takes the next one when the errand is done. That is the right way
+    # round: the errand is the work, the sweep is the wrist.
+    def _toggle_sweep(self) -> None:
+        if self._sweep_var.get():
+            self._start_sweep()
+        else:
+            self._stop_sweep()
+
+    def _sweep_centre(self) -> "tuple[int, int] | None":
+        """The box's centre, or ``None`` when it has not been given one."""
+        cx, cy = self._sweep_cx_var.get().strip(), self._sweep_cy_var.get().strip()
+        if not (cx.lstrip("-").isdigit() and cy.lstrip("-").isdigit()):
+            return None
+        return int(cx), int(cy)
+
+    def _sweep_centre_from_coords(self) -> None:
+        """«Отсюда» — take the centre from the jump fields above."""
+        x, y = self._x_var.get().strip(), self._y_var.get().strip()
+        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+            self._say("sweep", "sweep.no_centre")
+            return
+        self._sweep_cx_var.set(x)
+        self._sweep_cy_var.set(y)
+
+    def _sweep_rule_text(self) -> str:
+        """What the checkbox is about to do, in one phrase — box, jumps, minutes."""
+        centre = self._sweep_centre()
+        if centre is None:
+            return self._t("sweep.no_centre")
+        radius, step, dwell, _rest = self._sweep_box()
+        jumps, seconds = mapsweepmod.describe(centre[0], centre[1], radius, step, dwell)
+        return self._t("sweep.rule", side=radius * 2 + 1, jumps=jumps,
+                       mins=max(1, int(seconds // 60)))
+
+    def _start_sweep(self) -> None:
+        if self._sweep_stop is not None:         # already sweeping
+            return
+        if self._sweep_centre() is None:
+            self._sweep_var.set(False)
+            self._say("sweep", "sweep.no_centre")
+            return
+        self._sweep_stop = threading.Event()
+        self._sweep_at = 0
+        self._sweep_pass = 0
+        self._log_put("[sweep] " + self._sweep_rule_text())
+        if self._mon_proc is None:
+            # The sweep produces traffic; without the capture nobody reads it.
+            self._say("sweep", "sweep.no_monitor")
+        threading.Thread(target=self._sweep_loop, args=(self._sweep_stop,),
+                         daemon=True).start()
+
+    def _stop_sweep(self) -> None:
+        stop, self._sweep_stop = self._sweep_stop, None
+        if stop is not None:
+            stop.set()
+            self._say("sweep", "sweep.off")
+
+    def _sweep_loop(self, stop: threading.Event) -> None:
+        """Walk the box, pass after pass, until the checkbox is cleared.
+
+        The waypoint list is rebuilt at the start of each pass rather than held: the
+        centre and the box are live fields, so retyping them takes effect on the next
+        pass instead of needing the checkbox toggled.
+
+        One tick is wrapped like the auto-loot watcher's: this is a background loop
+        nobody is watching, so a single failed jump must cost a log line and not the
+        sweep for the session.
+        """
+        last_err = ""
+        dwell = mapsweepmod.DEFAULT_DWELL
+        while not stop.is_set():
+            try:
+                centre = self._sweep_centre()
+                if centre is None:
+                    self._say("sweep", "sweep.no_centre")
+                    return
+                radius, step, dwell, rest = self._sweep_box()
+                points = mapsweepmod.waypoints(centre[0], centre[1], radius, step)
+                if self._sweep_at >= len(points):
+                    # A pass is done. Rest before the next one: the map does not
+                    # change fast enough to be worth walking it back to back, and a
+                    # gap is what lets an errand or a person use the client.
+                    self._sweep_pass += 1
+                    self._sweep_at = 0
+                    self._say("sweep", "sweep.pass_done", n=self._sweep_pass,
+                              mins=int(rest // 60))
+                    if stop.wait(rest):
+                        return
+                    continue
+                x, y = points[self._sweep_at]
+                # Quiet: dozens of waypoints a pass, and one «переход / готово» pair
+                # each would bury the findings the sweep exists to produce.
+                #
+                # Advance ONLY on a jump that really started. A refusal means an
+                # errand or a button press holds the flag, and losing the waypoint
+                # would leave a hole in the pass — exactly the band of tiles the
+                # sweep exists to cover. It waits out the dwell and tries the same
+                # one again.
+                if self._jump(x, y, None, quiet=True):
+                    self._sweep_at += 1
+                last_err = ""
+            except Exception as exc:      # noqa: BLE001 — one tick, not the loop
+                err = f"{type(exc).__name__}: {exc}"
+                if err != last_err:
+                    last_err = err
+                    self._say("sweep", "log.sweep.error", error=err)
+            if stop.wait(dwell):
+                return
+
     def _on_close(self) -> None:
         # A debounced edit is still pending for up to a second — write it before
         # the window goes, or the last thing typed is the thing that is lost.
         self._flush_scenario_save()
         self._stop_monitor()
         self._stop_autoloot()
+        self._stop_sweep()
         self._stop_dashboard()
         self._stop_rally()
         self._stop_help()
@@ -3550,6 +3723,20 @@ class Panel(tk.Tk):
                          "settings.placeholder").pack(anchor="w")
             else:
                 fill(frame)
+
+    def _refresh_sweep_settings_hint(self) -> None:
+        hint = getattr(self, "_sweep_settings_hint", None)
+        if hint is None:
+            return
+        radius, step, dwell, _rest = self._sweep_box()
+        # A centre of (0, 0) would be clamped against the map edge and undercount, so
+        # describe the box from a point well inside the map instead.
+        jumps, seconds = mapsweepmod.describe(500, 500, radius, step, dwell)
+        try:
+            hint.configure(text=self._t("sweep.settings_hint", side=radius * 2 + 1,
+                                        jumps=jumps, mins=max(1, int(seconds // 60))))
+        except tk.TclError:
+            pass
 
     # -- settings: auto-rally -----------------------------------------------
 
