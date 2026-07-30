@@ -100,16 +100,38 @@ def _lua_list(items):
 
 
 # Broad-mode (no --filter) exclusions, applied at WRAP time so the flood never reaches
-# Player.log at all. Substring-matched against the full `table.fn` name. These are Unity
-# value types whose metamethods and math methods fire per frame and per field access —
-# a single decoration-upgrade session with no excludes wrote 127145 lines, ALL of them
-# Vector3.__index / Vector3.__tostring (task #1128). Metamethods on ANY table (keys that
-# start with `__`) are dropped in broad mode too, separately from this list, so a value
-# type not named here is still safe. Deliberately NOT here: `Manager`, `Util`, `UI…` —
-# those are the game logic a trace is FOR, and the user asked to keep them.
+# Player.log at all. Substring-matched against the full `table.fn` name; a matched table
+# is not even descended into (so excluding `Timer` drops every `Timer.*`). Metamethods on
+# ANY table (keys starting with `__`) are dropped separately, in the Lua (DROP_BROAD).
+#
+# This list is curated from real frozen sessions (task #1128). Round 1 was 100% Vector3
+# metamethods; round 2 (212034 lines) was a spread of per-frame plumbing, the worst being
+# Timer.IsOver (81210), toInt (27422), *.super.* base-class dispatch (~40000) and
+# UITimeManager clock reads (~30000). The entries below drop 96.5% of that round-2 trace
+# while KEEPING the game logic a trace is for — verified untouched: SFSNetwork.SendMessage,
+# UIManager.OpenWindow, *Ctrl.On*Click, BuildingUtils.*, SceneUtils.*, GoToUtil.*,
+# MarchUtil.*. That is why the noisy Utils are named one by one instead of a blanket
+# `Util`: GoToUtil / SceneUtils / MarchUtil carry real actions. Add more with
+# `--exclude a,b`; drop the whole list with `--no-default-excludes`.
 DEFAULT_EXCLUDES = [
+    # Unity value types — metamethods + math, per frame and per field access.
     "Vector2", "Vector3", "Vector4", "Quaternion",
     "Color", "Color32", "Matrix4x4", "Rect", "Bounds", "Ray", "Plane", "LayerMask",
+    # Class-framework base-class dispatch and singleton accessors, fetched every frame.
+    ".super.", "GetInstance",
+    # Timers and the per-frame clock/Time driver.
+    "Timer", "UITimeManager", "Time.Set",
+    # Trivial coercion / predicate / unpack helpers called from everywhere.
+    "toInt", "checknumber", "SafeUnpack", "IsNull", "IsEditor", "IsPC", "IsConstructing",
+    # Per-frame helper utils and profilers (the noisy Utils only — NOT GoTo/Scene/March).
+    "CommonUtil", "BattleFieldUtil", "SeasonUtil", "ProfilerUtil", "StopwatchProfiler",
+    # Queue-state polling, list lib, xml/config loader, an assert helper.
+    "QueueInfo", "list.", "LocalController", "IsDisableLuaAddComponentAssert",
+    # Red-dot / warning polling and progress-bar fill animation.
+    "RedPoint", "WarningBallData", "SetFillAmount",
+    # UI/component lifecycle callbacks — never a "player did X" action (dotted so a bare
+    # top-level name is not caught; On*Click and other handlers are deliberately kept).
+    ".OnCreate", ".OnEnable", ".OnDisable", ".OnDestroy", ".OnComponentDestroy",
 ]
 
 
