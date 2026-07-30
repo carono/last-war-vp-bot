@@ -2160,22 +2160,46 @@ def truck_reward_collect() -> str:
 #     `UIDecorationAdvanceUpgrade:OnLevelUpClick`, sends `curCanUpgradeNum`, which is
 #     1 for a single tap and more for a long press.
 #
-# The gate is `BuildingUtils.IsExistAdvanceUpgrade(itemId, level)` — the decoration has
-# an "advance upgrade" step at its current level. Without it the server refuses the
+# The first gate is `BuildingUtils.IsExistAdvanceUpgrade(itemId, level)` — the decoration
+# has an "advance upgrade" step at its current level. Without it the server refuses the
 # send outright: `errorCode = building_center_tips4`,
 # `errorMsg = "building no extra_lvup_para"` (captured live off the reply).
-# `BuildManager:IsCanUpgradeDecoration(itemId, level, buildData)` then returns
-# `have, need` — the upgrade material the player holds against what this step costs.
 #
-# So one press is: pick a decoration group that passes both gates, resolve its uuid
-# from the itemId, send `{buildUuid, num=1}`. No window is opened; the handbook the
-# player walked through is UI only.
+# The second gate is the material, and it is a SPARE DUPLICATE of the decoration, not a
+# currency. `BuildingUtils.GetDecorateUpLevelBuilds(buildData)` returns the feed cells the
+# window renders, one per level that can be fed in:
+#
+#     {itemId = 103404001, count = 2, needScore = 484, nextScore = 486, levelTemplate, buildData}
+#
+# `count` is how many steps are buyable right now — the spare copies held, capped by what
+# is still missing to the next star threshold (`math.min` inside the reader). It is exactly
+# the `curCanUpgradeNum` the real press sends. One spare copy = one progress point.
+#
+# `BuildManager:IsCanUpgradeDecoration(itemId, level, buildData)` is NOT this gate, and an
+# earlier revision of this block wrongly used it. It returns `hasCount, upgradeNeedCount`
+# in *glue value* (`equal_glue_value` off the level template) and prices the ordinary
+# decoration LEVEL upgrade — 29160 for level 6 -> 7 — against holdings of ~110. Read as a
+# material gate it is never satisfiable, so the button never pressed. Proven wrong by the
+# 20260730_162054 recording: the player upgraded 103402000 by hand while that pair read
+# 110 / 29160, and the window's own readout was the spare count (green `1/100` before the
+# press, red `0/99` after) with the star bar moving 386 -> 387 of 486.
+#
+# So one press is: pick a decoration group that passes both gates, resolve its uuid from
+# the itemId, send `{buildUuid, num}`. No window is opened; the handbook the player walked
+# through is UI only.
+#
+# Proven live on 2026-07-30 by this button, one step at a time, on decoration 103404000
+# (level 6, two spares banked): the star score went 484/486 -> 485/486 and the spare count
+# 2 -> 1, so the press moved real progress and the game charged for it. The uuid it sent,
+# 1156814744896916569, is the one `GetMaxLvBuildDataByBuildId` resolves — the same identity
+# both hand recordings put on the wire for their own groups.
 
 _DECOR_UPGRADE_MSG_KEY = "MsgDefines.DecoratorProgressUpgradeMessage"
 
-# Walks the decoration groups and leaves the first one that can be upgraded right now
-# in `item`, `uuid` and `lv`. Shared by the count, the press and the dump so the three
-# can never disagree about what "ready" means.
+# Walks the decoration groups and hands each one that has an upgrade step to `cb` as
+# `(itemId, buildData, steps)`, where `steps` is how many progress steps the banked spare
+# duplicates would buy right now (0 = nothing to feed). Shared by the count, the press and
+# the dump so the three can never disagree about what "ready" means.
 _DECOR_SCAN = (
     "local bm=DataCenter.BuildManager "
     "local function scan(cb) "
@@ -2184,21 +2208,23 @@ _DECOR_SCAN = (
     "if ok and d then "
     "local ok2,adv=pcall(function() return BuildingUtils.IsExistAdvanceUpgrade(itemId,d.level) end) "
     "if ok2 and adv then "
-    "local ok3,have,need=pcall(function() return bm:IsCanUpgradeDecoration(itemId,d.level,d) end) "
-    "if ok3 and type(have)=='number' and type(need)=='number' then "
-    "if cb(itemId,d,have,need) then return true end end end end end return false end "
+    "local ok3,cells=pcall(function() return BuildingUtils.GetDecorateUpLevelBuilds(d) end) "
+    "local steps=0 "
+    "if ok3 and type(cells)=='table' then "
+    "for _,c in pairs(cells) do local n=tonumber(c.count) if n and n>0 then steps=steps+n end end end "
+    "if cb(itemId,d,steps) then return true end end end end return false end "
 )
 
 
 def decoration_upgrade_ready_count() -> str:
-    """Lua *expression* -> how many decorations can be upgraded right now.
+    """Lua *expression* -> how many progress steps are affordable across all decorations.
 
-    Counts the groups that pass BOTH gates: the step exists at this level, and the
-    material for it is banked. Zero is the normal reading — a decoration only becomes
-    upgradable again once enough material has accumulated, which takes days.
+    This is a count of STEPS, not of decorations: a group holding two spare duplicates
+    contributes two, so `TAP upgrade_decoration xall` spends every one of them. Zero is
+    the normal reading — a spare copy of a decoration is a rare thing to be holding.
     """
     return ("(function() %s local n=0 "
-            "scan(function(_,_,have,need) if have>=need and need>0 then n=n+1 end end) "
+            "scan(function(_,_,steps) n=n+steps end) "
             "return n end)()" % _DECOR_SCAN)
 
 
@@ -2208,17 +2234,22 @@ def upgrade_next_decoration(count: int = 1) -> str:
     Finds the group itself (no target has to be parked first), resolves the uuid the
     game would use and sends `count` progress steps. With nothing ready it logs why
     and sends nothing, so running it on a schedule costs one VM call and no refusals.
+
+    One step per press by default: the reply refreshes the group, so the next press
+    re-reads what is left instead of trusting a stale count.
     """
     return (
         "%s local fired=false "
-        "scan(function(itemId,d,have,need) "
-        "if have>=need and need>0 then "
-        "pcall(function() SFSNetwork.SendMessage(%s, d.uuid, %d) end) "
+        "scan(function(itemId,d,steps) "
+        "if steps>0 then "
+        "local num=math.min(%d,steps) "
+        "pcall(function() SFSNetwork.SendMessage(%s, d.uuid, num) end) "
         'CS.UnityEngine.Debug.LogError("ACT decor_upgrade item="..tostring(itemId)..'
-        '" uuid="..tostring(d.uuid).." lv="..tostring(d.level).." num=%d") '
+        '" uuid="..tostring(d.uuid).." lv="..tostring(d.level)..'
+        '" num="..tostring(num).." of "..tostring(steps)) '
         "fired=true return true end end) "
         'if not fired then CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip nothing ready") end'
-        % (_DECOR_SCAN, _DECOR_UPGRADE_MSG_KEY, int(count), int(count))
+        % (_DECOR_SCAN, int(count), _DECOR_UPGRADE_MSG_KEY)
     )
 
 
@@ -2240,19 +2271,29 @@ def decoration_upgrade(item_id: int, count: int = 1) -> str:
 
 
 def decoration_state_dump() -> str:
-    """Log every decoration that has an upgrade step, with material held vs needed.
+    """Log every decoration that has an upgrade step, with the steps its spares would buy.
 
-    This is the "why is nothing happening?" reading: a line per group, `have/need`, and
-    a READY marker on the ones a press would actually take.
+    This is the "why is nothing happening?" reading: a line per group with how many steps
+    its spares would buy and a READY marker on the ones a press would actually take.
+
+    The star score is printed only for a group that has something to feed. With no spare
+    banked the reader's `needScore` degenerates to `nextScore`, which would read as "this
+    one is maxed out" when it only means "nothing to feed here" — so that line says
+    `no-spares` and the threshold instead of a score it cannot know.
     """
     return (
         "%s local n,ready=0,0 "
-        "scan(function(itemId,d,have,need) n=n+1 "
-        "if have>=need and need>0 then ready=ready+1 end "
+        "scan(function(itemId,d,steps) n=n+1 "
+        "if steps>0 then ready=ready+1 end "
+        "local score,goal='?','?' "
+        "pcall(function() local cells=BuildingUtils.GetDecorateUpLevelBuilds(d) "
+        "for _,c in pairs(cells or {}) do goal=c.nextScore "
+        "if tonumber(c.count) and tonumber(c.count)>0 then score=c.needScore end end end) "
         'CS.UnityEngine.Debug.LogError("ACT decor item="..tostring(itemId)..'
         '" uuid="..tostring(d.uuid).." lv="..tostring(d.level)..'
-        '" have="..tostring(have).." need="..tostring(need)..'
-        '((have>=need and need>0) and "  READY" or "")) end) '
+        '" score="..(steps>0 and (tostring(score).."/"..tostring(goal)) '
+        'or ("no-spares (goal "..tostring(goal)..")"))..'
+        '" steps="..tostring(steps)..(steps>0 and "  READY" or "")) end) '
         'CS.UnityEngine.Debug.LogError("ACT decor_groups="..tostring(n).." ready="..tostring(ready))'
         % _DECOR_SCAN
     )

@@ -485,10 +485,11 @@ BUTTONS: dict[str, Button] = {
     # group itself, so nothing has to be picked or parked beforehand. Headless — no
     # building tapped, no handbook opened.
     #
-    # `count_lua` is the number of groups that pass both gates (the upgrade step
-    # exists at this level, and its material is banked), so `TAP upgrade_decoration
-    # xall` upgrades everything that is ready and does nothing at all when none is —
-    # which is the normal state, since the material accumulates over days.
+    # `count_lua` counts STEPS, not decorations: the spare duplicates banked across
+    # every group that has an upgrade step, so `TAP upgrade_decoration xall` spends
+    # all of them and does nothing at all when there are none — which is the normal
+    # state, since a spare copy of a decoration is a rare thing to be holding. One
+    # press = one step, so each press re-reads what the last reply left behind.
     "upgrade_decoration": Button(
         lua=_lua_actions.upgrade_next_decoration(),
         # The reply carries the group's refreshed info; the pause lets the next
@@ -499,7 +500,8 @@ BUTTONS: dict[str, Button] = {
     ),
     "dump_decorations": Button(
         # The "why is nothing happening?" reading: every decoration that has an
-        # upgrade step, with material held vs needed. Reads only, sends nothing.
+        # upgrade step, with its star score, the threshold it climbs to and how many
+        # steps its spares would buy. Reads only, sends nothing.
         lua=_lua_actions.decoration_state_dump(),
         wait=0.4, label="decoration state",
     ),

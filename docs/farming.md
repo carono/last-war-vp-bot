@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 26 of 98
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 27 of 98
 
-🟩 26 done · 🟨 26 partly · 🟥 46 not automated
+🟩 27 done · 🟨 25 partly · 🟥 46 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -136,7 +136,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Raising the shield
 - ❌ Expedition
 - ❌ Levelling survivors
-- 🟡 Upgrading a decoration — finds the decorations that can be upgraded by itself and presses each one, with no window opened: the building, its handbook and the decoration cell are all skipped. It presses only where the upgrade is really available and its material is banked, and otherwise says there is nothing to do, which is the usual answer — the material takes days to gather. There is a companion reading that lists every decoration with what it costs and what is held. Everything but the successful upgrade itself is confirmed against the live game; no decoration has been upgradable since, so that last step is still unproven
+- ✅ Upgrading a decoration — finds the decorations that can be upgraded by itself and presses each one, with no window opened: the building, its handbook and the decoration cell are all skipped. A step costs one spare duplicate of that same decoration and buys one point towards its next star, so it presses exactly as many times as there are spares and otherwise says there is nothing to do — the usual answer, since spare copies are rare. There is a companion reading that lists every decoration with the star score it stands at, the threshold it is climbing to, and how many steps its spares would buy
 - ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate. Wants the base on screen, same as the gifts below: from the world map nobody is standing at the gate yet, so it quietly does nothing and the survivor keeps waiting
 - ✅ Collecting gifts a survivor brought to the base — one press per gift-bearing visitor, no window opened, stopping on its own when nobody is left; a visitor still walking up to the base is left for the next round. Wants the base on screen: from the world map nobody is standing at the gate yet, so it quietly does nothing and the gifts keep waiting
 - ❌ Assembling the treasure from map pieces
