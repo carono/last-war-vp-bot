@@ -58,6 +58,9 @@ RALLY_COUNTS_STATE = "rally_counts.json"
 # Daily tally of resources gained (panel/resource_stats.py): {date: {resource: n}},
 # accumulated across days.
 RESOURCE_STATS_STATE = "resource_stats.json"
+# The accumulating SQLite history of ranking-board snapshots (tools/lib/leaderboard_store.py),
+# filled by the «leaderboard_collect» trigger.
+LEADERBOARD_DB = "leaderboard_history.db"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -232,6 +235,10 @@ class ProfileManager:
     def resource_stats_json(self, name: str | None = None) -> str:
         """This profile's day-keyed tally of resources gained (panel/resource_stats.py)."""
         return os.path.join(self.dir(name), RESOURCE_STATS_STATE)
+
+    def leaderboard_db(self, name: str | None = None) -> str:
+        """This profile's ranking-board history SQLite (tools/lib/leaderboard_store.py)."""
+        return os.path.join(self.dir(name), LEADERBOARD_DB)
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)

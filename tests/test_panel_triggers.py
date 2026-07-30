@@ -108,6 +108,14 @@ def test_the_builtin_resource_tracker_trigger_ships():
     assert not rt.enabled                       # opt-in — it records, it does not act
 
 
+def test_the_builtin_leaderboard_collect_trigger_ships():
+    lc = triggersmod.default_catalogue().by_name("leaderboard_collect")
+    assert lc is not None
+    assert not lc.is_poll and lc.kind == triggersmod.KIND_WIRE
+    assert lc.event_pattern == "rank"           # covers al.rank / champion.duel…rank
+    assert not lc.enabled                       # opt-in — a standing collector
+
+
 def test_the_builtin_session_kick_trigger_is_a_poll():
     sk = triggersmod.default_catalogue().by_name("session_kick")
     assert sk is not None

@@ -122,6 +122,7 @@ from . import triggers as triggersmod
 from . import rally_limits as rallylimitsmod
 from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
+from . import tabs_extra as tabsextra
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -1527,23 +1528,41 @@ class Panel(ctk.CTk):
         settings_tab = CTkFrame(nb)
         chat_tab = CTkFrame(nb)
         stats_tab = CTkFrame(nb)
+        alliance_tab = CTkFrame(nb)
+        profile_tab = CTkFrame(nb)
+        inventory_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
         nb.add(settings_tab, text=self._t("tab.settings"))
         nb.add(chat_tab, text=self._t("tab.chat"))
         nb.add(stats_tab, text=self._t("tab.stats"))
+        nb.add(alliance_tab, text=self._t("tab.alliance"))
+        nb.add(profile_tab, text=self._t("tab.profile"))
+        nb.add(inventory_tab, text=self._t("tab.inventory"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(timers_tab, text=self._t("tab.timers")),
                                        nb.tab(settings_tab, text=self._t("tab.settings")),
                                        nb.tab(chat_tab, text=self._t("tab.chat")),
-                                       nb.tab(stats_tab, text=self._t("tab.stats"))))
+                                       nb.tab(stats_tab, text=self._t("tab.stats")),
+                                       nb.tab(alliance_tab, text=self._t("tab.alliance")),
+                                       nb.tab(profile_tab, text=self._t("tab.profile")),
+                                       nb.tab(inventory_tab, text=self._t("tab.inventory"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
         self._build_stats_tab(stats_tab)
+        # The three read-only tabs (panel/tabs_extra.py). Their UI is built now but the
+        # data is read lazily — the first time each tab is opened (_on_main_tab_changed).
+        self._main_nb = nb
+        self._lazy_tabs = {
+            str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
+            str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
+            str(inventory_tab): tabsextra.InventoryTab(self, inventory_tab),
+        }
+        nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
         top = CTkFrame(main, padding=8)
         top.pack(fill="x")
@@ -2797,7 +2816,16 @@ class Panel(ctk.CTk):
         Returns the child handle (a ChildMonitor, which has the `.stop()` the
         watcher wants) or ``None`` if it would not start. The reader swallows the
         marker line and lets the human line through into the log.
+
+        Most wire triggers listen with the generic wire_event_monitor (a marker on
+        every match). «leaderboard_collect» is different: the board data is in the
+        push payload, not readable off a mark, so its listener is the specialised
+        collector (scan_leaderboard.py) which decodes each board and appends it to
+        this profile's leaderboard_history.db itself — nothing is submitted, the
+        child does the work.
         """
+        if trigger.name == "leaderboard_collect":
+            return self._spawn_leaderboard_collector(trigger)
         marker = triggersmod.FIRE_MARKER
 
         def on_line(line: str):
@@ -2812,6 +2840,24 @@ class Panel(ctk.CTk):
                            os.path.join(TOOLS, "wire_event_monitor.py"),
                            "--match", trigger.event_pattern],
                           on_line=on_line,
+                          on_exit=lambda n=trigger.name: self._on_trigger_exit(n))
+        if not mon.start():
+            return None
+        return mon
+
+    def _spawn_leaderboard_collector(self, trigger):
+        """The «leaderboard_collect» listener: a standing capture that saves boards.
+
+        scan_leaderboard.py decodes every ranking board that crosses the wire and, with
+        --sqlite, appends it to this profile's leaderboard_history.db as a timestamped
+        snapshot. It writes the DB itself, so there is no marker and nothing is
+        submitted — the watcher just needs the handle to stop it when the box is
+        unticked. Runs under the Windows Python off the Tk thread, like every capture.
+        """
+        mon = self._child("trigger",
+                          [self._python(), "-u",
+                           os.path.join(TOOLS, "scan_leaderboard.py"),
+                           "--sqlite", self._profiles.leaderboard_db()],
                           on_exit=lambda n=trigger.name: self._on_trigger_exit(n))
         if not mon.start():
             return None
@@ -5163,6 +5209,11 @@ class Panel(ctk.CTk):
             if getattr(timer, "name", "") == "resource_tracker":
                 self._track_resources()
                 return True
+            # The leaderboard collector does all its work in its listener child
+            # (a standing scan_leaderboard --sqlite), so a fire is a no-op here — the
+            # arm-sweep submit must not try to run the placeholder scenario.
+            if getattr(timer, "name", "") == "leaderboard_collect":
+                return True
             # Rally auto-join is capped per monster type per day (panel/rally_limits.py).
             # Read the types out; if every one is at its cap, skip the whole join. `None`
             # = the types could not be read — let the join proceed, uncounted.
@@ -5349,6 +5400,20 @@ class Panel(ctk.CTk):
                   what=", ".join(f"{k} +{v}" for k, v in gains.items()))
         if hasattr(self, "_stats_grid"):
             self.after(0, self._refresh_stats_table)
+
+    def _on_main_tab_changed(self, _event=None) -> None:
+        """Lazy-load the Alliance / Profile / Inventory tabs the first time each is
+        opened — their data reads the live game, so nothing runs until it is shown."""
+        nb = getattr(self, "_main_nb", None)
+        if nb is None:
+            return
+        try:
+            current = str(nb.select())
+        except tk.TclError:
+            return
+        tab = getattr(self, "_lazy_tabs", {}).get(current)
+        if tab is not None:
+            tab.ensure_loaded()
 
     # -- statistics tab: resources gained per day ---------------------------
     def _build_stats_tab(self, parent) -> None:

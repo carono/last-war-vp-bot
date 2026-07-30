@@ -414,7 +414,8 @@ def main() -> int:
     if store is not None:
         # A last flush, then the running total so the history's growth is visible.
         saved = leaderboard_store.save_records(store, index.records(), int(time.time()))
-        total = store.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+        total = store.execute("SELECT COUNT(DISTINCT ts || board_type) "
+                              "FROM entries").fetchone()[0]
         note = f" (+{len(saved)} on the final flush)" if saved else ""
         print(f"{C_OK}history: {total} snapshot(s) in {args.sqlite}{note}{C_RESET}")
         store.close()

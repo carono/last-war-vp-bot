@@ -4,32 +4,29 @@ r"""A SQLite history of ranking-board snapshots — one timestamped slice per ca
 ``scan_leaderboard.py`` reads a ranking board off the wire the moment the client
 opens it and rewrites a JSON file with *this run's* rows. That answers "who is on the
 board now" but throws yesterday away. This store keeps the slices instead: every time
-a board is captured it is written as one **snapshot** stamped with the capture time,
-so the boards accumulate a history a reader can walk back through — "the alliance
-top-10 a week ago", "how this player's rank moved".
+a board is captured, its rows are written with one shared timestamp — the touch point
+— so the boards accumulate a history a reader can walk back through: "the alliance
+top-10 a week ago", "how a player's rank moved".
 
-Two tables, plain SQLite, no ORM:
+One flat table, exactly the shape task #1134 asked for::
 
-  * ``snapshots(id, leaderboard, captured_at, n_rows, content_hash)`` — one row per
-    saved slice of one board;
-  * ``entries(snapshot_id, list_index, entity, uid, name, position, score, power,
-    alliance, extra)`` — the board's rows, as decoded, tied to their snapshot.
+    entries(id, ts, board_type, rank, uid, name, score, raw_json)
 
-**Identical back-to-back slices are not stored twice.** A board that has not changed
-since its last snapshot (same rows, same order — a ``content_hash`` over them) is
-skipped, so re-opening the same screen, or a capture that flushes every few seconds
-while the board sits still, does not fill the history with duplicates. A board that
-*has* moved is a new snapshot with a new time. That makes the history a record of
-*changes*, which is the point of keeping it.
+`ts` is the capture time shared by every row of one snapshot; `board_type` is the
+command that carried the board (`al.rank`, `champion.duel.result.show.rank.list`, …);
+`rank` is the placement (the board's own number when it stated one, else its position
+in the reply); `raw_json` is the whole decoded row so nothing is lost to the columns.
+
+**An unchanged board is not stored twice.** A board whose rows match its last stored
+snapshot (same order, same placements/uids/names/scores) is skipped — the capture
+flushes on a timer, so re-opening a screen or a flush while the board sits still would
+otherwise fill the history with identical slices. A board that *moved* is a new
+snapshot at a new time, which is the point of keeping the history.
 
 The row dicts are exactly what ``LeaderboardIndex.records()`` yields (see
-scan_leaderboard.py) — ``leaderboard``, ``entity``, ``uid``, ``name``, ``position``,
-``score``, ``power``, ``alliance``, ``list_index`` and the rest — so a caller passes
-them straight through; any field the schema does not name is kept verbatim in
-``extra`` as JSON so nothing decoded is lost.
-
-Nothing here talks to the wire or the game; it is a plain file store a test drives
-with a temp path and a list of dicts.
+scan_leaderboard.py): ``leaderboard``, ``uid``, ``name``, ``position``,
+``list_index``, ``score`` and the rest. Nothing here talks to the wire or the game —
+it is a plain file store a test drives with a temp path and a list of dicts.
 """
 from __future__ import annotations
 
@@ -38,109 +35,92 @@ import json
 import sqlite3
 from typing import Iterable
 
-# Columns lifted into their own fields for querying; everything else on a row dict
-# rides along in `extra` as JSON so no decoded value is dropped.
-_ENTRY_COLS = ("list_index", "entity", "uid", "name", "position", "score",
-               "power", "alliance")
-
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS snapshots (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    leaderboard  TEXT    NOT NULL,
-    captured_at  INTEGER NOT NULL,
-    n_rows       INTEGER NOT NULL,
-    content_hash TEXT    NOT NULL
-);
 CREATE TABLE IF NOT EXISTS entries (
-    snapshot_id  INTEGER NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
-    list_index   INTEGER,
-    entity       TEXT,
-    uid          TEXT,
-    name         TEXT,
-    position     INTEGER,
-    score        INTEGER,
-    power        INTEGER,
-    alliance     TEXT,
-    extra        TEXT
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         INTEGER NOT NULL,
+    board_type TEXT    NOT NULL,
+    rank       INTEGER,
+    uid        INTEGER,
+    name       TEXT,
+    score      INTEGER,
+    raw_json   TEXT
 );
-CREATE INDEX IF NOT EXISTS ix_snap_board  ON snapshots(leaderboard, captured_at);
-CREATE INDEX IF NOT EXISTS ix_entry_snap  ON entries(snapshot_id);
-CREATE INDEX IF NOT EXISTS ix_entry_uid   ON entries(uid);
+CREATE INDEX IF NOT EXISTS ix_entries_board ON entries(board_type, ts);
+CREATE INDEX IF NOT EXISTS ix_entries_uid   ON entries(uid);
 """
 
 
 def connect(path: str) -> sqlite3.Connection:
     """Open (creating) the store at ``path`` with the schema applied."""
     conn = sqlite3.connect(path)
-    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)
     conn.commit()
     return conn
 
 
-def _content_hash(rows: list) -> str:
-    """A stable hash of a board's rows, so an unchanged board is recognised.
+def _rank(row: dict):
+    """The placement: the board's own number when it stated one, else its position."""
+    pos = row.get("position")
+    return _i(pos) if pos is not None else _i(row.get("list_index"))
 
-    Over the identifying/ranking fields in list order — not `seen_at`, which moves
-    every capture and would make every slice look new. `json.dumps(sort_keys)` keeps
-    it stable across dict orderings.
-    """
-    shaped = [
-        {k: row.get(k) for k in ("list_index", "entity", "uid", "name",
-                                 "position", "score", "power", "alliance")}
-        for row in rows
-    ]
-    blob = json.dumps(shaped, sort_keys=True, ensure_ascii=False, default=str)
+
+def _shaped(rows: list) -> list:
+    """The identifying/ranking view of a board's rows, for the change hash."""
+    return [{"rank": _rank(r), "uid": _s(r.get("uid")), "name": _s(r.get("name")),
+             "score": _i(r.get("score"))} for r in rows]
+
+
+def _content_hash(rows: list) -> str:
+    blob = json.dumps(_shaped(rows), sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
 
-def last_hash(conn: sqlite3.Connection, leaderboard: str) -> "str | None":
-    """The ``content_hash`` of the newest snapshot of ``leaderboard`` (or ``None``)."""
+def _last_board_rows(conn: sqlite3.Connection, board_type: str) -> list:
+    """The rows of ``board_type``'s newest snapshot, as shaped dicts (or [])."""
+    ts_row = conn.execute(
+        "SELECT ts FROM entries WHERE board_type = ? ORDER BY ts DESC LIMIT 1",
+        (board_type,)).fetchone()
+    if not ts_row:
+        return []
     cur = conn.execute(
-        "SELECT content_hash FROM snapshots WHERE leaderboard = ? "
-        "ORDER BY captured_at DESC, id DESC LIMIT 1", (leaderboard,))
-    row = cur.fetchone()
-    return row[0] if row else None
+        "SELECT rank, uid, name, score FROM entries WHERE board_type = ? AND ts = ? "
+        "ORDER BY id", (board_type, ts_row[0]))
+    return [{"rank": r[0], "uid": _s(r[1]), "name": r[2], "score": r[3]}
+            for r in cur.fetchall()]
 
 
-def save_snapshot(conn: sqlite3.Connection, leaderboard: str, rows: Iterable[dict],
-                  captured_at: int) -> "int | None":
-    """Store one board as a timestamped snapshot; skip an unchanged repeat.
+def save_snapshot(conn: sqlite3.Connection, ts: int, board_type: str,
+                  rows: Iterable[dict]) -> int:
+    """Store one board's rows as a snapshot at ``ts``; skip an unchanged repeat.
 
-    Returns the new snapshot id, or ``None`` when the board is identical to its last
-    stored snapshot (nothing written) or has no rows (nothing to store).
+    Returns the number of rows written, or ``0`` when the board is identical to its
+    last stored snapshot (nothing written) or has no rows.
     """
     rows = [dict(r) for r in rows]
     if not rows:
-        return None
-    digest = _content_hash(rows)
-    if last_hash(conn, leaderboard) == digest:
-        return None                              # unchanged since last time — skip
-    cur = conn.execute(
-        "INSERT INTO snapshots (leaderboard, captured_at, n_rows, content_hash) "
-        "VALUES (?, ?, ?, ?)", (leaderboard, int(captured_at), len(rows), digest))
-    snap_id = cur.lastrowid
+        return 0
+    prev = _last_board_rows(conn, board_type)
+    if prev and _content_hash_shaped(prev) == _content_hash(rows):
+        return 0                                 # unchanged since last time — skip
     conn.executemany(
-        "INSERT INTO entries (snapshot_id, list_index, entity, uid, name, position, "
-        "score, power, alliance, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [(snap_id, row.get("list_index"), _s(row.get("entity")), _s(row.get("uid")),
-          _s(row.get("name")), _i(row.get("position")), _i(row.get("score")),
-          _i(row.get("power")), _s(row.get("alliance")),
-          json.dumps({k: v for k, v in row.items() if k not in _ENTRY_COLS},
-                     ensure_ascii=False, default=str))
+        "INSERT INTO entries (ts, board_type, rank, uid, name, score, raw_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(int(ts), board_type, _rank(row), _i(row.get("uid")), _s(row.get("name")),
+          _i(row.get("score")), json.dumps(row, ensure_ascii=False, default=str))
          for row in rows])
     conn.commit()
-    return snap_id
+    return len(rows)
 
 
 def save_records(conn: sqlite3.Connection, records: Iterable[dict],
-                 captured_at: int) -> dict:
+                 ts: int) -> dict:
     """Save a mixed list of rows (many boards) — one snapshot per board.
 
     ``records`` is exactly ``LeaderboardIndex.records()``: rows of several boards, each
-    carrying its own ``leaderboard`` key. They are grouped by board and each board is a
-    snapshot. Returns ``{leaderboard: snapshot_id}`` for the boards that were stored
-    (an unchanged board is left out).
+    with its own ``leaderboard`` key. Grouped by board; each is a snapshot stamped with
+    the board's freshest ``seen_at`` (when present) so the touch point is when it crossed
+    the wire, else ``ts``. Returns ``{board_type: rows_written}`` for boards stored.
     """
     boards: dict[str, list] = {}
     for row in records:
@@ -149,13 +129,16 @@ def save_records(conn: sqlite3.Connection, records: Iterable[dict],
             boards.setdefault(board, []).append(row)
     saved = {}
     for board, rows in boards.items():
-        # Prefer the board's own freshest `seen_at` as the capture time when present,
-        # so a snapshot is stamped when the board actually crossed the wire.
-        stamp = max((int(r.get("seen_at") or 0) for r in rows), default=0) or captured_at
-        snap_id = save_snapshot(conn, board, rows, stamp)
-        if snap_id is not None:
-            saved[board] = snap_id
+        stamp = max((int(r.get("seen_at") or 0) for r in rows), default=0) or int(ts)
+        n = save_snapshot(conn, stamp, board, rows)
+        if n:
+            saved[board] = n
     return saved
+
+
+def _content_hash_shaped(shaped: list) -> str:
+    blob = json.dumps(shaped, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
 
 def _s(value):

@@ -469,5 +469,6 @@
   "stats.res.wood": "Wood",
   "tab.stats": "Statistics",
   "triggers.item.resource_tracker": "Track resources gained",
+  "triggers.item.leaderboard_collect": "Collect leaderboard history",
   "triggers.log.resource_gain": "resources gained: {what}"
 }

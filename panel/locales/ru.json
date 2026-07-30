@@ -469,5 +469,6 @@
   "stats.res.wood": "Дерево",
   "tab.stats": "Статистика",
   "triggers.item.resource_tracker": "Учёт полученных ресурсов",
+  "triggers.item.leaderboard_collect": "Собирать историю лидербордов",
   "triggers.log.resource_gain": "получено ресурсов: {what}"
 }

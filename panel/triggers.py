@@ -216,6 +216,22 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.resource_tracker",
     ),
     Trigger(
+        name="leaderboard_collect",
+        # A ranking board crosses the wire when the client opens it (al.rank,
+        # champion.duel.result.show.rank.list, activity.get.rank.reward — no unsolicited
+        # push exists). While this is on, the panel keeps a capture that decodes every
+        # board and appends it as a timestamped snapshot to the profile's
+        # leaderboard_history.db, so the boards accumulate a history. The listener is a
+        # specialised collector (tools/scan_leaderboard.py --sqlite), not the generic
+        # marker child — the board data is in the payload, so it is decoded, not read
+        # off a mark. Records, does not act. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="rank",
+        scenario=("__leaderboard_collect__",),
+        enabled=False,
+        label_key="triggers.item.leaderboard_collect",
+    ),
+    Trigger(
         name="session_kick",
         # A login on another device kicks this session: the client stays alive behind
         # a modal that locks it, so nothing on screen changes on its own and no packet
