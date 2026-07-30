@@ -264,9 +264,13 @@ GHOST_CLOSED_PAUSE = 3600.0
 #     one line per command as it crosses the wire (see docs/research/protocol.md).
 #   * Functions — tools/lua_trace.py: wraps every reachable Lua function and logs
 #     EVERY call with its full argument list (per task #1060: the monkey-patch
-#     tool is tools/lua_trace.py). It is kept safe by TRACE_FILTER, not by the
-#     --dedup discovery mode: dedup keeps only the first call of each name, which
-#     silently drops the second, third and fourth thing the player pressed.
+#     tool is tools/lua_trace.py). It runs UNFILTERED so the recording on disk is
+#     complete — a capture filter used to trim the file to the wire and hide every
+#     UI/Manager call, the blind spot behind more than one wrong analysis. --dedup
+#     is not used either: it keeps only the first call of each name, silently
+#     dropping the second, third and fourth thing the player pressed. TRACE_FILTER
+#     lives on only as the panel LOG's display filter (`_trace_show`), so an
+#     unfiltered recording cannot flood the Tk widget.
 # The two answer the same question from opposite ends — what crossed the wire vs
 # what the client called — so the menu runs them as ONE toggle: a single label is
 # asked once and handed to both children, which makes the two run files of a
@@ -277,18 +281,25 @@ GHOST_CLOSED_PAUSE = 3600.0
 # lands in the panel log like the rest of its output, tagged [traffic] / [trace].
 TRAFFIC_SNIFFER = os.path.join(TOOLS_LIB, "live_sniffer.py")
 FUNCTION_SNIFFER = os.path.join(TOOLS, "lua_trace.py")
-# What the function tracer logs. A name matching ANY of these keywords is kept.
+# DISPLAY filter for the panel's own trace log — NOT a capture filter. The tracer
+# child (tools/lua_trace.py) now runs UNFILTERED, so its recording on disk
+# (results/traces/*_trace.log) holds every call: a filter that trimmed the file
+# hid the very client-side calls a trace analysis needs (a run written with
+# `filter=SFS` never showed a single UI/Manager call, which is exactly the blind
+# spot that made past analyses wrong). The file must be complete.
 #
-# `SFS` alone, deliberately. It covers the whole wire — `SFSNetwork.SendMessage`,
-# `SFSObject.Put*`, `SFSArray.*`, `SFSBaseMessage.*` — and those fire only when a
-# message is actually built, so a session costs a few hundred lines.
+# What this string still does: keep the PANEL's log widget readable. Every child
+# line is piped into that Tk widget, and an unfiltered trace is tens of thousands of
+# lines a second — enough to freeze the panel (not the game, which survives). So the
+# reader (`_trace_show`) shows only the `XSCALL` lines whose name matches one of
+# these keywords; status/marker lines always show, and the file is untouched either
+# way. `SFS` covers the whole wire (`SFSNetwork.*`, `SFSObject.Put*`, …). Widening it
+# here only shows MORE of what is already on disk — it costs the panel log's
+# readability, never the recording.
 #
-# Do NOT add `Manager` or `Util` here. The match is a plain substring against the
-# full `table.fn` name, so `Manager` also catches `UIManager`, `UpdateManager` and
-# `EventManager`, and `Util` catches `ProfilerUtil` — all of them per-frame. Tried
-# once: one hospital session wrote 79887 lines, and since every child line is piped
-# into the panel's own log widget, the panel froze. The game survived; the panel did
-# not. Widening this costs the panel, not just the file.
+# The game-side cost is separate and lives with the tracer itself: wrapping every
+# Lua function unfiltered is heavy on the client (see tools/lua_trace.py). That is
+# the price of a complete trace and is the tracer's tradeoff, not this filter's.
 TRACE_FILTER = "SFS"
 # How long to wait for both sniffer halves to report "ready" before saying so in
 # the log. Measured on this machine: capture is live ~1 s in, the Lua hooks
@@ -2740,19 +2751,18 @@ class Panel(tk.Tk):
             threading.Thread(target=self._sniff_reader, args=(self._sniff_proc,),
                              daemon=True).start()
 
-        # NOT --dedup. That mode keeps only the FIRST call of each name, so a session
-        # where somebody opens a window, picks an amount, confirms and later collects
-        # lands in the file as one click and one message — the repeats are dropped at
-        # write time and no amount of reading gets them back. Whoever presses the panel
-        # button is recording what they did, not discovering which functions exist.
-        # Every call is logged instead, kept safe by a narrow filter rather than by
-        # throwing away repeats: TRACE_FILTER covers the wire (SFS*) and the code that
-        # drives it (*Manager / *Util), while the UI redraw noise that actually floods
-        # Player.log and freezes the game is left out.
+        # No --filter and no --dedup: the recording on disk must be COMPLETE. A
+        # capture filter (the old `--filter SFS`) trimmed the file to the wire and hid
+        # every UI/Manager call — the exact blind spot that made past trace analyses
+        # wrong. --dedup is no good either: it keeps only the FIRST call of each name,
+        # so opening a window, picking an amount, confirming and collecting lands as
+        # one click and one message, the repeats gone at write time. So the child runs
+        # unfiltered — every call, with full args, into results/traces/. TRACE_FILTER
+        # survives only as the panel LOG's display filter (see `_trace_show`), so the
+        # Tk widget stays readable while the file keeps everything.
         self._say("trace", "log.trace.starting", filter=self._trace_filter())
         self._trace_proc = self._spawn_sniffer(
-            [self._python(), "-u", FUNCTION_SNIFFER,
-             "--filter", self._trace_filter()] + label_args,
+            [self._python(), "-u", FUNCTION_SNIFFER] + label_args,
             "trace")
         if self._trace_proc is not None:
             self._sniff_ready["trace"] = None
@@ -2829,11 +2839,33 @@ class Panel(tk.Tk):
             self._mark_sniff_ready("traffic", False)  # died before reporting: nothing captured
             self._sync_sniff_var()
 
+    def _trace_show(self, line: str) -> bool:
+        """Should this tracer line reach the panel's log widget?
+
+        The trace FILE is complete — the child writes every call to it regardless of
+        this. The Tk log, though, would drown in an unfiltered trace and freeze the
+        panel, so only the `XSCALL` call lines whose name matches the display filter
+        (TRACE_FILTER, UI-only) are shown. Everything else — the `[lua_trace]` status
+        lines, the `XSTRACE` install/restore summaries, the readiness and run-file
+        markers — is low-volume and always shown, and the session's bookkeeping rides
+        on it. An empty filter shows everything (the operator asked to see it all).
+        """
+        if "XSCALL" not in line:
+            return True
+        keys = [k.strip() for k in (self._trace_filter() or "").split(",") if k.strip()]
+        if not keys:
+            return True
+        return any(k in line for k in keys)
+
     def _trace_reader(self, proc) -> None:
         try:
             for raw in proc.stdout:
                 line = raw.rstrip()
-                self._log_put(f"[trace] {line}")
+                # The file keeps every line (the child writes it); the panel log shows
+                # only what the display filter lets through, so an unfiltered recording
+                # cannot freeze the Tk widget.
+                if self._trace_show(line):
+                    self._log_put(f"[trace] {line}")
                 if "trace file:" in line:
                     self._note_run_file("trace", line, "trace file:")
                 if "TRACE READY" in line:
