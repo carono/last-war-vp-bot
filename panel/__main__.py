@@ -2293,11 +2293,27 @@ class Panel(tk.Tk):
                 pass
 
     # -- jump routing (shared by the entry button and clickable coords) -----
-    def _jump(self, x: int, y: int, server) -> None:
-        if self._busy:
-            self._log_put("[panel] занят — дождись завершения текущего действия")
-            return
-        self._busy = True
+    def _jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
+        """Jump the camera to a tile. Serialised against every other game action.
+
+        The claim goes through `_claim_busy` like `_act` and `_run_timer_action` do.
+        It used to read and set `self._busy` bare, outside the lock — so a
+        coordinate clicked in the log and a timer coming due in the same instant
+        could both read "free" and both proceed into the game VM at once.
+
+        `quiet` is for the map sweep, which jumps dozens of times a pass: its own
+        progress line is enough, one «переход / готово» pair per waypoint would bury
+        the findings the sweep exists to produce, and a «занят» every few seconds
+        while an errand runs would be worse still.
+
+        Returns whether the jump was STARTED — ``False`` means the flag was taken by
+        something else. The sweep uses that to keep its place instead of losing the
+        waypoint it was refused on.
+        """
+        if not self._claim_busy():
+            if not quiet:
+                self._say("panel", "busy")
+            return False
 
         def work() -> None:
             try:
@@ -2306,18 +2322,22 @@ class Panel(tk.Tk):
                     return
                 cur = self._current_server()
                 target = int(server) if server is not None else int(cur)
-                self._log_put(f"[coord] переход в ({x},{y}) [сервер {target}]")
+                if not quiet:
+                    self._say("coord", "log.coord.jumping",
+                              where=coords.fmt(x, y, target))
                 chunk = lua_actions.jump_to_coord(x, y, target)
                 for ln in self._client.run(chunk, marker="ACT", settle=1.6):
                     self._log_put(f"[coord] {ln}")
-                self._log_put("[coord] готово")
+                if not quiet:
+                    self._say("coord", "log.done")
             except Exception as exc:
                 self._log_put(f"[coord] ошибка: {exc}")
             finally:
-                self._busy = False
+                self._release_busy()
                 self.after(400, self._refresh_status)
 
         threading.Thread(target=work, daemon=True).start()
+        return True
 
     def _on_coord_click(self, x: int, y: int, server) -> None:
         self._log_put(f"[coord] клик → ({x},{y})" + (f" сервер {server}" if server is not None else ""))
