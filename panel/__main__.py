@@ -1540,6 +1540,7 @@ class Panel(ctk.CTk):
         profile_tab = CTkFrame(nb)
         inventory_tab = CTkFrame(nb)
         heroes_tab = CTkFrame(nb)
+        accounts_tab = CTkFrame(nb)
         secret_tasks_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
@@ -1551,6 +1552,7 @@ class Panel(ctk.CTk):
         nb.add(profile_tab, text=self._t("tab.profile"))
         nb.add(inventory_tab, text=self._t("tab.inventory"))
         nb.add(heroes_tab, text=self._t("tab.heroes"))
+        nb.add(accounts_tab, text=self._t("tab.accounts"))
         nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
@@ -1562,6 +1564,7 @@ class Panel(ctk.CTk):
                                        nb.tab(profile_tab, text=self._t("tab.profile")),
                                        nb.tab(inventory_tab, text=self._t("tab.inventory")),
                                        nb.tab(heroes_tab, text=self._t("tab.heroes")),
+                                       nb.tab(accounts_tab, text=self._t("tab.accounts")),
                                        nb.tab(secret_tasks_tab,
                                               text=self._t("tab.secret_tasks"))))
         self._build_scenarios_tab(scenarios)
@@ -1579,6 +1582,7 @@ class Panel(ctk.CTk):
             str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
             str(inventory_tab): self._inventory_tab,
             str(heroes_tab): tabsextra.HeroesTab(self, heroes_tab),
+            str(accounts_tab): tabsextra.AccountsTab(self, accounts_tab),
             str(secret_tasks_tab): self._secret_tasks_tab,
         }
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
