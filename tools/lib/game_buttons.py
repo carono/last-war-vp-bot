@@ -247,6 +247,20 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.truck_reward_collect(),
         wait=1.0, label="Collect the resource truck",
     ),
+    "dismiss_truck_menu": Button(
+        # After the collect, the truck's own menu is left open on the window stack,
+        # with the congratulation reward modal (closed by `dismiss_reward_popup`) on a
+        # layer above it. Close the top-of-stack window unless it is the HUD (`UIMain`):
+        # once the modal is gone that is the truck menu. Same guarded GetStackTopWindow
+        # -> CloseSelf shape as `collect_premium_gifts`, so it is a no-op with nothing
+        # open and never touches the HUD. The base truck's menu window name was not in
+        # the (SFS-only) trace behind this feature, which is why this is a top-of-stack
+        # close rather than a by-name one — tighten it to the name once it is read live.
+        lua=("local w=UIManager.Instance:GetStackTopWindow() "
+             "if w and tostring(w.Name)~='UIMain' and w.Ctrl and w.Ctrl.CloseSelf then "
+             "pcall(function() w.Ctrl:CloseSelf() end) end"),
+        wait=0.5, label="Close the truck menu",
+    ),
     # --- profession ("mastery") skills: fire the ones that need no target -----
     # «Навыки профессии» — the active skills of the profession the account picked.
     # Each is a once-a-day-ish charge (cooldown 1410-4290 min) that hands over
