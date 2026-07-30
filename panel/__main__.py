@@ -6,6 +6,9 @@ panel auto-starts the daemon if it is not already running. In-game recipes live 
 tools/lua_actions.py (shared with the standalone scripts, so nothing drifts).
 
 Blocks:
+  * Сводка — the account dashboard: the day's budgets and everything waiting for the
+    person, polled off the warm daemon in ONE call every half-minute (panel/dashboard.py
+    holds the list). It answers "does today need me at all" without opening a window.
   * Навигация — Домой / Мир (SceneUtils.ChangeToCity / ChangeToWorld) and a coordinate jump
     (X / Y / Сервер). Same server -> in-server camera jump; a different server -> the
     cross-server load recipe. The server field defaults to the current server
@@ -78,6 +81,7 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 from . import __version__ as APP_VERSION
+from . import dashboard as dashmod
 from . import i18n as i18nmod
 from . import profile as profilemod
 from . import timers as timersmod
@@ -170,6 +174,12 @@ LOG_SEVERITY_WORDS: tuple[tuple[str, tuple], ...] = (
                 "включён", "присоединяюсь",
                 "ok", "ready", "READY", "done", "saved", "running", "on")),
 )
+
+# -- the account dashboard --------------------------------------------------
+# How often the strip is re-read. One game-VM call for all of it (panel/dashboard.py
+# builds the single chunk), so the cost is a round trip; half a minute is well
+# inside the pace at which any of these numbers actually changes.
+DASH_POLL_SEC = 30.0
 
 # The Python that runs every child (captures, robberies, the daemon). A constant
 # no longer: it is a profile setting whose default this is, so a machine with
@@ -975,6 +985,9 @@ class Panel(tk.Tk):
         self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
+        # -- the account dashboard: every daily budget on one strip -------------
+        self._build_dashboard(main)
+
 
         game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
@@ -1129,6 +1142,125 @@ class Panel(tk.Tk):
         for tag, colour in LOG_COLOURS.items():
             self._log.tag_config(tag, foreground=colour)
         self._install_log_copy(self._log)
+
+    # -- the account dashboard ----------------------------------------------
+    #
+    # A display over gates that were already written. Every number on this strip is
+    # the `count_lua` of some press in tools/lib/game_buttons.py — evaluated, until
+    # now, only *inside* a press, with the answer thrown away. panel/dashboard.py
+    # holds the list and builds the ONE game-VM call that reads all of them, so the
+    # strip costs a round trip every DASH_POLL_SEC and nothing else.
+    #
+    # It decides nothing. That matters: a person reading "кражи 0 · ждут помощи 4"
+    # is deciding whether today needs them at all, and a strip that also acted would
+    # be a second, invisible place where the bot chose to press something.
+    def _build_dashboard(self, parent: ttk.Frame) -> None:
+        frame = self._tr(ttk.LabelFrame(parent, padding=(8, 4)), "dash.frame")
+        frame.pack(fill="x", padx=8, pady=(0, 6))
+        # A Text rather than a Label: a reading of 0 is greyed and one with work in
+        # it is bright, which is what makes the strip readable at a glance instead of
+        # a wall of even-weight words.
+        self._dash_view = tk.Text(frame, height=2, wrap="word", state="disabled",
+                                  cursor="arrow", relief="flat", borderwidth=0,
+                                  highlightthickness=0, font=("Segoe UI", 9))
+        self._dash_view.tag_configure("label", foreground="#888")
+        self._dash_view.tag_configure("hot", foreground="#1b5e20")
+        self._dash_view.tag_configure("cold", foreground="#999999")
+        self._dash_view.tag_configure("unread", foreground="#b71c1c")
+        self._dash_view.pack(side="left", fill="x", expand=True)
+        ttk.Button(frame, text="↻", width=3, command=self._refresh_dashboard).pack(side="right")
+        self._render_dashboard()
+
+    def _start_dashboard(self) -> None:
+        """Begin polling the readings (idempotent — one poller per panel)."""
+        if self._dash_stop is not None:
+            return
+        self._dash_stop = threading.Event()
+        threading.Thread(target=self._dash_loop, args=(self._dash_stop,),
+                         daemon=True).start()
+
+    def _stop_dashboard(self) -> None:
+        stop, self._dash_stop = self._dash_stop, None
+        if stop is not None:
+            stop.set()
+
+    def _dash_loop(self, stop: threading.Event) -> None:
+        """Re-read the strip until the panel closes.
+
+        A whole tick is wrapped: the readings run against a live game VM, so a
+        client that is restarting, a daemon mid-rehijack or an expression a game
+        update broke must cost one poll and a single log line — never the strip for
+        the session, and never the panel.
+        """
+        while not stop.is_set():
+            try:
+                self._dash_tick()
+            except Exception as exc:      # noqa: BLE001
+                err = f"{type(exc).__name__}: {exc}"
+                if err != self._dash_err:
+                    self._dash_err = err
+                    self._say("dash", "log.dash.unreadable", error=err)
+            if stop.wait(DASH_POLL_SEC):
+                return
+
+    def _dash_tick(self) -> None:
+        """One read of every reading, in one call into the game VM.
+
+        Skipped entirely while a game action is in flight: the strip is a
+        convenience and the action is the errand, and interleaving a read with a
+        recipe's own calls buys a fresher number at the cost of the thing that
+        matters. Skipped with the game or the daemon down too — there is nothing to
+        read, and saying so once is the status row's job, not this loop's.
+        """
+        if self._busy:
+            return
+        if not self._daemon_up():
+            return
+        running, _text = game_status(self._game_exe())
+        if not running:
+            return
+        lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
+                                 settle=dashmod.SETTLE)
+        values = dashmod.parse(lines)
+        self._dash_err = ""
+        self._dash_values = values
+        self.after(0, self._render_dashboard)
+
+    def _refresh_dashboard(self) -> None:
+        """The ↻ beside the strip — one read, now, off the Tk thread."""
+        def work() -> None:
+            try:
+                self._dash_tick()
+            except Exception as exc:      # noqa: BLE001
+                self._say("dash", "log.dash.unreadable", error=exc)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _render_dashboard(self) -> None:
+        """Paint the strip from the last readings."""
+        view = getattr(self, "_dash_view", None)
+        if view is None:
+            return
+        try:
+            view.configure(state="normal")
+            view.delete("1.0", "end")
+            shown = dashmod.visible(self._dash_values)
+            if not self._dash_values:
+                view.insert("end", self._t("dash.pending"), ("label",))
+            elif not shown:
+                view.insert("end", self._t("dash.all_quiet"), ("cold",))
+            else:
+                for i, (reading, value) in enumerate(shown):
+                    if i:
+                        view.insert("end", "  ·  ", ("label",))
+                    view.insert("end", self._t(reading.label_key) + " ", ("label",))
+                    if value is None:
+                        view.insert("end", dashmod.UNREADABLE, ("unread",))
+                    else:
+                        view.insert("end", str(value),
+                                    ("cold",) if value == 0 else ("hot",))
+            view.configure(state="disabled")
+        except tk.TclError:
+            pass                        # the tab is gone (panel closing)
 
     # -- log copy support ---------------------------------------------------
     def _install_log_copy(self, widget: tk.Text) -> None:
@@ -1416,6 +1548,8 @@ class Panel(tk.Tk):
         self._timers.start()
         self._ensure_daemon()
         self._load_current_server()
+        # The strip needs a warm daemon and a live game, so it starts last.
+        self._start_dashboard()
 
     def _ensure_daemon(self) -> bool:
         if lua_client.is_running():
@@ -2421,6 +2555,7 @@ class Panel(tk.Tk):
         self._flush_scenario_save()
         self._stop_monitor()
         self._stop_autoloot()
+        self._stop_dashboard()
         self._stop_rally()
         self._stop_help()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer

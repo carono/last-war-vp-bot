@@ -1701,6 +1701,23 @@ def hospital_wounded_count() -> str:
             "return n end)()")
 
 
+def hospital_wounded_total() -> str:
+    """Lua *expression* -> how many wounded soldiers are lying in the hospital.
+
+    The SUM of `dead` across the rows `hospital_wounded_count()` merely counts, which
+    is the number a person reads ("681 раненых") rather than the three or four soldier
+    types they are spread over. A gate wants the count — one press heals every type at
+    once — so this one is for display only.
+    """
+    return ("(function() "
+            "local m = DataCenter and DataCenter.HospitalManager "
+            "if not m or type(m.allHospital) ~= 'table' then return 0 end "
+            "local n = 0 "
+            "for _, h in pairs(m.allHospital) do "
+            "if type(h)=='table' and type(h.dead)=='number' and h.dead > 0 then n = n + h.dead end end "
+            "return n end)()")
+
+
 def hospital_heal_all() -> str:
     """Heal EVERY wounded soldier type in one `hospital.cure`.
 
