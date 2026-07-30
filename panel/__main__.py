@@ -36,9 +36,15 @@ secret_tasks_log.jsonl and timers.json; the active profile is remembered in pane
 (see panel/profile.py).
 Every change auto-saves, and switching a profile re-applies all of its settings.
 
-Any coordinate printed in the log — canonical `X:1 Y:2` / `#server X:1 Y:2` (tools/coords.py) or a
-free-form `(1,2)` / `1/2` / `координаты 1 2` / legacy `@[1,2]` — becomes a clickable link that jumps
-there.
+Any coordinate printed in the log OR in a chat message — canonical `X:1 Y:2` / `#server X:1 Y:2`
+(tools/lib/coords.py) or a free-form `(1,2)` / `1/2` / `координаты 1 2` / legacy `@[1,2]` — becomes
+a clickable link that jumps there.
+
+Every log line is stamped with the time it arrived, coloured by severity, and can be narrowed to
+one producer; the widget keeps a bounded number of lines so an overnight session cannot grow it
+until the panel crawls. The box under it takes one DSL line (`TAP collect_trucks xall`, `LUA …`,
+`JUMP …`) through the same interpreter a recipe runs on, so all thirty-odd named presses are
+reachable without authoring a file — «Справочник» beside it is the list of them.
 
 Run under Windows Python (needs psutil/tkinter; the daemon needs the il2cpp deps of
 tools/lua_eval.py; the capture needs scapy/npcap):
@@ -110,6 +116,66 @@ DETACHED = 0x00000008         # DETACHED_PROCESS
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _PHOTO_TOK = re.compile(r"\[photo:(\d+)\]")
 
+# -- the log widget ---------------------------------------------------------
+# How many lines the widget keeps. An overnight session with a tracer running
+# writes tens of thousands of them, and a Text widget that large makes every
+# subsequent insert visibly slow — the panel froze once for exactly this reason.
+# The on-disk mirror (panel.log) is NOT trimmed: the widget is a window onto the
+# session, the file is the record.
+LOG_MAX_LINES = 4000
+# Trimming a line at a time would run on every insert; drop a block instead, so
+# the cost is paid once every LOG_TRIM_BLOCK lines.
+LOG_TRIM_BLOCK = 500
+# Every producer that writes a `[tag]` into the log, in the order the filter
+# offers them. Adding a producer without adding it here costs nothing — its lines
+# are always shown, and only "show just this one" cannot single it out.
+LOG_TAGS = ("panel", "action", "timer", "secret", "autoloot", "ghost", "sweep",
+            "rally", "help", "chat", "coord", "scene", "server", "game", "daemon",
+            "profile", "traffic", "trace", "sniff", "dash", "cmd")
+# The filter's "show everything" entry. A sentinel rather than the empty string so
+# the combobox has something to display.
+LOG_FILTER_ALL = "*"
+# Severity colours, on the log's dark background.
+LOG_COLOURS = {"sev_error": "#ff6b6b", "sev_warn": "#e8c069", "sev_ok": "#7bd88f",
+               "stamp": "#6a6a6a"}
+# Severity colouring, as ordered patterns. FIRST MATCH WINS, so the bad news comes
+# first: «готовность не подтверждена» has to read as the failure it is rather than
+# as the «готов» inside it.
+#
+# Both languages are listed because everything the panel says goes through the
+# locale files now, and a child's own output arrives in whatever language the child
+# speaks — so classifying only one of them would leave half the log flat.
+#
+# Russian entries are STEMS (`не подтвержд` covers -ено / -ена / -ена за) because
+# the ending moves with the noun. Latin ones carry `\b` on purpose: `ok` as a bare
+# substring also matches "token" and "look", which is exactly the sort of quiet
+# mis-colouring nobody would ever chase down.
+def _sev(*words: str) -> "tuple[re.Pattern, ...]":
+    return tuple(
+        re.compile(w if any("а" <= c.lower() <= "я" or c in "ёЁ" for c in w)
+                   else r"\b" + re.escape(w) + r"\b", re.IGNORECASE)
+        for w in words)
+
+
+LOG_SEVERITY_WORDS: tuple[tuple[str, tuple], ...] = (
+    ("error", _sev("ошибк", "не удалось", "не поднялся", "не подтвержд",
+                   "недоступ", "не читается", "НЕ ГОТОВ",
+                   "error", "failed", "cannot", "could not", "traceback",
+                   "NOT READY", "unconfirmed")),
+    ("warn", _sev("занят", "пауза", "паузу", "пропущ", "останов", "выключен",
+                  "стоп", "завершён", "ЧАСТИЧНО",
+                  "warn", "skip", "skipped", "stopped", "off", "paused",
+                  "PARTLY READY", "spent", "lost")),
+    ("ok", _sev("готов", "сохранён", "сохранена", "сохранено", "запущен",
+                "включён", "присоединяюсь",
+                "ok", "ready", "READY", "done", "saved", "running", "on")),
+)
+
+# The Python that runs every child (captures, robberies, the daemon). A constant
+# no longer: it is a profile setting whose default this is, so a machine with
+# Python somewhere else is a field to edit rather than a source change.
+DEFAULT_WIN_PYTHON = WIN_PYTHON
+
 # Game lifecycle (paths derived from %LOCALAPPDATA%, no hardcoded username)
 _LOCALAPPDATA = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
 GAME_DIR = os.path.join(_LOCALAPPDATA, "FunFly", "Last War-Survival Game")
@@ -127,6 +193,11 @@ CAPTURE_OPTIONS = [
 ]
 
 # Auto-loot watcher (the «Автолут ★» checkbox in the secret-task block).
+# All three are DEFAULTS now, not constants: the Settings → «Общие» page writes
+# them per profile and the code reads them through `_opt_*`. They stay here
+# because a profile that has never been to that page must still behave exactly
+# as it did, and because this is where the reasoning belongs.
+#
 # Poll period of the capture checkpoint. Well under the capture's own tick
 # (15 s by default), so a target is acted on the tick it appears; a poll is a
 # small JSON parse off the Tk thread, so the cost of looking often is nil.
@@ -195,6 +266,33 @@ SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
     ("general", None),
     ("game", None),
 )
+
+# Every knob the Settings page owns, with the value a profile that has never been
+# there behaves by. The panel reads them through `_opt_*`, so a default here IS the
+# old constant and nothing changes for an existing profile.
+#
+# `daemon_port` is the one with teeth: a second client lives in its own Windows
+# session with its own daemon on its own port (tools/rdp_instance.py), so a profile
+# that names 47655 drives THAT client — the panel's own DaemonClient and every child
+# it launches (which read LW_DAEMON_PORT from the environment). That is what turns
+# "two profiles" into "two accounts farmed at once".
+SETTINGS_DEFAULTS: dict = {
+    "win_python": DEFAULT_WIN_PYTHON,
+    "daemon_port": lua_client.DEFAULT_PORT,
+    "log_max_lines": LOG_MAX_LINES,
+    "autoloot_limit": AUTOLOOT_LIMIT,
+    "autoloot_poll": AUTOLOOT_POLL,
+    "autoloot_pause_min": int(AUTOLOOT_SPENT_PAUSE // 60),
+    "trace_filter": TRACE_FILTER,
+    "sniff_ready_timeout": SNIFF_READY_TIMEOUT,
+    "launcher": LAUNCHER,
+    "game_exe": GAME_EXE,
+    "watchdog": False,
+}
+
+# The chat sub-tabs, in order. `system` is on the list: `_chat_msgs` always carried
+# the bucket, so those messages were counted and never shown anywhere.
+CHAT_TABS: tuple[str, ...] = ("world", "alliance", "national", "dm", "other", "system")
 
 # The squads the panel offers for a rally. The game's own squad slots are read
 # live where they matter (the formation whose `index` is the slot, see
@@ -342,6 +440,11 @@ class Panel(tk.Tk):
         self.geometry("760x600")
         self.minsize(640, 500)
         self._log_q: "queue.Queue[str]" = queue.Queue()
+        # The on-disk mirror of the log, held open instead of reopened per line.
+        # Re-pointed on a profile switch (_open_panel_log).
+        self._log_fh = None
+        self._log_lines = 0           # lines in the widget, for the retention cap
+        self._log_kept: list = []     # every line this session, for a filter redraw
         self._busy = False
         # Guards the flag above: buttons claim it on the Tk thread, the timer
         # scheduler from its own, so a plain read-then-set would let two recipes
@@ -402,7 +505,18 @@ class Panel(tk.Tk):
             log=lambda key, **fmt: self._log_put("[timer] " + self._t(key, **fmt)),
             gate=self._timer_gate,
         )
-        self._client = lua_client.DaemonClient()
+        # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
+        # built — the Settings tabs bind widgets to them and the main tab's watchdog
+        # checkbox shares the very same variable, so the two can never disagree.
+        self._opt_vars: dict = {}
+        for key, default in SETTINGS_DEFAULTS.items():
+            self._opt_vars[key] = (tk.BooleanVar(value=bool(default))
+                                   if isinstance(default, bool)
+                                   else tk.StringVar(value=str(default)))
+        # The daemon this profile drives. A profile naming a non-default port drives
+        # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
+        # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
+        self._client = lua_client.DaemonClient(port=self._daemon_port())
         self._build_menu()
         self._build_profile_bar()
         self._build_ui()
@@ -411,8 +525,118 @@ class Panel(tk.Tk):
         self._install_autosave()      # persist every subsequent change immediately
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
+        self._open_panel_log()
         self._refresh_status()
         threading.Thread(target=self._startup, daemon=True).start()
+
+    # -- the Settings page's knobs ------------------------------------------
+    #
+    # Every one of these used to be a constant in this file. They are read through
+    # `_opt` so the value is taken from, in order: the widget on the Settings page
+    # (live, so an edit applies without a restart), the profile's saved config, and
+    # SETTINGS_DEFAULTS — which is the old constant. That order is what lets the
+    # panel read a setting during __init__, before the page that edits it exists.
+    def _opt(self, key: str):
+        """The raw current value of a Settings knob.
+
+        A `BooleanVar` whose entry holds something that is not a boolean raises out
+        of `.get()`, which is a half-typed field rather than a broken panel — fall
+        through to the saved value and then to the default.
+        """
+        var = getattr(self, "_opt_vars", {}).get(key)
+        if var is not None:
+            try:
+                return var.get()
+            except tk.TclError:
+                pass
+        if key in self._settings:
+            return self._settings[key]
+        return SETTINGS_DEFAULTS.get(key)
+
+    def _opt_int(self, key: str, low: int | None = None, high: int | None = None) -> int:
+        """A knob as an int, clamped. Anything unreadable falls back to the default.
+
+        A half-typed entry must never be obeyed: an empty «лимит краж» box read as 0
+        would silently stop the auto-loot, and a stray letter in the daemon port
+        would point the panel at nothing.
+        """
+        default = int(SETTINGS_DEFAULTS.get(key) or 0)
+        try:
+            value = int(float(str(self._opt(key)).strip()))
+        except (TypeError, ValueError):
+            value = default
+        if low is not None:
+            value = max(low, value)
+        if high is not None:
+            value = min(high, value)
+        return value
+
+    def _opt_float(self, key: str, low: float | None = None,
+                   high: float | None = None) -> float:
+        default = float(SETTINGS_DEFAULTS.get(key) or 0.0)
+        try:
+            value = float(str(self._opt(key)).strip().replace(",", "."))
+        except (TypeError, ValueError):
+            value = default
+        if low is not None:
+            value = max(low, value)
+        if high is not None:
+            value = min(high, value)
+        return value
+
+    def _opt_str(self, key: str) -> str:
+        raw = self._opt(key)
+        text = str(raw).strip() if raw is not None else ""
+        return text or str(SETTINGS_DEFAULTS.get(key) or "")
+
+    def _opt_bool(self, key: str) -> bool:
+        return bool(self._opt(key))
+
+    # Named readers for the knobs used in more than one place, so the bounds live
+    # once and a caller reads a phrase instead of a key and two magic numbers.
+    def _python(self) -> str:
+        return self._opt_str("win_python")
+
+    def _daemon_port(self) -> int:
+        return self._opt_int("daemon_port", low=1, high=65535)
+
+    def _game_exe(self) -> str:
+        return self._opt_str("game_exe")
+
+    def _launcher(self) -> str:
+        return self._opt_str("launcher")
+
+    def _autoloot_limit(self) -> int:
+        return self._opt_int("autoloot_limit", low=1, high=50)
+
+    def _trace_filter(self) -> str:
+        return self._opt_str("trace_filter")
+
+    def _sniff_timeout(self) -> float:
+        return self._opt_float("sniff_ready_timeout", low=1.0, high=600.0)
+
+    def _child_env(self) -> dict:
+        """The environment every child is launched with.
+
+        `LW_DAEMON_PORT` travels with it, so a profile pointed at the second client's
+        daemon (see SETTINGS_DEFAULTS) drives that client from its captures and
+        robberies too — not just from the panel's own presses.
+        """
+        return dict(os.environ, PYTHONIOENCODING="utf-8",
+                    LW_DAEMON_PORT=str(self._daemon_port()))
+
+    def _daemon_up(self) -> bool:
+        """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
+        return lua_client.is_running(port=self._daemon_port())
+
+    def _rebind_daemon(self) -> None:
+        """Point the panel's own client at the profile's daemon port."""
+        port = self._daemon_port()
+        if getattr(self._client, "port", None) == port:
+            return
+        self._client = lua_client.DaemonClient(port=port)
+        self._say("daemon", "log.daemon.port", port=port)
+        self._refresh_status()
 
     # -- i18n ---------------------------------------------------------------
     def _t(self, key: str, **fmt) -> str:
@@ -576,7 +800,7 @@ class Panel(tk.Tk):
     # -- persistent settings ------------------------------------------------
     def _collect_settings(self) -> dict:
         """Snapshot every persisted panel setting into a plain dict."""
-        return {
+        out = {
             "language": self._i18n.lang,
             "coord_x": self._x_var.get(),
             "coord_y": self._y_var.get(),
@@ -593,6 +817,7 @@ class Panel(tk.Tk):
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
+            "log_filter": self._log_filter_var.get(),
             # Settings page -> «Авторалли»: which squads may be sent, and the
             # alliance-drill variant with its single banner-carrier.
             "autorally": self._autorally_config(),
@@ -600,6 +825,13 @@ class Panel(tk.Tk):
             # profile's own timers.json beside its scenario, and when each last
             # ran in timers_last_run.json (see panel/timers.py).
         }
+        # Settings page -> «Общие» / «Игра». One loop, so adding a knob is adding a
+        # line to SETTINGS_DEFAULTS and a widget bound to `_opt_vars[key]`.
+        for key in SETTINGS_DEFAULTS:
+            var = self._opt_vars.get(key)
+            if var is not None:
+                out[key] = var.get()
+        return out
 
     def _apply_settings_to_ui(self) -> None:
         """Push self._settings into the widgets without triggering auto-save."""
@@ -624,6 +856,11 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
+            self._log_filter_var.set(s.get("log_filter") or LOG_FILTER_ALL)
+            for key, default in SETTINGS_DEFAULTS.items():
+                var = self._opt_vars.get(key)
+                if var is not None:
+                    var.set(s.get(key, default))
             self._apply_autorally_config(s.get("autorally"))
         finally:
             self._loading = False
@@ -632,9 +869,10 @@ class Panel(tk.Tk):
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
         for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
-                    self._pending_var, self._can_loot_var, self._lvl_from_var,
-                    self._lvl_to_var, self._rally_var, self._help_var, self._mon_var,
-                    self._autoloot_var, self._chat_var,
+                    self._pending_var, self._can_loot_var,
+                    self._lvl_from_var, self._lvl_to_var,
+                    self._rally_var, self._help_var, self._mon_var,
+                    self._log_filter_var,
                     self._drill_on_var, self._drill_banner_var,
                     *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
@@ -856,8 +1094,25 @@ class Panel(tk.Tk):
                  "help.auto").pack(side="left")
         self._tr(ttk.Label(ally, foreground="#888"), "help.hint").pack(side="left", padx=10)
 
-        logframe = self._tr(ttk.LabelFrame(main, padding=4), "log.frame")
-        logframe.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+        logframe = self._tr(ttk.LabelFrame(lower, padding=4), "log.frame")
+        logframe.pack(fill="both", expand=True, padx=8, pady=(4, 4))
+
+        # The strip above the log: which producer to show, and Clear. Six producers
+        # write into one widget, so "давно ли пришёл этот запрос помощи" used to mean
+        # reading past everything else that happened meanwhile.
+        strip = ttk.Frame(logframe)
+        strip.pack(fill="x", pady=(0, 3))
+        self._tr(ttk.Label(strip), "log.filter").pack(side="left")
+        self._log_filter_var = tk.StringVar(value=LOG_FILTER_ALL)
+        filt = ttk.Combobox(strip, textvariable=self._log_filter_var, state="readonly",
+                            width=10, values=(LOG_FILTER_ALL,) + LOG_TAGS)
+        filt.pack(side="left", padx=(4, 8))
+        filt.bind("<<ComboboxSelected>>", lambda _e: self._redraw_log())
+        self._tr(ttk.Button(strip, command=self._clear_log),
+                 "log.clear").pack(side="left")
+        self._tr(ttk.Label(strip, foreground="#888"),
+                 "log.filter_hint").pack(side="left", padx=(10, 0))
+
         # Plain native Text widget: state="normal" (never toggled to "disabled",
         # which would block interactive selection). The log stays technically
         # editable, but stray typed edits to a log are harmless. Mouse selection
@@ -871,6 +1126,8 @@ class Panel(tk.Tk):
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
+        for tag, colour in LOG_COLOURS.items():
+            self._log.tag_config(tag, foreground=colour)
         self._install_log_copy(self._log)
 
     # -- log copy support ---------------------------------------------------
@@ -940,50 +1197,204 @@ class Panel(tk.Tk):
     def _log_put(self, line: str) -> None:
         self._log_q.put(line)
 
+    def _say(self, tag: str, key: str, **fmt) -> None:
+        """Log one translated line under ``[tag]``.
+
+        Everything the panel says used to be a Russian literal at the call site —
+        some seventy of them against a fully mirrored pair of locale files, so
+        picking English switched the buttons and left every word the bot spoke in
+        Russian. This is the one door those lines go through now; the raw
+        :meth:`_log_put` stays for the lines that are a CHILD's own output (already
+        in the child's language) and for the handful that are pure data.
+        """
+        self._log_put(f"[{tag}] " + self._t(key, **fmt))
+
     def _pump_log(self) -> None:
         try:
             while True:
                 line = self._log_q.get_nowait()
-                self._insert_line(line + "\n")
+                stamp = time.strftime("%H:%M:%S")
+                self._log_kept.append((stamp, line))
+                if len(self._log_kept) > self._log_cap() * 2:
+                    # The filter redraws from this list, so it is kept — but not
+                    # without bound. Twice the widget's cap means a re-filter still
+                    # has more history than the widget ever showed.
+                    del self._log_kept[:len(self._log_kept) - self._log_cap()]
+                if self._log_shown(line):
+                    self._insert_line(stamp, line)
                 self._append_log(line)
         except queue.Empty:
             pass
         self.after(120, self._pump_log)
 
-    def _append_log(self, line: str) -> None:
-        """Mirror a log line to the active profile's panel.log, flushed at once.
+    # -- the on-disk mirror -------------------------------------------------
+    def _open_panel_log(self) -> None:
+        """Point the mirror at the active profile's panel.log, keeping the handle.
 
-        Opened per line in line-buffered append mode and explicitly flushed so the
-        on-disk log is never behind the widget, even if the panel is killed. Writes
-        follow the active profile, so switching profiles redirects the file too.
+        Reopening the file for every line was fine at a handful a minute and
+        wasteful the moment a tracer streams thousands. Line-buffered append, so the
+        file is never behind the widget even if the panel is killed.
         """
+        self._close_panel_log()
+        try:
+            path = self._profiles.panel_log()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self._log_fh = open(path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            self._log_fh = None      # logging must never stop the panel
+
+    def _close_panel_log(self) -> None:
+        fh, self._log_fh = self._log_fh, None
+        if fh is not None:
+            try:
+                fh.close()
+            except Exception:         # noqa: BLE001
+                pass
+
+    def _append_log(self, line: str) -> None:
+        """Mirror a log line to the active profile's panel.log.
+
+        The file keeps the full date (the widget only has room for the clock) and is
+        never trimmed: the widget is a window onto the session, the file is the
+        record.
+        """
+        fh = self._log_fh
+        if fh is None:
+            return
         try:
             clean = _ANSI.sub("", line)
-            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            with open(self._profiles.panel_log(), "a", encoding="utf-8", buffering=1) as fh:
-                fh.write(f"{stamp} {clean}\n")
-                fh.flush()
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {clean}\n")
         except Exception:
             pass                    # logging must never crash the panel
 
-    def _insert_line(self, text: str) -> None:
-        """Insert a log line, turning any coordinate token into a clickable link."""
+    # -- severity, filtering, retention -------------------------------------
+    @staticmethod
+    def _log_tag(line: str) -> str:
+        """The producer of a line — the `[secret]` it opens with, or ``""``."""
+        clean = _ANSI.sub("", line).lstrip()
+        if not clean.startswith("["):
+            return ""
+        end = clean.find("]")
+        return clean[1:end] if end > 1 else ""
+
+    @staticmethod
+    def _log_severity(line: str) -> str:
+        """``"error"`` / ``"warn"`` / ``"ok"`` / ``""`` — how the line is coloured.
+
+        A keyword match, not a level the producers pass in: half the lines are a
+        CHILD's own output, so there is nobody to ask. Order matters —
+        LOG_SEVERITY_WORDS puts the bad news first so a line that says both
+        «ошибка» and «готово» reads as the error it is.
+        """
+        clean = _ANSI.sub("", line)
+        for level, patterns in LOG_SEVERITY_WORDS:
+            for pattern in patterns:
+                if pattern.search(clean):
+                    return level
+        return ""
+
+    def _log_cap(self) -> int:
+        return self._opt_int("log_max_lines", low=200, high=200000)
+
+    def _log_shown(self, line: str) -> bool:
+        """Does the filter let this line through?
+
+        The filter is display-only: everything is still written to panel.log and
+        still kept for a redraw, so narrowing to `[secret]` and back loses nothing.
+        """
+        want = getattr(self, "_log_filter_var", None)
+        if want is None:
+            return True
+        chosen = want.get()
+        if not chosen or chosen == LOG_FILTER_ALL:
+            return True
+        return self._log_tag(line) == chosen
+
+    def _insert_line(self, stamp: str, text: str) -> None:
+        """Insert one stamped log line: clock, severity colour, clickable coordinates.
+
+        The clock is the thing that was missed every single session — "когда
+        собралась база?" used to mean opening panel.log, because the widget carried
+        no time at all while the file did.
+        """
         clean = _ANSI.sub("", text)
+        level = self._log_severity(clean)
+        body_tags = (f"sev_{level}",) if level else ()
+        self._log.insert("end", stamp + " ", ("stamp",))
         pos = 0
         for (s, e, x, y, srv) in coords.parse(clean):
             if s > pos:
-                self._log.insert("end", clean[pos:s])
-            tag = f"c{self._coord_seq}"
-            self._coord_seq += 1
-            self._log.insert("end", clean[s:e], ("coordlink", tag))
-            self._log.tag_bind(tag, "<Button-1>",
-                               lambda ev, x=x, y=y, srv=srv: self._on_coord_click(x, y, srv))
-            self._log.tag_bind(tag, "<Enter>", lambda ev: self._log.configure(cursor="hand2"))
-            self._log.tag_bind(tag, "<Leave>", lambda ev: self._log.configure(cursor=""))
+                self._log.insert("end", clean[pos:s], body_tags)
+            self._insert_coord_link(self._log, clean[s:e], x, y, srv)
             pos = e
         if pos < len(clean):
-            self._log.insert("end", clean[pos:])
+            self._log.insert("end", clean[pos:], body_tags)
+        self._log.insert("end", "\n", body_tags)
+        self._log_lines += 1
+        self._trim_log()
         self._log.see("end")
+
+    def _insert_coord_link(self, widget, text: str, x: int, y: int, srv) -> None:
+        """Write ``text`` into ``widget`` as a coordinate that jumps when clicked.
+
+        Shared by the log and the chat renderer — chat is where coordinates actually
+        arrive (a rally target, a treasure, a base to hit), and it used to insert
+        them as dead text while the log made them links.
+        """
+        tag = f"c{self._coord_seq}"
+        self._coord_seq += 1
+        widget.insert("end", text, ("coordlink", tag))
+        # The cursor to put back on Leave is whatever the widget normally shows —
+        # "" in the log, "arrow" in a chat view — not a hardcoded one.
+        try:
+            rest = widget.cget("cursor")
+        except tk.TclError:
+            rest = ""
+        widget.tag_bind(tag, "<Button-1>",
+                        lambda ev, x=x, y=y, srv=srv: self._on_coord_click(x, y, srv))
+        widget.tag_bind(tag, "<Enter>", lambda ev, w=widget: w.configure(cursor="hand2"))
+        widget.tag_bind(tag, "<Leave>", lambda ev, w=widget, c=rest: w.configure(cursor=c))
+
+    def _trim_log(self) -> None:
+        """Keep the widget bounded — drop the oldest block when it overflows.
+
+        A block at a time, not a line: trimming per insert would run the delete on
+        every single line once the cap is reached, which is the cost this is here to
+        avoid in the first place.
+        """
+        cap = self._log_cap()
+        if self._log_lines <= cap + LOG_TRIM_BLOCK:
+            return
+        drop = self._log_lines - cap
+        try:
+            self._log.delete("1.0", f"{drop + 1}.0")
+        except tk.TclError:
+            return
+        self._log_lines -= drop
+
+    def _redraw_log(self) -> None:
+        """Repaint the widget from the kept lines — after a filter change.
+
+        Only the last `cap` matching lines: a session that has scrolled far past the
+        cap must not become slow the moment somebody narrows the filter.
+        """
+        try:
+            self._log.delete("1.0", "end")
+        except tk.TclError:
+            return
+        self._log_lines = 0
+        shown = [(s, ln) for s, ln in self._log_kept if self._log_shown(ln)]
+        for stamp, line in shown[-self._log_cap():]:
+            self._insert_line(stamp, line)
+
+    def _clear_log(self) -> None:
+        """Empty the widget (and the history behind it). panel.log is untouched."""
+        self._log_kept.clear()
+        try:
+            self._log.delete("1.0", "end")
+        except tk.TclError:
+            pass
+        self._log_lines = 0
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
@@ -1996,6 +2407,7 @@ class Panel(tk.Tk):
         self._stop_chat()
         self._stop_scenario_loop()
         self._timers.stop()
+        self._close_panel_log()
         self.destroy()
 
 
