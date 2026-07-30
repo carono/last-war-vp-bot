@@ -139,6 +139,31 @@ def test_store_files_by_tab_and_imports_jsonl():
         s.close()
 
 
+# --- history is per character, not per profile -----------------------------
+
+def test_chat_db_path_is_per_character():
+    import profile as prof
+    with tempfile.TemporaryDirectory() as tmp:
+        old = prof.PROFILES_DIR
+        prof.PROFILES_DIR = tmp
+        try:
+            pm = prof.ProfileManager()
+            active = pm.active
+            a = pm.chat_db("1697234600000972")
+            b = pm.chat_db("1697234600000999")
+            assert os.path.basename(a) == "chat_history_1697234600000972.db", a
+            assert os.path.basename(b) == "chat_history_1697234600000999.db", b
+            assert a != b                                   # two chars → two files
+            assert os.path.dirname(a).endswith(active)      # under the profile dir
+            # No uid → the legacy account-wide name (backward compatible fallback).
+            assert os.path.basename(pm.chat_db()) == prof.CHAT_DB
+            # A hostile uid cannot escape the directory.
+            evil = pm.chat_db("../../etc/passwd")
+            assert os.path.basename(evil) == "chat_history_etcpasswd.db", evil
+        finally:
+            prof.PROFILES_DIR = old
+
+
 # --- the lazy-load render window (needs the panel) -------------------------
 
 class _FakeText:

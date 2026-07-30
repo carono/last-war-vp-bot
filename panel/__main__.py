@@ -138,6 +138,7 @@ import lua_trace        # noqa: E402  (RESTORE_CHUNK — unwrap tracer hooks aft
 import run_notes        # noqa: E402  (keep/discard a sniffer run + its description)
 import coords           # noqa: E402
 import chat_assets      # noqa: E402  (token -> local sprite PNG for chat rendering)
+import chat_share       # noqa: E402  (self_profile -> the current player's uid, read live)
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
 try:
@@ -674,10 +675,14 @@ class Panel(ctk.CTk):
         # newest page at startup); `_chat_has_more` is True while the SQLite store
         # still holds OLDER messages for that tab than the oldest one in memory. A
         # scroll to the top (or the load-more header) pages the next chunk in from
-        # the store. `_chat_store` is the per-profile ChatHistoryStore, re-pointed on
-        # a profile switch.
+        # the store. `_chat_store` is the ChatHistoryStore of the CURRENT CHARACTER
+        # (`_chat_uid`), not the account: one account can hold several characters and
+        # their chats live in separate files. It is re-pointed when the chat monitor
+        # starts (the uid is read live from the game then).
         self._chat_has_more: dict = {t: False for t in CHAT_TABS}
         self._chat_store = None
+        self._chat_uid = ""            # current character's uid; "" until resolved
+        self._chat_resolving = False   # guards against overlapping uid resolves
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
         # PhotoImage refs alive (tk.Text does not hold a Python reference).
         self._chat_img_cache: dict = {}
@@ -5928,6 +5933,10 @@ class Panel(ctk.CTk):
             self._chat_var.set(False)
             return
         self._chat_proc = mon
+        # The monitor means the game is alive: read the current character's uid now
+        # and (re)open its history file, so captured messages land in the right
+        # character's store — not whatever was open (or nothing) before.
+        self._reopen_chat_store()
         self._say("chat", "log.chat.started", pid=mon.pid)
 
     def _on_chat_line(self, line: str) -> bool:
@@ -5977,14 +5986,48 @@ class Panel(ctk.CTk):
         self._chat_count_var.set(self._t("chat.count", n=0))
 
     def _load_chat_history(self) -> None:
-        """Open the active profile's SQLite store and render the newest page per tab.
+        """Point the chat store at the CURRENT CHARACTER and render its newest page.
 
-        Called on startup and on profile switch. Clears the current in-memory state,
-        re-points the store at the new profile (importing a legacy chat_log.jsonl the
-        first time), then loads only CHAT_PAGE messages per tab — older chunks page in
-        from the store on scroll-up.
+        Called on startup and on profile switch. The store is per character, not per
+        profile, so the character's uid has to be read from the game first — a daemon
+        round trip that must not sit on the Tk thread. Resolve it off-thread, then
+        open the matching file back on the Tk thread.
         """
-        # Clear current state.
+        self._reopen_chat_store()
+
+    def _resolve_char_uid(self) -> str:
+        """The logged-in character's uid, read live from the game (or "" if unknown).
+
+        Empty when the game is not alive / not logged in or the daemon is not up —
+        the caller then shows no history until the chat monitor starts and the uid
+        can be read.
+        """
+        try:
+            return str(chat_share.self_profile(self._client).get("uid") or "")
+        except Exception:       # noqa: BLE001 -- daemon down / game not alive
+            return ""
+
+    def _reopen_chat_store(self) -> None:
+        """Resolve the current character's uid off-thread, then (re)open its store."""
+        if self._chat_resolving:
+            return
+        self._chat_resolving = True
+
+        def work() -> None:
+            uid = self._resolve_char_uid()
+            self.after(0, lambda: self._open_chat_store(uid))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _open_chat_store(self, char_uid: str) -> None:
+        """Open the SQLite store for ``char_uid`` and render the newest page per tab.
+
+        Clears the current in-memory state first. An empty uid means the character is
+        not known yet (game not alive): the tabs are simply left empty and no store is
+        opened — persistence begins once the monitor starts and the uid resolves.
+        """
+        self._chat_resolving = False
+        # Clear current state and drop the previous character's store.
         for chat_type in list(self._chat_msgs):
             self._chat_msgs[chat_type].clear()
             view = self._chat_trees.get(chat_type)
@@ -5992,20 +6035,20 @@ class Panel(ctk.CTk):
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
             self._chat_has_more[chat_type] = False
-
-        # Re-point the store at this profile.
         if self._chat_store is not None:
             self._chat_store.close()
             self._chat_store = None
+        self._chat_uid = char_uid or ""
+        self._chat_count_var.set(self._t("chat.count", n=0))
+        if not char_uid:
+            return
+
         try:
-            store = chathistmod.ChatHistoryStore(self._profiles.chat_db())
+            store = chathistmod.ChatHistoryStore(self._profiles.chat_db(char_uid))
         except Exception as exc:        # noqa: BLE001 -- a bad store must not kill startup
             self._say("chat", "log.error", error=exc)
             return
         self._chat_store = store
-        # One-time migration: fold a pre-existing raw JSONL log into the store.
-        if store.count() == 0:
-            store.import_jsonl(self._profiles.chat_log())
 
         total = 0
         for chat_type in CHAT_TABS:

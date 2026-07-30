@@ -193,13 +193,19 @@ C:\Python312\python.exe tools\extract_chat_assets.py
 
 ### Panel history & lazy-load
 
-The panel persists chat to a per-profile SQLite store,
-`<profile>/chat_history.db` (`panel/chat_history.py`): every message the monitor
-sees is written there as it arrives — table `messages(id, ts, uid, name, text,
-room, chat_type, raw_json)`, idempotent on `(room, uid, ts, text)`. The raw
-`<profile>/chat_log.jsonl` the reader still writes (`chat_reader --out`) is kept
-as the raw capture log and is folded into the store once, the first time a profile
-has no DB yet.
+The panel persists chat to a **per-character** SQLite store,
+`<profile>/chat_history_<uid>.db` (`panel/chat_history.py`): history belongs to the
+character, not the account — one account can hold several characters with different
+uids and their chats must not mix. The current character's uid is read live from
+the game (`ChatInterface.getPlayerUid()` via `chat_share.self_profile`) when the
+chat monitor starts, and the matching file is opened then; if the uid cannot be
+read (game not alive) the tabs stay empty until it can. Every message the monitor
+sees is written to that file as it arrives — table `messages(id, ts, uid, name,
+text, room, chat_type, raw_json)`, idempotent on `(room, uid, ts, text)`. The raw
+`<profile>/chat_log.jsonl` the reader still writes (`chat_reader --out`) is kept as
+the account-wide raw capture log; it is **not** auto-imported into a per-character
+store (it cannot be split by character reliably), so per-character history builds
+forward from first use.
 
 Lazy-load reads out of the store, never the whole log: on startup each tab loads
 only its newest **page** (`CHAT_PAGE = 100`) into memory and renders it; a scroll

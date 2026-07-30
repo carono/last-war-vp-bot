@@ -74,6 +74,16 @@ def sanitize(name: str) -> str:
     return cleaned
 
 
+# A character uid is a long decimal string from the game, but it reaches us as
+# free-form text — keep only the characters that are safe in a filename so it can
+# never escape the profile directory or collide with a control character.
+_UID_SAFE = re.compile(r"[^0-9A-Za-z_-]")
+
+
+def _sanitize_uid(uid: str) -> str:
+    return _UID_SAFE.sub("", str(uid or "")) or "unknown"
+
+
 class ProfileManager:
     """On-disk store of named profiles and the active-profile pointer."""
 
@@ -227,9 +237,17 @@ class ProfileManager:
         """JSONL log of chat messages captured on the plain-TCP leg."""
         return os.path.join(self.dir(name), CHAT_LOG)
 
-    def chat_db(self, name: str | None = None) -> str:
-        """SQLite store of chat history the panel pages through (chat_history.py)."""
-        return os.path.join(self.dir(name), CHAT_DB)
+    def chat_db(self, char_uid: str | None = None, name: str | None = None) -> str:
+        """SQLite store of chat history the panel pages through (chat_history.py).
+
+        Chat history belongs to the CHARACTER, not the account: one account can hold
+        several characters with different uids, and their chats must not mix. Each
+        gets its own file `chat_history_<uid>.db`. ``char_uid`` is the current
+        player's uid, read live from the game; without one (uid unknown) the legacy
+        account-wide `chat_history.db` name is used as a fallback.
+        """
+        stem = f"chat_history_{_sanitize_uid(char_uid)}.db" if char_uid else CHAT_DB
+        return os.path.join(self.dir(name), stem)
 
     def panel_log(self, name: str | None = None) -> str:
         """Plain-text mirror of everything shown in the panel log widget."""
