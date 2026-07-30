@@ -187,6 +187,21 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.rally_monitor",
     ),
     Trigger(
+        name="rally_auto_join",
+        # The active half of the same banner event: when a rally goes out, join it —
+        # with the squads the «Авторалли» page allows for joining, one squad per
+        # rally, skipping any the player is already in. The squads are read LIVE from
+        # the profile at fire time (panel/__main__.py `_errand_args`), not stored on
+        # the trigger, so changing them on the Settings page takes effect at once. The
+        # join_rally recipe itself gates — no free squad / already-joined / no rally is
+        # a clean no-op. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="push.alliance.march",
+        scenario=("join_rally",),
+        enabled=False,
+        label_key="triggers.item.rally_auto_join",
+    ),
+    Trigger(
         name="session_kick",
         # A login on another device kicks this session: the client stays alive behind
         # a modal that locks it, so nothing on screen changes on its own and no packet

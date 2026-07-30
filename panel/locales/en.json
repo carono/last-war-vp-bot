@@ -420,6 +420,8 @@
   "triggers.log.reloaded": "triggers re-read — {n}",
   "triggers.off": "off",
   "triggers.poll": "polling",
+  "triggers.item.rally_auto_join": "Auto-join alliance rallies",
+  "triggers.log.no_squads": "rally auto-join: no squads ticked on the «Авторалли» page — nothing to send",
 
   "top.daemon": "daemon:",
   "top.game": "Game:"

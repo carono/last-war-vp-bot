@@ -4938,7 +4938,7 @@ class Panel(ctk.CTk):
             ctx = script_engine.new_context(
                 hwnd=0,
                 on_event=lambda msg: self._log_put(f"[timer] {timer.name}: {msg}"),
-                variables=timer.args,
+                variables=self._errand_args(timer),
             )
             for step in timer.scenario:
                 if script_engine.resolve_action(step) is not None:
@@ -4952,6 +4952,24 @@ class Panel(ctk.CTk):
         finally:
             self._release_busy()
             self.after(400, self._refresh_status)
+
+    def _errand_args(self, errand) -> dict:
+        """The variables a scenario runs with: the errand's own args, plus the few
+        that must be read LIVE from the panel rather than stored on the errand.
+
+        The «rally_auto_join» trigger is the one such case: which squads it joins with
+        is the «Авторалли» page's own list (the JOIN squads, the same one the manual
+        «Присоединиться» button and the rally-monitor auto-join use), and it must be
+        able to change on the Settings page without editing the trigger. With no squad
+        ticked the join is a clean no-op, so we say so and let it pass rather than fail.
+        """
+        args = dict(getattr(errand, "args", {}) or {})
+        if getattr(errand, "name", "") == "rally_auto_join":
+            squads = self._autorally_squads()
+            if not squads:
+                self._say("trigger", "triggers.log.no_squads")
+            args["squads"] = squads
+        return args
 
     def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.

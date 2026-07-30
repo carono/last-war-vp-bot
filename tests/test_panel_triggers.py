@@ -70,6 +70,36 @@ def test_the_builtin_rally_monitor_trigger_ships():
     assert not rm.enabled                      # opt-in — it records, it does not act
 
 
+def test_the_builtin_rally_auto_join_trigger_ships():
+    raj = triggersmod.default_catalogue().by_name("rally_auto_join")
+    assert raj is not None
+    assert not raj.is_poll and raj.kind == triggersmod.KIND_WIRE
+    assert raj.event_pattern == "push.alliance.march"
+    assert raj.scenario == ("join_rally",)     # joins with the profile's JOIN squads
+    assert not raj.enabled                      # opt-in
+
+
+def test_errand_args_injects_live_join_squads():
+    """rally_auto_join takes its squads from the profile at fire time, not the trigger.
+
+    Needs the panel (customtkinter); says SKIP where that is not importable.
+    """
+    try:
+        from panel.__main__ import Panel
+    except Exception:                           # noqa: BLE001
+        print("  SKIP panel deps (customtkinter) not importable")
+        return
+    import types
+    stub = types.SimpleNamespace(_autorally_squads=lambda: [2, 3],
+                                 _say=lambda *a, **k: None)
+    # a plain errand passes its own args through unchanged…
+    plain = triggersmod.Trigger(name="x", scenario=("y",), args={"a": 1})
+    assert Panel._errand_args(stub, plain) == {"a": 1}
+    # …the rally auto-join one gets the live squads merged in.
+    raj = triggersmod.default_catalogue().by_name("rally_auto_join")
+    assert Panel._errand_args(stub, raj)["squads"] == [2, 3]
+
+
 def test_the_builtin_session_kick_trigger_is_a_poll():
     sk = triggersmod.default_catalogue().by_name("session_kick")
     assert sk is not None

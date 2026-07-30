@@ -420,6 +420,8 @@
   "triggers.log.reloaded": "триггеры перечитаны — {n}",
   "triggers.off": "выкл",
   "triggers.poll": "опрос",
+  "triggers.item.rally_auto_join": "Автоприсоединение к ралли альянса",
+  "triggers.log.no_squads": "автоджойн ралли: на странице «Авторалли» не отмечен ни один отряд — отправлять нечего",
 
   "top.daemon": "демон:",
   "top.game": "Игра:"
