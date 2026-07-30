@@ -109,6 +109,41 @@ def token_image(kind: str, ident: str) -> str | None:
     return None
 
 
+def emoji_catalogue() -> list:
+    """Every inline emoji that has a sprite on disk, in config order.
+
+    Each entry is ``{"id": "<config id>", "hex": "<PUA hex>", "path": "<png>"}``.
+    The ``id`` is what an outgoing message references as a ``{e:<id>}`` token
+    (``tools/chat_send.py`` resolves it to the PUA glyph); the sprite is drawn in
+    the picker so the person chooses by looking, not by id.
+    """
+    out = []
+    for e in _MAP.get("emoji", []):
+        hex_stem = str(e.get("name") or "")
+        path = token_image("e", hex_stem) if hex_stem else None
+        if path:
+            out.append({"id": str(e.get("id") or ""), "hex": hex_stem, "path": path})
+    return out
+
+
+def sticker_catalogue() -> list:
+    """Every sticker that has a sprite on disk, ordered by numeric id.
+
+    Each entry is ``{"id": "<config id>", "name": "<resource name>", "path":
+    "<png>"}``. A sticker is sent as its own message (``--sticker <id>``); the
+    sprite (its first animation frame) is the picker thumbnail.
+    """
+    out = []
+    for sid, ent in _STICKER_BY_ID.items():
+        path = token_image("sticker", sid)
+        if path:
+            out.append({"id": str(sid),
+                        "name": str(ent.get("name") or ent.get("stem") or sid),
+                        "path": path})
+    out.sort(key=lambda s: int(s["id"]) if s["id"].isdigit() else (1 << 30))
+    return out
+
+
 def segments(msg: str):
     """Split a rendered message into ordered segments for inline display.
 

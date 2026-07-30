@@ -707,6 +707,8 @@ class Panel(ctk.CTk):
         self._dm_unread: dict = {}
         self._dm_contacts_dirty = False
         self._dm_list = None           # the contact-list textbox (built in _build_dm_tab)
+        self._chat_entry = None        # the message-send Entry (for emoji insertion)
+        self._emoji_win = None         # the open emoji/sticker picker, if any
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
         # PhotoImage refs alive (tk.Text does not hold a Python reference).
         self._chat_img_cache: dict = {}
@@ -5597,10 +5599,16 @@ class Panel(ctk.CTk):
         self._tr(CTkLabel(send), "chat.to").pack(side="left")
         CTkLabel(send, textvariable=self._chat_room_var, foreground="#888",
                   width=26).pack(side="left", padx=(4, 6))
+        # The emoji / sticker picker: a game emoji goes inline into the text as a
+        # {e:<id>} token (chat_send resolves it), a sticker is sent as its own
+        # message (the game does not let a sticker ride alongside text).
+        CTkButton(send, text="😊", width=32, command=self._open_emoji_picker).pack(
+            side="left", padx=(0, 4))
         self._chat_msg_var = tk.StringVar()
         entry = CTkEntry(send, textvariable=self._chat_msg_var)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda _e: self._chat_send_text())
+        self._chat_entry = entry
         self._tr(CTkButton(send, command=self._chat_send_text),
                  "chat.send").pack(side="left", padx=(4, 0))
         # The coordinate in the main tab's X/Y/server fields, shared as a map pin —
@@ -5733,6 +5741,98 @@ class Panel(ctk.CTk):
         if srv.isdigit():
             args += ["--coord-server", srv]
         self._chat_send(args, coords.fmt(int(x), int(y), srv or None))
+
+    # -- emoji / sticker picker ---------------------------------------------
+    def _open_emoji_picker(self) -> None:
+        """A popup of the game's emoji (insert inline) and stickers (send one).
+
+        Both grids are drawn from the sprites `tools/chat_assets.py` already extracts
+        — no game call needed to open the picker. An emoji click drops a `{e:<id>}`
+        token into the message box; a sticker click sends that sticker as its own
+        message (the game does not allow a sticker beside text).
+        """
+        old = getattr(self, "_emoji_win", None)
+        if old is not None:
+            try:
+                old.destroy()
+            except tk.TclError:
+                pass
+        emojis = chat_assets.emoji_catalogue()
+        stickers = chat_assets.sticker_catalogue()
+
+        top = ctk.CTkToplevel(self)
+        self._emoji_win = top
+        top.title(self._t("chat.picker.title"))
+        top.transient(self)
+        CTkLabel(top, text=self._t("chat.picker.emoji"), anchor="w",
+                 foreground="#8a8a8a").pack(fill="x", padx=8, pady=(8, 0))
+        em_box = CTkTextbox(top, wrap="char", state="disabled", cursor="arrow",
+                            borderwidth=0, highlightthickness=0, padx=4, pady=4)
+        em_box.pack(fill="both", expand=True, padx=8, pady=(2, 4))
+        self._fill_picker(em_box, emojis, "emoji", 24)
+        CTkLabel(top, text=self._t("chat.picker.sticker"), anchor="w",
+                 foreground="#8a8a8a").pack(fill="x", padx=8, pady=(4, 0))
+        st_box = CTkTextbox(top, wrap="char", state="disabled", cursor="arrow",
+                            height=4, borderwidth=0, highlightthickness=0, padx=4, pady=4)
+        st_box.pack(fill="both", expand=True, padx=8, pady=(2, 8))
+        self._fill_picker(st_box, stickers, "sticker", 44)
+
+        top.geometry("380x460")
+        top.bind("<Escape>", lambda _e: top.destroy())
+        try:
+            top.update_idletasks()
+            x = self.winfo_rootx() + 60
+            y = self.winfo_rooty() + 80
+            top.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
+
+    def _fill_picker(self, box: "tk.Text", items: list, kind: str, px: int) -> None:
+        """Draw one grid of clickable sprites into ``box`` (fresh widget, no stale tags)."""
+        box.configure(state="normal")
+        box.delete("1.0", "end")
+        drawn = 0
+        for idx, item in enumerate(items):
+            img = self._chat_image(item["path"], px)
+            if img is None:
+                continue
+            tag = f"{kind}{idx}"
+            pos = box.index("end -1c")
+            box.image_create("end", image=img)
+            box.insert("end", " ")
+            box.tag_add(tag, pos, f"{pos} +1c")
+            if kind == "emoji":
+                box.tag_bind(tag, "<Button-1>", lambda _e, it=item: self._pick_emoji(it))
+            else:
+                box.tag_bind(tag, "<Button-1>", lambda _e, it=item: self._pick_sticker(it))
+            box.tag_bind(tag, "<Enter>", lambda _e, b=box: b.configure(cursor="hand2"))
+            box.tag_bind(tag, "<Leave>", lambda _e, b=box: b.configure(cursor="arrow"))
+            drawn += 1
+        if drawn == 0:
+            box.insert("end", self._t("chat.picker.empty"), ("token",))
+        box.configure(state="disabled")
+
+    def _pick_emoji(self, item: dict) -> None:
+        """Insert an emoji token at the cursor; the picker stays open for more."""
+        token = "{e:%s}" % item.get("id", "")
+        entry = getattr(self, "_chat_entry", None)
+        try:
+            entry.insert("insert", token)          # at the caret
+            entry.focus_set()
+        except (tk.TclError, AttributeError):
+            self._chat_msg_var.set(self._chat_msg_var.get() + token)
+
+    def _pick_sticker(self, item: dict) -> None:
+        """Send one sticker as its own message, then close the picker."""
+        sid = str(item.get("id", ""))
+        if sid:
+            self._chat_send(["--sticker", sid], f"sticker {sid}")
+        win = getattr(self, "_emoji_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
 
     def _build_dm_tab(self, parent: ttk.Frame) -> "tk.Text":
         """The DM tab: a contact list on the left, one conversation on the right.

@@ -91,6 +91,21 @@ def test_avatar_path_matches_photo_scheme():
             chat_assets.PHOTOS_DIR = old
 
 
+# --- the emoji / sticker catalogues (picker source) ------------------------
+
+def test_emoji_and_sticker_catalogues():
+    emojis = chat_assets.emoji_catalogue()
+    stickers = chat_assets.sticker_catalogue()
+    # These come from the extracted sprites; the repo ships them, so both are non-empty.
+    assert emojis and stickers, (len(emojis), len(stickers))
+    for e in emojis:
+        assert e["id"] and e["hex"] and os.path.isfile(e["path"]), e
+    ids = [int(s["id"]) for s in stickers]
+    assert ids == sorted(ids)                    # stickers ordered by numeric id
+    for s in stickers:
+        assert s["id"] and os.path.isfile(s["path"]), s
+
+
 # --- the SQLite store ------------------------------------------------------
 
 def _rec(i, room="alliance_935"):
@@ -223,19 +238,21 @@ class _FakeText:
 
     def __init__(self):
         self.lines = 0
+        self.images = 0
 
     def configure(self, **kw):
         pass
 
     def delete(self, *a):
         self.lines = 0
+        self.images = 0
 
     def insert(self, index, text, *tags):
         if text == "\n":
             self.lines += 1
 
     def image_create(self, *a, **k):
-        pass
+        self.images += 1
 
     def tag_add(self, *a):
         pass
@@ -406,6 +423,54 @@ def test_dm_open_contact_filters_and_pages():
         assert P._chat_has_more["dm"] is False
         assert all(r["room_id"] == room_a for r in P._chat_msgs["dm"])   # no B leaked in
         store.close()
+
+
+class _FakeEntry:
+    def __init__(self):
+        self.text = ""
+
+    def insert(self, index, s):
+        self.text += s
+
+    def focus_set(self):
+        pass
+
+
+def test_emoji_picker_inserts_token_and_sticker_sends():
+    try:
+        import panel.__main__ as pm
+    except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
+        print(f"  SKIP test_emoji_picker_inserts_token_and_sticker_sends: {exc}")
+        return
+
+    P = types.SimpleNamespace()
+    P._i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("en")
+    P._chat_img_cache = {}
+    P._chat_entry = _FakeEntry()
+    P._chat_msg_var = _FakeVar()
+    P._emoji_win = None
+    sent = []
+    P._chat_send = lambda args, what: sent.append((args, what))
+    # Stub the image loader so _fill_picker's grid logic is tested independent of PIL
+    # and of the filesystem (the Windows python cannot open the WSL /mnt sprite paths).
+    P._chat_image = lambda path, px: "IMG"
+    for name in ("_t", "_pick_emoji", "_pick_sticker", "_fill_picker"):
+        setattr(P, name, pm.Panel.__dict__[name].__get__(P))
+
+    # An emoji drops a {e:<id>} token into the message box (chat_send resolves it).
+    P._pick_emoji({"id": "101"})
+    P._pick_emoji({"id": "106"})
+    assert P._chat_entry.text == "{e:101}{e:106}", P._chat_entry.text
+
+    # A sticker is sent as its own message.
+    P._pick_sticker({"id": "35"})
+    assert sent == [(["--sticker", "35"], "sticker 35")], sent
+
+    # The picker actually draws sprites into its grid (one image per catalogue item).
+    box = _FakeText()
+    emojis = chat_assets.emoji_catalogue()
+    P._fill_picker(box, emojis, "emoji", 24)
+    assert box.images == len(emojis) and box.images > 0, box.images
 
 
 def _run_standalone() -> int:

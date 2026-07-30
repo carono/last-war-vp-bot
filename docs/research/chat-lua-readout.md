@@ -231,6 +231,18 @@ appended to the conversation only when it belongs to the peer currently open, an
 otherwise bumps that contact's unread count. This is DM-only — world/alliance/
 national rooms are still one stream per tab.
 
+### Emoji / sticker picker
+
+The send box has an emoji/sticker picker (the "😊" button). It is drawn entirely
+from the sprites `tools/extract_chat_assets.py` already extracts — no game call to
+open it: `chat_assets.emoji_catalogue()` and `sticker_catalogue()` list the emoji
+(id + PUA hex + png) and stickers (id + png) that have a sprite on disk. Picking an
+**emoji** drops a `{e:<id>}` token into the message box at the caret; `chat_send`
+resolves it to the inline PUA glyph on send. Picking a **sticker** sends it as its
+own message (`chat_send --sticker <id>` → `ChatEmojiTemplateManager:TrySendSticker`)
+— the game does not let a sticker ride alongside text, so it is one sticker per
+message, not an `attachmentId` on a text post.
+
 ## Open follow-ups
 
 - **On-demand backlog.** Reading the full on-screen history without waiting for
