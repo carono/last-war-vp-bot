@@ -183,6 +183,33 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         interval_sec=3600,
         label_key="timers.item.alliance_upkeep",
     ),
+    Timer(
+        name="collect_truck_resources",
+        scenario=("collect_truck_resources",),
+        # Four hours. The base truck's idle-reward accumulator fills slowly and one
+        # claim empties it, so there is nothing to gain from looking oftener.
+        interval_sec=14400,
+        enabled=False,
+        label_key="timers.item.collect_truck_resources",
+    ),
+    Timer(
+        name="collect_visitor_gifts",
+        scenario=("collect_visitor_gifts",),
+        # An hour. A gift-bearing survivor waits in the city queue until collected,
+        # so hourly keeps the queue clear without pestering a mostly-empty one.
+        interval_sec=3600,
+        enabled=False,
+        label_key="timers.item.collect_visitor_gifts",
+    ),
+    Timer(
+        name="recruit_survivors",
+        scenario=("recruit_survivors",),
+        # An hour, the same cadence as the gifts — a recruitable survivor sits in the
+        # same city queue, and the recipe no-ops when none is waiting.
+        interval_sec=3600,
+        enabled=False,
+        label_key="timers.item.recruit_survivors",
+    ),
 )
 
 
