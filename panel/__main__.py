@@ -104,8 +104,10 @@ from .ctk_widgets import (
     CTkLabel,
     CTkLabelFrame,
     CTkNotebook,
+    CTkNumericEntry,
     CTkScrollbar,
     CTkTextbox,
+    numeric_spinbox,
 )
 from . import childmon as childmonmod
 from . import dashboard as dashmod
@@ -1392,11 +1394,11 @@ class Panel(ctk.CTk):
         self._y_var = tk.StringVar()
         self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
         self._tr(CTkLabel(coord), "coord.x").pack(side="left")
-        CTkEntry(coord, textvariable=self._x_var, width=7).pack(side="left", padx=(2, 8))
+        CTkNumericEntry(coord, textvariable=self._x_var, width=7, signed=True).pack(side="left", padx=(2, 8))
         self._tr(CTkLabel(coord), "coord.y").pack(side="left")
-        CTkEntry(coord, textvariable=self._y_var, width=7).pack(side="left", padx=(2, 8))
+        CTkNumericEntry(coord, textvariable=self._y_var, width=7, signed=True).pack(side="left", padx=(2, 8))
         self._tr(CTkLabel(coord), "coord.server").pack(side="left")
-        CTkEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
+        CTkNumericEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
         self._tr(CTkButton(coord, command=self._goto_coord),
                  "coord.jump").pack(side="left", padx=4, ipady=2)
         self._tr(CTkButton(coord, command=self._load_current_server),
@@ -1429,7 +1431,7 @@ class Panel(ctk.CTk):
         # obviously numeric; a change while the monitor runs restarts it (below).
         self._tr(CTkLabel(row1), "secret.interval").pack(side="left", padx=(12, 2))
         self._interval_var = tk.StringVar(value="15")
-        ttk.Spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
+        numeric_spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
                     ).pack(side="left")
         self._tr(CTkLabel(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
         # filters (applied live, panel-side, to task findings only)
@@ -1447,10 +1449,10 @@ class Panel(ctk.CTk):
                  "secret.can_loot_only").pack(side="left", padx=(6, 0))
         self._tr(CTkLabel(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
         self._flt_from_var = tk.StringVar()
-        CTkEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
+        CTkNumericEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
         self._tr(CTkLabel(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._flt_to_var = tk.StringVar()
-        CTkEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
+        CTkNumericEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
 
         # -- Auto-loot: its own frame, and its own level row --------------------
         #
@@ -1480,10 +1482,10 @@ class Panel(ctk.CTk):
         self._autoloot_chk.pack(side="left")
         self._tr(CTkLabel(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
         self._lvl_from_var = tk.StringVar()
-        CTkEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        CTkNumericEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
         self._tr(CTkLabel(loot), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
-        CTkEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
+        CTkNumericEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
         self._autoloot_rule_lbl = CTkLabel(loot, foreground="#888", wraplength=380,
                                             justify="left")
         self._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
@@ -1502,9 +1504,9 @@ class Panel(ctk.CTk):
                                  command=self._toggle_sweep), "sweep.enabled").pack(side="left")
         self._tr(CTkLabel(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
         self._sweep_cx_var = tk.StringVar()
-        CTkEntry(sweep, textvariable=self._sweep_cx_var, width=6).pack(side="left", padx=(0, 2))
+        CTkNumericEntry(sweep, textvariable=self._sweep_cx_var, width=6, signed=True).pack(side="left", padx=(0, 2))
         self._sweep_cy_var = tk.StringVar()
-        CTkEntry(sweep, textvariable=self._sweep_cy_var, width=6).pack(side="left")
+        CTkNumericEntry(sweep, textvariable=self._sweep_cy_var, width=6, signed=True).pack(side="left")
         self._tr(CTkButton(sweep, command=self._sweep_centre_from_coords),
                  "sweep.take_centre").pack(side="left", padx=(4, 0))
         self._sweep_hint = CTkLabel(sweep, foreground="#888", wraplength=380,
@@ -3957,7 +3959,7 @@ class Panel(ctk.CTk):
                  "scenarios.loop").pack(side="left", padx=(8, 2))
         self._tr(CTkLabel(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
         self._scn_interval_var = tk.StringVar(value="60")
-        ttk.Spinbox(controls, from_=5, to=86400, width=6,
+        numeric_spinbox(controls, from_=5, to=86400, width=6,
                     textvariable=self._scn_interval_var).pack(side="left")
         self._tr(CTkButton(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
@@ -4514,7 +4516,7 @@ class Panel(ctk.CTk):
                      add="+")
             box.bind("<Double-Button-1>", lambda _e, n=timer.name: (
                 self._select_timer(n), self._timer_edit()), add="+")
-            ttk.Spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
+            numeric_spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
                                                    padx=(0, 10))
@@ -4702,7 +4704,10 @@ class Panel(ctk.CTk):
                 ("timers.editor.args", args_var, 40))):
             self._tr(CTkLabel(frm), key).grid(row=row, column=0, sticky="w",
                                                padx=(0, 8), pady=3)
-            CTkEntry(frm, textvariable=var, width=width).grid(row=row, column=1,
+            # Only the interval is a number; name/title/args stay free text.
+            entry_cls = (CTkNumericEntry if key == "timers.editor.interval"
+                         else CTkEntry)
+            entry_cls(frm, textvariable=var, width=width).grid(row=row, column=1,
                                                                sticky="we", pady=3)
         self._tr(CTkLabel(frm, foreground="#888", wraplength=460, justify="left"),
                  "timers.editor.steps_hint").grid(row=4, column=0, columnspan=2,
@@ -5064,8 +5069,12 @@ class Panel(ctk.CTk):
         if isinstance(var, tk.BooleanVar):
             CTkCheckBox(parent, variable=var).grid(row=row, column=1, sticky="w")
         elif spin is not None:
-            ttk.Spinbox(parent, from_=spin[0], to=spin[1], width=width,
-                        textvariable=var).grid(row=row, column=1, sticky="w")
+            # A float knob (poll seconds, dwell, timeout) needs the decimal point;
+            # an integer one stays digit-only.
+            decimal = isinstance(SETTINGS_DEFAULTS.get(key), float)
+            numeric_spinbox(parent, from_=spin[0], to=spin[1], width=width,
+                        decimal=decimal, textvariable=var).grid(
+                            row=row, column=1, sticky="w")
         else:
             CTkEntry(parent, textvariable=var, width=width).grid(row=row, column=1,
                                                                   sticky="we")
@@ -5231,7 +5240,7 @@ class Panel(ctk.CTk):
         erow.pack(fill="x", pady=(6, 0))
         self._tr(CTkLabel(erow), "autorally.create.elite").pack(side="left", padx=(0, 6))
         self._create_elite_var = tk.StringVar(value=str(RALLY_ELITE_MIN))
-        ttk.Spinbox(erow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
+        numeric_spinbox(erow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
                     textvariable=self._create_elite_var).pack(side="left")
         self._tr(CTkLabel(create, foreground="#888", wraplength=620, justify="left"),
                  "autorally.create.hint").pack(anchor="w", pady=(6, 0))

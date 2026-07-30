@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import ttk
 
 import customtkinter as ctk
 
@@ -514,3 +515,158 @@ class CTkTextbox(ctk.CTkTextbox):
             if colour:
                 kw["fg_color"] = colour
         super().configure(**kw)
+
+
+# ---------------------------------------------------------------------------
+# Numeric fields — the panel-wide rule for every field that expects a number
+# (timer intervals, the elite level, coordinate boxes, spinboxes, …):
+#
+#   1. Typing accepts only digits 0-9 (plus, where the field needs it, a single
+#      leading '-' for a coordinate or one '.' for a float knob). Letters and
+#      punctuation are rejected on the keystroke, via Tk's validate="key" — which
+#      checks the *resulting* text, so it is immune to the keyboard layout.
+#   2. Copy / cut / paste / select-all keep working in these fields. A paste is
+#      NEVER blocked: its non-digit characters are filtered out and the digits
+#      inserted. The clipboard keys are matched by physical VK code (C=67, X=88,
+#      V=86, A=65 — the same trick the log copy uses), so they fire under a
+#      Cyrillic layout where Tk's Latin-only <<Copy>>/<<Paste>> never would.
+#
+# Apply it with numeric_spinbox()/CTkNumericEntry below, or install_numeric_field()
+# on an existing widget. Leave it OFF for text fields (paths, args, chat, names).
+# ---------------------------------------------------------------------------
+
+# Physical-key VK codes, layout-invariant (Windows). Named Cyrillic keysyms are a
+# cross-platform fallback for the same physical keys (С=copy, Ч=cut, М=paste, Ф=all).
+_CLIP_COPY = (67, "c", "cyrillic_es")
+_CLIP_CUT = (88, "x", "cyrillic_che")
+_CLIP_PASTE = (86, "v", "cyrillic_em")
+_CLIP_ALL = (65, "a", "cyrillic_ef")
+
+
+def is_number(text: str, signed=False, decimal=False) -> bool:
+    """Whether ``text`` is an acceptable in-progress numeric value (empty is ok, a
+    lone '-' is ok when signed, one '.' is ok when decimal) — the predicate behind
+    the typing validation."""
+    if text == "" or (signed and text == "-"):
+        return True
+    body = text[1:] if signed and text.startswith("-") else text
+    if decimal:
+        return body.count(".") <= 1 and all(ch.isdigit() or ch == "." for ch in body)
+    return body.isdigit()
+
+
+def filter_number(text: str, signed=False, decimal=False) -> str:
+    """Reduce ``text`` to a number: keep digits (and one '.' when decimal, one
+    leading '-' when signed), drop the rest — what a paste becomes instead of
+    being rejected."""
+    out, seen_dot = [], False
+    for ch in text:
+        if ch.isdigit():
+            out.append(ch)
+        elif decimal and ch == "." and not seen_dot:
+            out.append(ch)
+            seen_dot = True
+    result = "".join(out)
+    if signed and text.lstrip().startswith("-"):
+        result = "-" + result
+    return result
+
+
+def install_numeric_field(widget, signed=False, decimal=False):
+    """Make ``widget`` (a CTkEntry or a ttk.Spinbox) a numeric field (digits only;
+    a leading '-' when ``signed``; one '.' when ``decimal``) with layout-independent
+    clipboard support. See the module comment above for the rule."""
+    entry = getattr(widget, "_entry", widget)   # CTkEntry wraps a tk.Entry; Spinbox is one
+
+    entry.configure(validate="key",
+                    validatecommand=(entry.register(
+                        lambda p: is_number(p, signed, decimal)), "%P"))
+
+    def _clean(text: str) -> str:
+        return filter_number(text, signed, decimal)
+
+    def _drop_selection():
+        # Delete the selection AND leave the cursor where it was, so a following
+        # insert replaces the selection in place instead of appending at the end.
+        try:
+            if entry.selection_present():
+                first = entry.index("sel.first")
+                entry.delete("sel.first", "sel.last")
+                entry.icursor(first)
+        except tk.TclError:
+            pass
+
+    def _selected_text():
+        try:
+            if not entry.selection_present():
+                return ""
+            first, last = entry.index("sel.first"), entry.index("sel.last")
+            return entry.get()[first:last]
+        except tk.TclError:
+            return ""
+
+    def _paste():
+        try:
+            clip = entry.clipboard_get()
+        except tk.TclError:
+            return "break"
+        # A programmatic edit must not run through key-validation (Tk would turn
+        # validation off if it ever saw a reject), so suspend it around the insert.
+        entry.configure(validate="none")
+        _drop_selection()
+        entry.insert("insert", _clean(clip))
+        entry.configure(validate="key")
+        return "break"
+
+    def _copy():
+        sel = _selected_text()
+        if sel:
+            entry.clipboard_clear()
+            entry.clipboard_append(sel)
+        return "break"
+
+    def _cut():
+        _copy()
+        entry.configure(validate="none")
+        _drop_selection()
+        entry.configure(validate="key")
+        return "break"
+
+    def _select_all():
+        entry.select_range(0, "end")
+        entry.icursor("end")
+        return "break"
+
+    def _on_ctrl(event):
+        code, sym = event.keycode, (event.keysym or "").lower()
+        if code == _CLIP_COPY[0] or sym in _CLIP_COPY[1:]:
+            return _copy()
+        if code == _CLIP_CUT[0] or sym in _CLIP_CUT[1:]:
+            return _cut()
+        if code == _CLIP_PASTE[0] or sym in _CLIP_PASTE[1:]:
+            return _paste()
+        if code == _CLIP_ALL[0] or sym in _CLIP_ALL[1:]:
+            return _select_all()
+        return None
+
+    entry.bind("<Control-KeyPress>", _on_ctrl)
+    # Exposed so a test can exercise the clipboard paths without synthesising a
+    # keystroke (headless key events are unreliable); the real trigger is Ctrl+key.
+    entry._numeric_paste = _paste
+    entry._numeric_copy = _copy
+    return widget
+
+
+class CTkNumericEntry(CTkEntry):
+    """A CTkEntry restricted to a number — see install_numeric_field / the rule above."""
+
+    def __init__(self, master=None, signed=False, decimal=False, **kw):
+        super().__init__(master, **kw)
+        install_numeric_field(self, signed=signed, decimal=decimal)
+
+
+def numeric_spinbox(master=None, signed=False, decimal=False, **kw):
+    """A ttk.Spinbox restricted to a number — see install_numeric_field / the rule above."""
+    spinbox = ttk.Spinbox(master, **kw)
+    install_numeric_field(spinbox, signed=signed, decimal=decimal)
+    return spinbox
