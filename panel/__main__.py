@@ -120,6 +120,7 @@ from . import profile as profilemod
 from . import timers as timersmod
 from . import triggers as triggersmod
 from . import rally_limits as rallylimitsmod
+from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -756,6 +757,13 @@ class Panel(ctk.CTk):
             poll=self._poll_trigger,
             log=lambda key, **fmt: self._log_put("[trigger] " + self._t(key, **fmt)),
         )
+        # The «resource_tracker» trigger's state: the day-keyed tally (per profile) and
+        # the last balance seen, in memory, so a push's gain is `current - last`. The
+        # last is empty until the first push establishes a baseline (no gain counted
+        # then). Both re-pointed / cleared on a profile switch.
+        self._resource_stats = resourcestatsmod.load_stats(
+            self._profiles.resource_stats_json())
+        self._resource_last: dict = {}
         # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
         # built — the Settings tabs bind widgets to them and the main tab's watchdog
         # checkbox shares the very same variable, so the two can never disagree.
@@ -969,6 +977,8 @@ class Panel(ctk.CTk):
                                      variable=self._sniff_var, command=self._toggle_sniff)
 
         help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label=self._t("menu.help.send_log"),
+                              command=self._open_send_log_dialog)
         help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
 
         menubar.add_command(label=self._t("menu.profile"),
@@ -996,6 +1006,109 @@ class Panel(ctk.CTk):
         CTkButton(frm, text=self._t("about.ok"),
                    command=win.destroy).pack(anchor="e", pady=(12, 0))
         win.grab_set()
+
+    # -- send diagnostics ---------------------------------------------------
+    def _open_send_log_dialog(self) -> None:
+        """«Помощь → Отправить лог разработчику»: a modal that shows what would be
+        sent (the zipped debug log + a preview of its tail), reassures that nothing
+        personal leaves the box, and ships it via panel/debug_sender.py."""
+        existing = getattr(self, "_senddiag_win", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_set()
+            return
+
+        win = ctk.CTkToplevel(self)
+        self._senddiag_win = win
+        win.title(self._t("senddiag.title"))
+        win.transient(self)
+        frm = CTkFrame(win)
+        frm.pack(fill="both", expand=True, padx=16, pady=16)
+
+        # Nothing personal leaves the machine — say so, up top and in warning colour.
+        self._tr(CTkLabel(frm, text_color="#e0a84f", wraplength=470, justify="left"),
+                 "senddiag.warning").pack(anchor="w")
+
+        # The archive that would be sent — built now so «Открыть» has a real file.
+        logpath = self._profiles.debug_log()
+        try:
+            archive = dbgsender.make_archive(path=logpath)
+        except Exception:             # noqa: BLE001 — display must not break the dialog
+            archive = logpath + ".zip"
+        pathrow = CTkFrame(frm, fg_color="transparent")
+        pathrow.pack(fill="x", pady=(12, 8))
+        self._tr(CTkLabel(pathrow), "senddiag.path").pack(side="left")
+        path_var = tk.StringVar(value=_repo_rel(archive))
+        entry = CTkEntry(pathrow, textvariable=path_var)
+        entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        try:
+            entry._entry.configure(state="readonly")   # shown for reading, not editing
+        except Exception:             # noqa: BLE001
+            pass
+        self._tr(CTkButton(pathrow, width=10,
+                           command=lambda p=archive: self._reveal_in_explorer(p)),
+                 "senddiag.open").pack(side="left")
+
+        # A read-only preview of the tail of the actual debug.log.
+        self._tr(CTkLabel(frm, text_color="#888"), "senddiag.preview").pack(anchor="w")
+        # width/height are in characters / lines (the CTkTextbox adapter scales them);
+        # it fills the window anyway, these are just the initial ask.
+        preview = CTkTextbox(frm, width=64, height=14, wrap="none",
+                             font=("Consolas", 9))
+        preview.pack(fill="both", expand=True, pady=(2, 12))
+        tail = self._tail_debug_log(logpath, 100)
+        preview.insert("1.0", tail if tail else self._t("senddiag.empty"))
+        preview.configure(state="disabled")
+
+        btns = CTkFrame(frm, fg_color="transparent")
+        btns.pack(fill="x")
+        self._tr(CTkButton(btns, command=lambda: self._send_log_and_close(win)),
+                 "senddiag.send").pack(side="right")
+        self._tr(CTkButton(btns, command=win.destroy),
+                 "senddiag.cancel").pack(side="right", padx=(0, 6))
+
+        win.bind("<Destroy>", self._on_senddiag_destroyed)
+        win.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 5)
+        win.geometry(f"+{x}+{y}")
+        win.grab_set()
+        win.focus_set()
+
+    def _on_senddiag_destroyed(self, event) -> None:
+        if event.widget is getattr(self, "_senddiag_win", None):
+            self._senddiag_win = None
+
+    def _send_log_and_close(self, win) -> None:
+        """«Отправить»: hand the archive to the sender (result lands in the log)."""
+        win.destroy()
+        self._send_debug_archive()
+
+    @staticmethod
+    def _tail_debug_log(path: str, lines: int = 100) -> str:
+        """The last ``lines`` of ``path`` (reading only the tail), or "" if unreadable."""
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - 65536))
+                text = handle.read().decode("utf-8", "replace")
+        except OSError:
+            return ""
+        return "\n".join(text.splitlines()[-lines:])
+
+    def _reveal_in_explorer(self, path: str) -> None:
+        """Show ``path`` selected in the OS file manager."""
+        target = os.path.normpath(path)
+        try:
+            if os.name == "nt":
+                subprocess.Popen(["explorer", "/select," + target])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", target])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(target) or "."])
+        except Exception as exc:      # noqa: BLE001
+            self._say("debug", "log.debug.failed", error=exc)
 
     # -- profiles -----------------------------------------------------------
     def _open_profile_dialog(self) -> None:
@@ -1380,6 +1493,13 @@ class Panel(ctk.CTk):
         # switch must not leave the previous profile's watcher listening on this one's
         # behalf. `_reload_triggers` does all three (and the one-time autohelp migrate).
         self._reload_triggers(quiet=True)
+        # The resource tally is per profile too: re-read this one's, drop the balance
+        # baseline (the other account's numbers are not this one's), and redraw.
+        self._resource_stats = resourcestatsmod.load_stats(
+            self._profiles.resource_stats_json())
+        self._resource_last = {}
+        if hasattr(self, "_stats_grid"):
+            self._refresh_stats_table()
 
     def _update_path_hints(self) -> None:
         """Refresh labels that show the active profile's log path (rally hint)."""
@@ -1406,20 +1526,24 @@ class Panel(ctk.CTk):
         timers_tab = CTkFrame(nb)
         settings_tab = CTkFrame(nb)
         chat_tab = CTkFrame(nb)
+        stats_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
         nb.add(settings_tab, text=self._t("tab.settings"))
         nb.add(chat_tab, text=self._t("tab.chat"))
+        nb.add(stats_tab, text=self._t("tab.stats"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(timers_tab, text=self._t("tab.timers")),
                                        nb.tab(settings_tab, text=self._t("tab.settings")),
-                                       nb.tab(chat_tab, text=self._t("tab.chat"))))
+                                       nb.tab(chat_tab, text=self._t("tab.chat")),
+                                       nb.tab(stats_tab, text=self._t("tab.stats"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
+        self._build_stats_tab(stats_tab)
 
         top = CTkFrame(main, padding=8)
         top.pack(fill="x")
@@ -5034,6 +5158,11 @@ class Panel(ctk.CTk):
         try:
             if not self._daemon_up() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
+            # The resource tracker is a Python handler, not a DSL scenario: on each
+            # balance-changed push it reads the balance and tallies what went up.
+            if getattr(timer, "name", "") == "resource_tracker":
+                self._track_resources()
+                return True
             # Rally auto-join is capped per monster type per day (panel/rally_limits.py).
             # Read the types out; if every one is at its cap, skip the whole join. `None`
             # = the types could not be read — let the join proceed, uncounted.
@@ -5150,6 +5279,117 @@ class Panel(ctk.CTk):
         for t in types:
             counts = counts.record(t)
         rallylimitsmod.save_counts(counts, path)
+
+    # -- resource tracker (panel/resource_stats.py) -------------------------
+    def _read_resource_balance(self) -> dict:
+        """The current resource balance off the game, in the tracker's keys.
+
+        The balance is a flat dict on the wire (`init.resource`: money / metal / wood /
+        petroleum / food …, docs/research/city-protocol.md); at runtime it is read
+        through the daemon from `DataCenter.ResourceManager`. BEST-EFFORT: the exact
+        getter is not confirmed live, so several plausible field/accessor shapes are
+        tried and a resource that cannot be read is left out (never guessed). Returns
+        ``{}`` when nothing readable — the caller then records no gain.
+        """
+        if not self._daemon_up():
+            return {}
+        # For each key, read the game field (gold=money, oil=petroleum) off a resource
+        # object, trying `:GetXxx()` / `.xxx` / an index. `RB k=v …` on one line.
+        chunk = (
+            'local R = DataCenter.ResourceManager or DataCenter.ResourceItemDataManager '
+            'local function bal(field) '
+            'if not R then return nil end '
+            'local ok, v = pcall(function() return R["Get"..field:sub(1,1):upper()..field:sub(2)](R) end) '
+            'if ok and type(v)=="number" then return v end '
+            'ok, v = pcall(function() return R[field] end) if ok and type(v)=="number" then return v end '
+            'ok, v = pcall(function() return R.resource[field] end) '
+            'if ok and type(v)=="number" then return v end return nil end '
+            'local out = {} '
+            'for _, p in ipairs({{"food","food"},{"wood","wood"},{"metal","metal"},'
+            '{"oil","petroleum"},{"gold","money"}}) do '
+            'local n = bal(p[2]) if n ~= nil then out[#out+1] = p[1].."="..tostring(math.floor(n)) end end '
+            'CS.UnityEngine.Debug.LogError("RB "..table.concat(out, " "))'
+        )
+        try:
+            ev = lua_client.get_evaluator(port=self._daemon_port())
+            lines = ev.run(chunk, marker="RB", settle=0.6)
+        except Exception:                        # noqa: BLE001 — a bad read is not a gain
+            return {}
+        out: dict = {}
+        for ln in lines or []:
+            if "RB " not in ln:
+                continue
+            for tok in ln.split("RB ", 1)[1].split():
+                if "=" in tok:
+                    key, _, val = tok.partition("=")
+                    try:
+                        out[key] = int(val)
+                    except ValueError:
+                        pass
+        return out
+
+    def _track_resources(self) -> None:
+        """One balance-changed push: read the balance and tally what went up.
+
+        The gain is `current - last` per resource (positive only): the push says a
+        balance moved, not by how much, so the tracker diffs. The first read of a
+        session is a baseline — no gain — because there is nothing to diff against.
+        """
+        current = self._read_resource_balance()
+        if not current:
+            return
+        gains = resourcestatsmod.positive_deltas(current, self._resource_last)
+        self._resource_last = current
+        if not gains:
+            return
+        self._resource_stats = self._resource_stats.add(gains)
+        resourcestatsmod.save_stats(self._resource_stats,
+                                    self._profiles.resource_stats_json())
+        self._say("trigger", "triggers.log.resource_gain",
+                  what=", ".join(f"{k} +{v}" for k, v in gains.items()))
+        if hasattr(self, "_stats_grid"):
+            self.after(0, self._refresh_stats_table)
+
+    # -- statistics tab: resources gained per day ---------------------------
+    def _build_stats_tab(self, parent) -> None:
+        """A table of resources gained per day (panel/resource_stats.py).
+
+        Filled by the «resource_tracker» trigger — one row per day, newest first, a
+        column per resource. Nothing here drives the game; it reads the profile's tally.
+        """
+        frame = self._tr(CTkLabelFrame(parent, padding=8), "stats.frame")
+        frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self._stats_grid = CTkFrame(frame)
+        self._stats_grid.pack(fill="x")
+        self._tr(CTkLabel(frame, foreground="#888", wraplength=620, justify="left"),
+                 "stats.hint").pack(anchor="w", pady=(8, 0))
+        self._refresh_stats_table()
+
+    def _refresh_stats_table(self) -> None:
+        """Redraw the per-day resource table from the profile's tally."""
+        grid = getattr(self, "_stats_grid", None)
+        if grid is None:
+            return
+        for child in grid.winfo_children():
+            child.destroy()
+        self._tr(CTkLabel(grid, foreground="#888"), "stats.col.date").grid(
+            row=0, column=0, sticky="w", padx=(0, 14), pady=(0, 4))
+        for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
+            self._tr(CTkLabel(grid, foreground="#888"), f"stats.res.{key}").grid(
+                row=0, column=col, sticky="e", padx=(0, 10), pady=(0, 4))
+        dates = self._resource_stats.dates()
+        if not dates:
+            self._tr(CTkLabel(grid, foreground="#888"), "stats.empty").grid(
+                row=1, column=0, columnspan=len(resourcestatsmod.RESOURCES) + 1,
+                sticky="w", pady=4)
+            return
+        for r, date in enumerate(dates, start=1):
+            CTkLabel(grid, text=date).grid(row=r, column=0, sticky="w",
+                                           padx=(0, 14), pady=1)
+            row = self._resource_stats.on(date)
+            for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
+                CTkLabel(grid, text=f"{row[key]:,}").grid(
+                    row=r, column=col, sticky="e", padx=(0, 10))
 
     def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.

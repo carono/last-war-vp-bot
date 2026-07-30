@@ -202,6 +202,20 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.rally_auto_join",
     ),
     Trigger(
+        name="resource_tracker",
+        # The game pushes «your balance changed» on every resource move
+        # (push.resource.item.update). On each one the panel reads the current balance
+        # and writes down what went UP since the last read — a daily tally of what was
+        # taken in (panel/resource_stats.py, the «Статистика» tab). Records, does not
+        # act; the work is a Python handler (`_track_resources`), not a DSL scenario,
+        # so `scenario` is a nominal placeholder the runner intercepts. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="push.resource.item.update",
+        scenario=("track_resources",),
+        enabled=False,
+        label_key="triggers.item.resource_tracker",
+    ),
+    Trigger(
         name="session_kick",
         # A login on another device kicks this session: the client stays alive behind
         # a modal that locks it, so nothing on screen changes on its own and no packet

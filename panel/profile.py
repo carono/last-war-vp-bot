@@ -55,6 +55,9 @@ TRIGGERS_CONFIG = "triggers.json"
 # (panel/rally_limits.py). Limits are seeded from the built-ins; counts reset daily.
 RALLY_LIMITS_CONFIG = "rally_limits.json"
 RALLY_COUNTS_STATE = "rally_counts.json"
+# Daily tally of resources gained (panel/resource_stats.py): {date: {resource: n}},
+# accumulated across days.
+RESOURCE_STATS_STATE = "resource_stats.json"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -225,6 +228,10 @@ class ProfileManager:
     def rally_counts_json(self, name: str | None = None) -> str:
         """Today's per-type rally-join count for this profile (resets daily)."""
         return os.path.join(self.dir(name), RALLY_COUNTS_STATE)
+
+    def resource_stats_json(self, name: str | None = None) -> str:
+        """This profile's day-keyed tally of resources gained (panel/resource_stats.py)."""
+        return os.path.join(self.dir(name), RESOURCE_STATS_STATE)
 
     def secret_log(self, name: str | None = None) -> str:
         return os.path.join(self.dir(name), SECRET_LOG)

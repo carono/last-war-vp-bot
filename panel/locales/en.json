@@ -220,6 +220,7 @@
   "menu.develop": "Develop",
   "menu.help": "Help",
   "menu.help.about": "About",
+  "menu.help.send_log": "Send log to developer",
   "menu.language": "Language",
   "menu.profile": "Profile",
 
@@ -328,6 +329,15 @@
   "secret.monitoring": "Monitoring",
   "secret.pending_only": "Pending only",
   "secret.stars_only": "Stars only",
+
+  "senddiag.cancel": "Cancel",
+  "senddiag.empty": "the debug log is empty yet",
+  "senddiag.open": "Open",
+  "senddiag.path": "Log archive:",
+  "senddiag.preview": "Preview — the tail of debug.log:",
+  "senddiag.send": "Send",
+  "senddiag.title": "Send diagnostics",
+  "senddiag.warning": "No personal information is sent. The log contains only technical data about how the panel runs.",
 
   "settings.placeholder": "Coming soon",
   "settings.tab.autorally": "Auto-rally",
@@ -447,5 +457,17 @@
   "triggers.log.rally_capped": "rally auto-join: every rally type is at its daily cap — nothing joined",
 
   "top.daemon": "daemon:",
-  "top.game": "Game:"
+  "top.game": "Game:",
+  "stats.col.date": "Date",
+  "stats.empty": "Nothing tracked yet — switch on «resource_tracker» in the Triggers list.",
+  "stats.frame": "Resources gained per day",
+  "stats.hint": "Filled by the «resource_tracker» trigger — switch it on in the Triggers list. Only increases are counted (what you took in); spends are ignored. A new day starts a new row; the history keeps.",
+  "stats.res.food": "Food",
+  "stats.res.gold": "Gold",
+  "stats.res.metal": "Metal",
+  "stats.res.oil": "Oil",
+  "stats.res.wood": "Wood",
+  "tab.stats": "Statistics",
+  "triggers.item.resource_tracker": "Track resources gained",
+  "triggers.log.resource_gain": "resources gained: {what}"
 }

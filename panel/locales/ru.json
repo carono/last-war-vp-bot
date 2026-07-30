@@ -220,6 +220,7 @@
   "menu.develop": "Разработка",
   "menu.help": "Справка",
   "menu.help.about": "О программе",
+  "menu.help.send_log": "Отправить лог разработчику",
   "menu.language": "Язык",
   "menu.profile": "Профиль",
 
@@ -328,6 +329,15 @@
   "secret.monitoring": "Мониторинг",
   "secret.pending_only": "Только пендинг",
   "secret.stars_only": "Только звёзды",
+
+  "senddiag.cancel": "Отмена",
+  "senddiag.empty": "debug-лог пока пуст",
+  "senddiag.open": "Открыть",
+  "senddiag.path": "Архив лога:",
+  "senddiag.preview": "Превью — хвост debug.log:",
+  "senddiag.send": "Отправить",
+  "senddiag.title": "Отправить диагностику",
+  "senddiag.warning": "Никакая личная информация не отправляется. Лог содержит только технические данные о работе панели.",
 
   "settings.placeholder": "Скоро",
   "settings.tab.autorally": "Авторалли",
@@ -447,5 +457,17 @@
   "triggers.log.rally_capped": "автоджойн ралли: все типы ралли достигли дневного лимита — ничего не присоединено",
 
   "top.daemon": "демон:",
-  "top.game": "Игра:"
+  "top.game": "Игра:",
+  "stats.col.date": "Дата",
+  "stats.empty": "Пока пусто — включи «resource_tracker» в списке Триггеров.",
+  "stats.frame": "Получено ресурсов по дням",
+  "stats.hint": "Наполняется триггером «resource_tracker» — включи его в списке Триггеров. Считается только прирост (что получено); траты игнорируются. Новый день — новая строка, история копится.",
+  "stats.res.food": "Еда",
+  "stats.res.gold": "Золото",
+  "stats.res.metal": "Металл",
+  "stats.res.oil": "Нефть",
+  "stats.res.wood": "Дерево",
+  "tab.stats": "Статистика",
+  "triggers.item.resource_tracker": "Учёт полученных ресурсов",
+  "triggers.log.resource_gain": "получено ресурсов: {what}"
 }

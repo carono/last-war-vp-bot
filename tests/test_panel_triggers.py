@@ -100,6 +100,14 @@ def test_errand_args_injects_live_join_squads():
     assert Panel._errand_args(stub, raj)["squads"] == [2, 3]
 
 
+def test_the_builtin_resource_tracker_trigger_ships():
+    rt = triggersmod.default_catalogue().by_name("resource_tracker")
+    assert rt is not None
+    assert not rt.is_poll and rt.kind == triggersmod.KIND_WIRE
+    assert rt.event_pattern == "push.resource.item.update"
+    assert not rt.enabled                       # opt-in — it records, it does not act
+
+
 def test_the_builtin_session_kick_trigger_is_a_poll():
     sk = triggersmod.default_catalogue().by_name("session_kick")
     assert sk is not None
