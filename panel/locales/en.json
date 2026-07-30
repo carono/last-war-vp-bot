@@ -507,6 +507,17 @@
   "inventory.count": "{n} items",
   "inventory.empty": "empty — press Refresh (needs the game running)",
 
+  "tab.heroes": "Heroes",
+  "heroes.col.icon": "",
+  "heroes.col.name": "Name",
+  "heroes.col.level": "Level",
+  "heroes.col.stars": "Stars",
+  "heroes.col.squad": "Squad",
+  "heroes.col.weapon": "Weapon",
+  "heroes.squad_none": "none",
+  "heroes.count": "{n} heroes",
+  "heroes.empty": "no heroes — press Refresh (needs the game running)",
+
   "tab.secret_tasks": "Secret Tasks",
   "triggers.item.secret_task_share": "Live-add shared secret tasks",
   "secrettasks.hint": "The raidable STARRED alliance secret tasks, read live from the game. Switch on «secret_task_share» in the Triggers list to have a mate's share appear here on its own.",

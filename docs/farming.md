@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 27 of 98
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 27 of 99
 
-🟩 27 done · 🟨 25 partly · 🟥 46 not automated
+🟩 27 done · 🟨 26 partly · 🟥 46 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -196,6 +196,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Heroes
 
+- 🟡 Seeing your heroes in the panel — a tab lists every hero with its picture, level, star count and which squad (1/2/3) it stands in, sorted the way the in-game hero screen is. It reads them straight from the game with no window opened, and lazily, only when the tab is first opened; the reading has not been checked against a real roster yet, and the weapon column is left blank for later
 - ❌ Free survivor and hero tickets
 - ❌ Levelling heroes, raising their rank, levelling skills
 

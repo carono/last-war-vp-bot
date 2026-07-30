@@ -507,6 +507,17 @@
   "inventory.count": "{n} предметов",
   "inventory.empty": "пусто — нажми «Обновить» (нужна запущенная игра)",
 
+  "tab.heroes": "Герои",
+  "heroes.col.icon": "",
+  "heroes.col.name": "Имя",
+  "heroes.col.level": "Уровень",
+  "heroes.col.stars": "Звёзды",
+  "heroes.col.squad": "Отряд",
+  "heroes.col.weapon": "Оружие",
+  "heroes.squad_none": "нет",
+  "heroes.count": "{n} героев",
+  "heroes.empty": "нет героев — нажми «Обновить» (нужна запущенная игра)",
+
   "tab.secret_tasks": "Секретки",
   "triggers.item.secret_task_share": "Добавлять расшаренные секретки в список",
   "secrettasks.hint": "Секретки альянса со звездой, которые можно ограбить прямо сейчас — читаются из игры вживую. Включи «secret_task_share» в списке триггеров, чтобы секретка, расшаренная соратником, появлялась здесь сама.",
