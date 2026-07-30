@@ -146,7 +146,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Collecting the basic resources — iron, food, gold
 - ✅ Collecting the extra resources — drone components, seasonal, ore and the rest. The base sweep covers every production line, not a fixed list
-- 🟡 Collecting the supply truck at the base — the mechanism works, but it has never been tried on a truck that was actually standing ready
+- 🟡 Collecting the resources from the truck parked at the base — one press takes the whole load at once, no window opens and there is no congratulation modal left to close; it does not need the base on screen. Not yet re-run in a live session
 - 🟡 Sending squads out to gather on the map — the march goes out correctly, but the bot does not choose where to send it
 
 ### Secret missions

@@ -2022,3 +2022,74 @@ def join_next_rally() -> str:
         '.." team="..tostring(r.team).." point="..tostring(r.point)'
         '.." server="..tostring(r.server).." warmed="..tostring(not warm))'
     )
+
+
+# --------------------------------------------------------------------------
+# The resource truck standing on the base ("Сбор ресурсов с грузовика")
+# --------------------------------------------------------------------------
+# Recording `20260730_130004_Сбор_ресурсов_с_грузовика` — the player tapped the
+# truck parked on the base, pressed "collect", then closed the congratulation
+# modal. The whole flow is ONE command sent three times with a different
+# `action`, and the trace (filter=SFS, dedup=false) spells it out:
+#
+#     SFSNetwork.SendMessage <- lw.pve.idle.reward, 0     -- tap: read what is banked
+#       -> SFSObject.PutInt(action, 0)
+#     SFSNetwork.SendMessage <- lw.pve.idle.reward, 1     -- "collect": take it
+#       -> push.resource.item.update                      -- the resources land
+#     SFSNetwork.SendMessage <- lw.pve.idle.reward, 0     -- modal closed: re-read
+#
+# So the payload is a single int (`{"action":N}` on the wire) and there is no
+# uuid, no world position and no bubble to hunt for — `action=1` *is* the
+# collect, headless, with nothing open. The captured reply to `action=1` carries
+# the whole banked pile in one go (`reward:[{type:1,…},{type:20,…},{type:31,…},
+# {type:27,…}]` plus the `dominator*` bonus lists and a fresh
+# `lastIdleRewardTimeStamp`), which is why this is a single press and not `xall`:
+# one claim empties the accumulator.
+#
+# Note this is NOT the `BuildBubbleType.TruckReward` bubble press behind the
+# older `collect_trucks` button. That one was derived from a *deduped* trace
+# (`20260728_171442`, `dedup=True`), so it never showed a wire command at all;
+# this recording is the first one that does, and the command it shows is the
+# base's idle-reward accumulator.
+#
+# There is no readiness gate here yet: the client-side counter that says how much
+# is banked is only known from the `action=0` reply, which a single Lua chunk
+# cannot read back. A claim on an empty accumulator therefore costs one refused
+# call (the server's own tip), the same shape as the hospital collect press.
+
+_TRUCK_REWARD_MSG = "lw.pve.idle.reward"
+
+
+def truck_reward_refresh() -> str:
+    """Ask the server what the base's resource truck is currently holding.
+
+    `lw.pve.idle.reward` with `action=0` — the read the client fires both when the
+    truck is tapped and again after the reward modal is closed. Sends nothing else
+    and changes nothing; it just makes the client's own numbers current.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "SFSNetwork.SendMessage('%s', 0) "
+        'CS.UnityEngine.Debug.LogError("ACT truck_reward_refresh sent") '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT truck_reward_refresh skip: "..tostring(err)) end'
+        % _TRUCK_REWARD_MSG
+    )
+
+
+def truck_reward_collect() -> str:
+    """Collect the resource truck parked on the base — the "collect" press itself.
+
+    `lw.pve.idle.reward` with `action=1`, exactly what the recorded press sent. One
+    call takes everything the accumulator holds (base resources plus the bonus
+    lists), so pressing it twice in a row has nothing left to take — do not loop it.
+    Nothing needs to be open: no window, no bubble, no camera position.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "SFSNetwork.SendMessage('%s', 1) "
+        'CS.UnityEngine.Debug.LogError("ACT truck_reward_collect sent") '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT truck_reward_collect skip: "..tostring(err)) end'
+        % _TRUCK_REWARD_MSG
+    )

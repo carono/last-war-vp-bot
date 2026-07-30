@@ -234,6 +234,19 @@ BUTTONS: dict[str, Button] = {
         ),
         wait=1.2, label="Collect ready trucks",
     ),
+    # --- base -> the resource truck's own "collect" press ----------------------
+    # «Сбор ресурсов с грузовика». Recording 20260730_130004 caught the wire: the
+    # tap, the collect and the modal-close are all one command with a different
+    # `action` int, so the press needs no window and no bubble lookup.
+    "truck_reward_refresh": Button(
+        lua=_lua_actions.truck_reward_refresh(),
+        wait=0.6, label="Read the truck's load",
+    ),
+    "collect_truck_reward": Button(
+        # One press takes the whole banked pile, so never `xall` this one.
+        lua=_lua_actions.truck_reward_collect(),
+        wait=1.0, label="Collect the resource truck",
+    ),
     # --- profession ("mastery") skills: fire the ones that need no target -----
     # «Навыки профессии» — the active skills of the profession the account picked.
     # Each is a once-a-day-ish charge (cooldown 1410-4290 min) that hands over
