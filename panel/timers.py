@@ -91,7 +91,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from . import debug_log
 from .profile import _write_json
+
+# Component debug logger (panel/debug_log.py) — the panel wires the rotating file
+# under it; here we only record the scheduler's key events.
+_dbg = debug_log.get_logger("timers")
 
 # How often the scheduler wakes up to look for a due timer. Well under the
 # shortest sensible period, so a timer fires within a few seconds of coming due,
@@ -657,9 +662,11 @@ class TimerScheduler:
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="panel-timers")
         self._thread.start()
+        _dbg.info("scheduler started")
 
     def stop(self) -> None:
         self._stop.set()
+        _dbg.info("scheduler stopped")
 
     @property
     def running(self) -> bool:
@@ -781,6 +788,7 @@ class TimerScheduler:
                 # A scheduler that dies takes every timer with it, silently —
                 # so nothing above is allowed to escape this loop.
                 self._log("timers.log.tick_error", error=exc)
+                _dbg.error("tick error", exc_info=True)
                 self._stop.wait(self._tick)
 
     def enqueue_due(self, now: float | None = None) -> list[str]:
@@ -887,19 +895,24 @@ class TimerScheduler:
         if scheduled:
             self._log("timers.log.fire", name=timer.name,
                       mins=self._minutes_since(timer.name))
+            _dbg.info("fire %s (scheduled)", timer.name)
         else:
             self._log("timers.log.manual", name=timer.name)
+            _dbg.info("fire %s (manual)", timer.name)
         try:
             started = self._runner(timer)
         except Exception as exc:                          # noqa: BLE001
             self._store.mark_failed(timer.name)
             self._log("timers.log.failed", name=timer.name, error=exc)
+            _dbg.error("run of %s failed", timer.name, exc_info=True)
             return False, False
         if not started:
             self._log("timers.log.skip_busy", name=timer.name)
+            _dbg.warning("skipped %s — panel busy", timer.name)
             return False, True
         self._store.mark_run(timer.name)
         self._log("timers.log.done", name=timer.name)
+        _dbg.info("done %s", timer.name)
         return True, False
 
     def _minutes_since(self, name: str) -> int:

@@ -5076,30 +5076,20 @@ class Panel(ctk.CTk):
         self._build_debug_log_settings(parent)
 
     def _build_debug_log_settings(self, parent: ttk.Frame) -> None:
-        """The technical debug log: rotation knobs, the send target, and «Отправить архив».
+        """The technical debug log: the send target and «Отправить диагностику».
 
-        The debug file is separate from panel.log — a developer diagnostic that keeps
-        every action, every traceback and a systems snapshot. Editing a knob re-points
-        the logger live (`_reconfigure_debug_log`); the send button zips it and hands
-        it to `debug_send_dest` (a stub until a transport is wired).
+        The debug file is separate from panel.log and the UI widget — a developer
+        diagnostic (panel/debug_log.py) that keeps every component's key events, every
+        traceback and a systems snapshot, rotated at a fixed 5 MiB × 3. The only knob
+        is where the zipped logs go; «Отправить диагностику» packs and hands them to
+        `debug_send_url` (empty = do not send; a stub until a transport is wired).
         """
         frame = self._tr(CTkLabelFrame(parent, padding=8), "debug.frame")
         frame.pack(fill="x", pady=(12, 0))
         frame.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("debug_log_level", {"width": 12}),
-                ("debug_log_max_kb", {"spin": (16, 1048576), "width": 10}),
-                ("debug_log_backups", {"spin": (0, 100), "width": 10}),
-                ("debug_send_dest", {"width": 34}),
-        )):
-            self._opt_row(frame, row, key, **kwargs)
+        self._opt_row(frame, 0, "debug_send_url", width=34)
         self._tr(CTkButton(frame, command=self._send_debug_archive),
-                 "debug.send").grid(row=4, column=1, columnspan=2, sticky="w", pady=(8, 0))
-        # A knob edit re-points the logger without a restart; the writes made while
-        # settings are being applied are ignored inside _reconfigure_debug_log.
-        for key in ("debug_log_level", "debug_log_max_kb", "debug_log_backups"):
-            self._opt_vars[key].trace_add(
-                "write", lambda *a: self._reconfigure_debug_log())
+                 "debug.send").grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
         """«Игра»: where the client is, whether to put it back, and the sweep box."""

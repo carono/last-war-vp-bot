@@ -43,7 +43,12 @@ import os
 import threading
 from dataclasses import dataclass, field
 
+from . import debug_log
 from .profile import _write_json
+
+# Component debug logger (panel/debug_log.py) — the panel wires the rotating file
+# under it; here we only record when a listener comes up, fires or dies.
+_dbg = debug_log.get_logger("triggers")
 
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 # The TEMPLATE, beside the panel (gitignored, seeded from DEFAULT_TRIGGERS on first
@@ -438,6 +443,7 @@ class TriggerWatcher:
     def start(self) -> None:
         """Begin watching: bring up a listener for every enabled trigger."""
         self._started = True
+        _dbg.info("watcher started")
         self.sync()
 
     def stop(self) -> None:
@@ -445,6 +451,7 @@ class TriggerWatcher:
         self._started = False
         for name in list(self._listeners):
             self._stop_one(name)
+        _dbg.info("watcher stopped")
 
     @property
     def running(self) -> bool:
@@ -477,6 +484,7 @@ class TriggerWatcher:
             with self._lock:
                 self._listeners[trigger.name] = handle
             self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
+            _dbg.info("listening on %s (poll) for %s", trigger.name, trigger.signal())
             handle.start()
             # No arm-sweep: the poll's own first iteration reads the current state, so
             # a kick already on screen is caught at once — submitting here would run
@@ -488,6 +496,7 @@ class TriggerWatcher:
         with self._lock:
             self._listeners[trigger.name] = handle
         self._log("triggers.log.on", name=trigger.name, event=trigger.signal())
+        _dbg.info("listening on %s for %s", trigger.name, trigger.signal())
         # An initial sweep: a request already waiting when the ear opens had its push
         # sent before we started listening, so no trigger is coming for it. Run the
         # errand once to clear whatever is already there. Safe because the scenario is
@@ -505,6 +514,7 @@ class TriggerWatcher:
         except Exception:                # noqa: BLE001 — already gone is fine
             pass
         self._log("triggers.log.off", name=name)
+        _dbg.info("stopped listening on %s", name)
 
     def _fire(self, trigger) -> None:
         """The trigger's moment came — put the scenario on the shared queue.
@@ -515,10 +525,12 @@ class TriggerWatcher:
         a flurry of pushes — or a modal seen twice — costs one press.
         """
         self._log("triggers.log.fire", name=trigger.name, event=trigger.signal())
+        _dbg.info("fire %s on %s", trigger.name, trigger.signal())
         self._submit(trigger)
 
     def on_listener_exit(self, name: str) -> None:
         """A listener died on its own — forget the handle so :meth:`sync` respawns."""
+        _dbg.warning("listener %s exited on its own", name)
         with self._lock:
             self._listeners.pop(name, None)
 
