@@ -178,6 +178,20 @@ LOG_SEVERITY_WORDS: tuple[tuple[str, tuple], ...] = (
                 "ok", "ready", "READY", "done", "saved", "running", "on")),
 )
 
+# -- liveness ---------------------------------------------------------------
+# How often the status row re-reads the game and the daemon. A process-list scan
+# costs a few milliseconds off the Tk thread, so looking often is free — and
+# without it the panel sat for an hour showing "running (pid …)" over a client
+# that had crashed, every timer tick failing into the retry hold.
+STATUS_POLL_MS = 8000
+# How long the game must read as gone before the watchdog relaunches it. Two
+# polls, so a single scan that raced the process table (or a client restarting
+# itself after the first login — it does that once) is not a crash.
+WATCHDOG_STRIKES = 2
+# Least time between two watchdog relaunches. A client that dies on startup would
+# otherwise be relaunched every eight seconds forever.
+WATCHDOG_COOLDOWN_SEC = 300.0
+
 # -- the account dashboard --------------------------------------------------
 # How often the strip is re-read. One game-VM call for all of it (panel/dashboard.py
 # builds the single chunk), so the cost is a round trip; half a minute is well
@@ -479,6 +493,9 @@ class Panel(tk.Tk):
         self._sweep_stop = None       # threading.Event of the sweep loop, when running
         self._sweep_at = 0            # index into the current pass's waypoints
         self._sweep_pass = 0          # completed passes this session (for the log)
+        self._game_gone = 0
+        self._game_was_up = False
+        self._watchdog_last = 0.0
         self._sniff_proc = None       # Develop: traffic sniffer
         self._trace_proc = None       # Develop: Lua-function tracer
         self._sniff_ready = {}        # per-half readiness: None pending / True / False
@@ -550,6 +567,7 @@ class Panel(tk.Tk):
         self._pump_log()
         self._open_panel_log()
         self._refresh_status()
+        self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
         threading.Thread(target=self._startup, daemon=True).start()
 
     # -- the Settings page's knobs ------------------------------------------
@@ -1035,6 +1053,10 @@ class Panel(tk.Tk):
         self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
         self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
+        # Restarting the daemon used to mean killing it from outside the panel: a
+        # wedged lua_daemon left every button dead with no way back in the UI.
+        self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
+                 "daemon.restart").pack(side="left", padx=(2, 0))
         ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
         # -- the account dashboard: every daily budget on one strip -------------
         self._build_dashboard(main)
@@ -1048,6 +1070,12 @@ class Panel(tk.Tk):
                  "game.restart").pack(side="left", padx=4, ipady=3)
         self._tr(ttk.Label(game, foreground="#888"),
                  "game.launcher_hint").pack(side="left", padx=10)
+        # The watchdog: the client is crash-prone (that is why launch_game exists),
+        # and until now a crash was silent — the panel kept saying "running (pid …)"
+        # while every timer tick failed into the retry hold. The same variable the
+        # Settings → «Игра» tab shows, so the two switches are one switch.
+        self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
+                 "game.watchdog").pack(side="right")
 
         nav = self._tr(ttk.LabelFrame(main, padding=8), "nav.frame")
         nav.pack(fill="x", padx=8, pady=(0, 6))
@@ -1651,12 +1679,46 @@ class Panel(tk.Tk):
         self.after(0, lambda: self._set_daemon(self._t("daemon.none"), False))
         return False
 
+    def _restart_daemon(self) -> None:
+        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back.
+
+        There was no way out of a wedged `lua_daemon` from inside the panel — every
+        button was dead and the only route was killing the process from a shell. The
+        shutdown is asked for politely (the daemon answers the op and exits); a
+        daemon too wedged to answer that is reported and the start below still runs,
+        because a fresh one binding the port is the outcome either way.
+        """
+        def work() -> None:
+            self._say("daemon", "log.daemon.restarting")
+            self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
+            try:
+                self._client.shutdown()
+            except Exception as exc:      # noqa: BLE001
+                self._say("daemon", "log.daemon.shutdown_failed", error=exc)
+            # Give the port time to come free before the new one tries to bind it.
+            for _ in range(20):
+                if not self._daemon_up():
+                    break
+                time.sleep(0.25)
+            self._client = lua_client.DaemonClient(port=self._daemon_port())
+            self._ensure_daemon()
+        threading.Thread(target=work, daemon=True).start()
+
     def _set_daemon(self, text: str, ok) -> None:
         color = "#3c3" if ok else ("#888" if ok is None else "#c33")
         self._daemon_var.set(text)
         self._daemon_lbl.configure(foreground=color)
 
-    # -- status -------------------------------------------------------------
+    # -- status: read on a clock, not only when something asks ---------------
+    #
+    # `_refresh_status` used to run at start-up, after an action and on ↻ — and
+    # nowhere else. The game is crash-prone, so the panel could sit for an hour
+    # showing "running (pid …)" over a dead client while every timer tick failed
+    # into the retry hold. A poll is a process-list scan off the Tk thread: free.
+    def _poll_status(self) -> None:
+        self._refresh_status()
+        self.after(STATUS_POLL_MS, self._poll_status)
+
     def _refresh_status(self) -> None:
         def work() -> None:
             ok, s = game_status()
@@ -1664,8 +1726,45 @@ class Panel(tk.Tk):
             self.after(0, lambda: (
                 self._status_var.set(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
-                self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm)))
+                self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
+                self._watchdog_check(ok)))
         threading.Thread(target=work, daemon=True).start()
+
+    def _watchdog_check(self, running: bool) -> None:
+        """Notice the client dying, and put it back if asked to.
+
+        Runs on the Tk thread off every status poll. Two things make it safe to
+        leave on overnight:
+
+          * WATCHDOG_STRIKES consecutive dead readings, not one. A single scan can
+            race the process table, and the client legitimately restarts itself once
+            after the first login — relaunching *that* would fight the game.
+          * a cooldown between relaunches. A client that dies during start-up would
+            otherwise be relaunched every eight seconds until morning.
+
+        A crash is announced whether or not the watchdog is on: knowing the client
+        went away is worth a log line even when putting it back is the person's job.
+        """
+        if running:
+            if self._game_gone >= WATCHDOG_STRIKES:
+                self._say("game", "log.game.back")
+            self._game_gone = 0
+            self._game_was_up = True
+            return
+        self._game_gone += 1
+        if self._game_gone != WATCHDOG_STRIKES:
+            return                        # counting, or already reported
+        if self._game_was_up:
+            self._say("game", "log.game.gone")
+        if not self._opt_bool("watchdog"):
+            return
+        since = time.time() - self._watchdog_last
+        if since < WATCHDOG_COOLDOWN_SEC:
+            self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
+            return
+        self._watchdog_last = time.time()
+        self._say("game", "log.game.watchdog_relaunch")
+        self._run_md_action("launch_game")
 
     def _load_current_server(self) -> None:
         def work() -> None:
