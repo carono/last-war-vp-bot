@@ -66,6 +66,12 @@ def test_ghost_decode_real_capture():
     # Family comes off cfgId; 4/5/6 all present.
     assert {m.family for m in missions} == {"4", "5", "6"}
 
+    # Level is the player-facing one — the cfgId's middle digits + 2 (task
+    # #1137), NOT the raw "03" that used to read as 3. Every capture cfgId is
+    # `..03..`, so the game shows ур.5 for all of them.
+    assert {m.level for m in missions} == {5}
+    assert 3 not in {m.level for m in missions}
+
 
 def test_ghost_filters():
     frame = _ghost_frame()
@@ -98,11 +104,40 @@ def test_ghost_alliance_command_routes_same():
 
 def test_ghost_roundtrip_and_from_dict():
     m = proto.GhostReconMission(
-        uuid=7, cfg_id=60306, family="6", level=3, state=3, target_server=991,
+        uuid=7, cfg_id=60306, family="6", level=5, state=3, target_server=991,
         owner_id="o", owner_server=935, alliance_id="a", alliance_show=True,
         point_id=989166, x=166, y=989, member_count=5, steal_count=2,
         team_start_time=1, completion_time=2, expire_time=3)
     assert proto.GhostReconMission.from_dict(m.as_dict()) == m
+
+
+def test_ghost_level_is_the_middle_digits_plus_two():
+    """The player's level is the cfgId's middle digits + 2, not the raw digits.
+
+    A ghost cfgId is `F` + `MM` + `VV`; split_cfg_id read `MM` straight and
+    reported 1/2/3 (task #1137). The game's ActGhostreconTaskTemplate.level is
+    `MM + 2` — `01`→ур.3, `02`→ур.4, `03`→ур.5 — the same for every rarity
+    family, read off the live template for every real ghost cfgId.
+    """
+    for cfg, fam, lvl in [(40101, "4", 3), (40201, "4", 4), (40301, "4", 5),
+                          (50201, "5", 4), (50303, "5", 5), (60301, "6", 5),
+                          (60310, "6", 5)]:
+        assert proto.ghost_recon_level(cfg) == (fam, lvl)
+    # The family is the rarity axis, not the level: same MM, different family,
+    # same level.
+    assert (proto.ghost_recon_level(40201)[1] == proto.ghost_recon_level(60201)[1]
+            == 4)
+    # A cfgId that does not split degrades to None rather than a wrong number.
+    assert proto.ghost_recon_level("nope") == (None, None)
+
+    # Both live parse paths carry the corrected level through.
+    tile = {"serverPointArr": [{"maxAreaSize": 1000, "points": [
+        _ghost_tile(1, completion=2, start=1, expire=9, cfg=50307)]}]}
+    assert list(proto.ghost_recon_tiles(tile))[0].level == 5   # MM=03 -> ур.5
+    poll = {"taskList": [
+        {"uuid": 1, "cfgId": 40208, "state": 3, "pointId": 1, "targetServer": 1}]}
+    got = list(proto.ghost_recon_missions("ghost.recon.get.task.list", poll))
+    assert got[0].level == 4                                    # MM=02 -> ур.4
 
 
 def _ghost_tile(uuid, *, completion, start, expire, state=3, cfg=40301,

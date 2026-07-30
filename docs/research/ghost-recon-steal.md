@@ -81,6 +81,36 @@ Templates: `ActGhostreconTaskTemplate` gives `stealMaxtimes` (3 on cfg 60302),
 `protectTime`, `level`, `times`; `ActGhostreconSettingTemplate` gives
 `stealCount` (5/day), `teamworkCount`, `maxTaskQueue`.
 
+### 3a. The cfgId — family is rarity, `MM + 2` is the level (#1137)
+
+A ghost cfgId is five digits, `F` + `MM` + `VV`:
+
+* `F` — the rarity family, 4/5/6 (the UI colours SSR / UR / UR★). "6" is the top
+  tier, the star (`GHOST_STAR_FAMILY`). It does **not** set the level.
+* `MM` — two digits, 01/02/03, that carry the level.
+* `VV` — a variant (mission subtype); 6 variants exist for `MM=01`, 9 for `02`,
+  12 for `03`.
+
+The player-facing level ("ур.5") is **`MM + 2`**, the same for every family:
+
+| `MM` | game level | seen on the map |
+|---|---|---|
+| 01 | ур.3 | rare — below the edge tiers |
+| 02 | ур.4 | yes |
+| 03 | ур.5 | yes (the common edge tier) |
+
+This was read straight off the live template — `ActGhostreconManager:GetTaskTemplate(cfgId).level`
+returns exactly `MM + 2` for every real cfgId (a real one has `template.id ==
+cfgId`; an unknown cfgId returns a level-1 fallback with `id = 0`), identical
+across families 4/5/6. Only `MM` 01..03 has a real template today, so levels run
+3..5; a higher `MM` would extend the same `+2` line but none has appeared.
+
+The bug this fixes (#1137): the generic `split_cfg_id` (built for a secret task's
+`family` + `LLVV` cfgId) reads `MM` straight as the level and reported 1/2/3 — so
+an ур.5 mission showed as "lvl3". `lastwar_proto.ghost_recon_level` applies the
+`+2` mapping instead (`GHOST_LEVEL_OFFSET`), correcting both the poll and the
+`f2 = 29` map-tile decode paths.
+
 ## 4. The gate — ask the game, but route around its own crash
 
 `ActGhostreconManager:GetPointStealType(cfgId, completionTime, stealList)` is the
@@ -158,6 +188,7 @@ feature therefore stays 🟡 in `docs/farming.md` until it is run on an event da
 what to do then is: `--list` to see the squads, `--all` to queue what the client
 calls robbable, then the recipe (or `--all` without `--queue-only`).
 
-Also open: which `cfgId` families are worth robbing (the capture shows `60302`,
-level 5, `stealMaxtimes` 3), and whether `leave.message` needs the window open —
-it is built from the reply's `recordUuid` and has never been sent from here.
+Also open: which `cfgId` families are worth robbing (the capture shows `60302` —
+family "6", the star, ур.5 by the `MM + 2` rule in §3a, `stealMaxtimes` 3), and
+whether `leave.message` needs the window open — it is built from the reply's
+`recordUuid` and has never been sent from here.

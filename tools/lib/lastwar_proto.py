@@ -956,12 +956,13 @@ def filter_share_missions(missions, level=None, star_only=False,
 # | `stealList[]` | who already looted it — `{uid, name, abbr, reward[], time}` |
 # | `teamStartTime` / `completionTime` / `taskExpireTime` / `actEndTime` | epoch-ms timers |
 #
-# `cfgId` reads like a task's (`split_cfg_id`): family "4"/"5"/"6" — the rarity
-# tier the UI colours (SSR / UR★ / …) — then two more pairs. But the UI level
-# ("ур.5") did **not** match the cfgId's digits (they read "03") on the one
-# capture, exactly the cfgId-vs-UI disagreement noted for the level-99 task
-# class; so `level` here is the wire's number, not necessarily the player's, and
-# the rarity→family mapping is unconfirmed. Raw `cfg_id` is always kept.
+# `cfgId` is five digits `F` + `MM` + `VV`: a single-digit rarity family "4"/"5"/"6"
+# (the UI colours SSR / UR★ / …), the two `MM` digits, then a variant. The generic
+# `split_cfg_id` reads `MM` straight as the level and reports 1/2/3, but the game's
+# level ("ур.5") is `MM + 2` — the "lvl3 for an ур.5 mission" bug, task #1137.
+# `ghost_recon_level` applies the corrected mapping (see `GHOST_LEVEL_OFFSET`,
+# read off the live `ActGhostreconTaskTemplate`). The rarity family is a separate
+# axis from the level (family "6" is the star, not level 6). Raw `cfg_id` is kept.
 GHOST_RECON_COMMANDS = (
     "ghost.recon.get.task.list",
     "ghost.recon.get.alliance.task.list",
@@ -977,6 +978,34 @@ GHOST_STATE_DONE = 3      # completed — lootable, and helpers can claim reward
 # (STAR_TASK_FAMILIES). cfgId families run 4/5/6 (see split_cfg_id); "6" is the
 # rarest, the one worth calling out with a star — same idea, different digits.
 GHOST_STAR_FAMILY = "6"
+
+# A ghost cfgId is `F` + `MM` + `VV`: rarity family (4/5/6), the two `MM` digits,
+# then a variant. `split_cfg_id` reads `MM` straight as the level and so reports
+# 1/2/3 — but the game's `ActGhostreconTaskTemplate.level` is exactly `MM + 2`:
+# `01`→ур.3, `02`→ур.4, `03`→ур.5, the same for every family. This was read off
+# the live template for every real ghost cfgId (task #1137): only `MM` in 01..03
+# has a template, family never changes the level, and each shifts the wire number
+# up by two. The rarity family is a separate axis (the star, GHOST_STAR_FAMILY),
+# not the level. Only these three tiers exist today; a higher `MM` would extend
+# the same `+2` line but none has been seen, so it stays a documented assumption.
+GHOST_LEVEL_OFFSET = 2
+
+
+def ghost_recon_level(cfg_id) -> tuple[str | None, int | None]:
+    """`(family, level)` for a ghost-recon cfgId — the *player-facing* level.
+
+    `level` is the game's ("ур.5"), not the wire's raw `MM` digits: those read
+    1/2/3 where the UI shows 3/4/5, the "lvl3 for an ур.5 mission" bug fixed in
+    task #1137. See `GHOST_LEVEL_OFFSET` for the `MM + 2` mapping and how it was
+    read off the live template. `family` is the rarity string `split_cfg_id`
+    returns, kept as-is so `GHOST_STAR_FAMILY`/`filter_ghost_recon` keep working;
+    a cfgId that does not split degrades to `(None, None)`.
+    """
+    try:
+        family, mid_level, _variant = split_cfg_id(cfg_id)
+    except (ValueError, TypeError):
+        return None, None
+    return family, mid_level + GHOST_LEVEL_OFFSET
 
 
 @dataclass(slots=True)
@@ -1104,10 +1133,7 @@ def _ghost_task_from_dict(task: dict) -> GhostReconMission | None:
     cfg = task.get("cfgId")
     family = level = None
     if cfg is not None:
-        try:
-            family, level, _variant = split_cfg_id(cfg)
-        except (ValueError, TypeError):
-            family = level = None
+        family, level = ghost_recon_level(cfg)
     point = task.get("pointId") or 0
     x = point % 1000 if point else None
     y = point // 1000 if point else None
@@ -1244,10 +1270,7 @@ def ghost_recon_tiles(payload: dict):
             cfg = detail.get("f2")
             family = level = None
             if cfg is not None:
-                try:
-                    family, level, _variant = split_cfg_id(cfg)
-                except (ValueError, TypeError):
-                    family = level = None
+                family, level = ghost_recon_level(cfg)
             # `f5` is the squad: a list of members, or a bare dict when the
             # dispatch has only its leader so far.
             members = detail.get("f5")

@@ -42,7 +42,7 @@ the different id it attacks.
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --joinable  only ally-help ones
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --family 6  only that rarity tier
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --star      only top-tier (family 6)
-    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --level 3,5 only those levels (from cfgId)
+    /mnt/c/Python312/python.exe tools/secret_mission_capture.py --level 4,5 only those levels (from cfgId)
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --server 991,992
                                                                            only missions vs 991 or 992
     /mnt/c/Python312/python.exe tools/secret_mission_capture.py --dump traffic.jsonl  record every
@@ -271,7 +271,7 @@ def main() -> int:
                          "(default 15; lower it for tests)")
     ap.add_argument("--level", type=level_set, metavar="N[,N...]",
                     help="only missions of this level (from cfgId); a "
-                         "comma-separated list matches any (--level 3,5)")
+                         "comma-separated list matches any (--level 4,5)")
     ap.add_argument("--family", type=_str_set, metavar="F[,F...]",
                     help="only missions of this cfgId family / rarity tier "
                          "(4/5/6; a list matches any)")
