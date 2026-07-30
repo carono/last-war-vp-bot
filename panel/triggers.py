@@ -216,6 +216,19 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.resource_tracker",
     ),
     Trigger(
+        name="inventory_refresh",
+        # The same «balance changed» push (push.resource.item.update) fires after a
+        # resource OR item count moves in the bag. While this is on, each push re-reads
+        # the bag and refreshes the «Инвентарь» tab, so its counts stay live without a
+        # manual «Обновить». Python handler (`_refresh_inventory_tab`), not a DSL
+        # scenario; the runner intercepts the placeholder. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="push.resource.item.update",
+        scenario=("__inventory_refresh__",),
+        enabled=False,
+        label_key="triggers.item.inventory_refresh",
+    ),
+    Trigger(
         name="leaderboard_collect",
         # A ranking board crosses the wire when the client opens it (al.rank,
         # champion.duel.result.show.rank.list, activity.get.rank.reward — no unsolicited
