@@ -41,6 +41,12 @@ if _TOOLS_LIB not in sys.path:
     sys.path.insert(0, _TOOLS_LIB)
 import lua_actions      # noqa: E402
 
+from . import debug_log
+
+# Component debug logger (panel/debug_log.py). The panel wires the rotating file
+# under it; here we only note how many readings each poll resolved.
+_dbg = debug_log.get_logger("dashboard")
+
 # The marker the chunk logs its answer under (see tools/lib/lua_eval.py — the
 # evaluator returns the Player.log lines containing it).
 MARKER = "DASH"
@@ -133,12 +139,14 @@ def parse(lines) -> dict:
         if sep:
             payload = tail
     if payload is None:
+        _dbg.debug("no answer line (marker %r) in the poll output", MARKER)
         return out
     for token in payload.split():
         key, sep, raw = token.partition("=")
         if not sep or key not in out:
             continue
         out[key] = _number(raw)
+    _dbg.debug("read %d/%d readings", sum(v is not None for v in out.values()), len(out))
     return out
 
 

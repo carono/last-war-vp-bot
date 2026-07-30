@@ -1648,6 +1648,7 @@ class Panel(ctk.CTk):
         if self._dash_stop is not None:
             return
         self._dash_stop = threading.Event()
+        dbgmod.get_logger("dashboard").info("poller started")
         threading.Thread(target=self._dash_loop, args=(self._dash_stop,),
                          daemon=True).start()
 
@@ -1655,6 +1656,7 @@ class Panel(ctk.CTk):
         stop, self._dash_stop = self._dash_stop, None
         if stop is not None:
             stop.set()
+            dbgmod.get_logger("dashboard").info("poller stopped")
 
     def _dash_loop(self, stop: threading.Event) -> None:
         """Re-read the strip until the panel closes.
@@ -1672,6 +1674,8 @@ class Panel(ctk.CTk):
                 if err != self._dash_err:
                     self._dash_err = err
                     self._say("dash", "log.dash.unreadable", error=err)
+                    dbgmod.get_logger("dashboard").warning(
+                        "readings unreadable", exc_info=True)
             if stop.wait(DASH_POLL_SEC):
                 return
 
@@ -2142,10 +2146,14 @@ class Panel(ctk.CTk):
         self._start_dashboard()
 
     def _ensure_daemon(self) -> bool:
+        dbg = dbgmod.get_logger("daemon")
+        port = self._daemon_port()
         if self._daemon_up():
+            dbg.info("already warm on port %s", port)
             self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
             return True
         self._say("daemon", "log.daemon.starting")
+        dbg.info("starting on port %s", port)
         self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
         try:
             subprocess.Popen(
@@ -2155,15 +2163,18 @@ class Panel(ctk.CTk):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
         except Exception as exc:
             self._say("daemon", "log.daemon.launch_failed", error=exc)
+            dbg.error("launch failed", exc_info=True)
             self.after(0, lambda: self._set_daemon(self._t("daemon.error"), False))
             return False
         for _ in range(60):
             if self._daemon_up():
                 self._say("daemon", "log.daemon.ready")
+                dbg.info("ready on port %s", port)
                 self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
                 return True
             time.sleep(0.5)
         self._say("daemon", "log.daemon.timeout")
+        dbg.warning("did not come up on port %s within timeout", port)
         self.after(0, lambda: self._set_daemon(self._t("daemon.none"), False))
         return False
 

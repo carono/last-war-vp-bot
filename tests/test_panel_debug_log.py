@@ -1,17 +1,19 @@
-r"""The panel's technical debug log (panel/debug_log.py) — rotation, archive, send.
+r"""The panel's technical debug log (panel/debug_log.py + panel/debug_sender.py).
 
-This half of the feature is deliberately Tk-free: a rotating file logger plus the
-zip-and-hand-off helpers, so it can be pinned down without a display. What is worth
+Both halves are deliberately Tk-free — a rotating file logger keyed by component,
+plus the zip-and-hand-off sender — so they pin down without a display. What is worth
 holding still:
 
-  * setup() is idempotent — a second call (a profile switch) re-points the file and
-    never stacks two handlers writing at once;
-  * rotation actually caps the file — a tiny maxBytes rolls the log over into the
+  * get_logger(component) tags every line with its component, and configure() wires
+    ONE rotating file under all of them — a second configure() (a profile switch)
+    re-points the file and never stacks two handlers;
+  * the format is the specified `[ts.mmm] [LEVEL] [component] message`;
+  * rotation actually caps the file — a tiny maxBytes rolls it over into the
     numbered backups instead of growing one file forever;
-  * make_archive() bundles the live log AND its backups, and is truthful (an empty
-    zip) when nothing has been logged yet;
-  * send_archive() always writes the archive and reports the destination is a stub
-    until a transport is wired — and says "no destination" when the field is blank.
+  * make_archive() bundles the newest few files and is truthful (an empty zip) when
+    nothing has been logged yet;
+  * send() writes the archive regardless and reports "disabled" for an empty URL,
+    "stub" until a transport is wired.
 
 Runs anywhere (no tkinter, no game):
 
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import tempfile
 import zipfile
@@ -31,12 +34,13 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from panel import debug_log as dbg
+from panel import debug_sender as sender
 
 
 def _reset() -> None:
-    """A clean logger between tests — no handlers left from a prior one."""
+    """A clean root logger between tests — no handlers left from a prior one."""
     dbg.shutdown()
-    lg = dbg.get_logger()
+    lg = logging.getLogger(dbg.ROOT_NAME)
     for h in list(lg.handlers):
         lg.removeHandler(h)
         try:
@@ -54,19 +58,34 @@ def test_level_of() -> None:
     assert dbg.level_of(None) == logging.DEBUG
 
 
-def test_setup_is_idempotent() -> None:
+def test_configure_is_idempotent_and_creates_the_dir() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "sub", "debug.log")   # dir does not exist yet
-        dbg.setup(path, max_kb=64, backups=2, level="INFO")
-        dbg.setup(path, max_kb=64, backups=2, level="INFO")   # second call
-        lg = dbg.get_logger()
-        ours = [h for h in lg.handlers if getattr(h, "_panel_debug", False)]
+        dbg.configure(path, level="INFO")
+        dbg.configure(path, level="INFO")              # second call (profile switch)
+        root = logging.getLogger(dbg.ROOT_NAME)
+        ours = [h for h in root.handlers if getattr(h, "_panel_debug", False)]
         assert len(ours) == 1, f"expected one handler, got {len(ours)}"
-        assert lg.level == logging.INFO
-        lg.info("hello")
-        assert os.path.exists(path), "setup must create the file's directory"
-        assert "hello" in Path(path).read_text(encoding="utf-8")
+        assert root.level == logging.INFO
+        assert os.path.isdir(os.path.dirname(path)), "configure must create the dir"
+    _reset()
+
+
+def test_component_and_format() -> None:
+    _reset()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "debug.log")
+        dbg.configure(path, level="DEBUG")
+        dbg.get_logger("timers").info("fired %s", "collect_base")
+        dbg.get_logger().warning("panel-level line")     # component defaults to "panel"
+        for h in logging.getLogger(dbg.ROOT_NAME).handlers:
+            h.flush()
+        text = Path(path).read_text(encoding="utf-8")
+        # [2026-07-30 16:23:11.123] [INFO] [timers] fired collect_base
+        assert re.search(r"^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\] \[INFO\] \[timers\] "
+                         r"fired collect_base$", text, re.M), text
+        assert "[WARNING] [panel] panel-level line" in text
     _reset()
 
 
@@ -74,38 +93,37 @@ def test_rotation_caps_the_file() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "debug.log")
-        # 1 KB per file, 3 backups: writing well past that must roll over rather
-        # than grow one unbounded file.
-        dbg.setup(path, max_kb=1, backups=3, level="DEBUG")
-        lg = dbg.get_logger()
+        # 1 KB per file, 3 backups: writing well past that must roll over.
+        dbg.configure(path, max_bytes=1024, backups=3, level="DEBUG")
+        log = dbg.get_logger("timers")
         for i in range(500):
-            lg.info("line %04d — some padding to fill the file quickly", i)
-        for h in lg.handlers:
+            log.info("line %04d — some padding to fill the file quickly", i)
+        for h in logging.getLogger(dbg.ROOT_NAME).handlers:
             h.flush()
         files = dbg.log_files(path)
         assert len(files) >= 2, "rotation should have produced at least one backup"
         assert len(files) <= 4, "backupCount=3 caps it at the log + three backups"
         for f in files:
-            assert os.path.getsize(f) <= 4096, f"{f} blew past the rotation cap"
+            assert os.path.getsize(f) <= 2048, f"{f} blew past the rotation cap"
     _reset()
 
 
-def test_make_archive_bundles_log_and_backups() -> None:
+def test_make_archive_bundles_newest_files() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "debug.log")
-        dbg.setup(path, max_kb=1, backups=3, level="DEBUG")
-        lg = dbg.get_logger()
+        dbg.configure(path, max_bytes=1024, backups=5, level="DEBUG")
+        log = dbg.get_logger("timers")
         for i in range(500):
-            lg.info("line %04d filler filler filler", i)
-        for h in lg.handlers:
+            log.info("line %04d filler filler filler", i)
+        for h in logging.getLogger(dbg.ROOT_NAME).handlers:
             h.flush()
-        want = {os.path.basename(f) for f in dbg.log_files(path)}
-        archive = dbg.make_archive(path=path)
-        assert archive.endswith(".zip")
+        want = {os.path.basename(f) for f in dbg.log_files(path)[:sender.DEFAULT_KEEP]}
+        archive = sender.make_archive(path=path)
         with zipfile.ZipFile(archive) as z:
             names = set(z.namelist())
-        assert names == want, f"archive {names} != on-disk {want}"
+        assert names == want, f"archive {names} != newest {want}"
+        assert len(names) <= sender.DEFAULT_KEEP
     _reset()
 
 
@@ -113,35 +131,35 @@ def test_make_archive_when_empty_is_a_truthful_empty_zip() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "never-written.log")   # nothing logged
-        archive = dbg.make_archive(path=path)
+        archive = sender.make_archive(path=path)
         assert os.path.exists(archive)
         with zipfile.ZipFile(archive) as z:
             assert z.namelist() == []
     _reset()
 
 
-def test_send_archive_no_destination() -> None:
+def test_send_disabled_when_url_blank() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "debug.log")
-        dbg.setup(path, max_kb=64, backups=1, level="INFO")
-        dbg.get_logger().info("something")
-        status, archive, _detail = dbg.send_archive("", path=path)
-        assert status == "no_dest"
+        dbg.configure(path, level="INFO")
+        dbg.get_logger("panel").info("something")
+        status, archive, _detail = sender.send("", path=path)
+        assert status == "disabled"
         assert os.path.exists(archive), "the zip is written even with nowhere to send it"
     _reset()
 
 
-def test_send_archive_stub_when_destination_set() -> None:
+def test_send_stub_when_url_set() -> None:
     _reset()
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "debug.log")
-        dbg.setup(path, max_kb=64, backups=1, level="INFO")
-        dbg.get_logger().info("something")
-        status, archive, detail = dbg.send_archive("s3://bucket/logs", path=path)
+        dbg.configure(path, level="INFO")
+        dbg.get_logger("panel").info("something")
+        status, archive, detail = sender.send("https://logs.example/upload", path=path)
         assert status == "stub", "no transport is wired yet — it must report the stub"
         assert os.path.exists(archive)
-        assert "s3://bucket/logs" in detail
+        assert "logs.example" in detail
     _reset()
 
 
