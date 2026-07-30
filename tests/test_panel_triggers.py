@@ -20,7 +20,9 @@ spawn and the submit in — so this runs anywhere::
 """
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -147,6 +149,68 @@ def test_a_poll_without_a_check_is_dropped():
     ])
     assert cat.names() == ["ok"]
     assert any("no check" in e for e in cat.errors)
+
+
+# -- an old file grows the new built-ins (task #1136) ------------------------
+def test_merge_new_appends_the_missing_builtins_switched_off():
+    old = triggersmod.parse_catalogue([
+        {"name": "alliance_help", "event_pattern": "al.help.new",
+         "scenario": "help_ally", "enabled": True},
+    ])
+    grown, added = triggersmod.merge_new(old)
+    assert "session_kick" in added and "resource_tracker" in added
+    assert grown.names()[0] == "alliance_help"          # the old entry stays first
+    # everything the built-in list ships is now on the list…
+    assert set(grown.names()) >= {t.name for t in triggersmod.DEFAULT_TRIGGERS}
+    # …and every newcomer arrives opt-in, so a start cannot begin acting on its own
+    assert all(grown.by_name(name).enabled is False for name in added)
+
+
+def test_merge_new_leaves_a_complete_file_alone():
+    cat = triggersmod.default_catalogue()
+    same, added = triggersmod.merge_new(cat)
+    assert added == () and same is cat
+
+
+def test_merge_new_keeps_the_operators_own_settings():
+    old = triggersmod.parse_catalogue([
+        {"name": "alliance_help", "event_pattern": "custom.event",
+         "scenario": ["help_ally", "collect_base"], "enabled": True,
+         "args": {"squad": 2}},
+    ])
+    grown, _ = triggersmod.merge_new(old)
+    ah = grown.by_name("alliance_help")
+    assert ah.enabled is True                  # the switch is the operator's
+    assert ah.event_pattern == "custom.event"  # so is the event…
+    assert ah.scenario == ("help_ally", "collect_base")   # …the scenario…
+    assert ah.args == {"squad": 2}                        # …and the args
+
+
+def test_loading_an_old_file_grows_it_on_disk():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "triggers.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump([{"name": "alliance_help", "event_pattern": "al.help.new",
+                        "scenario": "help_ally", "enabled": True}], fh)
+        cat = triggersmod.load_catalogue(path)
+        assert "session_kick" in cat.names()
+        assert cat.by_name("alliance_help").enabled is True
+        # the growth was written back, so the next start reads the same list
+        with open(path, encoding="utf-8") as fh:
+            on_disk = json.load(fh)
+        assert [e["name"] for e in on_disk] == cat.names()
+        assert on_disk[0]["enabled"] is True
+
+
+def test_an_unreadable_file_is_not_grown_or_overwritten():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "triggers.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+        cat = triggersmod.load_catalogue(path)
+        assert cat.errors                       # the panel says so…
+        with open(path, encoding="utf-8") as fh:
+            assert fh.read() == "{ not json"    # …and the file is left as it was
 
 
 def test_with_enabled_moves_only_the_switch():

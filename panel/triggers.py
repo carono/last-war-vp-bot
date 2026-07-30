@@ -13,6 +13,12 @@ their **own file**, exactly the way timers do:
     built-in DEFAULT_TRIGGERS  →  template panel/triggers.json  →  the profile's own
     profiles/<name>/triggers.json  (what actually runs; the checkboxes write here).
 
+Each file is read at every start and *grown*: a built-in name it has never heard of
+is appended, switched off, and the file rewritten (:func:`merge_new`), so a profile
+made before a trigger shipped picks it up instead of having to be recreated. What is
+already in the file — the switch, the event, the scenario, the args — is never
+touched.
+
 A trigger is::
 
     {
@@ -444,12 +450,46 @@ def parse_catalogue(data, path: str | None = None,
     return TriggerCatalogue(triggers, path, errors)
 
 
+def merge_new(catalogue: TriggerCatalogue,
+              seed: "tuple[Trigger, ...] | None" = None,
+              ) -> "tuple[TriggerCatalogue, tuple[str, ...]]":
+    """Append the triggers the file has never heard of; leave the rest alone.
+
+    A profile written before a trigger shipped has no entry for it, and the file
+    owns the list — so without this the operator would have to throw the profile
+    away to get at, say, ``session_kick`` at all. Every start the built-in list is
+    compared to what was loaded **by name only**, and the names missing from the
+    file are appended, in built-in order, exactly as they ship: opt-in, switched
+    OFF, so a start can never make the panel begin acting on its own.
+
+    Nothing already in the file is touched — not the switch, not the event, not the
+    scenario or the args — and nothing is removed, so a trigger the operator has
+    tuned by hand stays tuned. The one thing this gives up is deleting a built-in
+    entry: drop it from the file and the next start writes it back (off), which is
+    the price of the new ones arriving without a fresh profile.
+
+    Returns the catalogue and the names that were added (empty when nothing was).
+    """
+    seed = DEFAULT_TRIGGERS if seed is None else seed
+    have = {t.name for t in catalogue.triggers}
+    added = tuple(t for t in seed if t.name not in have)
+    if not added:
+        return catalogue, ()
+    grown = TriggerCatalogue(tuple(catalogue.triggers) + added,
+                             catalogue.path, catalogue.errors)
+    return grown, tuple(t.name for t in added)
+
+
 def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
     """Read a catalogue file, falling back to ``seed_from`` / the built-in list.
 
     A file that does not exist yet is *written* from the seed, so there is always
     something on disk to edit. A file that exists but cannot be read is NOT
     overwritten: the panel runs on the fallback and says so.
+
+    A file that reads fine but predates a trigger gets the missing ones appended
+    (:func:`merge_new`) and written back, so an old profile grows the new rows —
+    switched off — instead of having to be recreated.
     """
     seed = seed_from if seed_from is not None else TriggerCatalogue(DEFAULT_TRIGGERS)
     if not os.path.exists(path):
@@ -462,7 +502,17 @@ def load_catalogue(path: str, seed_from=None) -> TriggerCatalogue:
     except (OSError, ValueError) as exc:
         return TriggerCatalogue(seed.triggers, path,
                                 [f"{os.path.basename(path)}: {exc}"])
-    return parse_catalogue(data, path, fallback=seed)
+    parsed = parse_catalogue(data, path, fallback=seed)
+    # The seed already carries the built-ins (the template is itself loaded through
+    # here), so merging against it covers both the template and a profile. A file
+    # too broken to parse comes back AS the seed, so nothing is missing, nothing is
+    # written, and the unreadable file is left as the operator wrote it.
+    merged, added = merge_new(parsed, seed.triggers)
+    if added:
+        save_catalogue(merged, path)
+        _dbg.info("%s: added new trigger(s) %s", os.path.basename(path),
+                  ", ".join(added))
+    return merged
 
 
 def load_template() -> TriggerCatalogue:
