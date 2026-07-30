@@ -321,9 +321,19 @@ guess.
 
 **What the record says so far** (23 attempts): the largest single cause is `unknown` — 11
 deaths where nothing the model knows about was in the player's lane. Those are not tuned
-against, deliberately; they are the signal that the model is blind somewhere, and two of
-them have since been explained by watching a run (a driving truck read at its stale spawn
-point, and a fall through the gap between two carriage roofs).
+against, deliberately; they are the signal that the model is blind somewhere.
+
+Testing the two candidate explanations against the record:
+
+* **Falling through a roof gap — ruled out.** None of the 11 sits in a hole between two
+  roofed carriages, and none of them had a carriage in the player's lane at all.
+* **The driving trucks — the standing suspect.** Six of the 11 had a mover in frame, and
+  their length is the one number in the whole model that nothing confirms: it is read off
+  the `_N` in the prefab name, never measured, because the measurement window filtered on
+  `dataZ` — which for a mover is a spawn point behind the player. The last death fits it
+  exactly: dead at 1220.1 m with a truck in the same lane at 1258.3, a gap of 38 units
+  against the 24.7 the name implies. Until one is measured live, an unmeasured mover is
+  assumed to be as long as the longest carriage in the game.
 
 ## Status vs. the task
 

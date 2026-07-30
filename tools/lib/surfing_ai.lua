@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 17
+AI.version = 18
 if AI.enabled == nil then AI.enabled = true end
 AI.cfg = AI.cfg or {}
 local cfg = AI.cfg
@@ -42,6 +42,7 @@ cfg.baseX        = cfg.baseX        or 36    -- Const.ParkourSceneCenter (centre
 -- AI.bounds), so they must be modelled as [z - back, z + front], never as z ± half.
 cfg.padSmall     = cfg.padSmall     or 1.0   -- default half-length of a small obstacle
 cfg.carUnit      = cfg.carUnit      or 8.24  -- one carriage segment; "_N" suffix = N of them
+cfg.moverBack    = cfg.moverBack    or 41.0  -- assumed length of an unmeasured driving truck
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
 cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
 if cfg.rampSolid == nil then cfg.rampSolid = false end  -- learned: are ramps really rideable?
@@ -125,6 +126,13 @@ local function kindOf(mid)
     if string.find(a, "chexiang", 1, true) or string.find(a, "truck", 1, true) then
       local n = tonumber(string.match(a, "_(%d+)%.prefab$") or "1") or 1
       back, front = cfg.carUnit * n, 0.2
+      -- The driving trucks have never been measured — the "_N" length is a guess read off
+      -- the prefab name, and it is the only number in this model nothing confirms. It is
+      -- also the prime suspect for the largest group of deaths: nothing known in the lane,
+      -- a truck in frame, and the gap to it larger than the guess (1220.1 m against a truck
+      -- at 1258 = 38 units, versus the 24.7 the name implies). Until one is measured live,
+      -- assume the longest body in the game rather than the shortest reading of the name.
+      if (t.move_speed or 0) > 0 then back = max(back, cfg.moverBack) end
       if (t.move_speed or 0) == 0 then
         carriage = true
         ramp = (not cfg.rampSolid) and string.find(a, "xiepo", 1, true) ~= nil

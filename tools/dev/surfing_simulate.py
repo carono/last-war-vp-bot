@@ -109,6 +109,36 @@ def classify(rec: dict, bounds: dict) -> dict:
             "speed": float(rec.get("move_speed") or 0)}
 
 
+def roof_holes(rows, kinds, roof_gap: float = 16.0):
+    """The gaps the runner has to hop while riding along the carriage roofs.
+
+    A ramp piece starts a roof; the next carriage in the same lane continues it if it is
+    close enough behind. Between two of them there is a hole down to the road, and falling
+    into it kills — which is what ended a live run off the far end of a truck. The judge has
+    to model it, or it cannot tell whether the planner's hop is scheduled correctly.
+    """
+    per_lane: dict[int, list] = {0: [], 1: [], 2: []}
+    for x, z, mid in rows:
+        k = kinds.get(mid) or {}
+        name_is_car = k.get("back", 0) > 5 and k.get("lanes", 1) == 1 and not k.get("speed")
+        if not name_is_car:
+            continue
+        lane = min(range(3), key=lambda i: abs(x - (32 + 4 * i)))
+        per_lane[lane].append((z - k["back"], z + k.get("front", 0), k.get("sideOnly", False)))
+    holes = []
+    for lane, items in per_lane.items():
+        items.sort()
+        roof_until = None
+        for z0, z1, is_ramp in items:
+            if is_ramp or (roof_until is not None and z0 - roof_until <= roof_gap):
+                if roof_until is not None and z0 > roof_until:
+                    holes.append((lane, roof_until, z0))
+                roof_until = z1
+            else:
+                roof_until = None
+    return holes
+
+
 def bands(born, mon):
     """Group the born templates into their 330 m bands, keyed by the band id."""
     out = collections.defaultdict(list)
@@ -282,13 +312,14 @@ if not AI or not AI.planRoute then L("no-autopilot") return end
 AI.kindOverride = { %s }
 if AI.resetKinds then AI.resetKinds() end
 local bands = { %s }
+local holes = { %s }
 local LANE0, ZMAX = %s, 340
 local function laneOf(x)
   local l = math.floor((x - 36) / 4 + 0.5) + 1
   if l < 0 then l = 0 elseif l > 2 then l = 2 end
   return l
 end
-local function once(obs, LANE0)
+local function once(obs, hole, LANE0)
   local speed, dt = 30, 1/60
   local pz, lane = 0, LANE0
   local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
@@ -332,6 +363,13 @@ local function once(obs, LANE0)
         end
       end
     end
+    -- a hole between two carriage roofs: lethal unless the avatar is in the air over it
+    if not dead and jT <= 0 then
+      for i = 1, #hole do
+        local h = hole[i]
+        if h[1] == lane and z1 > h[2] and z0 < h[3] then dead = {z = h[2], mid = -1, x = 36} end
+      end
+    end
     if swT > 0 then swT = swT - dt end
     if jT > 0 then jT = jT - dt end
     if slT > 0 then slT = slT - dt end
@@ -340,8 +378,8 @@ local function once(obs, LANE0)
   return pz, dead == nil
 end
 local passed, total, dist = 0, 0, 0
-for _, band in ipairs(bands) do
-  local z, ok = once(band, LANE0)
+for bi = 1, #bands do
+  local z, ok = once(bands[bi], holes[bi], LANE0)
   total = total + 1
   dist = dist + z
   if ok then passed = passed + 1 end
@@ -373,7 +411,7 @@ def score(ev, lane0: int = 1):
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
     per_band = bands(born, mon)
-    band_src = []
+    band_src, hole_src = [], []
     for band in sorted(per_band):
         rows = per_band[band]
         for _, _, mid in rows:
@@ -381,6 +419,8 @@ def score(ev, lane0: int = 1):
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
+        hole_src.append("{" + ",".join(
+            "{%d,%g,%g}" % h for h in roof_holes(rows, kinds)) + "}")
     ov = ",".join(
         "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
         % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
@@ -388,7 +428,8 @@ def score(ev, lane0: int = 1):
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())
-    lines = ev.run(_SCORE % (ov, ",".join(band_src), lane0), marker=MARK, settle=8.0)
+    lines = ev.run(_SCORE % (ov, ",".join(band_src), ",".join(hole_src), lane0),
+                   marker=MARK, settle=8.0)
     for ln in lines:
         body = ln.split(MARK, 1)[-1].strip()
         if body.startswith("SCORE "):
