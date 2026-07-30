@@ -232,10 +232,15 @@ CAPTURE_OPTIONS = [
 # because a profile that has never been to that page must still behave exactly
 # as it did, and because this is where the reasoning belongs.
 #
-# Poll period of the capture checkpoint. Well under the capture's own tick
-# (15 s by default), so a target is acted on the tick it appears; a poll is a
-# small JSON parse off the Tk thread, so the cost of looking often is nil.
-AUTOLOOT_POLL = 5.0
+# Poll period of the auto-loot sources. Since #1124 the primary source is the live
+# game VM (read through the warm daemon), which is always current — so this period is
+# the whole reaction latency for a newly-raidable star, not a fraction of a slower
+# capture tick. Kept tight (2 s) so the bot reaches a fresh target well before a human
+# reading the same line in the log could jump to it and press. Each poll is one cheap
+# daemon read (only the handful of currently-raidable tiles come back) plus a small
+# JSON parse, both off the Tk thread; the read is skipped while the panel is busy
+# navigating so it never contends with a jump.
+AUTOLOOT_POLL = 2.0
 # Most targets handed to one robbery run — the day's whole budget, so a scan that
 # happens to show several stars of the best level can spend it in one go.
 AUTOLOOT_LIMIT = 5
@@ -551,6 +556,8 @@ class Panel(tk.Tk):
         self._rally_seen: set = set()
         self._help_proc = None        # live auto-help watcher (push.al.help.new)
         self._autoloot_proc = None    # one auto-loot run at a time
+        self._autoloot_push_proc = None   # the event-driven share-push listener, when running
+        self._autoloot_push_restart = None  # debounce handle for a range change mid-run
         self._autoloot_stop = None    # threading.Event of the watcher loop, when running
         self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
         self._autoloot_pause_until = 0.0   # wall clock the watcher may fire again at
@@ -1094,6 +1101,19 @@ class Panel(tk.Tk):
                 lbl.configure(text=self._autoloot_rule_text())
             except tk.TclError:
                 pass
+        # The poll re-reads the range live every tick, but the event-driven listener is a
+        # subprocess started with a fixed range — so a range typed while auto-loot is on
+        # has to restart it, or it would rob to the OLD «уровень до» (the very "robbed the
+        # wrong level" trap #1099 fixed for the poll). Debounced so typing "1" then "7"
+        # restarts once, not per keystroke — spawning a capture is not free.
+        if getattr(self, "_autoloot_stop", None) is not None:
+            after = getattr(self, "_autoloot_push_restart", None)
+            if after is not None:
+                try:
+                    self.after_cancel(after)
+                except Exception:                # noqa: BLE001
+                    pass
+            self._autoloot_push_restart = self.after(1500, self._restart_autoloot_push)
         hint = getattr(self, "_sweep_hint", None)
         if hint is not None:
             try:
@@ -2394,6 +2414,11 @@ class Panel(tk.Tk):
         self._say("autoloot", "log.autoloot.on", rule=self._autoloot_rule_text())
         if self._mon_proc is None:
             self._say("autoloot", "log.autoloot.no_monitor")
+        # Two paths, on purpose. The event-driven listener robs a *shared* secret task
+        # the instant its push crosses the wire (< 1 s), which is the case a human used
+        # to win; the poll below is the slower safety net that still catches enemy tiles
+        # the sweep panned over and tasks already present before the listener started.
+        self._start_autoloot_push()
         threading.Thread(target=self._autoloot_loop, args=(self._autoloot_stop,),
                          daemon=True).start()
 
@@ -2402,6 +2427,57 @@ class Panel(tk.Tk):
         if stop is not None:
             stop.set()
             self._say("autoloot", "log.autoloot.off")
+        self._stop_autoloot_push()
+
+    def _start_autoloot_push(self) -> None:
+        """Spawn the event-driven listener: rob a shared secret task on its push (#1124).
+
+        It sniffs the game stream itself (no dependence on the «Мониторинг» capture) and
+        acts through this profile's daemon, so it gets the same level range the poll's
+        child does — otherwise it would rob outside «уровень от / до».
+        """
+        if self._autoloot_push_proc is not None:
+            return
+        cmd = [self._python(), "-u", os.path.join(TOOLS, "secret_share_autoloot.py"),
+               "--star-max", "--limit", str(self._autoloot_limit())]
+        lo, hi = self._autoloot_levels()
+        if lo is not None:
+            cmd += ["--level-min", str(lo)]
+        if hi is not None:
+            cmd += ["--level-max", str(hi)]
+        proc = self._spawn_sniffer(cmd, "autoloot")
+        if proc is None:
+            return
+        self._autoloot_push_proc = proc
+        threading.Thread(target=self._autoloot_push_reader, args=(proc,),
+                         daemon=True).start()
+
+    def _stop_autoloot_push(self) -> None:
+        proc, self._autoloot_push_proc = self._autoloot_push_proc, None
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:                    # noqa: BLE001 — already gone is fine
+                pass
+
+    def _restart_autoloot_push(self) -> None:
+        """Re-spawn the listener so a changed «уровень от / до» takes effect (debounced)."""
+        self._autoloot_push_restart = None
+        if self._autoloot_stop is None:          # auto-loot was unticked meanwhile
+            return
+        self._stop_autoloot_push()
+        self._start_autoloot_push()
+
+    def _autoloot_push_reader(self, proc) -> None:
+        try:
+            for raw in proc.stdout:
+                ln = raw.rstrip()
+                if ln:
+                    self._log_put(f"[autoloot] {ln}")
+        except Exception:
+            pass
+        if self._autoloot_push_proc is proc:
+            self._autoloot_push_proc = None
 
     def _autoloot_loop(self, stop: threading.Event) -> None:
         """Poll the capture checkpoint until the checkbox is cleared.
@@ -2426,33 +2502,85 @@ class Panel(tk.Tk):
                 return
 
     def _autoloot_tick(self) -> None:
-        """One look at the scan: fire when the rule has a target we have not sent yet."""
+        """One look at the sources: fire when the rule has a target we have not sent yet.
+
+        The primary source is the live game VM (`ActDispatchTaskDataManager.allianceTask`,
+        read through the warm daemon): a member's shared secret task is in it the moment
+        the push lands, so a raidable star is knowable in the second it appears rather
+        than whenever the map sweep next pans over it — which is what let a human beat the
+        bot to the tile (task #1124). The capture checkpoint is kept as a *second* source,
+        so enemy tiles the sweep panned over are still robbed when the monitor is on; when
+        it is off, the VM alone carries the feature.
+        """
         if self._autoloot_proc is not None:          # a robbery is still running
             return
         if time.time() < self._autoloot_pause_until:  # the day's budget is spent
             return
         checkpoint = self._profiles.tasks_json()
-        if not os.path.exists(checkpoint):
-            if not self._autoloot_warned:            # say it once, not every poll
+        have_scan = os.path.exists(checkpoint)
+        vm_ready = self._daemon_up() and not self._busy
+        if not vm_ready and not have_scan:
+            # No live VM to read and no checkpoint to fall back on — there is simply no
+            # source yet. Say so once, not on every poll.
+            if not self._autoloot_warned:
                 self._autoloot_warned = True
                 self._say("autoloot", "log.autoloot.no_scan")
             return
         self._autoloot_warned = False
-        targets = self._autoloot_targets(checkpoint)
-        # Already-sent uuids are skipped: the checkpoint keeps showing a tile the
-        # server refused (or that we robbed but whose loot count has not come back
-        # in a scan yet), and re-firing at it would burn the day's budget on a
-        # target that cannot pay. A fresh session forgets them again.
+        targets = self._autoloot_all_targets(checkpoint if have_scan else None, vm_ready)
+        # Already-sent uuids are skipped: a source keeps showing a tile the server
+        # refused (or that we robbed but whose loot count has not come back yet), and
+        # re-firing at it would burn the day's budget on a target that cannot pay. A
+        # fresh session forgets them again.
         fresh = [t for t in targets if t[0] not in self._autoloot_seen]
         if not fresh:
             return
         for _uuid, _srv, label in fresh:
             self._say("autoloot", "log.autoloot.target", label=label)
-        # Mark *every* target of the rule, not just the fresh ones: the child gets
-        # the same checkpoint and will attempt the whole list, so the panel must
-        # not treat the rest as new the next time round.
+        # Mark *every* target of the rule, not just the fresh ones: the child re-reads
+        # the same sources and will attempt the whole list, so the panel must not treat
+        # the rest as new the next time round.
         self._autoloot_seen.update(uuid for uuid, _srv, _label in targets)
-        self._autoloot_run(checkpoint)
+        self._autoloot_run(checkpoint if have_scan else None, vm_ready)
+
+    def _autoloot_all_targets(self, checkpoint, vm_ready: bool) -> list:
+        """Union of the VM's raidable alliance tasks and the checkpoint's, VM first.
+
+        A target that appears in both sources under the same `(uuid, server)` is kept
+        once — the VM copy, the fresher of the two. A source raising propagates up to
+        `_autoloot_loop`, which logs it once and tries again next poll; that is fine
+        because a robbery needs the daemon anyway, so a dead VM is a tick with nothing to
+        rob rather than a target quietly dropped.
+        """
+        seen: set = set()
+        out: list = []
+
+        def _merge(rows):
+            for uuid, srv, label in rows:
+                if (uuid, srv) in seen:
+                    continue
+                seen.add((uuid, srv))
+                out.append((uuid, srv, label))
+
+        if vm_ready:
+            _merge(self._autoloot_vm_targets())
+        if checkpoint is not None:
+            _merge(self._autoloot_targets(checkpoint))
+        return out
+
+    def _autoloot_vm_targets(self) -> list:
+        """Star-max raidable alliance tasks read live from the VM, as (uuid, server, label).
+
+        The same rule `_autoloot_targets` applies to a checkpoint, applied to the tasks
+        the game already holds — no capture, no map panning. `self._client` is the warm
+        daemon, which `steal_secret_task.targets_from_vm` drives exactly like the
+        `get_evaluator()` handle a standalone run uses.
+        """
+        import steal_secret_task     # lazy: keeps panel start-up free of it
+        lo, hi = self._autoloot_levels()
+        return steal_secret_task.targets_from_vm(self._client, limit=self._autoloot_limit(),
+                                                 star_max=True, level_min=lo,
+                                                 level_max=hi, say=lambda _m: None)
 
     def _autoloot_targets(self, checkpoint: str) -> list:
         """Star-max targets in the checkpoint right now, as (uuid, server, label).
@@ -2494,13 +2622,20 @@ class Panel(tk.Tk):
         return self._t("secret.autoloot.rule_found",
                        lo=lo if lo is not None else "—")
 
-    def _autoloot_run(self, checkpoint: str) -> None:
+    def _autoloot_run(self, checkpoint, vm_ready: bool) -> None:
         cmd = [self._python(), "-u", os.path.join(TOOLS, "steal_secret_task.py"),
-               "--from-scan", checkpoint, "--star-max",
-               "--limit", str(self._autoloot_limit())]
-        # The child re-reads the checkpoint and re-applies the rule, so the range
-        # has to travel with it: without these the watcher would agree to a
-        # target inside the range and the child would then rob outside it.
+               "--star-max", "--limit", str(self._autoloot_limit())]
+        # The child re-reads the same sources and re-applies the rule, so it has to be
+        # told which ones the tick used: the live VM (fast path) and/or the capture
+        # checkpoint (enemy tiles the sweep saw). Passing neither would leave it with
+        # nothing to rob.
+        if vm_ready:
+            cmd.append("--from-vm")
+        if checkpoint is not None:
+            cmd += ["--from-scan", checkpoint]
+        # The child re-applies the rule, so the range has to travel with it: without
+        # these the watcher would agree to a target inside the range and the child
+        # would then rob outside it.
         lo, hi = self._autoloot_levels()
         if lo is not None:
             cmd += ["--level-min", str(lo)]

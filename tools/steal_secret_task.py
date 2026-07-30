@@ -14,6 +14,10 @@ docs/research/secret-task-steal.md.
     --uuid U --server S            rob it directly (uuid straight off a map scan)
     --coords X,Y --server S        resolve the uuid first, the way a tap does:
                                    `world.get.detail.new` -> WorldPointDetailManager
+    --from-vm                      every raidable alliance task read straight from the
+                                   live game VM (no capture, no map panning) — the
+                                   panel's auto-loot source; combine with --from-scan
+                                   to also take enemy tiles the sweep panned over
     --from-scan tasks.json         every raidable task in a capture checkpoint
                                    (tools/secret_task_capture.py --json), freshest
                                    first, already filtered by `can_loot`
@@ -147,6 +151,88 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
     import lastwar_proto as proto
 
     tasks = proto.load_fresh_tasks(path)
+    return _select_targets(tasks, limit, star_max=star_max,
+                           level_min=level_min, level_max=level_max, say=say)
+
+
+def targets_from_vm(ev, limit: int, star_max: bool = False,
+                    level_min: int | None = None, level_max: int | None = None,
+                    say=print) -> list[tuple[int, int, str]]:
+    """Raidable alliance secret tasks read straight from the live Lua VM, freshest rule.
+
+    Same result shape and same selection rule as `targets_from_scan`, but the source is
+    `DataCenter.ActDispatchTaskDataManager.allianceTask` (see project_secret_task_list),
+    read through the warm daemon — no pcap, no map panning, no checkpoint. A member's
+    shared secret task is in that table the moment the push lands, so this is what lets
+    the panel's auto-loot react to a new raidable star in a second or two instead of
+    waiting for the map sweep to pan over the tile and the next capture flush.
+
+    The VM already gives the raid-gate answer for the two conditions it can (dispatch
+    finished, not expired, a slot free); `can_loot` is recomputed here against the local
+    clock all the same, so a record that matured or expired between the read and now is
+    re-judged rather than trusted frozen.
+    """
+    tasks = _vm_raidable_tasks(ev)
+    return _select_targets(tasks, limit, star_max=star_max,
+                           level_min=level_min, level_max=level_max, say=say)
+
+
+def _vm_raidable_tasks(ev) -> list:
+    """Parse the `ACT VT …` lines of `secret_task_raidable_alliance()` into SecretTasks.
+
+    The exact loot slots (who has already robbed the tile) are not on the wire here —
+    only the count is — so `looted_by` is filled with that many placeholder entries.
+    That is enough for `loot_count` / `free_slots` / `can_loot`; whether *I* am already
+    in the list is the server's call at steal time, the same as every other route.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "lib"))
+    import lastwar_proto as proto
+
+    out = []
+    for ln in ev.run(lua_actions.secret_task_raidable_alliance(), MARKER, 1.1):
+        body = ln[4:] if ln.startswith("ACT ") else ln
+        if not body.startswith("VT "):
+            continue
+        rec = {}
+        for tok in body[3:].split(" "):
+            key, sep, value = tok.partition("=")
+            if sep:
+                rec[key] = value
+        try:
+            cfg_id = int(rec.get("cfg", "0"))
+            family, level, _variant = proto.split_cfg_id(cfg_id)
+        except (ValueError, KeyError):
+            continue                       # shaped like a task, but no usable cfgId
+        steals = _int(rec.get("steals"))
+        done = _int(rec.get("done"))
+        exp = _int(rec.get("exp"))
+        out.append(proto.SecretTask(
+            uuid=_int(rec.get("uuid")), server_id=_int(rec.get("srv")),
+            x=_int(rec.get("x")), y=_int(rec.get("y")), level=level,
+            cfg_id=cfg_id, family=family,
+            looted_by=tuple(str(i) for i in range(steals)),
+            owner_uid=None, alliance_id=None,
+            expires_at=exp or None, completed_at=done or None))
+    return out
+
+
+def _int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _select_targets(tasks, limit: int, star_max: bool = False,
+                    level_min: int | None = None, level_max: int | None = None,
+                    say=print) -> list[tuple[int, int, str]]:
+    """The auto-loot rule applied to a list of `SecretTask`s — the shared core.
+
+    Both `targets_from_scan` (capture checkpoint) and `targets_from_vm` (live VM) feed
+    the same rule here, so a target picked by one source is picked identically by the
+    other. See `targets_from_scan` for the full description of `star_max` / the level
+    gate — the reasoning lives with it and is not repeated.
+    """
     raidable = [t for t in tasks if t.can_loot]
     if level_min is not None or level_max is not None:
         inside = [t for t in raidable
@@ -189,8 +275,12 @@ def main() -> int:
     ap.add_argument("--server", type=int, help="the task's server (targetServer)")
     ap.add_argument("--from-scan", metavar="PATH",
                     help="capture checkpoint (tools/secret_task_capture.py --json)")
+    ap.add_argument("--from-vm", action="store_true",
+                    help="read raidable alliance tasks straight from the live game VM "
+                         "(no capture, no map panning); the panel's auto-loot uses this. "
+                         "Combine with --from-scan to also take enemy tiles the sweep saw")
     ap.add_argument("--limit", type=int, default=5,
-                    help="most targets to take from --from-scan (default 5)")
+                    help="most targets to take from --from-scan/--from-vm (default 5)")
     ap.add_argument("--star-max", action="store_true",
                     help="with --from-scan: starred tasks only, and only at the top "
                          "level of --level-min/--level-max (the highest level found, "
@@ -221,20 +311,39 @@ def main() -> int:
         return 0
 
     targets: list[tuple[int, int, str]] = []
-    if args.from_scan:
-        if not os.path.exists(args.from_scan):
-            print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
-                  "секреток») while the map moves" % args.from_scan)
-            return 1
-        targets = targets_from_scan(args.from_scan, args.limit, star_max=args.star_max,
-                                    level_min=args.level_min, level_max=args.level_max)
+    if args.from_vm or args.from_scan:
+        # Two sources, unioned: the live VM (alliance tasks, always current) and, when
+        # given, a capture checkpoint (whatever the sweep panned over, enemy tiles too).
+        # A uuid seen by both is kept once, VM copy first — it is the fresher of the two.
+        seen_keys: set[tuple[int, int]] = set()
+
+        def _add(rows):
+            for uuid, server, label in rows:
+                key = (uuid, server)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                targets.append((uuid, server, label))
+
+        if args.from_vm:
+            _add(targets_from_vm(ev, args.limit, star_max=args.star_max,
+                                 level_min=args.level_min, level_max=args.level_max))
+        if args.from_scan:
+            if os.path.exists(args.from_scan):
+                _add(targets_from_scan(args.from_scan, args.limit, star_max=args.star_max,
+                                       level_min=args.level_min, level_max=args.level_max))
+            elif not args.from_vm:
+                print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
+                      "секреток») while the map moves" % args.from_scan)
+                return 1
+        targets = targets[:args.limit]
         if not targets:
-            # With --star-max this is the ordinary "no star on screen" answer, not a
+            # With --star-max this is the ordinary "no star raidable" answer, not a
             # failure: the button is supposed to do nothing rather than rob a plain
-            # task. targets_from_scan has already said which case it was.
+            # task. The source helpers have already said which case it was.
             if not args.star_max:
-                print("no raidable task in %s — scan again while panning the map"
-                      % args.from_scan)
+                where = "the game" if args.from_vm else args.from_scan
+                print("no raidable task in %s — nothing to rob right now" % where)
             return 0 if args.star_max else 1
     elif args.coords:
         if args.server is None:
@@ -255,7 +364,8 @@ def main() -> int:
             ap.error("--uuid needs --server")
         targets = [(args.uuid, args.server, "uuid %d" % args.uuid)]
     else:
-        ap.error("name a target: --uuid, --coords or --from-scan (or ask for --status)")
+        ap.error("name a target: --uuid, --coords, --from-vm or --from-scan "
+                 "(or ask for --status)")
 
     left, _ = read_status(ev)
     print("robberies left today: %d" % left)

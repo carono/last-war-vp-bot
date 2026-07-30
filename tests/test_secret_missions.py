@@ -353,6 +353,137 @@ def test_autoloot_does_nothing_without_a_star(tmp_path=None):
     assert any("no starred task" in m for m in said), said
 
 
+def _vt(uuid: int, cfg_id: int, srv: int = 534, steals: int = 0) -> str:
+    """One `ACT VT …` line, as `secret_task_raidable_alliance()` emits for a raidable tile."""
+    now = int(time.time() * 1000)
+    return ("ACT VT uuid=%d cfg=%d srv=%d x=%d y=200 steals=%d done=%d exp=%d"
+            % (uuid, cfg_id, srv, 100 + uuid, steals, now - 60_000, now + 3_600_000))
+
+
+class _FakeEv:
+    """A daemon/LuaEval stand-in: `run()` returns canned VT lines for any chunk."""
+
+    def __init__(self, lines):
+        self.lines = list(lines)
+
+    def run(self, chunk, marker=None, settle=1.2):
+        return list(self.lines)
+
+
+def test_autoloot_from_vm_parses_and_applies_the_same_rule():
+    """`targets_from_vm` parses the live-VM lines and picks by the same star-max rule.
+
+    The VM source is the #1124 fast path: the same rule as the checkpoint, applied to
+    the client's own alliance tasks. A parsed level-7 star wins; a plain family and a
+    3/3 tile are not targets, and the level gate still bounds what may be robbed.
+    """
+    import steal_secret_task as steal
+
+    ev = _FakeEv([
+        _vt(1, 50000704),                    # unstarred family — skipped
+        _vt(2, 60000601),                    # starred level 6 — below the top
+        _vt(3, 60000701),                    # starred level 7 — the target
+        _vt(4, 60000701, steals=3),          # 3/3, not raidable (dropped by can_loot)
+    ])
+    picked = steal.targets_from_vm(ev, limit=5, star_max=True, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in picked] == [3], picked
+
+    # The level gate is hard here too: «от 1 до 6» leaves the 7 alone and takes the 6.
+    picked = steal.targets_from_vm(ev, limit=5, star_max=True, level_min=1, level_max=6,
+                                   say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in picked] == [2], picked
+
+
+def _mission(uuid, cfg_id, server=946):
+    """A shared secret mission as the push carries it (level/family off the cfgId)."""
+    family, level, _ = proto.split_cfg_id(cfg_id)
+    return proto.ShareMission(uuid=uuid, cfg_id=cfg_id, family=family, level=level,
+                              server_id=server, owner_server_id=server,
+                              share_uid="u", share_alliance_id="a")
+
+
+def test_share_autoloot_rule_matches_the_poll():
+    """`mission_passes` is the poll's star-max rule reduced to one pushed mission."""
+    import secret_share_autoloot as sa
+
+    star7 = _mission(1, 60000701)      # starred level 7
+    star6 = _mission(2, 60000601)      # starred level 6
+    plain7 = _mission(3, 50000704)     # unstarred family, level 7
+
+    # star-max, no cap: any starred mission is a target, a plain one is not.
+    assert sa.mission_passes(star7, True, None, None)
+    assert sa.mission_passes(star6, True, None, None)
+    assert not sa.mission_passes(plain7, True, None, None)
+
+    # «от 1 до 7»: the cap IS the level robbed — the 6 is held for a 7.
+    assert sa.mission_passes(star7, True, 1, 7)
+    assert not sa.mission_passes(star6, True, 1, 7)
+    # «от 1 до 6»: now the 6 is the target and the 7 is above the range.
+    assert sa.mission_passes(star6, True, 1, 6)
+    assert not sa.mission_passes(star7, True, 1, 6)
+
+
+class _StealEv:
+    """A daemon stand-in for the share listener: records chunks, fakes the budget read."""
+
+    def __init__(self, left=5):
+        self.chunks = []
+        self.left = left
+
+    def run(self, chunk, marker=None, settle=1.2):
+        self.chunks.append(chunk)
+        if "ACT left=" in chunk:               # the _steals_left() probe
+            return ["ACT left=%d" % self.left]
+        return []
+
+
+def test_share_autoloot_robs_once_on_a_matching_push():
+    """A matching push fires exactly one robbery; a repeat and a non-match fire none."""
+    import secret_share_autoloot as sa
+
+    ev = _StealEv(left=5)
+    mon = sa.ShareAutoloot(ev, star_max=True, level_min=1, level_max=7,
+                           limit=5, dry_run=False)
+
+    mon._consider(_mission(111, 60000701))     # starred level 7 -> robbed
+    assert mon.robbed == 1, mon.robbed
+    assert any("steal_sent uuid=111" in c and "946" in c for c in ev.chunks), ev.chunks
+
+    # Same tile pushed again (or echoed): dedup, no second robbery.
+    mon._consider(_mission(111, 60000701))
+    assert mon.robbed == 1, mon.robbed
+
+    # A starred level-6 under «до 7» is left alone; a plain tile too.
+    mon._consider(_mission(222, 60000601))
+    mon._consider(_mission(333, 50000704))
+    assert mon.robbed == 1, mon.robbed
+
+
+def test_share_autoloot_holds_when_budget_spent():
+    """With no robberies left, a matching push is not sent and the tile can retry later."""
+    import secret_share_autoloot as sa
+
+    ev = _StealEv(left=0)
+    mon = sa.ShareAutoloot(ev, star_max=True, level_min=None, level_max=None,
+                           limit=5, dry_run=False)
+    mon._consider(_mission(444, 60000701))
+    assert mon.robbed == 0, mon.robbed
+    # No DispatchSteal was sent — only the budget probe ran.
+    assert not any("steal_sent" in c for c in ev.chunks), ev.chunks
+
+
+def test_share_autoloot_dry_run_never_sends():
+    """--dry-run decodes and decides but sends no robbery (budget-safe verification)."""
+    import secret_share_autoloot as sa
+
+    ev = _StealEv(left=5)
+    mon = sa.ShareAutoloot(ev, star_max=True, level_min=None, level_max=None,
+                           limit=5, dry_run=True)
+    mon._consider(_mission(555, 60000701))
+    assert mon.robbed == 0, mon.robbed
+    assert ev.chunks == [], ev.chunks          # not even the budget probe runs
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

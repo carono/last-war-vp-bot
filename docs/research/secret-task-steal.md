@@ -135,10 +135,47 @@ level-7 star cannot have until the daily reset.
 
 It is a **checkbox, not a press** (task #1109). A raidable star is perishable —
 the window closes, or someone else fills the third loot slot — so the gap between
-the capture printing the finding and a human noticing the log line was where
-targets were lost. While the box is ticked a watcher thread re-reads the
-checkpoint every 5 s and fires the robbery the moment the rule has a target;
-unticking it stops the watching (a robbery already under way finishes).
+a finding appearing and a human noticing the log line was where targets were lost.
+While the box is ticked a watcher thread re-reads its sources every 2 s and fires
+the robbery the moment the rule has a target; unticking it stops the watching (a
+robbery already under way finishes).
+
+**The primary source is the live game VM, not a capture (task #1124).** The old
+watcher read only the capture checkpoint, and that checkpoint only learns a tile
+when the map is *panned over it* (`world.get.block`, `f2=17`) — so the whole chain
+was: the map sweep reaches the tile → the capture flushes the checkpoint (15 s
+tick) → the panel polls the file (5 s) → a subprocess robs. A shared secret task
+could sit raidable for the better part of a minute before the bot moved, and a
+human watching the log would jump to it and press first — the exact complaint that
+opened #1124. The client, though, already keeps that same tile in
+`ActDispatchTaskDataManager.allianceTask` the instant the share push lands (see
+`docs/research/…` and `project_secret_task_list`), with no panning and no capture.
+So the watcher now reads that table directly through the warm daemon on every poll
+(`secret_task_raidable_alliance()` → `steal_secret_task.targets_from_vm`), applies
+the very same star-max rule to it, and reacts in about a poll's length — a second
+or two — which comfortably beats a human reading the same information.
+
+**The truly event-driven path: rob on the push itself (task #1124, second pass).**
+A poll — even a 2 s one off the VM — still reacts *after the fact*. The event that
+matters, an ally pressing "share" on a raidable secret task, is broadcast to the
+whole alliance as `push.alliance.share.mission.add` on the plain-TCP game leg
+(passively decodable — see "Shared secret missions" below and
+`project_shared_secret_missions`). So alongside the poll the checkbox now starts
+`tools/secret_share_autoloot.py`: a `live_sniffer.LiveDecoder` (same scapy/npcap
+transport as `rally_monitor.py`) that decodes that one command as it crosses the
+wire and fires `hero.dispatch.steal` through the warm daemon *in the same handler*.
+Reaction is one wire frame plus one daemon round-trip — well under a second. The
+push carries everything the robbery needs with no resolve step: `missionUuid` is
+the dispatch task's uuid and `missionCurrentServerId` is its `targetServer`. It
+applies the identical star / level rule (`mission_passes`, the single-mission form
+of `_select_targets`), dedupes by `(uuid, server)`, and reads the live budget
+before every send. It does **not** need the «Мониторинг» capture running — it is
+its own sniffer — and a range typed while it runs restarts it (debounced) so it
+never robs to a stale «уровень до». The poll stays on as the slower safety net for
+the cases a push does not cover (enemy tiles the sweep saw, tasks already present
+before the listener started); the two are safe together because a redundant attempt
+at a tile the other path already took is simply refused, and a refusal spends no
+budget.
 
 Three things keep the standing order from wasting the budget:
 
@@ -152,17 +189,22 @@ Three things keep the standing order from wasting the budget:
   `robberies left today: 0`), and the pause is short enough that the daily reset
   is picked up without a human.
 
-It reads the capture's own checkpoint — the monitor runs with
-`--json <profile>/secret_tasks.json`, rewritten every tick — and hands it to
-`tools/steal_secret_task.py --from-scan … --star-max`, the same entrypoint a
-human uses from the shell; the same call (`targets_from_scan`, a pure file read)
-is what the watcher polls with, so the panel holds no second copy of the rule.
-`load_fresh_tasks` drops any tile not re-seen in the last 15 minutes and
-recomputes `can_loot` against the current clock, so a stale file cannot aim a
-robbery at a tile that is already gone — which is also why the watcher is
-harmless when «Мониторинг» is off: nothing refreshes the checkpoint, so nothing
-stays fresh enough to be a target (the panel says as much when the box is ticked
-with the monitor stopped).
+The capture checkpoint is kept as a **second source**, unioned with the VM by
+`(uuid, server)` (VM copy first, the fresher of the two). Its one remaining job is
+**enemy tiles the sweep panned over**: `allianceTask` holds only your own
+alliance's tasks, so a raidable enemy star is knowable only from a capture. When
+the monitor is off the union is just the VM, and the feature still works in full
+for alliance-shared tasks — the old "the monitor is off, so there are no targets"
+warning is gone, replaced by a note that the monitor now only *adds* enemy tiles.
+The panel and the child agree on both sources: the watcher polls with
+`targets_from_vm(self._client, …)` + `targets_from_scan(checkpoint, …)`, and
+`_autoloot_run` fires `tools/steal_secret_task.py --from-vm [--from-scan …]
+--star-max`, the same entrypoint a human uses from the shell, which re-reads the
+same two sources and re-applies the rule — so the panel holds no second copy of
+it. `load_fresh_tasks` still drops any checkpoint tile not re-seen in the last 15
+minutes and recomputes `can_loot` against the current clock; the VM reader
+recomputes `can_loot` the same way, so neither source can aim a robbery at a tile
+that is already gone.
 
 **«Уровень до» IS the level it robs.** The two entries sit in the same row as the
 checkbox and read as one control, so the range is not a display preference and

@@ -120,8 +120,8 @@
   "help.frame": "Alliance",
   "help.hint": "listening for push.al.help.new → instant \"Help All\" (al.help.all)",
 
-  "log.autoloot.no_monitor": "the secret-task monitor is off: without it the scan never updates and there will be no targets",
-  "log.autoloot.no_scan": "no scan data — switch the secret-task monitor on and move the map (or switch the sweep on)",
+  "log.autoloot.no_monitor": "the secret-task monitor is off — auto-loot reads the alliance's tasks from the client directly, so it still works; the monitor only adds enemy tiles the sweep pans over",
+  "log.autoloot.no_scan": "no source yet — start the game (auto-loot reads the client directly), or switch the secret-task monitor on and move the map",
   "log.autoloot.off": "off",
   "log.autoloot.on": "on — {rule}",
   "log.autoloot.poll_error": "the scan could not be polled: {error}",

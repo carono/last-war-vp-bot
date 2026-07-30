@@ -1104,6 +1104,47 @@ def steal_next_secret_task() -> str:
             '.." srv="..tostring(t.server)) end' % secret_task_steals_left())
 
 
+def secret_task_raidable_alliance() -> str:
+    """Emit every alliance secret task that is raidable *right now*, straight from the VM.
+
+    The client already keeps a parsed, always-current copy of the alliance's hero
+    dispatch tasks in `ActDispatchTaskDataManager.allianceTask` (see
+    project_secret_task_list) — the same list a member's shared secret task lands in
+    the instant the push arrives. Reading it needs no pcap and no map panning, so a
+    tile is knowable the moment the game knows it rather than whenever the sweep next
+    pans over it. That is what lets the auto-loot react in a second or two instead of
+    waiting out a capture tick.
+
+    Only the tasks that pass the raid gate are emitted — dispatch finished
+    (`completionTime` set and not in the future), not expired (`actEndTime` ahead), and
+    a free loot slot (`#stealInfoList < 3`) — so the output is the handful of currently
+    lootable tiles, not the whole 100+ row table. Each line carries what a steal target
+    needs: `uuid`, `cfgId` (level + star split off it in Python), `srv` (targetServer),
+    the tile `x`/`y` for the label, and the loot count. The per-tile conditions the
+    server owns (my own past loots, the protect window, sector range) stay its call, the
+    same as every other route into `hero.dispatch.steal`.
+
+    Marker-tagged `ACT VT …` lines, one per raidable task; parsed by
+    `steal_secret_task._vm_raidable_tasks`.
+    """
+    return (
+        'pcall(function() '
+        'local m = DataCenter.ActDispatchTaskDataManager '
+        'local now = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 '
+        'for _, v in pairs(m.allianceTask or {}) do '
+        'local done = tonumber(v.completionTime) or 0 '
+        'local exp = tonumber(v.actEndTime) or 0 '
+        'local steals = #(v.stealInfoList or {}) '
+        'if done > 0 and done <= now and (exp == 0 or now < exp) and steals < 3 then '
+        'local x, y = 0, 0 '
+        'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
+        'CS.UnityEngine.Debug.LogError("ACT VT uuid="..tostring(v.uuid)'
+        '.." cfg="..tostring(v.cfgId).." srv="..tostring(v.targetServer)'
+        '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
+        '.." done="..tostring(done).." exp="..tostring(exp)) '
+        'end end end)')
+
+
 # --------------------------------------------------------------------------
 # Ghost recon robbery — «Операция Призрак» / ghost.recon.steal
 # --------------------------------------------------------------------------

@@ -1,10 +1,13 @@
 r"""The panel's auto-loot watcher — what it decides to fire at, and when it does not.
 
 The «Автолут ★» checkbox is a standing order: while it is ticked a watcher thread
-re-reads the capture checkpoint and robs a starred task of the best level the moment
-one is raidable (task #1109). *Which* task the rule picks is covered by
-``test_secret_missions.py`` (``targets_from_scan``); what is tested here is the layer
-above it — the part that can quietly burn the day's five robberies:
+re-reads its sources and robs a starred task of the best level the moment one is
+raidable (task #1109). Since #1124 the primary source is the live game VM (the
+client's own alliance tasks), with the capture checkpoint kept as a second source —
+so a raidable star is caught in a second or two rather than whenever the sweep next
+pans over it. *Which* task the rule picks is covered by ``test_secret_missions.py``
+(``targets_from_scan`` / ``targets_from_vm``); what is tested here is the layer above
+it — the part that can quietly burn the day's five robberies:
 
   * nothing to look at yet — one complaint, not one per poll;
   * no star in the scan — no robbery at all;
@@ -78,7 +81,13 @@ class _Watcher:
         self._autoloot_seen: set = set()
         self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
         self._log_put = self.logs.append
-        self._autoloot_run = self.runs.append          # the child is never spawned here
+        # The child is never spawned here; record the checkpoint the tick would rob
+        # from, so the assertions read exactly as before the (checkpoint, vm_ready) split.
+        self._autoloot_run = lambda checkpoint, vm_ready: self.runs.append(checkpoint)
+        # No live daemon by default: these cases exercise the checkpoint source, the way
+        # the watcher always did. The VM source is covered by its own test below.
+        self._daemon_up = lambda: False
+        self._client = None
         self._busy = False
         # The auto-loot budget is a Settings knob now, read through `_opt_*`. With no
         # widget and no saved config both fall back to SETTINGS_DEFAULTS, which is the
@@ -96,7 +105,8 @@ class _Watcher:
         from panel import i18n as i18nmod
         self._i18n = i18nmod.I18n("ru")
         for name in ("_t", "_say", "_opt", "_opt_int", "_autoloot_limit",
-                     "_autoloot_levels", "_autoloot_targets"):
+                     "_autoloot_levels", "_autoloot_targets", "_autoloot_all_targets",
+                     "_autoloot_vm_targets"):
             setattr(self, name, types.MethodType(getattr(Panel, name), self))
         self.tick = types.MethodType(Panel._autoloot_tick, self)
 
@@ -110,11 +120,12 @@ def test_autoloot_watcher_fires_once_per_target():
     cp = tmp / "secret_tasks.json"
     w = _Watcher(cp)
 
-    # No checkpoint yet: say so once, not on every poll, and rob nothing.
+    # No checkpoint yet and no live daemon: say so once, not on every poll, and rob
+    # nothing.
     w.tick()
     w.tick()
     assert w.runs == [], w.runs
-    assert sum("нет данных скана" in m for m in w.logs) == 1, w.logs
+    assert sum("источника пока нет" in m for m in w.logs) == 1, w.logs
 
     # Plain (unstarred) tasks are not a target, however raidable.
     _checkpoint(cp, [_task(1, 50000704, "5000", 7)])
@@ -186,6 +197,72 @@ def test_autoloot_watcher_waits_for_the_filter_top_level():
     w.tick()
     assert w.runs == [str(cp)], w.runs
     assert w._autoloot_seen == {3}, w._autoloot_seen
+
+
+def _vt_line(uuid: int, cfg_id: int, srv: int = 534, steals: int = 0) -> str:
+    """One `ACT VT …` line as `secret_task_raidable_alliance()` would emit for a
+    raidable tile: dispatch finished a minute ago, expires in an hour."""
+    now = int(time.time() * 1000)
+    return ("ACT VT uuid=%d cfg=%d srv=%d x=%d y=200 steals=%d done=%d exp=%d"
+            % (uuid, cfg_id, srv, 100 + uuid, steals, now - 60_000, now + 3_600_000))
+
+
+class _FakeClient:
+    """A warm-daemon stand-in: every `run()` returns the same canned VT lines."""
+
+    def __init__(self, lines):
+        self.lines = list(lines)
+        self.calls = 0
+
+    def run(self, chunk, marker=None, settle=1.2):
+        self.calls += 1
+        return list(self.lines)
+
+
+def test_autoloot_reads_live_vm():
+    """With a live daemon and no checkpoint, the VM alone drives the watcher (#1124).
+
+    This is the point of the change: a raidable star in the client's own alliance tasks
+    is a target the instant it is there, with no capture running and no map panning.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"          # never written: the VM alone drives this
+    w = _Watcher(cp)
+    w._daemon_up = lambda: True
+    # A level-7 star and a plain (family 5000) level-7 in the client's alliance tasks.
+    # Only the star is a target.
+    w._client = _FakeClient([_vt_line(3, 60000701), _vt_line(1, 50000704)])
+
+    picked = w._autoloot_vm_targets()
+    assert [u for u, _s, _l in picked] == [3], picked
+
+    # A full tick fires the child from the VM alone — checkpoint arg is None (no --from-scan).
+    w.tick()
+    assert w.runs == [None], w.runs
+    assert w._autoloot_seen == {3}, w._autoloot_seen
+    # Sent once: the tile stays raidable in the VM but must not be re-fired.
+    w.tick()
+    assert w.runs == [None], w.runs
+
+
+def test_autoloot_unions_vm_and_checkpoint():
+    """VM and checkpoint are two sources: a star in either is robbed, a shared one once."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp)
+    w._daemon_up = lambda: True
+    # VM holds star #3; the checkpoint (an enemy tile the sweep panned over) holds star #7.
+    w._client = _FakeClient([_vt_line(3, 60000701)])
+    _checkpoint(cp, [_task(7, 60000701, "6000", 7)])
+    w.tick()
+    assert w.runs == [str(cp)], w.runs      # checkpoint present -> it is passed to the child
+    assert w._autoloot_seen == {3, 7}, w._autoloot_seen
 
 
 def _run_standalone() -> int:
