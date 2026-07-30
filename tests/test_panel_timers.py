@@ -158,11 +158,16 @@ def test_a_missing_file_is_seeded_and_a_broken_one_falls_back():
     tmp = Path(tempfile.mkdtemp())
     path = tmp / "timers.json"
 
+    # The seed is whatever ships in the built-in catalogue — derived from it rather
+    # than hard-coded, so adding a default timer does not break this test.
+    defaults = [t.name for t in timersmod.DEFAULT_TIMERS]
+    assert defaults[:2] == [BASE, ALLY], defaults          # the first two are stable
+
     cat = timersmod.load_catalogue(str(path))
-    assert cat.names() == [BASE, ALLY], cat.names()
+    assert cat.names() == defaults, cat.names()
     assert path.exists(), "the config file was not seeded"
     written = json.loads(path.read_text(encoding="utf-8"))
-    assert [e["name"] for e in written] == [BASE, ALLY], written
+    assert [e["name"] for e in written] == defaults, written
     assert written[1]["scenario"] == ["donate_alliance_tech",
                                       "collect_alliance_gifts"], written[1]
 
@@ -170,7 +175,7 @@ def test_a_missing_file_is_seeded_and_a_broken_one_falls_back():
     # is still there to be fixed, and the panel runs on the fallback meanwhile.
     path.write_text("{ this is not json", encoding="utf-8")
     broken = timersmod.load_catalogue(str(path))
-    assert broken.names() == [BASE, ALLY], broken.names()
+    assert broken.names() == defaults, broken.names()
     assert broken.errors, "a broken file must say so"
     assert path.read_text(encoding="utf-8") == "{ this is not json"
 
@@ -308,6 +313,41 @@ def test_a_failed_run_is_not_a_run_and_is_held_back():
     later = time.time() + timersmod.RETRY_HOLD_SEC + 1
     assert s.sched.tick_once(now=later) == [BASE], s.ran
     assert s.store.records()[BASE]["failed_at"] == 0.0, s.store.records()
+
+
+def test_retry_hold_is_per_timer():
+    """A failed timer is held for its OWN retry_sec, not a single global constant."""
+    quick = timersmod.Timer(name="quick", scenario=("noop",),
+                            interval_sec=3600, retry_sec=60)
+    slow = timersmod.Timer(name="slow", scenario=("noop",),
+                           interval_sec=3600, retry_sec=600)
+    cat = timersmod.Catalogue([quick, slow])
+    cfg = {"quick": {"enabled": True, "interval_sec": 3600},
+           "slow": {"enabled": True, "interval_sec": 3600}}
+    now = 10_000.0
+    records = {"quick": {"failed_at": now - 120}, "slow": {"failed_at": now - 120}}
+    # 120 s since each failed: quick's 60 s hold is out (due again), slow's 600 s is not.
+    assert cat.due_names(cfg, records, now) == ["quick"], \
+        cat.due_names(cfg, records, now)
+
+
+def test_retry_sec_reads_from_the_file_and_round_trips():
+    """retry_sec is read per entry, falls back to the default, and is written back."""
+    cat = timersmod.parse_catalogue(
+        [{"name": "t", "scenario": "noop", "interval_sec": 3600, "retry_sec": 45}])
+    t = cat.by_name("t")
+    assert t.retry_sec == 45, t.retry_sec
+    assert t.as_dict()["retry_sec"] == 45, t.as_dict()
+    # An entry that leaves it out falls back to the module default.
+    plain = timersmod.parse_catalogue([{"name": "t", "scenario": "noop"}]).by_name("t")
+    assert plain.retry_sec == int(timersmod.RETRY_HOLD_SEC), plain.retry_sec
+
+
+def test_new_default_timers_carry_a_retry():
+    """The three #1127 timers ship with retry_sec so an off-base FAIL is retried soon."""
+    cat = _catalogue()
+    for name in ("collect_truck_resources", "collect_visitor_gifts", "recruit_survivors"):
+        assert cat.by_name(name).retry_sec == 300, name
 
 
 def test_a_busy_panel_delays_the_errand_but_never_loses_it():

@@ -48,6 +48,11 @@ Failure model: every action returns True/False. A nested FIND that
 matched nothing simply skips its body and the surrounding action keeps
 running. WAIT timeouts, CLICK without a prior FIND, missing template /
 action files, and unknown keywords all raise and propagate as failure.
+Two statements end a run deliberately: ``STOP`` ends it as a *success*
+(the scenario decided it is done), while ``FAIL`` (also spelled ``RETURN
+FAIL``) ends it as a *failure* — the run returns False, which a timer
+turns into "not run" and retries later. Use FAIL for a precondition the
+scenario cannot meet right now (``IF scene != city`` → ``FAIL``).
 
 See `docs/dsl.md` for the user-facing reference.
 """
@@ -104,6 +109,11 @@ _WAIT_RE = re.compile(
 )
 _LOG_RE = re.compile(r'^LOG\s+"(.*)"\s*$', re.IGNORECASE)
 _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
+# FAIL ends the run as a FAILURE (unlike STOP, which ends it as a clean success):
+# `run_action`/`run_text` return False, which a timer turns into a retry. `RETURN
+# FAIL` is accepted as a synonym so the intent reads either way; an optional quoted
+# reason lands in the log.
+_FAIL_RE = re.compile(r'^(?:RETURN\s+)?FAIL(?:\s+"(.*)")?\s*$', re.IGNORECASE)
 _CLOSE_WINDOW_RE = re.compile(r"^CLOSE_WINDOW\s*$", re.IGNORECASE)
 _LAUNCH_RE = re.compile(r'^LAUNCH\s+"([^"]+)"\s*$', re.IGNORECASE)
 _READ_TEXT_RE = re.compile(
@@ -294,6 +304,19 @@ class LogStmt(_Stmt):
 @dataclass(slots=True)
 class StopStmt(_Stmt):
     """Set the halt flag and bubble out of the entire action stack."""
+    reason: str | None = None
+
+
+@dataclass(slots=True)
+class FailStmt(_Stmt):
+    """End the whole run as a FAILURE, bubbling out of every enclosing block.
+
+    The mirror image of STOP: STOP ends the run as a deliberate *success* (the
+    scenario decided it was done), FAIL ends it as a deliberate *failure* — so a
+    timer leaves ``last_run`` where it was and retries the errand later. The
+    canonical use is a precondition a scenario cannot meet right now (not on the
+    base, an event closed), which should be tried again rather than counted done.
+    """
     reason: str | None = None
 
 
@@ -550,6 +573,10 @@ def _parse_one(lines, i, indent):
     if m:
         return StopStmt(text=text, line_no=ln, reason=m.group(1)), i + 1
 
+    m = _FAIL_RE.match(text)
+    if m:
+        return FailStmt(text=text, line_no=ln, reason=m.group(1)), i + 1
+
     if _CLOSE_WINDOW_RE.match(text):
         return CloseWindowStmt(text=text, line_no=ln), i + 1
 
@@ -622,6 +649,11 @@ class Context:
     last_find: Any = None
     halt: bool = False
     halt_reason: str | None = None
+    # FAIL sets these — the deliberate-failure counterpart of halt/halt_reason. The
+    # run boundary reads `failed` to return False (STOP returns True), so a timer
+    # retries a scenario that bailed on a precondition rather than counting it done.
+    failed: bool = False
+    fail_reason: str | None = None
     profile: Any = None  # `lastwar_bot.profile.Profile` instance, or None
     # Result of the most recent SCAN_SECRET_MISSIONS — a list of
     # `net.missions.SecretMission`, read by the `missions.count` condition.
@@ -647,6 +679,15 @@ class _HaltSignal(Exception):
     The signal is caught at the outermost `run_action` boundary. The
     actual reason and `halt=True` flag live in the shared Context so the
     caller (e.g. the runner) can react after execution returns.
+    """
+
+
+class _FailSignal(Exception):
+    """Raised by FAIL to unwind every enclosing block / sub-action as a failure.
+
+    The failure twin of `_HaltSignal`: caught at the same `run_action` /
+    `run_text` boundaries, but there it returns ``False`` (STOP returns ``True``).
+    The reason and `failed=True` flag live on the shared Context.
     """
 
 
@@ -691,6 +732,10 @@ class Interpreter:
             self._depth -= 1
             self._log(f"< action: {name} HALTED ({self.ctx.halt_reason or 'no reason given'})")
             return True
+        except _FailSignal:
+            self._depth -= 1
+            self._log(f"< action: {name} FAILED — {self.ctx.fail_reason or 'FAIL'}")
+            return False
         except (ScriptParseError, ScriptRuntimeError) as exc:
             self._depth -= 1
             self._log(f"< action: {name} FAILED — {exc}")
@@ -728,6 +773,11 @@ class Interpreter:
                 self.ctx.halt_reason = stmt.reason or f"STOP at line {stmt.line_no}"
                 self._log(f"STOP -> halt requested ({self.ctx.halt_reason})")
                 raise _HaltSignal()
+            case FailStmt():
+                self.ctx.failed = True
+                self.ctx.fail_reason = stmt.reason or f"FAIL at line {stmt.line_no}"
+                self._log(f"FAIL -> {self.ctx.fail_reason}")
+                raise _FailSignal()
             case CloseWindowStmt():
                 self._do_close_window(stmt)
             case LaunchStmt():
@@ -1321,6 +1371,11 @@ class Interpreter:
         # unwinds up to the outermost run_action boundary.
         if self.ctx.halt:
             raise _HaltSignal()
+        # A FAIL inside it set ctx.failed. Re-raise the failure signal (rather than a
+        # generic runtime error) so the reason travels up and the boundary returns
+        # False — the sub-action's FAIL fails the whole chain.
+        if self.ctx.failed:
+            raise _FailSignal()
         if not ok:
             raise ScriptRuntimeError(
                 f"line {stmt.line_no}: sub-action {stmt.action_name} failed"
@@ -1470,6 +1525,10 @@ def run_text(
         interp._depth -= 1
         interp._log(f"< {label} HALTED ({ctx.halt_reason or 'no reason given'})")
         return True
+    except _FailSignal:
+        interp._depth -= 1
+        interp._log(f"< {label} FAILED — {ctx.fail_reason or 'FAIL'}")
+        return False
     except (ScriptParseError, ScriptRuntimeError) as exc:
         interp._depth -= 1
         interp._log(f"< {label} FAILED — {exc}")

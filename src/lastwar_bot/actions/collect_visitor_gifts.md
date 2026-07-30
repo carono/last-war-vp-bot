@@ -34,5 +34,13 @@
 # server-side and the unarrived one stayed queued. Until then the recipe pressed
 # nothing at all: the kind was read off `visitorId`, which is a per-arrival
 # counter, not the VisitorType.
+#
+# On a timer this must not count as done when it did nothing: visitors only walk up
+# while the base is on screen, so off the base the run should FAIL and be retried
+# (short retry_sec) rather than silently no-op and wait a whole interval. So the
+# first thing it does is check the scene and bail if we are not in the city.
+
+IF scene != city
+    FAIL "not on the base (need the city scene) — retry later"
 
 TAP collect_visitor_gifts xall   # collect until no gift-bearing survivor is left

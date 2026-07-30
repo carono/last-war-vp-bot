@@ -36,5 +36,13 @@
 # hardcoded to the first one, while the manager keeps two — survivors were queueing
 # in the second, so the recipe could not see them at all and did nothing. Now it
 # matches the kind across both queues.
+#
+# On a timer this must not count as done when it did nothing: survivors only walk up
+# while the base is on screen, so off the base the run should FAIL and be retried
+# (short retry_sec) rather than silently no-op and wait a whole interval. So the
+# first thing it does is check the scene and bail if we are not in the city.
+
+IF scene != city
+    FAIL "not on the base (need the city scene) — retry later"
 
 TAP recruit_survivor xall   # recruit until no survivor is left waiting

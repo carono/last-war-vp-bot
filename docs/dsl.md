@@ -234,6 +234,25 @@ FIND kicked_modal.png
     STOP "kicked by another login"
 ```
 
+### `FAIL ["reason"]` (also `RETURN FAIL`)
+
+End the run as a **failure**. The mirror image of `STOP`: `STOP` ends the
+run as a deliberate success (the scenario decided it is done), `FAIL`
+ends it as a deliberate failure — the action returns `False`, unwinding
+all enclosing blocks and sub-actions. Optional quoted reason is surfaced
+in the log.
+
+Use it for a precondition the scenario cannot meet right now, so a
+**timer retries it** (after the timer's `retry_sec`) instead of counting
+a run that did nothing as done. The canonical case is "only works on the
+base":
+
+```
+IF scene != city
+    FAIL "not on the base (need the city scene) — retry later"
+TAP collect_visitor_gifts xall
+```
+
 ### `CLOSE_WINDOW`
 
 Send a `WM_CLOSE` message to the game window. This is the polite way to

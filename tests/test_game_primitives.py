@@ -230,6 +230,35 @@ def test_scene_condition_reads_state():
                           ).eval_condition("scene == world", 1) is True
 
 
+def test_fail_parses_with_and_without_reason():
+    (f1,) = se.parse_text("FAIL")
+    assert isinstance(f1, se.FailStmt) and f1.reason is None
+    (f2,) = se.parse_text('FAIL "not on base"')
+    assert isinstance(f2, se.FailStmt) and f2.reason == "not on base"
+    (f3,) = se.parse_text("RETURN FAIL")
+    assert isinstance(f3, se.FailStmt), "RETURN FAIL is a synonym"
+
+
+def test_stop_returns_true_but_fail_returns_false():
+    """The whole point of FAIL: STOP ends a run as success, FAIL as failure."""
+    assert se.run_text('STOP "done"',
+                       ctx=se.Context(hwnd=0, evaluator=FakeEval())) is True
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval())
+    assert se.run_text('FAIL "nope"', ctx=ctx) is False
+    assert ctx.failed and ctx.fail_reason == "nope"
+
+
+def test_scene_guard_fails_off_base_and_passes_on_base():
+    """The visitor recipes' new guard: FAIL off the base, run through on it."""
+    guard = 'IF scene != city\n    FAIL "not on the base"\nLOG "ran"'
+    off = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(rluas=["world"]))
+    assert se.run_text(guard, ctx=off) is False
+    assert off.failed
+    on = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(rluas=["city"]))
+    assert se.run_text(guard, ctx=on) is True
+    assert not on.failed
+
+
 def test_scene_unknown_when_vm_unreachable():
     # A VM error (None) must read as 'unknown', not crash — this is what a launch
     # WAIT relies on while the daemon is re-hijacking a freshly-launched process.

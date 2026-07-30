@@ -26,6 +26,7 @@ if a profile's file is ever unreadable.
         "name": "collect_base_resources",       // id: config key and record key
         "scenario": "collect_base_resources",   // one action, or a list (below)
         "interval_sec": 3600,
+        "retry_sec": 300,                        // wait this long after a FAILED run
         "enabled": false,
         "args": {}
       },
@@ -98,9 +99,11 @@ from .profile import _write_json
 # with a period shorter than this simply fires once a tick.
 TICK_SEC = 20.0
 
-# After a failed run, how long that timer is left alone before it is tried again.
-# Without it a scenario that fails for a standing reason (game closed mid-run, a
-# broken recipe) would re-fire every tick and fill the log with the same error.
+# Default hold after a failed run, before the timer is tried again. Per-timer now
+# (``Timer.retry_sec``): a scenario that FAILs on a precondition it will soon meet
+# (not on the base yet) wants a short retry, while a truly broken one should not
+# re-fire every tick and fill the log with the same error. This is the fallback for
+# an entry that does not set its own.
 RETRY_HOLD_SEC = 300.0
 
 # How long the worker sits still after the panel turns an errand down as busy.
@@ -138,6 +141,9 @@ class Timer:
     name: str                       # id — config key, record key, log name
     scenario: tuple[str, ...]       # action names and/or inline DSL source
     interval_sec: int = DEFAULT_INTERVAL_SEC
+    # How long to wait before retrying after a FAILED run (a raised step or a FAIL in
+    # the scenario). A success uses interval_sec; only a failure uses this.
+    retry_sec: int = int(RETRY_HOLD_SEC)
     enabled: bool = False
     args: dict = field(default_factory=dict)
     title: str | None = None        # row label straight from the config
@@ -150,6 +156,7 @@ class Timer:
             "scenario": list(self.scenario) if len(self.scenario) != 1
             else self.scenario[0],
             "interval_sec": self.interval_sec,
+            "retry_sec": self.retry_sec,
             "enabled": self.enabled,
         }
         if self.args:
@@ -189,6 +196,9 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # Four hours. The base truck's idle-reward accumulator fills slowly and one
         # claim empties it, so there is nothing to gain from looking oftener.
         interval_sec=14400,
+        # These three FAIL when the base is not on screen (they can only act in the
+        # city scene), so a short retry picks them up as soon as the player is home.
+        retry_sec=300,
         enabled=False,
         label_key="timers.item.collect_truck_resources",
     ),
@@ -198,6 +208,7 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # An hour. A gift-bearing survivor waits in the city queue until collected,
         # so hourly keeps the queue clear without pestering a mostly-empty one.
         interval_sec=3600,
+        retry_sec=300,
         enabled=False,
         label_key="timers.item.collect_visitor_gifts",
     ),
@@ -207,6 +218,7 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         # An hour, the same cadence as the gifts — a recruitable survivor sits in the
         # same city queue, and the recipe no-ops when none is waiting.
         interval_sec=3600,
+        retry_sec=300,
         enabled=False,
         label_key="timers.item.recruit_survivors",
     ),
@@ -307,6 +319,7 @@ class Catalogue:
             updated.append(Timer(
                 name=timer.name, scenario=timer.scenario,
                 interval_sec=int(item["interval_sec"]),
+                retry_sec=timer.retry_sec,
                 enabled=bool(item["enabled"]),
                 args=dict(timer.args), title=timer.title,
                 label_key=timer.label_key))
@@ -369,7 +382,7 @@ class Catalogue:
                 continue
             rec = records.get(timer.name) or {}
             failed_at = float(rec.get("failed_at") or 0.0)
-            if failed_at and now - failed_at < RETRY_HOLD_SEC:
+            if failed_at and now - failed_at < timer.retry_sec:
                 continue
             last = float(rec.get("last_run") or 0.0)
             period = _as_interval(item.get("interval_sec"), timer.interval_sec)
@@ -441,6 +454,9 @@ def parse_catalogue(data, path: str | None = None,
             interval_sec=_as_interval(
                 raw.get("interval_sec"),
                 base.interval_sec if base else DEFAULT_INTERVAL_SEC),
+            retry_sec=_as_interval(
+                raw.get("retry_sec"),
+                base.retry_sec if base else int(RETRY_HOLD_SEC)),
             enabled=bool(raw.get("enabled", base.enabled if base else False)),
             args=dict(args) if isinstance(args, dict) else {},
             title=(str(raw["title"]).strip() or None) if raw.get("title") else None,
