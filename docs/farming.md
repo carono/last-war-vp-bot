@@ -136,7 +136,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Raising the shield
 - ❌ Expedition
 - ❌ Levelling survivors
-- 🟡 Upgrading a decoration — one press per decoration, with no window opened: the building, its handbook and the decoration cell are all skipped. Which decorations to raise still has to be handed to it beforehand, and it has not yet been run in a live session
+- 🟡 Upgrading a decoration — finds the decorations that can be upgraded by itself and presses each one, with no window opened: the building, its handbook and the decoration cell are all skipped. It presses only where the upgrade is really available and its material is banked, and otherwise says there is nothing to do, which is the usual answer — the material takes days to gather. There is a companion reading that lists every decoration with what it costs and what is held. Everything but the successful upgrade itself is confirmed against the live game; no decoration has been upgradable since, so that last step is still unproven
 - ✅ Accepting a survivor waiting at the base — one press per waiting survivor, no window opened, and it stops on its own when nobody is left at the gate. Wants the base on screen, same as the gifts below: from the world map nobody is standing at the gate yet, so it quietly does nothing and the survivor keeps waiting
 - ✅ Collecting gifts a survivor brought to the base — one press per gift-bearing visitor, no window opened, stopping on its own when nobody is left; a visitor still walking up to the base is left for the next round. Wants the base on screen: from the world map nobody is standing at the gate yet, so it quietly does nothing and the gifts keep waiting
 - ❌ Assembling the treasure from map pieces

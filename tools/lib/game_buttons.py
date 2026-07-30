@@ -480,24 +480,32 @@ BUTTONS: dict[str, Button] = {
         # Three squads is the whole army; the cap is only a backstop.
         max_taps=5,
     ),
-    # --- base decorations: the handbook's upgrade ("ремонт") press ------------
-    # One press upgrades one decoration slot of one building. Which ones is parked
-    # first (`DataCenter.__lw_decor_queue`, see lua_actions.decoration_queue_set)
-    # because `TAP` takes no arguments, so `TAP upgrade_decoration xall` spends the
-    # whole parked list, one slot per press. Headless — the building, its handbook
-    # and the decoration cell are UI the recorded session showed sending nothing.
+    # --- base decorations: the handbook's upgrade press -----------------------
+    # One press upgrades the first decoration that is ready: the button finds the
+    # group itself, so nothing has to be picked or parked beforehand. Headless — no
+    # building tapped, no handbook opened.
+    #
+    # `count_lua` is the number of groups that pass both gates (the upgrade step
+    # exists at this level, and its material is banked), so `TAP upgrade_decoration
+    # xall` upgrades everything that is ready and does nothing at all when none is —
+    # which is the normal state, since the material accumulates over days.
     "upgrade_decoration": Button(
         lua=_lua_actions.upgrade_next_decoration(),
-        # The reply carries the building's refreshed info; a short pause keeps the
-        # client's numbers current before the next slot is pressed.
-        wait=1.0, label="Upgrade a decoration",
-        count_lua=_lua_actions.decoration_queue_len(),
-        max_taps=20,
+        # The reply carries the group's refreshed info; the pause lets the next
+        # count re-read see it.
+        wait=1.2, label="Upgrade a decoration",
+        count_lua=_lua_actions.decoration_upgrade_ready_count(),
+        max_taps=25,
     ),
     "dump_decorations": Button(
-        # Debug helper: log the decoration manager's shape (no press, no send).
-        lua=_lua_actions.decoration_manager_dump(),
-        wait=0.3, label="dump decoration manager",
+        # The "why is nothing happening?" reading: every decoration that has an
+        # upgrade step, with material held vs needed. Reads only, sends nothing.
+        lua=_lua_actions.decoration_state_dump(),
+        wait=0.4, label="decoration state",
+    ),
+    "decorations": Button(
+        lua=_lua_actions.decorations_window(),
+        wait=1.5, label="Decorations",
     ),
     # --- general navigation --------------------------------------------------
     "close": Button(

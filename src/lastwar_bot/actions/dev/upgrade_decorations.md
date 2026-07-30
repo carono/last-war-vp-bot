@@ -1,26 +1,26 @@
-# Upgrade the queued base decorations.
-# ru: Повысить украшения на базе (из подготовленного списка).
+# Upgrade every base decoration that is ready.
+# ru: Повысить украшения на базе, которые уже можно повысить.
 #
 # In the game this is: tap the building that carries decorations, switch to its
-# handbook, pick a decoration that can still be upgraded and press the upgrade
-# button. The recorded session («Повышение украшений», 20260730_142543) showed
-# that walk sending nothing at all — the whole action is one message carrying the
-# building and the decoration slot, so this runs with no window opened.
+# handbook, pick a decoration whose upgrade is available and press the upgrade
+# button. This does the same without opening any of it — it finds the decoration
+# itself, so nothing has to be picked or prepared beforehand.
 #
-# Which decorations to upgrade is parked on the game side first, because a `TAP`
-# takes no arguments:
+# It only presses on a decoration that can really be upgraded: the upgrade step
+# has to exist at the decoration's current level, and the material it costs has
+# to be banked. Neither is usually true — the material accumulates over days — so
+# the ordinary outcome is that this does nothing and says so. That is not a
+# failure: pressing anyway is refused by the game.
 #
-#     lua_actions.decoration_queue_set([(build_uuid, slot), ...])
+# To see where each decoration stands (what it costs, what is held, which one is
+# ready), run `TAP dump_decorations` — it writes a line per decoration and sends
+# nothing. `TAP decorations` opens the decoration window if you want to look.
 #
-# With nothing parked the press logs "empty queue" and does nothing. Reading the
-# upgradable decorations out of the client automatically is not written yet — the
-# manager holding them is known, its reader API is not (`TAP dump_decorations`
-# logs its shape).
-#
-# Still dev: written from the wire, not yet proven in a live session — the reply
-# to the recorded press was accepted (state=1), but this recipe has not fired one
-# itself. Verify that the upgraded decoration really levels up in game.
+# Still dev: every step is verified against the live game — the search, the
+# target it picks, the gate, and the refusal when nothing is ready — but no
+# decoration on this account has been upgradable since, so a successful upgrade
+# has not been driven end to end yet.
 
 TAP upgrade_decoration xall
 
-LOG "Queued decorations processed."
+LOG "Decorations: everything that was ready has been upgraded."

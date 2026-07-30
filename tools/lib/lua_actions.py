@@ -2136,91 +2136,129 @@ def truck_reward_collect() -> str:
     )
 
 
-# --- Base decorations: upgrade one ("ремонт" in the decoration handbook) -----
-# Session `20260730_142543_Повышение_украшений`: the player opened the building that
-# carries decorations, switched to its handbook, picked a decoration that could be
-# upgraded and pressed the upgrade button. The whole flow put ONE message on the wire
-# (everything else in the run is keepalives and unrelated pushes):
+# --- Base decorations: the handbook's upgrade press --------------------------
+# Session `20260730_142543_Повышение_украшений` recorded the press itself; the rest
+# of this was read out of the live Lua VM afterwards, because the first recipe built
+# from the wire alone did nothing in game (task #1125).
+#
+# The wire, from the trace (the tracer ran with `filter="SFS"`, so ONLY SFS calls were
+# recorded — the building/handbook/cell taps are simply not in the file, and their
+# absence there proves nothing about them):
 #
 #     SFSNetwork.SendMessage <- decorator.progress.upgrade, 1156814307842051185, 1
-#       -> up   decorator.progress.upgrade {buildUuid:<long>, num:1}
-#       -> down decorator.progress.upgrade {state:1, deleteNewArr:[{num:1,lv:1}],
-#                                           buildInfo:{uuid:<same>, decorNum:1, lv:6, …}}
+#       SFSObject.PutLong  buildUuid, 1156814307842051185
+#       SFSObject.PutInt   num, 1
 #
-# So the press is a plain positional send of the building's uuid plus the decoration
-# slot `num` — no window has to be open, nothing is selected first, and the reply is
-# the building's refreshed info (its `decorNum` / `lv`), not a reward list. The three
-# windows the player walked through (building -> handbook -> the decoration cell) are
-# pure UI: none of them touched the socket.
+# The two parameters are NOT free-form:
 #
-# The owning client-side manager is `DataCenter.DecorationDataManager` (the DataCenter
-# key dump); its reader API is not mapped yet, which is why the queue below is parked
-# from outside instead of being scanned in-game.
+#   * `buildUuid` is the decoration GROUP's representative building, the one
+#     `BuildManager:GetMaxLvBuildDataByBuildId(itemId)` returns. Fed that itemId
+#     (103401000) it hands back exactly the uuid in the recording. Any other building
+#     of the same decoration is the wrong target — sending one is accepted by the
+#     client and changes nothing (proven live).
+#   * `num` is a COUNT of progress steps to buy, not a slot index: the real press,
+#     `UIDecorationAdvanceUpgrade:OnLevelUpClick`, sends `curCanUpgradeNum`, which is
+#     1 for a single tap and more for a long press.
+#
+# The gate is `BuildingUtils.IsExistAdvanceUpgrade(itemId, level)` — the decoration has
+# an "advance upgrade" step at its current level. Without it the server refuses the
+# send outright: `errorCode = building_center_tips4`,
+# `errorMsg = "building no extra_lvup_para"` (captured live off the reply).
+# `BuildManager:IsCanUpgradeDecoration(itemId, level, buildData)` then returns
+# `have, need` — the upgrade material the player holds against what this step costs.
+#
+# So one press is: pick a decoration group that passes both gates, resolve its uuid
+# from the itemId, send `{buildUuid, num=1}`. No window is opened; the handbook the
+# player walked through is UI only.
 
-_DECOR_UPGRADE_MSG = "decorator.progress.upgrade"
+_DECOR_UPGRADE_MSG_KEY = "MsgDefines.DecoratorProgressUpgradeMessage"
+
+# Walks the decoration groups and leaves the first one that can be upgraded right now
+# in `item`, `uuid` and `lv`. Shared by the count, the press and the dump so the three
+# can never disagree about what "ready" means.
+_DECOR_SCAN = (
+    "local bm=DataCenter.BuildManager "
+    "local function scan(cb) "
+    "for itemId in pairs(bm:GetAllDecoratorBuildingData() or {}) do "
+    "local ok,d=pcall(function() return bm:GetMaxLvBuildDataByBuildId(itemId) end) "
+    "if ok and d then "
+    "local ok2,adv=pcall(function() return BuildingUtils.IsExistAdvanceUpgrade(itemId,d.level) end) "
+    "if ok2 and adv then "
+    "local ok3,have,need=pcall(function() return bm:IsCanUpgradeDecoration(itemId,d.level,d) end) "
+    "if ok3 and type(have)=='number' and type(need)=='number' then "
+    "if cb(itemId,d,have,need) then return true end end end end end return false end "
+)
 
 
-def decoration_upgrade(build_uuid, num: int = 1) -> str:
-    """Upgrade decoration slot `num` on the base building `build_uuid` — one press.
+def decoration_upgrade_ready_count() -> str:
+    """Lua *expression* -> how many decorations can be upgraded right now.
 
-    The literal reproduction of the recorded send. Headless: no building tapped, no
-    handbook opened, no cell selected. A slot that cannot be upgraded right now (not
-    enough materials, already at the cap) is refused by the server the same way the
-    in-game button would be — the send itself always goes out.
+    Counts the groups that pass BOTH gates: the step exists at this level, and the
+    material for it is banked. Zero is the normal reading — a decoration only becomes
+    upgradable again once enough material has accumulated, which takes days.
     """
-    return ('pcall(function() SFSNetwork.SendMessage("%s", %s, %d) end) '
-            'CS.UnityEngine.Debug.LogError("ACT decor_upgrade uuid=%s num=%d")'
-            % (_DECOR_UPGRADE_MSG, build_uuid, int(num), build_uuid, int(num)))
+    return ("(function() %s local n=0 "
+            "scan(function(_,_,have,need) if have>=need and need>0 then n=n+1 end end) "
+            "return n end)()" % _DECOR_SCAN)
 
 
-# The work queue. A DSL `TAP` takes no arguments, so which decorations to upgrade is
-# parked on the VM first, exactly like the treasure queue:
-#
-#     DataCenter.__lw_decor_queue = { {uuid=<buildUuid>, num=<slot>}, ... }
-#
-# `decoration_queue_set` fills it, `upgrade_next_decoration` pops one entry per press,
-# so `TAP upgrade_decoration xall` spends the whole parked list.
+def upgrade_next_decoration(count: int = 1) -> str:
+    """Upgrade the first decoration that is ready — the whole press, self-contained.
 
-
-def decoration_queue_set(targets) -> str:
-    """Park the decorations to upgrade: an iterable of `(build_uuid, num)` pairs."""
-    items = ",".join("{uuid=%s,num=%d}" % (u, int(n)) for u, n in targets)
-    return ("DataCenter.__lw_decor_queue={%s} "
-            'CS.UnityEngine.Debug.LogError("ACT decor_queue="..tostring(#DataCenter.__lw_decor_queue))'
-            % items)
-
-
-def decoration_queue_len() -> str:
-    """Lua *expression* -> how many decorations are still queued for an upgrade."""
-    return "(function() return #(DataCenter.__lw_decor_queue or {}) end)()"
-
-
-def upgrade_next_decoration() -> str:
-    """Pop the head of the parked queue and send its upgrade.
-
-    The head is removed before the send (same shape as the treasure/ghost-recon
-    presses), so a refused upgrade costs one queue entry instead of wedging `xall` on
-    a slot the server keeps rejecting.
+    Finds the group itself (no target has to be parked first), resolves the uuid the
+    game would use and sends `count` progress steps. With nothing ready it logs why
+    and sends nothing, so running it on a schedule costs one VM call and no refusals.
     """
     return (
-        "local q=DataCenter.__lw_decor_queue or {} local t=table.remove(q,1) "
-        'if t then pcall(function() SFSNetwork.SendMessage("%s", t.uuid, t.num) end) '
-        'CS.UnityEngine.Debug.LogError("ACT decor_upgrade uuid="..tostring(t.uuid)..'
-        '" num="..tostring(t.num)) '
-        'else CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip empty queue") end'
-        % _DECOR_UPGRADE_MSG
+        "%s local fired=false "
+        "scan(function(itemId,d,have,need) "
+        "if have>=need and need>0 then "
+        "pcall(function() SFSNetwork.SendMessage(%s, d.uuid, %d) end) "
+        'CS.UnityEngine.Debug.LogError("ACT decor_upgrade item="..tostring(itemId)..'
+        '" uuid="..tostring(d.uuid).." lv="..tostring(d.level).." num=%d") '
+        "fired=true return true end end) "
+        'if not fired then CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip nothing ready") end'
+        % (_DECOR_SCAN, _DECOR_UPGRADE_MSG_KEY, int(count), int(count))
     )
 
 
-def decoration_manager_dump() -> str:
-    """Log the shape of `DataCenter.DecorationDataManager` — the finder's groundwork.
+def decoration_upgrade(item_id: int, count: int = 1) -> str:
+    """Upgrade one named decoration group by its `item_id` — the targeted press.
 
-    Names and value types only (no calls), so the next session can write the "which
-    decorations can be upgraded right now" scan without guessing method names.
+    The uuid is resolved in game (`GetMaxLvBuildDataByBuildId`), never hard-coded: it
+    belongs to the account and changes when the group's top building does.
     """
     return (
-        "local m=DataCenter.DecorationDataManager "
-        'if not m then CS.UnityEngine.Debug.LogError("ACT decor_dump none") return end '
-        "for k,v in pairs(m) do "
-        'CS.UnityEngine.Debug.LogError("ACT decor_key "..tostring(k).." "..type(v)) end'
+        "local bm=DataCenter.BuildManager "
+        "local ok,d=pcall(function() return bm:GetMaxLvBuildDataByBuildId(%d) end) "
+        "if ok and d then "
+        "pcall(function() SFSNetwork.SendMessage(%s, d.uuid, %d) end) "
+        'CS.UnityEngine.Debug.LogError("ACT decor_upgrade item=%d uuid="..tostring(d.uuid).." num=%d") '
+        'else CS.UnityEngine.Debug.LogError("ACT decor_upgrade_skip item=%d not on the base") end'
+        % (int(item_id), _DECOR_UPGRADE_MSG_KEY, int(count), int(item_id), int(count), int(item_id))
     )
+
+
+def decoration_state_dump() -> str:
+    """Log every decoration that has an upgrade step, with material held vs needed.
+
+    This is the "why is nothing happening?" reading: a line per group, `have/need`, and
+    a READY marker on the ones a press would actually take.
+    """
+    return (
+        "%s local n,ready=0,0 "
+        "scan(function(itemId,d,have,need) n=n+1 "
+        "if have>=need and need>0 then ready=ready+1 end "
+        'CS.UnityEngine.Debug.LogError("ACT decor item="..tostring(itemId)..'
+        '" uuid="..tostring(d.uuid).." lv="..tostring(d.level)..'
+        '" have="..tostring(have).." need="..tostring(need)..'
+        '((have>=need and need>0) and "  READY" or "")) end) '
+        'CS.UnityEngine.Debug.LogError("ACT decor_groups="..tostring(n).." ready="..tostring(ready))'
+        % _DECOR_SCAN
+    )
+
+
+def decorations_window() -> str:
+    """Open the base's decoration window — the manual path, for looking at it."""
+    return ("pcall(function() UIManager.Instance:OpenWindow(UIWindowNames.UIDecorationMain) end) "
+            'CS.UnityEngine.Debug.LogError("ACT decorations_window opened")')
