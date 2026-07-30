@@ -110,7 +110,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   nothing on the ground can touch it while it flies. What runs by itself: the whole
   start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
   life**, against ~132 m for the older reflex version and ~88 m with no control at all;
-  with three revives one attempt ran 1162 m. Left to the person: nothing during a run.
+  with revives, single attempts ran **1685 and 2700 m**. Left to the person: nothing during a run.
   Still open: the record 8185 m and the 20000 m target are not reached yet.
 
 ### Arms Race

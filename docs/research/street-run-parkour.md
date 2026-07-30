@@ -293,8 +293,11 @@ before it is flown.
 - ✅ **Track model** — bands, patterns and collider extents dumped and measured.
 - 🟡 **Route planning beats the reflex by ~7×** — live (server 935, 2026-07-30) single
   lives of **720–1377 m** against ~132 m for the one-step reflex and ~88 m with no control;
-  one attempt with 3 revives (`logic:RebirthGame()`, which does work, unlike the data
-  manager's `ReqRebirthGame`) reached 1162 m across 4 lives. The offline replay clears 9 of
+  attempts with revives (`logic:RebirthGame()`, which does work, unlike the data manager's
+  `ReqRebirthGame`) reached **1685 and 2700 m**. Reviving that way sends the right server
+  request but skips the popup's button, so «Испытание окончено» stays on screen over a run
+  that has already resumed — destroy `UIWindowNames.UISurfingBattleFailure` after it (only
+  that window; `logic:CloseWindows()` would take the run's HUD too). The offline replay clears 9 of
   the 10 dumped bands from every start lane; the one that fails needs a template the client
   had not loaded, so the planner treats it as un-hoppable and finds no route.
 - After a headless run the client is left with an empty window stack (a black screen),

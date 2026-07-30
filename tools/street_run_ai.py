@@ -225,12 +225,22 @@ def _one_attempt(ev, revives: int, log):
     return best_z, lives
 
 
+# Reviving through `logic:RebirthGame()` sends the proper server request, but it is the
+# result popup's button that normally does it — so nothing closes «Испытание окончено» and
+# the run carries on underneath a dead card left on screen. Destroy that one window (only
+# it: `logic:CloseWindows()` would take the run's HUD with it).
 _REVIVE = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
 local lg = _G.__SR_LOGIC
 if not lg then L("ST revive=0") return end
 local ok = pcall(function() lg:RebirthGame() end)
-L("ST revive=" .. tostring(ok))
+local closed = pcall(function()
+  local um = UIManager:GetInstance()
+  if um:IsWindowOpen(UIWindowNames.UISurfingBattleFailure) then
+    um:DestroyWindow(UIWindowNames.UISurfingBattleFailure)
+  end
+end)
+L("ST revive=" .. tostring(ok) .. " closed=" .. tostring(closed))
 """
 
 
