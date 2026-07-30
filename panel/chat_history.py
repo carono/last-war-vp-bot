@@ -76,21 +76,25 @@ class ChatHistoryStore:
         self._conn.commit()
 
     # -- writing ------------------------------------------------------------
-    def append(self, record: dict) -> None:
-        """Insert one captured record (idempotent on its natural identity)."""
+    def _insert(self, record: dict) -> None:
+        """Queue one record for insert (idempotent); the caller commits."""
         room = str(record.get("room_id") or "")
         chat_type = record.get("chat_type") or classify_room(room)
+        self._conn.execute(
+            "INSERT OR IGNORE INTO messages(ts, uid, name, text, room, chat_type, raw_json) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?)",
+            (float(record.get("ts") or 0.0),
+             str(record.get("sender_uid") or ""),
+             str(record.get("sender_name") or ""),
+             str(record.get("msg") or ""),
+             room, chat_type,
+             json.dumps(record, ensure_ascii=False)),
+        )
+
+    def append(self, record: dict) -> None:
+        """Insert one captured record (idempotent on its natural identity)."""
         try:
-            self._conn.execute(
-                "INSERT OR IGNORE INTO messages(ts, uid, name, text, room, chat_type, raw_json) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?)",
-                (float(record.get("ts") or 0.0),
-                 str(record.get("sender_uid") or ""),
-                 str(record.get("sender_name") or ""),
-                 str(record.get("msg") or ""),
-                 room, chat_type,
-                 json.dumps(record, ensure_ascii=False)),
-            )
+            self._insert(record)
             self._conn.commit()
         except sqlite3.Error:
             # A store write must never take the live monitor down; a lost row is a
@@ -101,7 +105,8 @@ class ChatHistoryStore:
         """One-time migration: fold an existing chat_log.jsonl into the store.
 
         Idempotent (the unique identity index drops repeats), so calling it again
-        is harmless. Returns the number of rows the file contributed.
+        is harmless. One transaction for the whole file, so a large legacy log does
+        not stall startup with a commit per line. Returns the rows it contributed.
         """
         if not path or not os.path.isfile(path):
             return 0
@@ -117,7 +122,11 @@ class ChatHistoryStore:
                     except json.JSONDecodeError:
                         continue
                     if isinstance(rec, dict) and rec.get("room_id"):
-                        self.append(rec)
+                        try:
+                            self._insert(rec)
+                        except sqlite3.Error:
+                            continue
+            self._conn.commit()
         except OSError:
             return 0
         return self.count() - before
