@@ -183,6 +183,25 @@ Run once to populate `results/chat_assets/{emoji,sticker}/`:
 C:\Python312\python.exe tools\extract_chat_assets.py
 ```
 
+- **Avatars** — the sender's avatar is cached under the *same* ChatPhotos scheme
+  as a message photo, keyed by `md5(f"{uid}_{headPicVer}").jpg`. `chat_reader.py`
+  now emits `head_pic` (head-frame id) and `head_pic_ver` (the version) from
+  `getSenderInfo()`, and `chat_assets.avatar_path(uid, headPicVer)` resolves the
+  JPG with no game call. The panel draws it inline (20 px) before the nickname; a
+  built-in head frame with no uploaded avatar has no cached file and simply renders
+  nickname-only.
+
+### Panel history & lazy-load
+
+The panel persists chat to `<profile>/chat_log.jsonl` (written by `chat_reader
+--out` as each message arrives) and reloads it on startup / profile switch. To
+keep the Text widget fast with a long log, each tab keeps its full history in
+memory but renders only the newest **page** (`CHAT_PAGE = 100`); a scroll to the
+top — or a click on the "↑ show earlier messages" header — pages in the previous
+chunk, top-anchored so the reader stays put. A live message only appends (the
+window top does not move), and the view auto-scrolls to the newest line only when
+the reader is already at the bottom.
+
 ## Open follow-ups
 
 - **On-demand backlog.** Reading the full on-screen history without waiting for

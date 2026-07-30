@@ -84,6 +84,13 @@ local function record(a)
     rec.lang     = tostring(si.lang)
     rec.gm       = tostring(si.gmFlag)
     rec.srv      = tostring(si.serverId)
+    -- The sender's avatar. `headPic` is the head-frame id; `headPicVer` is the
+    -- version that keys the on-disk copy the client caches under ChatPhotos
+    -- (md5(f"{uid}_{headPicVer}").jpg -- same scheme as a chat photo). The panel
+    -- resolves it with no game call; a built-in head with no cached file just
+    -- renders nickname-only.
+    rec.hp       = tostring(si.headPic)
+    rec.hpv      = tostring(si.headPicVer)
   end
   local cap = _G.__CR_BUF
   cap[#cap + 1] = rec
@@ -141,7 +148,8 @@ for i, r in ipairs(cap) do
   pcall(function()
     L("R roomId="..f(r.roomId).." seqId="..f(r.seqId).." st="..f(r.st).." post="..f(r.post)
       .." type="..f(r.mtype).." uid="..f(r.uid).." lang="..f(r.lang)
-      .." gm="..f(r.gm).." srv="..f(r.srv).." ismy="..f(r.ismy).." alliance="..f(r.alliance)
+      .." gm="..f(r.gm).." srv="..f(r.srv).." hp="..f(r.hp).." hpv="..f(r.hpv)
+      .." ismy="..f(r.ismy).." alliance="..f(r.alliance)
       .." sender="..f(r.sender).." msg="..f(r.msg).." we="..f(r.we))
   end)
 end
@@ -227,6 +235,9 @@ def _parse_record_line(line: str) -> dict | None:
         "type": fields.get("type", ""),
         "sender_uid": fields.get("uid", ""),
         "server_id": fields.get("srv", ""),
+        # Avatar: head-frame id + the version that keys its cached JPG on disk.
+        "head_pic": fields.get("hp", ""),
+        "head_pic_ver": fields.get("hpv", ""),
         "lang": fields.get("lang", ""),
         "gm": fields.get("gm", ""),
         "is_mine": fields.get("ismy", "") == "true",

@@ -38,7 +38,8 @@ SLOW = 'LOG "one"\nWAIT 0.4\nLOG "two"\nWAIT 0.4\nLOG "three"\n'
 
 def _tab(tmp: Path):
     """A Panel stand-in with the Scenarios tab really built, on a temp actions dir."""
-    import tkinter as tk
+    import tkinter as tk  # noqa: F401
+    import customtkinter as ctk
     from tkinter import ttk
     from panel import i18n as i18nmod
     import panel.__main__ as pm
@@ -50,7 +51,7 @@ def _tab(tmp: Path):
     se.ACTIONS_DIR = tmp
     se.DEV_ACTIONS_DIR = tmp / "dev"
 
-    root = tk.Tk()
+    root = ctk.CTk()          # the panel is a CustomTkinter app now (#1129)
     root.withdraw()
 
     class _Tab:

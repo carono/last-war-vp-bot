@@ -77,6 +77,7 @@ if not __package__:
 
 import glob
 import json
+import logging
 import os
 import queue
 import re
@@ -84,16 +85,36 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import tkinter as tk
-from tkinter import messagebox, scrolledtext, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk
+
+import customtkinter as ctk
 
 from . import __version__ as APP_VERSION
+# CustomTkinter widget adapters that accept the panel's legacy tk/ttk options.
+# The bare tk/ttk widgets that have no CustomTkinter equivalent (Treeview,
+# Spinbox, Listbox, Menu, PanedWindow) still come from tk/ttk above.
+from .ctk_widgets import (
+    CTkButton,
+    CTkCheckBox,
+    CTkComboBox,
+    CTkEntry,
+    CTkFrame,
+    CTkLabel,
+    CTkLabelFrame,
+    CTkNotebook,
+    CTkScrollbar,
+    CTkTextbox,
+)
 from . import childmon as childmonmod
 from . import dashboard as dashmod
+from . import debug_log as dbgmod
 from . import i18n as i18nmod
 from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
+from . import triggers as triggersmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -143,9 +164,10 @@ LOG_TRIM_BLOCK = 500
 # Every producer that writes a `[tag]` into the log, in the order the filter
 # offers them. Adding a producer without adding it here costs nothing — its lines
 # are always shown, and only "show just this one" cannot single it out.
-LOG_TAGS = ("panel", "action", "timer", "secret", "autoloot", "ghost", "sweep",
-            "rally", "help", "chat", "coord", "scene", "server", "game", "daemon",
-            "profile", "traffic", "trace", "sniff", "dash", "cmd")
+LOG_TAGS = ("panel", "action", "timer", "trigger", "secret", "autoloot", "ghost",
+            "sweep", "rally", "help", "chat", "coord", "scene", "server", "game",
+            "daemon", "profile", "traffic", "trace", "sniff", "dash", "cmd",
+            "debug")
 # The filter's "show everything" entry. A sentinel rather than the empty string so
 # the combobox has something to display.
 LOG_FILTER_ALL = "*"
@@ -354,11 +376,26 @@ SETTINGS_DEFAULTS: dict = {
     "sweep_step": mapsweepmod.DEFAULT_STEP,
     "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
     "sweep_rest_min": 5,           # pause between two full passes, minutes
+    # Technical debug log (panel/debug_log.py) — separate from the human-facing
+    # panel.log. Rotated by size so an overnight session cannot grow it; the level
+    # is one of DEBUG/INFO/WARNING/ERROR; `debug_send_dest` is where «Отправить
+    # архив» ships the zip (TBD — no transport is wired, so it is a stub for now).
+    "debug_log_max_kb": dbgmod.DEFAULT_MAX_KB,
+    "debug_log_backups": dbgmod.DEFAULT_BACKUPS,
+    "debug_log_level": dbgmod.DEFAULT_LEVEL,
+    "debug_send_dest": dbgmod.DEFAULT_DESTINATION,
 }
 
 # The chat sub-tabs, in order. `system` is on the list: `_chat_msgs` always carried
 # the bucket, so those messages were counted and never shown anywhere.
 CHAT_TABS: tuple[str, ...] = ("world", "alliance", "national", "dm", "other", "system")
+
+# Lazy-load: the full history of a tab lives in memory, but only a window of it is
+# ever rendered into the (slow) Text widget. CHAT_PAGE is how many messages the tab
+# opens with and how many more a scroll-to-top pages in. CHAT_MSGS_MAX caps the
+# in-memory list so a marathon session cannot grow it without bound.
+CHAT_PAGE = 100
+CHAT_MSGS_MAX = 2000
 
 # The squads the panel offers for a rally. The game's own squad slots are read
 # live where they matter (the formation whose `index` is the slot, see
@@ -531,7 +568,7 @@ def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
     return True, f"running (pid {pid})"
 
 
-class Panel(tk.Tk):
+class Panel(ctk.CTk):
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
         self._i18n = i18nmod.I18n()
@@ -568,7 +605,6 @@ class Panel(tk.Tk):
         # teamUuids already alerted on this session. A rally emits create AND
         # refresh events, so without this one стяг would ring four times.
         self._rally_seen: set = set()
-        self._help_proc = None        # live auto-help watcher (push.al.help.new)
         self._autoloot_proc = None    # one auto-loot run at a time
         self._autoloot_push_proc = None   # the event-driven share-push listener, when running
         self._autoloot_push_restart = None  # debounce handle for a range change mid-run
@@ -618,6 +654,10 @@ class Panel(tk.Tk):
         self._chat_trees: dict = {}
         # Count of lines already rendered into each view (for incremental appends)
         self._chat_tree_rows: dict = {}
+        # Lazy-load window: the index into _chat_msgs of the FIRST record currently
+        # rendered. Everything before it is in memory but not drawn; a scroll to the
+        # top pages another CHAT_PAGE of it into view. 0 = the whole tab is shown.
+        self._chat_offset: dict = {t: 0 for t in CHAT_TABS}
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
         # PhotoImage refs alive (tk.Text does not hold a Python reference).
         self._chat_img_cache: dict = {}
@@ -643,6 +683,22 @@ class Panel(tk.Tk):
             runner=self._run_timer_action,
             log=lambda key, **fmt: self._log_put("[timer] " + self._t(key, **fmt)),
             gate=self._timer_gate,
+        )
+        # Wire-driven errands (panel/triggers.py) — their OWN catalogue and OWN file,
+        # per profile, seeded from the template panel/triggers.json. A trigger has no
+        # period; the watcher keeps a listener alive per switched-on trigger and, on a
+        # matching push, hands the scenario to the scheduler's own queue (submit) so a
+        # triggered press runs single-file with the scheduled timers.
+        self._trigger_catalogue = triggersmod.default_catalogue()
+        self._trigger_vars: dict[str, tk.BooleanVar] = {}   # name -> enabled Var
+        self._trigger_rows: dict[str, dict] = {}            # name -> {"status" Label}
+        self._load_trigger_catalogue()
+        self._triggers = triggersmod.TriggerWatcher(
+            catalogue=lambda: self._trigger_catalogue,
+            config=self._trigger_config,
+            spawn=self._spawn_trigger_listener,
+            submit=self._timers.submit,
+            log=lambda key, **fmt: self._log_put("[trigger] " + self._t(key, **fmt)),
         )
         # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
         # built — the Settings tabs bind widgets to them and the main tab's watchdog
@@ -843,39 +899,39 @@ class Panel(tk.Tk):
             self._tr_hooks.append(self._build_menu)
 
     def _show_about(self) -> None:
-        win = tk.Toplevel(self)
+        win = ctk.CTkToplevel(self)
         win.title(self._t("about.title"))
         win.resizable(False, False)
         win.transient(self)
-        frm = ttk.Frame(win, padding=16)
+        frm = CTkFrame(win, padding=16)
         frm.pack(fill="both", expand=True)
-        ttk.Label(frm, text=self._t("about.name"),
+        CTkLabel(frm, text=self._t("about.name"),
                   font=("", 12, "bold")).pack(anchor="w")
-        ttk.Label(frm, text=self._t("about.version", version=APP_VERSION),
+        CTkLabel(frm, text=self._t("about.version", version=APP_VERSION),
                   foreground="#888").pack(anchor="w", pady=(2, 8))
-        ttk.Label(frm, text=self._t("about.description"), wraplength=360,
+        CTkLabel(frm, text=self._t("about.description"), wraplength=360,
                   justify="left").pack(anchor="w")
-        ttk.Button(frm, text=self._t("about.ok"),
+        CTkButton(frm, text=self._t("about.ok"),
                    command=win.destroy).pack(anchor="e", pady=(12, 0))
         win.grab_set()
 
     # -- profiles -----------------------------------------------------------
     def _build_profile_bar(self) -> None:
         """A switcher bar (create / rename / delete / select) above the tabs."""
-        bar = ttk.Frame(self, padding=(8, 6, 8, 0))
+        bar = CTkFrame(self, padding=(8, 6, 8, 0))
         bar.pack(fill="x", side="top")
-        self._tr(ttk.Label(bar), "profile.label").pack(side="left")
+        self._tr(CTkLabel(bar), "profile.label").pack(side="left")
         self._profile_var = tk.StringVar(value=self._profiles.active)
-        self._profile_combo = ttk.Combobox(bar, textvariable=self._profile_var,
+        self._profile_combo = CTkComboBox(bar, textvariable=self._profile_var,
                                             state="readonly", width=20,
                                             values=self._profiles.list())
         self._profile_combo.pack(side="left", padx=(6, 8))
         self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
-        self._tr(ttk.Button(bar, command=self._create_profile),
+        self._tr(CTkButton(bar, command=self._create_profile),
                  "profile.new").pack(side="left", padx=2)
-        self._tr(ttk.Button(bar, command=self._rename_profile),
+        self._tr(CTkButton(bar, command=self._rename_profile),
                  "profile.rename").pack(side="left", padx=2)
-        self._tr(ttk.Button(bar, command=self._delete_profile),
+        self._tr(CTkButton(bar, command=self._delete_profile),
                  "profile.delete").pack(side="left", padx=2)
 
     def _refresh_profile_combo(self, select: str | None = None) -> None:
@@ -979,7 +1035,9 @@ class Panel(tk.Tk):
             "autoloot_level_from": self._lvl_from_var.get(),
             "autoloot_level_to": self._lvl_to_var.get(),
             "rally_monitor": self._rally_var.get(),
-            "alliance_autohelp": self._help_var.get(),
+            # `alliance_autohelp` (the old checkbox) is deliberately not written back:
+            # it became the «alliance_help» trigger in the profile's timers.json, and
+            # `_migrate_autohelp` flips that on once for a profile that had it set.
             "rally_autojoin": self._rally_autojoin_var.get(),
             "rally_alert": self._rally_alert_var.get(),
             "secret_monitor": self._mon_var.get(),
@@ -1038,8 +1096,6 @@ class Panel(tk.Tk):
             self._lvl_to_var.set(s.get("autoloot_level_to",
                                        s.get("filter_level_to", "")))
             self._rally_var.set(bool(s.get("rally_monitor", True)))
-            # Off by default: it answers on its own, so it is opted into, not out of.
-            self._help_var.set(bool(s.get("alliance_autohelp", False)))
             self._rally_autojoin_var.set(bool(s.get("rally_autojoin", False)))
             self._rally_alert_var.set(bool(s.get("rally_alert", True)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
@@ -1069,7 +1125,7 @@ class Panel(tk.Tk):
                     self._pending_var, self._can_loot_var,
                     self._flt_from_var, self._flt_to_var,
                     self._lvl_from_var, self._lvl_to_var,
-                    self._rally_var, self._help_var, self._mon_var,
+                    self._rally_var, self._mon_var,
                     self._autoloot_var, self._ghost_autoloot_var, self._chat_var,
                     self._rally_autojoin_var, self._rally_alert_var,
                     self._sweep_var, self._sweep_cx_var, self._sweep_cy_var,
@@ -1160,11 +1216,6 @@ class Panel(tk.Tk):
         self._stop_rally()
         if self._rally_var.get():
             self._start_rally()
-        # Auto-help is per-profile too: a switch must not leave the previous
-        # profile's watcher helping on this one's behalf.
-        self._stop_help()
-        if self._help_var.get():
-            self._start_help()
         self._stop_monitor()
         if self._mon_var.get():
             self._start_monitor()
@@ -1190,6 +1241,11 @@ class Panel(tk.Tk):
         # look as freshly collected as it did.
         self._timer_store.set_path(self._profiles.timers_state())
         self._reload_timers(quiet=True)
+        # The triggers belong to the account as much as the schedule: re-read this
+        # profile's triggers.json, redraw the rows and reconcile the listeners — a
+        # switch must not leave the previous profile's watcher listening on this one's
+        # behalf. `_reload_triggers` does all three (and the one-time autohelp migrate).
+        self._reload_triggers(quiet=True)
 
     def _update_path_hints(self) -> None:
         """Refresh labels that show the active profile's log path (rally hint)."""
@@ -1205,20 +1261,17 @@ class Panel(tk.Tk):
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
-        # The one custom style the panel needs: the selected timer row. A ttk
-        # Checkbutton has no "selected" look of its own, and the four editor buttons
-        # act on whichever row that is — so it has to be visible.
-        try:
-            ttk.Style(self).configure("Selected.TCheckbutton", font=("", 9, "bold"))
-        except tk.TclError:
-            pass
-        nb = ttk.Notebook(self)
+        # The selected timer row has to be visible: a checkbox has no "selected"
+        # look of its own, and the four editor buttons act on whichever row that
+        # is. The CTkCheckBox adapter renders the "Selected.TCheckbutton" style the
+        # rows ask for as a bold label, so no ttk style table is needed here.
+        nb = CTkNotebook(self)
         nb.pack(fill="both", expand=True)
-        main = ttk.Frame(nb)
-        scenarios = ttk.Frame(nb)
-        timers_tab = ttk.Frame(nb)
-        settings_tab = ttk.Frame(nb)
-        chat_tab = ttk.Frame(nb)
+        main = CTkFrame(nb)
+        scenarios = CTkFrame(nb)
+        timers_tab = CTkFrame(nb)
+        settings_tab = CTkFrame(nb)
+        chat_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
@@ -1234,25 +1287,25 @@ class Panel(tk.Tk):
         self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
 
-        top = ttk.Frame(main, padding=8)
+        top = CTkFrame(main, padding=8)
         top.pack(fill="x")
-        self._tr(ttk.Label(top), "top.game").pack(side="left")
+        self._tr(CTkLabel(top), "top.game").pack(side="left")
         self._status_var = tk.StringVar(value=self._t("status.checking"))
-        self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
+        self._status_lbl = CTkLabel(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
-        self._tr(ttk.Label(top), "top.daemon").pack(side="left", padx=(12, 0))
+        self._tr(CTkLabel(top), "top.daemon").pack(side="left", padx=(12, 0))
         self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
-        self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
+        self._daemon_lbl = CTkLabel(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
         # Restarting the daemon used to mean killing it from outside the panel: a
         # wedged lua_daemon left every button dead with no way back in the UI.
-        self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
+        self._tr(CTkButton(top, width=3, command=self._restart_daemon),
                  "daemon.restart").pack(side="left", padx=(2, 0))
-        ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
+        CTkButton(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
         # One control that stops everything: monitors, watchers, the sweep, a running
         # scenario and the schedule. It used to be five clicks across three tabs,
         # which is exactly the wrong shape for the moment you actually need it.
-        self._tr(ttk.Button(top, command=self._panic),
+        self._tr(CTkButton(top, command=self._panic),
                  "panic.stop_all").pack(side="right", padx=(0, 6))
 
         # -- the account dashboard: every daily budget on one strip -------------
@@ -1264,108 +1317,108 @@ class Panel(tk.Tk):
         split = ttk.PanedWindow(main, orient="vertical")
         split.pack(fill="both", expand=True)
         self._main_split = split
-        upper = ttk.Frame(split)
-        lower = ttk.Frame(split)
+        upper = CTkFrame(split)
+        lower = CTkFrame(split)
         split.add(upper, weight=0)
         split.add(lower, weight=1)
         main = upper                  # the control blocks below fill the top pane
 
-        game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
+        game = self._tr(CTkLabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
-        self._tr(ttk.Button(game, command=self._launch_game),
+        self._tr(CTkButton(game, command=self._launch_game),
                  "game.launch").pack(side="left", padx=4, ipady=3)
-        self._tr(ttk.Button(game, command=self._restart_game),
+        self._tr(CTkButton(game, command=self._restart_game),
                  "game.restart").pack(side="left", padx=4, ipady=3)
-        self._tr(ttk.Label(game, foreground="#888"),
+        self._tr(CTkLabel(game, foreground="#888"),
                  "game.launcher_hint").pack(side="left", padx=10)
         # The watchdog: the client is crash-prone (that is why launch_game exists),
         # and until now a crash was silent — the panel kept saying "running (pid …)"
         # while every timer tick failed into the retry hold. The same variable the
         # Settings → «Игра» tab shows, so the two switches are one switch.
-        self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
+        self._tr(CTkCheckBox(game, variable=self._opt_vars["watchdog"]),
                  "game.watchdog").pack(side="right")
 
-        nav = self._tr(ttk.LabelFrame(main, padding=8), "nav.frame")
+        nav = self._tr(CTkLabelFrame(main, padding=8), "nav.frame")
         nav.pack(fill="x", padx=8, pady=(0, 6))
 
-        scene = self._tr(ttk.LabelFrame(nav, padding=6), "nav.scene")
+        scene = self._tr(CTkLabelFrame(nav, padding=6), "nav.scene")
         scene.pack(fill="x", pady=(0, 6))
         # The label `_act` logs is looked up when the button is PRESSED, not when it
         # is built, so switching the language re-labels the log line too.
-        self._tr(ttk.Button(scene, command=lambda: self._act(
+        self._tr(CTkButton(scene, command=lambda: self._act(
                      lua_actions.scene_city(), "scene", self._t("nav.home.log"))),
                  "nav.home").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(ttk.Button(scene, command=lambda: self._act(
+        self._tr(CTkButton(scene, command=lambda: self._act(
                      lua_actions.scene_world(), "scene", self._t("nav.world.log"))),
                  "nav.world").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(ttk.Label(scene, foreground="#888"),
+        self._tr(CTkLabel(scene, foreground="#888"),
                  "nav.scene_hint").pack(side="left", padx=10)
 
-        coord = self._tr(ttk.LabelFrame(nav, padding=6), "coord.frame")
+        coord = self._tr(CTkLabelFrame(nav, padding=6), "coord.frame")
         coord.pack(fill="x")
         self._x_var = tk.StringVar()
         self._y_var = tk.StringVar()
         self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
-        self._tr(ttk.Label(coord), "coord.x").pack(side="left")
-        ttk.Entry(coord, textvariable=self._x_var, width=7).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Label(coord), "coord.y").pack(side="left")
-        ttk.Entry(coord, textvariable=self._y_var, width=7).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Label(coord), "coord.server").pack(side="left")
-        ttk.Entry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Button(coord, command=self._goto_coord),
+        self._tr(CTkLabel(coord), "coord.x").pack(side="left")
+        CTkEntry(coord, textvariable=self._x_var, width=7).pack(side="left", padx=(2, 8))
+        self._tr(CTkLabel(coord), "coord.y").pack(side="left")
+        CTkEntry(coord, textvariable=self._y_var, width=7).pack(side="left", padx=(2, 8))
+        self._tr(CTkLabel(coord), "coord.server").pack(side="left")
+        CTkEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
+        self._tr(CTkButton(coord, command=self._goto_coord),
                  "coord.jump").pack(side="left", padx=4, ipady=2)
-        self._tr(ttk.Button(coord, command=self._load_current_server),
+        self._tr(CTkButton(coord, command=self._load_current_server),
                  "coord.reload_server").pack(side="left", padx=4)
         # Where it has been. Jumping between a handful of known tiles is routine and
         # the triple X/Y/server was the only memory there was — retyping it was the
         # whole cost. Picking an entry fills the three fields and jumps.
         self._jump_hist: list = []
         self._jump_hist_var = tk.StringVar()
-        self._jump_hist_combo = ttk.Combobox(coord, textvariable=self._jump_hist_var,
+        self._jump_hist_combo = CTkComboBox(coord, textvariable=self._jump_hist_var,
                                              state="readonly", width=18, values=[])
         self._jump_hist_combo.pack(side="right", padx=(4, 0))
         self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
-        self._tr(ttk.Label(coord), "coord.history").pack(side="right", padx=(8, 2))
+        self._tr(CTkLabel(coord), "coord.history").pack(side="right", padx=(8, 2))
 
-        sec = self._tr(ttk.LabelFrame(main, padding=8), "secret.frame")
+        sec = self._tr(CTkLabelFrame(main, padding=8), "secret.frame")
         sec.pack(fill="x", padx=8, pady=(0, 6))
-        row1 = ttk.Frame(sec)
+        row1 = CTkFrame(sec)
         row1.pack(fill="x")
-        self._mon_combo = ttk.Combobox(row1, state="readonly", width=20,
+        self._mon_combo = CTkComboBox(row1, state="readonly", width=20,
                                        values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
         self._mon_combo.current(0)
         self._mon_combo.pack(side="left", padx=(0, 8))
         self._tr_hooks.append(self._retranslate_capture_combo)
         self._mon_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row1, variable=self._mon_var, command=self._toggle_monitor),
+        self._tr(CTkCheckBox(row1, variable=self._mon_var, command=self._toggle_monitor),
                  "secret.monitoring").pack(side="left")
         # Capture tick interval (the child's --interval): how often the progress
         # line prints and the checkpoint flushes. A Spinbox so it is bounded and
         # obviously numeric; a change while the monitor runs restarts it (below).
-        self._tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
+        self._tr(CTkLabel(row1), "secret.interval").pack(side="left", padx=(12, 2))
         self._interval_var = tk.StringVar(value="15")
         ttk.Spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
                     ).pack(side="left")
-        self._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
+        self._tr(CTkLabel(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
         # filters (applied live, panel-side, to task findings only)
-        row2 = ttk.Frame(sec)
+        row2 = CTkFrame(sec)
         row2.pack(fill="x", pady=(6, 0))
-        self._tr(ttk.Label(row2), "secret.filters").pack(side="left")
+        self._tr(CTkLabel(row2), "secret.filters").pack(side="left")
         self._star_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._star_var),
+        self._tr(CTkCheckBox(row2, variable=self._star_var),
                  "secret.stars_only").pack(side="left", padx=(6, 0))
         self._pending_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._pending_var),
+        self._tr(CTkCheckBox(row2, variable=self._pending_var),
                  "secret.pending_only").pack(side="left", padx=(6, 0))
         self._can_loot_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._can_loot_var),
+        self._tr(CTkCheckBox(row2, variable=self._can_loot_var),
                  "secret.can_loot_only").pack(side="left", padx=(6, 0))
-        self._tr(ttk.Label(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
+        self._tr(CTkLabel(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
         self._flt_from_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
-        self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
+        CTkEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
+        self._tr(CTkLabel(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._flt_to_var = tk.StringVar()
-        ttk.Entry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
+        CTkEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
 
         # -- Auto-loot: its own frame, and its own level row --------------------
         #
@@ -1386,20 +1439,20 @@ class Panel(tk.Tk):
         # is on the map: the five daily robberies are the scarce thing, and one
         # spent on a 6 is one a 7 cannot have until the reset.
         # Stars only: with no star at that level it robs nothing at all.
-        loot = self._tr(ttk.LabelFrame(sec, padding=6), "secret.autoloot.frame")
+        loot = self._tr(CTkLabelFrame(sec, padding=6), "secret.autoloot.frame")
         loot.pack(fill="x", pady=(8, 0))
         self._autoloot_var = tk.BooleanVar(value=False)
-        self._autoloot_chk = self._tr(ttk.Checkbutton(loot, variable=self._autoloot_var,
+        self._autoloot_chk = self._tr(CTkCheckBox(loot, variable=self._autoloot_var,
                                                       command=self._toggle_autoloot),
                                       "secret.autoloot")
         self._autoloot_chk.pack(side="left")
-        self._tr(ttk.Label(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
+        self._tr(CTkLabel(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
         self._lvl_from_var = tk.StringVar()
-        ttk.Entry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
-        self._tr(ttk.Label(loot), "secret.level_to").pack(side="left", padx=(6, 2))
+        CTkEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        self._tr(CTkLabel(loot), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
-        ttk.Entry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
-        self._autoloot_rule_lbl = ttk.Label(loot, foreground="#888", wraplength=380,
+        CTkEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
+        self._autoloot_rule_lbl = CTkLabel(loot, foreground="#888", wraplength=380,
                                             justify="left")
         self._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
 
@@ -1410,19 +1463,19 @@ class Panel(tk.Tk):
         # somebody dragged the map. This walks the camera over a box of tiles around
         # a centre, one coordinate jump at a time (panel/mapsweep.py decides where),
         # which is the same primitive a clickable coordinate in the log uses.
-        sweep = self._tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
+        sweep = self._tr(CTkLabelFrame(sec, padding=6), "sweep.frame")
         sweep.pack(fill="x", pady=(8, 0))
         self._sweep_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(sweep, variable=self._sweep_var,
+        self._tr(CTkCheckBox(sweep, variable=self._sweep_var,
                                  command=self._toggle_sweep), "sweep.enabled").pack(side="left")
-        self._tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
+        self._tr(CTkLabel(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
         self._sweep_cx_var = tk.StringVar()
-        ttk.Entry(sweep, textvariable=self._sweep_cx_var, width=6).pack(side="left", padx=(0, 2))
+        CTkEntry(sweep, textvariable=self._sweep_cx_var, width=6).pack(side="left", padx=(0, 2))
         self._sweep_cy_var = tk.StringVar()
-        ttk.Entry(sweep, textvariable=self._sweep_cy_var, width=6).pack(side="left")
-        self._tr(ttk.Button(sweep, command=self._sweep_centre_from_coords),
+        CTkEntry(sweep, textvariable=self._sweep_cy_var, width=6).pack(side="left")
+        self._tr(CTkButton(sweep, command=self._sweep_centre_from_coords),
                  "sweep.take_centre").pack(side="left", padx=(4, 0))
-        self._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
+        self._sweep_hint = CTkLabel(sweep, foreground="#888", wraplength=380,
                                      justify="left")
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
@@ -1435,67 +1488,62 @@ class Panel(tk.Tk):
         # verdict rather than a reader of a pcap checkpoint — which is why this is a
         # checkbox of its own and not the secret-task watcher pointed elsewhere.
         # Six days a week `IsOpenDay()` is false and the whole thing is a no-op.
-        ghost = self._tr(ttk.LabelFrame(main, padding=8), "ghost.frame")
+        ghost = self._tr(CTkLabelFrame(main, padding=8), "ghost.frame")
         ghost.pack(fill="x", padx=8, pady=(0, 6))
         self._ghost_autoloot_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(ghost, variable=self._ghost_autoloot_var,
+        self._tr(CTkCheckBox(ghost, variable=self._ghost_autoloot_var,
                                  command=self._toggle_ghost_autoloot),
                  "ghost.autoloot").pack(side="left")
-        self._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
+        self._tr(CTkLabel(ghost, foreground="#888", wraplength=520, justify="left"),
                  "ghost.hint").pack(side="left", padx=10)
 
-        rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
+        rally = self._tr(CTkLabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
-        rally_top = ttk.Frame(rally)
+        rally_top = CTkFrame(rally)
         rally_top.pack(fill="x")
         self._rally_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
+        self._tr(CTkCheckBox(rally_top, variable=self._rally_var,
                                  command=self._toggle_rally),
                  "rally.monitor").pack(side="left")
         # A rally is worth minutes and the alert used to be one log line that
         # scrolled past. Now it is a line the log paints as news, a bell, and — if
         # the operator asks for it — the join itself.
         self._rally_alert_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
+        self._tr(CTkCheckBox(rally_top, variable=self._rally_alert_var),
                  "rally.alert").pack(side="left", padx=(12, 0))
         self._rally_autojoin_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
+        self._tr(CTkCheckBox(rally_top, variable=self._rally_autojoin_var),
                  "rally.autojoin").pack(side="left", padx=(12, 0))
-        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
+        self._tr(CTkButton(rally_top, command=self._join_rally_now),
                  "rally.join_now").pack(side="right")
         # Hint shows the active profile's rally log; refreshed on language/profile change.
-        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
+        self._rally_hint = CTkLabel(rally, foreground="#888", wraplength=620,
                                      justify="left")
         self._rally_hint.pack(anchor="w", pady=(4, 0))
         self._tr_hooks.append(self._update_path_hints)
 
-        # Alliance auto-help: a standing order like «Автолут ★», but driven by the
-        # wire instead of a poll — the request itself announces its arrival
-        # (push.al.help.new), so there is nothing to poll for.
-        ally = self._tr(ttk.LabelFrame(main, padding=8), "help.frame")
-        ally.pack(fill="x", padx=8, pady=(0, 6))
-        self._help_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(ally, variable=self._help_var, command=self._toggle_help),
-                 "help.auto").pack(side="left")
-        self._tr(ttk.Label(ally, foreground="#888"), "help.hint").pack(side="left", padx=10)
+        # Alliance auto-help used to live here as its own checkbox. It is a wire-
+        # driven standing order — answer «Помочь всем» the instant a request lands —
+        # which is exactly a *trigger*, so it moved to the Timers tab's «Триггеры»
+        # group (panel/timers.py, panel/triggers.py) and this frame went away.
 
-        logframe = self._tr(ttk.LabelFrame(lower, padding=4), "log.frame")
+        logframe = self._tr(CTkLabelFrame(lower, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 4))
 
         # The strip above the log: which producer to show, and Clear. Six producers
         # write into one widget, so "давно ли пришёл этот запрос помощи" used to mean
         # reading past everything else that happened meanwhile.
-        strip = ttk.Frame(logframe)
+        strip = CTkFrame(logframe)
         strip.pack(fill="x", pady=(0, 3))
-        self._tr(ttk.Label(strip), "log.filter").pack(side="left")
+        self._tr(CTkLabel(strip), "log.filter").pack(side="left")
         self._log_filter_var = tk.StringVar(value=LOG_FILTER_ALL)
-        filt = ttk.Combobox(strip, textvariable=self._log_filter_var, state="readonly",
+        filt = CTkComboBox(strip, textvariable=self._log_filter_var, state="readonly",
                             width=10, values=(LOG_FILTER_ALL,) + LOG_TAGS)
         filt.pack(side="left", padx=(4, 8))
         filt.bind("<<ComboboxSelected>>", lambda _e: self._redraw_log())
-        self._tr(ttk.Button(strip, command=self._clear_log),
+        self._tr(CTkButton(strip, command=self._clear_log),
                  "log.clear").pack(side="left")
-        self._tr(ttk.Label(strip, foreground="#888"),
+        self._tr(CTkLabel(strip, foreground="#888"),
                  "log.filter_hint").pack(side="left", padx=(10, 0))
 
         # Plain native Text widget: state="normal" (never toggled to "disabled",
@@ -1506,7 +1554,7 @@ class Panel(tk.Tk):
         # a non-Latin keyboard layout (e.g. Cyrillic) Ctrl+C never fires. We add
         # layout-independent copy/select-all: explicit key bindings that cover the
         # Cyrillic keysyms plus a right-click context menu (Copy / Select All).
-        self._log = scrolledtext.ScrolledText(logframe, wrap="word", height=16,
+        self._log = CTkTextbox(logframe, wrap="word", height=16,
                                               font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
@@ -1522,11 +1570,11 @@ class Panel(tk.Tk):
         # it — pressing "collect the trucks" once, by hand, meant writing a file
         # first. This is that file's one line, typed. It also makes debugging a
         # recipe interactive instead of edit-save-run.
-        cmdrow = ttk.Frame(lower, padding=(8, 0, 8, 6))
+        cmdrow = CTkFrame(lower, padding=(8, 0, 8, 6))
         cmdrow.pack(fill="x")
-        self._tr(ttk.Label(cmdrow), "cmd.label").pack(side="left")
+        self._tr(CTkLabel(cmdrow), "cmd.label").pack(side="left")
         self._cmd_var = tk.StringVar()
-        cmd_entry = ttk.Entry(cmdrow, textvariable=self._cmd_var, font=("Consolas", 9))
+        cmd_entry = CTkEntry(cmdrow, textvariable=self._cmd_var, font=("Consolas", 9))
         cmd_entry.pack(side="left", fill="x", expand=True, padx=(4, 4))
         cmd_entry.bind("<Return>", lambda _e: self._run_command())
         # Up/Down walk what has been typed before — a debugging loop is the same
@@ -1535,9 +1583,9 @@ class Panel(tk.Tk):
         cmd_entry.bind("<Down>", lambda _e: self._cmd_recall(1))
         self._cmd_hist: list = []
         self._cmd_at = 0
-        self._tr(ttk.Button(cmdrow, command=self._run_command),
+        self._tr(CTkButton(cmdrow, command=self._run_command),
                  "cmd.run").pack(side="left")
-        self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
+        self._tr(CTkButton(cmdrow, command=self._show_button_reference),
                  "cmd.reference").pack(side="left", padx=(4, 0))
 
     # -- the account dashboard ----------------------------------------------
@@ -1552,20 +1600,20 @@ class Panel(tk.Tk):
     # is deciding whether today needs them at all, and a strip that also acted would
     # be a second, invisible place where the bot chose to press something.
     def _build_dashboard(self, parent: ttk.Frame) -> None:
-        frame = self._tr(ttk.LabelFrame(parent, padding=(8, 4)), "dash.frame")
+        frame = self._tr(CTkLabelFrame(parent, padding=(8, 4)), "dash.frame")
         frame.pack(fill="x", padx=8, pady=(0, 6))
         # A Text rather than a Label: a reading of 0 is greyed and one with work in
         # it is bright, which is what makes the strip readable at a glance instead of
         # a wall of even-weight words.
-        self._dash_view = tk.Text(frame, height=2, wrap="word", state="disabled",
+        self._dash_view = CTkTextbox(frame, height=2, wrap="word", state="disabled",
                                   cursor="arrow", relief="flat", borderwidth=0,
                                   highlightthickness=0, font=("Segoe UI", 9))
         self._dash_view.tag_configure("label", foreground="#888")
-        self._dash_view.tag_configure("hot", foreground="#1b5e20")
+        self._dash_view.tag_configure("hot", foreground="#66bb6a")
         self._dash_view.tag_configure("cold", foreground="#999999")
-        self._dash_view.tag_configure("unread", foreground="#b71c1c")
+        self._dash_view.tag_configure("unread", foreground="#ef5350")
         self._dash_view.pack(side="left", fill="x", expand=True)
-        ttk.Button(frame, text="↻", width=3, command=self._refresh_dashboard).pack(side="right")
+        CTkButton(frame, text="↻", width=3, command=self._refresh_dashboard).pack(side="right")
         self._render_dashboard()
 
     def _start_dashboard(self) -> None:
@@ -1929,8 +1977,6 @@ class Panel(tk.Tk):
     def _startup(self) -> None:
         if self._rally_var.get():           # rally monitor is on by default
             self._start_rally()
-        if self._help_var.get():            # alliance auto-help, if the profile had it on
-            self._start_help()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
             self._start_monitor()
         if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
@@ -1947,6 +1993,11 @@ class Panel(tk.Tk):
         # comparison, which keeps switching a timer on a matter of the checkbox
         # alone (no start/stop plumbing to get out of step with it).
         self._timers.start()
+        # A profile that had the old «Авто-помощь» checkbox on becomes the
+        # «alliance_help» trigger switched on, once; then the watcher brings up a
+        # listener for every enabled trigger, exactly as `sync` does on a toggle.
+        self._migrate_autohelp()
+        self._triggers.start()
         self._ensure_daemon()
         self._load_current_server()
         # The strip needs a warm daemon and a live game, so it starts last.
@@ -2084,12 +2135,12 @@ class Panel(tk.Tk):
                           (self._ghost_autoloot_var, self._stop_ghost_autoloot),
                           (self._sweep_var, self._stop_sweep),
                           (self._rally_var, self._stop_rally),
-                          (self._help_var, self._stop_help),
                           (self._chat_var, self._stop_chat)):
             var.set(False)
             stop()
         self._stop_scenario_loop()
         self._stop_scenario()
+        self._triggers.stop()
         self._timers.stop()
         # …and say so on the Timers tab, or the schedule would be silently dead for
         # the rest of the session. That switch is how it comes back.
@@ -2347,49 +2398,76 @@ class Panel(tk.Tk):
                   squads=", ".join(str(s) for s in squads))
         self._run_md_action("join_rally", {"squads": squads})
 
-    # -- alliance auto-help: answer push.al.help.new the moment it lands ------
+    # -- triggers: run an errand when a wire event lands ---------------------
     #
-    # A standing order, not a press. An alliancemate's request pays help points only
-    # while it is open, and the game announces it on the wire (`push.al.help.new`) —
-    # so instead of a periodic sweep this keeps an ear on the traffic and fires the
-    # one `al.help.all` that answers the whole list the second the push arrives.
+    # A trigger (panel/triggers.py) answers «Помочь всем» the instant a request's push
+    # crosses the wire. The bookkeeping — which listeners should be running — lives in
+    # the watcher; the panel only supplies the two things that need Tk / a child
+    # process: how to spawn a listener, and what to do when one fires. The watcher's
+    # `submit` is `self._timers.submit`, so a fired scenario goes on the SAME queue the
+    # schedule feeds and runs single-file with the scheduled timers.
     #
-    # The listening and the pressing both live in the child
-    # (tools/alliance_help_monitor.py): capture must run in the Windows Python, and
-    # the press must not sit on the Tk thread. The panel only ticks the box, streams
-    # the child's lines into the log, and remembers the choice per profile. The gate
-    # («is anybody actually waiting») is the game's own — see
-    # tools/lib/alliance_help.py and docs/research/alliance-help.md.
-    def _toggle_help(self) -> None:
-        if self._help_var.get():
-            self._start_help()
-        else:
-            self._stop_help()
+    # The listener is a general wire-event child (tools/wire_event_monitor.py):
+    # capture must run in the Windows Python, off the Tk thread. It presses nothing —
+    # it prints a marker line, and the panel turns that into one submit.
+    def _spawn_trigger_listener(self, trigger, on_fire):
+        """Start a wire listener for one trigger; call `on_fire` on every match.
 
-    def _start_help(self) -> None:
-        if self._help_proc is not None:
-            return
-        self._say("help", "log.help.on")
+        Returns the child handle (a ChildMonitor, which has the `.stop()` the
+        watcher wants) or ``None`` if it would not start. The reader swallows the
+        marker line and lets the human line through into the log.
+        """
+        marker = triggersmod.FIRE_MARKER
+
+        def on_line(line: str):
+            if line.startswith(marker):
+                on_fire()               # thread-safe: submit hands to the queue
+                return False            # the marker is machinery, not for the log
+            return None                 # the human line logs as usual
+
         # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
-        mon = self._child("help",
+        mon = self._child("trigger",
                           [self._python(), "-u",
-                           os.path.join(TOOLS, "alliance_help_monitor.py")],
-                          on_exit=self._on_help_exit)
+                           os.path.join(TOOLS, "wire_event_monitor.py"),
+                           "--match", trigger.event_pattern],
+                          on_line=on_line,
+                          on_exit=lambda n=trigger.name: self._on_trigger_exit(n))
         if not mon.start():
-            self._help_var.set(False)
+            return None
+        return mon
+
+    def _on_trigger_exit(self, name: str) -> None:
+        """A trigger's listener died on its own — forget it and say so.
+
+        The next `_triggers.sync()` (a box toggled, the game relaunched) brings it
+        back if the trigger is still switched on.
+        """
+        self._triggers.on_listener_exit(name)
+        self._say("trigger", "triggers.log.died", name=name)
+
+    def _migrate_autohelp(self) -> None:
+        """Carry the retired «Авто-помощь» checkbox onto the `alliance_help` trigger.
+
+        The old per-profile setting was `alliance_autohelp`; a profile that had it on
+        should keep answering, so flip the trigger on once (and persist it) and let
+        the box's own state in triggers.json own it from then on. Idempotent: enabling
+        an already-on trigger changes nothing.
+        """
+        if not self._settings.get("alliance_autohelp"):
             return
-        self._help_proc = mon
-
-    def _on_help_exit(self) -> None:
-        self._say("help", "log.help.died")
-        self._help_proc = None
-        self._help_var.set(False)
-
-    def _stop_help(self) -> None:
-        mon, self._help_proc = self._help_proc, None
-        if mon is not None:
-            self._say("help", "log.help.off")
-            mon.stop()
+        # Consume the flag so this runs ONCE: without clearing it, a user who then
+        # unticks the trigger would have it switched back on at the next switch.
+        self._settings.pop("alliance_autohelp", None)
+        self._profiles.save(self._settings)
+        trig = self._trigger_catalogue.by_name("alliance_help")
+        if trig is None or trig.enabled:
+            return
+        self._trigger_catalogue = self._trigger_catalogue.with_enabled(
+            {**self._trigger_catalogue.enabled_config(), "alliance_help": True})
+        triggersmod.save_catalogue(self._trigger_catalogue,
+                                   self._profiles.triggers_json())
+        if hasattr(self, "_trigger_grid"):
+            self._fill_trigger_grid()
 
     # -- auto-loot: rob the best starred tasks the capture finds -------------
     #
@@ -2964,29 +3042,29 @@ class Panel(tk.Tk):
         take a deliberate press, never a stray one.
         """
         paths = [files[k] for k in ("trace", "traffic") if k in files]
-        win = tk.Toplevel(self)
+        win = ctk.CTkToplevel(self)
         win.title(self._t("develop.run.title"))
         win.transient(self)
-        frm = ttk.Frame(win, padding=14)
+        frm = CTkFrame(win, padding=14)
         frm.pack(fill="both", expand=True)
 
         shown = label.strip() or self._t("develop.run.nolabel")
-        ttk.Label(frm, text=self._t("develop.run.header", label=shown),
+        CTkLabel(frm, text=self._t("develop.run.header", label=shown),
                   font=("", 10, "bold")).pack(anchor="w")
         # What was actually recorded: how long, how much, and where it lies. The
         # counts are what tells a real run from an empty one — a transcript of
         # nothing but keepalives still weighs kilobytes.
-        ttk.Label(frm, foreground="#888",
+        CTkLabel(frm, foreground="#888",
                   text=self._t("develop.run.duration",
                                sec=f"{seconds:.0f}")).pack(anchor="w")
         for kind in ("trace", "traffic"):
             path = files.get(kind)
             if path:
-                ttk.Label(frm, foreground="#888",
+                CTkLabel(frm, foreground="#888",
                           text=self._run_file_caption(kind, path)).pack(anchor="w")
-        ttk.Label(frm, text=self._t("develop.run.prompt"), wraplength=520,
+        CTkLabel(frm, text=self._t("develop.run.prompt"), wraplength=520,
                   justify="left").pack(anchor="w", pady=(10, 2))
-        text = tk.Text(frm, height=4, width=64, wrap="word")
+        text = CTkTextbox(frm, height=4, width=64, wrap="word")
         text.pack(fill="both", expand=True)
         text.focus_set()
 
@@ -3009,7 +3087,7 @@ class Panel(tk.Tk):
         text.bind("<Key>", clear_placeholder)
         text.bind("<Button-1>", clear_placeholder)
 
-        btns = ttk.Frame(frm)
+        btns = CTkFrame(frm)
         btns.pack(fill="x", pady=(10, 0))
 
         def save() -> None:
@@ -3027,9 +3105,9 @@ class Panel(tk.Tk):
             gone = run_notes.discard_run(paths)
             self._say("sniff", "log.sniff.discarded", n=len(gone))
 
-        ttk.Button(btns, text=self._t("develop.run.discard"),
+        CTkButton(btns, text=self._t("develop.run.discard"),
                    command=discard).pack(side="left")
-        ttk.Button(btns, text=self._t("develop.run.save"),
+        CTkButton(btns, text=self._t("develop.run.save"),
                    command=save).pack(side="right")
         win.protocol("WM_DELETE_WINDOW", save)
         win.bind("<Control-Return>", lambda e: save())
@@ -3528,20 +3606,20 @@ class Panel(tk.Tk):
         source. Double-clicking a row drops `TAP <name>` into the command box, so the
         reference and the box are one tool.
         """
-        win = tk.Toplevel(self)
+        win = ctk.CTkToplevel(self)
         win.title(self._t("cmd.reference.title"))
         win.transient(self)
         win.geometry("620x460")
-        frm = ttk.Frame(win, padding=8)
+        frm = CTkFrame(win, padding=8)
         frm.pack(fill="both", expand=True)
-        self._tr(ttk.Label(frm, foreground="#888", wraplength=580, justify="left"),
+        self._tr(CTkLabel(frm, foreground="#888", wraplength=580, justify="left"),
                  "cmd.reference.hint").pack(anchor="w", pady=(0, 6))
         cols = ("name", "label", "xall")
         tree = ttk.Treeview(frm, columns=cols, show="headings", height=16)
         for col, width in zip(cols, (170, 330, 60)):
             tree.heading(col, text=self._t(f"cmd.reference.col.{col}"))
             tree.column(col, width=width, anchor="w")
-        sb = ttk.Scrollbar(frm, orient="vertical", command=tree.yview)
+        sb = CTkScrollbar(frm, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
         tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
@@ -3561,7 +3639,7 @@ class Panel(tk.Tk):
             win.destroy()
 
         tree.bind("<Double-Button-1>", take)
-        ttk.Button(frm, text=self._t("cmd.reference.take"), command=take).pack(
+        CTkButton(frm, text=self._t("cmd.reference.take"), command=take).pack(
             side="bottom", anchor="e", pady=(6, 0))
 
     def _on_close(self) -> None:
@@ -3575,10 +3653,10 @@ class Panel(tk.Tk):
         self._stop_sweep()
         self._stop_dashboard()
         self._stop_rally()
-        self._stop_help()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
         self._stop_scenario_loop()
+        self._triggers.stop()
         self._timers.stop()
         self._close_panel_log()
         self.destroy()
@@ -3666,14 +3744,14 @@ class Panel(tk.Tk):
         self._scn_save_job = None
         self._scn_loading = False
 
-        frame = self._tr(ttk.LabelFrame(parent, padding=8), "scenarios.actions")
+        frame = self._tr(CTkLabelFrame(parent, padding=8), "scenarios.actions")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        listwrap = ttk.Frame(frame)
+        listwrap = CTkFrame(frame)
         listwrap.pack(fill="x")
         self._scn_list = tk.Listbox(listwrap, height=8, activestyle="dotbox",
                                     exportselection=False)
-        scroll = ttk.Scrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
+        scroll = CTkScrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
         self._scn_list.configure(yscrollcommand=scroll.set)
         self._scn_list.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
@@ -3681,53 +3759,53 @@ class Panel(tk.Tk):
         # Selecting a script opens it in the editor below.
         self._scn_list.bind("<<ListboxSelect>>", self._on_scenario_selected)
 
-        controls = ttk.Frame(frame)
+        controls = CTkFrame(frame)
         controls.pack(fill="x", pady=(8, 0))
-        self._scn_run_btn = self._tr(ttk.Button(controls, command=self._run_selected_action),
+        self._scn_run_btn = self._tr(CTkButton(controls, command=self._run_selected_action),
                                      "scenarios.run")
         self._scn_run_btn.pack(side="left", padx=(0, 4), ipady=2)
         # Stop is enabled only while a run is in flight; it asks the interpreter to
         # halt between steps rather than killing the thread mid-call.
-        self._scn_stop_btn = self._tr(ttk.Button(controls, command=self._stop_scenario,
+        self._scn_stop_btn = self._tr(CTkButton(controls, command=self._stop_scenario,
                                                  state="disabled"), "scenarios.stop")
         self._scn_stop_btn.pack(side="left", padx=(0, 4), ipady=2)
         self._scn_loop_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
+        self._tr(CTkCheckBox(controls, variable=self._scn_loop_var,
                                  command=self._toggle_scenario_loop),
                  "scenarios.loop").pack(side="left", padx=(8, 2))
-        self._tr(ttk.Label(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
+        self._tr(CTkLabel(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
         self._scn_interval_var = tk.StringVar(value="60")
         ttk.Spinbox(controls, from_=5, to=86400, width=6,
                     textvariable=self._scn_interval_var).pack(side="left")
-        self._tr(ttk.Button(controls, command=self._refresh_actions),
+        self._tr(CTkButton(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
         # actions/dev/ is deliberately hidden from the picker — but it also hid
         # work_treasure and collect_trucks, and reaching those meant a code change.
         # A checkbox is the right size for "show the experimental ones too".
         self._scn_dev_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(controls, variable=self._scn_dev_var,
+        self._tr(CTkCheckBox(controls, variable=self._scn_dev_var,
                                  command=self._refresh_actions),
                  "scenarios.show_dev").pack(side="right", padx=(0, 8))
-        self._tr(ttk.Button(controls, command=self._show_button_reference),
+        self._tr(CTkButton(controls, command=self._show_button_reference),
                  "cmd.reference").pack(side="right", padx=(0, 8))
 
         # Arguments for the run — the script's own `ARGS` defaults fill in the rest.
         # JSON, because that is what a timer's `args` block is too, so a line that
         # works here can be pasted into timers.json unchanged.
-        argrow = ttk.Frame(frame)
+        argrow = CTkFrame(frame)
         argrow.pack(fill="x", pady=(6, 0))
-        self._tr(ttk.Label(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
+        self._tr(CTkLabel(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
         self._scn_args_var = tk.StringVar()
-        ttk.Entry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
+        CTkEntry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
                                                                 expand=True)
 
         # The editor. The selected script is loaded here and written back a second
         # after the last keystroke — no Save button to forget, and no write per
         # character either. Undo is Tk's own (`undo=True`), reset on every load so
         # Ctrl+Z can never reach back into the previously opened file.
-        edit = self._tr(ttk.LabelFrame(frame, padding=4), "scenarios.editor")
+        edit = self._tr(CTkLabelFrame(frame, padding=4), "scenarios.editor")
         edit.pack(fill="both", expand=True, pady=(8, 0))
-        self._scn_editor = scrolledtext.ScrolledText(
+        self._scn_editor = CTkTextbox(
             edit, wrap="none", height=12, undo=True, autoseparators=True, maxundo=-1,
             font=("Consolas", 9))
         self._scn_editor.pack(fill="both", expand=True)
@@ -3740,11 +3818,11 @@ class Panel(tk.Tk):
         # The first parse error of what is in the editor, shown where it is typed —
         # a debounced save now refuses a recipe that does not parse instead of
         # replacing a working one with it.
-        self._scn_problem_lbl = ttk.Label(frame, foreground="#c33", wraplength=680,
+        self._scn_problem_lbl = CTkLabel(frame, foreground="#c33", wraplength=680,
                                           justify="left")
         self._scn_problem_lbl.pack(anchor="w", pady=(4, 0))
 
-        self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
+        self._tr(CTkLabel(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
         self._scn_actions: list[dict] = []
@@ -4131,39 +4209,56 @@ class Panel(tk.Tk):
         hand-editing JSON per account. «⟳» still re-reads the file for anything
         edited outside.
         """
-        frame = self._tr(ttk.LabelFrame(parent, padding=8), "timers.frame")
+        frame = self._tr(CTkLabelFrame(parent, padding=8), "timers.frame")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         # Rebuilt wholesale by _reload_timers, so the rows live in their own
         # frame with nothing else in it.
-        self._timer_grid = ttk.Frame(frame)
+        self._timer_grid = CTkFrame(frame)
         self._timer_grid.pack(fill="x")
         self._fill_timer_grid()
 
         # -- the editor's buttons ------------------------------------------------
-        tools = ttk.Frame(frame)
+        tools = CTkFrame(frame)
         tools.pack(fill="x", pady=(10, 0))
-        self._tr(ttk.Button(tools, command=self._timer_add),
+        self._tr(CTkButton(tools, command=self._timer_add),
                  "timers.add").pack(side="left", padx=(0, 4))
-        self._tr(ttk.Button(tools, command=self._timer_edit),
+        self._tr(CTkButton(tools, command=self._timer_edit),
                  "timers.edit").pack(side="left", padx=(0, 4))
-        self._tr(ttk.Button(tools, command=self._timer_duplicate),
+        self._tr(CTkButton(tools, command=self._timer_duplicate),
                  "timers.duplicate").pack(side="left", padx=(0, 4))
-        self._tr(ttk.Button(tools, command=self._timer_delete),
+        self._tr(CTkButton(tools, command=self._timer_delete),
                  "timers.delete").pack(side="left", padx=(0, 4))
         # The schedule's own master switch. «Стоп всё» stops the scheduler thread,
         # and without something that says so — and puts it back — the schedule would
         # be silently dead for the rest of the session.
         self._sched_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(tools, variable=self._sched_var,
+        self._tr(CTkCheckBox(tools, variable=self._sched_var,
                                  command=self._toggle_schedule),
                  "timers.scheduler").pack(side="right")
 
-        bottom = ttk.Frame(frame)
+        # -- the Triggers section (panel/triggers.py) ----------------------------
+        # A separate list below the timers: errands driven by a wire event, not a
+        # clock. The alliance-help one answers «Помочь всем» the instant a request's
+        # push lands. It is a standing order you switch on — no period, no editor — so
+        # the section is just checkboxes, the event each listens for, and its status.
+        trig_frame = self._tr(CTkLabelFrame(frame, padding=8), "triggers.frame")
+        trig_frame.pack(fill="x", pady=(10, 0))
+        self._trigger_grid = CTkFrame(trig_frame)
+        self._trigger_grid.pack(fill="x")
+        self._fill_trigger_grid()
+        trig_bottom = CTkFrame(trig_frame)
+        trig_bottom.pack(fill="x", pady=(6, 0))
+        self._tr(CTkLabel(trig_bottom, foreground="#888", wraplength=600,
+                          justify="left"), "triggers.hint").pack(side="left", anchor="w")
+        self._tr(CTkButton(trig_bottom, width=3, command=self._reload_triggers),
+                 "timers.reload").pack(side="right", anchor="ne")
+
+        bottom = CTkFrame(frame)
         bottom.pack(fill="x", pady=(8, 0))
-        self._tr(ttk.Label(bottom, foreground="#888", wraplength=600, justify="left"),
+        self._tr(CTkLabel(bottom, foreground="#888", wraplength=600, justify="left"),
                  "timers.hint").pack(side="left", anchor="w")
-        self._tr(ttk.Button(bottom, width=3, command=self._reload_timers),
+        self._tr(CTkButton(bottom, width=3, command=self._reload_timers),
                  "timers.reload").pack(side="right", anchor="ne")
 
         self._refresh_timer_rows()
@@ -4196,7 +4291,11 @@ class Panel(tk.Tk):
         return timer
 
     def _fill_timer_grid(self) -> None:
-        """(Re)draw a row per timer in the current catalogue."""
+        """(Re)draw a row per timer in the current catalogue.
+
+        Scheduled timers only — the wire-driven triggers are their own list, built
+        below the timer grid by :meth:`_fill_trigger_grid` (panel/triggers.py).
+        """
         grid = self._timer_grid
         for child in grid.winfo_children():
             child.destroy()
@@ -4205,7 +4304,7 @@ class Panel(tk.Tk):
         grid.columnconfigure(0, weight=1)
         for col, key in enumerate(("timers.col.action", "timers.col.interval",
                                    "timers.col.last", "timers.col.next")):
-            self._tr(ttk.Label(grid, foreground="#888"), key).grid(
+            self._tr(CTkLabel(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
 
         # The catalogue IS the settings now: its own enabled/interval_sec are
@@ -4216,10 +4315,10 @@ class Panel(tk.Tk):
             enabled = tk.BooleanVar(value=bool(item["enabled"]))
             seconds = tk.StringVar(value=str(item["interval_sec"]))
             self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds}
-            box = ttk.Checkbutton(grid, variable=enabled)
+            box = CTkCheckBox(grid, variable=enabled)
             # A configured `title` wins; a built-in falls back to its locale
-            # string; a timer someone added to the JSON without either shows the
-            # name it was given there.
+            # string; a timer added to the JSON without either shows the name it
+            # was given there.
             if timer.title:
                 box.configure(text=timer.title)
             elif timer.label_key:
@@ -4228,8 +4327,7 @@ class Panel(tk.Tk):
                 box.configure(text=timer.name)
             box.grid(row=row, column=0, sticky="w", pady=2)
             # The label is also the row's selection: a grid of checkbuttons has none
-            # of its own, and the four editor buttons need to know which row they act
-            # on. A click on the label selects; a double-click opens the editor.
+            # of its own, and the editor buttons need to know which row they act on.
             box.bind("<Button-1>", lambda _e, n=timer.name: self._select_timer(n),
                      add="+")
             box.bind("<Double-Button-1>", lambda _e, n=timer.name: (
@@ -4238,21 +4336,56 @@ class Panel(tk.Tk):
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
                                                    padx=(0, 10))
-            last = ttk.Label(grid, foreground="#888", width=18)
+            last = CTkLabel(grid, foreground="#888", width=18)
             last.grid(row=row, column=2, sticky="w", padx=(0, 10))
-            nxt = ttk.Label(grid, foreground="#888", width=18)
+            nxt = CTkLabel(grid, foreground="#888", width=18)
             nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
-            self._tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
+            self._tr(CTkButton(grid, command=lambda t=timer: self._timer_run_now(t)),
                      "timers.run_now").grid(row=row, column=4, sticky="e")
-            # A queued or running errand had no way back: the Scenarios tab has Stop,
-            # this one had nothing, and the scheduler's own `pending()` was never
-            # shown. «✕» takes a queued errand off the queue again.
-            self._tr(ttk.Button(grid, width=3,
+            # A queued or running errand had no way back: «✕» takes it off the queue.
+            self._tr(CTkButton(grid, width=3,
                                 command=lambda t=timer: self._timer_cancel(t)),
                      "timers.cancel").grid(row=row, column=5, sticky="e", padx=(4, 0))
             self._timer_rows[timer.name] = {"last": last, "next": nxt, "box": box}
         self._bind_timer_autosave()
         self._paint_timer_selection()
+
+    # -- triggers: wire-driven errands, their own list (panel/triggers.py) ---
+    def _fill_trigger_grid(self) -> None:
+        """(Re)draw a checkbox row per trigger, below the timers.
+
+        A trigger has no period and no editor: it is a standing order you switch on,
+        and it answers on its own. So each row is just a switch, the event it listens
+        for, and whether a listener is up right now.
+        """
+        grid = self._trigger_grid
+        for child in grid.winfo_children():
+            child.destroy()
+        self._trigger_vars.clear()
+        self._trigger_rows.clear()
+        grid.columnconfigure(0, weight=1)
+        for col, key in enumerate(("triggers.col.action", "triggers.col.event",
+                                   "triggers.col.status")):
+            self._tr(CTkLabel(grid, foreground="#888"), key).grid(
+                row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
+        for row, trig in enumerate(self._trigger_catalogue, start=1):
+            enabled = tk.BooleanVar(value=bool(trig.enabled))
+            self._trigger_vars[trig.name] = enabled
+            box = CTkCheckBox(grid, variable=enabled)
+            if trig.title:
+                box.configure(text=trig.title)
+            elif trig.label_key:
+                self._tr(box, trig.label_key)
+            else:
+                box.configure(text=trig.name)
+            box.grid(row=row, column=0, sticky="w", pady=2)
+            CTkLabel(grid, foreground="#888", text=trig.event_pattern).grid(
+                row=row, column=1, sticky="w", padx=(0, 10))
+            status = CTkLabel(grid, foreground="#888", width=14)
+            status.grid(row=row, column=2, sticky="w", padx=(0, 10))
+            self._trigger_rows[trig.name] = {"status": status}
+        for var in self._trigger_vars.values():
+            var.trace_add("write", lambda *a: self._save_triggers())
 
     def _bind_timer_autosave(self) -> None:
         """Persist a ticked box / retyped period, for rows built at any time.
@@ -4275,6 +4408,21 @@ class Panel(tk.Tk):
             return
         self._timer_catalogue = self._timer_catalogue.with_settings(self._timer_config())
         timersmod.save_catalogue(self._timer_catalogue, self._profiles.timers_json())
+
+    def _save_triggers(self) -> None:
+        """Write the ticked trigger boxes into the profile's triggers.json.
+
+        A trigger's box just changed → save it and reconcile the listeners: the
+        watcher brings the newly-on one's ear up and takes a newly-off one's down.
+        """
+        if getattr(self, "_loading", False) or not self._trigger_vars:
+            return
+        config = {name: {"enabled": bool(var.get())}
+                  for name, var in self._trigger_vars.items()}
+        self._trigger_catalogue = self._trigger_catalogue.with_enabled(config)
+        triggersmod.save_catalogue(self._trigger_catalogue,
+                                   self._profiles.triggers_json())
+        self._triggers.sync()
 
     # -- add / copy / edit / delete a row ------------------------------------
     #
@@ -4350,10 +4498,10 @@ class Panel(tk.Tk):
         Nothing is written until Save, and Save refuses an entry the scheduler could
         not run: no name, a name already taken by another row, or no steps at all.
         """
-        win = tk.Toplevel(self)
+        win = ctk.CTkToplevel(self)
         win.title(self._t("timers.editor.window"))
         win.transient(self)
-        frm = ttk.Frame(win, padding=12)
+        frm = CTkFrame(win, padding=12)
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
@@ -4367,25 +4515,25 @@ class Panel(tk.Tk):
                 ("timers.editor.title", title_var, 40),
                 ("timers.editor.interval", interval_var, 10),
                 ("timers.editor.args", args_var, 40))):
-            self._tr(ttk.Label(frm), key).grid(row=row, column=0, sticky="w",
+            self._tr(CTkLabel(frm), key).grid(row=row, column=0, sticky="w",
                                                padx=(0, 8), pady=3)
-            ttk.Entry(frm, textvariable=var, width=width).grid(row=row, column=1,
+            CTkEntry(frm, textvariable=var, width=width).grid(row=row, column=1,
                                                                sticky="we", pady=3)
-        self._tr(ttk.Label(frm, foreground="#888", wraplength=460, justify="left"),
+        self._tr(CTkLabel(frm, foreground="#888", wraplength=460, justify="left"),
                  "timers.editor.steps_hint").grid(row=4, column=0, columnspan=2,
                                                   sticky="w", pady=(8, 2))
-        steps = tk.Text(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
+        steps = CTkTextbox(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
         steps.grid(row=5, column=0, columnspan=2, sticky="nsew")
         steps.insert("1.0", "\n".join(timer.scenario))
         frm.rowconfigure(5, weight=1)
 
         # The picker: every blessed action script, appended as a step.
-        pick = ttk.Frame(frm)
+        pick = CTkFrame(frm)
         pick.grid(row=6, column=0, columnspan=2, sticky="we", pady=(6, 0))
-        self._tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
+        self._tr(CTkLabel(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
         actions = list_actions()
         pick_var = tk.StringVar()
-        pick_combo = ttk.Combobox(pick, textvariable=pick_var, state="readonly",
+        pick_combo = CTkComboBox(pick, textvariable=pick_var, state="readonly",
                                   width=34,
                                   values=[f"{a['name']} — {a['title']}" for a in actions])
         pick_combo.pack(side="left")
@@ -4397,10 +4545,10 @@ class Panel(tk.Tk):
             text = steps.get("1.0", "end-1c")
             steps.insert("end", ("\n" if text.strip() else "") + actions[idx]["name"])
 
-        self._tr(ttk.Button(pick, command=add_step),
+        self._tr(CTkButton(pick, command=add_step),
                  "timers.editor.add_step").pack(side="left", padx=(4, 0))
 
-        problem = ttk.Label(frm, foreground="#c33", wraplength=460, justify="left")
+        problem = CTkLabel(frm, foreground="#c33", wraplength=460, justify="left")
         problem.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         def save() -> None:
@@ -4455,11 +4603,11 @@ class Panel(tk.Tk):
             self._select_timer(name)
             self._say("timer", "timers.log.saved", name=name)
 
-        btns = ttk.Frame(frm)
+        btns = CTkFrame(frm)
         btns.grid(row=8, column=0, columnspan=2, sticky="we", pady=(10, 0))
-        ttk.Button(btns, text=self._t("timers.editor.cancel"),
+        CTkButton(btns, text=self._t("timers.editor.cancel"),
                    command=win.destroy).pack(side="left")
-        ttk.Button(btns, text=self._t("timers.editor.save"),
+        CTkButton(btns, text=self._t("timers.editor.save"),
                    command=save).pack(side="right")
         win.bind("<Escape>", lambda _e: win.destroy())
         win.grab_set()
@@ -4473,8 +4621,10 @@ class Panel(tk.Tk):
         """
         if self._sched_var.get():
             self._timers.start()
+            self._triggers.start()      # the master switch governs both halves
             self._say("timer", "timers.log.scheduler_on")
         else:
+            self._triggers.stop()
             self._timers.stop()
             self._say("timer", "timers.log.scheduler_off")
 
@@ -4510,6 +4660,39 @@ class Panel(tk.Tk):
         self._timer_catalogue = timersmod.load_profile_catalogue(path)
         for problem in self._timer_catalogue.errors:
             self._log_put(f"[timer] {_repo_rel(path)}: {problem}")
+
+    # -- triggers: load, config, reload (panel/triggers.py) ------------------
+    def _load_trigger_catalogue(self) -> None:
+        """Read the active profile's trigger catalogue, reporting any junk in it.
+
+        Seeded from the template panel/triggers.json on a profile that has none yet,
+        exactly the way the timers are.
+        """
+        path = self._profiles.triggers_json()
+        self._trigger_catalogue = triggersmod.load_profile_catalogue(path)
+        for problem in self._trigger_catalogue.errors:
+            self._log_put(f"[trigger] {_repo_rel(path)}: {problem}")
+
+    def _trigger_config(self) -> dict:
+        """Which triggers are switched on, read off the widgets (fresh every sync).
+
+        Falls back to the catalogue's own switches while the UI is still being built
+        (the watcher may sync before the rows exist).
+        """
+        if not self._trigger_vars:
+            return self._trigger_catalogue.enabled_config()
+        return {name: bool(var.get()) for name, var in self._trigger_vars.items()}
+
+    def _reload_triggers(self, quiet: bool = False) -> None:
+        """Re-read the profile's triggers.json, redraw the rows, reconcile listeners."""
+        self._load_trigger_catalogue()
+        self._migrate_autohelp()
+        if hasattr(self, "_trigger_grid"):
+            self._fill_trigger_grid()
+        if getattr(self, "_triggers", None) is not None:
+            self._triggers.sync()
+        if not quiet:
+            self._say("trigger", "triggers.log.reloaded", n=len(self._trigger_catalogue))
 
     def _timer_config(self) -> dict:
         """The timers' settings as the scheduler wants them (read off the widgets).
@@ -4596,7 +4779,7 @@ class Panel(tk.Tk):
             self._say("timer", "timers.log.already_queued", name=timer.name)
 
     def _refresh_timer_rows(self) -> None:
-        """Repaint the "last / next run" columns; re-armed once a second."""
+        """Repaint the "last / next run" columns (and the trigger status); re-armed once a second."""
         if self._timer_rows:
             config = self._timer_config()
             records = self._timer_store.records()
@@ -4622,7 +4805,25 @@ class Panel(tk.Tk):
                 else:
                     row["next"].configure(
                         text=self._t("timers.in_span", span=self._fmt_span(due - now)))
+        self._refresh_trigger_rows()
         self.after(1000, self._refresh_timer_rows)
+
+    def _refresh_trigger_rows(self) -> None:
+        """Repaint each trigger's status: queued / listening / off."""
+        if not self._trigger_rows:
+            return
+        pending = self._timers.pending()
+        watching = self._triggers.watching()
+        for trig in self._trigger_catalogue:
+            row = self._trigger_rows.get(trig.name)
+            if row is None:
+                continue
+            if trig.name in pending:
+                row["status"].configure(text=self._t("timers.queued"))
+            elif trig.name in watching:
+                row["status"].configure(text=self._t("triggers.listening"))
+            else:
+                row["status"].configure(text=self._t("triggers.off"))
 
     def _fmt_span(self, seconds: float) -> str:
         """A duration as the rows show it: «45 мин» / «2 ч 5 мин» / «3 дн»."""
@@ -4647,18 +4848,18 @@ class Panel(tk.Tk):
         from the first day and filling one in is writing its builder — nothing
         here or in the tab bar has to change.
         """
-        sub_nb = ttk.Notebook(parent)
+        sub_nb = CTkNotebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=4)
 
         for key, builder in SETTINGS_TABS:
-            frame = ttk.Frame(sub_nb, padding=8)
+            frame = CTkFrame(sub_nb, padding=8)
             sub_nb.add(frame, text=self._t(f"settings.tab.{key}"))
             self._tr_hooks.append(
                 lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}"))
             )
             fill = getattr(self, builder) if builder else None
             if fill is None:
-                self._tr(ttk.Label(frame, foreground="#888"),
+                self._tr(CTkLabel(frame, foreground="#888"),
                          "settings.placeholder").pack(anchor="w")
             else:
                 fill(frame)
@@ -4672,23 +4873,23 @@ class Panel(tk.Tk):
     def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
                  width: int = 12, spin: "tuple | None" = None) -> None:
         """One labelled field on a Settings tab, bound to ``_opt_vars[key]``."""
-        self._tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
+        self._tr(CTkLabel(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
                                                        padx=(0, 8), pady=3)
         var = self._opt_vars[key]
         if isinstance(var, tk.BooleanVar):
-            ttk.Checkbutton(parent, variable=var).grid(row=row, column=1, sticky="w")
+            CTkCheckBox(parent, variable=var).grid(row=row, column=1, sticky="w")
         elif spin is not None:
             ttk.Spinbox(parent, from_=spin[0], to=spin[1], width=width,
                         textvariable=var).grid(row=row, column=1, sticky="w")
         else:
-            ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1,
+            CTkEntry(parent, textvariable=var, width=width).grid(row=row, column=1,
                                                                   sticky="we")
-        self._tr(ttk.Label(parent, foreground="#888", wraplength=340, justify="left"),
+        self._tr(CTkLabel(parent, foreground="#888", wraplength=340, justify="left"),
                  f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
 
     def _build_general_settings(self, parent: ttk.Frame) -> None:
         """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
-        grid = ttk.Frame(parent)
+        grid = CTkFrame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=0)
         grid.columnconfigure(2, weight=1)
@@ -4706,7 +4907,7 @@ class Panel(tk.Tk):
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
         """«Игра»: where the client is, whether to put it back, and the sweep box."""
-        grid = ttk.Frame(parent)
+        grid = CTkFrame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(2, weight=1)
         for row, (key, kwargs) in enumerate((
@@ -4716,7 +4917,7 @@ class Panel(tk.Tk):
         )):
             self._opt_row(grid, row, key, **kwargs)
 
-        sweep = self._tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
+        sweep = self._tr(CTkLabelFrame(parent, padding=8), "sweep.frame")
         sweep.pack(fill="x", pady=(12, 0))
         sweep.columnconfigure(2, weight=1)
         for row, (key, kwargs) in enumerate((
@@ -4730,7 +4931,7 @@ class Panel(tk.Tk):
         )):
             self._opt_row(sweep, row, key, **kwargs)
         # The box in words, so the numbers above are not abstract.
-        hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
+        hint = CTkLabel(sweep, foreground="#888", wraplength=520, justify="left")
         hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._sweep_settings_hint = hint
         for key in ("sweep_radius", "sweep_step", "sweep_dwell"):
@@ -4769,39 +4970,39 @@ class Panel(tk.Tk):
         `actions/join_rally.md`'s `squads` argument (`_join_rally_now`). With no squad
         ticked the join refuses rather than being a no-op that looks like a success.
         """
-        rally = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.frame")
+        rally = self._tr(CTkLabelFrame(parent, padding=8), "autorally.frame")
         rally.pack(fill="x")
-        self._tr(ttk.Label(rally), "autorally.squads").pack(side="left", padx=(0, 6))
+        self._tr(CTkLabel(rally), "autorally.squads").pack(side="left", padx=(0, 6))
         self._rally_squad_vars: dict[int, tk.BooleanVar] = {}
         for squad in RALLY_SQUADS:
             var = tk.BooleanVar(value=False)
             self._rally_squad_vars[squad] = var
-            ttk.Checkbutton(rally, text=str(squad), variable=var).pack(side="left", padx=4)
-        self._tr(ttk.Label(parent, foreground="#888", wraplength=620, justify="left"),
+            CTkCheckBox(rally, text=str(squad), variable=var).pack(side="left", padx=4)
+        self._tr(CTkLabel(parent, foreground="#888", wraplength=620, justify="left"),
                  "autorally.hint").pack(anchor="w", pady=(4, 0))
 
-        drill = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.drill.frame")
+        drill = self._tr(CTkLabelFrame(parent, padding=8), "autorally.drill.frame")
         drill.pack(fill="x", pady=(10, 0))
         self._drill_on_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(drill, variable=self._drill_on_var),
+        self._tr(CTkCheckBox(drill, variable=self._drill_on_var),
                  "autorally.drill.enabled").pack(anchor="w")
         self._drill_banner_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(drill, variable=self._drill_banner_var),
+        self._tr(CTkCheckBox(drill, variable=self._drill_banner_var),
                  "autorally.drill.banner").pack(anchor="w", pady=(2, 6))
 
-        row = ttk.Frame(drill)
+        row = CTkFrame(drill)
         row.pack(fill="x")
-        self._tr(ttk.Label(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
+        self._tr(CTkLabel(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
         # Tri-state, so a checkbox will not do: each squad is a button whose text
         # is its state, and a click walks the states round.
         self._drill_state: dict[int, str] = {s: DRILL_OFF for s in RALLY_SQUADS}
         self._drill_buttons: dict[int, ttk.Button] = {}
         for squad in RALLY_SQUADS:
-            btn = ttk.Button(row, width=5,
+            btn = CTkButton(row, width=5,
                              command=lambda s=squad: self._cycle_drill_squad(s))
             btn.pack(side="left", padx=3)
             self._drill_buttons[squad] = btn
-        self._tr(ttk.Label(drill, foreground="#888", wraplength=620, justify="left"),
+        self._tr(CTkLabel(drill, foreground="#888", wraplength=620, justify="left"),
                  "autorally.drill.hint").pack(anchor="w", pady=(6, 0))
         self._paint_drill_squads()
 
@@ -4888,20 +5089,20 @@ class Panel(tk.Tk):
 
     def _build_chat_tab(self, parent: ttk.Frame) -> None:
         """Build the Chat tab: monitor toggle, sub-tabs per chat type, and a box to answer in."""
-        ctrl = ttk.Frame(parent, padding=(8, 6, 8, 4))
+        ctrl = CTkFrame(parent, padding=(8, 6, 8, 4))
         ctrl.pack(fill="x")
-        self._tr(ttk.Checkbutton(ctrl, variable=self._chat_var, command=self._toggle_chat),
+        self._tr(CTkCheckBox(ctrl, variable=self._chat_var, command=self._toggle_chat),
                  "chat.monitor").pack(side="left")
-        self._tr(ttk.Label(ctrl, foreground="#888", wraplength=500, justify="left"),
+        self._tr(CTkLabel(ctrl, foreground="#888", wraplength=500, justify="left"),
                  "chat.hint").pack(side="left", padx=(10, 0))
 
-        sub_nb = ttk.Notebook(parent)
+        sub_nb = CTkNotebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=(0, 2))
         self._chat_nb = sub_nb
         self._chat_frames: dict = {}
 
         for type_key in CHAT_TABS:
-            frame = ttk.Frame(sub_nb)
+            frame = CTkFrame(sub_nb)
             sub_nb.add(frame, text=self._t(f"chat.tab.{type_key}"))
             self._chat_frames[type_key] = frame
             tree = self._make_chat_tree(frame)
@@ -4921,29 +5122,29 @@ class Panel(tk.Tk):
         # coordinate meant leaving the panel. The target is the room of the last
         # message in the tab that is open — and it is SHOWN, so it is never a guess:
         # a message sent to the wrong room cannot be unsent.
-        send = ttk.Frame(parent, padding=(6, 2, 6, 2))
+        send = CTkFrame(parent, padding=(6, 2, 6, 2))
         send.pack(fill="x")
         self._chat_room_var = tk.StringVar(value="—")
-        self._tr(ttk.Label(send), "chat.to").pack(side="left")
-        ttk.Label(send, textvariable=self._chat_room_var, foreground="#888",
+        self._tr(CTkLabel(send), "chat.to").pack(side="left")
+        CTkLabel(send, textvariable=self._chat_room_var, foreground="#888",
                   width=26).pack(side="left", padx=(4, 6))
         self._chat_msg_var = tk.StringVar()
-        entry = ttk.Entry(send, textvariable=self._chat_msg_var)
+        entry = CTkEntry(send, textvariable=self._chat_msg_var)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda _e: self._chat_send_text())
-        self._tr(ttk.Button(send, command=self._chat_send_text),
+        self._tr(CTkButton(send, command=self._chat_send_text),
                  "chat.send").pack(side="left", padx=(4, 0))
         # The coordinate in the main tab's X/Y/server fields, shared as a map pin —
         # not as text. A pin is tappable in the game; "567,471" is not.
-        self._tr(ttk.Button(send, command=self._chat_send_coords),
+        self._tr(CTkButton(send, command=self._chat_send_coords),
                  "chat.send_coords").pack(side="left", padx=(4, 0))
 
-        bot = ttk.Frame(parent, padding=(6, 2, 6, 4))
+        bot = CTkFrame(parent, padding=(6, 2, 6, 4))
         bot.pack(fill="x")
-        self._tr(ttk.Button(bot, command=self._clear_chat),
+        self._tr(CTkButton(bot, command=self._clear_chat),
                  "chat.clear").pack(side="left")
         self._chat_count_var = tk.StringVar(value=self._t("chat.count", n=0))
-        ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
+        CTkLabel(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
         self._tr_hooks.append(self._retranslate_chat_bottom)
 
@@ -5061,23 +5262,38 @@ class Panel(tk.Tk):
         A Text widget (not a Treeview) is used so emoji / sticker sprites can be
         drawn inline with the message text via ``image_create``.
         """
-        frame = ttk.Frame(parent)
+        frame = CTkFrame(parent)
         frame.pack(fill="both", expand=True)
-        txt = tk.Text(frame, wrap="word", state="disabled", cursor="arrow",
+        txt = CTkTextbox(frame, wrap="word", state="disabled", cursor="arrow",
                       font=("Segoe UI", 10), spacing1=1, spacing3=3,
                       borderwidth=0, highlightthickness=0, padx=6, pady=4)
         txt.tag_configure("time", foreground="#8a8a8a")
-        txt.tag_configure("alliance", foreground="#2a6bd0")
-        txt.tag_configure("nick", foreground="#333333")
-        txt.tag_configure("mine", foreground="#2e7d32")
-        txt.tag_configure("token", foreground="#6a4fb0")
+        txt.tag_configure("alliance", foreground="#5c9dff")
+        txt.tag_configure("nick", foreground="#c8c8c8")
+        txt.tag_configure("mine", foreground="#66bb6a")
+        txt.tag_configure("token", foreground="#a586e0")
         # Same look the log gives a coordinate, so a clickable one reads as clickable
-        # here too (on a light background, hence the darker blue).
-        txt.tag_configure("coordlink", foreground="#0d47a1", underline=True)
-        sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
-        txt.configure(yscrollcommand=sb.set)
-        txt.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
+        # here too (bright blue, on the dark textbox).
+        txt.tag_configure("coordlink", foreground="#5cf", underline=True)
+        # The "↑ older messages" affordance drawn atop a partially-loaded tab.
+        txt.tag_configure("loadmore", foreground="#5c9dff", underline=True,
+                          justify="center")
+        # Clicking the header pages in older history. Bound once here (not per
+        # rebuild) so the handler cannot stack up; the tab is resolved at click time.
+        txt.tag_bind("loadmore", "<Button-1>",
+                     lambda _e, v=txt: self._chat_click_load_more(v))
+        txt.tag_bind("loadmore", "<Enter>", lambda _e, v=txt: v.configure(cursor="hand2"))
+        txt.tag_bind("loadmore", "<Leave>", lambda _e, v=txt: v.configure(cursor="arrow"))
+        # CTkTextbox carries its own scrollbars, so no ttk.Scrollbar is wired here.
+        txt.pack(fill="both", expand=True)
+        # Paging in older history: a scroll to the very top loads the previous
+        # CHAT_PAGE. Bind on the inner tk.Text (CTkTextbox proxies to `_textbox`);
+        # add="+" so the widget's own scrolling is untouched. Wheel/keys all route
+        # through one deferred check of the top fraction.
+        inner = getattr(txt, "_textbox", txt)
+        for seq in ("<MouseWheel>", "<Button-4>", "<Prior>", "<Up>", "<Home>"):
+            inner.bind(seq, lambda _e, v=txt: v.after(40, lambda: self._on_chat_scroll(v)),
+                       add="+")
         return txt
 
     def _chat_image(self, path: str, height: int):
@@ -5133,6 +5349,16 @@ class Panel(tk.Tk):
         nick_tag = "mine" if record.get("is_mine") else "nick"
         view.configure(state="normal")
         view.insert("end", (t_str + " ") if t_str else "", ("time",))
+        # Sender avatar, drawn inline before the nick. It resolves to the JPG the
+        # client already cached under ChatPhotos (keyed by uid+headPicVer); a
+        # built-in head with no cached file simply leaves the line avatar-less.
+        av_uid, av_ver = record.get("sender_uid") or "", record.get("head_pic_ver") or ""
+        av_path = chat_assets.avatar_path(av_uid, av_ver) if av_uid and av_ver else None
+        if av_path:
+            av_img = self._chat_image(av_path, 20)
+            if av_img is not None:
+                view.image_create("end", image=av_img)
+                view.insert("end", " ")
         if alliance:
             view.insert("end", f"[{alliance}] ", ("alliance",))
         view.insert("end", nick + ": ", (nick_tag,))
@@ -5196,10 +5422,10 @@ class Panel(tk.Tk):
         except Exception as exc:       # noqa: BLE001
             self._say("chat", "log.chat.photo_failed", error=exc)
             return
-        top = tk.Toplevel(self)
+        top = ctk.CTkToplevel(self)
         top.title(self._t("tab.chat"))
-        top.configure(background="#000000")
-        lbl = tk.Label(top, image=photo, background="#000000", cursor="hand2")
+        top.configure(fg_color="#000000")
+        lbl = CTkLabel(top, image=photo, fg_color="#000000", cursor="hand2")
         lbl.image = photo              # keep a reference alive
         lbl.pack()
         top.bind("<Button-1>", lambda e: top.destroy())
@@ -5214,6 +5440,7 @@ class Panel(tk.Tk):
     def _pump_chat(self) -> None:
         """Drain the chat queue and refresh treeviews — scheduled every 1 s."""
         changed: set = set()
+        rebuild: set = set()          # types whose whole window must be redrawn
         try:
             while True:
                 record = self._chat_q.get_nowait()
@@ -5224,22 +5451,22 @@ class Panel(tk.Tk):
                 # Order by the message's own serverTime (record["ts"]). The live
                 # stream is already monotonic; only history re-parsed on scroll-up
                 # arrives "from the past" -- resort and rebuild that tree then, so
-                # old messages land in their proper place, not at the bottom.
+                # old messages land in their proper place, not at the bottom. A plain
+                # append leaves the window's top (offset) fixed and just grows the
+                # bottom — no rebuild, only the new tail is drawn.
                 out_of_order = bool(msgs) and record.get("ts", 0) < msgs[-1].get("ts", 0)
                 msgs.append(record)
                 if out_of_order:
                     msgs.sort(key=lambda r: r.get("ts", 0))
-                    self._chat_tree_rows[chat_type] = 0
-                    view = self._chat_trees.get(chat_type)
-                    if view is not None:
-                        self._chat_clear_view(view)
-                if len(msgs) > 500:
-                    # Trim to the last 500 entries and force a full view rebuild.
-                    msgs[:] = msgs[-500:]
-                    self._chat_tree_rows[chat_type] = 0
-                    view = self._chat_trees.get(chat_type)
-                    if view is not None:
-                        self._chat_clear_view(view)
+                    rebuild.add(chat_type)
+                if len(msgs) > CHAT_MSGS_MAX:
+                    # Bound memory: drop the oldest overflow, and slide the window
+                    # top down by as much so the same records stay in view.
+                    k = len(msgs) - CHAT_MSGS_MAX
+                    del msgs[:k]
+                    self._chat_offset[chat_type] = max(
+                        0, self._chat_offset.get(chat_type, 0) - k)
+                    rebuild.add(chat_type)
                 changed.add(chat_type)
                 # Unread only counts somebody else's message in a tab nobody is
                 # looking at: my own echo back is not news, and neither is a message
@@ -5250,7 +5477,10 @@ class Panel(tk.Tk):
             pass
 
         for chat_type in changed:
-            self._update_chat_tree(chat_type)
+            if chat_type in rebuild:
+                self._rebuild_chat_view(chat_type)
+            else:
+                self._update_chat_tree(chat_type)
         if changed:
             # A DM that arrives while another tab is open used to be silent.
             self._paint_chat_tabs()
@@ -5262,17 +5492,99 @@ class Panel(tk.Tk):
         self.after(1000, self._pump_chat)
 
     def _update_chat_tree(self, chat_type: str) -> None:
-        """Append only the records not yet rendered into the view, and autoscroll."""
+        """Append records not yet rendered into the view, and autoscroll if at the bottom.
+
+        Only the tail beyond ``_chat_tree_rows`` is drawn (an incremental append for
+        the live stream). The view is kept pinned to the newest message ONLY when the
+        reader is already there — a live message must not yank someone reading older
+        history back down to the bottom.
+        """
         view = self._chat_trees.get(chat_type)
         if view is None:
             return
         msgs = self._chat_msgs.get(chat_type, [])
         start = self._chat_tree_rows.get(chat_type, 0)
+        if start >= len(msgs):
+            return
+        at_bottom = self._chat_view_at_bottom(view)
         for record in msgs[start:]:
             self._render_msg_line(view, record)
         self._chat_tree_rows[chat_type] = len(msgs)
-        if len(msgs) > start:
+        if at_bottom:
             view.see("end")
+
+    @staticmethod
+    def _chat_view_at_bottom(view: "tk.Text") -> bool:
+        """True if the view is scrolled to (or very near) its bottom edge."""
+        try:
+            return float(view.yview()[1]) >= 0.999
+        except (tk.TclError, ValueError, IndexError):
+            return True
+
+    def _chat_type_of_view(self, view) -> str | None:
+        for key, v in self._chat_trees.items():
+            if v is view:
+                return key
+        return None
+
+    def _rebuild_chat_view(self, chat_type: str, keep_index: int | None = None) -> None:
+        """Redraw a tab's whole visible window from scratch: the load-more header (when
+        older history is hidden) followed by every record from the window start.
+
+        ``keep_index`` is the absolute index in ``_chat_msgs`` of the record to hold
+        under the viewport after the redraw — used when paging in older messages so
+        the reader stays on the line they were looking at instead of jumping.
+        """
+        view = self._chat_trees.get(chat_type)
+        if view is None:
+            return
+        msgs = self._chat_msgs.get(chat_type, [])
+        offset = max(0, min(self._chat_offset.get(chat_type, 0), len(msgs)))
+        self._chat_offset[chat_type] = offset
+        self._chat_clear_view(view)
+        view.configure(state="normal")
+        if offset > 0:
+            view.insert("end", self._t("chat.load_more") + "\n", ("loadmore",))
+        keep_mark = None
+        for i in range(offset, len(msgs)):
+            if keep_index is not None and i == keep_index:
+                keep_mark = view.index("end -1c")
+            self._render_msg_line(view, msgs[i])
+        view.configure(state="disabled")
+        self._chat_tree_rows[chat_type] = len(msgs)
+        if keep_mark is not None:
+            view.see(keep_mark)
+        else:
+            view.see("end")
+
+    def _chat_load_older(self, chat_type: str) -> None:
+        """Page the previous CHAT_PAGE of history into view (top-anchored)."""
+        offset = self._chat_offset.get(chat_type, 0)
+        if offset <= 0:
+            return
+        new_offset = max(0, offset - CHAT_PAGE)
+        self._chat_offset[chat_type] = new_offset
+        # `offset` was the first shown record; keep it under the viewport so the
+        # newly-revealed page appears above where the reader already was.
+        self._rebuild_chat_view(chat_type, keep_index=offset)
+
+    def _on_chat_scroll(self, view) -> None:
+        """A scroll settled: if it reached the top and more history is hidden, page it in."""
+        try:
+            top = float(view.yview()[0])
+        except (tk.TclError, ValueError, IndexError):
+            return
+        if top > 0.001:
+            return
+        chat_type = self._chat_type_of_view(view)
+        if chat_type and self._chat_offset.get(chat_type, 0) > 0:
+            self._chat_load_older(chat_type)
+
+    def _chat_click_load_more(self, view) -> None:
+        """The '↑ show earlier messages' header was clicked."""
+        chat_type = self._chat_type_of_view(view)
+        if chat_type:
+            self._chat_load_older(chat_type)
 
     def _toggle_chat(self) -> None:
         if self._chat_var.get():
@@ -5339,13 +5651,15 @@ class Panel(tk.Tk):
             if view is not None:
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
+            self._chat_offset[chat_type] = 0
         self._chat_count_var.set(self._t("chat.count", n=0))
 
     def _load_chat_history(self) -> None:
-        """Load the last 500 records from the active profile's chat_log.jsonl.
+        """Load the tail of the active profile's chat_log.jsonl into memory.
 
         Called on startup and on profile switch. Clears the current in-memory
-        state first, then repopulates from the file and rebuilds all treeviews.
+        state first, then repopulates from the file (up to CHAT_MSGS_MAX records)
+        and renders only the newest page per tab — the rest pages in on scroll-up.
         """
         # Clear current state
         for chat_type in list(self._chat_msgs):
@@ -5354,6 +5668,7 @@ class Panel(tk.Tk):
             if view is not None:
                 self._chat_clear_view(view)
             self._chat_tree_rows[chat_type] = 0
+            self._chat_offset[chat_type] = 0
 
         path = self._profiles.chat_log()
         if not os.path.isfile(path):
@@ -5393,15 +5708,23 @@ class Panel(tk.Tk):
             unique.append(rec)
         raw_records = unique
 
-        for record in raw_records[-500:]:
+        # Keep a generous slice in memory (bounded like the live cap) so scrolling up
+        # has history to page in; only the last CHAT_PAGE per tab is rendered up front.
+        for record in raw_records[-CHAT_MSGS_MAX:]:
             chat_type = record.get("chat_type", "other")
             if chat_type not in self._chat_msgs:
                 chat_type = "other"
             self._chat_msgs[chat_type].append(record)
 
         for chat_type, msgs in self._chat_msgs.items():
-            if msgs:
-                self._update_chat_tree(chat_type)
+            if not msgs:
+                continue
+            # Match the live ordering invariant (a re-parsed history line can land
+            # out of file order), then open on the newest page.
+            msgs.sort(key=lambda r: r.get("ts", 0))
+            self._chat_offset[chat_type] = max(0, len(msgs) - CHAT_PAGE)
+            self._chat_tree_rows[chat_type] = 0
+            self._rebuild_chat_view(chat_type)
 
         total = sum(len(v) for v in self._chat_msgs.values())
         self._chat_count_var.set(self._t("chat.count", n=total))
@@ -5416,6 +5739,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="start with the named profile active (created if missing), "
                              "overriding the saved last-active profile")
     args = parser.parse_args(argv)
+    # CustomTkinter theme: dark by default, blue accent.
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
     # lua_daemon lives in tools/, the shared modules in tools/lib/ — look in both.
     for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
         if not any(os.path.isfile(os.path.join(d, tool)) for d in (TOOLS, TOOLS_LIB)):

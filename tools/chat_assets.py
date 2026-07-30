@@ -48,6 +48,17 @@ def photo_path(uid, pic_ver, big: bool = False) -> str | None:
     cand = os.path.join(PHOTOS_DIR, uid[-6:], f"{h}{'_big' if big else ''}.jpg")
     return cand if os.path.isfile(cand) else None
 
+
+def avatar_path(uid, head_pic_ver) -> str | None:
+    """Local cached JPG for a sender's avatar, or None if not on disk.
+
+    The client caches a player's avatar under the same ChatPhotos scheme as a
+    message photo -- ``md5(f"{uid}_{headPicVer}").jpg`` -- so the same resolver
+    applies. A built-in head frame (no uploaded avatar) has no cached file and
+    returns None; the caller then shows the message without an avatar.
+    """
+    return photo_path(uid, head_pic_ver)
+
 # One token = one rich object. Matches what chat_reader._render_text emits.
 _TOKEN_RE = re.compile(r"\[(e|sticker|photo|emoji):([0-9A-Fa-f]+)\]")
 

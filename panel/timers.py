@@ -630,6 +630,12 @@ class TimerScheduler:
         # row for no reason.
         self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
         self._queued: set[str] = set()
+        # Errands NOT in the catalogue that were handed to the queue directly —
+        # a trigger's scenario (panel/triggers.py). They share the one worker and the
+        # dedup set, but the worker cannot look them up in `catalogue()`, so it keeps
+        # them here by name for the length of the run. Anything with `.name` and
+        # `.scenario` (a Trigger) works — the runner only reads those.
+        self._adhoc: dict = {}
         # Names the UI asked to take back off the queue. Marked rather than removed
         # (a Queue cannot be searched), and dropped by the worker when it gets there.
         self._cancelled: set[str] = set()
@@ -668,6 +674,25 @@ class TimerScheduler:
         """
         return self._enqueue(timer.name, scheduled=False)
 
+    def submit(self, errand) -> bool:
+        """Queue an errand that is NOT in the catalogue — a trigger's scenario.
+
+        The trigger watcher (panel/triggers.py) calls this when a push lands, so the
+        scenario runs on THIS one worker, single-file with the scheduled timers and
+        never in parallel with them. ``errand`` needs only ``.name`` and
+        ``.scenario`` (a :class:`~panel.triggers.Trigger`); it is remembered by name
+        for the run because the worker looks errands up in the catalogue and this one
+        is not there. ``False`` if one of the same name is already queued or running
+        (a burst of pushes coalesces to one press).
+        """
+        with self._queue_lock:
+            if errand.name in self._queued:
+                return False
+            self._queued.add(errand.name)
+            self._adhoc[errand.name] = errand
+        self._queue.put((errand.name, False))
+        return True
+
     def _enqueue(self, name: str, scheduled: bool) -> bool:
         with self._queue_lock:
             if name in self._queued:
@@ -688,6 +713,7 @@ class TimerScheduler:
     def _release(self, name: str) -> None:
         with self._queue_lock:
             self._queued.discard(name)
+            self._adhoc.pop(name, None)   # a submitted trigger errand is done with
             # The cancel mark goes with the claim. A cancel that arrived while the
             # errand was already running is refused (see `cancel`), but a mark left
             # behind by any other race would silently swallow the NEXT run of the
@@ -787,7 +813,10 @@ class TimerScheduler:
             self._release(name)
             return "skipped"
         timer = self._catalogue().by_name(name)
-        if timer is None:                    # deleted from the config mid-run
+        if timer is None:                    # a submitted trigger errand, or…
+            with self._queue_lock:
+                timer = self._adhoc.get(name)
+        if timer is None:                    # …deleted from the config mid-run
             self._release(name)
             return "skipped"
         if self._gate is not None:

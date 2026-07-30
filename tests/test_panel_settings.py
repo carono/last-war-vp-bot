@@ -33,11 +33,12 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
 def _page():
     """A Panel stand-in with the Settings page really built."""
     import tkinter as tk
+    import customtkinter as ctk
     from tkinter import ttk
     from panel import i18n as i18nmod
     import panel.__main__ as pm
 
-    root = tk.Tk()
+    root = ctk.CTk()          # the panel is a CustomTkinter app now (#1129)
     root.withdraw()
 
     class _Page:
@@ -100,8 +101,11 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         return
     try:
         # Every entry of the registry became a tab, in order, with its own label.
+        # The page's tab strip is a CustomTkinter CTkNotebook (the panel moved off
+        # ttk in #1129); it keeps the ttk.Notebook tabs()/tab() surface.
+        from panel.ctk_widgets import CTkNotebook
         notebooks = [w for w in root.winfo_children()[0].winfo_children()
-                     if w.winfo_class() == "TNotebook"]
+                     if isinstance(w, CTkNotebook)]
         assert notebooks, "the settings page has no notebook"
         tabs = notebooks[0].tabs()
         assert len(tabs) == len(pm.SETTINGS_TABS), tabs

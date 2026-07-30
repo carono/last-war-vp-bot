@@ -554,11 +554,16 @@ def test_timers_tab_builds_from_the_config_and_binds():
             # The rows read the scheduler's queue to mark a waiting errand, so the
             # stand-in needs something that answers `pending()`.
             self._timers = types.SimpleNamespace(pending=lambda: set())
+            # The timer refresh also repaints the (separate) trigger list at the end;
+            # an empty one makes that an early return, so this scheduled-only case
+            # needs no trigger catalogue or watcher.
+            self._trigger_rows: dict = {}
 
         _t = Panel._t
         _tr = Panel._tr
         _say = Panel._say
         _fill_timer_grid = Panel._fill_timer_grid
+        _refresh_trigger_rows = Panel._refresh_trigger_rows
         _bind_timer_autosave = Panel._bind_timer_autosave
         _save_timers = Panel._save_timers
         _write_timer = Panel._write_timer

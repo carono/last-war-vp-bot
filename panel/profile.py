@@ -43,7 +43,14 @@ TASKS_JSON = "secret_tasks.json"
 # template panel/timers.json.
 TIMERS_CONFIG = "timers.json"
 TIMERS_STATE = "timers_last_run.json"
+# The wire-driven errands (panel/triggers.py), seeded from the template
+# panel/triggers.json exactly as the timers are from panel/timers.json.
+TRIGGERS_CONFIG = "triggers.json"
 PANEL_LOG = "panel.log"
+# The technical debug log (panel/debug_log.py): every action, every traceback and a
+# running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
+# which is only the human-facing widget's mirror.
+DEBUG_LOG = "debug.log"
 CONFIG_FILE = "config.json"
 
 # Filesystem-hostile characters; profile names are used verbatim as directory
@@ -207,6 +214,10 @@ class ProfileManager:
         """Last-run records of the scheduled errands (panel/timers.py)."""
         return os.path.join(self.dir(name), TIMERS_STATE)
 
+    def triggers_json(self, name: str | None = None) -> str:
+        """This profile's trigger catalogue (panel/triggers.py)."""
+        return os.path.join(self.dir(name), TRIGGERS_CONFIG)
+
     def chat_log(self, name: str | None = None) -> str:
         """JSONL log of chat messages captured on the plain-TCP leg."""
         return os.path.join(self.dir(name), CHAT_LOG)
@@ -214,6 +225,10 @@ class ProfileManager:
     def panel_log(self, name: str | None = None) -> str:
         """Plain-text mirror of everything shown in the panel log widget."""
         return os.path.join(self.dir(name), PANEL_LOG)
+
+    def debug_log(self, name: str | None = None) -> str:
+        """Rotating technical debug log for this profile (panel/debug_log.py)."""
+        return os.path.join(self.dir(name), DEBUG_LOG)
 
     # -- helpers ------------------------------------------------------------
     def _ensure_dir(self, name: str) -> str:
