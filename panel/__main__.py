@@ -124,6 +124,7 @@ from . import rally_limits as rallylimitsmod
 from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
 from . import tabs_extra as tabsextra
+from . import secret_tasks as secrettasksmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -1538,6 +1539,7 @@ class Panel(ctk.CTk):
         alliance_tab = CTkFrame(nb)
         profile_tab = CTkFrame(nb)
         inventory_tab = CTkFrame(nb)
+        secret_tasks_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
@@ -1547,6 +1549,7 @@ class Panel(ctk.CTk):
         nb.add(alliance_tab, text=self._t("tab.alliance"))
         nb.add(profile_tab, text=self._t("tab.profile"))
         nb.add(inventory_tab, text=self._t("tab.inventory"))
+        nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(timers_tab, text=self._t("tab.timers")),
@@ -1555,7 +1558,9 @@ class Panel(ctk.CTk):
                                        nb.tab(stats_tab, text=self._t("tab.stats")),
                                        nb.tab(alliance_tab, text=self._t("tab.alliance")),
                                        nb.tab(profile_tab, text=self._t("tab.profile")),
-                                       nb.tab(inventory_tab, text=self._t("tab.inventory"))))
+                                       nb.tab(inventory_tab, text=self._t("tab.inventory")),
+                                       nb.tab(secret_tasks_tab,
+                                              text=self._t("tab.secret_tasks"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
@@ -1565,10 +1570,12 @@ class Panel(ctk.CTk):
         # data is read lazily — the first time each tab is opened (_on_main_tab_changed).
         self._main_nb = nb
         self._inventory_tab = tabsextra.InventoryTab(self, inventory_tab)
+        self._secret_tasks_tab = secrettasksmod.SecretTasksTab(self, secret_tasks_tab)
         self._lazy_tabs = {
             str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
             str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
             str(inventory_tab): self._inventory_tab,
+            str(secret_tasks_tab): self._secret_tasks_tab,
         }
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
@@ -5257,6 +5264,13 @@ class Panel(ctk.CTk):
             if getattr(timer, "name", "") == "inventory_refresh":
                 self.after(0, self._refresh_inventory_tab)
                 return True
+            # An alliancemate shared a secret task (`alliance.share.mission.add`): re-read
+            # the game so the new starred tile appears on the «Secret Tasks» tab without a
+            # manual «Обновить». A UI refresh, not a game press — handled before the daemon
+            # gate, the tab's own read degrades gracefully.
+            if getattr(timer, "name", "") == "secret_task_share":
+                self.after(0, self._refresh_secret_tasks_tab)
+                return True
             if not self._daemon_up() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
             # The resource tracker is a Python handler, not a DSL scenario: on each
@@ -5464,6 +5478,17 @@ class Panel(ctk.CTk):
         keeps the current search filter, so this is a full-but-cheap repaint.
         """
         tab = getattr(self, "_inventory_tab", None)
+        if tab is not None and getattr(tab, "_loaded", False):
+            tab.refresh()
+
+    def _refresh_secret_tasks_tab(self) -> None:
+        """An `alliance.share.mission.add` landed (the «secret_task_share» trigger):
+        re-read the raidable starred tasks so a freshly shared tile shows up on the
+        «Secret Tasks» tab. Only once the tab has been opened — an unopened one reads
+        fresh when first shown anyway — and the tab's own refresh coalesces a burst of
+        shares (it skips while busy) and only ADDS rows, so nothing on screen is lost.
+        """
+        tab = getattr(self, "_secret_tasks_tab", None)
         if tab is not None and getattr(tab, "_loaded", False):
             tab.refresh()
 

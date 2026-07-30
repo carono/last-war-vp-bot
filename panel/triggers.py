@@ -259,6 +259,20 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         enabled=False,
         label_key="triggers.item.session_kick",
     ),
+    Trigger(
+        name="secret_task_share",
+        # An alliancemate sharing a raidable secret task announces it on the wire
+        # (alliance.share.mission.add). While this is on, each such push re-reads the
+        # game and adds any newly shared starred tile to the «Secret Tasks» tab, so its
+        # list stays live without a manual «Обновить». Python handler
+        # (`_refresh_secret_tasks_tab`), not a DSL scenario; the runner intercepts the
+        # placeholder. Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="alliance.share.mission.add",
+        scenario=("__secret_task_share__",),
+        enabled=False,
+        label_key="triggers.item.secret_task_share",
+    ),
 )
 
 

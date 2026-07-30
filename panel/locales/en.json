@@ -505,5 +505,22 @@
   "profile.res.gold": "Gold",
   "inventory.search": "Search:",
   "inventory.count": "{n} items",
-  "inventory.empty": "empty — press Refresh (needs the game running)"
+  "inventory.empty": "empty — press Refresh (needs the game running)",
+
+  "tab.secret_tasks": "Secret Tasks",
+  "triggers.item.secret_task_share": "Live-add shared secret tasks",
+  "secrettasks.hint": "The raidable STARRED alliance secret tasks, read live from the game. Switch on «secret_task_share» in the Triggers list to have a mate's share appear here on its own.",
+  "secrettasks.clear": "Clear list",
+  "secrettasks.empty": "no raidable starred task — press Refresh (needs the game running)",
+  "secrettasks.count": "{n} tasks",
+  "secrettasks.stars": "⭐×{n}",
+  "secrettasks.left": "expires in {t}",
+  "secrettasks.collect": "Collect",
+  "secrettasks.share": "Share",
+  "secrettasks.share_alliance": "Alliance",
+  "secrettasks.share_world": "World",
+  "secrettasks.collect_ok": "collect sent",
+  "secrettasks.collect_fail": "collect not sent — daily limit spent or no game",
+  "secrettasks.shared_ok": "shared to {where}",
+  "secrettasks.share_fail": "share to {where} failed"
 }

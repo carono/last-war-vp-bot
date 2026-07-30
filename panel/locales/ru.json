@@ -505,5 +505,22 @@
   "profile.res.gold": "Золото",
   "inventory.search": "Поиск:",
   "inventory.count": "{n} предметов",
-  "inventory.empty": "пусто — нажми «Обновить» (нужна запущенная игра)"
+  "inventory.empty": "пусто — нажми «Обновить» (нужна запущенная игра)",
+
+  "tab.secret_tasks": "Секретки",
+  "triggers.item.secret_task_share": "Добавлять расшаренные секретки в список",
+  "secrettasks.hint": "Секретки альянса со звездой, которые можно ограбить прямо сейчас — читаются из игры вживую. Включи «secret_task_share» в списке триггеров, чтобы секретка, расшаренная соратником, появлялась здесь сама.",
+  "secrettasks.clear": "Очистить список",
+  "secrettasks.empty": "нет доступных звёздных секреток — нажми «Обновить» (нужна запущенная игра)",
+  "secrettasks.count": "секреток: {n}",
+  "secrettasks.stars": "⭐×{n}",
+  "secrettasks.left": "истекает через {t}",
+  "secrettasks.collect": "Собрать",
+  "secrettasks.share": "Поделиться",
+  "secrettasks.share_alliance": "Альянс",
+  "secrettasks.share_world": "Мир",
+  "secrettasks.collect_ok": "запрос на сбор отправлен",
+  "secrettasks.collect_fail": "сбор не отправлен — исчерпан дневной лимит или игра не запущена",
+  "secrettasks.shared_ok": "отправлено в «{where}»",
+  "secrettasks.share_fail": "не удалось отправить в «{where}»"
 }
