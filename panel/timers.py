@@ -54,7 +54,10 @@ Every field except ``name`` and ``scenario`` may be left out: it then falls back
 to the entry of the same name in the hardcoded catalogue, and failing that to the
 module defaults. ``enabled`` and ``interval_sec`` are what the panel's own
 checkbox and period write back to — the profile's file is the one source of truth
-for its schedule, not a default some other setting overrides.
+for its schedule, not a default some other setting overrides. **The whole entry is
+editable from the Timers tab** (add / copy / edit / delete, steps and args
+included, via :meth:`Catalogue.replace` and :meth:`Catalogue.remove`); the file
+stays the record, and editing it by hand and pressing «⟳» works exactly as before.
 
 What the module decides, and what it deliberately does not:
 
@@ -265,9 +268,10 @@ class Catalogue:
     def with_settings(self, config: dict) -> "Catalogue":
         """A copy carrying the panel's switches and periods, ready to be saved.
 
-        Only those two fields move: the scenario, the args and the title are the
-        operator's text and are never rewritten by the UI, which has no way to
-        edit them anyway.
+        Only those two fields move. The scenario, the args and the title are the
+        operator's text: the Timers tab edits them through :meth:`replace`, which
+        writes a whole entry deliberately, while a ticked box or a retyped period
+        goes through here and must not be able to touch anything else on the row.
         """
         config = self.normalize_config(config)
         updated = []
@@ -280,6 +284,47 @@ class Catalogue:
                 args=dict(timer.args), title=timer.title,
                 label_key=timer.label_key))
         return Catalogue(updated, self.path, self.errors)
+
+    # -- editing (the Timers tab's Add / Duplicate / Delete / Edit) ----------
+    #
+    # Every one returns a NEW catalogue rather than mutating this one: the
+    # scheduler thread reads `catalogue()` on its own clock, and swapping the
+    # object it will read next is atomic where editing the list under it is not.
+    def replace(self, timer: Timer) -> "Catalogue":
+        """This catalogue with ``timer`` in place of the entry of the same name.
+
+        An unknown name is appended, so "save what the dialog holds" is one call
+        whether the dialog was opened on an existing row or on a new one.
+        """
+        out, replaced = [], False
+        for existing in self.timers:
+            if existing.name == timer.name:
+                out.append(timer)
+                replaced = True
+            else:
+                out.append(existing)
+        if not replaced:
+            out.append(timer)
+        return Catalogue(out, self.path, self.errors)
+
+    def remove(self, name: str) -> "Catalogue":
+        """This catalogue without the named entry (a no-op if it is not in it)."""
+        return Catalogue([t for t in self.timers if t.name != name],
+                         self.path, self.errors)
+
+    def unique_name(self, base: str) -> str:
+        """``base``, or ``base_2`` / ``base_3`` … — the first one not taken.
+
+        What Duplicate needs: the name is the id the schedule keys its clock on,
+        so a copy must not answer to the original's record.
+        """
+        base = (base or "timer").strip() or "timer"
+        if base not in self._by_name:
+            return base
+        n = 2
+        while f"{base}_{n}" in self._by_name:
+            n += 1
+        return f"{base}_{n}"
 
     # -- the decision -------------------------------------------------------
     def due_names(self, config: dict, records: dict, now: float) -> list[str]:
@@ -542,6 +587,13 @@ class TimerScheduler:
         # row for no reason.
         self._queue: "queue.Queue[tuple[str, bool]]" = queue.Queue()
         self._queued: set[str] = set()
+        # Names the UI asked to take back off the queue. Marked rather than removed
+        # (a Queue cannot be searched), and dropped by the worker when it gets there.
+        self._cancelled: set[str] = set()
+        # The errand being run right now, if any. `_queued` cannot tell waiting from
+        # running (a claim covers both), and `cancel` has to: one is cancellable and
+        # the other is not.
+        self._running: str | None = None
         self._queue_lock = threading.Lock()
         # Wall clock the worker may take from the queue again, set when the panel
         # turns an errand down as busy. Without it the item goes straight back on
@@ -593,11 +645,46 @@ class TimerScheduler:
     def _release(self, name: str) -> None:
         with self._queue_lock:
             self._queued.discard(name)
+            # The cancel mark goes with the claim. A cancel that arrived while the
+            # errand was already running is refused (see `cancel`), but a mark left
+            # behind by any other race would silently swallow the NEXT run of the
+            # same errand — a bug that would look like a timer that fires once and
+            # then skips a turn for no reason.
+            self._cancelled.discard(name)
 
     def pending(self) -> set[str]:
         """Names currently queued or being run — for tests and the row painter."""
         with self._queue_lock:
             return set(self._queued)
+
+    def cancel(self, name: str) -> bool:
+        """Take a WAITING errand back off the queue. ``False`` if there is none.
+
+        The Timers tab had no cancel at all: a «Запустить» pressed by mistake, or a
+        tick that queued three errands behind a slow one, could only be waited out.
+
+        The item is not plucked out of the queue — a ``queue.Queue`` cannot be
+        searched — it is *marked*, and the worker drops it when it comes off.
+
+        An errand that is **already running** is not cancellable and says so
+        (``False``): the press is in flight, and killing a scenario mid-call into
+        the game is exactly what the Scenarios tab's Stop refuses to do too. Saying
+        "taken off the queue" about a run that then completes would be a lie the
+        operator acts on.
+        """
+        with self._queue_lock:
+            if name not in self._queued or name == self._running:
+                return False
+            self._cancelled.add(name)
+            return True
+
+    def _take_cancelled(self, name: str) -> bool:
+        """Was ``name`` cancelled while it waited? Clears the mark either way."""
+        with self._queue_lock:
+            if name in self._cancelled:
+                self._cancelled.discard(name)
+                return True
+            return False
 
     # -- the clock ----------------------------------------------------------
     def _loop(self) -> None:
@@ -652,6 +739,10 @@ class TimerScheduler:
         signal to stop working the queue for now: the errand has been put back and
         re-running the pass would take the very same item straight off again.
         """
+        if self._take_cancelled(name):       # the UI took it back while it waited
+            self._log("timers.log.cancelled", name=name)
+            self._release(name)
+            return "skipped"
         timer = self._catalogue().by_name(name)
         if timer is None:                    # deleted from the config mid-run
             self._release(name)
@@ -666,7 +757,15 @@ class TimerScheduler:
                     self._gate_said = reason
                 self._release(name)
                 return "skipped"
-        ok, busy = self.run_one(timer, scheduled=scheduled)
+        # Mark it as running for the whole call, so `cancel` can tell "waiting in
+        # the queue" (cancellable) from "in flight" (not).
+        with self._queue_lock:
+            self._running = name
+        try:
+            ok, busy = self.run_one(timer, scheduled=scheduled)
+        finally:
+            with self._queue_lock:
+                self._running = None
         if busy:
             self._hold_until = time.time() + self._busy_retry
             self._requeue(name, scheduled)   # stays claimed: it is still waiting

@@ -505,19 +505,33 @@ def test_timers_tab_builds_from_the_config_and_binds():
             self._loading = False
             self._timer_vars: dict = {}
             self._timer_rows: dict = {}
+            self._timer_selected = None
             self._timer_catalogue = cat
             self._timer_store = _store(tmp)
             self._profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
             self.afters: list = []
+            self.logs: list = []
+            # The rows read the scheduler's queue to mark a waiting errand, so the
+            # stand-in needs something that answers `pending()`.
+            self._timers = types.SimpleNamespace(pending=lambda: set())
 
         _t = Panel._t
         _tr = Panel._tr
+        _say = Panel._say
         _fill_timer_grid = Panel._fill_timer_grid
         _bind_timer_autosave = Panel._bind_timer_autosave
         _save_timers = Panel._save_timers
+        _write_timer = Panel._write_timer
         _timer_config = Panel._timer_config
         _fmt_span = Panel._fmt_span
         _refresh_timer_rows = Panel._refresh_timer_rows
+        _select_timer = Panel._select_timer
+        _paint_timer_selection = Panel._paint_timer_selection
+        _selected_timer = Panel._selected_timer
+        _timer_duplicate = Panel._timer_duplicate
+
+        def _log_put(self, line):
+            self.logs.append(line)
 
         def after(self, _ms, _fn=None):                # the 1 s re-arm, not run here
             self.afters.append(_ms)
@@ -557,10 +571,116 @@ def test_timers_tab_builds_from_the_config_and_binds():
                     for n in (14, 15)}
         assert row["next"].cget("text") in expected, row["next"].cget("text")
 
+        # A queued errand is shown as queued rather than as "due now" — the
+        # scheduler's own queue used to be invisible.
+        tab._timers = types.SimpleNamespace(pending=lambda: {BASE})
+        tab._refresh_timer_rows()
+        assert row["next"].cget("text") == tab._t("timers.queued"), row["next"].cget("text")
+        tab._timers = types.SimpleNamespace(pending=lambda: set())
+
+        # The tab EDITS the list now, not just the switches. A copy gets a free name,
+        # starts switched off, carries the original's steps and args, and lands in the
+        # file — while the original is left exactly as it was.
+        tab._select_timer("inline_one")
+        tab._timer_duplicate()
+        copy = timersmod.load_catalogue(str(cfg_path))
+        assert copy.by_name("inline_one_2") is not None, copy.names()
+        assert copy.by_name("inline_one_2").scenario == ('LOG "hello"',)
+        assert copy.by_name("inline_one_2").args == {"who": "world"}
+        assert copy.by_name("inline_one_2").enabled is False
+        assert copy.by_name("inline_one").scenario == ('LOG "hello"',)
+        # …and the rows were redrawn from it, so the copy is on screen.
+        assert "inline_one_2" in tab._timer_rows, sorted(tab._timer_rows)
+
         # A timer's args reach its steps as {placeholders} — the engine does the
         # substituting now (see test_args in tests/test_game_primitives.py).
     finally:
         root.destroy()
+
+
+def test_a_queued_errand_can_be_taken_back_off_the_queue():
+    """«✕» on a row: cancel takes a WAITING errand off, and never kills a running one.
+
+    The tab had no cancel at all — a «Запустить» pressed by mistake, or three errands
+    queued behind a slow one, could only be waited out.
+    """
+    ran: list = []
+    sched = timersmod.TimerScheduler(
+        store=_store(Path(tempfile.mkdtemp())),
+        catalogue=lambda: timersmod.default_catalogue(),
+        config=lambda: {BASE: {"enabled": True, "interval_sec": 60},
+                        ALLY: {"enabled": True, "interval_sec": 60}},
+        runner=lambda timer: (ran.append(timer.name), True)[1],
+        log=lambda key, **fmt: None)
+
+    # Nothing queued: there is nothing to cancel, and saying so is not a lie.
+    assert sched.cancel(BASE) is False
+
+    # Two errands asked for by hand; the first is cancelled before the queue is
+    # worked, so only the second runs.
+    assert sched.request(timersmod.default_catalogue().by_name(BASE)) is True
+    assert sched.request(timersmod.default_catalogue().by_name(ALLY)) is True
+    assert sched.cancel(BASE) is True
+    assert sched.drain() == [ALLY], ran
+    assert ran == [ALLY], ran
+    # The claim is released either way, so the errand can be asked for again — and
+    # the cancel mark did NOT survive it. A mark left behind would swallow this next
+    # run and look like a timer that skips a turn for no reason.
+    assert sched.pending() == set(), sched.pending()
+    assert sched.request(timersmod.default_catalogue().by_name(BASE)) is True
+    assert sched.drain() == [BASE], ran
+
+    # An errand already IN FLIGHT is not cancellable, and says so rather than
+    # claiming a run it cannot stop. (The runner asks mid-call, which is exactly
+    # when a person would press «✕».)
+    verdicts: list = []
+    mid = timersmod.TimerScheduler(
+        store=_store(Path(tempfile.mkdtemp())),
+        catalogue=lambda: timersmod.default_catalogue(),
+        config=lambda: {BASE: {"enabled": True, "interval_sec": 60}},
+        runner=lambda timer: (verdicts.append(mid.cancel(timer.name)), True)[1],
+        log=lambda key, **fmt: None)
+    mid.request(timersmod.default_catalogue().by_name(BASE))
+    assert mid.drain() == [BASE], verdicts
+    assert verdicts == [False], "a running errand reported itself as cancelled"
+
+
+def test_a_row_can_be_added_renamed_and_deleted():
+    """The catalogue edits the Timers tab performs, without a display.
+
+    A rename is a delete plus an add on purpose: the name is the key the last-run
+    record is filed under, so a renamed errand must start a fresh clock rather than
+    inherit the old one's.
+    """
+    cat = timersmod.default_catalogue()
+    assert cat.unique_name("brand_new") == "brand_new"
+    assert cat.unique_name(BASE) == f"{BASE}_2"
+
+    added = cat.replace(timersmod.Timer(name="morning",
+                                       scenario=("collect_base_resources",
+                                                 "donate_alliance_tech"),
+                                       interval_sec=3600, enabled=True))
+    assert "morning" in added.names(), added.names()
+    assert len(added) == len(cat) + 1
+    assert added.by_name("morning").scenario == ("collect_base_resources",
+                                                "donate_alliance_tech")
+
+    # Replacing an existing name edits it in place and keeps the order.
+    edited = added.replace(timersmod.Timer(name=BASE, scenario=("something_else",),
+                                          interval_sec=120))
+    assert edited.names() == added.names(), edited.names()
+    assert edited.by_name(BASE).scenario == ("something_else",)
+
+    # A delete really removes it, and removing what is not there is a no-op.
+    assert BASE not in edited.remove(BASE).names()
+    assert edited.remove("nothing_by_that_name").names() == edited.names()
+
+    # A switch/period edit must never rewrite the steps beside it.
+    settled = edited.with_settings({"morning": {"enabled": False, "interval_sec": 7200}})
+    assert settled.by_name("morning").scenario == ("collect_base_resources",
+                                                   "donate_alliance_tech")
+    assert settled.by_name("morning").interval_sec == 7200
+    assert settled.by_name("morning").enabled is False
 
 
 def _run_standalone() -> int:

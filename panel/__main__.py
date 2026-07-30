@@ -24,7 +24,9 @@ Blocks:
     yet — actions/join_rally.md takes its squads as an argument.
   * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech and
     then claim the gifts) has a switch and a period, and runs itself once that long has
-    passed since it last ran. Everything scheduled runs single-file on one worker thread
+    passed since it last ran. Rows are ADDED, COPIED, EDITED and DELETED from the tab
+    itself — scenario steps, args and title included — so an unattended routine is built
+    without leaving the panel. Everything scheduled runs single-file on one worker thread
     fed by a queue — two errands due at the same moment take their turn instead of driving
     the game at once, and «Запустить» enqueues rather than starting a thread of its own.
     The list of errands, their switches and periods, and the clock that says when each last
@@ -505,7 +507,10 @@ class Panel(tk.Tk):
         # yet is seeded from the template panel/timers.json.
         self._timer_catalogue = timersmod.default_catalogue()
         self._timer_vars: dict[str, dict] = {}   # name -> {"enabled": Var, "interval": Var}
-        self._timer_rows: dict[str, dict] = {}   # name -> {"last": Label, "next": Label}
+        self._timer_rows: dict[str, dict] = {}   # name -> {"last"/"next" Labels, "box"}
+        # Which row the editor's Add/Copy/Edit/Delete act on. A grid of checkbuttons
+        # has no selection of its own, so the row label doubles as one.
+        self._timer_selected: str | None = None
         self._load_timer_catalogue()
         self._timers = timersmod.TimerScheduler(
             store=self._timer_store,
@@ -961,6 +966,13 @@ class Panel(tk.Tk):
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
+        # The one custom style the panel needs: the selected timer row. A ttk
+        # Checkbutton has no "selected" look of its own, and the four editor buttons
+        # act on whichever row that is — so it has to be visible.
+        try:
+            ttk.Style(self).configure("Selected.TCheckbutton", font=("", 9, "bold"))
+        except tk.TclError:
+            pass
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
@@ -2997,19 +3009,41 @@ class Panel(tk.Tk):
         drives the game directly: a row only edits the settings the scheduler
         thread reads on its next tick.
 
-        WHICH rows exist is not decided here either — the list is read from the
-        active profile's timers.json, so a new timer is a new entry in that file,
-        every account keeps its own set, and «⟳» below re-reads it without
-        restarting the panel.
+        The list belongs to the active profile's timers.json — every account keeps
+        its own set — but it is EDITED HERE: add a row, copy one, delete one, or
+        open one and change its steps, its args and its title. That is what makes
+        "play the session" a thing the panel can do at all: the daily list is one
+        timer with ten steps and a period of an hour, and building it used to mean
+        hand-editing JSON per account. «⟳» still re-reads the file for anything
+        edited outside.
         """
         frame = self._tr(ttk.LabelFrame(parent, padding=8), "timers.frame")
-        frame.pack(fill="x", padx=8, pady=8)
+        frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         # Rebuilt wholesale by _reload_timers, so the rows live in their own
         # frame with nothing else in it.
         self._timer_grid = ttk.Frame(frame)
         self._timer_grid.pack(fill="x")
         self._fill_timer_grid()
+
+        # -- the editor's buttons ------------------------------------------------
+        tools = ttk.Frame(frame)
+        tools.pack(fill="x", pady=(10, 0))
+        self._tr(ttk.Button(tools, command=self._timer_add),
+                 "timers.add").pack(side="left", padx=(0, 4))
+        self._tr(ttk.Button(tools, command=self._timer_edit),
+                 "timers.edit").pack(side="left", padx=(0, 4))
+        self._tr(ttk.Button(tools, command=self._timer_duplicate),
+                 "timers.duplicate").pack(side="left", padx=(0, 4))
+        self._tr(ttk.Button(tools, command=self._timer_delete),
+                 "timers.delete").pack(side="left", padx=(0, 4))
+        # The schedule's own master switch. «Стоп всё» stops the scheduler thread,
+        # and without something that says so — and puts it back — the schedule would
+        # be silently dead for the rest of the session.
+        self._sched_var = tk.BooleanVar(value=True)
+        self._tr(ttk.Checkbutton(tools, variable=self._sched_var,
+                                 command=self._toggle_schedule),
+                 "timers.scheduler").pack(side="right")
 
         bottom = ttk.Frame(frame)
         bottom.pack(fill="x", pady=(8, 0))
@@ -3019,6 +3053,33 @@ class Panel(tk.Tk):
                  "timers.reload").pack(side="right", anchor="ne")
 
         self._refresh_timer_rows()
+
+    # -- which row is selected ----------------------------------------------
+    #
+    # A grid of checkbuttons has no selection of its own, so the row label doubles
+    # as one: clicking a row's name selects it and the four buttons act on that.
+    def _select_timer(self, name: str) -> None:
+        self._timer_selected = name
+        self._paint_timer_selection()
+
+    def _paint_timer_selection(self) -> None:
+        for row_name, row in self._timer_rows.items():
+            box = row.get("box")
+            if box is None:
+                continue
+            try:
+                box.configure(style="Selected.TCheckbutton"
+                              if row_name == self._timer_selected else "TCheckbutton")
+            except tk.TclError:
+                pass
+
+    def _selected_timer(self):
+        """The selected timer, or ``None`` (with a log line saying to pick one)."""
+        name = getattr(self, "_timer_selected", None)
+        timer = self._timer_catalogue.by_name(name) if name else None
+        if timer is None:
+            self._say("timer", "timers.none_selected")
+        return timer
 
     def _fill_timer_grid(self) -> None:
         """(Re)draw a row per timer in the current catalogue."""
@@ -3052,6 +3113,13 @@ class Panel(tk.Tk):
             else:
                 box.configure(text=timer.name)
             box.grid(row=row, column=0, sticky="w", pady=2)
+            # The label is also the row's selection: a grid of checkbuttons has none
+            # of its own, and the four editor buttons need to know which row they act
+            # on. A click on the label selects; a double-click opens the editor.
+            box.bind("<Button-1>", lambda _e, n=timer.name: self._select_timer(n),
+                     add="+")
+            box.bind("<Double-Button-1>", lambda _e, n=timer.name: (
+                self._select_timer(n), self._timer_edit()), add="+")
             ttk.Spinbox(grid, from_=timersmod.MIN_INTERVAL_SEC,
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
@@ -3062,8 +3130,15 @@ class Panel(tk.Tk):
             nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
             self._tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
                      "timers.run_now").grid(row=row, column=4, sticky="e")
-            self._timer_rows[timer.name] = {"last": last, "next": nxt}
+            # A queued or running errand had no way back: the Scenarios tab has Stop,
+            # this one had nothing, and the scheduler's own `pending()` was never
+            # shown. «✕» takes a queued errand off the queue again.
+            self._tr(ttk.Button(grid, width=3,
+                                command=lambda t=timer: self._timer_cancel(t)),
+                     "timers.cancel").grid(row=row, column=5, sticky="e", padx=(4, 0))
+            self._timer_rows[timer.name] = {"last": last, "next": nxt, "box": box}
         self._bind_timer_autosave()
+        self._paint_timer_selection()
 
     def _bind_timer_autosave(self) -> None:
         """Persist a ticked box / retyped period, for rows built at any time.
@@ -3078,13 +3153,230 @@ class Panel(tk.Tk):
     def _save_timers(self) -> None:
         """Write the ticked boxes and typed periods into the profile's timers.json.
 
-        The scenario, the args and the title are left exactly as they were typed —
-        the panel has no way to edit them and must not rewrite them.
+        Only those two: the scenario, the args and the title are the operator's text
+        and travel through `_write_timer` instead, which writes a whole entry on
+        purpose. A ticked box must never be able to rewrite a recipe.
         """
         if getattr(self, "_loading", False) or not self._timer_vars:
             return
         self._timer_catalogue = self._timer_catalogue.with_settings(self._timer_config())
         timersmod.save_catalogue(self._timer_catalogue, self._profiles.timers_json())
+
+    # -- add / copy / edit / delete a row ------------------------------------
+    #
+    # The one feature that makes the bot unattended used to be gated behind
+    # hand-editing timers.json per account — the tab's own hint said so. The file
+    # format always supported everything below; only the UI was missing.
+    def _write_timer(self, catalogue) -> None:
+        """Persist a whole catalogue and redraw the rows from it.
+
+        The switches and periods on screen are folded in first: a row edited while
+        another row's box was just ticked must not lose the tick.
+        """
+        self._timer_catalogue = catalogue.with_settings(self._timer_config())
+        timersmod.save_catalogue(self._timer_catalogue, self._profiles.timers_json())
+        self._fill_timer_grid()
+
+    def _timer_add(self) -> None:
+        """A new errand, empty, named for the operator to fill in."""
+        name = self._timer_catalogue.unique_name("errand")
+        draft = timersmod.Timer(name=name, scenario=("",),
+                               interval_sec=timersmod.DEFAULT_INTERVAL_SEC,
+                               enabled=False)
+        self._edit_timer_dialog(draft, is_new=True)
+
+    def _timer_duplicate(self) -> None:
+        """A copy of the selected row under a free name.
+
+        The name is the id the schedule keys its clock on, so the copy must not
+        answer to the original's last-run record — `unique_name` is what guarantees
+        that.
+        """
+        timer = self._selected_timer()
+        if timer is None:
+            return
+        copy = timersmod.Timer(
+            name=self._timer_catalogue.unique_name(timer.name),
+            scenario=timer.scenario, interval_sec=timer.interval_sec,
+            enabled=False,          # a copy starts off: two clocks on one errand is
+                                    # rarely what a duplicate was for
+            args=dict(timer.args),
+            title=timer.title, label_key=None)
+        self._write_timer(self._timer_catalogue.replace(copy))
+        self._select_timer(copy.name)
+        self._say("timer", "timers.log.duplicated",
+                  name=timer.name, copy=copy.name)
+
+    def _timer_delete(self) -> None:
+        timer = self._selected_timer()
+        if timer is None:
+            return
+        if not messagebox.askyesno(self._t("timers.delete"),
+                                   self._t("timers.confirm_delete", name=timer.name),
+                                   parent=self):
+            return
+        self._timer_selected = None
+        self._write_timer(self._timer_catalogue.remove(timer.name))
+        self._say("timer", "timers.log.deleted", name=timer.name)
+
+    def _timer_edit(self) -> None:
+        timer = self._selected_timer()
+        if timer is not None:
+            self._edit_timer_dialog(timer, is_new=False)
+
+    def _edit_timer_dialog(self, timer, is_new: bool) -> None:
+        """The row's whole entry, in a window: name, title, period, steps, args.
+
+        Steps are one per line, because that is what a scenario is — «donate, then
+        claim the gifts» is two lines — and a line is either the name of an action
+        script or DSL source run as it stands (panel/timers.py says so too). The
+        picker beside the box appends a script's name so the thirty-odd recipes do
+        not have to be remembered.
+
+        Nothing is written until Save, and Save refuses an entry the scheduler could
+        not run: no name, a name already taken by another row, or no steps at all.
+        """
+        win = tk.Toplevel(self)
+        win.title(self._t("timers.editor.window"))
+        win.transient(self)
+        frm = ttk.Frame(win, padding=12)
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(1, weight=1)
+
+        name_var = tk.StringVar(value=timer.name)
+        title_var = tk.StringVar(value=timer.title or "")
+        interval_var = tk.StringVar(value=str(timer.interval_sec))
+        args_var = tk.StringVar(value=json.dumps(timer.args, ensure_ascii=False)
+                                if timer.args else "")
+        for row, (key, var, width) in enumerate((
+                ("timers.editor.name", name_var, 28),
+                ("timers.editor.title", title_var, 40),
+                ("timers.editor.interval", interval_var, 10),
+                ("timers.editor.args", args_var, 40))):
+            self._tr(ttk.Label(frm), key).grid(row=row, column=0, sticky="w",
+                                               padx=(0, 8), pady=3)
+            ttk.Entry(frm, textvariable=var, width=width).grid(row=row, column=1,
+                                                               sticky="we", pady=3)
+        self._tr(ttk.Label(frm, foreground="#888", wraplength=460, justify="left"),
+                 "timers.editor.steps_hint").grid(row=4, column=0, columnspan=2,
+                                                  sticky="w", pady=(8, 2))
+        steps = tk.Text(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
+        steps.grid(row=5, column=0, columnspan=2, sticky="nsew")
+        steps.insert("1.0", "\n".join(timer.scenario))
+        frm.rowconfigure(5, weight=1)
+
+        # The picker: every blessed action script, appended as a step.
+        pick = ttk.Frame(frm)
+        pick.grid(row=6, column=0, columnspan=2, sticky="we", pady=(6, 0))
+        self._tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
+        actions = list_actions()
+        pick_var = tk.StringVar()
+        pick_combo = ttk.Combobox(pick, textvariable=pick_var, state="readonly",
+                                  width=34,
+                                  values=[f"{a['name']} — {a['title']}" for a in actions])
+        pick_combo.pack(side="left")
+
+        def add_step() -> None:
+            idx = pick_combo.current()
+            if idx < 0:
+                return
+            text = steps.get("1.0", "end-1c")
+            steps.insert("end", ("\n" if text.strip() else "") + actions[idx]["name"])
+
+        self._tr(ttk.Button(pick, command=add_step),
+                 "timers.editor.add_step").pack(side="left", padx=(4, 0))
+
+        problem = ttk.Label(frm, foreground="#c33", wraplength=460, justify="left")
+        problem.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
+
+        def save() -> None:
+            name = name_var.get().strip()
+            if not name:
+                problem.configure(text=self._t("timers.editor.err_name"))
+                return
+            clash = self._timer_catalogue.by_name(name)
+            if clash is not None and name != timer.name:
+                problem.configure(text=self._t("timers.editor.err_taken", name=name))
+                return
+            scenario = tuple(s.strip() for s in steps.get("1.0", "end-1c").splitlines()
+                             if s.strip())
+            if not scenario:
+                problem.configure(text=self._t("timers.editor.err_steps"))
+                return
+            raw_args = args_var.get().strip()
+            args: dict = {}
+            if raw_args:
+                try:
+                    args = json.loads(raw_args)
+                except ValueError as exc:
+                    problem.configure(text=self._t("timers.editor.err_args", error=exc))
+                    return
+                if not isinstance(args, dict):
+                    problem.configure(text=self._t("timers.editor.err_args",
+                                                   error='expected {"name": value}'))
+                    return
+            # Keep the switch as it stands ON SCREEN, not as the catalogue last saw
+            # it: a box ticked a second ago must survive an edit of the same row. A
+            # brand-new errand starts off — one nobody has read yet should not fire a
+            # minute later.
+            row_var = self._timer_vars.get(timer.name)
+            enabled = bool(row_var["enabled"].get()) if row_var else bool(timer.enabled)
+            edited = timersmod.Timer(
+                name=name, scenario=scenario,
+                interval_sec=timersmod._as_interval(interval_var.get(),
+                                                    timer.interval_sec),
+                enabled=enabled,
+                args=args, title=title_var.get().strip() or None,
+                # The locale key belongs to the BUILT-IN entry of that name; a
+                # renamed row is no longer that entry, and keeping it would show a
+                # translated label over the wrong errand.
+                label_key=timer.label_key if name == timer.name else None)
+            catalogue = self._timer_catalogue
+            if not is_new and name != timer.name:
+                # A rename is a delete plus an add: the name is the record key, so
+                # the row starts a fresh clock rather than inheriting the old one's.
+                catalogue = catalogue.remove(timer.name)
+            win.destroy()
+            self._write_timer(catalogue.replace(edited))
+            self._select_timer(name)
+            self._say("timer", "timers.log.saved", name=name)
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=8, column=0, columnspan=2, sticky="we", pady=(10, 0))
+        ttk.Button(btns, text=self._t("timers.editor.cancel"),
+                   command=win.destroy).pack(side="left")
+        ttk.Button(btns, text=self._t("timers.editor.save"),
+                   command=save).pack(side="right")
+        win.bind("<Escape>", lambda _e: win.destroy())
+        win.grab_set()
+
+    # -- the schedule's master switch ---------------------------------------
+    def _toggle_schedule(self) -> None:
+        """Start or stop the scheduler thread from the tab.
+
+        «Стоп всё» stops it, and without this the schedule would be silently dead
+        for the rest of the session — the one failure mode of a panic button.
+        """
+        if self._sched_var.get():
+            self._timers.start()
+            self._say("timer", "timers.log.scheduler_on")
+        else:
+            self._timers.stop()
+            self._say("timer", "timers.log.scheduler_off")
+
+    def _timer_cancel(self, timer) -> None:
+        """The row's «✕»: take a WAITING errand back off the queue.
+
+        Three outcomes, and they must read differently: taken off, already running
+        (the press is in flight and stopping it mid-call into the game is not on
+        offer), and never queued in the first place.
+        """
+        if self._timers.cancel(timer.name):
+            self._say("timer", "timers.log.cancelled", name=timer.name)
+        elif timer.name in self._timers.pending():
+            self._say("timer", "timers.log.already_running", name=timer.name)
+        else:
+            self._say("timer", "timers.log.not_queued", name=timer.name)
 
     def _reload_timers(self, quiet: bool = False) -> None:
         """Re-read the profile's timers.json and redraw the rows from it."""
@@ -3196,6 +3488,9 @@ class Panel(tk.Tk):
         if self._timer_rows:
             config = self._timer_config()
             records = self._timer_store.records()
+            # What is waiting on the schedule's own queue. It was never shown, so an
+            # errand queued behind a slow one looked like nothing had happened.
+            pending = self._timers.pending()
             now = time.time()
             for timer in self._timer_catalogue:
                 row = self._timer_rows.get(timer.name)
@@ -3206,7 +3501,9 @@ class Panel(tk.Tk):
                     text=self._t("timers.never") if not last
                     else self._t("timers.ago", ago=self._fmt_span(now - last)))
                 due = self._timer_catalogue.next_due(timer, config, records)
-                if due is None:
+                if timer.name in pending:
+                    row["next"].configure(text=self._t("timers.queued"))
+                elif due is None:
                     row["next"].configure(text=self._t("timers.off"))
                 elif due <= now:
                     row["next"].configure(text=self._t("timers.due_now"))
