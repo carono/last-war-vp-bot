@@ -768,9 +768,13 @@ class Panel(ctk.CTk):
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
         self._client = lua_client.DaemonClient(port=self._daemon_port())
+        # Profile picker lives in a modal (menu → «Профиль»), not on the main page.
+        # The var is always live; the combo exists only while that modal is open.
+        self._profile_var = tk.StringVar(value=self._profiles.active)
+        self._profile_combo = None
+        self._profile_win = None
         self._splash_step("splash.ui", 0.6)
         self._build_menu()
-        self._build_profile_bar()
         self._build_ui()
         self._apply_settings_to_ui()  # restore this profile's saved values
         self._loading = False
@@ -967,6 +971,8 @@ class Panel(ctk.CTk):
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label=self._t("menu.help.about"), command=self._show_about)
 
+        menubar.add_command(label=self._t("menu.profile"),
+                            command=self._open_profile_dialog)
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.develop"), menu=develop_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
@@ -992,27 +998,75 @@ class Panel(ctk.CTk):
         win.grab_set()
 
     # -- profiles -----------------------------------------------------------
-    def _build_profile_bar(self) -> None:
-        """A switcher bar (create / rename / delete / select) above the tabs."""
-        bar = CTkFrame(self, padding=(8, 6, 8, 0))
-        bar.pack(fill="x", side="top")
-        self._tr(CTkLabel(bar), "profile.label").pack(side="left")
-        self._profile_var = tk.StringVar(value=self._profiles.active)
-        self._profile_combo = CTkComboBox(bar, textvariable=self._profile_var,
-                                            state="readonly", width=20,
-                                            values=self._profiles.list())
-        self._profile_combo.pack(side="left", padx=(6, 8))
+    def _open_profile_dialog(self) -> None:
+        """The profile manager, in a modal window (menu → «Профиль»): pick the
+        active profile, or create / rename / delete one. It used to be a bar above
+        the tabs on the main page; a switch that is used rarely does not earn a
+        permanent strip there."""
+        existing = getattr(self, "_profile_win", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_set()
+            return
+
+        win = ctk.CTkToplevel(self)
+        self._profile_win = win
+        win.title(self._t("menu.profile"))
+        win.resizable(False, False)
+        win.transient(self)
+
+        frm = CTkFrame(win)
+        frm.pack(fill="both", expand=True, padx=16, pady=16)
+        self._tr(CTkLabel(frm), "profile.label").grid(row=0, column=0, sticky="w")
+        self._profile_var.set(self._profiles.active)
+        self._profile_combo = CTkComboBox(frm, textvariable=self._profile_var,
+                                          state="readonly", width=24,
+                                          values=self._profiles.list())
+        self._profile_combo.grid(row=0, column=1, sticky="we", padx=(8, 0))
         self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
-        self._tr(CTkButton(bar, command=self._create_profile),
-                 "profile.new").pack(side="left", padx=2)
-        self._tr(CTkButton(bar, command=self._rename_profile),
-                 "profile.rename").pack(side="left", padx=2)
-        self._tr(CTkButton(bar, command=self._delete_profile),
-                 "profile.delete").pack(side="left", padx=2)
+
+        btns = CTkFrame(frm, fg_color="transparent")
+        btns.grid(row=1, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        self._tr(CTkButton(btns, command=self._create_profile),
+                 "profile.new").pack(side="left")
+        self._tr(CTkButton(btns, command=self._rename_profile),
+                 "profile.rename").pack(side="left", padx=6)
+        self._tr(CTkButton(btns, command=self._delete_profile),
+                 "profile.delete").pack(side="left")
+        self._tr(CTkButton(btns, command=win.destroy),
+                 "profile.close").pack(side="right")
+
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        win.bind("<Destroy>", self._on_profile_dialog_destroyed)
+        win.update_idletasks()
+        # Centre over the main window.
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 3)
+        win.geometry(f"+{x}+{y}")
+        win.grab_set()
+        win.focus_set()
+
+    def _on_profile_dialog_destroyed(self, event) -> None:
+        # The combo lives only while the modal is open; forget it once it is gone so
+        # `_refresh_profile_combo` never touches a dead widget.
+        if event.widget is self._profile_win:
+            self._profile_combo = None
+            self._profile_win = None
+
+    def _profile_dialog_parent(self):
+        """Parent the create/rename/delete sub-dialogs at the modal if it is open,
+        so they stack above it and get the input grab; else at the main window."""
+        win = getattr(self, "_profile_win", None)
+        return win if win is not None and win.winfo_exists() else self
 
     def _refresh_profile_combo(self, select: str | None = None) -> None:
-        self._profile_combo.configure(values=self._profiles.list())
         self._profile_var.set(select or self._profiles.active)
+        combo = getattr(self, "_profile_combo", None)
+        if combo is not None:
+            try:
+                combo.configure(values=self._profiles.list())
+            except tk.TclError:
+                pass
 
     def _switch_profile(self, name: str | None = None) -> None:
         name = name or self._profile_var.get()
@@ -1039,13 +1093,13 @@ class Panel(ctk.CTk):
 
     def _create_profile(self) -> None:
         name = simpledialog.askstring(self._t("profile.new"),
-                                      self._t("profile.prompt_name"), parent=self)
+                                      self._t("profile.prompt_name"), parent=self._profile_dialog_parent())
         if not name:
             return
         try:
             created = self._profiles.create(name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.new"), str(exc), parent=self)
+            messagebox.showerror(self._t("profile.new"), str(exc), parent=self._profile_dialog_parent())
             return
         # Seed the new profile with the current settings so it starts from a sane state.
         self._profiles.save(self._collect_settings(), created)
@@ -1056,13 +1110,13 @@ class Panel(ctk.CTk):
         cur = self._profiles.active
         name = simpledialog.askstring(self._t("profile.rename"),
                                       self._t("profile.prompt_name"),
-                                      initialvalue=cur, parent=self)
+                                      initialvalue=cur, parent=self._profile_dialog_parent())
         if not name:
             return
         try:
             newn = self._profiles.rename(cur, name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.rename"), str(exc), parent=self)
+            messagebox.showerror(self._t("profile.rename"), str(exc), parent=self._profile_dialog_parent())
             return
         self._refresh_profile_combo(select=newn)
         # The directory moved under the schedule's feet: re-point both files, or
@@ -1079,12 +1133,12 @@ class Panel(ctk.CTk):
         if not messagebox.askyesno(
                 self._t("profile.delete"),
                 self._t("profile.confirm_delete", name=cur,
-                        path=_repo_rel(self._profiles.dir(cur))), parent=self):
+                        path=_repo_rel(self._profiles.dir(cur))), parent=self._profile_dialog_parent()):
             return
         try:
             now_active = self._profiles.delete(cur)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.delete"), str(exc), parent=self)
+            messagebox.showerror(self._t("profile.delete"), str(exc), parent=self._profile_dialog_parent())
             return
         self._refresh_profile_combo(select=now_active)
         self._settings = self._profiles.load()

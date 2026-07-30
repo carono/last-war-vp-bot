@@ -221,6 +221,7 @@
   "menu.help": "Help",
   "menu.help.about": "About",
   "menu.language": "Language",
+  "menu.profile": "Profile",
 
   "nav.frame": "Navigation",
   "nav.home": "🏠  Home",
@@ -267,6 +268,7 @@
   "panic.log": "stopping everything: monitors, watchers, the map sweep, the scenario and the schedule",
   "panic.stop_all": "⏹ Stop everything",
 
+  "profile.close": "Close",
   "profile.confirm_delete": "Delete the profile «{name}»? Its whole directory {path} goes with it — the chat history, the rally and secret-task logs, panel.log and the record of when each timer last ran. This cannot be undone.",
   "profile.delete": "Delete",
   "profile.label": "Profile:",
