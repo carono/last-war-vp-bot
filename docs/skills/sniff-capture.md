@@ -444,6 +444,16 @@ still live in the running Lua state (they persist until the game restarts, spam
 `Player.log` and slow hot functions). Fix by re-running and stopping the tracer
 once more, or restart the game.
 
+> **The panel's Stop reaches the same clean state, by a different route** (task
+> #1084). It cannot Ctrl+C the child — it launched it — so it first drops the
+> tracer's `--stop-flag` file, which breaks the tail loop and runs the same
+> `restore()` + file close on the way out; if the child has not gone within ~1.5 s
+> it is hard-killed, and either way the panel runs an idempotent `RESTORE_CHUNK`
+> over the daemon as a safety net (it reports "nothing installed" when the child
+> already cleaned up). So a run stopped from the panel unwraps the VM too — earlier
+> it did not, because the hard `TerminateProcess` skipped both the atexit and the
+> finally.
+
 ---
 
 **Recording saved → analyse it:** [`sniff.md`](sniff.md) §8.0 is the strict

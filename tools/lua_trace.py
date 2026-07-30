@@ -443,6 +443,11 @@ def main():
                                     "file name (spaces become underscores); ignored with --out")
     ap.add_argument("--no-out", action="store_true",
                     help="print to the terminal only, save no trace file")
+    ap.add_argument("--stop-flag", metavar="PATH",
+                    help="graceful stop: when this file appears, break the tail loop "
+                         "and exit normally — running restore() and closing the trace "
+                         "file, which a hard kill (TerminateProcess) would skip. The "
+                         "panel uses this before it terminates the child (task #1084).")
     args = ap.parse_args()
 
     dedup = args.dedup
@@ -543,6 +548,12 @@ def main():
                 ln = ln.rstrip("\r")
                 if args.all or ("XSCALL" in ln or "XSTRACE" in ln):
                     emit(ln)
+            # Graceful stop: the panel drops this file to ask for a clean exit rather
+            # than a hard kill, so `finally` (restore + close the trace file) runs.
+            # Read the tail one last time above before leaving, so no line is lost.
+            if args.stop_flag and os.path.exists(args.stop_flag):
+                emit("\n[lua_trace] stop-flag seen — stopping ...")
+                break
             time.sleep(0.3)
     except KeyboardInterrupt:
         emit("\n[lua_trace] stopping ...")

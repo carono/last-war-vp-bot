@@ -83,6 +83,7 @@ import queue
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -346,6 +347,12 @@ SNIFF_READY_TIMEOUT = 25.0
 # run file paths arrive that way) and the files are closed before the dialog
 # offers to delete them.
 SNIFF_FLUSH_MS = 600
+
+# How long the panel waits for the tracer to stop on its own after dropping the
+# --stop-flag, before hard-killing it (task #1084). The tail loop sleeps 0.3s, so
+# ~1.5s leaves room for a couple of passes plus its restore round-trip; longer only
+# delays the Stop when the child is wedged.
+TRACE_GRACEFUL_SEC = 1.5
 
 # Directory holding the DSL action scripts the Scenarios tab lists and runs. Only the
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
@@ -1557,10 +1564,11 @@ class Panel(ctk.CTk):
         # The three read-only tabs (panel/tabs_extra.py). Their UI is built now but the
         # data is read lazily — the first time each tab is opened (_on_main_tab_changed).
         self._main_nb = nb
+        self._inventory_tab = tabsextra.InventoryTab(self, inventory_tab)
         self._lazy_tabs = {
             str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
             str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
-            str(inventory_tab): tabsextra.InventoryTab(self, inventory_tab),
+            str(inventory_tab): self._inventory_tab,
         }
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
@@ -3291,8 +3299,18 @@ class Panel(ctk.CTk):
         # survives only as the panel LOG's display filter (see `_trace_show`), so the
         # Tk widget stays readable while the file keeps everything.
         self._say("trace", "log.trace.starting", filter=self._trace_filter())
+        # A graceful-stop flag path (task #1084): _stop_sniff drops this file so the
+        # tracer breaks its loop and runs its own restore + closes the trace file,
+        # rather than being hard-killed. Unique per run so two runs never share one.
+        self._trace_stop_flag = os.path.join(
+            tempfile.gettempdir(), f"lw_trace_stop_{os.getpid()}_{int(time.time())}.flag")
+        try:
+            os.path.exists(self._trace_stop_flag) and os.remove(self._trace_stop_flag)
+        except OSError:
+            pass
         self._trace_proc = self._spawn_sniffer(
-            [self._python(), "-u", FUNCTION_SNIFFER] + label_args,
+            [self._python(), "-u", FUNCTION_SNIFFER,
+             "--stop-flag", self._trace_stop_flag] + label_args,
             "trace")
         if self._trace_proc is not None:
             self._sniff_ready["trace"] = None
@@ -3437,21 +3455,17 @@ class Panel(ctk.CTk):
         proc, self._trace_proc = self._trace_proc, None
         if proc is not None:
             self._say("trace", "log.trace.stopped")
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-            # proc.terminate() is TerminateProcess on Windows — a hard kill that
-            # runs NEITHER the tracer's atexit handler NOR its finally block, so
-            # the ~8700 Lua functions it wrapped stay live in the game VM. Every
-            # wrapped call then keeps paying the logging-shim cost (pcall +
-            # tostring + Debug.LogError), which is what lags the game after a
-            # sniff (task #1086). The killed child cannot clean up after itself,
-            # so unwrap the hooks from here, over the warm daemon. RESTORE_CHUNK
-            # is idempotent — it reports "nothing installed" when the VM is
-            # already clean — so a redundant call (e.g. the child DID exit
-            # cleanly on its own) is harmless.
-            threading.Thread(target=self._restore_trace_hooks, daemon=True).start()
+            # Ask the tracer to stop GRACEFULLY first (task #1084): drop its
+            # --stop-flag so it breaks its tail loop and runs its own atexit/finally —
+            # restore()ing the ~8700 wrapped Lua functions and closing the trace file.
+            # A hard proc.terminate() (TerminateProcess on Windows) runs NEITHER, which
+            # is why the hooks used to stay live in the VM and keep lagging the game
+            # after a sniff (#1086). All of it — the wait, the fallback hard kill, and
+            # an idempotent daemon-side RESTORE_CHUNK as the safety net — runs off the
+            # Tk thread so Stop never freezes the UI.
+            flag = getattr(self, "_trace_stop_flag", None)
+            threading.Thread(target=self._graceful_stop_trace, args=(proc, flag),
+                             daemon=True).start()
 
         # Ask what this run was, once the killed children have let go of their
         # files. The delay is not about buffering (both write line-buffered) but
@@ -3582,6 +3596,41 @@ class Panel(ctk.CTk):
         human = f"{size / 1024:.0f} KB" if size >= 1024 else f"{size} B"
         return self._t(f"develop.run.file.{kind}", path=_repo_rel(path),
                        size=human, records=stats["records"])
+
+    def _graceful_stop_trace(self, proc, flag) -> None:
+        """Stop the tracer cleanly, then make sure the VM is unhooked (off the Tk thread).
+
+        The order is belt-and-suspenders (task #1084):
+
+          1. drop the ``--stop-flag`` file so the tracer breaks its own loop and runs
+             ``restore()`` + closes its trace file — the clean exit a hard kill skips;
+          2. give it a moment; if it has not gone, ``terminate()`` it (hard kill);
+          3. either way run the idempotent ``RESTORE_CHUNK`` over the daemon — it
+             reports "nothing installed" when the child already cleaned up, so a
+             redundant restore is harmless, and a genuinely-missed one is caught.
+        """
+        if flag:
+            try:
+                with open(flag, "w", encoding="utf-8") as fh:
+                    fh.write("stop")             # its existence is the whole signal
+            except OSError:
+                flag = None
+            deadline = time.time() + TRACE_GRACEFUL_SEC
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    break                        # it exited on its own — restore ran
+                time.sleep(0.1)
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:                    # noqa: BLE001 — already gone is fine
+                pass
+        self._restore_trace_hooks()
+        if flag:
+            try:
+                os.remove(flag)
+            except OSError:
+                pass
 
     def _restore_trace_hooks(self) -> None:
         """Unwrap the lua_trace hooks left in the game VM after a hard Stop.
@@ -5202,6 +5251,12 @@ class Panel(ctk.CTk):
         if not self._claim_busy():
             return False
         try:
+            # A UI refresh, not a game press: re-read the bag and repaint the
+            # «Инвентарь» tab. Handled before the daemon gate — the tab's own read
+            # degrades gracefully, so a missing daemon must not fault the trigger.
+            if getattr(timer, "name", "") == "inventory_refresh":
+                self.after(0, self._refresh_inventory_tab)
+                return True
             if not self._daemon_up() and not self._ensure_daemon():
                 raise RuntimeError(self._t("timers.log.no_daemon"))
             # The resource tracker is a Python handler, not a DSL scenario: on each
@@ -5400,6 +5455,17 @@ class Panel(ctk.CTk):
                   what=", ".join(f"{k} +{v}" for k, v in gains.items()))
         if hasattr(self, "_stats_grid"):
             self.after(0, self._refresh_stats_table)
+
+    def _refresh_inventory_tab(self) -> None:
+        """A `push.resource.item.update` landed (the «inventory_refresh» trigger):
+        re-read the bag so the «Инвентарь» tab's counts stay live. Only if it has
+        been opened once — an unopened tab reads fresh when first shown anyway — and
+        InventoryTab.refresh() coalesces a burst of pushes (it skips while busy) and
+        keeps the current search filter, so this is a full-but-cheap repaint.
+        """
+        tab = getattr(self, "_inventory_tab", None)
+        if tab is not None and getattr(tab, "_loaded", False):
+            tab.refresh()
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Lazy-load the Alliance / Profile / Inventory tabs the first time each is
