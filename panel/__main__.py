@@ -827,6 +827,11 @@ class Panel(tk.Tk):
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
+            # The Scenarios tab used to forget all three on every restart, so a
+            # launch always started on the first row with an empty args box.
+            "scenario_selected": self._scn_editor_name or "",
+            "scenario_args": self._scn_args_var.get(),
+            "scenario_interval": self._scn_interval_var.get(),
             "log_filter": self._log_filter_var.get(),
             # Settings page -> «Авторалли»: which squads may be sent, and the
             # alliance-drill variant with its single banner-carrier.
@@ -866,6 +871,8 @@ class Panel(tk.Tk):
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
+            self._scn_args_var.set(s.get("scenario_args", ""))
+            self._scn_interval_var.set(str(s.get("scenario_interval", "60")))
             self._log_filter_var.set(s.get("log_filter") or LOG_FILTER_ALL)
             for key, default in SETTINGS_DEFAULTS.items():
                 var = self._opt_vars.get(key)
@@ -875,6 +882,7 @@ class Panel(tk.Tk):
         finally:
             self._loading = False
         self._update_path_hints()
+        self._select_saved_scenario(s.get("scenario_selected"))
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
@@ -882,6 +890,7 @@ class Panel(tk.Tk):
                     self._pending_var, self._can_loot_var,
                     self._lvl_from_var, self._lvl_to_var,
                     self._rally_var, self._help_var, self._mon_var,
+                    self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var,
                     self._drill_on_var, self._drill_banner_var,
                     *self._rally_squad_vars.values()):
@@ -2682,6 +2691,26 @@ class Panel(tk.Tk):
         self._scn_list.selection_clear(0, "end")
         self._scn_list.selection_set(idx)
         self._scn_list.see(idx)
+
+    def _select_saved_scenario(self, name) -> None:
+        """Put the selection back on the script the profile was last using.
+
+        The tab used to forget all of it on restart, so every launch started on the
+        first row with an empty args box.
+        """
+        name = str(name or "").strip()
+        if not name or not getattr(self, "_scn_actions", None):
+            return
+        idx = next((i for i, a in enumerate(self._scn_actions) if a["name"] == name), None)
+        if idx is None:
+            return
+        try:
+            self._scn_list.selection_clear(0, "end")
+            self._scn_list.selection_set(idx)
+            self._scn_list.see(idx)
+        except tk.TclError:
+            return
+        self._load_scenario_into_editor(name)
 
     def _paint_action_rows(self) -> None:
         """Rewrite every row, marking the one that is running.
