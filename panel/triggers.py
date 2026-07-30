@@ -175,6 +175,18 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         label_key="triggers.item.alliance_help",
     ),
     Trigger(
+        name="rally_monitor",
+        # An alliance banner (стяг) going out is announced on the wire
+        # (push.alliance.march.*); the watcher reads the rally off the game the
+        # instant it lands and logs it — the leader's teamUuid, the target and
+        # server, and every member with the squad they sent. Records, does not act.
+        kind=KIND_WIRE,
+        event_pattern="push.alliance.march",
+        scenario=("rally_monitor",),
+        enabled=False,
+        label_key="triggers.item.rally_monitor",
+    ),
+    Trigger(
         name="session_kick",
         # A login on another device kicks this session: the client stays alive behind
         # a modal that locks it, so nothing on screen changes on its own and no packet

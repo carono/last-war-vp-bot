@@ -30,5 +30,11 @@
 
 ARGS squads = [1, 2, 3]
 
+# First read who is already in the rallies out right now — the leader's teamUuid,
+# the target and server, and every member with the squad they sent — and log it, so
+# a join is recorded against the rally it joined. Same read the «rally_monitor»
+# trigger uses (actions/rally_monitor.md); reused here with CALL, not duplicated.
+CALL rally_monitor
+
 LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_joined = {}
 TAP join_rally xall   # one press per squad, each to a rally of its own

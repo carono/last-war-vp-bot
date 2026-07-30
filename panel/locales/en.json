@@ -410,6 +410,7 @@
   "triggers.hint": "A ticked trigger listens for its event on the wire and runs its scenario the moment it lands — a standing order, not a press. Nothing fires with the game closed; it shares the timers' one worker, so a trigger and a timer never run together. «⟳» re-reads the file.",
   "triggers.item.alliance_help": "Auto-help alliancemates",
   "triggers.item.session_kick": "Recover from a session kick",
+  "triggers.item.rally_monitor": "Log alliance rallies (banners)",
   "triggers.listening": "listening",
   "triggers.log.died": "{name}: the listener exited — no longer watching",
   "triggers.log.fire": "{name}: {event} landed — running the scenario",

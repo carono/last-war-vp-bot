@@ -516,16 +516,27 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     body, merged = se.prepare_source(src, {})
     assert merged["squads"] == [1, 2, 3], "the recipe must default to all three squads"
     stmts = se.parse_text(body)
-    assert [type(s).__name__ for s in stmts] == ["LuaStmt", "TapStmt"], stmts
-    assert "{ 1, 2, 3 }" in stmts[0].chunk, stmts[0].chunk
-    assert stmts[1].name == "join_rally"
-    assert stmts[1].count is None, "the press must be TAP … xall, not a fixed count"
+    # The recipe now leads with `CALL rally_monitor` — it logs who is in the rallies
+    # (the members and squads) before spending anything (#1130) — then parks the
+    # squads and presses.
+    assert [type(s).__name__ for s in stmts] == ["CallStmt", "LuaStmt", "TapStmt"], stmts
+    assert stmts[0].action_name == "rally_monitor"
+    assert "{ 1, 2, 3 }" in stmts[1].chunk, stmts[1].chunk
+    assert stmts[2].name == "join_rally"
+    assert stmts[2].count is None, "the press must be TAP … xall, not a fixed count"
+
+    # The parked squads live on the LuaStmt (now the second statement, after CALL).
+    def _lua_chunk(squads):
+        for s in se.parse_text(se.prepare_source(src, {"squads": squads})[0]):
+            if type(s).__name__ == "LuaStmt":
+                return s.chunk
+        raise AssertionError("no LuaStmt in join_rally")
 
     # One squad, and only that one is parked.
-    only_first = se.parse_text(se.prepare_source(src, {"squads": [1]})[0])[0].chunk
+    only_first = _lua_chunk([1])
     assert "{ 1 }" in only_first, only_first
     # Two squads -> both parked, in the order asked for.
-    two = se.parse_text(se.prepare_source(src, {"squads": [2, 3]})[0])[0].chunk
+    two = _lua_chunk([2, 3])
     assert "{ 2, 3 }" in two, two
     # Every run starts by forgetting the previous one's joins, or a second run
     # would refuse every rally it joined the first time.

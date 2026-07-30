@@ -61,6 +61,15 @@ def test_the_builtin_alliance_help_trigger_ships():
     assert not ah.enabled                      # opt-in, exactly as the old box was
 
 
+def test_the_builtin_rally_monitor_trigger_ships():
+    rm = triggersmod.default_catalogue().by_name("rally_monitor")
+    assert rm is not None
+    assert not rm.is_poll and rm.kind == triggersmod.KIND_WIRE
+    assert rm.event_pattern == "push.alliance.march"
+    assert rm.scenario == ("rally_monitor",)
+    assert not rm.enabled                      # opt-in — it records, it does not act
+
+
 def test_the_builtin_session_kick_trigger_is_a_poll():
     sk = triggersmod.default_catalogue().by_name("session_kick")
     assert sk is not None
