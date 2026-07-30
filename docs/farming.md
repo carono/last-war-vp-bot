@@ -99,16 +99,19 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot finds the open
-  event, starts a run, dodges what comes at it, buys a revive with coins when it dies,
-  writes down every distance and keeps a few attempts in reserve. **It no longer squints
-  at the screen to see the obstacles** — it knows what is coming, in which lane, and how
-  many seconds away, roughly five seconds ahead, so it steps into a lane that is genuinely
-  clear, jumps a low barrel when there is no clear lane, and never jumps into a fence or a
-  truck. What runs by itself: the whole start → dodge → revive → log loop. Proven live
-  (2026-07-29): it read the track exactly and got past the opening trap to **~132 m on a
-  single life**, against ~88 m with no control at all. Left to the person: nothing; the
-  deaths that remain are traps that need a lane change planned two moves ahead rather than
-  one, so the record 8185 m and the 20000 m target are still open.
+  event, starts a run, runs it, writes down every distance and keeps a few attempts in
+  reserve. **It no longer squints at the screen, and it no longer just reacts to whatever
+  is nearest.** It sees the whole road about seven seconds ahead — every barrel, fence,
+  parked carriage and driving truck, in which lane and how far — and picks a route through
+  all of it: which lane to be in at which metre, when to hop, when to slide, and it takes a
+  one-step detour for a shield or a jetpack on the way. It plays the run itself, without
+  the game window needing to be in front, so the person can keep using the computer.
+  When it picks up a jetpack it stops dodging altogether and just hoovers up coins, since
+  nothing on the ground can touch it while it flies. What runs by itself: the whole
+  start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
+  life**, against ~132 m for the older reflex version and ~88 m with no control at all;
+  with three revives one attempt ran 1162 m. Left to the person: nothing during a run.
+  Still open: the record 8185 m and the 20000 m target are not reached yet.
 
 ### Arms Race
 
