@@ -19,7 +19,9 @@ import threading
 
 import customtkinter as ctk
 
-from .ctk_widgets import CTkButton, CTkEntry, CTkFrame, CTkLabel
+from .ctk_widgets import (CTkButton, CTkCheckBox, CTkEntry, CTkFrame, CTkLabel,
+                          install_numeric_field, numeric_spinbox)
+from .ctk_widgets import CTkLabelFrame
 
 # Resource keys, in display order, with a glyph fallback for the icon.
 RESOURCE_GLYPHS = {"food": "🍖", "wood": "🌲", "metal": "⚙️", "oil": "🛢️", "gold": "🪙"}
@@ -633,6 +635,232 @@ class AccountsTab(_DataTab):
                                           state=state or "?"))
         # The client is reconnecting; give it a moment, then reread the list.
         self.app.after(4000, self.refresh)
+
+
+# ---------------------------------------------------------------------------
+# The elite-monster level a created rally may target, and the squads offered. Kept
+# in step with panel/__main__.py's RALLY_ELITE_* / RALLY_SQUADS (the «Авторалли»
+# settings page uses the same range and slots).
+RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
+RALLY_SQUADS = (1, 2, 3, 4)
+# A «Роковая Элита» rally is an ordinary-monster rally, so it counts against the
+# "monster" daily cap in panel/rally_limits.py (DEFAULT_RALLY_LIMITS).
+RALLY_ELITE_TYPE = "monster"
+# Seconds to pause between two sends so the previous banner settles before the next
+# find; interruptible by Stop.
+RALLY_BETWEEN_S = 6.0
+
+
+class _Stopped(Exception):
+    """Raised inside the run loop when Stop was pressed — unwinds to the finally."""
+
+
+class RallyTab:
+    """The «Ралли» tab: raise a rally on a «Роковая Элита», one squad each, N times.
+
+    The player picks an elite level, ticks the squads that should each raise a rally,
+    and a repeat count; «Запустить» then loops «find an elite of that level → raise the
+    rally with the next squad», N times over, and «Стоп» interrupts it. A status line
+    narrates each step and the daily per-type cap (panel/rally_limits.py) is honoured —
+    a run stops when the «monster» budget for today is spent.
+
+    The game work is tools/rally_create.py (find + create); this tab is the loop, the
+    controls and the bookkeeping around it. It runs on a background thread, takes the
+    panel's shared game-busy flag for each send so it never races the timers or a jump,
+    and touches Tk only through ``app.after``.
+
+    ⚠ The create step is UNPROVEN (the «Стягивание» create wire was never sniffed —
+    tools/rally_create.py). The tab is fully usable; whether a banner actually goes out
+    must be confirmed in the live game.
+    """
+
+    def __init__(self, app, parent):
+        self.app = app
+        self.parent = parent
+        self._stop = None          # threading.Event while a run is in flight, else None
+        self._done = 0             # rallies raised in the current/last run (for the status)
+        import tkinter as tk
+        self._level_var = tk.StringVar(master=app, value=str(RALLY_ELITE_MIN))
+        self._repeats_var = tk.StringVar(master=app, value="1")
+        self._squad_vars: dict[int, tk.BooleanVar] = {
+            s: tk.BooleanVar(master=app, value=False) for s in RALLY_SQUADS}
+        self._status_var = tk_stringvar(app)
+        self.build()
+
+    # -- UI -----------------------------------------------------------------
+    def build(self) -> None:
+        bar = CTkFrame(self.parent, fg_color="transparent")
+        bar.pack(fill="x", padx=10, pady=(10, 4))
+        self.app._tr(CTkLabel(bar, font=ctk.CTkFont(size=15, weight="bold")),
+                     "tab.rally").pack(side="left")
+
+        form = CTkLabelFrame(self.parent, padding=8)
+        self.app._tr(form, "rally_tab.frame")
+        form.pack(fill="x", padx=10, pady=(0, 8))
+
+        lrow = CTkFrame(form)
+        lrow.pack(fill="x")
+        self.app._tr(CTkLabel(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
+        numeric_spinbox(lrow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
+                        textvariable=self._level_var).pack(side="left")
+
+        srow = CTkFrame(form)
+        srow.pack(fill="x", pady=(6, 0))
+        self.app._tr(CTkLabel(srow), "rally_tab.squads").pack(side="left", padx=(0, 6))
+        for squad in RALLY_SQUADS:
+            CTkCheckBox(srow, text=str(squad),
+                        variable=self._squad_vars[squad]).pack(side="left", padx=4)
+
+        rrow = CTkFrame(form)
+        rrow.pack(fill="x", pady=(6, 0))
+        self.app._tr(CTkLabel(rrow), "rally_tab.repeats").pack(side="left", padx=(0, 6))
+        # The task asks for install_numeric_field specifically: a plain entry made
+        # digits-only (no bounds), unlike the level's bounded spinbox.
+        entry = CTkEntry(rrow, width=6, textvariable=self._repeats_var)
+        install_numeric_field(entry)
+        entry.pack(side="left")
+
+        brow = CTkFrame(form)
+        brow.pack(fill="x", pady=(8, 0))
+        self._launch_btn = self.app._tr(
+            CTkButton(brow, command=self._launch), "rally_tab.launch")
+        self._launch_btn.pack(side="left")
+        self._stop_btn = self.app._tr(
+            CTkButton(brow, command=self._stop_run), "rally_tab.stop")
+        self._stop_btn.pack(side="left", padx=(6, 0))
+        self._set_running(False)
+
+        CTkLabel(form, textvariable=self._status_var, text_color="#888").pack(
+            anchor="w", pady=(8, 0))
+        self.app._tr(CTkLabel(self.parent, text_color="#888", wraplength=640,
+                              justify="left"), "rally_tab.hint").pack(
+            anchor="w", padx=10, pady=(0, 10))
+
+    # -- reading the controls ----------------------------------------------
+    def _level(self) -> int:
+        try:
+            level = int(self._level_var.get())
+        except (TypeError, ValueError):
+            return RALLY_ELITE_MIN
+        return max(RALLY_ELITE_MIN, min(RALLY_ELITE_MAX, level))
+
+    def _repeats(self) -> int:
+        try:
+            return max(1, int(self._repeats_var.get()))
+        except (TypeError, ValueError):
+            return 1
+
+    def _selected_squads(self) -> list:
+        return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
+
+    # -- start / stop -------------------------------------------------------
+    def _launch(self) -> None:
+        if self._stop is not None:                 # a run is already in flight
+            return
+        squads = self._selected_squads()
+        if not squads:
+            self._status("rally_tab.no_squads")
+            return
+        self._stop = threading.Event()
+        self._done = 0
+        self._set_running(True)
+        threading.Thread(
+            target=self._run_loop,
+            args=(self._stop, self._level(), squads, self._repeats()),
+            daemon=True).start()
+
+    def _stop_run(self) -> None:
+        if self._stop is not None:
+            self._stop.set()
+
+    def _set_running(self, running: bool) -> None:
+        """Enable Stop and disable Launch while a run is in flight (Tk thread)."""
+        try:
+            self._launch_btn.configure(state="disabled" if running else "normal")
+            self._stop_btn.configure(state="normal" if running else "disabled")
+        except Exception:                          # noqa: BLE001 — widget may be gone
+            pass
+
+    # -- the loop -----------------------------------------------------------
+    def _run_loop(self, stop, level, squads, repeats) -> None:
+        """find elite of `level` → raise a rally with each squad, `repeats` times over.
+
+        One send at a time under the panel's game-busy flag; the daily «monster» cap
+        gates it and Stop unwinds it. Runs off the Tk thread; all UI via `app.after`.
+        """
+        total = repeats * len(squads)
+        try:
+            from . import rally_limits as rl
+            limits = rl.load_limits(self.app._profiles.rally_limits_json())
+            counts = rl.load_counts(self.app._profiles.rally_counts_json())
+            for rep in range(1, repeats + 1):
+                for squad in squads:
+                    if stop.is_set():
+                        raise _Stopped
+                    if not counts.allowed(RALLY_ELITE_TYPE, limits):
+                        self._status("rally_tab.capped",
+                                     cap=limits.limit_for(RALLY_ELITE_TYPE))
+                        raise _Stopped
+                    self._status("rally_tab.searching", level=level, rep=rep, total=repeats)
+                    res = self._one_send(stop, level, squad)
+                    if res is None:                # Stop pressed while waiting for busy
+                        raise _Stopped
+                    if res.get("ok"):
+                        counts = counts.record(RALLY_ELITE_TYPE)
+                        rl.save_counts(counts, self.app._profiles.rally_counts_json())
+                        self._done += 1
+                        self._log("rally_tab.raised", squad=squad, level=level)
+                        self._status("rally_tab.progress",
+                                     done=self._done, total=total, squad=squad)
+                    elif res.get("reason") == "no_elite":
+                        self._status("rally_tab.no_elite", level=level)
+                    elif res.get("reason") == "no_formation":
+                        self._status("rally_tab.no_formation", squad=squad)
+                    else:
+                        self._status("rally_tab.not_armed", squad=squad)
+                    if stop.wait(RALLY_BETWEEN_S):
+                        raise _Stopped
+            self._status("rally_tab.finished", done=self._done)
+        except _Stopped:
+            self._status("rally_tab.stopped", done=self._done)
+        except Exception as exc:                   # noqa: BLE001 — never crash the panel
+            self._log("rally_tab.error", error=exc)
+            self._status("rally_tab.error_short")
+        finally:
+            self._stop = None
+            self.app.after(0, lambda: self._set_running(False))
+
+    def _one_send(self, stop, level, squad):
+        """One find+create under the shared busy flag. ``None`` if Stop won the wait.
+
+        Waits (interruptibly) for the game-busy flag rather than skipping the
+        iteration, so a timer coming due does not cost a repeat.
+        """
+        while not self.app._claim_busy():
+            self._status("rally_tab.busy")
+            if stop.wait(2.0):
+                return None
+        try:
+            import lua_client
+            import rally_create
+            ev = lua_client.get_evaluator(port=self.app._daemon_port())
+            try:
+                return rally_create.create_on_level(ev, level, squad)
+            finally:
+                try:
+                    ev.close()
+                except Exception:                  # noqa: BLE001
+                    pass
+        finally:
+            self.app._release_busy()
+
+    # -- talking to the panel (always from the worker thread) ---------------
+    def _status(self, key: str, **fmt) -> None:
+        text = self.app._t(key, **fmt)
+        self.app.after(0, lambda: self._status_var.set(text))
+
+    def _log(self, key: str, **fmt) -> None:
+        self.app.after(0, lambda: self.app._say("rally", key, **fmt))
 
 
 # ---------------------------------------------------------------------------

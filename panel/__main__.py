@@ -1542,6 +1542,7 @@ class Panel(ctk.CTk):
         heroes_tab = CTkFrame(nb)
         accounts_tab = CTkFrame(nb)
         secret_tasks_tab = CTkFrame(nb)
+        rally_tab = CTkFrame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
@@ -1554,6 +1555,7 @@ class Panel(ctk.CTk):
         nb.add(heroes_tab, text=self._t("tab.heroes"))
         nb.add(accounts_tab, text=self._t("tab.accounts"))
         nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
+        nb.add(rally_tab, text=self._t("tab.rally"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
                                        nb.tab(timers_tab, text=self._t("tab.timers")),
@@ -1566,7 +1568,8 @@ class Panel(ctk.CTk):
                                        nb.tab(heroes_tab, text=self._t("tab.heroes")),
                                        nb.tab(accounts_tab, text=self._t("tab.accounts")),
                                        nb.tab(secret_tasks_tab,
-                                              text=self._t("tab.secret_tasks"))))
+                                              text=self._t("tab.secret_tasks")),
+                                       nb.tab(rally_tab, text=self._t("tab.rally"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
@@ -1585,6 +1588,9 @@ class Panel(ctk.CTk):
             str(accounts_tab): tabsextra.AccountsTab(self, accounts_tab),
             str(secret_tasks_tab): self._secret_tasks_tab,
         }
+        # The «Ралли» tab drives the game (raise a rally on an elite, loop N times); it
+        # has no data to lazy-load, so it is built eagerly and not in _lazy_tabs.
+        self._rally_tab = tabsextra.RallyTab(self, rally_tab)
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
         top = CTkFrame(main, padding=8)

@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 27 of 100
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 27 of 100
 
-🟩 27 done · 🟨 27 partly · 🟥 46 not automated
+🟩 27 done · 🟨 28 partly · 🟥 45 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -81,7 +81,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
 - 🟡 Joining a rally — the bot can join or decline a live rally and pick which squad goes, and it can now be told «join with squads 2 and 3»: it reads the rallies that are out, sends each named squad to a different one, and skips any rally it is already in. Which rallies are worth joining is still nobody's decision, and no count is kept. The joining itself is the proven one; sending several squads in one go has not been tried on live rallies yet
 - 🟡 Being told a rally has gone out, and joining it without hunting for it — the moment one appears the panel says so and rings, once per rally rather than once per event; one button joins with the squads ticked on the settings page, and a switch makes it join by itself as the alert lands. Which squads may go is finally the setting it always looked like — it used to be saved and read by nothing. Not yet seen against a live rally
-- ❌ Starting a rally
+- 🟡 Starting a rally on a Fatal Elite — its own «Ралли» tab: pick the elite level, tick the squads that should each raise a rally, say how many times over, and «Запустить» runs «find an elite of that level on the map → raise the banner with the next squad», one squad to one rally, for as many repeats as asked. It narrates each step, «Стоп» interrupts it, and it stops on its own when the day's «monster» cap (the auto-rally page) is spent. Finding the elite and reading its level is the proven part; whether the banner actually goes out is not confirmed in a live game yet, so the tab warns as much
 - ❌ Treasure notifications
 - ❌ Digging the treasure, collecting the treasure gift
 
