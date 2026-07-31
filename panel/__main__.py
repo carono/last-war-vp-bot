@@ -90,27 +90,14 @@ import time
 import traceback
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
-
-import customtkinter as ctk
+from tkinter.scrolledtext import ScrolledText
 
 from . import __version__ as APP_VERSION
-# CustomTkinter widget adapters that accept the panel's legacy tk/ttk options.
-# The bare tk/ttk widgets that have no CustomTkinter equivalent (Treeview,
-# Spinbox, Listbox, Menu, PanedWindow) still come from tk/ttk above.
-from .ctk_widgets import (
-    CTkButton,
-    CTkCheckBox,
-    CTkComboBox,
-    CTkEntry,
-    CTkFrame,
-    CTkLabel,
-    CTkLabelFrame,
-    CTkNotebook,
-    CTkNumericEntry,
-    CTkScrollbar,
-    CTkTextbox,
-    numeric_spinbox,
-)
+# Reusable tk/ttk helpers: a numeric-only entry/spinbox and a font-tuple builder.
+# Stock widgets (Frame, Label, Button, Entry, Checkbutton, Combobox, Notebook,
+# LabelFrame, Scrollbar, Text, Treeview, Spinbox, Listbox, Menu, PanedWindow)
+# come straight from tk/ttk above.
+from .widgets import NumericEntry, numeric_spinbox, font as ui_font
 from .splash import SplashScreen
 from . import childmon as childmonmod
 from . import dashboard as dashmod
@@ -597,7 +584,7 @@ def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
     return True, f"running (pid {pid})"
 
 
-class Panel(ctk.CTk):
+class Panel(tk.Tk):
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
         self._i18n = i18nmod.I18n()
@@ -827,32 +814,8 @@ class Panel(ctk.CTk):
         self._reveal_window()
 
     def _reveal_window(self) -> None:
-        """Show the main window once the boot splash is gone.
-
-        Hiding the window before it has ever been on screen puts CustomTkinter in a
-        state a plain `deiconify()` does not get it out of: it remembers the hide,
-        and the first `mainloop()` then hides the window AGAIN to repaint the title
-        bar and puts back the state it recorded — which on that path is nothing at
-        all, so the window is left hidden while the rest of the panel runs happily
-        (#1145: the splash showed, then everything worked but nothing was visible).
-
-        So: tell CustomTkinter the window is already up, show it, and repaint the
-        title bar ourselves — that repaint is the only thing `mainloop()` wanted its
-        hide for.
-        """
-        for attr, value in (("_window_exists", True),
-                            ("_withdraw_called_before_window_exists", False),
-                            ("_iconify_called_before_window_exists", False),
-                            ("_state_before_windows_set_titlebar_color", "normal")):
-            if hasattr(self, attr):
-                setattr(self, attr, value)
+        """Show the main window once the boot splash is gone."""
         self.deiconify()
-        # After the deiconify, never before: the repaint hides and re-shows the
-        # window, and it can only put back a state it can read off a live window.
-        try:
-            self._windows_set_titlebar_color(ctk.get_appearance_mode().lower())
-        except Exception:            # noqa: BLE001 — cosmetic, Windows-only
-            pass
         try:
             self.lift()
         except Exception:            # noqa: BLE001
@@ -1044,19 +1007,19 @@ class Panel(ctk.CTk):
             self._tr_hooks.append(self._build_menu)
 
     def _show_about(self) -> None:
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         win.title(self._t("about.title"))
         win.resizable(False, False)
         win.transient(self)
-        frm = CTkFrame(win, padding=16)
+        frm = ttk.Frame(win, padding=16)
         frm.pack(fill="both", expand=True)
-        CTkLabel(frm, text=self._t("about.name"),
+        ttk.Label(frm, text=self._t("about.name"),
                   font=("", 12, "bold")).pack(anchor="w")
-        CTkLabel(frm, text=self._t("about.version", version=APP_VERSION),
+        ttk.Label(frm, text=self._t("about.version", version=APP_VERSION),
                   foreground="#888").pack(anchor="w", pady=(2, 8))
-        CTkLabel(frm, text=self._t("about.description"), wraplength=360,
+        ttk.Label(frm, text=self._t("about.description"), wraplength=360,
                   justify="left").pack(anchor="w")
-        CTkButton(frm, text=self._t("about.ok"),
+        ttk.Button(frm, text=self._t("about.ok"),
                    command=win.destroy).pack(anchor="e", pady=(12, 0))
         win.grab_set()
 
@@ -1071,15 +1034,15 @@ class Panel(ctk.CTk):
             existing.focus_set()
             return
 
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         self._senddiag_win = win
         win.title(self._t("senddiag.title"))
         win.transient(self)
-        frm = CTkFrame(win)
+        frm = ttk.Frame(win)
         frm.pack(fill="both", expand=True, padx=16, pady=16)
 
         # Nothing personal leaves the machine — say so, up top and in warning colour.
-        self._tr(CTkLabel(frm, text_color="#e0a84f", wraplength=470, justify="left"),
+        self._tr(ttk.Label(frm, foreground="#e0a84f", wraplength=470, justify="left"),
                  "senddiag.warning").pack(anchor="w")
 
         # The archive that would be sent — built now so «Открыть» has a real file.
@@ -1088,36 +1051,36 @@ class Panel(ctk.CTk):
             archive = dbgsender.make_archive(path=logpath)
         except Exception:             # noqa: BLE001 — display must not break the dialog
             archive = logpath + ".zip"
-        pathrow = CTkFrame(frm, fg_color="transparent")
+        pathrow = ttk.Frame(frm)
         pathrow.pack(fill="x", pady=(12, 8))
-        self._tr(CTkLabel(pathrow), "senddiag.path").pack(side="left")
+        self._tr(ttk.Label(pathrow), "senddiag.path").pack(side="left")
         path_var = tk.StringVar(value=_repo_rel(archive))
-        entry = CTkEntry(pathrow, textvariable=path_var)
+        entry = ttk.Entry(pathrow, textvariable=path_var)
         entry.pack(side="left", fill="x", expand=True, padx=(6, 6))
         try:
             entry._entry.configure(state="readonly")   # shown for reading, not editing
         except Exception:             # noqa: BLE001
             pass
-        self._tr(CTkButton(pathrow, width=10,
+        self._tr(ttk.Button(pathrow, width=10,
                            command=lambda p=archive: self._reveal_in_explorer(p)),
                  "senddiag.open").pack(side="left")
 
         # A read-only preview of the tail of the actual debug.log.
-        self._tr(CTkLabel(frm, text_color="#888"), "senddiag.preview").pack(anchor="w")
-        # width/height are in characters / lines (the CTkTextbox adapter scales them);
+        self._tr(ttk.Label(frm, foreground="#888"), "senddiag.preview").pack(anchor="w")
+        # width/height are in characters / lines (the ScrolledText adapter scales them);
         # it fills the window anyway, these are just the initial ask.
-        preview = CTkTextbox(frm, width=64, height=14, wrap="none",
+        preview = ScrolledText(frm, width=64, height=14, wrap="none",
                              font=("Consolas", 9))
         preview.pack(fill="both", expand=True, pady=(2, 12))
         tail = self._tail_debug_log(logpath, 100)
         preview.insert("1.0", tail if tail else self._t("senddiag.empty"))
         preview.configure(state="disabled")
 
-        btns = CTkFrame(frm, fg_color="transparent")
+        btns = ttk.Frame(frm)
         btns.pack(fill="x")
-        self._tr(CTkButton(btns, command=lambda: self._send_log_and_close(win)),
+        self._tr(ttk.Button(btns, command=lambda: self._send_log_and_close(win)),
                  "senddiag.send").pack(side="right")
-        self._tr(CTkButton(btns, command=win.destroy),
+        self._tr(ttk.Button(btns, command=win.destroy),
                  "senddiag.cancel").pack(side="right", padx=(0, 6))
 
         win.bind("<Destroy>", self._on_senddiag_destroyed)
@@ -1175,31 +1138,31 @@ class Panel(ctk.CTk):
             existing.focus_set()
             return
 
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         self._profile_win = win
         win.title(self._t("menu.profile"))
         win.resizable(False, False)
         win.transient(self)
 
-        frm = CTkFrame(win)
+        frm = ttk.Frame(win)
         frm.pack(fill="both", expand=True, padx=16, pady=16)
-        self._tr(CTkLabel(frm), "profile.label").grid(row=0, column=0, sticky="w")
+        self._tr(ttk.Label(frm), "profile.label").grid(row=0, column=0, sticky="w")
         self._profile_var.set(self._profiles.active)
-        self._profile_combo = CTkComboBox(frm, textvariable=self._profile_var,
+        self._profile_combo = ttk.Combobox(frm, textvariable=self._profile_var,
                                           state="readonly", width=24,
                                           values=self._profiles.list())
         self._profile_combo.grid(row=0, column=1, sticky="we", padx=(8, 0))
         self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
 
-        btns = CTkFrame(frm, fg_color="transparent")
+        btns = ttk.Frame(frm)
         btns.grid(row=1, column=0, columnspan=2, sticky="we", pady=(14, 0))
-        self._tr(CTkButton(btns, command=self._create_profile),
+        self._tr(ttk.Button(btns, command=self._create_profile),
                  "profile.new").pack(side="left")
-        self._tr(CTkButton(btns, command=self._rename_profile),
+        self._tr(ttk.Button(btns, command=self._rename_profile),
                  "profile.rename").pack(side="left", padx=6)
-        self._tr(CTkButton(btns, command=self._delete_profile),
+        self._tr(ttk.Button(btns, command=self._delete_profile),
                  "profile.delete").pack(side="left")
-        self._tr(CTkButton(btns, command=win.destroy),
+        self._tr(ttk.Button(btns, command=win.destroy),
                  "profile.close").pack(side="right")
 
         win.protocol("WM_DELETE_WINDOW", win.destroy)
@@ -1570,23 +1533,24 @@ class Panel(ctk.CTk):
     def _build_ui(self) -> None:
         # The selected timer row has to be visible: a checkbox has no "selected"
         # look of its own, and the four editor buttons act on whichever row that
-        # is. The CTkCheckBox adapter renders the "Selected.TCheckbutton" style the
-        # rows ask for as a bold label, so no ttk style table is needed here.
-        nb = CTkNotebook(self)
+        # is. Give that row a bold "Selected.TCheckbutton" style; every other row
+        # keeps the stock "TCheckbutton" (see _paint_timer_selection).
+        ttk.Style(self).configure("Selected.TCheckbutton", font=ui_font(weight="bold"))
+        nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
-        main = CTkFrame(nb)
-        scenarios = CTkFrame(nb)
-        timers_tab = CTkFrame(nb)
-        settings_tab = CTkFrame(nb)
-        chat_tab = CTkFrame(nb)
-        stats_tab = CTkFrame(nb)
-        alliance_tab = CTkFrame(nb)
-        profile_tab = CTkFrame(nb)
-        inventory_tab = CTkFrame(nb)
-        heroes_tab = CTkFrame(nb)
-        accounts_tab = CTkFrame(nb)
-        secret_tasks_tab = CTkFrame(nb)
-        rally_tab = CTkFrame(nb)
+        main = ttk.Frame(nb)
+        scenarios = ttk.Frame(nb)
+        timers_tab = ttk.Frame(nb)
+        settings_tab = ttk.Frame(nb)
+        chat_tab = ttk.Frame(nb)
+        stats_tab = ttk.Frame(nb)
+        alliance_tab = ttk.Frame(nb)
+        profile_tab = ttk.Frame(nb)
+        inventory_tab = ttk.Frame(nb)
+        heroes_tab = ttk.Frame(nb)
+        accounts_tab = ttk.Frame(nb)
+        secret_tasks_tab = ttk.Frame(nb)
+        rally_tab = ttk.Frame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
         nb.add(timers_tab, text=self._t("tab.timers"))
@@ -1637,25 +1601,25 @@ class Panel(ctk.CTk):
         self._rally_tab = tabsextra.RallyTab(self, rally_tab)
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
-        top = CTkFrame(main, padding=8)
+        top = ttk.Frame(main, padding=8)
         top.pack(fill="x")
-        self._tr(CTkLabel(top), "top.game").pack(side="left")
+        self._tr(ttk.Label(top), "top.game").pack(side="left")
         self._status_var = tk.StringVar(value=self._t("status.checking"))
-        self._status_lbl = CTkLabel(top, textvariable=self._status_var, foreground="#888")
+        self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
-        self._tr(CTkLabel(top), "top.daemon").pack(side="left", padx=(12, 0))
+        self._tr(ttk.Label(top), "top.daemon").pack(side="left", padx=(12, 0))
         self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
-        self._daemon_lbl = CTkLabel(top, textvariable=self._daemon_var, foreground="#888")
+        self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
         self._daemon_lbl.pack(side="left", padx=6)
         # Restarting the daemon used to mean killing it from outside the panel: a
         # wedged lua_daemon left every button dead with no way back in the UI.
-        self._tr(CTkButton(top, width=3, command=self._restart_daemon),
+        self._tr(ttk.Button(top, width=3, command=self._restart_daemon),
                  "daemon.restart").pack(side="left", padx=(2, 0))
-        CTkButton(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
+        ttk.Button(top, text="↻", width=3, command=self._refresh_status).pack(side="right")
         # One control that stops everything: monitors, watchers, the sweep, a running
         # scenario and the schedule. It used to be five clicks across three tabs,
         # which is exactly the wrong shape for the moment you actually need it.
-        self._tr(CTkButton(top, command=self._panic),
+        self._tr(ttk.Button(top, command=self._panic),
                  "panic.stop_all").pack(side="right", padx=(0, 6))
 
         # -- the account dashboard: every daily budget on one strip -------------
@@ -1667,108 +1631,108 @@ class Panel(ctk.CTk):
         split = ttk.PanedWindow(main, orient="vertical")
         split.pack(fill="both", expand=True)
         self._main_split = split
-        upper = CTkFrame(split)
-        lower = CTkFrame(split)
+        upper = ttk.Frame(split)
+        lower = ttk.Frame(split)
         split.add(upper, weight=0)
         split.add(lower, weight=1)
         main = upper                  # the control blocks below fill the top pane
 
-        game = self._tr(CTkLabelFrame(main, padding=8), "game.frame")
+        game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
-        self._tr(CTkButton(game, command=self._launch_game),
+        self._tr(ttk.Button(game, command=self._launch_game),
                  "game.launch").pack(side="left", padx=4, ipady=3)
-        self._tr(CTkButton(game, command=self._restart_game),
+        self._tr(ttk.Button(game, command=self._restart_game),
                  "game.restart").pack(side="left", padx=4, ipady=3)
-        self._tr(CTkLabel(game, foreground="#888"),
+        self._tr(ttk.Label(game, foreground="#888"),
                  "game.launcher_hint").pack(side="left", padx=10)
         # The watchdog: the client is crash-prone (that is why launch_game exists),
         # and until now a crash was silent — the panel kept saying "running (pid …)"
         # while every timer tick failed into the retry hold. The same variable the
         # Settings → «Игра» tab shows, so the two switches are one switch.
-        self._tr(CTkCheckBox(game, variable=self._opt_vars["watchdog"]),
+        self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
                  "game.watchdog").pack(side="right")
 
-        nav = self._tr(CTkLabelFrame(main, padding=8), "nav.frame")
+        nav = self._tr(ttk.LabelFrame(main, padding=8), "nav.frame")
         nav.pack(fill="x", padx=8, pady=(0, 6))
 
-        scene = self._tr(CTkLabelFrame(nav, padding=6), "nav.scene")
+        scene = self._tr(ttk.LabelFrame(nav, padding=6), "nav.scene")
         scene.pack(fill="x", pady=(0, 6))
         # The label `_act` logs is looked up when the button is PRESSED, not when it
         # is built, so switching the language re-labels the log line too.
-        self._tr(CTkButton(scene, command=lambda: self._act(
+        self._tr(ttk.Button(scene, command=lambda: self._act(
                      lua_actions.scene_city(), "scene", self._t("nav.home.log"))),
                  "nav.home").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(CTkButton(scene, command=lambda: self._act(
+        self._tr(ttk.Button(scene, command=lambda: self._act(
                      lua_actions.scene_world(), "scene", self._t("nav.world.log"))),
                  "nav.world").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(CTkLabel(scene, foreground="#888"),
+        self._tr(ttk.Label(scene, foreground="#888"),
                  "nav.scene_hint").pack(side="left", padx=10)
 
-        coord = self._tr(CTkLabelFrame(nav, padding=6), "coord.frame")
+        coord = self._tr(ttk.LabelFrame(nav, padding=6), "coord.frame")
         coord.pack(fill="x")
         self._x_var = tk.StringVar()
         self._y_var = tk.StringVar()
         self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
-        self._tr(CTkLabel(coord), "coord.x").pack(side="left")
-        CTkNumericEntry(coord, textvariable=self._x_var, width=7, signed=True).pack(side="left", padx=(2, 8))
-        self._tr(CTkLabel(coord), "coord.y").pack(side="left")
-        CTkNumericEntry(coord, textvariable=self._y_var, width=7, signed=True).pack(side="left", padx=(2, 8))
-        self._tr(CTkLabel(coord), "coord.server").pack(side="left")
-        CTkNumericEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
-        self._tr(CTkButton(coord, command=self._goto_coord),
+        self._tr(ttk.Label(coord), "coord.x").pack(side="left")
+        NumericEntry(coord, textvariable=self._x_var, width=7, signed=True).pack(side="left", padx=(2, 8))
+        self._tr(ttk.Label(coord), "coord.y").pack(side="left")
+        NumericEntry(coord, textvariable=self._y_var, width=7, signed=True).pack(side="left", padx=(2, 8))
+        self._tr(ttk.Label(coord), "coord.server").pack(side="left")
+        NumericEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
+        self._tr(ttk.Button(coord, command=self._goto_coord),
                  "coord.jump").pack(side="left", padx=4, ipady=2)
-        self._tr(CTkButton(coord, command=self._load_current_server),
+        self._tr(ttk.Button(coord, command=self._load_current_server),
                  "coord.reload_server").pack(side="left", padx=4)
         # Where it has been. Jumping between a handful of known tiles is routine and
         # the triple X/Y/server was the only memory there was — retyping it was the
         # whole cost. Picking an entry fills the three fields and jumps.
         self._jump_hist: list = []
         self._jump_hist_var = tk.StringVar()
-        self._jump_hist_combo = CTkComboBox(coord, textvariable=self._jump_hist_var,
+        self._jump_hist_combo = ttk.Combobox(coord, textvariable=self._jump_hist_var,
                                              state="readonly", width=18, values=[])
         self._jump_hist_combo.pack(side="right", padx=(4, 0))
         self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
-        self._tr(CTkLabel(coord), "coord.history").pack(side="right", padx=(8, 2))
+        self._tr(ttk.Label(coord), "coord.history").pack(side="right", padx=(8, 2))
 
-        sec = self._tr(CTkLabelFrame(main, padding=8), "secret.frame")
+        sec = self._tr(ttk.LabelFrame(main, padding=8), "secret.frame")
         sec.pack(fill="x", padx=8, pady=(0, 6))
-        row1 = CTkFrame(sec)
+        row1 = ttk.Frame(sec)
         row1.pack(fill="x")
-        self._mon_combo = CTkComboBox(row1, state="readonly", width=20,
+        self._mon_combo = ttk.Combobox(row1, state="readonly", width=20,
                                        values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
         self._mon_combo.current(0)
         self._mon_combo.pack(side="left", padx=(0, 8))
         self._tr_hooks.append(self._retranslate_capture_combo)
         self._mon_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(row1, variable=self._mon_var, command=self._toggle_monitor),
+        self._tr(ttk.Checkbutton(row1, variable=self._mon_var, command=self._toggle_monitor),
                  "secret.monitoring").pack(side="left")
         # Capture tick interval (the child's --interval): how often the progress
         # line prints and the checkpoint flushes. A Spinbox so it is bounded and
         # obviously numeric; a change while the monitor runs restarts it (below).
-        self._tr(CTkLabel(row1), "secret.interval").pack(side="left", padx=(12, 2))
+        self._tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
         self._interval_var = tk.StringVar(value="15")
         numeric_spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
                     ).pack(side="left")
-        self._tr(CTkLabel(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
+        self._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
         # filters (applied live, panel-side, to task findings only)
-        row2 = CTkFrame(sec)
+        row2 = ttk.Frame(sec)
         row2.pack(fill="x", pady=(6, 0))
-        self._tr(CTkLabel(row2), "secret.filters").pack(side="left")
+        self._tr(ttk.Label(row2), "secret.filters").pack(side="left")
         self._star_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(row2, variable=self._star_var),
+        self._tr(ttk.Checkbutton(row2, variable=self._star_var),
                  "secret.stars_only").pack(side="left", padx=(6, 0))
         self._pending_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(row2, variable=self._pending_var),
+        self._tr(ttk.Checkbutton(row2, variable=self._pending_var),
                  "secret.pending_only").pack(side="left", padx=(6, 0))
         self._can_loot_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(row2, variable=self._can_loot_var),
+        self._tr(ttk.Checkbutton(row2, variable=self._can_loot_var),
                  "secret.can_loot_only").pack(side="left", padx=(6, 0))
-        self._tr(CTkLabel(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
+        self._tr(ttk.Label(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
         self._flt_from_var = tk.StringVar()
-        CTkNumericEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
-        self._tr(CTkLabel(row2), "secret.level_to").pack(side="left", padx=(6, 2))
+        NumericEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
+        self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         self._flt_to_var = tk.StringVar()
-        CTkNumericEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
+        NumericEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
 
         # -- Auto-loot: its own frame, and its own level row --------------------
         #
@@ -1789,20 +1753,20 @@ class Panel(ctk.CTk):
         # is on the map: the five daily robberies are the scarce thing, and one
         # spent on a 6 is one a 7 cannot have until the reset.
         # Stars only: with no star at that level it robs nothing at all.
-        loot = self._tr(CTkLabelFrame(sec, padding=6), "secret.autoloot.frame")
+        loot = self._tr(ttk.LabelFrame(sec, padding=6), "secret.autoloot.frame")
         loot.pack(fill="x", pady=(8, 0))
         self._autoloot_var = tk.BooleanVar(value=False)
-        self._autoloot_chk = self._tr(CTkCheckBox(loot, variable=self._autoloot_var,
+        self._autoloot_chk = self._tr(ttk.Checkbutton(loot, variable=self._autoloot_var,
                                                       command=self._toggle_autoloot),
                                       "secret.autoloot")
         self._autoloot_chk.pack(side="left")
-        self._tr(CTkLabel(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
+        self._tr(ttk.Label(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
         self._lvl_from_var = tk.StringVar()
-        CTkNumericEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
-        self._tr(CTkLabel(loot), "secret.level_to").pack(side="left", padx=(6, 2))
+        NumericEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
+        self._tr(ttk.Label(loot), "secret.level_to").pack(side="left", padx=(6, 2))
         self._lvl_to_var = tk.StringVar()
-        CTkNumericEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
-        self._autoloot_rule_lbl = CTkLabel(loot, foreground="#888", wraplength=380,
+        NumericEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
+        self._autoloot_rule_lbl = ttk.Label(loot, foreground="#888", wraplength=380,
                                             justify="left")
         self._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
 
@@ -1813,19 +1777,19 @@ class Panel(ctk.CTk):
         # somebody dragged the map. This walks the camera over a box of tiles around
         # a centre, one coordinate jump at a time (panel/mapsweep.py decides where),
         # which is the same primitive a clickable coordinate in the log uses.
-        sweep = self._tr(CTkLabelFrame(sec, padding=6), "sweep.frame")
+        sweep = self._tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
         sweep.pack(fill="x", pady=(8, 0))
         self._sweep_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(sweep, variable=self._sweep_var,
+        self._tr(ttk.Checkbutton(sweep, variable=self._sweep_var,
                                  command=self._toggle_sweep), "sweep.enabled").pack(side="left")
-        self._tr(CTkLabel(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
+        self._tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
         self._sweep_cx_var = tk.StringVar()
-        CTkNumericEntry(sweep, textvariable=self._sweep_cx_var, width=6, signed=True).pack(side="left", padx=(0, 2))
+        NumericEntry(sweep, textvariable=self._sweep_cx_var, width=6, signed=True).pack(side="left", padx=(0, 2))
         self._sweep_cy_var = tk.StringVar()
-        CTkNumericEntry(sweep, textvariable=self._sweep_cy_var, width=6, signed=True).pack(side="left")
-        self._tr(CTkButton(sweep, command=self._sweep_centre_from_coords),
+        NumericEntry(sweep, textvariable=self._sweep_cy_var, width=6, signed=True).pack(side="left")
+        self._tr(ttk.Button(sweep, command=self._sweep_centre_from_coords),
                  "sweep.take_centre").pack(side="left", padx=(4, 0))
-        self._sweep_hint = CTkLabel(sweep, foreground="#888", wraplength=380,
+        self._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
                                      justify="left")
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
@@ -1838,36 +1802,36 @@ class Panel(ctk.CTk):
         # verdict rather than a reader of a pcap checkpoint — which is why this is a
         # checkbox of its own and not the secret-task watcher pointed elsewhere.
         # Six days a week `IsOpenDay()` is false and the whole thing is a no-op.
-        ghost = self._tr(CTkLabelFrame(main, padding=8), "ghost.frame")
+        ghost = self._tr(ttk.LabelFrame(main, padding=8), "ghost.frame")
         ghost.pack(fill="x", padx=8, pady=(0, 6))
         self._ghost_autoloot_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(ghost, variable=self._ghost_autoloot_var,
+        self._tr(ttk.Checkbutton(ghost, variable=self._ghost_autoloot_var,
                                  command=self._toggle_ghost_autoloot),
                  "ghost.autoloot").pack(side="left")
-        self._tr(CTkLabel(ghost, foreground="#888", wraplength=520, justify="left"),
+        self._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
                  "ghost.hint").pack(side="left", padx=10)
 
-        rally = self._tr(CTkLabelFrame(main, padding=8), "rally.frame")
+        rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
-        rally_top = CTkFrame(rally)
+        rally_top = ttk.Frame(rally)
         rally_top.pack(fill="x")
         self._rally_var = tk.BooleanVar(value=True)
-        self._tr(CTkCheckBox(rally_top, variable=self._rally_var,
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
                                  command=self._toggle_rally),
                  "rally.monitor").pack(side="left")
         # A rally is worth minutes and the alert used to be one log line that
         # scrolled past. Now it is a line the log paints as news, a bell, and — if
         # the operator asks for it — the join itself.
         self._rally_alert_var = tk.BooleanVar(value=True)
-        self._tr(CTkCheckBox(rally_top, variable=self._rally_alert_var),
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
                  "rally.alert").pack(side="left", padx=(12, 0))
         self._rally_autojoin_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(rally_top, variable=self._rally_autojoin_var),
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
                  "rally.autojoin").pack(side="left", padx=(12, 0))
-        self._tr(CTkButton(rally_top, command=self._join_rally_now),
+        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
                  "rally.join_now").pack(side="right")
         # Hint shows the active profile's rally log; refreshed on language/profile change.
-        self._rally_hint = CTkLabel(rally, foreground="#888", wraplength=620,
+        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
                                      justify="left")
         self._rally_hint.pack(anchor="w", pady=(4, 0))
         self._tr_hooks.append(self._update_path_hints)
@@ -1877,23 +1841,23 @@ class Panel(ctk.CTk):
         # which is exactly a *trigger*, so it moved to the Timers tab's «Триггеры»
         # group (panel/timers.py, panel/triggers.py) and this frame went away.
 
-        logframe = self._tr(CTkLabelFrame(lower, padding=4), "log.frame")
+        logframe = self._tr(ttk.LabelFrame(lower, padding=4), "log.frame")
         logframe.pack(fill="both", expand=True, padx=8, pady=(4, 4))
 
         # The strip above the log: which producer to show, and Clear. Six producers
         # write into one widget, so "давно ли пришёл этот запрос помощи" used to mean
         # reading past everything else that happened meanwhile.
-        strip = CTkFrame(logframe)
+        strip = ttk.Frame(logframe)
         strip.pack(fill="x", pady=(0, 3))
-        self._tr(CTkLabel(strip), "log.filter").pack(side="left")
+        self._tr(ttk.Label(strip), "log.filter").pack(side="left")
         self._log_filter_var = tk.StringVar(value=LOG_FILTER_ALL)
-        filt = CTkComboBox(strip, textvariable=self._log_filter_var, state="readonly",
+        filt = ttk.Combobox(strip, textvariable=self._log_filter_var, state="readonly",
                             width=10, values=(LOG_FILTER_ALL,) + LOG_TAGS)
         filt.pack(side="left", padx=(4, 8))
         filt.bind("<<ComboboxSelected>>", lambda _e: self._redraw_log())
-        self._tr(CTkButton(strip, command=self._clear_log),
+        self._tr(ttk.Button(strip, command=self._clear_log),
                  "log.clear").pack(side="left")
-        self._tr(CTkLabel(strip, foreground="#888"),
+        self._tr(ttk.Label(strip, foreground="#888"),
                  "log.filter_hint").pack(side="left", padx=(10, 0))
 
         # Plain native Text widget: state="normal" (never toggled to "disabled",
@@ -1904,7 +1868,7 @@ class Panel(ctk.CTk):
         # a non-Latin keyboard layout (e.g. Cyrillic) Ctrl+C never fires. We add
         # layout-independent copy/select-all: explicit key bindings that cover the
         # Cyrillic keysyms plus a right-click context menu (Copy / Select All).
-        self._log = CTkTextbox(logframe, wrap="word", height=16,
+        self._log = ScrolledText(logframe, wrap="word", height=16,
                                               font=("Consolas", 9),
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
@@ -1920,11 +1884,11 @@ class Panel(ctk.CTk):
         # it — pressing "collect the trucks" once, by hand, meant writing a file
         # first. This is that file's one line, typed. It also makes debugging a
         # recipe interactive instead of edit-save-run.
-        cmdrow = CTkFrame(lower, padding=(8, 0, 8, 6))
+        cmdrow = ttk.Frame(lower, padding=(8, 0, 8, 6))
         cmdrow.pack(fill="x")
-        self._tr(CTkLabel(cmdrow), "cmd.label").pack(side="left")
+        self._tr(ttk.Label(cmdrow), "cmd.label").pack(side="left")
         self._cmd_var = tk.StringVar()
-        cmd_entry = CTkEntry(cmdrow, textvariable=self._cmd_var, font=("Consolas", 9))
+        cmd_entry = ttk.Entry(cmdrow, textvariable=self._cmd_var, font=("Consolas", 9))
         cmd_entry.pack(side="left", fill="x", expand=True, padx=(4, 4))
         cmd_entry.bind("<Return>", lambda _e: self._run_command())
         # Up/Down walk what has been typed before — a debugging loop is the same
@@ -1933,9 +1897,9 @@ class Panel(ctk.CTk):
         cmd_entry.bind("<Down>", lambda _e: self._cmd_recall(1))
         self._cmd_hist: list = []
         self._cmd_at = 0
-        self._tr(CTkButton(cmdrow, command=self._run_command),
+        self._tr(ttk.Button(cmdrow, command=self._run_command),
                  "cmd.run").pack(side="left")
-        self._tr(CTkButton(cmdrow, command=self._show_button_reference),
+        self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
                  "cmd.reference").pack(side="left", padx=(4, 0))
 
     # -- the account dashboard ----------------------------------------------
@@ -1950,12 +1914,12 @@ class Panel(ctk.CTk):
     # is deciding whether today needs them at all, and a strip that also acted would
     # be a second, invisible place where the bot chose to press something.
     def _build_dashboard(self, parent: ttk.Frame) -> None:
-        frame = self._tr(CTkLabelFrame(parent, padding=(8, 4)), "dash.frame")
+        frame = self._tr(ttk.LabelFrame(parent, padding=(8, 4)), "dash.frame")
         frame.pack(fill="x", padx=8, pady=(0, 6))
         # A Text rather than a Label: a reading of 0 is greyed and one with work in
         # it is bright, which is what makes the strip readable at a glance instead of
         # a wall of even-weight words.
-        self._dash_view = CTkTextbox(frame, height=2, wrap="word", state="disabled",
+        self._dash_view = ScrolledText(frame, height=2, wrap="word", state="disabled",
                                   cursor="arrow", relief="flat", borderwidth=0,
                                   highlightthickness=0, font=("Segoe UI", 9))
         self._dash_view.tag_configure("label", foreground="#888")
@@ -1963,7 +1927,7 @@ class Panel(ctk.CTk):
         self._dash_view.tag_configure("cold", foreground="#999999")
         self._dash_view.tag_configure("unread", foreground="#ef5350")
         self._dash_view.pack(side="left", fill="x", expand=True)
-        CTkButton(frame, text="↻", width=3, command=self._refresh_dashboard).pack(side="right")
+        ttk.Button(frame, text="↻", width=3, command=self._refresh_dashboard).pack(side="right")
         self._render_dashboard()
 
     def _start_dashboard(self) -> None:
@@ -3570,29 +3534,29 @@ class Panel(ctk.CTk):
         take a deliberate press, never a stray one.
         """
         paths = [files[k] for k in ("trace", "traffic") if k in files]
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         win.title(self._t("develop.run.title"))
         win.transient(self)
-        frm = CTkFrame(win, padding=14)
+        frm = ttk.Frame(win, padding=14)
         frm.pack(fill="both", expand=True)
 
         shown = label.strip() or self._t("develop.run.nolabel")
-        CTkLabel(frm, text=self._t("develop.run.header", label=shown),
+        ttk.Label(frm, text=self._t("develop.run.header", label=shown),
                   font=("", 10, "bold")).pack(anchor="w")
         # What was actually recorded: how long, how much, and where it lies. The
         # counts are what tells a real run from an empty one — a transcript of
         # nothing but keepalives still weighs kilobytes.
-        CTkLabel(frm, foreground="#888",
+        ttk.Label(frm, foreground="#888",
                   text=self._t("develop.run.duration",
                                sec=f"{seconds:.0f}")).pack(anchor="w")
         for kind in ("trace", "traffic"):
             path = files.get(kind)
             if path:
-                CTkLabel(frm, foreground="#888",
+                ttk.Label(frm, foreground="#888",
                           text=self._run_file_caption(kind, path)).pack(anchor="w")
-        CTkLabel(frm, text=self._t("develop.run.prompt"), wraplength=520,
+        ttk.Label(frm, text=self._t("develop.run.prompt"), wraplength=520,
                   justify="left").pack(anchor="w", pady=(10, 2))
-        text = CTkTextbox(frm, height=4, width=64, wrap="word")
+        text = ScrolledText(frm, height=4, width=64, wrap="word")
         text.pack(fill="both", expand=True)
         text.focus_set()
 
@@ -3615,7 +3579,7 @@ class Panel(ctk.CTk):
         text.bind("<Key>", clear_placeholder)
         text.bind("<Button-1>", clear_placeholder)
 
-        btns = CTkFrame(frm)
+        btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=(10, 0))
 
         def save() -> None:
@@ -3633,9 +3597,9 @@ class Panel(ctk.CTk):
             gone = run_notes.discard_run(paths)
             self._say("sniff", "log.sniff.discarded", n=len(gone))
 
-        CTkButton(btns, text=self._t("develop.run.discard"),
+        ttk.Button(btns, text=self._t("develop.run.discard"),
                    command=discard).pack(side="left")
-        CTkButton(btns, text=self._t("develop.run.save"),
+        ttk.Button(btns, text=self._t("develop.run.save"),
                    command=save).pack(side="right")
         win.protocol("WM_DELETE_WINDOW", save)
         win.bind("<Control-Return>", lambda e: save())
@@ -4169,20 +4133,20 @@ class Panel(ctk.CTk):
         source. Double-clicking a row drops `TAP <name>` into the command box, so the
         reference and the box are one tool.
         """
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         win.title(self._t("cmd.reference.title"))
         win.transient(self)
         win.geometry("620x460")
-        frm = CTkFrame(win, padding=8)
+        frm = ttk.Frame(win, padding=8)
         frm.pack(fill="both", expand=True)
-        self._tr(CTkLabel(frm, foreground="#888", wraplength=580, justify="left"),
+        self._tr(ttk.Label(frm, foreground="#888", wraplength=580, justify="left"),
                  "cmd.reference.hint").pack(anchor="w", pady=(0, 6))
         cols = ("name", "label", "xall")
         tree = ttk.Treeview(frm, columns=cols, show="headings", height=16)
         for col, width in zip(cols, (170, 330, 60)):
             tree.heading(col, text=self._t(f"cmd.reference.col.{col}"))
             tree.column(col, width=width, anchor="w")
-        sb = CTkScrollbar(frm, orient="vertical", command=tree.yview)
+        sb = ttk.Scrollbar(frm, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
         tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
@@ -4202,7 +4166,7 @@ class Panel(ctk.CTk):
             win.destroy()
 
         tree.bind("<Double-Button-1>", take)
-        CTkButton(frm, text=self._t("cmd.reference.take"), command=take).pack(
+        ttk.Button(frm, text=self._t("cmd.reference.take"), command=take).pack(
             side="bottom", anchor="e", pady=(6, 0))
 
     def _on_close(self) -> None:
@@ -4403,14 +4367,14 @@ class Panel(ctk.CTk):
         self._scn_save_job = None
         self._scn_loading = False
 
-        frame = self._tr(CTkLabelFrame(parent, padding=8), "scenarios.actions")
+        frame = self._tr(ttk.LabelFrame(parent, padding=8), "scenarios.actions")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        listwrap = CTkFrame(frame)
+        listwrap = ttk.Frame(frame)
         listwrap.pack(fill="x")
         self._scn_list = tk.Listbox(listwrap, height=8, activestyle="dotbox",
                                     exportselection=False)
-        scroll = CTkScrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
+        scroll = ttk.Scrollbar(listwrap, orient="vertical", command=self._scn_list.yview)
         self._scn_list.configure(yscrollcommand=scroll.set)
         self._scn_list.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
@@ -4418,53 +4382,53 @@ class Panel(ctk.CTk):
         # Selecting a script opens it in the editor below.
         self._scn_list.bind("<<ListboxSelect>>", self._on_scenario_selected)
 
-        controls = CTkFrame(frame)
+        controls = ttk.Frame(frame)
         controls.pack(fill="x", pady=(8, 0))
-        self._scn_run_btn = self._tr(CTkButton(controls, command=self._run_selected_action),
+        self._scn_run_btn = self._tr(ttk.Button(controls, command=self._run_selected_action),
                                      "scenarios.run")
         self._scn_run_btn.pack(side="left", padx=(0, 4), ipady=2)
         # Stop is enabled only while a run is in flight; it asks the interpreter to
         # halt between steps rather than killing the thread mid-call.
-        self._scn_stop_btn = self._tr(CTkButton(controls, command=self._stop_scenario,
+        self._scn_stop_btn = self._tr(ttk.Button(controls, command=self._stop_scenario,
                                                  state="disabled"), "scenarios.stop")
         self._scn_stop_btn.pack(side="left", padx=(0, 4), ipady=2)
         self._scn_loop_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(controls, variable=self._scn_loop_var,
+        self._tr(ttk.Checkbutton(controls, variable=self._scn_loop_var,
                                  command=self._toggle_scenario_loop),
                  "scenarios.loop").pack(side="left", padx=(8, 2))
-        self._tr(CTkLabel(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
+        self._tr(ttk.Label(controls), "scenarios.interval").pack(side="left", padx=(6, 2))
         self._scn_interval_var = tk.StringVar(value="60")
         numeric_spinbox(controls, from_=5, to=86400, width=6,
                     textvariable=self._scn_interval_var).pack(side="left")
-        self._tr(CTkButton(controls, command=self._refresh_actions),
+        self._tr(ttk.Button(controls, command=self._refresh_actions),
                  "scenarios.refresh").pack(side="right")
         # actions/dev/ is deliberately hidden from the picker — but it also hid
         # work_treasure and collect_trucks, and reaching those meant a code change.
         # A checkbox is the right size for "show the experimental ones too".
         self._scn_dev_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(controls, variable=self._scn_dev_var,
+        self._tr(ttk.Checkbutton(controls, variable=self._scn_dev_var,
                                  command=self._refresh_actions),
                  "scenarios.show_dev").pack(side="right", padx=(0, 8))
-        self._tr(CTkButton(controls, command=self._show_button_reference),
+        self._tr(ttk.Button(controls, command=self._show_button_reference),
                  "cmd.reference").pack(side="right", padx=(0, 8))
 
         # Arguments for the run — the script's own `ARGS` defaults fill in the rest.
         # JSON, because that is what a timer's `args` block is too, so a line that
         # works here can be pasted into timers.json unchanged.
-        argrow = CTkFrame(frame)
+        argrow = ttk.Frame(frame)
         argrow.pack(fill="x", pady=(6, 0))
-        self._tr(CTkLabel(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
+        self._tr(ttk.Label(argrow), "scenarios.args").pack(side="left", padx=(0, 4))
         self._scn_args_var = tk.StringVar()
-        CTkEntry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
+        ttk.Entry(argrow, textvariable=self._scn_args_var).pack(side="left", fill="x",
                                                                 expand=True)
 
         # The editor. The selected script is loaded here and written back a second
         # after the last keystroke — no Save button to forget, and no write per
         # character either. Undo is Tk's own (`undo=True`), reset on every load so
         # Ctrl+Z can never reach back into the previously opened file.
-        edit = self._tr(CTkLabelFrame(frame, padding=4), "scenarios.editor")
+        edit = self._tr(ttk.LabelFrame(frame, padding=4), "scenarios.editor")
         edit.pack(fill="both", expand=True, pady=(8, 0))
-        self._scn_editor = CTkTextbox(
+        self._scn_editor = ScrolledText(
             edit, wrap="none", height=12, undo=True, autoseparators=True, maxundo=-1,
             font=("Consolas", 9))
         self._scn_editor.pack(fill="both", expand=True)
@@ -4477,11 +4441,11 @@ class Panel(ctk.CTk):
         # The first parse error of what is in the editor, shown where it is typed —
         # a debounced save now refuses a recipe that does not parse instead of
         # replacing a working one with it.
-        self._scn_problem_lbl = CTkLabel(frame, foreground="#c33", wraplength=680,
+        self._scn_problem_lbl = ttk.Label(frame, foreground="#c33", wraplength=680,
                                           justify="left")
         self._scn_problem_lbl.pack(anchor="w", pady=(4, 0))
 
-        self._tr(CTkLabel(frame, foreground="#888", wraplength=680, justify="left"),
+        self._tr(ttk.Label(frame, foreground="#888", wraplength=680, justify="left"),
                  "scenarios.hint").pack(anchor="w", pady=(8, 0))
 
         self._scn_actions: list[dict] = []
@@ -4868,31 +4832,31 @@ class Panel(ctk.CTk):
         hand-editing JSON per account. «⟳» still re-reads the file for anything
         edited outside.
         """
-        frame = self._tr(CTkLabelFrame(parent, padding=8), "timers.frame")
+        frame = self._tr(ttk.LabelFrame(parent, padding=8), "timers.frame")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
         # Rebuilt wholesale by _reload_timers, so the rows live in their own
         # frame with nothing else in it.
-        self._timer_grid = CTkFrame(frame)
+        self._timer_grid = ttk.Frame(frame)
         self._timer_grid.pack(fill="x")
         self._fill_timer_grid()
 
         # -- the editor's buttons ------------------------------------------------
-        tools = CTkFrame(frame)
+        tools = ttk.Frame(frame)
         tools.pack(fill="x", pady=(10, 0))
-        self._tr(CTkButton(tools, command=self._timer_add),
+        self._tr(ttk.Button(tools, command=self._timer_add),
                  "timers.add").pack(side="left", padx=(0, 4))
-        self._tr(CTkButton(tools, command=self._timer_edit),
+        self._tr(ttk.Button(tools, command=self._timer_edit),
                  "timers.edit").pack(side="left", padx=(0, 4))
-        self._tr(CTkButton(tools, command=self._timer_duplicate),
+        self._tr(ttk.Button(tools, command=self._timer_duplicate),
                  "timers.duplicate").pack(side="left", padx=(0, 4))
-        self._tr(CTkButton(tools, command=self._timer_delete),
+        self._tr(ttk.Button(tools, command=self._timer_delete),
                  "timers.delete").pack(side="left", padx=(0, 4))
         # The schedule's own master switch. «Стоп всё» stops the scheduler thread,
         # and without something that says so — and puts it back — the schedule would
         # be silently dead for the rest of the session.
         self._sched_var = tk.BooleanVar(value=True)
-        self._tr(CTkCheckBox(tools, variable=self._sched_var,
+        self._tr(ttk.Checkbutton(tools, variable=self._sched_var,
                                  command=self._toggle_schedule),
                  "timers.scheduler").pack(side="right")
 
@@ -4901,23 +4865,23 @@ class Panel(ctk.CTk):
         # clock. The alliance-help one answers «Помочь всем» the instant a request's
         # push lands. It is a standing order you switch on — no period, no editor — so
         # the section is just checkboxes, the event each listens for, and its status.
-        trig_frame = self._tr(CTkLabelFrame(frame, padding=8), "triggers.frame")
+        trig_frame = self._tr(ttk.LabelFrame(frame, padding=8), "triggers.frame")
         trig_frame.pack(fill="x", pady=(10, 0))
-        self._trigger_grid = CTkFrame(trig_frame)
+        self._trigger_grid = ttk.Frame(trig_frame)
         self._trigger_grid.pack(fill="x")
         self._fill_trigger_grid()
-        trig_bottom = CTkFrame(trig_frame)
+        trig_bottom = ttk.Frame(trig_frame)
         trig_bottom.pack(fill="x", pady=(6, 0))
-        self._tr(CTkLabel(trig_bottom, foreground="#888", wraplength=600,
+        self._tr(ttk.Label(trig_bottom, foreground="#888", wraplength=600,
                           justify="left"), "triggers.hint").pack(side="left", anchor="w")
-        self._tr(CTkButton(trig_bottom, width=3, command=self._reload_triggers),
+        self._tr(ttk.Button(trig_bottom, width=3, command=self._reload_triggers),
                  "timers.reload").pack(side="right", anchor="ne")
 
-        bottom = CTkFrame(frame)
+        bottom = ttk.Frame(frame)
         bottom.pack(fill="x", pady=(8, 0))
-        self._tr(CTkLabel(bottom, foreground="#888", wraplength=600, justify="left"),
+        self._tr(ttk.Label(bottom, foreground="#888", wraplength=600, justify="left"),
                  "timers.hint").pack(side="left", anchor="w")
-        self._tr(CTkButton(bottom, width=3, command=self._reload_timers),
+        self._tr(ttk.Button(bottom, width=3, command=self._reload_timers),
                  "timers.reload").pack(side="right", anchor="ne")
 
         self._refresh_timer_rows()
@@ -4963,7 +4927,7 @@ class Panel(ctk.CTk):
         grid.columnconfigure(0, weight=1)
         for col, key in enumerate(("timers.col.action", "timers.col.interval",
                                    "timers.col.last", "timers.col.next")):
-            self._tr(CTkLabel(grid, foreground="#888"), key).grid(
+            self._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
 
         # The catalogue IS the settings now: its own enabled/interval_sec are
@@ -4974,7 +4938,7 @@ class Panel(ctk.CTk):
             enabled = tk.BooleanVar(value=bool(item["enabled"]))
             seconds = tk.StringVar(value=str(item["interval_sec"]))
             self._timer_vars[timer.name] = {"enabled": enabled, "interval": seconds}
-            box = CTkCheckBox(grid, variable=enabled)
+            box = ttk.Checkbutton(grid, variable=enabled)
             # A configured `title` wins; a built-in falls back to its locale
             # string; a timer added to the JSON without either shows the name it
             # was given there.
@@ -4995,14 +4959,14 @@ class Panel(ctk.CTk):
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
                                                    padx=(0, 10))
-            last = CTkLabel(grid, foreground="#888", width=18)
+            last = ttk.Label(grid, foreground="#888", width=18)
             last.grid(row=row, column=2, sticky="w", padx=(0, 10))
-            nxt = CTkLabel(grid, foreground="#888", width=18)
+            nxt = ttk.Label(grid, foreground="#888", width=18)
             nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
-            self._tr(CTkButton(grid, command=lambda t=timer: self._timer_run_now(t)),
+            self._tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
                      "timers.run_now").grid(row=row, column=4, sticky="e")
             # A queued or running errand had no way back: «✕» takes it off the queue.
-            self._tr(CTkButton(grid, width=3,
+            self._tr(ttk.Button(grid, width=3,
                                 command=lambda t=timer: self._timer_cancel(t)),
                      "timers.cancel").grid(row=row, column=5, sticky="e", padx=(4, 0))
             self._timer_rows[timer.name] = {"last": last, "next": nxt, "box": box}
@@ -5025,12 +4989,12 @@ class Panel(ctk.CTk):
         grid.columnconfigure(0, weight=1)
         for col, key in enumerate(("triggers.col.action", "triggers.col.event",
                                    "triggers.col.status")):
-            self._tr(CTkLabel(grid, foreground="#888"), key).grid(
+            self._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
         for row, trig in enumerate(self._trigger_catalogue, start=1):
             enabled = tk.BooleanVar(value=bool(trig.enabled))
             self._trigger_vars[trig.name] = enabled
-            box = CTkCheckBox(grid, variable=enabled)
+            box = ttk.Checkbutton(grid, variable=enabled)
             if trig.title:
                 box.configure(text=trig.title)
             elif trig.label_key:
@@ -5041,9 +5005,9 @@ class Panel(ctk.CTk):
             # The wire event a listener waits for, or a short label for a poll check
             # (the raw Lua is unreadable in a narrow column).
             signal = trig.event_pattern if not trig.is_poll else self._t("triggers.poll")
-            CTkLabel(grid, foreground="#888", text=signal).grid(
+            ttk.Label(grid, foreground="#888", text=signal).grid(
                 row=row, column=1, sticky="w", padx=(0, 10))
-            status = CTkLabel(grid, foreground="#888", width=14)
+            status = ttk.Label(grid, foreground="#888", width=14)
             status.grid(row=row, column=2, sticky="w", padx=(0, 10))
             self._trigger_rows[trig.name] = {"status": status}
         for var in self._trigger_vars.values():
@@ -5160,10 +5124,10 @@ class Panel(ctk.CTk):
         Nothing is written until Save, and Save refuses an entry the scheduler could
         not run: no name, a name already taken by another row, or no steps at all.
         """
-        win = ctk.CTkToplevel(self)
+        win = tk.Toplevel(self)
         win.title(self._t("timers.editor.window"))
         win.transient(self)
-        frm = CTkFrame(win, padding=12)
+        frm = ttk.Frame(win, padding=12)
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)
 
@@ -5177,28 +5141,28 @@ class Panel(ctk.CTk):
                 ("timers.editor.title", title_var, 40),
                 ("timers.editor.interval", interval_var, 10),
                 ("timers.editor.args", args_var, 40))):
-            self._tr(CTkLabel(frm), key).grid(row=row, column=0, sticky="w",
+            self._tr(ttk.Label(frm), key).grid(row=row, column=0, sticky="w",
                                                padx=(0, 8), pady=3)
             # Only the interval is a number; name/title/args stay free text.
-            entry_cls = (CTkNumericEntry if key == "timers.editor.interval"
-                         else CTkEntry)
+            entry_cls = (NumericEntry if key == "timers.editor.interval"
+                         else ttk.Entry)
             entry_cls(frm, textvariable=var, width=width).grid(row=row, column=1,
                                                                sticky="we", pady=3)
-        self._tr(CTkLabel(frm, foreground="#888", wraplength=460, justify="left"),
+        self._tr(ttk.Label(frm, foreground="#888", wraplength=460, justify="left"),
                  "timers.editor.steps_hint").grid(row=4, column=0, columnspan=2,
                                                   sticky="w", pady=(8, 2))
-        steps = CTkTextbox(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
+        steps = ScrolledText(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
         steps.grid(row=5, column=0, columnspan=2, sticky="nsew")
         steps.insert("1.0", "\n".join(timer.scenario))
         frm.rowconfigure(5, weight=1)
 
         # The picker: every blessed action script, appended as a step.
-        pick = CTkFrame(frm)
+        pick = ttk.Frame(frm)
         pick.grid(row=6, column=0, columnspan=2, sticky="we", pady=(6, 0))
-        self._tr(CTkLabel(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
+        self._tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
         actions = list_actions()
         pick_var = tk.StringVar()
-        pick_combo = CTkComboBox(pick, textvariable=pick_var, state="readonly",
+        pick_combo = ttk.Combobox(pick, textvariable=pick_var, state="readonly",
                                   width=34,
                                   values=[f"{a['name']} — {a['title']}" for a in actions])
         pick_combo.pack(side="left")
@@ -5210,10 +5174,10 @@ class Panel(ctk.CTk):
             text = steps.get("1.0", "end-1c")
             steps.insert("end", ("\n" if text.strip() else "") + actions[idx]["name"])
 
-        self._tr(CTkButton(pick, command=add_step),
+        self._tr(ttk.Button(pick, command=add_step),
                  "timers.editor.add_step").pack(side="left", padx=(4, 0))
 
-        problem = CTkLabel(frm, foreground="#c33", wraplength=460, justify="left")
+        problem = ttk.Label(frm, foreground="#c33", wraplength=460, justify="left")
         problem.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         def save() -> None:
@@ -5268,11 +5232,11 @@ class Panel(ctk.CTk):
             self._select_timer(name)
             self._say("timer", "timers.log.saved", name=name)
 
-        btns = CTkFrame(frm)
+        btns = ttk.Frame(frm)
         btns.grid(row=8, column=0, columnspan=2, sticky="we", pady=(10, 0))
-        CTkButton(btns, text=self._t("timers.editor.cancel"),
+        ttk.Button(btns, text=self._t("timers.editor.cancel"),
                    command=win.destroy).pack(side="left")
-        CTkButton(btns, text=self._t("timers.editor.save"),
+        ttk.Button(btns, text=self._t("timers.editor.save"),
                    command=save).pack(side="right")
         win.bind("<Escape>", lambda _e: win.destroy())
         win.grab_set()
@@ -5662,11 +5626,11 @@ class Panel(ctk.CTk):
         Filled by the «resource_tracker» trigger — one row per day, newest first, a
         column per resource. Nothing here drives the game; it reads the profile's tally.
         """
-        frame = self._tr(CTkLabelFrame(parent, padding=8), "stats.frame")
+        frame = self._tr(ttk.LabelFrame(parent, padding=8), "stats.frame")
         frame.pack(fill="both", expand=True, padx=8, pady=8)
-        self._stats_grid = CTkFrame(frame)
+        self._stats_grid = ttk.Frame(frame)
         self._stats_grid.pack(fill="x")
-        self._tr(CTkLabel(frame, foreground="#888", wraplength=620, justify="left"),
+        self._tr(ttk.Label(frame, foreground="#888", wraplength=620, justify="left"),
                  "stats.hint").pack(anchor="w", pady=(8, 0))
         self._refresh_stats_table()
 
@@ -5677,23 +5641,23 @@ class Panel(ctk.CTk):
             return
         for child in grid.winfo_children():
             child.destroy()
-        self._tr(CTkLabel(grid, foreground="#888"), "stats.col.date").grid(
+        self._tr(ttk.Label(grid, foreground="#888"), "stats.col.date").grid(
             row=0, column=0, sticky="w", padx=(0, 14), pady=(0, 4))
         for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
-            self._tr(CTkLabel(grid, foreground="#888"), f"stats.res.{key}").grid(
+            self._tr(ttk.Label(grid, foreground="#888"), f"stats.res.{key}").grid(
                 row=0, column=col, sticky="e", padx=(0, 10), pady=(0, 4))
         dates = self._resource_stats.dates()
         if not dates:
-            self._tr(CTkLabel(grid, foreground="#888"), "stats.empty").grid(
+            self._tr(ttk.Label(grid, foreground="#888"), "stats.empty").grid(
                 row=1, column=0, columnspan=len(resourcestatsmod.RESOURCES) + 1,
                 sticky="w", pady=4)
             return
         for r, date in enumerate(dates, start=1):
-            CTkLabel(grid, text=date).grid(row=r, column=0, sticky="w",
+            ttk.Label(grid, text=date).grid(row=r, column=0, sticky="w",
                                            padx=(0, 14), pady=1)
             row = self._resource_stats.on(date)
             for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
-                CTkLabel(grid, text=f"{row[key]:,}").grid(
+                ttk.Label(grid, text=f"{row[key]:,}").grid(
                     row=r, column=col, sticky="e", padx=(0, 10))
 
     def _timer_run_now(self, timer) -> None:
@@ -5781,18 +5745,18 @@ class Panel(ctk.CTk):
         from the first day and filling one in is writing its builder — nothing
         here or in the tab bar has to change.
         """
-        sub_nb = CTkNotebook(parent)
+        sub_nb = ttk.Notebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=4)
 
         for key, builder in SETTINGS_TABS:
-            frame = CTkFrame(sub_nb, padding=8)
+            frame = ttk.Frame(sub_nb, padding=8)
             sub_nb.add(frame, text=self._t(f"settings.tab.{key}"))
             self._tr_hooks.append(
                 lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}"))
             )
             fill = getattr(self, builder) if builder else None
             if fill is None:
-                self._tr(CTkLabel(frame, foreground="#888"),
+                self._tr(ttk.Label(frame, foreground="#888"),
                          "settings.placeholder").pack(anchor="w")
             else:
                 fill(frame)
@@ -5806,11 +5770,11 @@ class Panel(ctk.CTk):
     def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
                  width: int = 12, spin: "tuple | None" = None) -> None:
         """One labelled field on a Settings tab, bound to ``_opt_vars[key]``."""
-        self._tr(CTkLabel(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
+        self._tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
                                                        padx=(0, 8), pady=3)
         var = self._opt_vars[key]
         if isinstance(var, tk.BooleanVar):
-            CTkCheckBox(parent, variable=var).grid(row=row, column=1, sticky="w")
+            ttk.Checkbutton(parent, variable=var).grid(row=row, column=1, sticky="w")
         elif spin is not None:
             # A float knob (poll seconds, dwell, timeout) needs the decimal point;
             # an integer one stays digit-only.
@@ -5819,14 +5783,14 @@ class Panel(ctk.CTk):
                         decimal=decimal, textvariable=var).grid(
                             row=row, column=1, sticky="w")
         else:
-            CTkEntry(parent, textvariable=var, width=width).grid(row=row, column=1,
+            ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1,
                                                                   sticky="we")
-        self._tr(CTkLabel(parent, foreground="#888", wraplength=340, justify="left"),
+        self._tr(ttk.Label(parent, foreground="#888", wraplength=340, justify="left"),
                  f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
 
     def _build_general_settings(self, parent: ttk.Frame) -> None:
         """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
-        grid = CTkFrame(parent)
+        grid = ttk.Frame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=0)
         grid.columnconfigure(2, weight=1)
@@ -5852,16 +5816,16 @@ class Panel(ctk.CTk):
         is where the zipped logs go; «Отправить диагностику» packs and hands them to
         `debug_send_url` (empty = do not send; a stub until a transport is wired).
         """
-        frame = self._tr(CTkLabelFrame(parent, padding=8), "debug.frame")
+        frame = self._tr(ttk.LabelFrame(parent, padding=8), "debug.frame")
         frame.pack(fill="x", pady=(12, 0))
         frame.columnconfigure(2, weight=1)
         self._opt_row(frame, 0, "debug_send_url", width=34)
-        self._tr(CTkButton(frame, command=self._send_debug_archive),
+        self._tr(ttk.Button(frame, command=self._send_debug_archive),
                  "debug.send").grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
         """«Игра»: where the client is, whether to put it back, and the sweep box."""
-        grid = CTkFrame(parent)
+        grid = ttk.Frame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(2, weight=1)
         for row, (key, kwargs) in enumerate((
@@ -5871,7 +5835,7 @@ class Panel(ctk.CTk):
         )):
             self._opt_row(grid, row, key, **kwargs)
 
-        sweep = self._tr(CTkLabelFrame(parent, padding=8), "sweep.frame")
+        sweep = self._tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
         sweep.pack(fill="x", pady=(12, 0))
         sweep.columnconfigure(2, weight=1)
         for row, (key, kwargs) in enumerate((
@@ -5885,7 +5849,7 @@ class Panel(ctk.CTk):
         )):
             self._opt_row(sweep, row, key, **kwargs)
         # The box in words, so the numbers above are not abstract.
-        hint = CTkLabel(sweep, foreground="#888", wraplength=520, justify="left")
+        hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
         hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._sweep_settings_hint = hint
         for key in ("sweep_radius", "sweep_step", "sweep_dwell"):
@@ -5924,39 +5888,39 @@ class Panel(ctk.CTk):
         `actions/join_rally.md`'s `squads` argument (`_join_rally_now`). With no squad
         ticked the join refuses rather than being a no-op that looks like a success.
         """
-        rally = self._tr(CTkLabelFrame(parent, padding=8), "autorally.frame")
+        rally = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.frame")
         rally.pack(fill="x")
-        self._tr(CTkLabel(rally), "autorally.squads").pack(side="left", padx=(0, 6))
+        self._tr(ttk.Label(rally), "autorally.squads").pack(side="left", padx=(0, 6))
         self._rally_squad_vars: dict[int, tk.BooleanVar] = {}
         for squad in RALLY_SQUADS:
             var = tk.BooleanVar(value=False)
             self._rally_squad_vars[squad] = var
-            CTkCheckBox(rally, text=str(squad), variable=var).pack(side="left", padx=4)
-        self._tr(CTkLabel(parent, foreground="#888", wraplength=620, justify="left"),
+            ttk.Checkbutton(rally, text=str(squad), variable=var).pack(side="left", padx=4)
+        self._tr(ttk.Label(parent, foreground="#888", wraplength=620, justify="left"),
                  "autorally.hint").pack(anchor="w", pady=(4, 0))
 
-        drill = self._tr(CTkLabelFrame(parent, padding=8), "autorally.drill.frame")
+        drill = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.drill.frame")
         drill.pack(fill="x", pady=(10, 0))
         self._drill_on_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(drill, variable=self._drill_on_var),
+        self._tr(ttk.Checkbutton(drill, variable=self._drill_on_var),
                  "autorally.drill.enabled").pack(anchor="w")
         self._drill_banner_var = tk.BooleanVar(value=False)
-        self._tr(CTkCheckBox(drill, variable=self._drill_banner_var),
+        self._tr(ttk.Checkbutton(drill, variable=self._drill_banner_var),
                  "autorally.drill.banner").pack(anchor="w", pady=(2, 6))
 
-        row = CTkFrame(drill)
+        row = ttk.Frame(drill)
         row.pack(fill="x")
-        self._tr(CTkLabel(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
+        self._tr(ttk.Label(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
         # Tri-state, so a checkbox will not do: each squad is a button whose text
         # is its state, and a click walks the states round.
         self._drill_state: dict[int, str] = {s: DRILL_OFF for s in RALLY_SQUADS}
         self._drill_buttons: dict[int, ttk.Button] = {}
         for squad in RALLY_SQUADS:
-            btn = CTkButton(row, width=5,
+            btn = ttk.Button(row, width=5,
                              command=lambda s=squad: self._cycle_drill_squad(s))
             btn.pack(side="left", padx=3)
             self._drill_buttons[squad] = btn
-        self._tr(CTkLabel(drill, foreground="#888", wraplength=620, justify="left"),
+        self._tr(ttk.Label(drill, foreground="#888", wraplength=620, justify="left"),
                  "autorally.drill.hint").pack(anchor="w", pady=(6, 0))
         self._paint_drill_squads()
 
@@ -5966,26 +5930,26 @@ class Panel(ctk.CTk):
         # and what elite level the rally is against. The creator is a banner, so at
         # most one squad carries it — the squad buttons toggle blank <-> 🚩 and
         # picking one clears any other, the same one-banner rule the drill enforces.
-        create = self._tr(CTkLabelFrame(parent, padding=8), "autorally.create.frame")
+        create = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.create.frame")
         create.pack(fill="x", pady=(10, 0))
-        crow = CTkFrame(create)
+        crow = ttk.Frame(create)
         crow.pack(fill="x")
-        self._tr(CTkLabel(crow), "autorally.create.squads").pack(side="left", padx=(0, 6))
+        self._tr(ttk.Label(crow), "autorally.create.squads").pack(side="left", padx=(0, 6))
         self._create_flagship: int | None = None
         self._create_buttons: dict[int, ttk.Button] = {}
         for squad in RALLY_SQUADS:
-            btn = CTkButton(crow, width=5,
+            btn = ttk.Button(crow, width=5,
                             command=lambda s=squad: self._cycle_create_squad(s))
             btn.pack(side="left", padx=3)
             self._create_buttons[squad] = btn
 
-        erow = CTkFrame(create)
+        erow = ttk.Frame(create)
         erow.pack(fill="x", pady=(6, 0))
-        self._tr(CTkLabel(erow), "autorally.create.elite").pack(side="left", padx=(0, 6))
+        self._tr(ttk.Label(erow), "autorally.create.elite").pack(side="left", padx=(0, 6))
         self._create_elite_var = tk.StringVar(value=str(RALLY_ELITE_MIN))
         numeric_spinbox(erow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
                     textvariable=self._create_elite_var).pack(side="left")
-        self._tr(CTkLabel(create, foreground="#888", wraplength=620, justify="left"),
+        self._tr(ttk.Label(create, foreground="#888", wraplength=620, justify="left"),
                  "autorally.create.hint").pack(anchor="w", pady=(6, 0))
         self._paint_create_squads()
 
@@ -5996,21 +5960,21 @@ class Panel(ctk.CTk):
         # number per monster type, 0 = no cap. The list of types is the caps file's
         # own keys (seeded from the built-ins), so adding a type is a data change, not
         # a code one. The count itself resets daily (panel/rally_limits.py).
-        limits_frame = self._tr(CTkLabelFrame(parent, padding=8), "rally_limit.frame")
+        limits_frame = self._tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
         limits_frame.pack(fill="x", pady=(10, 0))
         self._rally_limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
         self._rally_limit_vars: dict = {}
-        lgrid = CTkFrame(limits_frame)
+        lgrid = ttk.Frame(limits_frame)
         lgrid.pack(fill="x")
         for r, key in enumerate(self._rally_limits.types()):
-            self._tr(CTkLabel(lgrid), f"rally_limit.type.{key}").grid(
+            self._tr(ttk.Label(lgrid), f"rally_limit.type.{key}").grid(
                 row=r, column=0, sticky="w", padx=(0, 10), pady=2)
             var = tk.StringVar(value=str(self._rally_limits.limit_for(key)))
             self._rally_limit_vars[key] = var
             numeric_spinbox(lgrid, from_=0, to=999, width=6,
                             textvariable=var).grid(row=r, column=1, sticky="w")
             var.trace_add("write", lambda *a: self._save_rally_limits())
-        self._tr(CTkLabel(limits_frame, foreground="#888", wraplength=620,
+        self._tr(ttk.Label(limits_frame, foreground="#888", wraplength=620,
                           justify="left"), "rally_limit.hint").pack(anchor="w", pady=(6, 0))
 
     def _save_rally_limits(self) -> None:
@@ -6156,20 +6120,20 @@ class Panel(ctk.CTk):
 
     def _build_chat_tab(self, parent: ttk.Frame) -> None:
         """Build the Chat tab: monitor toggle, sub-tabs per chat type, and a box to answer in."""
-        ctrl = CTkFrame(parent, padding=(8, 6, 8, 4))
+        ctrl = ttk.Frame(parent, padding=(8, 6, 8, 4))
         ctrl.pack(fill="x")
-        self._tr(CTkCheckBox(ctrl, variable=self._chat_var, command=self._toggle_chat),
+        self._tr(ttk.Checkbutton(ctrl, variable=self._chat_var, command=self._toggle_chat),
                  "chat.monitor").pack(side="left")
-        self._tr(CTkLabel(ctrl, foreground="#888", wraplength=500, justify="left"),
+        self._tr(ttk.Label(ctrl, foreground="#888", wraplength=500, justify="left"),
                  "chat.hint").pack(side="left", padx=(10, 0))
 
-        sub_nb = CTkNotebook(parent)
+        sub_nb = ttk.Notebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=(0, 2))
         self._chat_nb = sub_nb
         self._chat_frames: dict = {}
 
         for type_key in CHAT_TABS:
-            frame = CTkFrame(sub_nb)
+            frame = ttk.Frame(sub_nb)
             sub_nb.add(frame, text=self._t(f"chat.tab.{type_key}"))
             self._chat_frames[type_key] = frame
             # The DM tab is a contact list beside the conversation; every other tab
@@ -6192,35 +6156,35 @@ class Panel(ctk.CTk):
         # coordinate meant leaving the panel. The target is the room of the last
         # message in the tab that is open — and it is SHOWN, so it is never a guess:
         # a message sent to the wrong room cannot be unsent.
-        send = CTkFrame(parent, padding=(6, 2, 6, 2))
+        send = ttk.Frame(parent, padding=(6, 2, 6, 2))
         send.pack(fill="x")
         self._chat_room_var = tk.StringVar(value="—")
-        self._tr(CTkLabel(send), "chat.to").pack(side="left")
-        CTkLabel(send, textvariable=self._chat_room_var, foreground="#888",
+        self._tr(ttk.Label(send), "chat.to").pack(side="left")
+        ttk.Label(send, textvariable=self._chat_room_var, foreground="#888",
                   width=26).pack(side="left", padx=(4, 6))
         # The emoji / sticker picker: a game emoji goes inline into the text as a
         # {e:<id>} token (chat_send resolves it), a sticker is sent as its own
         # message (the game does not let a sticker ride alongside text).
-        CTkButton(send, text="😊", width=32, command=self._open_emoji_picker).pack(
+        ttk.Button(send, text="😊", width=32, command=self._open_emoji_picker).pack(
             side="left", padx=(0, 4))
         self._chat_msg_var = tk.StringVar()
-        entry = CTkEntry(send, textvariable=self._chat_msg_var)
+        entry = ttk.Entry(send, textvariable=self._chat_msg_var)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda _e: self._chat_send_text())
         self._chat_entry = entry
-        self._tr(CTkButton(send, command=self._chat_send_text),
+        self._tr(ttk.Button(send, command=self._chat_send_text),
                  "chat.send").pack(side="left", padx=(4, 0))
         # The coordinate in the main tab's X/Y/server fields, shared as a map pin —
         # not as text. A pin is tappable in the game; "567,471" is not.
-        self._tr(CTkButton(send, command=self._chat_send_coords),
+        self._tr(ttk.Button(send, command=self._chat_send_coords),
                  "chat.send_coords").pack(side="left", padx=(4, 0))
 
-        bot = CTkFrame(parent, padding=(6, 2, 6, 4))
+        bot = ttk.Frame(parent, padding=(6, 2, 6, 4))
         bot.pack(fill="x")
-        self._tr(CTkButton(bot, command=self._clear_chat),
+        self._tr(ttk.Button(bot, command=self._clear_chat),
                  "chat.clear").pack(side="left")
         self._chat_count_var = tk.StringVar(value=self._t("chat.count", n=0))
-        CTkLabel(bot, textvariable=self._chat_count_var, foreground="#888").pack(
+        ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
         self._tr_hooks.append(self._retranslate_chat_bottom)
 
@@ -6359,19 +6323,19 @@ class Panel(ctk.CTk):
         emojis = chat_assets.emoji_catalogue()
         stickers = chat_assets.sticker_catalogue()
 
-        top = ctk.CTkToplevel(self)
+        top = tk.Toplevel(self)
         self._emoji_win = top
         top.title(self._t("chat.picker.title"))
         top.transient(self)
-        CTkLabel(top, text=self._t("chat.picker.emoji"), anchor="w",
+        ttk.Label(top, text=self._t("chat.picker.emoji"), anchor="w",
                  foreground="#8a8a8a").pack(fill="x", padx=8, pady=(8, 0))
-        em_box = CTkTextbox(top, wrap="char", state="disabled", cursor="arrow",
+        em_box = ScrolledText(top, wrap="char", state="disabled", cursor="arrow",
                             borderwidth=0, highlightthickness=0, padx=4, pady=4)
         em_box.pack(fill="both", expand=True, padx=8, pady=(2, 4))
         self._fill_picker(em_box, emojis, "emoji", 24)
-        CTkLabel(top, text=self._t("chat.picker.sticker"), anchor="w",
+        ttk.Label(top, text=self._t("chat.picker.sticker"), anchor="w",
                  foreground="#8a8a8a").pack(fill="x", padx=8, pady=(4, 0))
-        st_box = CTkTextbox(top, wrap="char", state="disabled", cursor="arrow",
+        st_box = ScrolledText(top, wrap="char", state="disabled", cursor="arrow",
                             height=4, borderwidth=0, highlightthickness=0, padx=4, pady=4)
         st_box.pack(fill="both", expand=True, padx=8, pady=(2, 8))
         self._fill_picker(st_box, stickers, "sticker", 44)
@@ -6441,12 +6405,12 @@ class Panel(ctk.CTk):
         read-only textbox drawn from the store. A contact = one DM peer; clicking it
         opens that peer's conversation and nothing else.
         """
-        left = CTkFrame(parent, width=210)
+        left = ttk.Frame(parent, width=210)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)          # keep the fixed sidebar width
-        self._tr(CTkLabel(left, foreground="#8a8a8a"),
+        self._tr(ttk.Label(left, foreground="#8a8a8a"),
                  "chat.contacts").pack(anchor="w", padx=6, pady=(4, 2))
-        lst = CTkTextbox(left, wrap="none", state="disabled", cursor="arrow",
+        lst = ScrolledText(left, wrap="none", state="disabled", cursor="arrow",
                          font=("Segoe UI", 9), borderwidth=0, highlightthickness=0,
                          padx=4, pady=2)
         lst.tag_configure("dmname", foreground="#d8d8d8")
@@ -6457,10 +6421,10 @@ class Panel(ctk.CTk):
         lst.pack(fill="both", expand=True, padx=(2, 0), pady=(0, 4))
         self._dm_list = lst
 
-        right = CTkFrame(parent)
+        right = ttk.Frame(parent)
         right.pack(side="left", fill="both", expand=True)
         self._dm_header_var = tk.StringVar(value=self._t("chat.dm.pick"))
-        CTkLabel(right, textvariable=self._dm_header_var, anchor="w",
+        ttk.Label(right, textvariable=self._dm_header_var, anchor="w",
                  foreground="#c8c8c8").pack(fill="x", padx=6, pady=(4, 0))
         return self._make_chat_tree(right)
 
@@ -6563,9 +6527,9 @@ class Panel(ctk.CTk):
         A Text widget (not a Treeview) is used so emoji / sticker sprites can be
         drawn inline with the message text via ``image_create``.
         """
-        frame = CTkFrame(parent)
+        frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
-        txt = CTkTextbox(frame, wrap="word", state="disabled", cursor="arrow",
+        txt = ScrolledText(frame, wrap="word", state="disabled", cursor="arrow",
                       font=("Segoe UI", 10), spacing1=1, spacing3=3,
                       borderwidth=0, highlightthickness=0, padx=6, pady=4)
         txt.tag_configure("time", foreground="#8a8a8a")
@@ -6585,10 +6549,10 @@ class Panel(ctk.CTk):
                      lambda _e, v=txt: self._chat_click_load_more(v))
         txt.tag_bind("loadmore", "<Enter>", lambda _e, v=txt: v.configure(cursor="hand2"))
         txt.tag_bind("loadmore", "<Leave>", lambda _e, v=txt: v.configure(cursor="arrow"))
-        # CTkTextbox carries its own scrollbars, so no ttk.Scrollbar is wired here.
+        # ScrolledText carries its own scrollbars, so no ttk.Scrollbar is wired here.
         txt.pack(fill="both", expand=True)
         # Paging in older history: a scroll to the very top loads the previous
-        # CHAT_PAGE. Bind on the inner tk.Text (CTkTextbox proxies to `_textbox`);
+        # CHAT_PAGE. Bind on the inner tk.Text (ScrolledText proxies to `_textbox`);
         # add="+" so the widget's own scrolling is untouched. Wheel/keys all route
         # through one deferred check of the top fraction.
         inner = getattr(txt, "_textbox", txt)
@@ -6763,10 +6727,10 @@ class Panel(ctk.CTk):
         except Exception as exc:       # noqa: BLE001
             self._say("chat", "log.chat.photo_failed", error=exc)
             return
-        top = ctk.CTkToplevel(self)
+        top = tk.Toplevel(self)
         top.title(self._t("tab.chat"))
-        top.configure(fg_color="#000000")
-        lbl = CTkLabel(top, image=photo, fg_color="#000000", cursor="hand2")
+        top.configure(bg="#000000")
+        lbl = tk.Label(top, image=photo, bg="#000000", cursor="hand2")
         lbl.image = photo              # keep a reference alive
         lbl.pack()
         top.bind("<Button-1>", lambda e: top.destroy())
@@ -7178,9 +7142,6 @@ def main(argv: list[str] | None = None) -> int:
                         help="start with the named profile active (created if missing), "
                              "overriding the saved last-active profile")
     args = parser.parse_args(argv)
-    # CustomTkinter theme: dark by default, blue accent.
-    ctk.set_appearance_mode("dark")
-    ctk.set_default_color_theme("blue")
     # lua_daemon lives in tools/, the shared modules in tools/lib/ — look in both.
     for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
         if not any(os.path.isfile(os.path.join(d, tool)) for d in (TOOLS, TOOLS_LIB)):

@@ -33,12 +33,11 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
 def _page():
     """A Panel stand-in with the Settings page really built."""
     import tkinter as tk
-    import customtkinter as ctk
     from tkinter import ttk
     from panel import i18n as i18nmod
     import panel.__main__ as pm
 
-    root = ctk.CTk()          # the panel is a CustomTkinter app now (#1129)
+    root = tk.Tk()          # the panel is a plain tkinter/ttk app
     root.withdraw()
 
     class _Page:
@@ -105,11 +104,9 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         return
     try:
         # Every entry of the registry became a tab, in order, with its own label.
-        # The page's tab strip is a CustomTkinter CTkNotebook (the panel moved off
-        # ttk in #1129); it keeps the ttk.Notebook tabs()/tab() surface.
-        from panel.ctk_widgets import CTkNotebook
+        # The page's tab strip is a ttk.Notebook.
         notebooks = [w for w in root.winfo_children()[0].winfo_children()
-                     if isinstance(w, CTkNotebook)]
+                     if isinstance(w, ttk.Notebook)]
         assert notebooks, "the settings page has no notebook"
         tabs = notebooks[0].tabs()
         assert len(tabs) == len(pm.SETTINGS_TABS), tabs
@@ -237,11 +234,11 @@ def _autorally_page():
     rally-creation section alone and does not ride on every other Settings tab.
     """
     import tkinter as tk
-    import customtkinter as ctk
+    from tkinter import ttk
     from panel import i18n as i18nmod
     import panel.__main__ as pm
 
-    root = ctk.CTk()          # a CustomTkinter app (#1129)
+    root = tk.Tk()          # a plain tkinter/ttk app
     root.withdraw()
 
     class _Page:
@@ -266,7 +263,7 @@ def _autorally_page():
             self.saves += 1
 
     page = _Page()
-    page._build_autorally_settings(ctk.CTkFrame(root))
+    page._build_autorally_settings(ttk.Frame(root))
     return root, page, pm
 
 

@@ -15,7 +15,7 @@ Four things are pinned here:
 
 The parse, avatar and store blocks are pure (sqlite3 is stdlib, no Tk) and always
 run. The window-math block needs the panel and so SKIPs under a python without
-customtkinter/PIL/Tk (e.g. the WSL python3). Run the full set under Windows:
+tkinter/PIL/Tk (e.g. the WSL python3). Run the full set under Windows:
 
     C:\Python312\python.exe tests\test_panel_chat.py
     python3 tests/test_panel_chat.py        # runs the pure blocks, SKIPs the rest
@@ -304,7 +304,7 @@ def _stand_in(pm, store):
 def test_lazy_window_pages_from_store():
     try:
         import panel.__main__ as pm
-    except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_lazy_window_pages_from_store: {exc}")
         return
 
@@ -394,7 +394,7 @@ def _dm_stand_in(pm, store):
 def test_dm_open_contact_filters_and_pages():
     try:
         import panel.__main__ as pm
-    except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_dm_open_contact_filters_and_pages: {exc}")
         return
 
@@ -439,7 +439,7 @@ class _FakeEntry:
 def test_emoji_picker_inserts_token_and_sticker_sends():
     try:
         import panel.__main__ as pm
-    except Exception as exc:      # noqa: BLE001 -- no customtkinter/PIL/Tk here
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_emoji_picker_inserts_token_and_sticker_sends: {exc}")
         return
 

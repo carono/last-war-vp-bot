@@ -84,12 +84,12 @@ def test_the_builtin_rally_auto_join_trigger_ships():
 def test_errand_args_injects_live_join_squads():
     """rally_auto_join takes its squads from the profile at fire time, not the trigger.
 
-    Needs the panel (customtkinter); says SKIP where that is not importable.
+    Needs the panel (tkinter); says SKIP where that is not importable.
     """
     try:
         from panel.__main__ import Panel
     except Exception:                           # noqa: BLE001
-        print("  SKIP panel deps (customtkinter) not importable")
+        print("  SKIP panel deps (tkinter) not importable")
         return
     import types
     stub = types.SimpleNamespace(_autorally_squads=lambda: [2, 3],

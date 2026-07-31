@@ -16,12 +16,10 @@ field that cannot be read is simply omitted. Resources reuse the panel's own
 from __future__ import annotations
 
 import threading
+from tkinter import ttk
 
-import customtkinter as ctk
-
-from .ctk_widgets import (CTkButton, CTkCheckBox, CTkEntry, CTkFrame, CTkLabel,
-                          install_numeric_field, numeric_spinbox)
-from .ctk_widgets import CTkLabelFrame
+from .widgets import (ScrollableFrame, install_numeric_field, numeric_spinbox,
+                      font as ui_font)
 
 # Resource keys, in display order, with a glyph fallback for the icon.
 RESOURCE_GLYPHS = {"food": "🍖", "wood": "🌲", "metal": "⚙️", "oil": "🛢️", "gold": "🪙"}
@@ -104,16 +102,16 @@ class _DataTab:
     def _header(self, title_key: str):
         """A title row with a «Обновить» button and a status label; returns the body
         frame the subclass fills."""
-        bar = CTkFrame(self.parent, fg_color="transparent")
+        bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self.app._tr(CTkLabel(bar, font=ctk.CTkFont(size=15, weight="bold")),
+        self.app._tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                      title_key).pack(side="left")
-        self.app._tr(CTkButton(bar, width=12, command=self.refresh),
+        self.app._tr(ttk.Button(bar, width=12, command=self.refresh),
                      "tabx.refresh").pack(side="right")
         self._status_var = tk_stringvar(self.app)
-        CTkLabel(bar, textvariable=self._status_var, text_color="#888").pack(
+        ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
-        body = CTkFrame(self.parent, fg_color="transparent")
+        body = ttk.Frame(self.parent)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         return body
 
@@ -139,9 +137,9 @@ class AllianceTab(_DataTab):
 
     def build(self) -> None:
         body = self._header("tab.alliance")
-        self._scroll = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        self._scroll = ScrollableFrame(body)
         self._scroll.pack(fill="both", expand=True)
-        self.app._tr(CTkLabel(self.parent, text_color="#888", wraplength=640,
+        self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"),
                      "alliance.hint").pack(anchor="w", padx=10, pady=(0, 10))
 
@@ -174,11 +172,11 @@ class AllianceTab(_DataTab):
         for child in self._scroll.winfo_children():
             child.destroy()
         for col, key in enumerate(self.COLUMNS):
-            self.app._tr(CTkLabel(self._scroll, text_color="#888",
-                                  font=ctk.CTkFont(weight="bold")), key).grid(
+            self.app._tr(ttk.Label(self._scroll, foreground="#888",
+                                  font=ui_font(weight="bold")), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 16), pady=(0, 6))
         if not rows:
-            self.app._tr(CTkLabel(self._scroll, text_color="#888"),
+            self.app._tr(ttk.Label(self._scroll, foreground="#888"),
                          "alliance.empty").grid(row=1, column=0, columnspan=5,
                                                 sticky="w", pady=6)
             self._status_var.set("")
@@ -188,7 +186,7 @@ class AllianceTab(_DataTab):
                                  else "alliance.offline")
             seen = "" if online == "1" else self._fmt_seen(off)
             for col, text in enumerate((name, level, _group(power), status, seen)):
-                CTkLabel(self._scroll, text=text).grid(
+                ttk.Label(self._scroll, text=text).grid(
                     row=r, column=col, sticky="w", padx=(0, 16), pady=1)
         self._status_var.set(self.app._t("alliance.count", n=len(rows)))
 
@@ -220,32 +218,32 @@ class ProfileTab(_DataTab):
             _card(body), "profile.card")
         card.pack(fill="x")
         self._rows: dict = {}
-        grid = CTkFrame(card, fg_color="transparent")
+        grid = ttk.Frame(card)
         grid.pack(fill="x", padx=4, pady=4)
         for r, key in enumerate(("profile.nick", "profile.level", "profile.power")):
-            self.app._tr(CTkLabel(grid, text_color="#888"), key).grid(
+            self.app._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=r, column=0, sticky="w", padx=(0, 12), pady=3)
             var = tk_stringvar(self.app)
             var.set("—")
-            CTkLabel(grid, textvariable=var,
-                     font=ctk.CTkFont(size=14, weight="bold")).grid(
+            ttk.Label(grid, textvariable=var,
+                     font=ui_font(size=14, weight="bold")).grid(
                 row=r, column=1, sticky="w", pady=3)
             self._rows[key] = var
 
         res = self.app._tr(_card(body), "profile.resources")
         res.pack(fill="x", pady=(10, 0))
-        rgrid = CTkFrame(res, fg_color="transparent")
+        rgrid = ttk.Frame(res)
         rgrid.pack(fill="x", padx=4, pady=4)
         self._res: dict = {}
         for i, name in enumerate(RESOURCE_ORDER):
-            CTkLabel(rgrid, text=RESOURCE_GLYPHS[name],
-                     font=ctk.CTkFont(size=18)).grid(row=i, column=0, padx=(0, 8), pady=2)
-            self.app._tr(CTkLabel(rgrid, text_color="#888"),
+            ttk.Label(rgrid, text=RESOURCE_GLYPHS[name],
+                     font=ui_font(size=18)).grid(row=i, column=0, padx=(0, 8), pady=2)
+            self.app._tr(ttk.Label(rgrid, foreground="#888"),
                          f"profile.res.{name}").grid(row=i, column=1, sticky="w",
                                                      padx=(0, 12))
             var = tk_stringvar(self.app)
             var.set("—")
-            CTkLabel(rgrid, textvariable=var).grid(row=i, column=2, sticky="w")
+            ttk.Label(rgrid, textvariable=var).grid(row=i, column=2, sticky="w")
             self._res[name] = var
 
     def fetch(self):
@@ -289,25 +287,25 @@ class InventoryTab(_DataTab):
     that filters by name. Items are read best-effort from the item/bag manager."""
 
     def build(self) -> None:
-        top = CTkFrame(self.parent, fg_color="transparent")
+        top = ttk.Frame(self.parent)
         top.pack(fill="x", padx=10, pady=(10, 4))
-        self.app._tr(CTkLabel(top, font=ctk.CTkFont(size=15, weight="bold")),
+        self.app._tr(ttk.Label(top, font=ui_font(size=15, weight="bold")),
                      "tab.inventory").pack(side="left")
-        self.app._tr(CTkButton(top, width=12, command=self.refresh),
+        self.app._tr(ttk.Button(top, width=12, command=self.refresh),
                      "tabx.refresh").pack(side="right")
         self._status_var = tk_stringvar(self.app)
-        CTkLabel(top, textvariable=self._status_var, text_color="#888").pack(
+        ttk.Label(top, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
-        searchrow = CTkFrame(self.parent, fg_color="transparent")
+        searchrow = ttk.Frame(self.parent)
         searchrow.pack(fill="x", padx=10, pady=(0, 6))
-        self.app._tr(CTkLabel(searchrow), "inventory.search").pack(side="left")
+        self.app._tr(ttk.Label(searchrow), "inventory.search").pack(side="left")
         self._query = tk_stringvar(self.app)
         self._query.trace_add("write", lambda *_: self._redraw())
-        CTkEntry(searchrow, textvariable=self._query).pack(
+        ttk.Entry(searchrow, textvariable=self._query).pack(
             side="left", fill="x", expand=True, padx=(6, 0))
 
-        self._scroll = ctk.CTkScrollableFrame(self.parent, fg_color="transparent")
+        self._scroll = ScrollableFrame(self.parent)
         self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._items: list = []
 
@@ -354,19 +352,19 @@ class InventoryTab(_DataTab):
         shown = [it for it in self._items
                  if not query or query in it["name"].lower()]
         if not shown:
-            self.app._tr(CTkLabel(scroll, text_color="#888"),
+            self.app._tr(ttk.Label(scroll, foreground="#888"),
                          "inventory.empty").grid(row=0, column=0, sticky="w", pady=6)
             return
         for r, it in enumerate(shown):
-            CTkLabel(scroll, text="📦", font=ctk.CTkFont(size=16)).grid(
+            ttk.Label(scroll, text="📦", font=ui_font(size=16)).grid(
                 row=r, column=0, padx=(0, 8), pady=2)
-            CTkLabel(scroll, text=it["name"],
-                     font=ctk.CTkFont(weight="bold")).grid(
+            ttk.Label(scroll, text=it["name"],
+                     font=ui_font(weight="bold")).grid(
                 row=r, column=1, sticky="w", padx=(0, 12))
-            CTkLabel(scroll, text=f"×{_group(it['count'])}").grid(
+            ttk.Label(scroll, text=f"×{_group(it['count'])}").grid(
                 row=r, column=2, sticky="w", padx=(0, 12))
             if it["desc"]:
-                CTkLabel(scroll, text=it["desc"], text_color="#888",
+                ttk.Label(scroll, text=it["desc"], foreground="#888",
                          wraplength=360, justify="left").grid(
                     row=r, column=3, sticky="w")
 
@@ -393,7 +391,7 @@ class HeroesTab(_DataTab):
 
     def build(self) -> None:
         body = self._header("tab.heroes")
-        self._scroll = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        self._scroll = ScrollableFrame(body)
         self._scroll.pack(fill="both", expand=True)
         self._icon_cache: dict = {}
 
@@ -455,11 +453,11 @@ class HeroesTab(_DataTab):
         for child in self._scroll.winfo_children():
             child.destroy()
         for col, key in enumerate(self.COLUMNS):
-            self.app._tr(CTkLabel(self._scroll, text_color="#888",
-                                  font=ctk.CTkFont(weight="bold")), key).grid(
+            self.app._tr(ttk.Label(self._scroll, foreground="#888",
+                                  font=ui_font(weight="bold")), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 16), pady=(0, 6))
         if not heroes:
-            self.app._tr(CTkLabel(self._scroll, text_color="#888"),
+            self.app._tr(ttk.Label(self._scroll, foreground="#888"),
                          "heroes.empty").grid(row=1, column=0, columnspan=len(self.COLUMNS),
                                               sticky="w", pady=6)
             self._status_var.set(self.app._t("tabx.no_game"))
@@ -467,24 +465,24 @@ class HeroesTab(_DataTab):
         for r, hero in enumerate(heroes, start=1):
             icon = self._hero_icon(hero["id"])
             if icon is not None:
-                CTkLabel(self._scroll, text="", image=icon).grid(
+                ttk.Label(self._scroll, text="", image=icon).grid(
                     row=r, column=0, padx=(0, 16), pady=2)
             else:
-                CTkLabel(self._scroll, text="🦸", font=ctk.CTkFont(size=18)).grid(
+                ttk.Label(self._scroll, text="🦸", font=ui_font(size=18)).grid(
                     row=r, column=0, padx=(0, 16), pady=2)
-            CTkLabel(self._scroll, text=self._hero_name(hero),
-                     font=ctk.CTkFont(weight="bold")).grid(
+            ttk.Label(self._scroll, text=self._hero_name(hero),
+                     font=ui_font(weight="bold")).grid(
                 row=r, column=1, sticky="w", padx=(0, 16))
-            CTkLabel(self._scroll, text=str(hero["level"] or "—")).grid(
+            ttk.Label(self._scroll, text=str(hero["level"] or "—")).grid(
                 row=r, column=2, sticky="w", padx=(0, 16))
-            CTkLabel(self._scroll, text=(f"⭐×{hero['stars']}" if hero["stars"] else "—")).grid(
+            ttk.Label(self._scroll, text=(f"⭐×{hero['stars']}" if hero["stars"] else "—")).grid(
                 row=r, column=3, sticky="w", padx=(0, 16))
             squad = hero["squad"]
             squad_text = str(squad) if 1 <= squad <= 3 else self.app._t("heroes.squad_none")
-            CTkLabel(self._scroll, text=squad_text).grid(
+            ttk.Label(self._scroll, text=squad_text).grid(
                 row=r, column=4, sticky="w", padx=(0, 16))
             # Weapon column left blank on purpose — a later task fills it.
-            CTkLabel(self._scroll, text="—", text_color="#666").grid(
+            ttk.Label(self._scroll, text="—", foreground="#666").grid(
                 row=r, column=5, sticky="w")
         self._status_var.set(self.app._t("heroes.count", n=len(heroes)))
 
@@ -502,8 +500,9 @@ class HeroesTab(_DataTab):
         return f"#{hero['id']}"
 
     def _hero_icon(self, hero_id: int):
-        """A cached CTkImage for the hero's small icon, or ``None`` (unknown id,
-        missing file, or no PIL). Callers draw a glyph when this returns ``None``."""
+        """A cached PhotoImage for the hero's small icon, or ``None`` (unknown id,
+        missing file, or no PIL). Callers draw a glyph when this returns ``None``.
+        The cache also keeps the PhotoImage alive (Tk does not hold a Python ref)."""
         if hero_id in self._icon_cache:
             return self._icon_cache[hero_id]
         image = None
@@ -513,10 +512,10 @@ class HeroesTab(_DataTab):
             if path is None:
                 path = hero_icons_map.icon_path(hero_id, size="big")
             if path:
-                from PIL import Image
-                pil = Image.open(path).convert("RGBA")
-                image = ctk.CTkImage(light_image=pil, dark_image=pil,
-                                     size=(self.ICON_PX, self.ICON_PX))
+                from PIL import Image, ImageTk
+                pil = Image.open(path).convert("RGBA").resize(
+                    (self.ICON_PX, self.ICON_PX))
+                image = ImageTk.PhotoImage(pil)
         except Exception:       # noqa: BLE001 — a missing icon is a glyph, never a crash
             image = None
         self._icon_cache[hero_id] = image
@@ -544,9 +543,9 @@ class AccountsTab(_DataTab):
 
     def build(self) -> None:
         body = self._header("tab.accounts")
-        self._scroll = ctk.CTkScrollableFrame(body, fg_color="transparent")
+        self._scroll = ScrollableFrame(body)
         self._scroll.pack(fill="both", expand=True)
-        self.app._tr(CTkLabel(self.parent, text_color="#888", wraplength=640,
+        self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"),
                      "accounts.hint").pack(anchor="w", padx=10, pady=(0, 10))
 
@@ -563,11 +562,11 @@ class AccountsTab(_DataTab):
         for child in self._scroll.winfo_children():
             child.destroy()
         for col, key in enumerate(self.COLUMNS):
-            self.app._tr(CTkLabel(self._scroll, text_color="#888",
-                                  font=ctk.CTkFont(weight="bold")), key).grid(
+            self.app._tr(ttk.Label(self._scroll, foreground="#888",
+                                  font=ui_font(weight="bold")), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 16), pady=(0, 6))
         if not rows:
-            self.app._tr(CTkLabel(self._scroll, text_color="#888"),
+            self.app._tr(ttk.Label(self._scroll, foreground="#888"),
                          "accounts.empty").grid(row=1, column=0, columnspan=len(self.COLUMNS),
                                                 sticky="w", pady=6)
             self._status_var.set(self.app._t("tabx.no_game"))
@@ -576,22 +575,22 @@ class AccountsTab(_DataTab):
             current = acc.get("is_current")
             name = acc.get("nickname") or f"#{acc.get('gameUid', '')}"
             weight = "bold" if current else "normal"
-            CTkLabel(self._scroll, text=name,
-                     font=ctk.CTkFont(weight=weight)).grid(
+            ttk.Label(self._scroll, text=name,
+                     font=ui_font(weight=weight)).grid(
                 row=r, column=0, sticky="w", padx=(0, 16), pady=2)
-            CTkLabel(self._scroll, text=str(acc.get("serverid", ""))).grid(
+            ttk.Label(self._scroll, text=str(acc.get("serverid", ""))).grid(
                 row=r, column=1, sticky="w", padx=(0, 16))
-            CTkLabel(self._scroll, text=acc.get("zone", ""), text_color="#888").grid(
+            ttk.Label(self._scroll, text=acc.get("zone", ""), foreground="#888").grid(
                 row=r, column=2, sticky="w", padx=(0, 16))
-            CTkLabel(self._scroll, text=str(acc.get("level") or "—")).grid(
+            ttk.Label(self._scroll, text=str(acc.get("level") or "—")).grid(
                 row=r, column=3, sticky="w", padx=(0, 16))
             if current:
-                self.app._tr(CTkLabel(self._scroll, text_color="#5cd679",
-                                      font=ctk.CTkFont(weight="bold")),
+                self.app._tr(ttk.Label(self._scroll, foreground="#5cd679",
+                                      font=ui_font(weight="bold")),
                              "accounts.current").grid(row=r, column=4, sticky="w")
             else:
                 self.app._tr(
-                    CTkButton(self._scroll, width=12,
+                    ttk.Button(self._scroll, width=12,
                               command=lambda a=acc: self._switch(a)),
                     "accounts.switch").grid(row=r, column=4, sticky="w")
         n = sum(1 for a in rows if a.get("is_current"))
@@ -690,50 +689,50 @@ class RallyTab:
 
     # -- UI -----------------------------------------------------------------
     def build(self) -> None:
-        bar = CTkFrame(self.parent, fg_color="transparent")
+        bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self.app._tr(CTkLabel(bar, font=ctk.CTkFont(size=15, weight="bold")),
+        self.app._tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                      "tab.rally").pack(side="left")
 
-        form = CTkLabelFrame(self.parent, padding=8)
+        form = ttk.LabelFrame(self.parent, padding=8)
         self.app._tr(form, "rally_tab.frame")
         form.pack(fill="x", padx=10, pady=(0, 8))
 
-        lrow = CTkFrame(form)
+        lrow = ttk.Frame(form)
         lrow.pack(fill="x")
-        self.app._tr(CTkLabel(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
+        self.app._tr(ttk.Label(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
         numeric_spinbox(lrow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
                         textvariable=self._level_var).pack(side="left")
 
-        srow = CTkFrame(form)
+        srow = ttk.Frame(form)
         srow.pack(fill="x", pady=(6, 0))
-        self.app._tr(CTkLabel(srow), "rally_tab.squads").pack(side="left", padx=(0, 6))
+        self.app._tr(ttk.Label(srow), "rally_tab.squads").pack(side="left", padx=(0, 6))
         for squad in RALLY_SQUADS:
-            CTkCheckBox(srow, text=str(squad),
+            ttk.Checkbutton(srow, text=str(squad),
                         variable=self._squad_vars[squad]).pack(side="left", padx=4)
 
-        rrow = CTkFrame(form)
+        rrow = ttk.Frame(form)
         rrow.pack(fill="x", pady=(6, 0))
-        self.app._tr(CTkLabel(rrow), "rally_tab.repeats").pack(side="left", padx=(0, 6))
+        self.app._tr(ttk.Label(rrow), "rally_tab.repeats").pack(side="left", padx=(0, 6))
         # The task asks for install_numeric_field specifically: a plain entry made
         # digits-only (no bounds), unlike the level's bounded spinbox.
-        entry = CTkEntry(rrow, width=6, textvariable=self._repeats_var)
+        entry = ttk.Entry(rrow, width=6, textvariable=self._repeats_var)
         install_numeric_field(entry)
         entry.pack(side="left")
 
-        brow = CTkFrame(form)
+        brow = ttk.Frame(form)
         brow.pack(fill="x", pady=(8, 0))
         self._launch_btn = self.app._tr(
-            CTkButton(brow, command=self._launch), "rally_tab.launch")
+            ttk.Button(brow, command=self._launch), "rally_tab.launch")
         self._launch_btn.pack(side="left")
         self._stop_btn = self.app._tr(
-            CTkButton(brow, command=self._stop_run), "rally_tab.stop")
+            ttk.Button(brow, command=self._stop_run), "rally_tab.stop")
         self._stop_btn.pack(side="left", padx=(6, 0))
         self._set_running(False)
 
-        CTkLabel(form, textvariable=self._status_var, text_color="#888").pack(
+        ttk.Label(form, textvariable=self._status_var, foreground="#888").pack(
             anchor="w", pady=(8, 0))
-        self.app._tr(CTkLabel(self.parent, text_color="#888", wraplength=640,
+        self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "rally_tab.hint").pack(
             anchor="w", padx=10, pady=(0, 10))
 
@@ -866,9 +865,8 @@ class RallyTab:
 
 # ---------------------------------------------------------------------------
 def _card(parent):
-    """A bordered card frame (a plain CTkLabelFrame carries a title via _tr)."""
-    from .ctk_widgets import CTkLabelFrame
-    return CTkLabelFrame(parent, padding=8)
+    """A bordered card frame (a plain ttk.LabelFrame carries a title via _tr)."""
+    return ttk.LabelFrame(parent, padding=8)
 
 
 def _int(value) -> int:

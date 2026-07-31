@@ -3,7 +3,7 @@
 Two halves. The engine's decision logic — press the «лупа» search for a level, read back
 the monster popup the game opens, branch create_on_level on whether it is a rally elite —
 is pure once the game is replaced by a scripted fake evaluator, so it is tested directly
-and always runs. The tab widget needs Tk, so it is built on a CustomTkinter root and only
+and always runs. The tab widget needs Tk, so it is built on a tkinter root and only
 checked to construct and read its controls without raising; skips without a Tk display.
 """
 from __future__ import annotations
@@ -110,13 +110,14 @@ def test_create_on_level_soloable_is_not_a_rally_elite():
 # --- the Tk widget (build + read its controls) -------------------------------
 def test_rally_tab_builds_and_reads_controls():
     try:
-        import customtkinter as ctk
+        import tkinter as tk
+        from tkinter import ttk
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
     from panel import tabs_extra as tx
 
-    class _App(ctk.CTk):
+    class _App(tk.Tk):
         def _t(self, key, **fmt):
             return key
         def _tr(self, widget, key, option="text", **fmt):
@@ -135,7 +136,7 @@ def test_rally_tab_builds_and_reads_controls():
         _skip(exc)
         return
     try:
-        frame = ctk.CTkFrame(app)
+        frame = ttk.Frame(app)
         tab = tx.RallyTab(app, frame)
         # Defaults: min level, one repeat, no squad ticked.
         assert tab._level() == tx.RALLY_ELITE_MIN

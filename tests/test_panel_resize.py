@@ -94,9 +94,9 @@ def _damper():
     failure past that point is a real one and is left to blow up the test.
     """
     try:
-        import customtkinter as ctk
+        import tkinter as tk
         import panel.__main__ as pm
-        root = ctk.CTk()
+        root = tk.Tk()
         root.withdraw()
     except Exception as exc:                             # noqa: BLE001
         _skip(exc)

@@ -21,10 +21,9 @@ the list empty and never crashes the tab.
 from __future__ import annotations
 
 import threading
+from tkinter import ttk
 
-import customtkinter as ctk
-
-from .ctk_widgets import CTkButton, CTkFrame, CTkLabel
+from .widgets import ScrollableFrame, font as ui_font
 from .tabs_extra import tk_stringvar
 
 # The star glyph in front of a row and the icon that says «secret task».
@@ -131,23 +130,23 @@ class SecretTasksTab:
 
     # -- UI -----------------------------------------------------------------
     def _build(self) -> None:
-        bar = CTkFrame(self.parent, fg_color="transparent")
+        bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self.app._tr(CTkLabel(bar, font=ctk.CTkFont(size=15, weight="bold")),
+        self.app._tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                      "tab.secret_tasks").pack(side="left")
-        self.app._tr(CTkButton(bar, width=12, command=self.refresh),
+        self.app._tr(ttk.Button(bar, width=12, command=self.refresh),
                      "tabx.refresh").pack(side="right")
-        self.app._tr(CTkButton(bar, width=12, command=self._clear),
+        self.app._tr(ttk.Button(bar, width=12, command=self._clear),
                      "secrettasks.clear").pack(side="right", padx=(0, 6))
         self._status_var = tk_stringvar(self.app)
-        CTkLabel(bar, textvariable=self._status_var, text_color="#888").pack(
+        ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
-        self.app._tr(CTkLabel(self.parent, text_color="#888", wraplength=640,
+        self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "secrettasks.hint").pack(
             anchor="w", padx=10, pady=(0, 6))
 
-        self._scroll = ctk.CTkScrollableFrame(self.parent, fg_color="transparent")
+        self._scroll = ScrollableFrame(self.parent)
         self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
     def _render(self) -> None:
@@ -161,7 +160,7 @@ class SecretTasksTab:
         for child in self._scroll.winfo_children():
             child.destroy()
         if not self._rows:
-            self.app._tr(CTkLabel(self._scroll, text_color="#888"),
+            self.app._tr(ttk.Label(self._scroll, foreground="#888"),
                          "secrettasks.empty").grid(row=0, column=0, sticky="w", pady=6)
             return
         rows = sorted(self._rows.values(),
@@ -177,21 +176,21 @@ class SecretTasksTab:
     # collect can drop a single row without re-flowing the columns of the rest.
     def _row_widget(self, row):
         import coords as coords_fmt
-        frame = CTkFrame(self._scroll, fg_color="transparent")
-        CTkLabel(frame, text=TYPE_GLYPH, font=ctk.CTkFont(size=15)).pack(
+        frame = ttk.Frame(self._scroll)
+        ttk.Label(frame, text=TYPE_GLYPH, font=ui_font(size=15)).pack(
             side="left", padx=(0, 6))
-        CTkLabel(frame, text=self.app._t("secrettasks.stars", n=int(row["level"] or 0)),
-                 font=ctk.CTkFont(weight="bold"), width=52).pack(side="left", padx=(0, 8))
-        CTkLabel(frame, text=coords_fmt.fmt(row["x"], row["y"], row["server"]),
+        ttk.Label(frame, text=self.app._t("secrettasks.stars", n=int(row["level"] or 0)),
+                 font=ui_font(weight="bold"), width=52).pack(side="left", padx=(0, 8))
+        ttk.Label(frame, text=coords_fmt.fmt(row["x"], row["y"], row["server"]),
                  width=110).pack(side="left", padx=(0, 8))
-        CTkLabel(frame, textvariable=row["timer"], text_color="#e0a84f",
+        ttk.Label(frame, textvariable=row["timer"], foreground="#e0a84f",
                  width=150, anchor="w").pack(side="left", padx=(0, 8))
-        CTkLabel(frame, text=self._short_uuid(row["uuid"]), text_color="#888").pack(
+        ttk.Label(frame, text=self._short_uuid(row["uuid"]), foreground="#888").pack(
             side="left", padx=(0, 8))
-        share = CTkButton(frame, width=12)
+        share = ttk.Button(frame, width=12)
         share.configure(command=lambda b=share, r=row: self._open_share_menu(b, r))
         self.app._tr(share, "secrettasks.share").pack(side="right", padx=(4, 0))
-        self.app._tr(CTkButton(frame, width=12,
+        self.app._tr(ttk.Button(frame, width=12,
                                command=lambda r=row: self._collect(r)),
                      "secrettasks.collect").pack(side="right")
         return frame

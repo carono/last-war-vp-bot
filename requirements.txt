@@ -23,5 +23,5 @@ psutil>=5.9
 # OCR backend — RapidOCR runs ONNX models, no system deps, multilingual.
 rapidocr-onnxruntime>=1.3
 
-# Control-panel GUI toolkit — the panel (panel/) is built on CustomTkinter.
-customtkinter>=6.0
+# The control panel (panel/) is a plain tkinter/ttk application — tkinter ships
+# with CPython, so there is no GUI toolkit dependency to install here.

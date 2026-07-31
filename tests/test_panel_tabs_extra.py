@@ -1,7 +1,7 @@
 """The Alliance / Profile / Inventory tabs (panel/tabs_extra.py).
 
 Pure helpers (number grouping, marker-line extraction) are tested directly. The
-tab widgets need Tk, so they are built on a CustomTkinter root and only checked to
+tab widgets need Tk, so they are built on a tkinter root and only checked to
 construct and lazy-load without raising; the live data reads degrade to an empty
 state off the game and are not asserted here. Skips without a Tk display.
 """
@@ -36,12 +36,13 @@ def test_marker_payloads_extracts_each_line():
 
 def test_tabs_build_and_lazy_load_without_raising():
     try:
-        import customtkinter as ctk
+        import tkinter as tk
+        from tkinter import ttk
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
 
-    class _App(ctk.CTk):
+    class _App(tk.Tk):
         """A minimal panel stand-in: i18n echo, no daemon."""
         def _t(self, key, **fmt):
             return key
@@ -66,7 +67,7 @@ def test_tabs_build_and_lazy_load_without_raising():
         return
     try:
         for cls in (tx.AllianceTab, tx.ProfileTab, tx.InventoryTab):
-            frame = ctk.CTkFrame(app)
+            frame = ttk.Frame(app)
             tab = cls(app, frame)
             assert not tab._loaded, "must not load before shown"
             # No daemon → fetch returns empty; render must not raise.
@@ -75,7 +76,7 @@ def test_tabs_build_and_lazy_load_without_raising():
             assert tab._loaded, "ensure_loaded should mark it loaded"
             tab.ensure_loaded()                          # idempotent
         # inventory search filter is pure-ish: empty list stays empty
-        inv = tx.InventoryTab(app, ctk.CTkFrame(app))
+        inv = tx.InventoryTab(app, ttk.Frame(app))
         inv._items = [{"name": "Wood chest", "count": "3", "desc": "d"}]
         inv._query.set("wood"); inv._redraw()
         inv._query.set("zzz"); inv._redraw()             # filters everything out

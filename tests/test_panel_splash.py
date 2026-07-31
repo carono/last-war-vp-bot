@@ -1,9 +1,9 @@
 """The boot splash (panel/splash.py).
 
-A frameless CTkToplevel that must actually take its requested size (CTkToplevel
-defaults to 200×200 and needs a few update cycles to accept a new geometry —
-regression-guarded here), show its steps, and fade/close without raising. Needs
-the Windows Python with a working Tk display; skips otherwise.
+A frameless tk.Toplevel that must actually take its requested size (guarded here:
+it pumps a few update cycles so the window manager applies the geometry), show its
+steps, and fade/close without raising. Needs the Windows Python with a working Tk
+display; skips otherwise.
 """
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ def _skip(exc=None) -> None:
 
 def test_splash_sizes_shows_steps_and_closes():
     try:
-        import customtkinter as ctk
+        import tkinter as tk
     except Exception as exc:                             # noqa: BLE001
         _skip(exc)
         return
     try:
         from panel.splash import SplashScreen
-        root = ctk.CTk()
+        root = tk.Tk()
         root.withdraw()
     except Exception as exc:                             # noqa: BLE001
         _skip(exc)
@@ -36,7 +36,7 @@ def test_splash_sizes_shows_steps_and_closes():
                               width=440, height=250)
         splash.update_idletasks()
         splash.update()
-        # It must take the requested size, not CTkToplevel's default 200×200.
+        # It must take the requested size after the geometry has settled.
         assert splash.winfo_width() == 440, splash.winfo_width()
         assert splash.winfo_height() == 250, splash.winfo_height()
         assert splash.winfo_children(), "splash built no content"
@@ -63,21 +63,18 @@ def test_reveal_window_survives_the_first_mainloop_pass():
     """#1145: a window hidden for the splash must still be on screen once the
     mainloop starts.
 
-    CustomTkinter defers a first-ever show to `mainloop()`, which hides the window
-    to repaint the title bar and then puts back a state it never recorded — leaving
-    the panel running with nothing visible. `Panel._reveal_window` is what undoes
-    that; it touches nothing but the window itself, so it is exercised here on a
-    bare root instead of a whole panel.
+    `Panel._reveal_window` shows the window after the boot splash is gone; it
+    touches nothing but the window itself, so it is exercised here on a bare root
+    instead of a whole panel.
     """
     try:
-        import customtkinter as ctk
+        import tkinter as tk
     except Exception as exc:                             # noqa: BLE001
         _skip(exc)
         return
     try:
         from panel.__main__ import Panel
-        ctk.set_appearance_mode("dark")
-        root = ctk.CTk()
+        root = tk.Tk()
         root.geometry("400x300")
     except Exception as exc:                             # noqa: BLE001
         _skip(exc)
