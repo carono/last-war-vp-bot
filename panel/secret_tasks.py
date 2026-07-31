@@ -10,9 +10,14 @@ expiry down every second, and offers the two things a person does with one: rob 
 
 What is on the tab is an in-memory list for the session, not a store — closing the
 panel forgets it, which is fine: the list is re-read from the game the moment the tab
-is opened again. While the «secret_task_share» trigger is switched on, an alliancemate
-sharing a task (`alliance.share.mission.add`) re-reads the game so the new tile appears
-without a manual «Обновить».
+is opened again (and by «Обновить»). While the «secret_task_share» trigger is switched
+on, an alliancemate sharing a task (`alliance.share.mission.add`) re-reads the game so
+the new tile appears without a manual «Обновить».
+
+The «уровень от / до» range and the «Автолут ★» checkbox live in this tab's header
+(they used to sit on the Main tab). The range doubles as the list's display filter — a
+starred tile shows only while its level is inside it — while auto-loot itself is still
+the app's standing order, reading the same vars; this tab only hosts the boxes.
 
 Kept Tk-thin: the two game round trips (scan, steal) and the share run on background
 threads and degrade gracefully — no daemon, no game, or a manager not loaded yet leaves
@@ -21,9 +26,10 @@ the list empty and never crashes the tab.
 from __future__ import annotations
 
 import threading
+import tkinter as tk
 from tkinter import ttk
 
-from .widgets import ScrollableFrame, font as ui_font
+from .widgets import NumericEntry, ScrollableFrame, font as ui_font
 from .tabs_extra import tk_stringvar
 
 # The star glyph in front of a row and the icon that says «secret task».
@@ -121,12 +127,10 @@ class SecretTasksTab:
             }
             added += 1
         self._render()
-        if self._status_var is not None:
-            # An empty list after a clean read is "no starred tile right now", not "no
-            # game" — the scroll's own hint says so, so the status stays blank rather
-            # than crying about a game that may be perfectly up.
-            self._status_var.set(self.app._t("secrettasks.count", n=len(self._rows))
-                                 if self._rows else "")
+        # An empty list after a clean read is "no starred tile right now", not "no
+        # game" — the scroll's own hint says so, so the status stays blank rather than
+        # crying about a game that may be perfectly up.
+        self._update_status()
 
     # -- UI -----------------------------------------------------------------
     def _build(self) -> None:
@@ -142,12 +146,54 @@ class SecretTasksTab:
         ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
+        # The «уровень от / до» range and «Автолут ★» checkbox, moved here off the Main
+        # tab — the list they gate now lives on the same screen as the boxes.
+        self._build_filter_bar()
+
         self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "secrettasks.hint").pack(
             anchor="w", padx=10, pady=(0, 6))
 
         self._scroll = ScrollableFrame(self.parent)
         self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def _build_filter_bar(self) -> None:
+        """The level range and auto-loot checkbox — the block that used to sit on Main.
+
+        Only the *widgets* move here; the three vars stay on the app
+        (`_autoloot_var`, `_lvl_from_var`, `_lvl_to_var`) because the whole standing-order
+        machinery already reads them there — the watcher loop, the settings save/load, the
+        rule-hint line. Owning the widgets on this tab and the vars on the app keeps every
+        existing consumer working while the boxes move to where their list is shown.
+
+        The same range doubles as the list's display filter (:meth:`_in_range`): a starred
+        tile shows only while its level is inside it, so the operator sees exactly the
+        tiles auto-loot is about to weigh.
+        """
+        app = self.app
+        app._autoloot_var = tk.BooleanVar(master=app, value=False)
+        app._lvl_from_var = tk_stringvar(app)
+        app._lvl_to_var = tk_stringvar(app)
+
+        bar = app._tr(ttk.LabelFrame(self.parent, padding=6), "secret.autoloot.frame")
+        bar.pack(fill="x", padx=10, pady=(0, 4))
+        app._autoloot_chk = app._tr(
+            ttk.Checkbutton(bar, variable=app._autoloot_var,
+                            command=app._toggle_autoloot), "secret.autoloot")
+        app._autoloot_chk.pack(side="left")
+        app._tr(ttk.Label(bar), "secret.autoloot.level_from").pack(
+            side="left", padx=(12, 2))
+        NumericEntry(bar, textvariable=app._lvl_from_var, width=4).pack(side="left")
+        app._tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
+        NumericEntry(bar, textvariable=app._lvl_to_var, width=4).pack(side="left")
+        app._autoloot_rule_lbl = ttk.Label(bar, foreground="#888", wraplength=380,
+                                           justify="left")
+        app._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
+        # Re-filter the shown list as the range is typed. The scan stays cached — rows
+        # outside the new range just hide, and reappear if it is widened again — so this
+        # never touches the game.
+        for var in (app._lvl_from_var, app._lvl_to_var):
+            var.trace_add("write", lambda *a: self._on_level_filter_change())
 
     def _render(self) -> None:
         """Rebuild the scroll from the current rows, newest raids on top.
@@ -156,20 +202,60 @@ class SecretTasksTab:
         level the tile that expires soonest — the one a person would grab before it is
         gone. Called on a merge / collect / clear, NOT every second: the countdown is a
         StringVar the tick loop writes in place.
+
+        Only the rows inside the «уровень от / до» range are drawn — a scan keeps every
+        starred tile in memory, so widening the range shows more without a re-read.
         """
         for child in self._scroll.winfo_children():
             child.destroy()
-        if not self._rows:
+        rows = self._visible_rows()
+        if not rows:
             self.app._tr(ttk.Label(self._scroll, foreground="#888"),
                          "secrettasks.empty").grid(row=0, column=0, sticky="w", pady=6)
             return
-        rows = sorted(self._rows.values(),
-                      key=lambda r: (-int(r["level"] or 0),
-                                     r["expires_at"] or float("inf")))
+        rows = sorted(rows, key=lambda r: (-int(r["level"] or 0),
+                                           r["expires_at"] or float("inf")))
         for r in rows:
             r["frame"] = self._row_widget(r)
             r["frame"].pack(fill="x", pady=1)
         self._refresh_timers()
+
+    def _in_range(self, level) -> bool:
+        """Whether `level` falls inside the «уровень от / до» range (either end open).
+
+        The bounds come from `app._autoloot_levels()` — the very range the auto-loot
+        watcher robs at — so the list shows exactly the tiles the standing order weighs.
+        """
+        lo, hi = self.app._autoloot_levels()
+        lvl = int(level or 0)
+        if lo is not None and lvl < lo:
+            return False
+        if hi is not None and lvl > hi:
+            return False
+        return True
+
+    def _visible_rows(self) -> list:
+        """The rows the range lets through — what `_render` and the counter show."""
+        return [r for r in self._rows.values() if self._in_range(r["level"])]
+
+    def _update_status(self) -> None:
+        """Set the header counter to the number of *shown* rows (blank when none)."""
+        if self._status_var is None:
+            return
+        n = len(self._visible_rows())
+        self._status_var.set(self.app._t("secrettasks.count", n=n) if n else "")
+
+    def _on_level_filter_change(self) -> None:
+        """A «уровень от / до» box was typed: re-draw the list against the new range.
+
+        Cheap and game-free — the scan is cached in `self._rows`, only the visible slice
+        changes. Guarded so a range set during settings-load (before the scroll exists)
+        is a no-op.
+        """
+        if getattr(self, "_scroll", None) is None:
+            return
+        self._render()
+        self._update_status()
 
     # The row is packed left-to-right: icon, stars, coords, countdown, uuid, then the
     # two action buttons on the right. Built one row at a time (not a shared grid) so a
@@ -220,8 +306,7 @@ class SecretTasksTab:
                 for key in expired:
                     self._rows.pop(key, None)
                 self._render()
-                if self._status_var is not None and self._rows:
-                    self._status_var.set(self.app._t("secrettasks.count", n=len(self._rows)))
+                self._update_status()
         finally:
             try:
                 self.app.after(1000, self._tick)
@@ -277,8 +362,7 @@ class SecretTasksTab:
             self._rows.pop(key, None)
             self._render()
             self.app._log_put("[secret] " + self.app._t("secrettasks.collect_ok"))
-            if self._status_var is not None:
-                self._status_var.set(self.app._t("secrettasks.count", n=len(self._rows)))
+            self._update_status()
         else:
             self.app._log_put("[secret] " + self.app._t("secrettasks.collect_fail"))
 
@@ -382,9 +466,7 @@ class SecretTasksTab:
                 self._rows.pop(key, None)
         self._collected.clear()
         self._render()
-        if self._status_var is not None:
-            self._status_var.set(self.app._t("secrettasks.count", n=len(self._rows))
-                                 if self._rows else "")
+        self._update_status()
 
 
 def _fmt_left(ms: int) -> str:

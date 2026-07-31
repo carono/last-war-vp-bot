@@ -1748,41 +1748,25 @@ class Panel(tk.Tk):
         self._flt_to_var = tk.StringVar()
         NumericEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
 
-        # -- Auto-loot: its own frame, and its own level row --------------------
+        # -- Auto-loot moved to the «Secret Tasks» tab --------------------------
         #
-        # «уровень от/до» above is now ONLY the display filter. It used to be both
-        # that and the rule deciding which star got one of the day's five robberies
-        # — two different decisions on one pair of entries, and the reason a
-        # level-6 star once cost a level-7 one (2026-07-29). A person narrowing the
-        # log must not be quietly re-aiming the robberies.
+        # The «Автолут ★» checkbox and its own «уровень от / до» range used to sit
+        # here. They now live in the header of the «Secret Tasks» tab
+        # (panel/secret_tasks.py), beside the list of starred tiles they gate — the
+        # range is that list's display filter as well as the rob-level rule. Only
+        # the widgets moved: `_autoloot_var` / `_lvl_from_var` / `_lvl_to_var` (and
+        # `_autoloot_rule_lbl`) are still created on this app there, so the watcher
+        # loop, the settings save/load and the rule-hint line are unchanged.
         #
-        # Auto-loot is a standing order, not a press. While it is ticked the panel
-        # watches the capture checkpoint and robs a starred task of the highest
-        # level in ITS range the moment one shows up — the scan only finds a
-        # raidable star for as long as its loot window is open, so waiting for a
-        # human to notice the log line and click was losing targets.
+        # «уровень от / до» in `row2` above stays here and is still ONLY the capture
+        # log's display filter — kept separate from the rob-level range on purpose:
+        # conflating the two once spent a robbery on a level-6 star (2026-07-29).
         #
-        # «до» is the level it robs, not a ceiling over "whatever is lying around".
-        # «от 1 до 7» means 7s are taken and a level-6 star waits, however alone it
-        # is on the map: the five daily robberies are the scarce thing, and one
-        # spent on a 6 is one a 7 cannot have until the reset.
-        # Stars only: with no star at that level it robs nothing at all.
-        loot = self._tr(ttk.LabelFrame(sec, padding=6), "secret.autoloot.frame")
-        loot.pack(fill="x", pady=(8, 0))
-        self._autoloot_var = tk.BooleanVar(value=False)
-        self._autoloot_chk = self._tr(ttk.Checkbutton(loot, variable=self._autoloot_var,
-                                                      command=self._toggle_autoloot),
-                                      "secret.autoloot")
-        self._autoloot_chk.pack(side="left")
-        self._tr(ttk.Label(loot), "secret.autoloot.level_from").pack(side="left", padx=(12, 2))
-        self._lvl_from_var = tk.StringVar()
-        NumericEntry(loot, textvariable=self._lvl_from_var, width=4).pack(side="left")
-        self._tr(ttk.Label(loot), "secret.level_to").pack(side="left", padx=(6, 2))
-        self._lvl_to_var = tk.StringVar()
-        NumericEntry(loot, textvariable=self._lvl_to_var, width=4).pack(side="left")
-        self._autoloot_rule_lbl = ttk.Label(loot, foreground="#888", wraplength=380,
-                                            justify="left")
-        self._autoloot_rule_lbl.pack(side="left", padx=(10, 0))
+        # «до» is the level auto-loot robs, not a ceiling over "whatever is lying
+        # around". «от 1 до 7» means 7s are taken and a level-6 star waits, however
+        # alone it is on the map: the five daily robberies are the scarce thing, and
+        # one spent on a 6 is one a 7 cannot have until the reset. Stars only: with
+        # no star at that level it robs nothing at all.
 
         # -- The map sweep: the wrist the passive scan needed -------------------
         #
