@@ -89,13 +89,13 @@ soloable monster (not a rally elite — treat the level as "no rally elite found
   popup. The `Monster` tab sends `find.monster` (ordinary field monsters, no elite), and a
   level-35 elite searched there returned nothing. The tool now defaults to `Boss`
   (`RALLY_ELITE_SEARCH` in `tools/rally_create.py`); `--type monster` still forces the other tab.
-- **The `Monster` tab's level ceiling is not a constant.** It was read as 30 on this account at
-  the time (`MonsterManager.find_monster_max_level` was 35 in the same `init`), but ordinary
-  monsters go far higher during a seasonal event, so the ceiling follows the account/season
-  rather than being fixed. `SEARCH_LEVEL_RANGE` in `tools/rally_create.py` therefore allows
-  `monster` 1–200 and `boss` 1–35 (the highest elite the game offers), and clamps anything asked
-  for outside its tab's range instead of sending it. A level the server has nothing for simply
-  comes back empty, the same as any other miss.
+- **The level ceilings are not constants.** The `Monster` tab was read as 30 on this account at
+  the time and `MonsterManager.find_monster_max_level` as 35 in the same `init`, but a seasonal
+  event puts levels far above that on the map, so a ceiling follows the account/season rather
+  than being fixed. `SEARCH_LEVEL_RANGE` in `tools/rally_create.py` therefore allows 1–200 for
+  both tabs (kept as a per-kind mapping so one can be tightened alone if a live capture ever
+  shows a tab refusing what was asked), and clamps anything outside it instead of sending it. A
+  level the server has nothing for simply comes back empty, the same as any other miss.
 - **The CREATE wire is still UNPROVEN** (docs/research/rally-join.md, world-monsters.md
   Finding 17). Searching brings up the elite; raising the actual «Стягивание» banner
   (`MarchUtil.SendCreateMarchMessage` with `RALLY_CREATE_TARGET`) has no live capture yet.

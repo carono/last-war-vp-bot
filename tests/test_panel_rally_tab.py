@@ -104,18 +104,17 @@ def test_create_on_level_reports_no_elite_when_empty():
     assert res["ok"] is False and res["reason"] == "no_elite", res
 
 
-def test_level_range_per_search_kind():
-    # The Fatal Elite stops at 35; an ordinary monster runs to 200 (seasonal levels).
-    assert rc.level_range("boss") == (1, 35)
+def test_level_range_is_the_same_for_both_search_kinds():
+    # Both tabs take the whole 1–200 span — a season goes far past the everyday levels.
+    assert rc.level_range("boss") == (1, 200)
     assert rc.level_range("monster") == (1, 200)
     assert rc.level_range() == rc.level_range(rc.RALLY_ELITE_SEARCH)   # default kind
     assert rc.level_range("nonsense") == (1, 200)                      # unknown → monster tab
 
 
-def test_clamp_level_pulls_into_the_kind_range():
-    assert rc.clamp_level(200, "boss") == 35        # above the elite ceiling
-    assert rc.clamp_level(200, "monster") == 200    # fine for an ordinary monster
-    assert rc.clamp_level(500, "monster") == 200
+def test_clamp_level_pulls_into_the_range():
+    assert rc.clamp_level(200, "boss") == 200       # a level-200 elite is asked for as-is
+    assert rc.clamp_level(500, "monster") == 200    # above the ceiling
     assert rc.clamp_level(0, "monster") == 1
     assert rc.clamp_level("", "boss") == 1          # unparseable reads as the minimum
     assert rc.clamp_level("7", "monster") == 7      # a numeric string is a number
@@ -126,10 +125,14 @@ def test_search_presses_the_asked_for_tab_with_a_clamped_level():
     ev = FakeEv({"pid": "1", "uuid": "11", "server": "935", "level": 180, "canAttack": 0})
     assert rc.spawn_elite(ev, level=180, search_type="monster", wait_s=2) is not None
     assert ev.search == (rc.UISEARCH_TYPE["monster"], 180), ev.search
-    # The same level under the Boss tab (5) is clamped to the elite ceiling.
-    ev = FakeEv({"pid": "1", "uuid": "11", "server": "935", "level": 35, "canAttack": 0})
+    # The same level under the Boss tab (5) goes out under that tab, level untouched.
+    ev = FakeEv({"pid": "1", "uuid": "11", "server": "935", "level": 180, "canAttack": 0})
     rc.spawn_elite(ev, level=180, search_type="boss", wait_s=2)
-    assert ev.search == (rc.UISEARCH_TYPE["boss"], 35), ev.search
+    assert ev.search == (rc.UISEARCH_TYPE["boss"], 180), ev.search
+    # Past the ceiling it is clamped rather than sent.
+    ev = FakeEv(None)
+    rc.spawn_elite(ev, level=999, search_type="boss", wait_s=1)
+    assert ev.search == (rc.UISEARCH_TYPE["boss"], 200), ev.search
 
 
 def test_create_on_level_searches_under_the_given_kind():
@@ -178,14 +181,14 @@ def test_rally_tab_builds_and_reads_controls():
         frame = ttk.Frame(app)
         tab = tx.RallyTab(app, frame)
         # Defaults: min level, one repeat, no squad ticked.
-        assert tab._level() == tx.RALLY_ELITE_MIN
+        assert tab._level() == tx.RALLY_LEVEL_MIN
         assert tab._repeats() == 1
         assert tab._selected_squads() == []
         # Clamping and the digits-only repeat.
-        tab._level_var.set("999")
-        assert tab._level() == tx.RALLY_ELITE_MAX
-        tab._level_var.set("")
-        assert tab._level() == tx.RALLY_ELITE_MIN
+        tab._level_var.set(999)
+        assert tab._level() == tx.RALLY_LEVEL_MAX
+        tab._level_var.set(0)
+        assert tab._level() == tx.RALLY_LEVEL_MIN
         tab._repeats_var.set("0")
         assert tab._repeats() == 1                      # min one
         tab._repeats_var.set("5")
@@ -203,7 +206,7 @@ def test_rally_tab_builds_and_reads_controls():
         app.destroy()
 
 
-def test_rally_tab_kind_switch_reranges_the_level():
+def test_rally_tab_level_slider_reads_whole_levels():
     try:
         import tkinter as tk
         from tkinter import ttk
@@ -230,28 +233,25 @@ def test_rally_tab_kind_switch_reranges_the_level():
         return
     try:
         tab = tx.RallyTab(app, ttk.Frame(app))
-        # Elite is the default and keeps the old 1..35 range.
-        assert tab._kind() == tx.RALLY_KIND_ELITE
-        tab._level_var.set("200")
-        assert tab._level() == tx.RALLY_ELITE_MAX
-        # Switching to the monster lifts the ceiling to 200 and re-ranges the box.
-        tab._kind_var.set(tx.RALLY_KIND_MONSTER)
-        tab._on_kind()
-        assert tab._kind() == tx.RALLY_KIND_MONSTER
-        assert (int(tab._level_spin.cget("from")), int(tab._level_spin.cget("to"))) \
-            == (tx.RALLY_MONSTER_MIN, tx.RALLY_MONSTER_MAX)
-        tab._level_var.set("180")
+        # The slider spans the whole range, the same one for both kinds.
+        assert (int(float(tab._level_scale.cget("from"))),
+                int(float(tab._level_scale.cget("to")))) \
+            == (tx.RALLY_LEVEL_MIN, tx.RALLY_LEVEL_MAX)
+        # It writes floats; the level is read as a whole number and the label follows.
+        tab._level_scale.set(180.4)
+        tab._on_level()
         assert tab._level() == 180
-        tab._level_var.set("500")
-        assert tab._level() == tx.RALLY_MONSTER_MAX
-        # Switching back pulls an out-of-range level down to the elite ceiling.
-        tab._level_var.set("180")
-        tab._kind_var.set(tx.RALLY_KIND_ELITE)
-        tab._on_kind()
-        assert tab._level_var.get() == str(tx.RALLY_ELITE_MAX)
-        assert (int(tab._level_spin.cget("from")), int(tab._level_spin.cget("to"))) \
-            == (tx.RALLY_ELITE_MIN, tx.RALLY_ELITE_MAX)
-        # An unknown kind (a hand-edited var) falls back to the elite.
+        assert tab._level_text.get() == "180"
+        tab._level_scale.set(34.6)
+        tab._on_level()
+        assert tab._level() == 35 and tab._level_text.get() == "35"
+        # The ceiling holds even if the variable is written past it directly.
+        tab._level_var.set(500)
+        assert tab._level() == tx.RALLY_LEVEL_MAX
+        # Elite is the default kind; an unknown one (a hand-edited var) falls back to it.
+        assert tab._kind() == tx.RALLY_KIND_ELITE
+        tab._kind_var.set(tx.RALLY_KIND_MONSTER)
+        assert tab._kind() == tx.RALLY_KIND_MONSTER
         tab._kind_var.set("nonsense")
         assert tab._kind() == tx.RALLY_KIND_ELITE
     finally:

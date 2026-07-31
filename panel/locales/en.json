@@ -301,7 +301,7 @@
   "rally_tab.repeats": "Repeats:",
   "rally_tab.launch": "Launch",
   "rally_tab.stop": "Stop",
-  "rally_tab.hint": "Each ticked squad raises its own rally on the chosen target of the chosen level, N times over. A Fatal Elite goes up to level 35, an ordinary monster up to 200 (seasonal events put high-level monsters on the map). The «monster» daily cap (Settings → Auto-rally) is honoured. ⚠ The banner send is not yet confirmed in the live game — check that a rally actually goes out.",
+  "rally_tab.hint": "Each ticked squad raises its own rally on the chosen target of the chosen level, N times over. Levels run 1–200 for both targets — seasonal events put high-level monsters on the map — and a level the game has nothing for simply comes back empty. The «monster» daily cap (Settings → Auto-rally) is honoured. ⚠ The banner send is not yet confirmed in the live game — check that a rally actually goes out.",
   "rally_tab.no_squads": "no squad ticked",
   "rally_tab.searching": "Looking for a lvl-{level} elite… (repeat {rep}/{total})",
   "rally_tab.searching_monster": "Looking for a lvl-{level} monster… (repeat {rep}/{total})",

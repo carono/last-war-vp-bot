@@ -18,8 +18,7 @@ from __future__ import annotations
 import threading
 from tkinter import ttk
 
-from .widgets import (ScrollableFrame, install_numeric_field, numeric_spinbox,
-                      font as ui_font)
+from .widgets import ScrollableFrame, install_numeric_field, font as ui_font
 
 # Resource keys, in display order, with a glyph fallback for the icon.
 RESOURCE_GLYPHS = {"food": "🍖", "wood": "🌲", "metal": "⚙️", "oil": "🛢️", "gold": "🪙"}
@@ -637,22 +636,15 @@ class AccountsTab(_DataTab):
 
 
 # ---------------------------------------------------------------------------
-# The elite-monster level a created rally may target, and the squads offered. Kept
-# in step with panel/__main__.py's RALLY_ELITE_* / RALLY_SQUADS (the «Авторалли»
-# settings page uses the same range and slots).
-RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
-# The two things a rally can be raised on, and how high their level goes. The Fatal
-# Elite («Роковая Элита») is searched under the «лупа»'s Boss tab and stops at 35; an
-# ordinary world monster is searched under the Monster tab and runs up to 200, because
-# a season puts monsters far above the elite range on the map. Same ranges as
-# tools/rally_create.py SEARCH_LEVEL_RANGE — the search there clamps to them too.
-RALLY_MONSTER_MIN, RALLY_MONSTER_MAX = 1, 200
+# The two things a rally can be raised on: a «Роковая Элита» (searched under the
+# «лупа»'s Boss tab) and an ordinary world monster (its Monster tab).
 RALLY_KIND_ELITE, RALLY_KIND_MONSTER = "boss", "monster"
 RALLY_KINDS = (RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
-RALLY_LEVEL_RANGE = {
-    RALLY_KIND_ELITE: (RALLY_ELITE_MIN, RALLY_ELITE_MAX),
-    RALLY_KIND_MONSTER: (RALLY_MONSTER_MIN, RALLY_MONSTER_MAX),
-}
+# The level either of them may be searched at. One range for both kinds: a season puts
+# levels far above the old elite ceiling on the map, and the game answers with whatever
+# it has, so the tab offers the whole span and lets an empty answer say "not there".
+# Same range as tools/rally_create.py SEARCH_LEVEL_RANGE — the search clamps to it too.
+RALLY_LEVEL_MIN, RALLY_LEVEL_MAX = 1, 200
 RALLY_SQUADS = (1, 2, 3, 4)
 # A «Роковая Элита» rally is an ordinary-monster rally, so it counts against the
 # "monster" daily cap in panel/rally_limits.py (DEFAULT_RALLY_LIMITS).
@@ -679,14 +671,14 @@ class _Stopped(Exception):
 class RallyTab:
     """The «Ралли» tab: raise a rally on a world monster, one squad each, N times.
 
-    The player picks what to rally — a «Роковая Элита» (levels 1–35) or an ordinary
-    world monster (levels 1–200, as high as a season goes) — a level, ticks the squads
-    that should each raise a rally, and a repeat count; «Запустить» then loops «search
-    the map «лупа» for a target of that kind and level → raise the rally with the next
-    squad», N times over, and «Стоп» interrupts it. Switching the kind re-ranges the
-    level box (and pulls a level that no longer fits back into range). A status line
-    narrates each step and the daily per-type cap (panel/rally_limits.py) is honoured —
-    a run stops when the «monster» budget for today is spent.
+    The player picks what to rally — a «Роковая Элита» or an ordinary world monster —
+    drags the level slider (1–200 for both, as high as a season goes; the number next to
+    it reads the current level), ticks the squads that should each raise a rally, and a
+    repeat count; «Запустить» then loops «search the map «лупа» for a target of that kind
+    and level → raise the rally with the next squad», N times over, and «Стоп» interrupts
+    it. A status line narrates each step and the daily per-type cap
+    (panel/rally_limits.py) is honoured — a run stops when the «monster» budget for today
+    is spent.
 
     The game work is tools/rally_create.py (search + create); this tab is the loop, the
     controls and the bookkeeping around it. It runs on a background thread, takes the
@@ -705,7 +697,9 @@ class RallyTab:
         self._done = 0             # rallies raised in the current/last run (for the status)
         import tkinter as tk
         self._kind_var = tk.StringVar(master=app, value=RALLY_KIND_ELITE)
-        self._level_var = tk.StringVar(master=app, value=str(RALLY_ELITE_MIN))
+        # The slider writes a float here; `_level()` is the one place that rounds it.
+        self._level_var = tk.DoubleVar(master=app, value=RALLY_LEVEL_MIN)
+        self._level_text = tk_stringvar(app)        # the number shown beside the slider
         self._repeats_var = tk.StringVar(master=app, value="1")
         self._squad_vars: dict[int, tk.BooleanVar] = {
             s: tk.BooleanVar(master=app, value=False) for s in RALLY_SQUADS}
@@ -728,20 +722,24 @@ class RallyTab:
         self.app._tr(ttk.Label(krow), "rally_tab.kind").pack(side="left", padx=(0, 6))
         for kind in RALLY_KINDS:
             self.app._tr(
-                ttk.Radiobutton(krow, value=kind, variable=self._kind_var,
-                                command=self._on_kind),
+                ttk.Radiobutton(krow, value=kind, variable=self._kind_var),
                 "rally_tab.kind_" + kind).pack(side="left", padx=(0, 10))
 
         lrow = ttk.Frame(form)
         lrow.pack(fill="x", pady=(6, 0))
         self.app._tr(ttk.Label(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
-        low, high = RALLY_LEVEL_RANGE[self._kind()]
-        self._level_spin = numeric_spinbox(lrow, from_=low, to=high, width=5,
-                                           textvariable=self._level_var)
-        self._level_spin.pack(side="left")
-        self._range_lbl = ttk.Label(lrow, foreground="#888")
-        self._range_lbl.pack(side="left", padx=(6, 0))
-        self._show_range()
+        # A slider over the whole range, with the level it currently sits on spelled out
+        # next to it — the slider is coarse (200 levels over a few hundred pixels), so the
+        # number is what the player actually reads. Arrow keys nudge it by one.
+        self._level_scale = ttk.Scale(
+            lrow, from_=RALLY_LEVEL_MIN, to=RALLY_LEVEL_MAX, orient="horizontal",
+            length=260, variable=self._level_var, command=self._on_level)
+        self._level_scale.pack(side="left")
+        ttk.Label(lrow, textvariable=self._level_text, width=4,
+                  font=ui_font(weight="bold")).pack(side="left", padx=(8, 0))
+        ttk.Label(lrow, text="(%d–%d)" % (RALLY_LEVEL_MIN, RALLY_LEVEL_MAX),
+                  foreground="#888").pack(side="left", padx=(6, 0))
+        self._on_level()
 
         srow = ttk.Frame(form)
         srow.pack(fill="x", pady=(6, 0))
@@ -754,7 +752,7 @@ class RallyTab:
         rrow.pack(fill="x", pady=(6, 0))
         self.app._tr(ttk.Label(rrow), "rally_tab.repeats").pack(side="left", padx=(0, 6))
         # The task asks for install_numeric_field specifically: a plain entry made
-        # digits-only (no bounds), unlike the level's bounded spinbox.
+        # digits-only (no bounds), unlike the level's bounded slider.
         entry = ttk.Entry(rrow, width=6, textvariable=self._repeats_var)
         install_numeric_field(entry)
         entry.pack(side="left")
@@ -779,33 +777,19 @@ class RallyTab:
     def _kind(self) -> str:
         """What is being rallied: `boss` (Fatal Elite) or `monster` (ordinary monster)."""
         kind = self._kind_var.get()
-        return kind if kind in RALLY_LEVEL_RANGE else RALLY_KIND_ELITE
+        return kind if kind in RALLY_KINDS else RALLY_KIND_ELITE
 
     def _level(self) -> int:
-        low, high = RALLY_LEVEL_RANGE[self._kind()]
+        """The slider's level as a whole number, inside the range whatever it holds."""
         try:
-            level = int(self._level_var.get())
-        except (TypeError, ValueError):
-            return low
-        return max(low, min(high, level))
+            level = round(float(self._level_var.get()))
+        except Exception:                          # noqa: BLE001 — TclError on a junk var too
+            return RALLY_LEVEL_MIN
+        return max(RALLY_LEVEL_MIN, min(RALLY_LEVEL_MAX, level))
 
-    def _on_kind(self) -> None:
-        """Kind switched: re-range the level box and pull an out-of-range level back in."""
-        low, high = RALLY_LEVEL_RANGE[self._kind()]
-        try:
-            self._level_spin.configure(from_=low, to=high)
-        except Exception:                          # noqa: BLE001 — widget may be gone
-            pass
-        self._level_var.set(str(self._level()))    # clamps through _level()
-        self._show_range()
-
-    def _show_range(self) -> None:
-        """Spell the level range of the current kind next to the box (digits only, no wording)."""
-        low, high = RALLY_LEVEL_RANGE[self._kind()]
-        try:
-            self._range_lbl.configure(text="%d–%d" % (low, high))
-        except Exception:                          # noqa: BLE001
-            pass
+    def _on_level(self, _value=None) -> None:
+        """Slider moved: show the level it landed on (the slider itself stays continuous)."""
+        self._level_text.set(str(self._level()))
 
     def _repeats(self) -> int:
         try:

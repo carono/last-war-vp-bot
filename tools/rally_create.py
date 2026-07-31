@@ -1,10 +1,10 @@
 r"""Create (raise) an alliance rally on a world monster of a chosen level — no-click.
 
-Two kinds of target are searchable, and they differ only in which «лупа» tab is pressed and
-how high the level may go: a «Роковая Элита» (the `boss` tab, `find.monster.boss`, levels 1–35)
-and an ordinary world monster (the `monster` tab, `find.monster`, levels 1–200 — seasonal
-events put very high-level monsters on the map). Everything after the search — reading the
-popup the game opens and raising the banner — is the same for both.
+Two kinds of target are searchable, and they differ only in which «лупа» tab is pressed: a
+«Роковая Элита» (the `boss` tab, `find.monster.boss`) and an ordinary world monster (the
+`monster` tab, `find.monster`). Both take levels 1–200 — seasonal events put very high-level
+monsters on the map. Everything after the search — reading the popup the game opens and
+raising the banner — is the same for both.
 
 This is the CREATE side of a rally; the JOIN side (walking a squad onto a rally that is
 already out) is tools/rally_join.py. Creating one means getting a rally-elite of the wanted
@@ -74,13 +74,14 @@ RALLY_FOR_BOSS = 7
 UISEARCH_TYPE = {"monster": 1, "boss": 5}
 RALLY_ELITE_SEARCH = "boss"
 
-# How high the level may go per tab. The Fatal Elite tops out at 35 (the highest elite the game
-# offers); ordinary monsters run far higher — a season puts levels well past the elite range on
-# the map, up to 200. The Monster tab's own ceiling follows the account/season (it read 30 here
-# once — docs/research/rally-elite-search.md), so this is the range the tool is willing to ask
-# for, not a promise the server has one: a level it has nothing for comes back empty like any
-# other miss. A level outside its tab's range is clamped into it rather than sent.
-SEARCH_LEVEL_RANGE = {"monster": (1, 200), "boss": (1, 35)}
+# How high the level may go per tab — the same 1–200 for both. A season puts levels far above
+# the old elite ceiling on the map, and each tab's own ceiling follows the account/season (the
+# Monster tab read 30 here once, the Boss tab 35 — docs/research/rally-elite-search.md), so this
+# is the range the tool is willing to ask for, not a promise the server has one: a level it has
+# nothing for comes back empty like any other miss. Kept per-kind so a range can be tightened
+# alone if a live capture ever shows a tab refusing what was asked. A level outside its tab's
+# range is clamped into it rather than sent.
+SEARCH_LEVEL_RANGE = {"monster": (1, 200), "boss": (1, 200)}
 
 DEFAULT_SERVER = default_server()
 
@@ -260,7 +261,7 @@ def create_on_level(ev, level, squad, server=None, search_type=None):
     the squad is not loaded) so a caller (the panel loop) can report it.
 
     ``search_type`` picks the «лупа» tab and with it the level range the search accepts
-    (`boss` 1–35, `monster` 1–200); ``level`` is clamped into it.
+    (1–200 for both kinds); ``level`` is clamped into it.
     """
 
     def run(chunk, marker, settle=1.6):
