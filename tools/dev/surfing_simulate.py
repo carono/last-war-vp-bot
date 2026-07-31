@@ -293,6 +293,8 @@ def main(argv):
         pass
     if argv and argv[0] == "score":
         return cmd_score(argv[1:])
+    if argv and argv[0] == "chain":
+        return cmd_chain(argv[1:])
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -333,7 +335,7 @@ if AI.resetKinds then AI.resetKinds() end
 local bands = { %s }
 local holes = { %s }
 local roofs = { %s }
-local LANE0, SPEED, ZMAX = %s, %s, 340
+local LANE0, SPEED, ACCEL, ZMAX = %s, %s, %s, %s
 local function laneOf(x)
   local l = math.floor((x - 36) / 4 + 0.5) + 1
   if l < 0 then l = 0 elseif l > 2 then l = 2 end
@@ -341,6 +343,7 @@ local function laneOf(x)
 end
 local function once(obs, hole, roof, LANE0)
   local speed, dt = SPEED, 1/60
+  local function spdAt(z) local s = SPEED + z * ACCEL if s > 60 then s = 60 end return s end
   local pz, lane = 0, LANE0
   local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
   local dead, frame, t = nil, 0, 0
@@ -357,6 +360,7 @@ local function once(obs, hole, roof, LANE0)
   while pz < ZMAX and not dead do
     frame = frame + 1
     t = t + dt
+    speed = spdAt(pz)                        -- track speed accelerates with distance
     for i = 1, #live do
       if live[i].speed > 0 then live[i].z = obs[i].z + live[i].speed * t end
     end
@@ -408,14 +412,18 @@ local function once(obs, hole, roof, LANE0)
     if slT > 0 then slT = slT - dt end
     pz = z1
   end
-  return pz, dead == nil
+  return pz, dead
 end
 local passed, total, dist = 0, 0, 0
 for bi = 1, #bands do
-  local z, ok = once(bands[bi], holes[bi], roofs[bi], LANE0)
+  local z, dead = once(bands[bi], holes[bi], roofs[bi], LANE0)
   total = total + 1
   dist = dist + z
-  if ok then passed = passed + 1 end
+  if dead == nil then passed = passed + 1
+  elseif #bands == 1 then
+    L(string.format("DEATH z=%%.0f mid=%%s x=%%s obz=%%.0f", z, tostring(dead.mid),
+      tostring(dead.x), dead.z or 0))
+  end
 end
 AI.kindOverride = {}
 L(string.format("SCORE passed=%%d of=%%d dist=%%.0f", passed, total, dist))
@@ -441,19 +449,47 @@ def cmd_score(argv):
     return 0
 
 
-def score(ev, lane0: int = 1, speed: int = 30):
+def cmd_chain(argv):
+    """One long chained run over every band back-to-back with accelerating speed — the closest
+    offline proxy to a live run, so band-seam roof-descents can be iterated without attempts."""
+    lane0 = int(argv[0]) if argv and argv[0].lstrip("-").isdigit() else 1
+    born, mon = load_config()
+    zmax = len(bands(born, mon)) * 340
+    ev = get_evaluator()
+    try:
+        _, _, dist = score(ev, lane0, speed=30, accel=0.0027, zmax=zmax)
+    finally:
+        ev.close()
+    print("CHAIN start=%s dist=%.0f of %d m" % (LANE_NAME[lane0], dist, zmax))
+    return 0
+
+
+def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340):
     """Replay every band from one start lane through the live planner at `speed` u/s. Returns
     ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
-    Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot."""
+    Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot.
+    `accel`/`zmax` are for the chained-track run (cmd_chain): speed climbs with distance."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
     per_band = bands(born, mon)
-    band_src, hole_src, roof_src = [], [], []
-    for band in sorted(per_band):
-        rows = per_band[band]
+    for rows in per_band.values():
         for _, _, mid in rows:
             kind_for(kinds, mid)
+    if accel > 0:
+        # CHAIN: concatenate every band into one long track (offset 340 each) so band SEAMS
+        # appear — that is where the live roof-descent deaths happen and an isolated band can't
+        # show them. One "band" is fed, and ZMAX is the whole length.
+        chained, off = [], 0
+        for band in sorted(per_band):
+            for x, z, mid in per_band[band]:
+                chained.append((x, z + off, mid))
+            off += 340
+        groups = [chained]
+    else:
+        groups = [per_band[b] for b in sorted(per_band)]
+    band_src, hole_src, roof_src = [], [], []
+    for rows in groups:
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
@@ -470,9 +506,12 @@ def score(ev, lane0: int = 1, speed: int = 30):
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())
     lines = ev.run(_SCORE % (ov, ",".join(band_src), ",".join(hole_src),
-                             ",".join(roof_src), lane0, speed), marker=MARK, settle=8.0)
+                             ",".join(roof_src), lane0, speed, accel, zmax),
+                   marker=MARK, settle=float(os.environ.get("SSIM_SETTLE","8")))
     for ln in lines:
         body = ln.split(MARK, 1)[-1].strip()
+        if body.startswith("DEATH "):
+            print("  " + body)
         if body.startswith("SCORE "):
             d = dict(p.split("=", 1) for p in body[6:].split())
             return int(d["passed"]), int(d["of"]), float(d["dist"])
