@@ -85,8 +85,11 @@ def classify(rec: dict, bounds: dict) -> dict:
         strong = mt in (5, 7, 8, 9)
         return {"solid": False, "jump": False, "slide": False, "back": 0.0, "front": 0.0,
                 "lanes": 1, "speed": 0.0, "buff": (0.9 if strong else 0.25) if mt else 0.02}
-    jump = "mutong" in asset or "dizhalan" in asset
-    slide = "zhalan" in asset or "qiao" in asset
+    # a saw (dianju / TrapSaw) is a low hazard — hoppable (it also patrols sideways, but the
+    # config gives it no speed and the offline replay cannot move it, so only the hop matters here)
+    saw = "dianju" in asset or "saw" in asset
+    jump = "mutong" in asset or "dizhalan" in asset or saw
+    slide = "zhalan" in asset
     b = bounds.get(name)
     if b and "back" in b:
         back, front = b["back"], b.get("front", 1.0)
@@ -99,14 +102,27 @@ def classify(rec: dict, bounds: dict) -> dict:
         back, front, lanes = 8.24 * n, 0.2, 1
     else:
         back, front, lanes = 1.0, 1.0, 1
-    if "qiao" in asset:
-        # the gate is the near edge of the deck, not the whole deck (see surfing_ai.lua)
-        back, front, lanes = 34.0, -31.5, 3
+    if "qiaodong" in asset:
+        # the bridge deck is overhead (collider at y≈10-12) — a ground runner passes UNDER it,
+        # so it is ignored, not a wall (see surfing_ai.lua). The real hazards beside a bridge
+        # are the separate fence / driving-truck pieces, which are their own monsters.
+        return {"solid": False, "ignore": True, "jump": False, "slide": False, "back": 0.0,
+                "front": 0.0, "lanes": 1, "sideOnly": False, "carriage": False, "ramp": False,
+                "speed": 0.0}
+    # planRoute keys the ramp/roof logic off `carriage` and `ramp`, NOT off `sideOnly` — and
+    # kindOf returns an override verbatim, so an override that omits those two fields makes
+    # EVERY ramp read as a plain wall inside the planner. Offline that turned every carriage
+    # band unsolvable (planRoute could see no route past the first ramp), which is exactly
+    # the band class most deaths come from — so the offline judge was blind to the fixes that
+    # mattered. Carry them, so the offline planner models ramps exactly as the live one does.
+    speed = float(rec.get("move_speed") or 0)
+    carriage = ("chexiang" in asset or "truck" in asset) and speed == 0
+    ramp = carriage and "xiepo" in asset
     # ramps are ridden head-on and only kill from the side; plain carriages are walls
-    side_only = "xiepo" in asset and not (rec.get("move_speed") or 0)
+    side_only = ramp
     return {"solid": True, "jump": jump, "slide": slide, "back": back, "front": front,
-            "lanes": lanes, "sideOnly": side_only,
-            "speed": float(rec.get("move_speed") or 0)}
+            "lanes": lanes, "sideOnly": side_only, "carriage": carriage, "ramp": ramp,
+            "speed": speed}
 
 
 def roof_holes(rows, kinds, roof_gap: float = 16.0):
@@ -182,7 +198,7 @@ while pz < ZMAX and not dead do
     local n = 0
     for i = 1, #live do
       local o = live[i]
-      if o.z > pz - 10 and o.z < pz + 200 then n = n + 1 window[n] = o end
+      if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
     end
     for i = #window, n + 1, -1 do window[i] = nil end
     local reach, act, az = AI.planRoute(pz, lane, speed, window)
@@ -253,9 +269,11 @@ def simulate(ev, rows, kinds, lane0, zmax):
     for _, _, mid in rows:
         kind_for(kinds, mid)
     ov = ",".join(
-        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
+        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
         % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
            str(k.get("sideOnly", False)).lower(),
+           str(k.get("carriage", False)).lower(), str(k.get("ramp", False)).lower(),
+           str(k.get("ignore", False)).lower(),
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())
@@ -336,7 +354,7 @@ local function once(obs, hole, LANE0)
       local n = 0
       for i = 1, #live do
         local o = live[i]
-        if o.z > pz - 10 and o.z < pz + 220 then n = n + 1 window[n] = o end
+        if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
       end
       for i = #window, n + 1, -1 do window[i] = nil end
       local reach, act, az = AI.planRoute(pz, lane, speed, window)
@@ -422,9 +440,11 @@ def score(ev, lane0: int = 1):
         hole_src.append("{" + ",".join(
             "{%d,%g,%g}" % h for h in roof_holes(rows, kinds)) + "}")
     ov = ",".join(
-        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
+        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
         % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
            str(k.get("sideOnly", False)).lower(),
+           str(k.get("carriage", False)).lower(), str(k.get("ramp", False)).lower(),
+           str(k.get("ignore", False)).lower(),
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())

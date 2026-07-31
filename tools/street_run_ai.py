@@ -144,7 +144,10 @@ if AI.death then
     tostring(AI.stat.deathunits)))
   flush("DOBS", AI.death)
 end
-AI.log = {} AI.trace = {} AI.death = nil
+-- the whole run's perceived field, one frame per line (batching risks a truncated log line)
+local Fr = AI.frames or {}
+for i = 1, #Fr do L("FRAME " .. Fr[i]) end
+AI.log = {} AI.trace = {} AI.frames = {} AI.death = nil
 """
 
 
@@ -277,7 +280,8 @@ def _one_attempt(ev, revives: int, log):
     print(" " * 60, end="\r")
     log.write("# attempt ended at z=%.0f, lives=%d\n" % (best_z, lives))
     death = None
-    for ln in _lines(ev, _DRAIN, settle=0.8):
+    frames = []
+    for ln in _lines(ev, _DRAIN, settle=3.0):
         tag, _, body = ln.partition(" ")
         if tag in ("MOVES", "TRACE", "DOBS"):
             for row in body.split(";"):
@@ -296,7 +300,12 @@ def _one_attempt(ev, revives: int, log):
                 if "=" in part:
                     k, v = part.split("=", 1)
                     death[k] = v
+        elif tag == "FRAME":
+            frames.append(body)
     log.flush()
+    # the whole run's perceived field, freshest attempt wins — the route replay reads this
+    with open(os.path.join(RESULT_DIR, "last_frames.txt"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(frames))
     return best_z, lives, death
 
 
@@ -342,6 +351,10 @@ def cmd_run(ev, reserve: int, revives: int):
     if not install(ev):
         print("autopilot failed to install — aborting")
         return 1
+    # recording leaves the bot disabled (it only observes); a run must re-enable it, or it
+    # sits idle and the attempt is wasted.
+    _lines(ev, 'if _G.__SR_AI then _G.__SR_AI.enabled = true end\n'
+               'CS.UnityEngine.Debug.LogError("SRAI ST reon=1")', settle=0.3)
     os.makedirs(RESULT_DIR, exist_ok=True)
     runlog = open(os.path.join(RESULT_DIR, "ai_moves.log"), "a", encoding="utf-8")
     summary = open(os.path.join(RESULT_DIR, "ai_runs.log"), "a", encoding="utf-8")
@@ -394,6 +407,98 @@ def cmd_run(ev, reserve: int, revives: int):
     return 0
 
 
+_RECORD_ON = r"""
+local function L(s) CS.UnityEngine.Debug.LogError("SRAI "..tostring(s)) end
+local AI = _G.__SR_AI
+if not AI then L("ST rec=0") return end
+AI.enabled = false   -- observe only: the human drives
+AI.record = true
+AI.frames = {}
+L("ST rec=1")
+"""
+
+_RECORD_OFF = 'if _G.__SR_AI then _G.__SR_AI.record = false end\n' \
+              'CS.UnityEngine.Debug.LogError("SRAI ST recoff=1")'
+
+
+HUMAN_DIR = os.path.join(RESULT_DIR, "human")
+
+
+def _record_one(ev, start_wait: float):
+    """Arm recording, wait for a human run to start, follow it to the end, return its frames
+    and distance (or None if no run started within start_wait)."""
+    _lines(ev, _RECORD_ON, settle=0.5)
+    t0 = time.time()
+    started = False
+    while time.time() - t0 < start_wait:
+        st = _kv(_lines(ev, _STATUS, settle=0.3))
+        if st.get("state") == "3" and float(st.get("frames") or 0) > 0:
+            started = True
+            break
+        time.sleep(0.6)
+    if not started:
+        return None, 0.0
+    print("  идёт запись…")
+    last_z, stall = -1.0, time.time()
+    while True:
+        st = _kv(_lines(ev, _STATUS, settle=0.3))
+        z = float(st.get("z") or 0)
+        if z > last_z + 0.5:
+            last_z, stall = z, time.time()
+        elif st.get("dead") == "true" or time.time() - stall > 4.0:
+            break
+        print("    z=%.0f lane=%s" % (z, st.get("lane")), end="\r")
+        time.sleep(0.4)
+    print(" " * 50, end="\r")
+    frames = []
+    for ln in _lines(ev, _DRAIN, settle=5.0):
+        tag, _, body = ln.partition(" ")
+        if tag == "FRAME":
+            frames.append(body)
+    return frames, last_z
+
+
+def cmd_record(ev, loop: bool):
+    """Record HUMAN-played runs: the bot observes but never drives, so expert play can be
+    replayed (tools/dev/surfing_route_html.py human) and compared with the bot's model — the
+    fastest way to find where the model or the policy is wrong.
+
+    `loop` keeps recording run after run, auto-saving each to results/street_run/human/run_NNN.txt,
+    until no new run starts for a while (the human is done). One-shot writes human_frames.txt."""
+    if not install(ev):
+        print("autopilot failed to install — aborting")
+        return 1
+    if not loop:
+        print("ЗАПИСЬ. Сыграй ОДИН забег: открой «Уличный забег» → «Начать» → играй до смерти.")
+        frames, dist = _record_one(ev, 300)
+        _lines(ev, _RECORD_OFF, settle=0.3)
+        if frames is None:
+            print("Забег не начался — отменено.")
+            return 1
+        with open(os.path.join(RESULT_DIR, "human_frames.txt"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(frames))
+        print("Записано %d кадров (~%.0f м) -> human_frames.txt" % (len(frames), dist))
+        return 0
+    os.makedirs(HUMAN_DIR, exist_ok=True)
+    import glob
+    run_no = len(glob.glob(os.path.join(HUMAN_DIR, "run_*.txt")))
+    print("ЗАПИСЬ (ЦИКЛ). Играй забеги один за другим — каждый сохранится сам. "
+          "Останови, когда наиграешься (я или таймаут 200с без нового забега).")
+    while True:
+        print("Готов к забегу — нажми «Начать» и играй." if run_no else
+              "Жду первый забег — «Начать» и играй.")
+        frames, dist = _record_one(ev, 200)
+        if frames is None:
+            print("Нового забега нет 200с — останавливаю запись (%d забегов сохранено)." % run_no)
+            _lines(ev, _RECORD_OFF, settle=0.3)
+            return 0
+        run_no += 1
+        out = os.path.join(HUMAN_DIR, "run_%03d.txt" % run_no)
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(frames))
+        print("✔ Забег %d: %.0f м, %d кадров -> %s" % (run_no, dist, len(frames), out))
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -416,6 +521,8 @@ def main(argv):
                        'if _G.__SR_AI then _G.__SR_AI.enabled = true end L("ST on=1")', settle=0.4)
             print("autopilot enabled")
             return 0
+        if cmd == "record":
+            return cmd_record(ev, loop=("loop" in argv[1:]))
         if cmd == "stats":
             print(surfing_stats.summary(surfing_stats.load_store()))
             return 0

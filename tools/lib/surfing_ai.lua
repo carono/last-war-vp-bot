@@ -26,23 +26,39 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 21
+AI.version = 38
 if AI.enabled == nil then AI.enabled = true end
-AI.cfg = AI.cfg or {}
+-- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
+-- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
+-- VM — so editing a default here and reinstalling did NOTHING until the daemon was restarted.
+-- The between-attempt learner re-pushes its overrides after install, so nothing is lost.
+AI.cfg = {}
 local cfg = AI.cfg
 -- geometry / motion (live-read constants; see docs/research/street-run-parkour.md)
-cfg.horizon      = cfg.horizon      or 200   -- units of track planned ahead
+cfg.horizon      = cfg.horizon      or 300   -- units of track planned ahead. Long enough to
+-- SEE a carriage group dead-end the low road, so the DP prefers mounting the ramp early rather
+-- than trapping itself on a ground lane that looks clear only because its wall was beyond view
+-- (player: «по низу уже не пройти … нужно обязательно залезть на рампу … бот загнал себя в ловушку»).
 cfg.switchTime   = cfg.switchTime   or 0.16  -- Const.LineChangeTime
 cfg.jumpTime     = cfg.jumpTime     or 0.72  -- player.jumpDurationValue
 cfg.slideTime    = cfg.slideTime    or 0.50  -- Const.SlideTime
 cfg.lineOffset   = cfg.lineOffset   or 4     -- Const.LineOffset (lane spacing in x)
 cfg.baseX        = cfg.baseX        or 36    -- Const.ParkourSceneCenter (centre lane)
+cfg.roofY        = cfg.roofY        or 2.0   -- player y above this = up on a carriage roof (level 2)
 -- collision geometry. An obstacle's anchor z is NOT its centre: the subway carriages
 -- measure 25-41 units and hang entirely BEHIND their anchor (live-measured, see
 -- AI.bounds), so they must be modelled as [z - back, z + front], never as z ± half.
 cfg.padSmall     = cfg.padSmall     or 1.0   -- default half-length of a small obstacle
 cfg.carUnit      = cfg.carUnit      or 8.24  -- one carriage segment; "_N" suffix = N of them
 cfg.moverBack    = cfg.moverBack    or 41.0  -- assumed length of an unmeasured driving truck
+-- A driving truck is SLOWER than the runner (20/40 vs 30), so the player catches it from
+-- behind and rams its rear. An earlier attempt inflated a mover's modelled rear (`moverLead`)
+-- to make the planner vacate its lane sooner — but the player watched it backfire: an inflated
+-- rear keeps a lane reading BLOCKED long after the truck has actually cleared it, so the bot
+-- sat behind a truck that had already passed and missed the open gap beside it («грузовик уже
+-- прошёл, можно было уйти влево»). Over-stating a truck's length hides real lateral gaps, so
+-- the lead is left at 0: the truck's honest body is what blocks, nothing more.
+cfg.moverLead    = cfg.moverLead    or 0.0
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
 cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
 if cfg.rampSolid == nil then cfg.rampSolid = false end  -- learned: are ramps really rideable?
@@ -64,6 +80,13 @@ cfg.earlyBias    = cfg.earlyBias    or 0.004 -- per unit of delay before a move:
 -- (one every 4 units, so 50 of them) is worth 0.50 against a lane change at 1.00, which means
 -- coins can tip a decision that is otherwise close but can never buy a swerve on their own.
 cfg.coinBonus    = cfg.coinBonus    or 0.01
+cfg.rampReward   = cfg.rampReward   or 0.015  -- per bucket ridden on a ramp/roof — prefer the roof through a carriage group
+-- While a jetpack is up the runner flies over the whole track and cannot be hit, so there is
+-- nothing to weigh greed against — the only thing that matters is what it picks up. Coins are
+-- worth far more in that window so the route actively swerves to hoover them up (a lane change
+-- costs 1.0, so at 0.3 a cluster of four is already worth fetching), instead of holding centre
+-- as it would when a coin is only a tie-break.
+cfg.coinFlyBonus = cfg.coinFlyBonus or 0.30
 -- Buffs are worth a detour: a shield eats one fatal hit, a jetpack/morph flies over the
 -- track outright. Priced just under a lane change so the route grabs one when it is
 -- one step away, and never at the cost of safety (the DP only ever considers safe routes).
@@ -71,13 +94,19 @@ cfg.coinBonus    = cfg.coinBonus    or 0.01
 -- MORE than a lane change (1.0) — they buy safety rather than spend it, and priced under it
 -- the route simply never went and fetched one. Two lanes away costs two changes and stays
 -- out of reach, which is the intended limit: fetch what is one step away, no lunging.
-cfg.buffBonus    = cfg.buffBonus    or 1.4   -- shield / jetpack / morph / ally
+cfg.buffBonus    = cfg.buffBonus    or 1.8   -- shield / morph / ally: worth clearing a passable fence for
+-- A jetpack is the single most valuable pickup — invincibility plus a whole coin run in the
+-- air — so it is worth a real detour, even through a fence that costs a slide (a run passed up
+-- a jetpack one lane away because a high fence in that lane read as too dear; the player: «в
+-- левом был реактивный рюкзак … и то и другое подкатом решается … бонусы тоже важны»).
+cfg.jetpackBonus = cfg.jetpackBonus or 3.0
 cfg.pickupBonus  = cfg.pickupBonus  or 0.25  -- magnet / double / box: a tie-break like coins
 cfg.allowJump    = (cfg.allowJump ~= false)  -- hop barrels/fences; carriages never
 
 AI.stat = AI.stat or {}
 AI.log = AI.log or {}
 AI.trace = AI.trace or {}
+AI.frames = AI.frames or {}   -- per-frame snapshot of the perceived field, for the route replay
 AI.err = nil
 
 local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
@@ -115,20 +144,29 @@ local function kindOf(mid)
     k = {solid = true, jump = false, slide = false, back = cfg.padSmall,
          front = cfg.padSmall, lanes = 1, speed = 0}
   elseif (t.collide_damage or 0) <= 0 then
-    -- harmless: coins score, everything else is a buff worth a small detour
+    -- harmless: coins score, everything else is a buff worth a detour — the jetpack most of all
     local mt = t.monster_type or 0
-    local strong = (mt == 5) or (mt == 7) or (mt == 8) or (mt == 9)   -- jetpack/shield/ally/morph
-    k = {solid = false, jump = false, back = 0, front = 0, lanes = 1, speed = 0,
-         buff = (mt ~= 0) and (strong and cfg.buffBonus or cfg.pickupBonus) or nil}
+    local strong = (mt == 7) or (mt == 8) or (mt == 9)   -- shield / ally / morph
+    local bonus = nil
+    if mt == 5 then bonus = cfg.jetpackBonus              -- jetpack: fetch it even through a fence
+    elseif strong then bonus = cfg.buffBonus
+    elseif mt ~= 0 then bonus = cfg.pickupBonus end
+    k = {solid = false, jump = false, back = 0, front = 0, lanes = 1, speed = 0, buff = bonus}
   else
     local a = string.lower(tostring(t.asset or ""))
     -- What clears an obstacle (confirmed by the player): barrels are hopped; the HIGH
     -- fences cannot be jumped at all — they are ducked under; so are the bridge openings.
     -- Carriages and trucks can only be gone around.
+    -- A saw (dianju / TrapSaw) is a low hazard that PATROLS left and right, blocking one
+    -- corridor at a time — the config gives it no move_speed, the motion lives in the prefab,
+    -- so its lateral drift is tracked live in gather(). The player watched it: it can be gone
+    -- AROUND (dodge to the lane it is vacating) or hopped OVER, so it is low and jumpable.
+    local saw = (string.find(a, "dianju", 1, true) ~= nil)
+        or (string.find(a, "saw", 1, true) ~= nil)
     local jumpable = (string.find(a, "mutong", 1, true) ~= nil)
         or (string.find(a, "dizhalan", 1, true) ~= nil)
+        or saw
     local slideable = (string.find(a, "zhalan", 1, true) ~= nil)
-        or (string.find(a, "qiao", 1, true) ~= nil)
     -- Carriage pieces are named ..._N and are N segments long, hanging behind the anchor.
     -- The "xiepo" (slope) variants carry a RAMP: those are driven up and ridden along the
     -- roof, so they are entered head-on and are lethal only from the SIDE. The plain
@@ -140,30 +178,39 @@ local function kindOf(mid)
     if string.find(a, "chexiang", 1, true) or string.find(a, "truck", 1, true) then
       local n = tonumber(string.match(a, "_(%d+)%.prefab$") or "1") or 1
       back, front = cfg.carUnit * n, 0.2
-      -- The driving trucks have never been measured — the "_N" length is a guess read off
-      -- the prefab name, and it is the only number in this model nothing confirms. It is
-      -- also the prime suspect for the largest group of deaths: nothing known in the lane,
-      -- a truck in frame, and the gap to it larger than the guess (1220.1 m against a truck
-      -- at 1258 = 38 units, versus the 24.7 the name implies). Until one is measured live,
-      -- assume the longest body in the game rather than the shortest reading of the name.
-      if (t.move_speed or 0) > 0 then back = max(back, cfg.moverBack) end
+      -- Length is read from the "_N" in the prefab name. An earlier version inflated a
+      -- MOVING truck to cfg.moverBack (the longest body in the game) on the theory that movers
+      -- were longer than their name — but the player watched it backfire repeatedly: an
+      -- over-long truck marks its lane blocked far behind where it really ends, which walls off
+      -- track that is actually open and traps the runner behind a phantom («переоценивает длину
+      -- грузовиков … левый/центр были свободны»). So a mover keeps its honest name length too.
       if (t.move_speed or 0) == 0 then
         carriage = true
         ramp = (not cfg.rampSolid) and string.find(a, "xiepo", 1, true) ~= nil
       end
-    elseif string.find(a, "qiao", 1, true) then
-      -- Bridge pieces span the whole road (a collider 20-64 units wide, so no lane change
-      -- answers them) and a live run died on the LEADING EDGE of one, 748.2 m against a
-      -- body starting at 745.6 — not somewhere inside it. So the lethal part is the gate at
-      -- the near edge, not the 36 units of deck behind it: model a thin full-width bar
-      -- there, which a slide can duck.
-      back, front, lanes = cfg.bridgeBack, -cfg.bridgeBack + 2.5, 3
     end
+    -- The bridge DECK is overhead — its collider sits at y≈10-12 (measured), so a ground
+    -- runner passes UNDER it: it is NOT a lane wall. Modelling it as a full-width slide-bar
+    -- was wrong, it walled off lanes that were actually open passages (player: «мост имеет
+    -- проходы, левый путь был свободен»). The real hazards at a bridge are the SEPARATE pieces
+    -- beside it — a low fence, a driving truck — which are their own monsters in the field.
+    -- So the deck is ignored entirely: neither blocked nor rewarded. ONLY `qiaodong` (the arch
+    -- opening) is this pass-under deck — "qiao" alone also matched `gaojiaqiao` (a viaduct
+    -- support), a genuine SOLID that the bot then ignored and rammed at full speed (a run died
+    -- centre-lane at a gaojiaqiao the model had marked pass-under).
+    local bridge = string.find(a, "qiaodong", 1, true) ~= nil
+    -- a saw needs a touch more z-margin than the default small obstacle so the route commits
+    -- to a dodge/hop in time as it patrols across the corridor
+    if saw then back, front = 2.0, 2.0 end
     -- move_speed > 0 means the thing drives along the track: at 20 the player overtakes
     -- it slowly, at 40 it runs away — either way it blocks its lane for far longer than a
     -- static obstacle does, which a static model gets badly wrong.
-    k = {solid = true, jump = jumpable, slide = slideable, back = back, front = front,
-         lanes = lanes, ramp = ramp, carriage = carriage, speed = t.move_speed or 0}
+    if bridge then
+      k = {solid = false, ignore = true, back = 0, front = 0, lanes = 1, speed = 0}
+    else
+      k = {solid = true, jump = jumpable, slide = slideable, back = back, front = front,
+           lanes = lanes, ramp = ramp, carriage = carriage, saw = saw, speed = t.move_speed or 0}
+    end
   end
   kindCache[mid] = k
   return k
@@ -190,12 +237,23 @@ end
 -- low obstacles only). A state is only reachable through free track, so any route the DP
 -- returns is collision-free under this model; it then maximises the distance reached and,
 -- among routes that survive the whole horizon, takes the cheapest one.
-local function planRoute(pz, lane0, speed, obstacles, flying)
+local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
   local H = cfg.horizon
   local outerBias = cfg.outerShare * cfg.costSwitch / cfg.horizon
   local SW = max(1, ceil(cfg.switchTime * speed))
   local JL = max(2, ceil(cfg.jumpTime * speed))
   local SLD = max(2, ceil(cfg.slideTime * speed))
+  -- lateral bounds the patrolling saw bounces between, and a triangle-wave reflection so its
+  -- position can be projected forward to the runner's arrival time
+  local XMIN, XMAX = cfg.baseX - cfg.lineOffset, cfg.baseX + cfg.lineOffset
+  local function reflect(x, lo, hi)
+    local span = hi - lo
+    if span <= 0 then return lo end
+    local t = (x - lo) % (2 * span)
+    if t < 0 then t = t + 2 * span end
+    if t > span then t = 2 * span - t end
+    return lo + t
+  end
 
   -- occupancy per lane: solid = kills a runner; noJump / noSlide = still kills while
   -- airborne / while sliding; reward = coins and buffs, priced as a negative cost
@@ -219,13 +277,22 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
     end
   end
   local gaps = {}
+  local roofEndZ = pz    -- where the runner's current roof chain ends (only meaningful onRoof)
   for l = 0, 2 do
     local t = cars[l]
     table.sort(t, function(p, q) return p.z0 < q.z0 end)
     local roofUntil = nil
+    -- onRoof: the runner is ALREADY up on a carriage in ITS lane, so a chain forms there
+    -- without a ramp — the carriage it is on is roof (floor), and the chain carries forward
+    -- across small gaps (holes to hop). This is the level-2 view the flat model missed. It is
+    -- restricted to the runner's own lane and to the FIRST chain from its position: a carriage
+    -- past a big gap is NOT this roof — it is the wall the runner descends into, which must
+    -- stay visible (a run rode a roof, came down, and hit exactly such a carriage).
+    local canAuto = onRoof and (l == lane0)
     for i = 1, #t do
       local c = t[i]
-      if c.ramp or (roofUntil and c.z0 - roofUntil <= cfg.roofGap) then
+      local autoStart = canAuto and (roofUntil == nil) and (c.z1 >= pz - 4)
+      if c.ramp or autoStart or (roofUntil and c.z0 - roofUntil <= cfg.roofGap) then
         -- carrying on along the roof: the hole between this carriage and the last one is a
         -- drop to the road and must be HOPPED, not run across (told by the player after a
         -- run rode a truck and fell off its far end)
@@ -234,6 +301,8 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
         end
         c.roof = true
         roofUntil = c.z1
+        if autoStart then canAuto = false end   -- only the first chain from the runner auto-roofs
+        if l == lane0 and onRoof then roofEndZ = max(roofEndZ, c.z1) end
       else
         roofUntil = nil
       end
@@ -244,11 +313,36 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
     local o = obstacles[i]
     local k = kindOf(o.mid)
     local l = laneOfX(o.x)
-    if k.solid then
+    if k.ignore then       -- bridge deck: overhead, pass under — neither blocks nor rewards
+    elseif onRoof and k.solid and not k.carriage and o.z < roofEndZ then
+     -- riding a carriage roof (level 2): ground obstacles UNDER the roof — barrels, fences,
+     -- trucks, saws — are below and cannot hit. Only up to roofEndZ, though: past where the
+     -- roof ends the runner is back on the ground, so obstacles there stay in play (a run rode
+     -- a roof, came down, and hit a ground obstacle it had ignored while up).
+    elseif k.solid then
+     -- a jetpack lifts the runner above the whole track: while it lasts a ground obstacle
+     -- cannot hit, so it is dropped from the field entirely and the route is planned on the
+     -- pickups alone (the reward branch below uses the flying coin bonus). Re-planned every
+     -- frame, so the instant IsFlying() goes false the obstacles are back.
+     if not flying then
       local back = (o.back or k.back) + cfg.padExtra
       local front = (o.front or k.front) + cfg.padExtra
       local l0, l1 = l, l
       if (o.lanes or k.lanes or 1) >= 3 then l0, l1 = 0, 2 end
+      -- a patrolling saw is blocked where it WILL BE when the runner reaches its z, not where
+      -- it is now: project its tracked lateral velocity over the time-to-arrival, bouncing off
+      -- the outer lanes. A heading-only model let a run step into a saw that had not yet
+      -- cleared the lane. Hopping stays available — the saw is jumpable.
+      if k.saw and o.vx then
+        local tt = (o.z - pz) / speed
+        local px = reflect((o.x or cfg.baseX) + o.vx * tt, XMIN, XMAX)
+        local pl = laneOfX(px)
+        l0, l1 = pl, pl
+        -- close to a lane border it threatens both sides
+        local off = (px - XMIN) - floor((px - XMIN) / cfg.lineOffset) * cfg.lineOffset
+        if off < 1.2 and pl > 0 then l0 = pl - 1 end
+        if off > cfg.lineOffset - 1.2 and pl < 2 then l1 = pl + 1 end
+      end
       -- is this body one the runner can be on top of?
       local sideOnly = false
       if k.carriage then
@@ -263,11 +357,14 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
       end
       local v = max(o.speed or 0, k.speed or 0)
       if v > 0 then
+        -- reach the rear further back so the planner starts vacating early enough to
+        -- finish the lane change before the closing truck's rear arrives
+        local backM = back + cfg.moverLead
         local drift = v / speed - 1
         local rel0 = o.z - pz
         for j = 0, H do
           local rel = rel0 + j * drift
-          if rel > -front and rel < back then
+          if rel > -front and rel < backM then
             for ll = l0, l1 do
               if sideOnly then side[ll][j] = true else solid[ll][j] = true end
               if not k.jump then noJump[ll][j] = true end
@@ -281,30 +378,41 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
         if bj >= 0 and aj <= H then
           for j = max(0, aj), min(H, bj) do
             for ll = l0, l1 do
-              if sideOnly then side[ll][j] = true else solid[ll][j] = true end
+              if sideOnly then
+                side[ll][j] = true
+                -- riding a ramp/roof is the through-path in a carriage group and is worth
+                -- preferring — reward each bucket on it so, among equally safe routes, the DP
+                -- climbs onto the roof rather than staying on a low lane that dead-ends
+                if (reward[ll][j] or 0) < cfg.rampReward then reward[ll][j] = cfg.rampReward end
+              else
+                solid[ll][j] = true
+              end
               if not k.jump then noJump[ll][j] = true end
               if not k.slide then noSlide[ll][j] = true end
             end
           end
         end
       end
+     end
     else
       local j = floor(o.z - pz)
       if j >= 0 and j <= H then
-        local w = k.buff or cfg.coinBonus
+        local w = k.buff or (flying and cfg.coinFlyBonus or cfg.coinBonus)
         if (reward[l][j] or 0) < w then reward[l][j] = w end
       end
     end
   end
 
-  for i = 1, #gaps do
-    local g = gaps[i]
-    local aj = ceil(g.z0 - pz)
-    local bj = floor(g.z1 - pz)
-    for j = max(0, aj), min(H, bj) do
-      solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
-      noSlide[g.l][j] = true    -- ...not something a duck helps with...
-      -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
+  if not flying then
+    for i = 1, #gaps do
+      local g = gaps[i]
+      local aj = ceil(g.z0 - pz)
+      local bj = floor(g.z1 - pz)
+      for j = max(0, aj), min(H, bj) do
+        solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
+        noSlide[g.l][j] = true    -- ...not something a duck helps with...
+        -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
+      end
     end
   end
 
@@ -419,6 +527,21 @@ local function planRoute(pz, lane0, speed, obstacles, flying)
       end
     end
   end
+  -- explain the decision for the route replay: per lane, how far it is clear ahead, and how
+  -- far the DP can actually get ENDING in that lane. Together these say why the bot chose as
+  -- it did — e.g. "held because every lane dead-ends within a few units" vs "a lane was open
+  -- and it should have gone". Written to AI.stat; the live tick logs it into the frame.
+  local wd, wr = {}, {}
+  for l = 0, 2 do
+    local d = H + 1
+    for j = 1, H do if solid[l][j] then d = j break end end
+    wd[l] = d
+    local r = 0
+    for i2 = 0, H do if cost[i2 * 3 + l] ~= nil and i2 > r then r = i2 end end
+    wr[l] = r
+  end
+  AI.stat.whyD = wd
+  AI.stat.whyR = wr
   return bestI, fact[bestIdx] or 0, faz[bestIdx] or -1
 end
 AI.planRoute = planRoute
@@ -447,7 +570,33 @@ local function gather(mm, pz, out)
         n = n + 1
         local mid = mon.monsterId or 0
         local e = AI.extent[mid]
-        out[n] = {x = mon.x or cfg.baseX, z = z, mid = mid, speed = sp,
+        local x = mon.x or cfg.baseX
+        local vx = nil
+        if kindOf(mid).saw then
+          -- The saw drifts sideways across the corridors, but mon:GetPosition() returns its
+          -- LOGICAL anchor (the spawn lane centre) — it never moves, so a run died dodging into
+          -- the lane the saw had actually slid into. Read the live COLLIDER centre instead (the
+          -- real hitbox, like measure() does), and estimate the lateral VELOCITY frame to frame
+          -- so the planner can project the saw to where it will be at the runner's arrival.
+          if AI.colType == nil then pcall(function() AI.colType = typeof(CS.UnityEngine.Collider) end) end
+          local lx = nil
+          pcall(function()
+            local col = mon.gameObject:GetComponentInChildren(AI.colType)
+            if col then lx = col.bounds.center.x end
+          end)
+          if lx == nil then pcall(function() lx = mon.gameObject.transform.position.x end) end
+          if lx then x = lx end
+          local key = mid .. ":" .. floor(z / 2)
+          local tr = AI.sawTrack[key]
+          if tr then
+            local inst = (x - tr.x) * 60          -- units/sec (tick ≈ 60 Hz)
+            vx = 0.75 * (tr.vx or 0) + 0.25 * inst -- smoothed, so one noisy frame can't flip it
+          else
+            vx = 0
+          end
+          AI.sawTrack[key] = {x = x, vx = vx}
+        end
+        out[n] = {x = x, z = z, mid = mid, speed = sp, vx = vx,
                   back = e and e.back, front = e and e.front, lanes = e and e.lanes}
       end
     end
@@ -479,6 +628,7 @@ end
 -- kept in AI.bounds (relative to the obstacle's own z), for tools/dev to harvest.
 AI.bounds = AI.bounds or {}
 AI.extent = AI.extent or {}
+AI.sawTrack = AI.sawTrack or {}   -- per-saw last x + heading, to read its lateral drift
 local COL_TYPE = nil
 
 local function measure(mon)
@@ -514,7 +664,9 @@ end
 local obsBuf = {}
 
 local function tick(logic)
-  if not AI.enabled then return end
+  -- AI.record captures frames of a HUMAN-played run (observe only, never drive) so expert play
+  -- can be replayed and compared against what the bot's model would have done.
+  if not AI.enabled and not AI.record then return end
   local p = logic.player
   if not p then return end
   local st = AI.stat
@@ -621,8 +773,13 @@ local function tick(logic)
   if okF and fly then flying = true end
   st.flying = flying
 
+  -- level 2: the runner is up on a carriage roof (y well above the ground). The planner then
+  -- reads carriages as floor and ground obstacles as harmless — see planRoute's onRoof branch.
+  local onRoof = (pos.y or 0) > cfg.roofY and not flying
+  st.onRoof = onRoof
+
   local n = gather(mm, pz, obsBuf)
-  local reach, act, az = planRoute(pz, lane, speed, obsBuf, flying)
+  local reach, act, az = planRoute(pz, lane, speed, obsBuf, flying, onRoof)
   st.reach = reach
   st.act = act
   st.actz = az
@@ -636,6 +793,32 @@ local function tick(logic)
     if #T > 300 then table.remove(T, 1) end
   end
 
+  -- a per-frame snapshot of the perceived field for the offline route replay: the player and
+  -- every collision hazard / buff it sees (coins dropped — they only bloat it). Sampled at a
+  -- modest rate so a whole run fits; keyed nowhere, just a flat list the HTML scrubs through.
+  if (st.frames % 15) == 0 then
+    local parts = {}
+    for i = 1, n do
+      local o = obsBuf[i]
+      local k = kindOf(o.mid)
+      if k.solid or k.buff or k.ignore then
+        parts[#parts + 1] = string.format("%.0f,%.0f,%d,%.0f", o.x, o.z, o.mid, o.speed or 0)
+      end
+    end
+    local F = AI.frames
+    local wd, wr = st.whyD or {}, st.whyR or {}
+    -- pz|lane|act|reach|firstSolid per lane|reachable-end per lane|playerY,busy|obstacles
+    -- playerY exposes when the runner is up on a carriage roof (y well above 0) — the one
+    -- thing the flat obstacle list cannot show, and the crux of the roof-riding the bot misses.
+    F[#F + 1] = string.format("%.0f|%d|%d|%d|%d,%d,%d|%d,%d,%d|%.2f,%d|%s",
+      pz, lane, act, reach or 0,
+      wd[0] or -1, wd[1] or -1, wd[2] or -1, wr[0] or 0, wr[1] or 0, wr[2] or 0,
+      pos.y or 0, busy and 1 or 0,
+      table.concat(parts, " "))
+    if #F > 900 then table.remove(F, 1) end   -- ~6800 units of a run at this sample rate
+  end
+
+  if not AI.enabled then return end   -- recording a human run: observe only, do not drive
   if busy or act == 0 or az ~= 0 then return end
   if act == 1 then logic:OnMoveLeft()
   elseif act == 2 then logic:OnMoveRight()
@@ -676,6 +859,8 @@ if SL.__srai_start == nil then
     _G.__SR_LOGIC = self
     AI.stat = {frames = 0, moves = 0, maxz = 0}
     AI.log = {}
+    AI.frames = {}
+    AI.sawTrack = {}
     return SL.__srai_start(self, ...)
   end
 end

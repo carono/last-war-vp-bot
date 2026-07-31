@@ -379,3 +379,43 @@ Testing the two candidate explanations against the record:
 scene), `surfing_simulate.py` (offline band replay).
 `tools/street_run_bot.py` keeps the legacy vision loop and the meta commands (`probe`,
 `shot`, `watch`).
+
+## Learning from expert human play (#1156)
+
+`tools/dev/record_human_loop.py` records a HUMAN-played run frame-by-frame (bot observes,
+never drives; resilient to daemon hiccups on long runs), saving each to
+`results/street_run/human/run_NNN.txt` in the same per-frame format the bot logs. Three expert
+runs were captured (2828 / 8153 / **12759 m** — the last a new account record).
+`tools/dev/surfing_route_html.py human` replays one as an animation; the frame carries the
+player's height, so roof-riding is visible, and it also stores what the bot's model *would*
+have decided (`planRoute` runs every frame even under manual play), so expert play and the
+bot's model can be compared side by side.
+
+**The decisive finding.** The planner was purely 2-D (lane × distance) and had no notion of
+height. Measured against `run_002`: the runner spends **~57% on the ground, ~33% on carriage
+roofs (height ≈ 3–5), ~10% on a jetpack (height ≈ 20)**. And in **42%** of the frames where the
+human was on a roof, the bot's model rated that lane a dead-end (reach ≈ 0) — it read the
+carriage the human was riding as a wall. Roofs are a third of expert play and the model was
+blind to all of it.
+
+**Carriage roofs are a hop-chain, not a floor.** On a carriage roof the human is **airborne
+~60% of the time** — the roof is crossed by hopping carriage-to-carriage over the gaps between
+them, not by running along a continuous surface. Mounts are frequent (~38 in `run_002`) and
+descents are almost always straight down in the same lane (35 of 37). So the pattern is:
+**climb on (ramp or a hop onto a carriage) → hop nearly every carriage seam → drop straight
+back to the ground when the chain ends.**
+
+**Speed accelerates.** Measured from the frame spacing, track speed climbs **30 → 40 → 60 u/s**
+over a long run. A hop covers `jumpTime × speed`, so at 60 u/s a jump flies twice as far as at
+30 — the player's note "jumps fly far at speed, brake with a slide so you don't overshoot".
+The planner reads the live speed (`GetMoveSpeed`) so hop/lane lengths scale, but the
+roof hop-chain timing has to hold at the high end too.
+
+**Status of the model against this.** `surfing_ai.lua` now has a first height-aware pass
+(`onRoof`, height > `cfg.roofY`): carriages become floor, ground obstacles under the roof are
+dropped, seams are holes to hop. It lifted the bot's roof time 0 → ~17%, but it still treats a
+roof as mostly-continuous and does not reliably hop every seam nor guarantee a safe descent, so
+it sometimes runs off a roof end / into a seam and falls. Getting the hop-chain and the
+descent right at the accelerating speed is the open work, and it needs the offline simulator
+(`surfing_simulate.py`) extended to model height/roofs so the roof policy can be iterated
+against the real bands **and the recorded human runs** without spending live attempts.
