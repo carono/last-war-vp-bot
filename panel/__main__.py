@@ -594,6 +594,11 @@ class Panel(tk.Tk):
         self._i18n = i18nmod.I18n()
         self._tr_widgets: list = []   # (widget, option, key, fmt) — retranslated in place
         self._tr_hooks: list = []     # callables run on every language change
+        # The capture-monitor kinds, exposed on the instance so the «Secret Tasks» tab
+        # (panel/secret_tasks.py) can build its combo without importing this module —
+        # `python -m panel` runs this file as `__main__`, so `from . import __main__`
+        # would re-execute the whole file as a second `panel.__main__`.
+        self.capture_options = CAPTURE_OPTIONS
         # Profiles: the active profile's config.json drives every panel setting.
         self._profiles = profilemod.ProfileManager()
         # An explicit --profile overrides the saved last-active profile, creating
@@ -1708,106 +1713,25 @@ class Panel(tk.Tk):
         self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
         self._tr(ttk.Label(coord), "coord.history").pack(side="right", padx=(8, 2))
 
-        sec = self._tr(ttk.LabelFrame(main, padding=8), "secret.frame")
-        sec.pack(fill="x", padx=8, pady=(0, 6))
-        row1 = ttk.Frame(sec)
-        row1.pack(fill="x")
-        self._mon_combo = ttk.Combobox(row1, state="readonly", width=20,
-                                       values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
-        self._mon_combo.current(0)
-        self._mon_combo.pack(side="left", padx=(0, 8))
-        self._tr_hooks.append(self._retranslate_capture_combo)
-        self._mon_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row1, variable=self._mon_var, command=self._toggle_monitor),
-                 "secret.monitoring").pack(side="left")
-        # Capture tick interval (the child's --interval): how often the progress
-        # line prints and the checkpoint flushes. A Spinbox so it is bounded and
-        # obviously numeric; a change while the monitor runs restarts it (below).
-        self._tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
-        self._interval_var = tk.StringVar(value="15")
-        numeric_spinbox(row1, from_=1, to=3600, width=5, textvariable=self._interval_var
-                    ).pack(side="left")
-        self._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(side="left", padx=10)
-        # filters (applied live, panel-side, to task findings only)
-        row2 = ttk.Frame(sec)
-        row2.pack(fill="x", pady=(6, 0))
-        self._tr(ttk.Label(row2), "secret.filters").pack(side="left")
-        self._star_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._star_var),
-                 "secret.stars_only").pack(side="left", padx=(6, 0))
-        self._pending_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._pending_var),
-                 "secret.pending_only").pack(side="left", padx=(6, 0))
-        self._can_loot_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(row2, variable=self._can_loot_var),
-                 "secret.can_loot_only").pack(side="left", padx=(6, 0))
-        self._tr(ttk.Label(row2), "secret.filter_level_from").pack(side="left", padx=(12, 2))
-        self._flt_from_var = tk.StringVar()
-        NumericEntry(row2, textvariable=self._flt_from_var, width=4).pack(side="left")
-        self._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
-        self._flt_to_var = tk.StringVar()
-        NumericEntry(row2, textvariable=self._flt_to_var, width=4).pack(side="left")
-
-        # -- Auto-loot moved to the «Secret Tasks» tab --------------------------
+        # -- Secret tasks + «Операция Призрак» moved to the «Secret Tasks» tab ----
         #
-        # The «Автолут ★» checkbox and its own «уровень от / до» range used to sit
-        # here. They now live in the header of the «Secret Tasks» tab
-        # (panel/secret_tasks.py), beside the list of starred tiles they gate — the
-        # range is that list's display filter as well as the rob-level rule. Only
-        # the widgets moved: `_autoloot_var` / `_lvl_from_var` / `_lvl_to_var` (and
-        # `_autoloot_rule_lbl`) are still created on this app there, so the watcher
-        # loop, the settings save/load and the rule-hint line are unchanged.
+        # The whole secret-task block — the passive-capture monitor (kind combo,
+        # interval, the panel-side log filters), the «Автообъезд карты» map sweep, the
+        # «Автолут ★» range, AND the «Операция Призрак» watcher — used to sit on this
+        # Main tab. They now live on the «Secret Tasks» tab (panel/secret_tasks.py),
+        # beside the list of starred tiles they feed and gate, so the whole story is on
+        # one screen. Only the *widgets* moved: every var (`_mon_var` / `_mon_combo` /
+        # `_interval_var`, the `_star_var` / `_pending_var` / `_can_loot_var` /
+        # `_flt_*` log filters, the `_sweep_*` map-sweep vars, `_ghost_autoloot_var`)
+        # and every method (`_toggle_monitor`, `_start_monitor`, `_toggle_sweep`,
+        # `_toggle_ghost_autoloot`, …) still live on this app, created by the tab's
+        # `_build_monitor_bar` / `_build_ghost_bar` at construction — so the settings
+        # save/load, the profile-switch restart and the capture plumbing here are
+        # unchanged. The tab is built (line ~1594) before this method's body and before
+        # settings are applied, so the vars exist by the time anything reads them.
         #
-        # «уровень от / до» in `row2` above stays here and is still ONLY the capture
-        # log's display filter — kept separate from the rob-level range on purpose:
-        # conflating the two once spent a robbery on a level-6 star (2026-07-29).
-        #
-        # «до» is the level auto-loot robs, not a ceiling over "whatever is lying
-        # around". «от 1 до 7» means 7s are taken and a level-6 star waits, however
-        # alone it is on the map: the five daily robberies are the scarce thing, and
-        # one spent on a 6 is one a 7 cannot have until the reset. Stars only: with
-        # no star at that level it robs nothing at all.
-
-        # -- The map sweep: the wrist the passive scan needed -------------------
-        #
-        # The capture only learns tiles from the responses the client sends while the
-        # map is MOVING, so «Автолут ★» was a standing order that stood still unless
-        # somebody dragged the map. This walks the camera over a box of tiles around
-        # a centre, one coordinate jump at a time (panel/mapsweep.py decides where),
-        # which is the same primitive a clickable coordinate in the log uses.
-        sweep = self._tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
-        sweep.pack(fill="x", pady=(8, 0))
-        self._sweep_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(sweep, variable=self._sweep_var,
-                                 command=self._toggle_sweep), "sweep.enabled").pack(side="left")
-        self._tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
-        self._sweep_cx_var = tk.StringVar()
-        NumericEntry(sweep, textvariable=self._sweep_cx_var, width=6, signed=True).pack(side="left", padx=(0, 2))
-        self._sweep_cy_var = tk.StringVar()
-        NumericEntry(sweep, textvariable=self._sweep_cy_var, width=6, signed=True).pack(side="left")
-        self._tr(ttk.Button(sweep, command=self._sweep_centre_from_coords),
-                 "sweep.take_centre").pack(side="left", padx=(4, 0))
-        self._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
-                                     justify="left")
-        self._sweep_hint.pack(side="left", padx=(10, 0))
-
-        # -- «Операция Призрак»: the same five-a-day budget, its own standing order --
-        #
-        # Secret tasks had «Автолут ★» and ghost recon had only a manual recipe,
-        # though the targets perish the same way. It needs NO capture and no map
-        # panning: the client already knows every squad
-        # (`ghost.recon.get.task.list`), so the watcher is a poll of the game's own
-        # verdict rather than a reader of a pcap checkpoint — which is why this is a
-        # checkbox of its own and not the secret-task watcher pointed elsewhere.
-        # Six days a week `IsOpenDay()` is false and the whole thing is a no-op.
-        ghost = self._tr(ttk.LabelFrame(main, padding=8), "ghost.frame")
-        ghost.pack(fill="x", padx=8, pady=(0, 6))
-        self._ghost_autoloot_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(ghost, variable=self._ghost_autoloot_var,
-                                 command=self._toggle_ghost_autoloot),
-                 "ghost.autoloot").pack(side="left")
-        self._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
-                 "ghost.hint").pack(side="left", padx=10)
+        # The capture the monitor runs writes a checkpoint each tick; the tab's list is
+        # fed from that checkpoint (the wire), with a first-open VM snapshot to seed it.
 
         rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
         rally.pack(fill="x", padx=8, pady=(0, 6))
@@ -2715,13 +2639,42 @@ class Panel(tk.Tk):
         return True
 
     def _on_secret_line(self, line: str) -> bool:
-        """One capture line: log it if the display filter lets it through, and record
-        a real finding into the profile's own log."""
+        """One capture line: log it if the display filter lets it through, record a real
+        finding into the profile's own log, and nudge the «Secret Tasks» tab to merge the
+        freshly-written checkpoint — the wire feed for its list.
+
+        The nudge is independent of the log's display filter: a tile the operator hid from
+        the log is still on the map and still belongs on the tab. So it runs on every
+        finding line, and on the periodic "star(s) still on timer" progress line (no
+        coordinate of its own, but it marks a checkpoint flush). Called on the child's
+        reader thread, so it marshals onto the Tk thread, where the merge is debounced.
+        """
+        is_finding = bool(coords.parse(line))
+        if is_finding or "on timer" in line:
+            self.after(0, self._nudge_secret_tasks_tab)
         if not self._task_passes(line):
             return False                # filtered out — handled, do not log
-        if coords.parse(line):          # a coordinate present -> an actual finding
+        if is_finding:                  # a coordinate present -> an actual finding
             self._append_secret(line)
         return True
+
+    def _nudge_secret_tasks_tab(self) -> None:
+        """A capture finding crossed the wire: re-merge the checkpoint into the tab.
+
+        Runs on the Tk thread (marshalled from the reader). Debounced — one capture tick
+        prints a burst of findings and a single merge covers them all — and a no-op unless
+        the tab has been opened (an unopened one reads fresh when first shown anyway).
+        """
+        tab = getattr(self, "_secret_tasks_tab", None)
+        if tab is None or not getattr(tab, "_loaded", False):
+            return
+        after = getattr(self, "_secret_tab_nudge_id", None)
+        if after is not None:
+            try:
+                self.after_cancel(after)
+            except Exception:            # noqa: BLE001 — already fired / invalid id
+                pass
+        self._secret_tab_nudge_id = self.after(800, tab.refresh)
 
     def _on_secret_exit(self) -> None:
         self._say("secret", "log.secret.ended")
@@ -5397,10 +5350,10 @@ class Panel(tk.Tk):
             if getattr(timer, "name", "") == "inventory_refresh":
                 self.after(0, self._refresh_inventory_tab)
                 return True
-            # An alliancemate shared a secret task (`alliance.share.mission.add`): re-read
-            # the game so the new starred tile appears on the «Secret Tasks» tab without a
-            # manual «Обновить». A UI refresh, not a game press — handled before the daemon
-            # gate, the tab's own read degrades gracefully.
+            # An alliancemate shared a secret task: re-merge the capture checkpoint so a
+            # freshly-seen tile appears on the «Secret Tasks» tab without a manual
+            # «Обновить». A UI refresh, not a game press — handled before the daemon gate,
+            # the tab's own read degrades gracefully.
             if getattr(timer, "name", "") == "secret_task_share":
                 self.after(0, self._refresh_secret_tasks_tab)
                 return True
@@ -5615,11 +5568,11 @@ class Panel(tk.Tk):
             tab.refresh()
 
     def _refresh_secret_tasks_tab(self) -> None:
-        """An `alliance.share.mission.add` landed (the «secret_task_share» trigger):
-        re-read the raidable starred tasks so a freshly shared tile shows up on the
-        «Secret Tasks» tab. Only once the tab has been opened — an unopened one reads
-        fresh when first shown anyway — and the tab's own refresh coalesces a burst of
-        shares (it skips while busy) and only ADDS rows, so nothing on screen is lost.
+        """A share landed (the «secret_task_share» trigger): re-merge the capture
+        checkpoint so a freshly-seen starred tile shows up on the «Secret Tasks» tab.
+        Only once the tab has been opened — an unopened one reads fresh when first shown
+        anyway — and the tab's own refresh coalesces a burst (it skips while busy) and
+        only ADDS rows, so nothing on screen is lost.
         """
         tab = getattr(self, "_secret_tasks_tab", None)
         if tab is not None and getattr(tab, "_loaded", False):

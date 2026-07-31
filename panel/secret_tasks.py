@@ -1,28 +1,40 @@
 """The «Secret Tasks» tab: the starred hero-dispatch tiles the alliance can raid.
 
-The client already keeps a parsed, always-current copy of the alliance's secret
-tasks in `ActDispatchTaskDataManager.allianceTask`; `steal_secret_task._vm_all_alliance_tasks`
-reads every live one straight out of the VM through the warm daemon (on the map, a free
-loot slot — dispatch finished OR still counting down) with no capture and no map panning.
-This tab keeps the **starred** ones — the raids worth a march — on screen, each with a
-per-second countdown to the moment it becomes raidable, and offers the two things a
-person does with one: rob it (`hero.dispatch.steal`) or forward it into chat.
+This tab keeps the **starred** secret tasks — the raids worth a march — on screen, each
+with a per-second countdown to the moment it becomes raidable, and offers the two things
+a person does with one: rob it (`hero.dispatch.steal`) or forward it into chat.
+
+**Where the list comes from — the wire, not a VM scan.** The passive secret-task capture
+(`tools/secret_task_capture.py`, the monitor whose block also lives on this tab now) reads
+the tiles off the game stream as the map moves and writes them to a checkpoint every tick,
+each record carrying the full coordinates + `completed_at` / `expires_at` a countdown
+needs. This tab's ongoing feed is that checkpoint (`_fetch_scan` → `load_fresh_tasks`): a
+finding crossing the wire nudges the tab to merge the freshly-written checkpoint, so a tile
+the capture just saw appears with a real timer and no game round-trip. The Lua VM
+(`ActDispatchTaskDataManager.allianceTask`) is read **once**, as the first-open snapshot
+(`_fetch_vm`), to seed the list before the monitor has flushed anything; after that the
+wire drives it.
 
 When a tile's countdown reaches zero it is raidable: its row is highlighted, and a slow
 background poll (~30 s) starts re-reading the game — if the tile is gone (expired or
-looted out) the row drops, and while auto-loot is ticked a raidable tile is robbed. The
-poll runs only while at least one row is ready, so an idle tab never touches the daemon.
+looted out) the row drops, and while auto-loot is ticked a raidable tile is robbed. That
+poll is a targeted per-tile *verify* under auto-loot (a raid spends the scarce daily
+budget, so it wants the game's authoritative word, not a stale checkpoint), distinct from
+the wire feed that populates the list. It runs only while at least one row is ready, so an
+idle tab never touches the daemon.
 
-What is on the tab is an in-memory list for the session, not a store — closing the
-panel forgets it, which is fine: the list is re-read from the game the moment the tab
-is opened again (and by «Обновить»). While the «secret_task_share» trigger is switched
-on, an alliancemate sharing a task (`alliance.share.mission.add`) re-reads the game so
-the new tile appears without a manual «Обновить».
+What is on the tab is an in-memory list for the session, not a store — closing the panel
+forgets it, which is fine: the first-open VM snapshot re-seeds it and the wire refills it.
+«Обновить» re-merges the current checkpoint. While the «secret_task_share» trigger is
+switched on, an alliancemate sharing a task re-merges too.
 
-The «уровень от / до» range and the «Автолут ★» checkbox live in this tab's header
-(they used to sit on the Main tab). The range doubles as the list's display filter — a
-starred tile shows only while its level is inside it — while auto-loot itself is still
-the app's standing order, reading the same vars; this tab only hosts the boxes.
+The passive-capture monitor block (kind, interval, log filters, «Автообъезд карты»), the
+«уровень от / до» range with «Автолут ★», and the «Операция Призрак» block all live on
+this tab now — they used to sit on the Main tab. Only the *widgets* moved here: their vars
+and every method (the monitor start/stop, the sweep, the ghost watcher) stay on the app,
+so the settings save/load and the profile-switch restart are untouched. The «уровень от /
+до» range doubles as the list's display filter — a starred tile shows only while its level
+is inside it.
 
 Kept Tk-thin: the two game round trips (scan, steal) and the share run on background
 threads and degrade gracefully — no daemon, no game, or a manager not loaded yet leaves
@@ -34,7 +46,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .widgets import NumericEntry, ScrollableFrame, font as ui_font
+from .widgets import NumericEntry, ScrollableFrame, font as ui_font, numeric_spinbox
 from .tabs_extra import tk_stringvar
 
 # The star glyph in front of a row and the icons for the two row states: a tile still
@@ -93,37 +105,78 @@ class SecretTasksTab:
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """First time the tab is shown: start the countdown loop and read the game."""
+        """First time the tab is shown: start the countdown loop and seed the list.
+
+        The seed is a one-time VM snapshot (`_snapshot`) — the game's parsed table,
+        richest and available even before the monitor has flushed a checkpoint. After
+        it, the wire feeds the list (a monitor nudge / «Обновить» / the share trigger
+        all go through :meth:`refresh`, which merges the capture checkpoint).
+        """
         if not self._loaded:
             self._loaded = True
             self._start_ticking()
-            self.refresh()
+            self._snapshot()
 
-    def refresh(self) -> None:
-        """Re-read the live starred tasks and merge them into the list."""
+    def _snapshot(self) -> None:
+        """The one-time first-open seed: read the VM once and merge it."""
         if self._busy:
             return
         self._busy = True
         if self._status_var is not None:
             self._status_var.set(self.app._t("tabx.loading"))
-        threading.Thread(target=self._work, daemon=True).start()
+        threading.Thread(target=self._snapshot_work, daemon=True).start()
 
-    def _work(self) -> None:
+    def _snapshot_work(self) -> None:
         try:
-            tasks = self._fetch()
+            tasks = self._fetch_vm()
         except Exception:                     # noqa: BLE001 — a failed read is an empty tab
             tasks = []
         self.app.after(0, lambda: self._merge(tasks))
 
-    # -- reading the game ---------------------------------------------------
-    def _fetch(self) -> list:
-        """The live, starred alliance secret tasks, straight from the VM.
+    def refresh(self) -> None:
+        """Merge the live capture checkpoint (the wire feed) into the list.
+
+        The button, the monitor's per-finding nudge and the «secret_task_share» trigger
+        all land here. Cheap — a file read, no game round trip — and it only ADDS, so a
+        burst of nudges coalesces to nothing worse than a re-merge of the same tiles.
+        """
+        if self._busy:
+            return
+        self._busy = True
+        threading.Thread(target=self._work, daemon=True).start()
+
+    def _work(self) -> None:
+        try:
+            tasks = self._fetch_scan()
+        except Exception:                     # noqa: BLE001 — a failed read is an empty tab
+            tasks = []
+        self.app.after(0, lambda: self._merge(tasks))
+
+    # -- reading the wire / the game ----------------------------------------
+    def _fetch_scan(self) -> list:
+        """The live, starred secret tasks off the capture checkpoint — the wire feed.
+
+        `load_fresh_tasks` keeps only tiles the monitor re-saw this scan window and
+        recomputes `can_loot` / `pending` against the clock, so a file written a while
+        ago cannot smuggle a stale tile in. Each record carries the coordinates and the
+        `completed_at` / `expires_at` a row's countdown is drawn from. Only the starred
+        ones are kept; the level range narrows the list at render time, not here.
+
+        A missing checkpoint (the monitor never ran) or a malformed one raises and is
+        caught upstream as "no new tiles" — the list simply keeps what it has.
+        """
+        import lastwar_proto as proto
+        tasks = proto.load_fresh_tasks(self.app._profiles.tasks_json())
+        return [t for t in tasks if t.starred]
+
+    def _fetch_vm(self) -> list:
+        """The first-open snapshot: every live starred alliance task straight from the VM.
 
         `steal_secret_task._vm_all_alliance_tasks` returns every tile on the map with a
         free slot — the ones already raidable AND the ones still counting down — so a row
-        can carry its «готово через …» timer and flip to raidable in place. Only the
-        starred ones are kept; the level range narrows the list at render time, not here,
-        so widening it never needs a re-read.
+        can carry its «готово через …» timer and flip to raidable in place. Read once, to
+        seed the list before the monitor has anything on the wire; the wire drives it
+        after that.
         """
         import lua_client
         import steal_secret_task
@@ -170,9 +223,12 @@ class SecretTasksTab:
         ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
-        # The «уровень от / до» range and «Автолут ★» checkbox, moved here off the Main
-        # tab — the list they gate now lives on the same screen as the boxes.
+        # The passive-capture monitor block (its findings fill the list below), then the
+        # «уровень от / до» range with «Автолут ★», then the «Операция Призрак» block —
+        # all moved here off the Main tab. Only the widgets live here (see each builder).
+        self._build_monitor_bar()
         self._build_filter_bar()
+        self._build_ghost_bar()
 
         self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "secrettasks.hint").pack(
@@ -180,6 +236,99 @@ class SecretTasksTab:
 
         self._scroll = ScrollableFrame(self.parent)
         self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def _build_monitor_bar(self) -> None:
+        """The passive-capture monitor block, moved here off the Main tab.
+
+        Builds the capture-kind combo, its interval, the panel-side log filters and the
+        «Автообъезд карты» sweep. Like :meth:`_build_filter_bar`, only the *widgets* live
+        here: every var (`_mon_var`, `_interval_var`, the filter vars, the sweep vars) and
+        every method (`_toggle_monitor`, `_toggle_sweep`, …) stays on the app, so the
+        settings save/load and the profile-switch restart keep reading them where they
+        always did. The findings this capture writes to its checkpoint are exactly what
+        fills the list below — see :meth:`_fetch_scan`.
+        """
+        app = self.app
+        sec = app._tr(ttk.LabelFrame(self.parent, padding=8), "secret.frame")
+        sec.pack(fill="x", padx=10, pady=(0, 4))
+        row1 = ttk.Frame(sec)
+        row1.pack(fill="x")
+        app._mon_combo = ttk.Combobox(
+            row1, state="readonly", width=20,
+            values=[app._t(o["key"]) for o in app.capture_options])
+        app._mon_combo.current(0)
+        app._mon_combo.pack(side="left", padx=(0, 8))
+        app._tr_hooks.append(app._retranslate_capture_combo)
+        app._mon_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row1, variable=app._mon_var,
+                                command=app._toggle_monitor),
+                "secret.monitoring").pack(side="left")
+        app._tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
+        app._interval_var = tk.StringVar(master=app, value="15")
+        numeric_spinbox(row1, from_=1, to=3600, width=5,
+                        textvariable=app._interval_var).pack(side="left")
+        app._tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(
+            side="left", padx=10)
+
+        row2 = ttk.Frame(sec)
+        row2.pack(fill="x", pady=(6, 0))
+        app._tr(ttk.Label(row2), "secret.filters").pack(side="left")
+        app._star_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row2, variable=app._star_var),
+                "secret.stars_only").pack(side="left", padx=(6, 0))
+        app._pending_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row2, variable=app._pending_var),
+                "secret.pending_only").pack(side="left", padx=(6, 0))
+        app._can_loot_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row2, variable=app._can_loot_var),
+                "secret.can_loot_only").pack(side="left", padx=(6, 0))
+        app._tr(ttk.Label(row2), "secret.filter_level_from").pack(
+            side="left", padx=(12, 2))
+        app._flt_from_var = tk.StringVar(master=app)
+        NumericEntry(row2, textvariable=app._flt_from_var, width=4).pack(side="left")
+        app._tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
+        app._flt_to_var = tk.StringVar(master=app)
+        NumericEntry(row2, textvariable=app._flt_to_var, width=4).pack(side="left")
+
+        # «Автообъезд карты»: the passive scan only learns tiles while the map moves, so
+        # this walks the camera over a box around a centre. Nested under the monitor
+        # frame exactly as on the old Main tab.
+        sweep = app._tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
+        sweep.pack(fill="x", pady=(8, 0))
+        app._sweep_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(sweep, variable=app._sweep_var,
+                                command=app._toggle_sweep),
+                "sweep.enabled").pack(side="left")
+        app._tr(ttk.Label(sweep), "sweep.centre").pack(side="left", padx=(12, 2))
+        app._sweep_cx_var = tk.StringVar(master=app)
+        NumericEntry(sweep, textvariable=app._sweep_cx_var, width=6,
+                     signed=True).pack(side="left", padx=(0, 2))
+        app._sweep_cy_var = tk.StringVar(master=app)
+        NumericEntry(sweep, textvariable=app._sweep_cy_var, width=6,
+                     signed=True).pack(side="left")
+        app._tr(ttk.Button(sweep, command=app._sweep_centre_from_coords),
+                "sweep.take_centre").pack(side="left", padx=(4, 0))
+        app._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
+                                    justify="left")
+        app._sweep_hint.pack(side="left", padx=(10, 0))
+
+    def _build_ghost_bar(self) -> None:
+        """The «Операция Призрак» watcher block, moved here off the Main tab.
+
+        Its own five-a-day standing order, needing no capture and no map panning — the
+        client already knows every squad, so the watcher polls the game's verdict. Kept
+        as-is: this tab does NOT feed its list from ghost recon, it only hosts the box.
+        Widget only; `_ghost_autoloot_var` and `_toggle_ghost_autoloot` stay on the app.
+        """
+        app = self.app
+        ghost = app._tr(ttk.LabelFrame(self.parent, padding=8), "ghost.frame")
+        ghost.pack(fill="x", padx=10, pady=(0, 4))
+        app._ghost_autoloot_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(ghost, variable=app._ghost_autoloot_var,
+                                command=app._toggle_ghost_autoloot),
+                "ghost.autoloot").pack(side="left")
+        app._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
+                "ghost.hint").pack(side="left", padx=10)
 
     def _build_filter_bar(self) -> None:
         """The level range and auto-loot checkbox — the block that used to sit on Main.
