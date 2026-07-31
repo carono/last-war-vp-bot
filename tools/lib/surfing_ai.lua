@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 40
+AI.version = 41
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -292,11 +292,13 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     for i = 1, #t do
       local c = t[i]
       local autoStart = canAuto and (roofUntil == nil) and (c.z1 >= pz - 4)
-      if c.ramp or autoStart or (roofUntil and c.z0 - roofUntil <= cfg.roofGap) then
-        -- carrying on along the roof: the hole between this carriage and the last one is a
-        -- drop to the road and must be HOPPED, not run across (told by the player after a
-        -- run rode a truck and fell off its far end)
-        if roofUntil and c.z0 > roofUntil then
+      local cont = roofUntil and (c.z0 - roofUntil <= cfg.roofGap)
+      if c.ramp or autoStart or cont then
+        -- a seam-hole belongs ONLY between two carriages that actually chain (small gap):
+        -- that drop must be HOPPED. A ramp starting a FRESH roof after a big gap is NOT a
+        -- seam — the runner was on the ground across it — so no hole (the old code marked a
+        -- phantom hole spanning the whole gap, a ~1000-unit fake drop that killed the run).
+        if cont and c.z0 > roofUntil then
           gaps[#gaps + 1] = {l = l, z0 = roofUntil, z1 = c.z0}
         end
         c.roof = true

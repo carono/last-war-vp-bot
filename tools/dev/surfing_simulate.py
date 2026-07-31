@@ -146,8 +146,13 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0):
         items.sort()
         roof_until = None
         for z0, z1, is_ramp in items:
-            if is_ramp or (roof_until is not None and z0 - roof_until <= roof_gap):
-                if roof_until is not None and z0 > roof_until:
+            cont = roof_until is not None and z0 - roof_until <= roof_gap
+            if is_ramp or cont:
+                # a seam-hole belongs ONLY between two carriages that actually chain (small
+                # gap). A ramp starting a FRESH roof after a big gap is not a seam — the runner
+                # was on the ground across that gap, not falling — so no hole there (the bug
+                # marked a 1000-unit phantom hole down a whole lane and killed the run).
+                if cont and z0 > roof_until:
                     holes.append((lane, roof_until, z0))
                 roofs.append((lane, z0, z1))   # a rideable roof span (ramp-led chain)
                 roof_until = z1
