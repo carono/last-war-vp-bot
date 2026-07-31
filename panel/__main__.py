@@ -75,6 +75,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 if not __package__:
     __package__ = "panel"
 
+import ctypes
 import glob
 import json
 import logging
@@ -232,6 +233,16 @@ WATCHDOG_STRIKES = 2
 # Least time between two watchdog relaunches. A client that dies on startup would
 # otherwise be relaunched every eight seconds forever.
 WATCHDOG_COOLDOWN_SEC = 300.0
+
+# How quiet the window size has to go before the window is painted again after a
+# drag (see Panel._install_resize_damper). Long enough that the pauses inside a
+# drag do not each cost a full repaint, short enough that letting go of the frame
+# reads as instant. WM_SETREDRAW is the Windows message that turns painting off
+# and on again; RedrawWindow's flags are INVALIDATE | ERASE | ALLCHILDREN | FRAME,
+# i.e. "repaint the lot, title bar included".
+RESIZE_SETTLE_MS = 160
+WM_SETREDRAW = 0x000B
+RDW_REPAINT_ALL = 0x0001 | 0x0004 | 0x0080 | 0x0400
 
 # -- the account dashboard --------------------------------------------------
 # How often the strip is re-read. One game-VM call for all of it (panel/dashboard.py
@@ -797,6 +808,7 @@ class Panel(ctk.CTk):
         self._loading = False
         self._install_autosave()      # persist every subsequent change immediately
         self._restore_geometry()      # window size/position and the log sash
+        self._install_resize_damper()  # …and keep dragging the frame cheap
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._open_panel_log()
@@ -4264,6 +4276,97 @@ class Panel(ctk.CTk):
         except (tk.TclError, IndexError):
             pass
 
+    # -- resizing the window ------------------------------------------------
+
+    def _install_resize_damper(self) -> None:
+        """Make dragging the window frame cheap.
+
+        Every single size change repaints the whole window, and with an open tab
+        that is several hundred widgets — around 400 ms of painting per step on the
+        busiest tabs, which is why pulling the frame crawled at a few frames a
+        second. The layout itself is not the problem: with painting switched off the
+        same drag costs 4 ms a step, Tk re-flowing everything included.
+
+        So painting is switched off for the length of the drag and switched back on
+        once the size has been still for `RESIZE_SETTLE_MS`, which repaints the
+        window once, at its final size. Nothing is deferred but the pixels — every
+        widget is already sitting where it belongs when that repaint happens.
+
+        What that costs: while the frame is actually moving, a window being made
+        bigger shows a bare strip along the edge it grew by — nothing paints there
+        until the drag settles. Pausing mid-drag fills it in, letting go of the
+        frame fills it in, and it beats the alternative of a few frames a second.
+
+        A one-off resize (maximise, restore, a geometry set from code) is a drag of
+        one step as far as this is concerned: it shows its result a settle-time
+        later. Windows only; elsewhere the damper is simply not installed.
+        """
+        self._resize_size = (self.winfo_width(), self.winfo_height())
+        self._resize_job = None         # settle timer, while a resize is in flight
+        self._paint_off = False
+        self._paint_hwnd = None
+        if os.name != "nt":
+            return
+        self.bind("<Configure>", self._on_window_configure, add="+")
+
+    def _on_window_configure(self, event) -> None:
+        # A <Configure> binding on a toplevel also hears every child's own resize
+        # (Tk puts the toplevel in each child's bind tags), and it hears window
+        # *moves* too — neither is a window resize, so both are dropped here.
+        if event.widget is not self:
+            return
+        size = (event.width, event.height)
+        if size == self._resize_size:
+            return
+        self._resize_size = size
+        # Order matters: the timer that puts painting back is armed even if
+        # cancelling the old one goes wrong, because a window left with its
+        # painting switched off and no timer to switch it back is a frozen panel.
+        try:
+            if self._resize_job is not None:
+                self.after_cancel(self._resize_job)
+        except (tk.TclError, ValueError):
+            pass
+        self._resize_job = self.after(RESIZE_SETTLE_MS, self._settle_resize)
+        self._suspend_painting()
+
+    def _settle_resize(self) -> None:
+        """The size has been still long enough — put the picture back up."""
+        self._resize_job = None
+        self._resume_painting()
+
+    def _window_handle(self) -> int:
+        if self._paint_hwnd is None:
+            try:
+                self._paint_hwnd = int(self.wm_frame(), 16)
+            except (tk.TclError, ValueError):
+                self._paint_hwnd = 0
+        return self._paint_hwnd
+
+    def _suspend_painting(self) -> None:
+        """Tell Windows to stop painting this window (a drag is in progress)."""
+        if self._paint_off:
+            return
+        hwnd = self._window_handle()
+        if not hwnd:
+            return
+        try:
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETREDRAW, 0, 0)
+        except Exception:            # noqa: BLE001 — never break a resize over this
+            return
+        self._paint_off = True
+
+    def _resume_painting(self) -> None:
+        """Paint again, and repaint everything once — the window is out of date."""
+        if not self._paint_off:
+            return
+        self._paint_off = False
+        hwnd = self._window_handle()
+        try:
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETREDRAW, 1, 0)
+            ctypes.windll.user32.RedrawWindow(hwnd, None, None, RDW_REPAINT_ALL)
+        except Exception:            # noqa: BLE001
+            pass
 
     # -- scenarios tab (run .md action scripts) -----------------------------
 
