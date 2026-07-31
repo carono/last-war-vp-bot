@@ -83,9 +83,13 @@ soloable monster (not a rally elite — treat the level as "no rally elite found
   is inherent to the feature (the «лупа» locates/produces an elite; it does not conjure one from
   nothing). Whether a search literally *spawns* a Fatal Elite or only navigates to an existing
   one still needs a live session where one comes back.
-- **Monster vs Boss tab.** The Fatal Elite has been seen as a `Monster`-tab clone, so the tool
-  defaults to `Monster`; a live search may show it comes back only under `Boss`. Single flip
-  point `RALLY_ELITE_SEARCH` in `tools/rally_create.py`.
+- **Monster vs Boss tab — resolved: `Boss`.** A live search for a level-35 Fatal Elite was
+  captured going out under `Boss` (`SFSNetwork.SendMessage("find.monster.boss", 35)`); the server
+  answered and `MoveToWorldMarchAndOpen(pointId, uuid, server, 0)` opened its `UIWorldPoint`
+  popup. The `Monster` tab sends `find.monster` (ordinary field monsters, no elite) and clamps
+  the level at 30, so a level-35 elite is unreachable there — searching it returned nothing. The
+  tool now defaults to `Boss` (`RALLY_ELITE_SEARCH` in `tools/rally_create.py`); `--type monster`
+  still forces the other tab.
 - **The CREATE wire is still UNPROVEN** (docs/research/rally-join.md, world-monsters.md
   Finding 17). Searching brings up the elite; raising the actual «Стягивание» banner
   (`MarchUtil.SendCreateMarchMessage` with `RALLY_CREATE_TARGET`) has no live capture yet.

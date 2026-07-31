@@ -58,12 +58,15 @@ RALLY_CREATE_TARGET = 6
 # the join's warm step uses.
 RALLY_FOR_BOSS = 7
 
-# «лупа» search tabs (UISearchType enum, read live): the field monsters (incl. the red «Роковая
-# Элита» behemoths) are searched under `Monster`; event bosses under `Boss`. The Fatal Elite has
-# been seen as a Monster-tab clone, so that is the default — flip RALLY_ELITE_SEARCH to "boss"
-# here if a live search shows the elite comes back only under the Boss tab.
+# «лупа» search tabs (UISearchType enum, read live). A live search for a level-35 Fatal Elite
+# was captured going out under the `Boss` tab — `find.monster.boss` with the level as its whole
+# payload — and the server answered with the elite's popup (`MoveToWorldMarchAndOpen` →
+# `UIWorldPoint`). The `Monster` tab («лупа» for ordinary field monsters) sends `find.monster`,
+# which never carries the elite, and it also clamps the level at 30 (Boss allows up to 35), so a
+# level-35 elite is unreachable there at all — searching it returned nothing («нет подходящих
+# монстров»). So the elite is searched under `Boss`; `--type monster` still forces the other tab.
 UISEARCH_TYPE = {"monster": 1, "boss": 5}
-RALLY_ELITE_SEARCH = "monster"
+RALLY_ELITE_SEARCH = "boss"
 
 DEFAULT_SERVER = default_server()
 
