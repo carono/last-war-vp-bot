@@ -141,7 +141,7 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0):
             continue
         lane = min(range(3), key=lambda i: abs(x - (32 + 4 * i)))
         per_lane[lane].append((z - k["back"], z + k.get("front", 0), k.get("sideOnly", False)))
-    holes = []
+    holes, roofs = [], []
     for lane, items in per_lane.items():
         items.sort()
         roof_until = None
@@ -149,10 +149,11 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0):
             if is_ramp or (roof_until is not None and z0 - roof_until <= roof_gap):
                 if roof_until is not None and z0 > roof_until:
                     holes.append((lane, roof_until, z0))
+                roofs.append((lane, z0, z1))   # a rideable roof span (ramp-led chain)
                 roof_until = z1
             else:
                 roof_until = None
-    return holes
+    return holes, roofs
 
 
 def bands(born, mon):
@@ -331,25 +332,35 @@ AI.kindOverride = { %s }
 if AI.resetKinds then AI.resetKinds() end
 local bands = { %s }
 local holes = { %s }
-local LANE0, ZMAX = %s, 340
+local roofs = { %s }
+local LANE0, SPEED, ZMAX = %s, %s, 340
 local function laneOf(x)
   local l = math.floor((x - 36) / 4 + 0.5) + 1
   if l < 0 then l = 0 elseif l > 2 then l = 2 end
   return l
 end
-local function once(obs, hole, LANE0)
-  local speed, dt = 30, 1/60
+local function once(obs, hole, roof, LANE0)
+  local speed, dt = SPEED, 1/60
   local pz, lane = 0, LANE0
   local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
   local dead, frame, t = nil, 0, 0
   local live, window = {}, {}
   for i = 1, #obs do live[i] = {x = obs[i].x, z = obs[i].z, mid = obs[i].mid, speed = obs[i].speed} end
+  -- level 2: is the avatar over a rideable carriage roof in lane `ln` at distance `z`?
+  local function onRoofAt(z, ln)
+    for i = 1, #roof do
+      local r = roof[i]
+      if r[1] == ln and z >= r[2] and z <= r[3] then return true end
+    end
+    return false
+  end
   while pz < ZMAX and not dead do
     frame = frame + 1
     t = t + dt
     for i = 1, #live do
       if live[i].speed > 0 then live[i].z = obs[i].z + live[i].speed * t end
     end
+    local onRoof = onRoofAt(pz, lane)
     if frame %% 2 == 1 and swT <= 0 and jT <= 0 and slT <= 0 then
       local n = 0
       for i = 1, #live do
@@ -357,7 +368,7 @@ local function once(obs, hole, LANE0)
         if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
       end
       for i = #window, n + 1, -1 do window[i] = nil end
-      local reach, act, az = AI.planRoute(pz, lane, speed, window)
+      local reach, act, az = AI.planRoute(pz, lane, speed, window, false, onRoof)
       if az == 0 and act ~= 0 then
         if act == 1 and lane > 0 then swT, swFrom, swTo, lane = 0.16, lane, lane - 1, lane - 1
         elseif act == 2 and lane < 2 then swT, swFrom, swTo, lane = 0.16, lane, lane + 1, lane + 1
@@ -366,22 +377,26 @@ local function once(obs, hole, LANE0)
       end
     end
     local z0, z1 = pz, pz + speed * dt
-    for i = 1, #live do
-      local o = live[i]
-      local k = AI.kindOverride[o.mid]
-      if k and k.solid then
-        if z1 > o.z - k.back and z0 < o.z + k.front then
-          local ol = laneOf(o.x)
-          local hit
-          if k.lanes >= 3 then hit = true
-          elseif swT > 0 then hit = (ol == swFrom or ol == swTo)
-          else hit = (ol == lane) end
-          if k.sideOnly and swT <= 0 then hit = false end
-          if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
+    -- riding a roof: the carriages are floor and ground obstacles are below — no ground
+    -- collision. On the ground: the usual solid collisions (carriages are walls, etc.).
+    if not onRoof then
+      for i = 1, #live do
+        local o = live[i]
+        local k = AI.kindOverride[o.mid]
+        if k and k.solid then
+          if z1 > o.z - k.back and z0 < o.z + k.front then
+            local ol = laneOf(o.x)
+            local hit
+            if k.lanes >= 3 then hit = true
+            elseif swT > 0 then hit = (ol == swFrom or ol == swTo)
+            else hit = (ol == lane) end
+            if k.sideOnly and swT <= 0 then hit = false end
+            if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
+          end
         end
       end
     end
-    -- a hole between two carriage roofs: lethal unless the avatar is in the air over it
+    -- a seam between two carriage roofs: a drop, lethal unless the avatar is airborne over it
     if not dead and jT <= 0 then
       for i = 1, #hole do
         local h = hole[i]
@@ -397,7 +412,7 @@ local function once(obs, hole, LANE0)
 end
 local passed, total, dist = 0, 0, 0
 for bi = 1, #bands do
-  local z, ok = once(bands[bi], holes[bi], LANE0)
+  local z, ok = once(bands[bi], holes[bi], roofs[bi], LANE0)
   total = total + 1
   dist = dist + z
   if ok then passed = passed + 1 end
@@ -412,24 +427,29 @@ def cmd_score(argv):
 
     Kept to a single start lane per call on purpose — replaying all thirty combinations
     inside one frame froze the client badly enough to lose the process."""
-    lane0 = int(argv[0]) if argv else 1
+    lane0 = int(argv[0]) if argv and argv[0].lstrip("-").isdigit() else 1
+    speed = 30
+    for a in argv:
+        if a.startswith("speed="):
+            speed = int(a.split("=", 1)[1])
     ev = get_evaluator()
     try:
-        res = score(ev, lane0)
+        res = score(ev, lane0, speed)
     finally:
         ev.close()
     print("SCORE passed=%d of=%d dist=%.0f" % res)
     return 0
 
 
-def score(ev, lane0: int = 1):
-    """Replay every band from one start lane through the live planner. Returns
-    ``(passed, total, distance)`` — the objective the between-attempt learner is judged on."""
+def score(ev, lane0: int = 1, speed: int = 30):
+    """Replay every band from one start lane through the live planner at `speed` u/s. Returns
+    ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
+    Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
     per_band = bands(born, mon)
-    band_src, hole_src = [], []
+    band_src, hole_src, roof_src = [], [], []
     for band in sorted(per_band):
         rows = per_band[band]
         for _, _, mid in rows:
@@ -437,8 +457,9 @@ def score(ev, lane0: int = 1):
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
-        hole_src.append("{" + ",".join(
-            "{%d,%g,%g}" % h for h in roof_holes(rows, kinds)) + "}")
+        holes, roofs = roof_holes(rows, kinds)
+        hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
+        roof_src.append("{" + ",".join("{%d,%g,%g}" % r for r in roofs) + "}")
     ov = ",".join(
         "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
         % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
@@ -448,8 +469,8 @@ def score(ev, lane0: int = 1):
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())
-    lines = ev.run(_SCORE % (ov, ",".join(band_src), ",".join(hole_src), lane0),
-                   marker=MARK, settle=8.0)
+    lines = ev.run(_SCORE % (ov, ",".join(band_src), ",".join(hole_src),
+                             ",".join(roof_src), lane0, speed), marker=MARK, settle=8.0)
     for ln in lines:
         body = ln.split(MARK, 1)[-1].strip()
         if body.startswith("SCORE "):

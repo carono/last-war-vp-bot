@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 38
+AI.version = 40
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
