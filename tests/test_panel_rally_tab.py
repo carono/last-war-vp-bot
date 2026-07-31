@@ -39,12 +39,16 @@ class FakeEv:
         self._formation = formation
         self.closed = False
         self.armed = False
+        self.search = None          # (tab type, level) the «лупа» was actually pressed with
 
     def run(self, chunk, marker=None, settle=None):
         if "OpenWindow" in chunk and "UISearch" in chunk:             # _OPEN_SEARCH
             return ["EL search-open"]
         if "OnSearchClick" in chunk:                                  # _FIRE_SEARCH
             self._fired = True
+            # `c:SetCurNumBySearchType(<type>, <level>, 0)` — read back what was asked for.
+            args = chunk.split("SetCurNumBySearchType(")[1].split(")")[0].split(",")
+            self.search = (int(args[0]), int(args[1]))
             return ["EL search-fired level=? type=?"]
         if "GetStackTopWindow" in chunk and "GetMonsterData" in chunk:  # _READ_POPUP
             if self._fired and self._result is not None:
@@ -98,6 +102,41 @@ def test_create_on_level_reports_no_elite_when_empty():
     ev = FakeEv(None)
     res = rc.create_on_level(ev, level=3, squad=1)
     assert res["ok"] is False and res["reason"] == "no_elite", res
+
+
+def test_level_range_per_search_kind():
+    # The Fatal Elite stops at 35; an ordinary monster runs to 200 (seasonal levels).
+    assert rc.level_range("boss") == (1, 35)
+    assert rc.level_range("monster") == (1, 200)
+    assert rc.level_range() == rc.level_range(rc.RALLY_ELITE_SEARCH)   # default kind
+    assert rc.level_range("nonsense") == (1, 200)                      # unknown → monster tab
+
+
+def test_clamp_level_pulls_into_the_kind_range():
+    assert rc.clamp_level(200, "boss") == 35        # above the elite ceiling
+    assert rc.clamp_level(200, "monster") == 200    # fine for an ordinary monster
+    assert rc.clamp_level(500, "monster") == 200
+    assert rc.clamp_level(0, "monster") == 1
+    assert rc.clamp_level("", "boss") == 1          # unparseable reads as the minimum
+    assert rc.clamp_level("7", "monster") == 7      # a numeric string is a number
+
+
+def test_search_presses_the_asked_for_tab_with_a_clamped_level():
+    # Monster tab (UISearchType 1) takes a level-180 seasonal monster as asked.
+    ev = FakeEv({"pid": "1", "uuid": "11", "server": "935", "level": 180, "canAttack": 0})
+    assert rc.spawn_elite(ev, level=180, search_type="monster", wait_s=2) is not None
+    assert ev.search == (rc.UISEARCH_TYPE["monster"], 180), ev.search
+    # The same level under the Boss tab (5) is clamped to the elite ceiling.
+    ev = FakeEv({"pid": "1", "uuid": "11", "server": "935", "level": 35, "canAttack": 0})
+    rc.spawn_elite(ev, level=180, search_type="boss", wait_s=2)
+    assert ev.search == (rc.UISEARCH_TYPE["boss"], 35), ev.search
+
+
+def test_create_on_level_searches_under_the_given_kind():
+    ev = FakeEv({"pid": "5", "uuid": "55", "server": "935", "level": 150, "canAttack": 0})
+    res = rc.create_on_level(ev, level=150, squad=1, search_type="monster")
+    assert res["ok"] is True and res["level"] == 150, res
+    assert ev.search == (rc.UISEARCH_TYPE["monster"], 150), ev.search
 
 
 def test_create_on_level_soloable_is_not_a_rally_elite():
@@ -162,6 +201,82 @@ def test_rally_tab_builds_and_reads_controls():
         assert tab._stop is None, "must not start a run with no squad selected"
     finally:
         app.destroy()
+
+
+def test_rally_tab_kind_switch_reranges_the_level():
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    from panel import tabs_extra as tx
+
+    class _App(tk.Tk):
+        def _t(self, key, **fmt):
+            return key
+        def _tr(self, widget, key, option="text", **fmt):
+            try:
+                widget.configure(**{option: key})
+            except Exception:                           # noqa: BLE001
+                pass
+            return widget
+
+    try:
+        app = _App()
+        app.withdraw()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab = tx.RallyTab(app, ttk.Frame(app))
+        # Elite is the default and keeps the old 1..35 range.
+        assert tab._kind() == tx.RALLY_KIND_ELITE
+        tab._level_var.set("200")
+        assert tab._level() == tx.RALLY_ELITE_MAX
+        # Switching to the monster lifts the ceiling to 200 and re-ranges the box.
+        tab._kind_var.set(tx.RALLY_KIND_MONSTER)
+        tab._on_kind()
+        assert tab._kind() == tx.RALLY_KIND_MONSTER
+        assert (int(tab._level_spin.cget("from")), int(tab._level_spin.cget("to"))) \
+            == (tx.RALLY_MONSTER_MIN, tx.RALLY_MONSTER_MAX)
+        tab._level_var.set("180")
+        assert tab._level() == 180
+        tab._level_var.set("500")
+        assert tab._level() == tx.RALLY_MONSTER_MAX
+        # Switching back pulls an out-of-range level down to the elite ceiling.
+        tab._level_var.set("180")
+        tab._kind_var.set(tx.RALLY_KIND_ELITE)
+        tab._on_kind()
+        assert tab._level_var.get() == str(tx.RALLY_ELITE_MAX)
+        assert (int(tab._level_spin.cget("from")), int(tab._level_spin.cget("to"))) \
+            == (tx.RALLY_ELITE_MIN, tx.RALLY_ELITE_MAX)
+        # An unknown kind (a hand-edited var) falls back to the elite.
+        tab._kind_var.set("nonsense")
+        assert tab._kind() == tx.RALLY_KIND_ELITE
+    finally:
+        app.destroy()
+
+
+def test_status_keys_are_named_per_kind():
+    from panel import tabs_extra as tx
+    assert tx._kind_key("searching", tx.RALLY_KIND_ELITE) == "rally_tab.searching"
+    assert tx._kind_key("searching", tx.RALLY_KIND_MONSTER) == "rally_tab.searching_monster"
+    assert tx._kind_key("no_elite", tx.RALLY_KIND_MONSTER) == "rally_tab.no_elite_monster"
+    assert tx._kind_key("raised", tx.RALLY_KIND_MONSTER) == "rally_tab.raised_monster"
+
+
+def test_every_status_key_exists_in_both_locales():
+    import json
+    keys = ["rally_tab.kind", "rally_tab.kind_boss", "rally_tab.kind_monster"]
+    for base in ("searching", "no_elite", "raised"):
+        for kind in ("boss", "monster"):
+            from panel import tabs_extra as tx
+            keys.append(tx._kind_key(base, kind))
+    for lang in ("en", "ru"):
+        table = json.loads((ROOT / "panel" / "locales" / f"{lang}.json").read_text(encoding="utf-8"))
+        missing = [k for k in keys if k not in table]
+        assert not missing, f"{lang}.json misses {missing}"
 
 
 def _main() -> int:

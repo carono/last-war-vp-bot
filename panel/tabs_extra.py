@@ -641,6 +641,18 @@ class AccountsTab(_DataTab):
 # in step with panel/__main__.py's RALLY_ELITE_* / RALLY_SQUADS (the «Авторалли»
 # settings page uses the same range and slots).
 RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
+# The two things a rally can be raised on, and how high their level goes. The Fatal
+# Elite («Роковая Элита») is searched under the «лупа»'s Boss tab and stops at 35; an
+# ordinary world monster is searched under the Monster tab and runs up to 200, because
+# a season puts monsters far above the elite range on the map. Same ranges as
+# tools/rally_create.py SEARCH_LEVEL_RANGE — the search there clamps to them too.
+RALLY_MONSTER_MIN, RALLY_MONSTER_MAX = 1, 200
+RALLY_KIND_ELITE, RALLY_KIND_MONSTER = "boss", "monster"
+RALLY_KINDS = (RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
+RALLY_LEVEL_RANGE = {
+    RALLY_KIND_ELITE: (RALLY_ELITE_MIN, RALLY_ELITE_MAX),
+    RALLY_KIND_MONSTER: (RALLY_MONSTER_MIN, RALLY_MONSTER_MAX),
+}
 RALLY_SQUADS = (1, 2, 3, 4)
 # A «Роковая Элита» rally is an ordinary-monster rally, so it counts against the
 # "monster" daily cap in panel/rally_limits.py (DEFAULT_RALLY_LIMITS).
@@ -650,19 +662,31 @@ RALLY_ELITE_TYPE = "monster"
 RALLY_BETWEEN_S = 6.0
 
 
+def _kind_key(base: str, kind: str) -> str:
+    """The locale key of a status line for the rallied kind.
+
+    Elite and monster do not share a wording in Russian (gender and case differ, so a
+    substituted noun would read wrong), so the three lines that name the target have a
+    separate key per kind: `rally_tab.searching` / `rally_tab.searching_monster`.
+    """
+    return "rally_tab." + base + ("" if kind == RALLY_KIND_ELITE else "_" + kind)
+
+
 class _Stopped(Exception):
     """Raised inside the run loop when Stop was pressed — unwinds to the finally."""
 
 
 class RallyTab:
-    """The «Ралли» tab: raise a rally on a «Роковая Элита», one squad each, N times.
+    """The «Ралли» tab: raise a rally on a world monster, one squad each, N times.
 
-    The player picks an elite level, ticks the squads that should each raise a rally,
-    and a repeat count; «Запустить» then loops «search the map «лупа» for an elite of
-    that level → raise the rally with the next squad», N times over, and «Стоп»
-    interrupts it. A status line narrates each step and the daily per-type cap
-    (panel/rally_limits.py) is honoured — a run stops when the «monster» budget for
-    today is spent.
+    The player picks what to rally — a «Роковая Элита» (levels 1–35) or an ordinary
+    world monster (levels 1–200, as high as a season goes) — a level, ticks the squads
+    that should each raise a rally, and a repeat count; «Запустить» then loops «search
+    the map «лупа» for a target of that kind and level → raise the rally with the next
+    squad», N times over, and «Стоп» interrupts it. Switching the kind re-ranges the
+    level box (and pulls a level that no longer fits back into range). A status line
+    narrates each step and the daily per-type cap (panel/rally_limits.py) is honoured —
+    a run stops when the «monster» budget for today is spent.
 
     The game work is tools/rally_create.py (search + create); this tab is the loop, the
     controls and the bookkeeping around it. It runs on a background thread, takes the
@@ -680,6 +704,7 @@ class RallyTab:
         self._stop = None          # threading.Event while a run is in flight, else None
         self._done = 0             # rallies raised in the current/last run (for the status)
         import tkinter as tk
+        self._kind_var = tk.StringVar(master=app, value=RALLY_KIND_ELITE)
         self._level_var = tk.StringVar(master=app, value=str(RALLY_ELITE_MIN))
         self._repeats_var = tk.StringVar(master=app, value="1")
         self._squad_vars: dict[int, tk.BooleanVar] = {
@@ -698,11 +723,25 @@ class RallyTab:
         self.app._tr(form, "rally_tab.frame")
         form.pack(fill="x", padx=10, pady=(0, 8))
 
+        krow = ttk.Frame(form)
+        krow.pack(fill="x")
+        self.app._tr(ttk.Label(krow), "rally_tab.kind").pack(side="left", padx=(0, 6))
+        for kind in RALLY_KINDS:
+            self.app._tr(
+                ttk.Radiobutton(krow, value=kind, variable=self._kind_var,
+                                command=self._on_kind),
+                "rally_tab.kind_" + kind).pack(side="left", padx=(0, 10))
+
         lrow = ttk.Frame(form)
-        lrow.pack(fill="x")
+        lrow.pack(fill="x", pady=(6, 0))
         self.app._tr(ttk.Label(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
-        numeric_spinbox(lrow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
-                        textvariable=self._level_var).pack(side="left")
+        low, high = RALLY_LEVEL_RANGE[self._kind()]
+        self._level_spin = numeric_spinbox(lrow, from_=low, to=high, width=5,
+                                           textvariable=self._level_var)
+        self._level_spin.pack(side="left")
+        self._range_lbl = ttk.Label(lrow, foreground="#888")
+        self._range_lbl.pack(side="left", padx=(6, 0))
+        self._show_range()
 
         srow = ttk.Frame(form)
         srow.pack(fill="x", pady=(6, 0))
@@ -737,12 +776,36 @@ class RallyTab:
             anchor="w", padx=10, pady=(0, 10))
 
     # -- reading the controls ----------------------------------------------
+    def _kind(self) -> str:
+        """What is being rallied: `boss` (Fatal Elite) or `monster` (ordinary monster)."""
+        kind = self._kind_var.get()
+        return kind if kind in RALLY_LEVEL_RANGE else RALLY_KIND_ELITE
+
     def _level(self) -> int:
+        low, high = RALLY_LEVEL_RANGE[self._kind()]
         try:
             level = int(self._level_var.get())
         except (TypeError, ValueError):
-            return RALLY_ELITE_MIN
-        return max(RALLY_ELITE_MIN, min(RALLY_ELITE_MAX, level))
+            return low
+        return max(low, min(high, level))
+
+    def _on_kind(self) -> None:
+        """Kind switched: re-range the level box and pull an out-of-range level back in."""
+        low, high = RALLY_LEVEL_RANGE[self._kind()]
+        try:
+            self._level_spin.configure(from_=low, to=high)
+        except Exception:                          # noqa: BLE001 — widget may be gone
+            pass
+        self._level_var.set(str(self._level()))    # clamps through _level()
+        self._show_range()
+
+    def _show_range(self) -> None:
+        """Spell the level range of the current kind next to the box (digits only, no wording)."""
+        low, high = RALLY_LEVEL_RANGE[self._kind()]
+        try:
+            self._range_lbl.configure(text="%d–%d" % (low, high))
+        except Exception:                          # noqa: BLE001
+            pass
 
     def _repeats(self) -> int:
         try:
@@ -766,7 +829,7 @@ class RallyTab:
         self._set_running(True)
         threading.Thread(
             target=self._run_loop,
-            args=(self._stop, self._level(), squads, self._repeats()),
+            args=(self._stop, self._kind(), self._level(), squads, self._repeats()),
             daemon=True).start()
 
     def _stop_run(self) -> None:
@@ -782,8 +845,8 @@ class RallyTab:
             pass
 
     # -- the loop -----------------------------------------------------------
-    def _run_loop(self, stop, level, squads, repeats) -> None:
-        """find elite of `level` → raise a rally with each squad, `repeats` times over.
+    def _run_loop(self, stop, kind, level, squads, repeats) -> None:
+        """find a `kind` of `level` → raise a rally with each squad, `repeats` times over.
 
         One send at a time under the panel's game-busy flag; the daily «monster» cap
         gates it and Stop unwinds it. Runs off the Tk thread; all UI via `app.after`.
@@ -801,19 +864,20 @@ class RallyTab:
                         self._status("rally_tab.capped",
                                      cap=limits.limit_for(RALLY_ELITE_TYPE))
                         raise _Stopped
-                    self._status("rally_tab.searching", level=level, rep=rep, total=repeats)
-                    res = self._one_send(stop, level, squad)
+                    self._status(_kind_key("searching", kind),
+                                 level=level, rep=rep, total=repeats)
+                    res = self._one_send(stop, kind, level, squad)
                     if res is None:                # Stop pressed while waiting for busy
                         raise _Stopped
                     if res.get("ok"):
                         counts = counts.record(RALLY_ELITE_TYPE)
                         rl.save_counts(counts, self.app._profiles.rally_counts_json())
                         self._done += 1
-                        self._log("rally_tab.raised", squad=squad, level=level)
+                        self._log(_kind_key("raised", kind), squad=squad, level=level)
                         self._status("rally_tab.progress",
                                      done=self._done, total=total, squad=squad)
                     elif res.get("reason") == "no_elite":
-                        self._status("rally_tab.no_elite", level=level)
+                        self._status(_kind_key("no_elite", kind), level=level)
                     elif res.get("reason") == "no_formation":
                         self._status("rally_tab.no_formation", squad=squad)
                     else:
@@ -830,7 +894,7 @@ class RallyTab:
             self._stop = None
             self.app.after(0, lambda: self._set_running(False))
 
-    def _one_send(self, stop, level, squad):
+    def _one_send(self, stop, kind, level, squad):
         """One find+create under the shared busy flag. ``None`` if Stop won the wait.
 
         Waits (interruptibly) for the game-busy flag rather than skipping the
@@ -845,7 +909,7 @@ class RallyTab:
             import rally_create
             ev = lua_client.get_evaluator(port=self.app._daemon_port())
             try:
-                return rally_create.create_on_level(ev, level, squad)
+                return rally_create.create_on_level(ev, level, squad, search_type=kind)
             finally:
                 try:
                     ev.close()

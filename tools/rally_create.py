@@ -1,4 +1,10 @@
-r"""Create (raise) an alliance rally on a «Роковая Элита» of a chosen level — no-click.
+r"""Create (raise) an alliance rally on a world monster of a chosen level — no-click.
+
+Two kinds of target are searchable, and they differ only in which «лупа» tab is pressed and
+how high the level may go: a «Роковая Элита» (the `boss` tab, `find.monster.boss`, levels 1–35)
+and an ordinary world monster (the `monster` tab, `find.monster`, levels 1–200 — seasonal
+events put very high-level monsters on the map). Everything after the search — reading the
+popup the game opens and raising the banner — is the same for both.
 
 This is the CREATE side of a rally; the JOIN side (walking a squad onto a rally that is
 already out) is tools/rally_join.py. Creating one means getting a rally-elite of the wanted
@@ -62,17 +68,45 @@ RALLY_FOR_BOSS = 7
 # was captured going out under the `Boss` tab — `find.monster.boss` with the level as its whole
 # payload — and the server answered with the elite's popup (`MoveToWorldMarchAndOpen` →
 # `UIWorldPoint`). The `Monster` tab («лупа» for ordinary field monsters) sends `find.monster`,
-# which never carries the elite, and it also clamps the level at 30 (Boss allows up to 35), so a
-# level-35 elite is unreachable there at all — searching it returned nothing («нет подходящих
-# монстров»). So the elite is searched under `Boss`; `--type monster` still forces the other tab.
+# which never carries the elite — searching a level-35 elite there returned nothing («нет
+# подходящих монстров»). So the elite is searched under `Boss`, and `--type monster` searches
+# the ordinary field monsters instead.
 UISEARCH_TYPE = {"monster": 1, "boss": 5}
 RALLY_ELITE_SEARCH = "boss"
+
+# How high the level may go per tab. The Fatal Elite tops out at 35 (the highest elite the game
+# offers); ordinary monsters run far higher — a season puts levels well past the elite range on
+# the map, up to 200. The Monster tab's own ceiling follows the account/season (it read 30 here
+# once — docs/research/rally-elite-search.md), so this is the range the tool is willing to ask
+# for, not a promise the server has one: a level it has nothing for comes back empty like any
+# other miss. A level outside its tab's range is clamped into it rather than sent.
+SEARCH_LEVEL_RANGE = {"monster": (1, 200), "boss": (1, 35)}
 
 DEFAULT_SERVER = default_server()
 
 
 def _one(lines, needle):
     return " ".join(x for x in lines if needle in x)
+
+
+def search_kind(search_type=None):
+    """Normalise a requested search kind to one the «лупа» knows (`boss` / `monster`)."""
+    kind = search_type or RALLY_ELITE_SEARCH
+    return kind if kind in UISEARCH_TYPE else "monster"
+
+
+def level_range(search_type=None):
+    """The ``(min, max)`` level the given search kind accepts — see SEARCH_LEVEL_RANGE."""
+    return SEARCH_LEVEL_RANGE[search_kind(search_type)]
+
+
+def clamp_level(level, search_type=None):
+    """The level as an int, pulled into the kind's range (unparseable reads as the minimum)."""
+    low, high = level_range(search_type)
+    try:
+        return max(low, min(high, int(level)))
+    except (TypeError, ValueError):
+        return low
 
 
 # Open the world-map search window («лупа»).
@@ -134,8 +168,13 @@ def spawn_elite(ev, level, search_type=None, wait_s=10.0):
     ``None`` when the search fired but no monster of that level was returned in ``wait_s`` seconds
     (or the search could not be fired). The caller decides whether the result is a rally elite
     (``canAttack == 0``). The popup is closed again before returning, so the map is left as found.
+
+    ``search_type`` picks the «лупа» tab (`boss` for the Fatal Elite, `monster` for ordinary
+    field monsters); ``level`` is clamped into that tab's range (SEARCH_LEVEL_RANGE).
     """
-    st = UISEARCH_TYPE.get(search_type or RALLY_ELITE_SEARCH, UISEARCH_TYPE["monster"])
+    kind = search_kind(search_type)
+    st = UISEARCH_TYPE[kind]
+    level = clamp_level(level, kind)
 
     def run(chunk, marker, settle=1.4):
         return ev.run(chunk, marker=marker, settle=settle)
@@ -219,11 +258,15 @@ def create_on_level(ev, level, squad, server=None, search_type=None):
     only when a rally elite was found AND the create send was armed. ``reason`` names the miss
     (``no_elite`` when the search returned nothing or a soloable monster, ``no_formation`` when
     the squad is not loaded) so a caller (the panel loop) can report it.
+
+    ``search_type`` picks the «лупа» tab and with it the level range the search accepts
+    (`boss` 1–35, `monster` 1–200); ``level`` is clamped into it.
     """
 
     def run(chunk, marker, settle=1.6):
         return ev.run(chunk, marker=marker, settle=settle)
 
+    level = clamp_level(level, search_type)
     elite = spawn_elite(ev, level, search_type)
     # A search miss, or a soloable monster (canAttack != 0) is not a rally elite.
     if elite is None or elite.get("canAttack") != 0:
@@ -239,15 +282,18 @@ def create_on_level(ev, level, squad, server=None, search_type=None):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Create (raise) an alliance rally on a «Роковая Элита» of a chosen level.")
+        description="Create (raise) an alliance rally on a world monster of a chosen level.")
     ap.add_argument("--find", action="store_true",
                     help="only search the «лупа» for the level and report, do not raise anything")
     ap.add_argument("--level", type=int,
-                    help="target elite level (required)")
+                    help="target level (required); clamped to the tab's range — %s"
+                         % ", ".join("%s %d-%d" % (k, *SEARCH_LEVEL_RANGE[k])
+                                     for k in sorted(SEARCH_LEVEL_RANGE)))
     ap.add_argument("--squad", type=int, choices=(1, 2, 3, 4),
                     help="which squad raises the banner (1/2/3/4)")
     ap.add_argument("--type", choices=sorted(UISEARCH_TYPE), default=RALLY_ELITE_SEARCH,
-                    help="which «лупа» tab to search under (default %(default)s)")
+                    help="which «лупа» tab to search under — `boss` is the Fatal Elite, "
+                         "`monster` the ordinary field monsters (default %(default)s)")
     ap.add_argument("--server", type=int, help="target server (defaults to LW_DEFAULT_SERVER)")
     args = ap.parse_args()
 
@@ -256,16 +302,18 @@ def main():
         if args.find:
             if args.level is None:
                 ap.error("--find needs --level N")
-            elite = spawn_elite(ev, args.level, args.type)
+            level = clamp_level(args.level, args.type)
+            elite = spawn_elite(ev, level, args.type)
             if elite is None:
-                print("no monster of level %s returned by the search" % args.level, flush=True)
+                print("no %s of level %s returned by the search" % (args.type, level), flush=True)
             elif elite.get("canAttack") != 0:
-                print("found a SOLOABLE monster level=%s pid=%s uuid=%s server=%s (not a rally "
-                      "elite)" % (elite["level"], elite["pid"], elite["uuid"], elite["server"]),
+                print("found a SOLOABLE monster level=%s pid=%s uuid=%s server=%s (cannot be "
+                      "rallied)" % (elite["level"], elite["pid"], elite["uuid"], elite["server"]),
                       flush=True)
             else:
-                print("rally elite level=%s pid=%s uuid=%s server=%s"
-                      % (elite["level"], elite["pid"], elite["uuid"], elite["server"]), flush=True)
+                print("rally target (%s) level=%s pid=%s uuid=%s server=%s"
+                      % (args.type, elite["level"], elite["pid"], elite["uuid"], elite["server"]),
+                      flush=True)
             return
 
         if args.level is None or args.squad is None:
@@ -276,7 +324,8 @@ def main():
                   "confirm a march/banner appears)" % (res.get("level"), args.squad,
                                                        res.get("pid"), res.get("server")), flush=True)
         elif res["reason"] == "no_elite":
-            print("no rally elite of level %s found by the search" % args.level, flush=True)
+            print("no ralliable %s of level %s found by the search"
+                  % (args.type, clamp_level(args.level, args.type)), flush=True)
         elif res["reason"] == "no_formation":
             print("no squad %s found (nothing raised)" % args.squad, flush=True)
         else:
