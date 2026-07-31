@@ -1145,6 +1145,39 @@ def secret_task_raidable_alliance() -> str:
         'end end end)')
 
 
+def secret_task_all_alliance() -> str:
+    """Emit every *live* alliance secret task, whether its dispatch is done yet or not.
+
+    A wider read than `secret_task_raidable_alliance`: the raid gate here keeps the
+    tile on the map (not expired, `actEndTime` ahead) and a loot slot free
+    (`#stealInfoList < 3`), but does NOT require the dispatch to have finished
+    (`completionTime <= now`). So the output also carries the tasks still counting down
+    to raidability — what the «Secret Tasks» tab needs to show a per-tile timer «готово
+    через …» and then flip a row to raidable the moment its clock runs out.
+
+    Same `ACT VT …` line shape as the raidable read, so both parse through
+    `steal_secret_task._parse_vt_lines`; `completionTime` (`done`) tells the two states
+    apart on the Python side. `completionTime` must be set (`> 0`) — a tile with no
+    finish time has no countdown to draw.
+    """
+    return (
+        'pcall(function() '
+        'local m = DataCenter.ActDispatchTaskDataManager '
+        'local now = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 '
+        'for _, v in pairs(m.allianceTask or {}) do '
+        'local done = tonumber(v.completionTime) or 0 '
+        'local exp = tonumber(v.actEndTime) or 0 '
+        'local steals = #(v.stealInfoList or {}) '
+        'if done > 0 and (exp == 0 or now < exp) and steals < 3 then '
+        'local x, y = 0, 0 '
+        'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
+        'CS.UnityEngine.Debug.LogError("ACT VT uuid="..tostring(v.uuid)'
+        '.." cfg="..tostring(v.cfgId).." srv="..tostring(v.targetServer)'
+        '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
+        '.." done="..tostring(done).." exp="..tostring(exp)) '
+        'end end end)')
+
+
 # --------------------------------------------------------------------------
 # Ghost recon robbery — «Операция Призрак» / ghost.recon.steal
 # --------------------------------------------------------------------------

@@ -185,11 +185,28 @@ def _vm_raidable_tasks(ev) -> list:
     That is enough for `loot_count` / `free_slots` / `can_loot`; whether *I* am already
     in the list is the server's call at steal time, the same as every other route.
     """
+    return _parse_vt_lines(ev.run(lua_actions.secret_task_raidable_alliance(), MARKER, 1.1))
+
+
+def _vm_all_alliance_tasks(ev) -> list:
+    """Every *live* alliance secret task, dispatch finished or still counting down.
+
+    The wider read of `secret_task_all_alliance()` (not-expired, a slot free, but the
+    dispatch need NOT be done yet) — what the panel's «Secret Tasks» tab lists so it can
+    draw each tile's countdown to raidability and flip a row the moment its clock runs
+    out. Same `ACT VT …` shape as the raidable read; `SecretTask.can_loot` / `.pending`
+    tell the states apart against the local clock.
+    """
+    return _parse_vt_lines(ev.run(lua_actions.secret_task_all_alliance(), MARKER, 1.1))
+
+
+def _parse_vt_lines(lines) -> list:
+    """The shared `ACT VT …` -> `SecretTask` parser for both alliance reads above."""
     sys.path.insert(0, os.path.join(_HERE, "lib"))
     import lastwar_proto as proto
 
     out = []
-    for ln in ev.run(lua_actions.secret_task_raidable_alliance(), MARKER, 1.1):
+    for ln in lines:
         body = ln[4:] if ln.startswith("ACT ") else ln
         if not body.startswith("VT "):
             continue

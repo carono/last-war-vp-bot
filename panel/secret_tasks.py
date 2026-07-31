@@ -1,12 +1,17 @@
 """The «Secret Tasks» tab: the starred hero-dispatch tiles the alliance can raid.
 
 The client already keeps a parsed, always-current copy of the alliance's secret
-tasks in `ActDispatchTaskDataManager.allianceTask`; `steal_secret_task._vm_raidable_tasks`
-reads the raidable ones straight out of the live VM through the warm daemon (dispatch
-finished, not expired, a free loot slot) with no capture and no map panning. This tab
-keeps the **starred** ones — the raids worth a march — on screen, counts each tile's
-expiry down every second, and offers the two things a person does with one: rob it
-(`hero.dispatch.steal`) or forward it into chat.
+tasks in `ActDispatchTaskDataManager.allianceTask`; `steal_secret_task._vm_all_alliance_tasks`
+reads every live one straight out of the VM through the warm daemon (on the map, a free
+loot slot — dispatch finished OR still counting down) with no capture and no map panning.
+This tab keeps the **starred** ones — the raids worth a march — on screen, each with a
+per-second countdown to the moment it becomes raidable, and offers the two things a
+person does with one: rob it (`hero.dispatch.steal`) or forward it into chat.
+
+When a tile's countdown reaches zero it is raidable: its row is highlighted, and a slow
+background poll (~30 s) starts re-reading the game — if the tile is gone (expired or
+looted out) the row drops, and while auto-loot is ticked a raidable tile is robbed. The
+poll runs only while at least one row is ready, so an idle tab never touches the daemon.
 
 What is on the tab is an in-memory list for the session, not a store — closing the
 panel forgets it, which is fine: the list is re-read from the game the moment the tab
@@ -32,9 +37,20 @@ from tkinter import ttk
 from .widgets import NumericEntry, ScrollableFrame, font as ui_font
 from .tabs_extra import tk_stringvar
 
-# The star glyph in front of a row and the icon that says «secret task».
+# The star glyph in front of a row and the icons for the two row states: a tile still
+# counting down to raidability, and one that is ready to loot now.
 STAR_GLYPH = "⭐"
 TYPE_GLYPH = "🗡️"
+READY_GLYPH = "✅"
+
+# The amber the countdown is drawn in, and the green a ready row switches to.
+TIMER_COLOR = "#e0a84f"
+READY_COLOR = "#4fe08a"
+
+# How often the ready-row poll re-reads the game once a tile is raidable. Slow on
+# purpose — a raidable tile lives for minutes, and this is the tab's own safety net, not
+# the app's sub-second auto-loot watcher.
+POLL_MS = 30_000
 
 # The two channels a task can be forwarded to. The room ids are built from the
 # player's own server / alliance, read once and cached (see `_self_ids`).
@@ -64,6 +80,12 @@ class SecretTasksTab:
         # Tasks robbed by hand this session: a rescan must not re-add one that the
         # server has not yet dropped from `allianceTask`.
         self._collected: set[str] = set()
+        # uuids auto-loot has already fired at this session — one attempt per tile, so a
+        # 30-s poll on a spent budget does not re-send every tick.
+        self._auto_attempted: set[str] = set()
+        # Whether the ready-row poll loop is currently scheduled (started when the first
+        # row turns raidable, stops when none is left).
+        self._polling = False
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids: tuple[str, str] | None = None
         self._status_var = None
@@ -78,7 +100,7 @@ class SecretTasksTab:
             self.refresh()
 
     def refresh(self) -> None:
-        """Re-read the raidable starred tasks and merge them into the list."""
+        """Re-read the live starred tasks and merge them into the list."""
         if self._busy:
             return
         self._busy = True
@@ -95,42 +117,44 @@ class SecretTasksTab:
 
     # -- reading the game ---------------------------------------------------
     def _fetch(self) -> list:
-        """The raidable, starred alliance secret tasks, straight from the live VM.
+        """The live, starred alliance secret tasks, straight from the VM.
 
-        Reuses `steal_secret_task._vm_raidable_tasks`, the one reader the auto-loot
-        already trusts, so a tile shown here is picked identically to one it would rob.
+        `steal_secret_task._vm_all_alliance_tasks` returns every tile on the map with a
+        free slot — the ones already raidable AND the ones still counting down — so a row
+        can carry its «готово через …» timer and flip to raidable in place. Only the
+        starred ones are kept; the level range narrows the list at render time, not here,
+        so widening it never needs a re-read.
         """
         import lua_client
         import steal_secret_task
         ev = lua_client.get_evaluator(port=self.app._daemon_port())
-        tasks = steal_secret_task._vm_raidable_tasks(ev)
-        return [t for t in tasks if t.starred and t.can_loot]
+        tasks = steal_secret_task._vm_all_alliance_tasks(ev)
+        return [t for t in tasks if t.starred]
 
     def _merge(self, tasks) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
 
         A rescan only ADDS — an existing row keeps its place and its timer, a tile
         robbed by hand this session is skipped, and nothing already on screen is torn
-        out from under the operator. Expiry is the tick loop's job.
+        out from under the operator. Expiry and the ready-transition are the tick's job.
         """
         self._busy = False
-        added = 0
         for t in tasks:
             key = str(t.uuid)
             if key in self._rows or key in self._collected:
                 continue
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
-                "level": t.level, "cfg_id": t.cfg_id,
+                "level": t.level, "cfg_id": t.cfg_id, "loot_count": t.loot_count,
                 "expires_at": t.expires_at, "completed_at": t.completed_at,
-                "timer": tk_stringvar(self.app), "frame": None,
+                "timer": tk_stringvar(self.app), "frame": None, "ready": False,
             }
-            added += 1
         self._render()
         # An empty list after a clean read is "no starred tile right now", not "no
         # game" — the scroll's own hint says so, so the status stays blank rather than
         # crying about a game that may be perfectly up.
         self._update_status()
+        self._maybe_start_poll()
 
     # -- UI -----------------------------------------------------------------
     def _build(self) -> None:
@@ -258,27 +282,37 @@ class SecretTasksTab:
         self._update_status()
 
     # The row is packed left-to-right: icon, stars, coords, countdown, uuid, then the
-    # two action buttons on the right. Built one row at a time (not a shared grid) so a
-    # collect can drop a single row without re-flowing the columns of the rest.
+    # action buttons on the right. Built one row at a time (not a shared grid) so a
+    # collect can drop a single row without re-flowing the columns of the rest. A ready
+    # tile (its countdown spent) is drawn green with the ✅ glyph and grows its «Собрать»
+    # button; a tile still counting down shows only «Поделиться», since collecting one
+    # before it matures is a robbery the server would refuse.
     def _row_widget(self, row):
         import coords as coords_fmt
+        ready = bool(row.get("ready"))
         frame = ttk.Frame(self._scroll)
-        ttk.Label(frame, text=TYPE_GLYPH, font=ui_font(size=15)).pack(
-            side="left", padx=(0, 6))
-        ttk.Label(frame, text=self.app._t("secrettasks.stars", n=int(row["level"] or 0)),
-                 font=ui_font(weight="bold"), width=52).pack(side="left", padx=(0, 8))
+        ttk.Label(frame, text=READY_GLYPH if ready else TYPE_GLYPH,
+                  font=ui_font(size=15)).pack(side="left", padx=(0, 6))
+        stars = ttk.Label(frame, text=self.app._t("secrettasks.stars",
+                                                  n=int(row["level"] or 0)),
+                          font=ui_font(weight="bold"), width=52)
+        if ready:
+            stars.configure(foreground=READY_COLOR)
+        stars.pack(side="left", padx=(0, 8))
         ttk.Label(frame, text=coords_fmt.fmt(row["x"], row["y"], row["server"]),
                  width=110).pack(side="left", padx=(0, 8))
-        ttk.Label(frame, textvariable=row["timer"], foreground="#e0a84f",
+        ttk.Label(frame, textvariable=row["timer"],
+                 foreground=READY_COLOR if ready else TIMER_COLOR,
                  width=150, anchor="w").pack(side="left", padx=(0, 8))
         ttk.Label(frame, text=self._short_uuid(row["uuid"]), foreground="#888").pack(
             side="left", padx=(0, 8))
         share = ttk.Button(frame, width=12)
         share.configure(command=lambda b=share, r=row: self._open_share_menu(b, r))
         self.app._tr(share, "secrettasks.share").pack(side="right", padx=(4, 0))
-        self.app._tr(ttk.Button(frame, width=12,
-                               command=lambda r=row: self._collect(r)),
-                     "secrettasks.collect").pack(side="right")
+        if ready:
+            self.app._tr(ttk.Button(frame, width=12,
+                                   command=lambda r=row: self._collect(r)),
+                         "secrettasks.collect").pack(side="right")
         return frame
 
     @staticmethod
@@ -295,40 +329,162 @@ class SecretTasksTab:
             self._tick()
 
     def _tick(self) -> None:
-        """Every second: write each row's remaining time, drop the ones that expired.
+        """Every second: rewrite each row's timer, drop the expired, flip the matured.
 
-        A tile that has run out is off the map and can no longer be robbed, so it comes
-        off the list on its own — the operator never presses «Собрать» on a dead tile.
+        A tile that has run out of `expires_at` is off the map and can no longer be
+        robbed, so it comes off the list on its own. A tile whose `completed_at` passes
+        turns raidable: the tick repaints it green (`_render`) and wakes the poll. Only a
+        state change repaints — the second-by-second countdown is a StringVar written in
+        place, no widget rebuild.
         """
         try:
-            expired = self._refresh_timers()
-            if expired:
-                for key in expired:
-                    self._rows.pop(key, None)
+            expired, changed = self._refresh_timers()
+            for key in expired:
+                self._rows.pop(key, None)
+            if expired or changed:
                 self._render()
                 self._update_status()
+            self._maybe_start_poll()
         finally:
             try:
                 self.app.after(1000, self._tick)
             except Exception:                 # noqa: BLE001 — panel gone, stop ticking
                 self._ticking = False
 
-    def _refresh_timers(self) -> list:
-        """Set every row's countdown text; return the keys of rows that have expired."""
+    def _refresh_timers(self) -> tuple[list, bool]:
+        """Rewrite every row's timer; return (expired keys, did any ready-state change).
+
+        The countdown runs to `completed_at` — the moment the tile becomes raidable —
+        not to expiry: «готово через …» while it is ahead, then «готово к сбору» (with
+        how long is left to loot) once it is past. `expires_at` still governs removal.
+        """
         import time
         now = int(time.time() * 1000)
-        expired = []
+        expired, changed = [], False
         for key, row in self._rows.items():
             exp = row["expires_at"]
-            if exp is None:
-                row["timer"].set(self.app._t("secrettasks.left", t="—"))
-                continue
-            left = exp - now
-            if left <= 0:
+            if exp is not None and exp <= now:
                 expired.append(key)
                 continue
-            row["timer"].set(self.app._t("secrettasks.left", t=_fmt_left(left)))
-        return expired
+            done = row["completed_at"]
+            ready = done is not None and done <= now
+            if ready != row.get("ready"):
+                row["ready"] = ready
+                changed = True
+            if done is None:
+                row["timer"].set(self.app._t("secrettasks.until_ready", t="—"))
+            elif not ready:
+                row["timer"].set(self.app._t("secrettasks.until_ready",
+                                             t=_fmt_left(done - now)))
+            elif exp is not None:
+                row["timer"].set(self.app._t("secrettasks.ready_expires",
+                                             t=_fmt_left(exp - now)))
+            else:
+                row["timer"].set(self.app._t("secrettasks.ready"))
+        return expired, changed
+
+    # -- the ready-row poll -------------------------------------------------
+    def _maybe_start_poll(self) -> None:
+        """Start the slow poll if a row is ready and it is not already running."""
+        if self._polling:
+            return
+        if any(r.get("ready") for r in self._rows.values()):
+            self._polling = True
+            try:
+                self.app.after(POLL_MS, self._poll_tick)
+            except Exception:                 # noqa: BLE001 — panel gone
+                self._polling = False
+
+    def _poll_tick(self) -> None:
+        """Re-read the game for the ready rows; reschedule while any remain.
+
+        Off the Tk thread (a daemon round trip), so this only gathers the keys and hands
+        the read to a worker. Stops rescheduling the moment no row is ready — an idle tab
+        must not keep waking the daemon.
+        """
+        ready = [k for k, r in self._rows.items() if r.get("ready")]
+        if not ready:
+            self._polling = False
+            return
+        threading.Thread(target=self._poll_work, args=(ready,), daemon=True).start()
+        try:
+            self.app.after(POLL_MS, self._poll_tick)
+        except Exception:                     # noqa: BLE001 — panel gone
+            self._polling = False
+
+    def _poll_work(self, keys: list) -> None:
+        try:
+            import lua_client
+            import steal_secret_task
+            ev = lua_client.get_evaluator(port=self.app._daemon_port())
+            live = {str(t.uuid): t for t in steal_secret_task._vm_all_alliance_tasks(ev)}
+        except Exception:                     # noqa: BLE001 — a failed read proves nothing
+            live = None
+        self.app.after(0, lambda: self._poll_apply(keys, live))
+
+    def _poll_apply(self, keys: list, live) -> None:
+        """Reconcile the polled ready rows: drop the gone, refresh the rest, then loot.
+
+        A failed read (``live is None``) is not evidence a tile vanished, so it is left
+        alone until the next poll. A tile missing from a *good* read is off the map
+        (expired) or looted out (its slots filled), and either way it can no longer be
+        robbed — so its row drops. A tile still present has its live fields refreshed.
+        Auto-loot runs last, over the whole refreshed list, so it robs by the standing
+        order's rule rather than per-tile.
+        """
+        if live is None:
+            return
+        removed = False
+        for key in keys:
+            row = self._rows.get(key)
+            if row is None:
+                continue
+            task = live.get(key)
+            if task is None:
+                self._rows.pop(key, None)
+                removed = True
+                continue
+            row["expires_at"] = task.expires_at
+            row["completed_at"] = task.completed_at
+            row["loot_count"] = task.loot_count
+        if self._autoloot_on():
+            self._auto_loot(live)
+        if removed:
+            self._render()
+            self._update_status()
+
+    def _auto_loot(self, live) -> None:
+        """Rob the raidable, in-range rows — but only at the range's TOP level, once each.
+
+        The same rule the app's auto-loot watcher obeys, and for the same reason: «от 1
+        до 7» robs 7-star tiles and leaves a 6 alone, because the five daily robberies
+        are the scarce thing and one spent on a 6 is one a 7 cannot have until the reset
+        (#1099). The display range IS the rob rule — a hidden tile is never robbed — and
+        each tile is attempted once a session so a poll on a spent budget does not re-fire.
+        """
+        candidates = [
+            (key, row) for key, row in self._rows.items()
+            if row.get("ready") and self._in_range(row["level"])
+            and key not in self._auto_attempted and key not in self._collected
+            and key in live and live[key].can_loot
+        ]
+        if not candidates:
+            return
+        _lo, hi = self.app._autoloot_levels()
+        top = hi if hi is not None else max(int(r["level"] or 0) for _, r in candidates)
+        for key, row in candidates:
+            if int(row["level"] or 0) != top:
+                continue
+            self._auto_attempted.add(key)
+            self._collect(row)
+
+    def _autoloot_on(self) -> bool:
+        """Whether the «Автолут ★» checkbox (its var lives on the app) is ticked."""
+        var = getattr(self.app, "_autoloot_var", None)
+        try:
+            return bool(var is not None and var.get())
+        except Exception:                     # noqa: BLE001
+            return False
 
     # -- actions ------------------------------------------------------------
     def _collect(self, row) -> None:
