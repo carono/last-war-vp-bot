@@ -812,7 +812,39 @@ class Panel(ctk.CTk):
             except Exception:        # noqa: BLE001
                 pass
             self._splash = None
+        self._reveal_window()
+
+    def _reveal_window(self) -> None:
+        """Show the main window once the boot splash is gone.
+
+        Hiding the window before it has ever been on screen puts CustomTkinter in a
+        state a plain `deiconify()` does not get it out of: it remembers the hide,
+        and the first `mainloop()` then hides the window AGAIN to repaint the title
+        bar and puts back the state it recorded — which on that path is nothing at
+        all, so the window is left hidden while the rest of the panel runs happily
+        (#1145: the splash showed, then everything worked but nothing was visible).
+
+        So: tell CustomTkinter the window is already up, show it, and repaint the
+        title bar ourselves — that repaint is the only thing `mainloop()` wanted its
+        hide for.
+        """
+        for attr, value in (("_window_exists", True),
+                            ("_withdraw_called_before_window_exists", False),
+                            ("_iconify_called_before_window_exists", False),
+                            ("_state_before_windows_set_titlebar_color", "normal")):
+            if hasattr(self, attr):
+                setattr(self, attr, value)
         self.deiconify()
+        # After the deiconify, never before: the repaint hides and re-shows the
+        # window, and it can only put back a state it can read off a live window.
+        try:
+            self._windows_set_titlebar_color(ctk.get_appearance_mode().lower())
+        except Exception:            # noqa: BLE001 — cosmetic, Windows-only
+            pass
+        try:
+            self.lift()
+        except Exception:            # noqa: BLE001
+            pass
 
     def _splash_step(self, key: str, progress: float) -> None:
         """Advance the boot splash (a no-op once it is gone or was never built)."""
