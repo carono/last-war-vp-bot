@@ -97,7 +97,7 @@ from . import __version__ as APP_VERSION
 # Stock widgets (Frame, Label, Button, Entry, Checkbutton, Combobox, Notebook,
 # LabelFrame, Scrollbar, Text, Treeview, Spinbox, Listbox, Menu, PanedWindow)
 # come straight from tk/ttk above.
-from .widgets import NumericEntry, numeric_spinbox, font as ui_font
+from .widgets import NumericEntry, ScrollableFrame, numeric_spinbox, font as ui_font
 from .splash import SplashScreen
 from . import childmon as childmonmod
 from . import dashboard as dashmod
@@ -174,6 +174,10 @@ LOG_FILTER_ALL = "*"
 # Severity colours, on the log's dark background.
 LOG_COLOURS = {"sev_error": "#ff6b6b", "sev_warn": "#e8c069", "sev_ok": "#7bd88f",
                "stamp": "#6a6a6a"}
+# How much of the main tab the log keeps when the panel places the sash itself:
+# the control blocks above it are given the height they ask for, but never so much
+# that the log below is left with nothing to show.
+LOG_MIN_HEIGHT = 150
 # Severity colouring, as ordered patterns. FIRST MATCH WINS, so the bad news comes
 # first: «готовность не подтверждена» has to read as the failure it is rather than
 # as the «готов» inside it.
@@ -1635,7 +1639,17 @@ class Panel(tk.Tk):
         lower = ttk.Frame(split)
         split.add(upper, weight=0)
         split.add(lower, weight=1)
-        main = upper                  # the control blocks below fill the top pane
+        # The blocks in the top pane scroll. Stacked they ask for more height than
+        # the pane ever gets — the window opens 760×600 and the strip alone wants
+        # some 550 px — and `pack` answers that by collapsing whatever crosses the
+        # bottom edge to a single pixel. «Автолут секреток» and «Автолут Призрака»
+        # sat right at that edge and showed a caption with nothing under it, with
+        # no hint that anything was missing (#1153). Inside a scroll area every
+        # block keeps the height it asks for, wherever the sash ends up.
+        controls = ScrollableFrame(upper)
+        controls.pack(fill="both", expand=True)
+        self._main_controls = controls
+        main = controls               # the control blocks below fill the top pane
 
         game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
@@ -4225,19 +4239,41 @@ class Panel(tk.Tk):
                 pass
         sash = self._settings.get("log_sash")
         try:
-            sash = int(sash)
+            sash = max(int(sash), 0)
         except (TypeError, ValueError):
-            return
-        if sash > 0:
-            self.after(200, lambda: self._apply_sash(sash))
+            sash = 0
+        self.after(200, lambda: self._apply_sash(sash))
 
-    def _apply_sash(self, sash: int) -> None:
+    def _apply_sash(self, sash: int = 0) -> None:
+        """Put the main tab's sash ``sash`` px from the top — or, with 0, where the
+        control blocks naturally end.
+
+        Bounded at both ends, because a remembered pixel count is a poor answer on
+        any window it was not measured on. The top pane never gets more than the
+        blocks ask for (the surplus would be dead space above the sash), and never
+        so much that the log below is squeezed out of sight — which is what a
+        window too short for both used to do to «Автолут секреток» and «Автолут
+        Призрака» (#1153). The blocks scroll now, so bounding the pane costs
+        nothing: what does not fit is reachable rather than cut off.
+        """
         split = getattr(self, "_main_split", None)
+        controls = getattr(self, "_main_controls", None)
         if split is None:
             return
         try:
-            split.sashpos(0, sash)
-        except (tk.TclError, IndexError):
+            self.update_idletasks()
+            want = int(controls.winfo_reqheight()) if controls is not None else 0
+            total = int(split.winfo_height())
+            if want > 0:
+                sash = want if sash <= 0 else min(sash, want)
+            if total > 0:
+                # Half the pane is the floor's own floor: on a window too short for
+                # both there is no split that pleases anybody, and an even one at
+                # least leaves each side something to show.
+                sash = min(sash, max(total - LOG_MIN_HEIGHT, total // 2))
+            if sash > 0:
+                split.sashpos(0, sash)
+        except (tk.TclError, IndexError, ValueError):
             pass
 
     # -- resizing the window ------------------------------------------------
