@@ -459,17 +459,23 @@ def cmd_chain(argv):
     offline proxy to a live run, so band-seam roof-descents can be iterated without attempts."""
     lane0 = int(argv[0]) if argv and argv[0].lstrip("-").isdigit() else 1
     born, mon = load_config()
-    zmax = len(bands(born, mon)) * 340
+    nb = len(bands(born, mon))
+    zmax = nb * 340
     ev = get_evaluator()
+    worst = None
     try:
-        _, _, dist = score(ev, lane0, speed=30, accel=0.0027, zmax=zmax)
+        for rot in range(nb):        # scan band orders — the live order is random, so seams vary
+            _, _, dist = score(ev, lane0, speed=30, accel=0.0027, zmax=zmax, rot=rot)
+            print("  rot=%2d dist=%.0f" % (rot, dist))
+            if worst is None or dist < worst[1]:
+                worst = (rot, dist)
     finally:
         ev.close()
-    print("CHAIN start=%s dist=%.0f of %d m" % (LANE_NAME[lane0], dist, zmax))
+    print("CHAIN start=%s worst rot=%d dist=%.0f of %d m" % (LANE_NAME[lane0], worst[0], worst[1], zmax))
     return 0
 
 
-def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340):
+def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340, rot: int = 0):
     """Replay every band from one start lane through the live planner at `speed` u/s. Returns
     ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
     Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot.
@@ -484,9 +490,12 @@ def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 3
     if accel > 0:
         # CHAIN: concatenate every band into one long track (offset 340 each) so band SEAMS
         # appear — that is where the live roof-descent deaths happen and an isolated band can't
-        # show them. One "band" is fed, and ZMAX is the whole length.
+        # show them. `rot` rotates the band order so different seams are exercised (the live
+        # order is random). One "band" is fed, and ZMAX is the whole length.
+        order = sorted(per_band)
+        order = order[rot % len(order):] + order[:rot % len(order)]
         chained, off = [], 0
-        for band in sorted(per_band):
+        for band in order:
             for x, z, mid in per_band[band]:
                 chained.append((x, z + off, mid))
             off += 340
