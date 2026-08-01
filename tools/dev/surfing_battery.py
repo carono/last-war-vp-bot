@@ -16,9 +16,11 @@ What is in it, and why each earns its place:
   covers every band in the pool, so it is the regression guard: a change that helps one route
   and breaks a band class shows up here and nowhere else.
 * **run_002** — the one route a person actually ran, at the speed ramp they ran it at.
-* **five drawn routes** — bands drawn the way the game draws them (`pool:36:SEED`). The three
-  recordings have been read against the planner long enough that a good score on them says as
-  much about the tuning as about the track; a fresh draw does not.
+* **five drawn routes** — bands drawn the way the game draws them (`pool:36:SEED`, which
+  since #1163 means slot by slot out of the pool that slot has, replayed at the speed steps
+  the game runs them at). The three recordings have been read against the planner long enough
+  that a good score on them says as much about the tuning as about the track; a fresh draw
+  does not.
 * **the ceiling beside each distance** — what the exhaustive search reaches while insisting on
   the same 1.5 m of clearance the planner keeps. A distance without its ceiling cannot be read
   at all: run_002 dies at 7390 of 11880 and is at its own ceiling, seed 3 dies at 508 of 11880
@@ -42,6 +44,8 @@ SEEDS = tuple(range(1, 6))   # override with seeds=N for a wider sample
 
 
 def band_score(cfg):
+    """The isolated per-band score. Three of the bands it counts (108/109/110) are the flight
+    coin trails — 250 coins at y=20 and nothing solid — so nine of its passes are free."""
     rt, _ = O.new_vm(cfg)
     ov, band_src, hole_src, roof_src, _, _ = S.build_field()
     passed = 0
@@ -55,16 +59,21 @@ def band_score(cfg):
 
 
 def one_route(cfg, spec, ceiling=True):
-    """(planner distance, ceiling at PAD or None, total) for one route, from centre."""
-    order, _ = O.resolve_route(spec)
+    """(planner distance, ceiling at PAD or None, total) for one route, from centre.
+
+    A drawn route knows which slot each of its bands sits in, so it is replayed at the game's
+    own speed steps; a recording does not and keeps the ramp fitted from the recording."""
+    order, _, _first, steps = O.route_plan(spec)
     accel = O.route_accel(spec)
+    speed0 = steps[0][1] if steps else 30.0
     zmax = len(order) * S.BAND_PITCH
     rt, _ = O.new_vm(cfg)
-    ov, band, hole, roof, _, _ = S.build_field(accel=accel, order=order)
-    dist, _, _ = O.run_group(rt, ov, band[0], hole[0], roof[0], 1, 30, accel, zmax)
+    ov, band, hole, roof, _, _ = S.build_field(accel=accel, order=order, speed0=speed0,
+                                               steps=steps)
+    dist, _, _ = O.run_group(rt, ov, band[0], hole[0], roof[0], 1, speed0, accel, zmax, steps)
     top = None
     if ceiling:
-        tr = O.Track(order, 30.0, accel, PAD)
+        tr = O.Track(order, speed0, accel, PAD, steps)
         top = zmax if O._search(tr, 1) is not None else O._furthest(tr, 1)
     return dist, top, zmax
 
@@ -86,7 +95,8 @@ def main(argv):
         print("cfg %s" % " ".join("%s=%g" % (k, v) for k, v in sorted(cfg.items())))
     print("planner %s" % os.path.basename(O.AI_LUA))
     passed, total = band_score(cfg)
-    print("per-band, three start lanes   %d/%d" % (passed, total))
+    print("per-band, three start lanes   %d/%d   (9 of these are the flight coin trails, "
+          "which hold nothing solid and cannot be failed)" % (passed, total))
     print("%-14s %8s %8s   %s" % ("route", "planner", "ceiling", "of"))
     rows = [("run_002", "run_002")] + [("pool:36:%d" % s, "seed %d" % s) for s in seeds]
     share = []

@@ -125,22 +125,54 @@ class Generator:
         rng = random.Random(seed)
         return [rng.choice(sorted(self.known(i))) for i in range(count)]
 
-    def speed_runs(self, count: int):
-        """The route split into its constant-speed stretches: `(first slot, span, speed)`.
+    def extend(self, order, extra: int, seed: int, first: int = 0) -> list:
+        """Carry a chain on past its end, drawing each new band from the slot it lands in."""
+        rng = random.Random(seed)
+        out = list(order)
+        for i in range(extra):
+            out.append(rng.choice(sorted(self.known(first + len(out)))))
+        return out
 
-        The judge takes one speed and one acceleration, so a route crossing a speed change
-        cannot be replayed in one piece at the right speed. Replaying it in these pieces can."""
-        runs, first = [], 0
-        while first < count:
-            f, span, _ = self.segment_of(first)
-            span = min(span if span else count - first, count - first)
-            speed = self.speed(first)
+    def speed_runs(self, count: int, first: int = 0):
+        """The route split into its constant-speed stretches: `(offset in the route, span,
+        speed)`, where the route's own first band is absolute slot `first`.
+
+        A recording that lost its opening to the frame buffer does not start at band 0, so the
+        slot — and with it the speed — has to be counted from where the chain really begins."""
+        runs, slot = [], first
+        while slot < first + count:
+            seg_first, span, _ = self.segment_of(slot)
+            span = (seg_first + span - slot) if span else (first + count - slot)
+            span = min(span, first + count - slot)
+            speed = self.speed(slot)
             if runs and runs[-1][2] == speed:
                 runs[-1] = (runs[-1][0], runs[-1][1] + span, speed)
             else:
-                runs.append((first, span, speed))
-            first += span
+                runs.append((slot - first, span, speed))
+            slot += span
         return runs
+
+
+def route_speed_steps(gen: Generator, route: dict):
+    """The speed profile a catalogue route runs at.
+
+    A `game` route walks the schedule, so its speed steps where the slots step. Every other
+    kind is a probe of ONE pool and holds that pool's speed for its whole length — a sweep of
+    the 40-pool laid 24 bands long would otherwise run its tail at 50 and 60, which are speeds
+    the game never gives those layouts."""
+    if route.get("speed") is None:
+        return speed_steps(gen, len(route["bands"]), route["first"])
+    return [(0.0, float(route["speed"]))]
+
+
+def speed_steps(gen: Generator, count: int, first: int = 0):
+    """The route's speed as `[(z, speed), ...]` — what the judge and the search both take.
+
+    z is measured from the start of the route, not from the start of the run, so a chain that
+    begins at band 4 still starts at z = 0. Speed is held from each z until the next entry,
+    which is exactly what the game does: flat across a band, a step on the boundary."""
+    return [(off * S.BAND_PITCH, speed)
+            for off, _span, speed in gen.speed_runs(count, first)]
 
 
 # ------------------------------------------------------------------------- naming a recording
@@ -544,8 +576,55 @@ def cmd_cover(argv, gen: Generator):
     return 0 if not failed else 1
 
 
+def cmd_catalogue(argv, gen: Generator):
+    """Run the catalogue through the planner — every route at its own speed steps.
+
+    `cover` asks whether a band is survivable on its own. This asks the question a run asks:
+    does the planner get through a track the game could lay down, with the seams in it and the
+    speed stepping where the game steps it.
+
+        catalogue                # every route, from the centre lane
+        catalogue 0 1 2          # ... from all three
+        catalogue kind=opening   # one kind only (opening, sweep, game, seam)
+    """
+    import surfing_offline as O
+
+    lanes = [int(a) for a in argv if a.isdigit()] or [1]
+    kinds = [a.split("=", 1)[1] for a in argv if a.startswith("kind=")]
+    routes = [r for r in synthetic_routes(gen) if not kinds or r["kind"] in kinds]
+    print("%d routes x %d start lanes" % (len(routes), len(lanes)))
+    print("planner %s, judge %s" % (_provenance(O.AI_LUA), _provenance(S.SIM_LUA_PATH)))
+    rt, _ai = O.new_vm()
+    tally = collections.defaultdict(lambda: [0, 0])
+    for route in routes:
+        order = route["bands"]
+        first = route["first"]
+        steps = route_speed_steps(gen, route)
+        zmax = len(order) * S.BAND_PITCH
+        ov, band, hole, roof, _k, names = S.build_field(order=order, speed0=steps[0][1],
+                                                        steps=steps)
+        for lane in lanes:
+            dist, dead, _moves = O.run_group(rt, ov, band[0], hole[0], roof[0], lane,
+                                             steps[0][1], 0, zmax, steps)
+            tally[route["kind"]][1] += 1
+            if dead is None:
+                tally[route["kind"]][0] += 1
+            else:
+                slot = min(int(dist // S.BAND_PITCH), len(order) - 1)
+                at = S.speed_profile(steps=steps)(slot * S.BAND_PITCH)
+                print("DIE  %-18s from %-6s %6.0f of %5d m  band %d (%s at %2.0f u/s)  %s" %
+                      (route["name"], S.LANE_NAME[lane], dist, zmax, slot, order[slot],
+                       at, O.describe(dead, names)))
+    print("\nCATALOGUE passed=%d of=%d" %
+          (sum(v[0] for v in tally.values()), sum(v[1] for v in tally.values())))
+    for kind in sorted(tally):
+        print("  %-8s %d of %d" % (kind, tally[kind][0], tally[kind][1]))
+    return 0 if all(v[0] == v[1] for v in tally.values()) else 1
+
+
 COMMANDS = {"model": cmd_model, "chains": cmd_chains, "stats": cmd_stats,
-            "draw": cmd_draw, "routes": cmd_routes, "cover": cmd_cover}
+            "draw": cmd_draw, "routes": cmd_routes, "cover": cmd_cover,
+            "catalogue": cmd_catalogue, "catalog": cmd_catalogue}
 
 
 def main(argv):

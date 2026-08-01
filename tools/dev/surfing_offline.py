@@ -85,15 +85,19 @@ def new_vm(cfg: dict | None = None):
 
 
 def run_group(rt, ov: str, band: str, hole: str, roof: str,
-              lane0: int, speed: float, accel: float, zmax: float):
-    """One replay through the shared judge. Returns (distance, death or None, moves)."""
+              lane0: int, speed: float, accel: float, zmax: float, steps=None):
+    """One replay through the shared judge. Returns (distance, death or None, moves).
+
+    `steps` is the real speed profile — `[(z0, speed), ...]`, held flat across each band. A
+    route drawn from the generator has one; a recording is replayed at its fitted ramp."""
     rt.execute("__SR_AI.kindOverride = {%s}" % ov)
     if rt.globals()["_G"]["__SR_AI"]["resetKinds"] is not None:
         rt.globals()["_G"]["__SR_AI"]["resetKinds"]()
     # band/hole/roof already arrive brace-wrapped from build_field — one group each
+    steps_src = "{%s}" % ",".join("{%g,%g}" % (z, v) for z, v in (steps or []))
     fn = rt.eval(
-        "function(l, s, a, zm) return __SR_SIM.once(%s, %s, %s, l, s, a, zm) end"
-        % (band, hole, roof))
+        "function(l, s, a, zm) return __SR_SIM.once(%s, %s, %s, l, s, a, zm, %s) end"
+        % (band, hole, roof, steps_src))
     pz, dead, moves = fn(lane0, speed, accel, zmax)
     if dead is not None:
         dead = {"mid": int(dead["mid"] or 0), "x": float(dead["x"] or 0),
@@ -254,24 +258,50 @@ def route_accel(spec: str) -> float:
     return 0.0027
 
 
-def resolve_route(spec: str):
-    """The band chain a `route` argument names, plus where it came from.
+def route_plan(spec: str):
+    """Everything a `route` argument names: ``(order, note, first slot, speed steps)``.
 
-    Either an explicit comma-separated band list, a human recording — a file path, or just
-    ``run_002`` for one under results/street_run/human — or ``pool:N[:seed]``, a route of N
-    bands DRAWN from the pool the way the game draws one. Returns ``(order, note)``.
+    Four kinds of argument, and the last two are the catalogue (see `surfing_tracks.py`):
+
+    * an explicit comma-separated band list — ``2007,2003,315``;
+    * a human recording — a path, or just ``run_002`` for one under results/street_run/human;
+    * ``cat:<name>`` — a route from the catalogue, e.g. ``cat:game-3``, ``cat:opening-202-310``,
+      ``cat:sweep-60``. ``surfing_tracks.py routes`` lists them;
+    * ``game:N[:seed]`` — N bands drawn slot by slot the way the game draws them. ``pool:N``
+      is the same thing under its old name.
+
+    `first slot` is which band index the chain starts at — a recording that lost its opening to
+    the frame buffer does not start at band 0, and the slot decides the speed. `speed steps`
+    is the real profile for a route whose slots are known, and None for a recording or a hand
+    written list, which are replayed at a fitted ramp instead.
 
     A drawn route is what makes a distance mean anything beyond this one recording. There are
     three recordings, and the planner has been read against them long enough that a good score
     on them says as much about the tuning as about the track; a fresh draw meets the same bands
-    in orders nothing has been fitted to."""
+    in orders nothing has been fitted to. What it must NOT be is a bag of bands with no slot
+    structure — that draws an infinite-pool band into band 2 and runs a 60-speed band at 30."""
+    import surfing_tracks as T
+
     if "," in spec or spec.isdigit():
-        return [b for b in spec.split(",") if b], "given on the command line"
-    if spec.startswith("pool:"):
+        return [b for b in spec.split(",") if b], "given on the command line", 0, None
+    if spec.startswith("cat:"):
+        name = spec.split(":", 1)[1]
+        gen = T.Generator()
+        for route in T.synthetic_routes(gen):
+            if route["name"] == name:
+                return (list(route["bands"]),
+                        "catalogue %s — %s" % (name, route["note"]),
+                        route["first"], T.route_speed_steps(gen, route))
+        raise SystemExit("no route named %s in the catalogue "
+                         "(python3 tools/dev/surfing_tracks.py routes lists them)" % name)
+    if spec.startswith("pool:") or spec.startswith("game:"):
         parts = spec.split(":")
         n = int(parts[1])
         seed = int(parts[2]) if len(parts) > 2 else 1161
-        return extend_route([], n, seed), "%d bands drawn from the pool (seed %d)" % (n, seed)
+        gen = T.Generator()
+        return (gen.draw(n, seed),
+                "%d bands drawn slot by slot the way the game draws (seed %d)" % (n, seed),
+                0, T.speed_steps(gen, n, 0))
     path = spec
     if not os.path.exists(path):
         cand = os.path.join(S.HUMAN_DIR, spec if spec.endswith(".txt") else spec + ".txt")
@@ -292,29 +322,53 @@ def resolve_route(spec: str):
         # the frame buffer keeps only the last ~900 samples, so a long run's opening is gone
         note += " (the recording lost the first %d — %d m — to its frame buffer)" % (
             lost, lost * S.BAND_PITCH)
-    return order, note
+    return order, note, lost, None
 
 
-def extend_route(order, extra: int, seed: int = 1161):
-    """Carry a recovered route on past its end with more bands from the same pool.
+def resolve_route(spec: str):
+    """`route_plan` without the slot and the speed profile — the shape older callers want."""
+    return route_plan(spec)[:2]
 
-    The game draws each band from the pool it has; the recovered routes show it drawing with
-    replacement and with no bar on drawing the same band twice running (run_002 has 313 313
-    and 2006 2006 back to back). So the extension is a seeded draw from the pool, weighted by
-    how often each band turned up across the recordings — which keeps the mix of band types
-    the same rather than inventing an even one. Seeded, so an extended route is reproducible."""
-    import glob
-    import random
-    weights: dict = {}
-    for path in sorted(glob.glob(os.path.join(S.HUMAN_DIR, "run_*.txt"))):
-        for _, band, _, _ in S.band_order_from_run(path):
-            if band:
-                weights[band] = weights.get(band, 0) + 1
-    for band in order:
-        weights.setdefault(band, 1)
-    pool = sorted(weights)
-    rng = random.Random(seed)
-    return list(order) + rng.choices(pool, weights=[weights[b] for b in pool], k=extra)
+
+def extend_route(order, extra: int, seed: int = 1161, first: int = 0):
+    """Carry a route on past its end, drawing each new band from the slot it lands in.
+
+    The game draws each band from the pool that slot has; the recovered routes show it drawing
+    with replacement and with no bar on drawing the same band twice running (run_002 has 313
+    313 and 2006 2006 back to back). Seeded, so an extended route is reproducible.
+
+    This used to draw from one bag of every band seen in any recording, weighted by how often
+    each turned up. That bag has no slot structure in it, so it would put an infinite-pool band
+    at index 2 and a band that only exists at 60 into track running at 30 — see #1163."""
+    import surfing_tracks as T
+
+    return T.Generator().extend(order, extra, seed, first)
+
+
+def bare_steps(rest, steps, order, first: int):
+    """Honour a bare ``steps`` argument: replay at the band's own speed instead of a ramp.
+
+    A recording carries no slot ids, so `route_plan` hands it back with no profile and it is
+    replayed at the ramp fitted from the recording — which is how every published number for
+    it was measured. The recording's speed IS a step profile though (measured: 30/40/50/60 at
+    bands 0/5/12/21), so `steps` asks for the accurate one. Opt-in, so a measurement taken
+    before this existed stays reproducible."""
+    if "steps" not in rest or steps is not None:
+        return steps, ""
+    import surfing_tracks as T
+
+    return (T.speed_steps(T.Generator(), len(order), first),
+            ", at the band's own speed steps rather than a fitted ramp")
+
+
+def route_steps(steps, skip: int = 0):
+    """The speed profile of a route entered `skip` bands along, re-zeroed on the new start."""
+    if not steps:
+        return None
+    z0 = skip * S.BAND_PITCH
+    out = [(z - z0, v) for z, v in steps if z > z0]
+    out.insert(0, (0.0, S.speed_profile(steps=steps)(z0)))
+    return out
 
 
 def cmd_route(argv, cfg):
@@ -330,11 +384,13 @@ def cmd_route(argv, cfg):
         route run_002 1 extend=40      # ... carried on with 40 more bands from the pool
         route run_002 1 trace          # ... and print the decisions leading into the death
         route 2007,2003,315 1          # an explicit chain
+        route cat:game-3 1             # a catalogue route, at the game's own speed steps
+        route game:40:7 1              # 40 bands drawn slot by slot, seed 7
     """
     if not argv:
-        raise SystemExit("usage: route <recording|band,band,...> [start-lane] "
-                         "[extend=N] [accel=A] [trace [span]]")
-    order, note = resolve_route(argv[0])
+        raise SystemExit("usage: route <recording|cat:name|game:N[:seed]|band,band,...> "
+                         "[start-lane] [extend=N] [accel=A] [trace [span]]")
+    order, note, first, steps = route_plan(argv[0])
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     extra, accel, seed = 0, None, 1161
@@ -351,22 +407,31 @@ def cmd_route(argv, cfg):
     if accel is None:
         accel = route_accel(argv[0])
     if extra:
-        order = extend_route(order, extra, seed)
-        note += " + %d more from the pool (seed %d)" % (extra, seed)
+        order = extend_route(order, extra, seed, first)
+        note += " + %d more drawn from the slots after it (seed %d)" % (extra, seed)
+        if steps:
+            import surfing_tracks as T
+            steps = T.speed_steps(T.Generator(), len(order), first)
+    steps, extra_note = bare_steps(rest, steps, order, first)
+    note += extra_note
     zmax = len(order) * S.BAND_PITCH
     print("route %s" % note)
     print("  %s" % " ".join(order))
-    print("  %d m of track, speed 30 -> %.0f (accel %.5f)"
-          % (zmax, min(30 + accel * zmax, 60), accel))
+    if steps:
+        print("  %d m of track, speed %s" %
+              (zmax, " -> ".join("%.0f at %d m" % (v, z) for z, v in steps)))
+    else:
+        print("  %d m of track, speed 30 -> %.0f (accel %.5f)"
+              % (zmax, min(30 + accel * zmax, 60), accel))
     rt, ai = new_vm(cfg)
-    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order, steps=steps)
     worst = None
     for lane0 in lanes:
         rows = []
         if trace:
             _watch(rt, ai, rows)
         dist, dead, moves = run_group(rt, ov, band[0], hole[0], roof[0],
-                                      lane0, 30, accel, zmax)
+                                      lane0, 30, accel, zmax, steps)
         rt.globals()["__SR_SIM"]["watch"] = None
         if dead is None:
             print("ok  start=%-6s dist=%6.0f of %d m  (%d moves)" % (
@@ -418,7 +483,7 @@ class Track:
     CAP = 60.0
     TRIGGER = 120.0    # SIM.moverTrigger — where a parked truck sets off
 
-    def __init__(self, order, speed0=30.0, accel=0.0027, pad=0.0):
+    def __init__(self, order, speed0=30.0, accel=0.0027, pad=0.0, steps=None):
         rows, kinds, names = route_rows(order)
         # Clearance demanded of every body, at both ends. At 0 this is the judge's own
         # geometry and the ceiling it yields is the most anything could ever reach. Above 0 it
@@ -439,8 +504,8 @@ class Track:
         self.zmax = len(order) * S.BAND_PITCH
         # the same speed-derived roof reach the judge uses, so the ceiling and the replay
         # cannot disagree about which carriages chain
-        holes, roofs = S.roof_holes(rows, kinds,
-                                    speed_at=S.speed_profile(speed0, accel, self.CAP))
+        self.speed_at = S.speed_profile(speed0, accel, self.CAP, steps)
+        holes, roofs = S.roof_holes(rows, kinds, speed_at=self.speed_at)
         self.holes, self.roofs = holes, roofs
         lane_of = (lambda x: min(range(3), key=lambda i: abs(x - (32 + 4 * i))))
         self.static, self.moving, self.fly = [], [], []
@@ -460,14 +525,14 @@ class Track:
                    k.get("speed", 0.0), mid)
             (self.moving if k.get("speed") else self.static).append(rec)
         self.static.sort(key=lambda r: r[1] - r[2])
-        self.speed0, self.accel = speed0, accel
+        self.speed0, self.accel, self.steps = speed0, accel, steps
         # pz and the clock depend only on the frame number — the avatar's speed is a function
         # of distance alone — so the whole timeline can be laid out once and shared by every
         # branch of the search. Indexed as the judge counts: its first pass is frame 1, at z=0.
         self.pz = [0.0, 0.0]
         while self.pz[-1] < self.zmax:
             p = self.pz[-1]
-            self.pz.append(p + min(speed0 + p * accel, self.CAP) * self.DT)
+            self.pz.append(p + self.speed_at(p) * self.DT)
         self.nframes = len(self.pz) - 2
         # A mover's clock starts when the RUNNER reaches it, and the runner's position is a
         # function of the frame alone — so every mover's set-off moment is fixed in advance and
@@ -614,9 +679,9 @@ def cmd_feasible(argv, cfg):
         feasible run_002 1 from=23    # ... the tail only, entered at the speed the run had there
     """
     if not argv:
-        raise SystemExit("usage: feasible <recording|band,band,...> [start-lane] "
-                         "[accel=A] [pad=P] [from=N]")
-    order, note = resolve_route(argv[0])
+        raise SystemExit("usage: feasible <recording|cat:name|game:N[:seed]|band,band,...> "
+                         "[start-lane] [accel=A] [pad=P] [from=N]")
+    order, note, first, steps = route_plan(argv[0])
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     accel = route_accel(argv[0])
@@ -633,23 +698,31 @@ def cmd_feasible(argv, cfg):
         elif a.startswith("seed="):
             seed = int(a.split("=", 1)[1])
     if extra:
-        order = extend_route(order, extra, seed)
-        note += " + %d more from the pool (seed %d)" % (extra, seed)
+        order = extend_route(order, extra, seed, first)
+        note += " + %d more drawn from the slots after it (seed %d)" % (extra, seed)
+        if steps:
+            import surfing_tracks as T
+            steps = T.speed_steps(T.Generator(), len(order), first)
+    steps, extra_note = bare_steps(rest, steps, order, first)
+    note += extra_note
     # Starting part-way along asks "is the REST of the route hairline too, or only this one
     # spot" — which a run from z=0 can never answer, because it never gets there. The entry
     # speed is the speed the run actually carries into that band, so the tail is stepped at
     # the pace it is really met at rather than from a standing 30.
     speed0 = 30.0
     if skip:
-        speed0 = min(30.0 + accel * skip * S.BAND_PITCH, Track.CAP)
+        steps = route_steps(steps, skip)
+        speed0 = steps[0][1] if steps else min(30.0 + accel * skip * S.BAND_PITCH, Track.CAP)
         order = order[skip:]
         note += ", from band %d (entered at %.0f u/s)" % (skip, speed0)
-    tr = Track(order, speed0, accel, pad)
+    tr = Track(order, speed0, accel, pad, steps)
     print("feasible %s" % note)
-    print("  %d m, %d frames, accel %.5f, clearance demanded %.2f m" %
-          (tr.zmax, tr.nframes, accel, pad))
+    print("  %d m, %d frames, %s, clearance demanded %.2f m" %
+          (tr.zmax, tr.nframes,
+           "speed steps with the band" if steps else "accel %.5f" % accel, pad))
     rt, _ = new_vm(cfg)
-    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order, speed0=speed0)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order, speed0=speed0,
+                                                   steps=steps)
     worst = 0.0
     for lane0 in lanes:
         path = _search(tr, lane0)
@@ -661,7 +734,7 @@ def cmd_feasible(argv, cfg):
             worst = max(worst, reached)
             continue
         dist, dead = _replay_moves(rt, ov, band[0], hole[0], roof[0], lane0, accel,
-                                   tr.zmax, path, tr, speed0)
+                                   tr.zmax, path, tr, speed0, steps)
         verdict = ("the judge agrees" if dead is None else
                    "BUT the judge kills it at %.0f — %s" % (dist, describe(dead, names)))
         print("yes  start=%-6s a %d-move path clears all %d m; %s"
@@ -798,7 +871,8 @@ def _furthest_from(tr: Track, state) -> float:
     return best
 
 
-def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr, speed0=30.0):
+def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr, speed0=30.0,
+                  steps=None):
     """Push a fixed schedule of moves through the REAL Lua judge.
 
     The planner is swapped for one that reads the schedule, so the verdict on a searched path
@@ -826,7 +900,7 @@ def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr, speed0
     end
     """)
     try:
-        return run_group(rt, ov, band, hole, roof, lane0, speed0, accel, zmax)[:2]
+        return run_group(rt, ov, band, hole, roof, lane0, speed0, accel, zmax, steps)[:2]
     finally:
         rt.execute("__SR_AI.planRoute = __SR_REAL_PLAN")
 
@@ -852,9 +926,9 @@ def cmd_blame(argv, cfg):
         blame run_002 1 extend=40    # ... on the route carried on with fresh bands
     """
     if not argv:
-        raise SystemExit("usage: blame <recording|band,band,...> [start-lane] "
-                         "[span=N] [pad=P] [extend=N] [seed=S]")
-    order, note = resolve_route(argv[0])
+        raise SystemExit("usage: blame <recording|cat:name|game:N[:seed]|band,band,...> "
+                         "[start-lane] [span=N] [pad=P] [extend=N] [seed=S]")
+    order, note, first, steps = route_plan(argv[0])
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     accel = route_accel(argv[0])
@@ -871,23 +945,30 @@ def cmd_blame(argv, cfg):
         elif a.startswith("seed="):
             seed = int(a.split("=", 1)[1])
     if extra:
-        order = extend_route(order, extra, seed)
-        note += " + %d more from the pool (seed %d)" % (extra, seed)
+        order = extend_route(order, extra, seed, first)
+        note += " + %d more drawn from the slots after it (seed %d)" % (extra, seed)
+        if steps:
+            import surfing_tracks as T
+            steps = T.speed_steps(T.Generator(), len(order), first)
+    steps, extra_note = bare_steps(rest, steps, order, first)
+    note += extra_note
     # The clearance the blame is judged at. At 0 a run is blamed for declining a manoeuvre
     # whose whole margin is centimetres, which is not a planner fault but a coin toss; at the
     # planner's own cfg.padExtra the verdict is one it could have acted on.
-    tr = Track(order, 30.0, accel, pad)
+    tr = Track(order, 30.0, accel, pad, steps)
     rt, ai = new_vm(cfg)
-    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order, steps=steps)
     print("blame %s" % note)
-    print("  %d m, %d frames, accel %.5f, clearance demanded %.2f m"
-          % (tr.zmax, tr.nframes, accel, pad))
+    print("  %d m, %d frames, %s, clearance demanded %.2f m"
+          % (tr.zmax, tr.nframes,
+             "speed steps with the band" if steps else "accel %.5f" % accel, pad))
     dead_ends, wins = set(), set()
     rc = 0
     for lane0 in lanes:
         rows = []
         _watch(rt, ai, rows)
-        dist, dead, _ = run_group(rt, ov, band[0], hole[0], roof[0], lane0, 30, accel, tr.zmax)
+        dist, dead, _ = run_group(rt, ov, band[0], hole[0], roof[0], lane0, 30, accel,
+                                  tr.zmax, steps)
         rt.globals()["__SR_SIM"]["watch"] = None
         # the schedule the planner actually issued, keyed by distance — the judge plans on odd
         # frames but skips the call outright while a move is in flight, so a call index is not

@@ -52,12 +52,25 @@ SIM.laneOf = laneOf
 --   hole  — {{lane, z0, z1}, ...} seams between chained carriage roofs: a drop, fatal unless airborne
 --   roof  — {{lane, z0, z1}, ...} rideable roof spans: while over one, ground obstacles cannot hit
 --   accel — units/sec gained per unit of track (0 = the fixed-speed per-band replay)
+--   steps — {{z0, speed}, ...} the REAL profile: the game holds one speed flat across a band
+--           and changes it on the boundary (30/40/50/60 at bands 0/5/12/21). Given, it
+--           replaces speed0+accel entirely; nil keeps the ramp, which is what a recording is
+--           replayed at (fitted from the recording itself).
 -- Returns: distance reached, the killing obstacle (nil if it survived), moves issued.
-function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
+function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax, steps)
   local AI = _G.__SR_AI
   local dt = 1 / 60
+  local nsteps = steps and #steps or 0
   local function spdAt(z)
-    local s = speed0 + z * accel
+    local s
+    if nsteps > 0 then
+      s = steps[1][2]
+      for i = 2, nsteps do
+        if steps[i][1] <= z then s = steps[i][2] else break end
+      end
+    else
+      s = speed0 + z * accel
+    end
     if s > SIM.speedCap then s = SIM.speedCap end
     return s
   end

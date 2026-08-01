@@ -214,8 +214,28 @@ def kind_table(kinds: dict) -> str:
 JUMP_TIME = 0.72        # player.jumpDurationValue, live-read (see surfing_ai.lua cfg)
 
 
-def speed_profile(speed0: float = 30.0, accel: float = 0.0, cap: float = 60.0):
-    """The runner's speed as a function of distance — the judge's own model, as a callable."""
+def speed_profile(speed0: float = 30.0, accel: float = 0.0, cap: float = 60.0, steps=None):
+    """The runner's speed as a function of distance — the judge's own model, as a callable.
+
+    `steps` is the real thing: `[(z0, speed), ...]`, the speed held from `z0` until the next
+    entry. The game changes speed at a band boundary and holds it flat across the band (the
+    pool's own `speedZ`), so a ramp `speed0 + accel*z` is the wrong shape — it is out by up to
+    4 u/s in the middle of a band and worst of all at the boundary. `accel` stays for the
+    recordings, which are replayed at the ramp fitted from the recording itself."""
+    if steps:
+        marks = sorted(steps)
+        zs = [z for z, _ in marks]
+
+        def at(z):
+            lo, hi = 0, len(marks) - 1
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if zs[mid] <= z:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            return min(marks[lo][1], cap)
+        return at
     return lambda z: min(speed0 + accel * z, cap)
 
 
@@ -506,7 +526,7 @@ def cmd_chain(argv):
 
 
 def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None,
-                speed0: float = 30.0):
+                speed0: float = 30.0, steps=None):
     """The obstacle field as Lua source: the kind table, and per group the obstacles, the roof
     seams and the rideable roof spans. Shared with the local runner (surfing_offline.py) so
     both hosts judge the SAME track — a fix that only helps because the two disagree about
@@ -515,7 +535,9 @@ def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None,
     `order` chains an EXPLICIT band list (the one a recorded run actually went through, see
     ``band_order_from_run``) instead of the whole pool in id order. `speed0` is the speed the
     track is ENTERED at — it only matters for the roof reach, which is the hop and so scales
-    with speed, and it is not 30 when a caller replays the tail of a route on its own."""
+    with speed, and it is not 30 when a caller replays the tail of a route on its own.
+    `steps` gives the roof reach the real step profile instead (see `speed_profile`), which is
+    what a route drawn from the generator runs at."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -544,7 +566,8 @@ def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None,
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
-        holes, roofs = roof_holes(rows, kinds, speed_at=speed_profile(speed0, accel))
+        holes, roofs = roof_holes(rows, kinds,
+                                  speed_at=speed_profile(speed0, accel, steps=steps))
         hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
         roof_src.append("{" + ",".join("{%d,%g,%g,%d}" % r for r in roofs) + "}")
     ov = kind_table(kinds)
