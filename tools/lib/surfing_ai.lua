@@ -562,9 +562,16 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           --    `solid` alone let the route schedule a swerve off a ramp it was riding: on
           --    band 2007 it committed to "left in 59" at z=125, climbed the ramp at 157, and
           --    stepped off it at 184 exactly as planned. Dead at 185, every start lane.
+          --    And each lane is only checked over the half of the sweep it actually owns. The
+          --    runner is handed over at the midpoint — the colliders are 3.48 wide against a
+          --    lane pitch of 4, so it is never standing in both at once. Demanding a full
+          --    sweep-length hole in BOTH lanes made a 5.1 m change need 5.1 m clear either
+          --    side, and on run_002 the gaps between oncoming trucks are 5 and 6 m.
+          local SWH = max(1, floor(SW / 2))
           for d = -1, 1, 2 do
             local t = l + d
-            if t >= 0 and t <= 2 and freeEnter(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
+            if t >= 0 and t <= 2 and freeEnter(l, i + 1, i + SWH)
+               and freeEnter(t, i + SWH, i + SW) then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
               relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW

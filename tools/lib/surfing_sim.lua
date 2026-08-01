@@ -147,7 +147,17 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
             local ol = laneOf(o.x)
             local hit
             if k.lanes >= 3 then hit = true
-            elseif swT > 0 then hit = (ol == swFrom or ol == swTo)
+            elseif swT > 0 then
+              -- A lane change hands the runner over at the midpoint; it does NOT stand in both
+              -- lanes for the whole 0.16 s. The old rule said it did, and that is not a
+              -- geometry the game can have: the measured colliders are 3.48 wide (bounds.json)
+              -- against a lane pitch of 4, so there is x between two of them that belongs to
+              -- neither. Charging the runner for both lanes over the entire manoeuvre made a
+              -- 5.1 m change need a 5.1 m hole in BOTH lanes at once, and on run_002 the gaps
+              -- between oncoming trucks are 5 and 6 m — so an exhaustive search of the whole
+              -- route stalled at 482 m of 11880 and the stretch was written up as impassable.
+              -- It is not: with the handover the same search reaches 5469 m.
+              hit = (ol == ((swT > SIM.switchTime * 0.5) and swFrom or swTo))
             else hit = (ol == lane) end
             if k.sideOnly and swT <= 0 then hit = false end   -- ridden head-on, fatal only sideways
             if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end

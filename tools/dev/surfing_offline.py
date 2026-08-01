@@ -514,7 +514,9 @@ class Track:
             secs = self.picks_up(frame, lane)
             if secs:
                 fly_until = frame + int(secs / self.DT)
-            if self._hits(frame, lane, sw_from, sw_to, sw_t > 0, jt > 0, sl_t > 0,
+            # the judge hands the runner over at the midpoint of a change, not at its end
+            held = sw_from if sw_t > self.SWITCH * 0.5 else sw_to
+            if self._hits(frame, lane, held, held, sw_t > 0, jt > 0, sl_t > 0,
                           frame < fly_until) is not None:
                 return None
             if sw_t > 0:
@@ -706,16 +708,24 @@ def cmd_human(argv, cfg):
             if len(p) < 8:
                 continue
             frames.append((float(p[0]) - off0, int(p[1]), float(p[6].split(",")[0])))
+    car_body = [(lane_of(x), z - kinds[mid].get("back", 0), z + kinds[mid].get("front", 0))
+                for x, z, mid in rows if kinds[mid].get("carriage")]
     hard, soft, roof_miss, seam_hit = [], [], [], []
     for i in range(len(frames) - 1):
         z0, lane, y = frames[i]
         z1, lane1, _ = frames[i + 1]
         if z0 < 0:
             continue
-        on_roof = y >= 15.0            # the carriage roofs sit at y≈20; a hop peaks well below
-        if on_roof:
-            if not any(r[0] == lane and r[1] <= z0 <= r[2] for r in roofs):
-                roof_miss.append((z0, lane))
+        # Three heights, and conflating them is how this check misled a whole session. y≈20 is
+        # FLIGHT (the aeroplane buff) — immune to everything, so it says nothing about roofs.
+        # A carriage roof sits at y≈4: bounds.json puts the body top at y0 3.53 + sy 0.76.
+        # Anything else off the ground is a hop, mid-arc.
+        if y >= 15.0:
+            continue
+        if 3.0 <= y <= 8.0:
+            if any(b0 <= z0 <= b1 for l_, b0, b1 in car_body if l_ == lane):
+                if not any(r[0] == lane and r[1] <= z0 <= r[2] for r in roofs):
+                    roof_miss.append((z0, lane))
             continue
         if y > 1.0 or lane != lane1:   # airborne, or mid-change: the lane it swept is not known
             continue
@@ -734,8 +744,10 @@ def cmd_human(argv, cfg):
         print("    z=%7.0f lane=%-6s %s" % (z + off0, LANE_NAME[lane], names.get(mid, mid)))
     print("  model says hoppable/slideable in the way (the run may well have hopped it): %d"
           % len(soft))
-    print("  model has no roof where the run was riding one (y>=15): %d of %d such frames"
-          % (len(roof_miss), sum(1 for _, _, y in frames if y >= 15)))
+    on_car = sum(1 for z, lane, y in frames if 3.0 <= y <= 8.0
+                 and any(b0 <= z <= b1 for l_, b0, b1 in car_body if l_ == lane))
+    print("  model gives no roof where the run was riding a carriage (y≈4): %d of %d such frames"
+          % (len(roof_miss), on_car))
     for z, lane in roof_miss[:20]:
         print("    z=%7.0f lane=%s" % (z + off0, LANE_NAME[lane]))
     print("  model puts a roof seam under the run while it was on the ground: %d" % len(seam_hit))
