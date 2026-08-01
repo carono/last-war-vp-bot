@@ -85,7 +85,15 @@ cfg.costSlide    = cfg.costSlide    or 1.6
 -- the horizon: 0.006 was a 0.72 nudge at a 120-unit view and became a 1.2 penalty at 200 —
 -- dearer than the lane change itself, which drowned out every other consideration.
 cfg.outerShare   = cfg.outerShare   or 0.3   -- centre preference, in lane-changes per horizon
-cfg.earlyBias    = cfg.earlyBias    or 0.004 -- per unit of delay before a move: act early
+-- Per unit of delay before a move: act early. This is not a nicety — it is what stops the
+-- pickup tie-break from deciding WHEN a manoeuvre happens, and when is safety. At 0.004 a
+-- single coin in the sweep (0.01) outbid it, so the route would start a lane change one bucket
+-- later to collect one. Measured on run_002: at z=7238.5 a change to the right was legal and
+-- was scheduled "in 1"; 1.9 m later the window had shut — a barrel's rear had closed on the
+-- lane behind and the fence ahead had not yet cleared — and the run died 4 m after that with
+-- only a hop left to it and no room to time one. Priced above the coin now; measured, nothing
+-- moves any further above 0.1, so the greed can no longer shift a manoeuvre in time at all.
+cfg.earlyBias    = cfg.earlyBias    or 0.1
 -- Coins are a TIE-BREAK, not a reason. Safety is already absolute — the search only ever
 -- expands collision-free states, so nothing unsafe can be chosen at any price. What is left
 -- is the choice between routes that are all safe, and there the greedier one wins. The value
@@ -311,7 +319,6 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     end
   end
   local gaps = {}
-  local roofEndZ = pz    -- where the runner's current roof chain ends (only meaningful onRoof)
   for l = 0, 2 do
     local t = cars[l]
     table.sort(t, function(p, q) return p.z0 < q.z0 end)
@@ -350,7 +357,6 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
         end
         roofUntil = c.z1
         if autoStart then canAuto = false end   -- only the first chain from the runner auto-roofs
-        if l == lane0 and onRoof then roofEndZ = max(roofEndZ, c.z1) end
       else
         roofUntil = nil
       end
@@ -367,7 +373,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
      -- decided here any more: the DP carries the level as a dimension and simply ignores
      -- `solid` while up on a roof, which is the same rule for a roof the runner is standing
      -- on now and one it is going to mount at a ramp forty metres ahead. The old code could
-     -- only do the first — it dropped ground obstacles under `roofEndZ` when `onRoof` was
+     -- only do the first — it dropped ground obstacles under the current roof when `onRoof` was
      -- already true — so a route was never planned onto a roof, only along one.
      -- a jetpack lifts the runner above the whole track: while it lasts a ground obstacle
      -- cannot hit, so it is dropped from the field entirely and the route is planned on the
@@ -638,9 +644,11 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           --    stopped modelling is the reason that check is not skipped.
           if lev == 0 then
             if mountB[l][i + 1] then
+              -- and it is not a choice: crossing the near end of a ramp in the lane already
+              -- held puts the runner up, in the judge and in the game. Offering the road as
+              -- an alternative would let the route plan a line straight THROUGH a ramp body
               relax(i + 1, l, 1, c + outer - cfg.rampReward - (reward[l][i + 1] or 0), a0, z0)
-            end
-            if not solid[l][i + 1] then
+            elseif not solid[l][i + 1] then
               relax(i + 1, l, 0, c + outer - (reward[l][i + 1] or 0), a0, z0)
             end
           elseif not hole[l][i + 1] then
@@ -684,7 +692,14 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
               -- chain on the far side may have been started by a ramp long out of its 50 m
               -- look-back, so "I can see roof under every bucket of the crossing" is the only
               -- honest test it has.
-              ok = freeAt(l, 1, i + 1, i + SWH) and freeAt(t, 1, i + 1, i + SW)
+              -- and from bucket `i`, the one the runner is standing in, not `i + 1`: the drop
+              -- is charged against the entering lane from the FIRST frame of the manoeuvre, so
+              -- a roof that starts half a bucket ahead is a roof the runner steps out over
+              -- nothing to reach. Measured: on the centre roof at 1114.5 stepping right, where
+              -- right's roof starts at 1115.0 and the seam behind it runs back to 1100.1 —
+              -- dead on the spot, and the planner cannot see that seam at all, because the
+              -- ramp that roofed the carriage before it is out of its 50 m look-back.
+              ok = freeAt(l, 1, i + 1, i + SWH) and freeAt(t, 1, i, i + SW)
             else
               ok = freeEnter(l, i + 1, i + SWH) and freeEnter(t, i + SWH, i + SW)
             end

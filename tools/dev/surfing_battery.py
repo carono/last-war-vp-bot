@@ -38,7 +38,7 @@ import surfing_simulate as S  # noqa: E402
 # the clearance the ceilings are measured at: the planner's own cfg.padExtra, because a
 # planner that keeps 1.5 m cannot be charged for declining a manoeuvre 3 cm wide
 PAD = 1.5
-SEEDS = (1, 2, 3, 4, 5)
+SEEDS = tuple(range(1, 6))   # override with seeds=N for a wider sample
 
 
 def band_score(cfg):
@@ -71,9 +71,12 @@ def one_route(cfg, spec, ceiling=True):
 
 def main(argv):
     cfg: dict = {}
+    seeds = SEEDS
     it = iter(argv)
     for a in it:
-        if a == "cfg":
+        if a.startswith("seeds="):
+            seeds = tuple(range(1, int(a.split("=", 1)[1]) + 1))
+        elif a == "cfg":
             for pair in it:
                 if "=" not in pair:
                     break
@@ -85,7 +88,7 @@ def main(argv):
     passed, total = band_score(cfg)
     print("per-band, three start lanes   %d/%d" % (passed, total))
     print("%-14s %8s %8s   %s" % ("route", "planner", "ceiling", "of"))
-    rows = [("run_002", "run_002")] + [("pool:36:%d" % s, "seed %d" % s) for s in SEEDS]
+    rows = [("run_002", "run_002")] + [("pool:36:%d" % s, "seed %d" % s) for s in seeds]
     share = []
     for spec, label in rows:
         dist, top, zmax = one_route(cfg, spec)

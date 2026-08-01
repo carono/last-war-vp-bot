@@ -572,7 +572,10 @@ class Track:
             elif jt > 0 and air_roof:
                 level = True
             elif over is None:
-                level = False
+                # off the end of a roof is not back on the road: over a seam the runner is in
+                # the air above the gap, and stays "up" until it has landed on tarmac
+                level = level and any(hl == held and h0 <= z <= h1
+                                      for hl, h0, h1 in self.holes)
             elif not level:
                 # up off the road only by crossing the near end of a MOUNTABLE span (a ramp),
                 # and without changing lane to do it — a step into a roofed lane off the road
@@ -728,14 +731,21 @@ def _search(tr: Track, lane0: int):
     return None
 
 
-def _alive(tr: Track, state, dead_ends: set, wins: set) -> bool:
-    """Can anything at all reach the end of the route from `state`?
+def _alive(tr: Track, state, dead_ends: set, wins: set, goal: float | None = None) -> bool:
+    """Can anything at all still get as far as `goal` from `state`?
 
     The same depth-first walk as ``_search``, but asked of an arbitrary state and answered
     both ways: a state that failed can never succeed (``dead_ends``), and every state on a
     surviving path can (``wins``). Both caches are shared across queries, so asking it once
-    per decision frame along a whole run costs about what one ``feasible`` costs."""
-    if state[0] >= tr.nframes or state in wins:
+    per decision frame along a whole run costs about what one ``feasible`` costs.
+
+    `goal` is a DISTANCE, not the end of the route. On a route whose own ceiling is short of
+    the finish — and most of them are — "can I still reach the end" is False from the first
+    frame and blames nothing. What is wanted is "can I still get as far as anything could",
+    so the goal is the furthest the search reaches from the start."""
+    if goal is None:
+        goal = tr.pz[tr.nframes]
+    if tr.pz[min(state[0], tr.nframes)] >= goal - 1e-6 or state in wins:
         return True
     if state in dead_ends:
         return False
@@ -750,7 +760,7 @@ def _alive(tr: Track, state, dead_ends: set, wins: set) -> bool:
         res = tr.step(st[0], st[1], st[2], nxt, st[3])
         if res is None or res in dead_ends:
             continue
-        if res[0] >= tr.nframes or res in wins:
+        if tr.pz[min(res[0], tr.nframes)] >= goal - 1e-6 or res in wins:
             for s, _ in stack:
                 wins.add(s)
             wins.add(res)
@@ -886,16 +896,22 @@ def cmd_blame(argv, cfg):
         for r in rows:
             sched[round(float(r[0]), 5)] = (int(r[3]) if int(r[4]) == 0 else 0, r)
         state = tr.start(lane0)
-        if not _alive(tr, state, dead_ends, wins):
-            print("  start=%-6s the route has no way through from this lane at all" % LANE_NAME[lane0])
+        goal = tr.zmax if _search(tr, lane0) is not None else _furthest(tr, lane0)
+        if goal < 1.0:
+            print("  start=%-6s nothing moves off the line at all" % LANE_NAME[lane0])
             continue
+        if goal < tr.zmax:
+            print("  start=%-6s this route walls up at %.0f m of %d — that is the mark the "
+                  "planner is judged against, not the finish"
+                  % (LANE_NAME[lane0], goal, tr.zmax))
+        dead_ends, wins = set(), set()
         seen = []
         while state[0] < tr.nframes:
             ent = sched.get(round(tr.pz[state[0]], 5))
             act = ent[0] if ent else 0
             seen.append((state, act, ent[1] if ent else None))
             nxt = tr.step(state[0], state[1], state[2], act, state[3])
-            if nxt is not None and _alive(tr, nxt, dead_ends, wins):
+            if nxt is not None and _alive(tr, nxt, dead_ends, wins, goal):
                 state = nxt
                 continue
             good, reach = [], []
@@ -904,9 +920,9 @@ def cmd_blame(argv, cfg):
                 if res is None:
                     reach.append("%s dies here" % ALIVE_ACT[alt])
                     continue
-                if _alive(tr, res, dead_ends, wins):
+                if _alive(tr, res, dead_ends, wins, goal):
                     good.append(alt)
-                    reach.append("%s runs the lot" % ALIVE_ACT[alt])
+                    reach.append("%s goes the distance" % ALIVE_ACT[alt])
                 else:
                     reach.append("%s walls up at %.0f"
                                  % (ALIVE_ACT[alt], _furthest_from(tr, res)))
@@ -928,8 +944,8 @@ def cmd_blame(argv, cfg):
             rc = 1
             break
         else:
-            print("  start=%-6s never left a winnable state — it ran the whole %d m"
-                  % (LANE_NAME[lane0], tr.zmax))
+            print("  start=%-6s never left a winnable state — it went as far as "
+                  "anything can, %.0f m" % (LANE_NAME[lane0], goal))
         if dead is not None and state[0] >= tr.nframes:
             print("  (the judge still killed it at %.0f — the search model and the judge "
                   "disagree here)" % dist)

@@ -81,6 +81,14 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
   local function onRoofAt(z, ln)
     return roofAt(z, ln) ~= nil
   end
+  -- the drop between two chained roofs: no floor at all, at either storey
+  local function holeAt(z, ln)
+    for i = 1, #hole do
+      local h = hole[i]
+      if h[1] == ln and z >= h[2] and z <= h[3] then return true end
+    end
+    return false
+  end
   local speed = spdAt(0)
   local airRoof = false     -- took off from a roof: still at roof height until it lands
   -- Being up on a roof is a STATE, not a question about the current z. A carriage is mounted
@@ -128,14 +136,23 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
     -- MOUNTABLE span — a ramp — without changing lane to do it.
     local over = roofAt(pz, heldLane)
     local wasUp = level
+    -- Running off the end of a roof does not put the runner back on the road — it puts it in
+    -- the air over the gap, which is the whole of what a seam is. So the level survives the
+    -- roof running out as long as a seam is what runs out into; it drops only where the runner
+    -- has actually landed on tarmac. Reading it the other way round told the planner "you are
+    -- on the ground" on the very frame it needed to hop, and a ground runner has no reason to
+    -- care about a seam at all — one drawn route rode a roof to 1052.0, was informed it was
+    -- back on the road, and fell 23 m of gap it had every information to hop.
     if fly > 0 then
       level = false
     elseif jT > 0 and airRoof then
       level = true
-    elseif over == nil then
+    elseif over ~= nil then
+      if not level then
+        level = (prevHeld == heldLane) and (over[4] == 1) and not onRoofAt(prevZ, heldLane)
+      end
+    elseif not (level and holeAt(pz, heldLane)) then
       level = false
-    elseif not level then
-      level = (prevHeld == heldLane) and (over[4] == 1) and not onRoofAt(prevZ, heldLane)
     end
     local onRoof = level
     local z0, z1 = pz, pz + speed * dt
