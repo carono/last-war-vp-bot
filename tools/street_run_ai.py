@@ -157,9 +157,16 @@ if AI.death then
     tostring(AI.stat.deathunits)))
   flush("DOBS", AI.death)
 end
--- the whole run's perceived field, one frame per line (batching risks a truncated log line)
+-- The run's perceived field, one frame per line (batching risks a truncated log line). This is
+-- for the offline route replay only, and it is EXPENSIVE: every line is a separate LogError,
+-- each of which costs a stack trace, and nine hundred of them land inside a single frame. On
+-- the second, disconnected client that hitch killed the game outright — a crash per attempt,
+-- while the same attempts driven without this drain ran nine in a row. So it is capped, and
+-- the full field is only dumped when something actually wants to replay the route.
 local Fr = AI.frames or {}
-for i = 1, #Fr do L("FRAME " .. Fr[i]) end
+local first = 1
+if not AI.dumpFrames then first = math.max(1, #Fr - 120) end
+for i = first, #Fr do L("FRAME " .. Fr[i]) end
 AI.log = {} AI.trace = {} AI.frames = {} AI.death = nil
 """
 
