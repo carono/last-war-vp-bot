@@ -1514,6 +1514,80 @@ falsification set for the **track model** — bands where the judge forbids what
 shows being done — and they are the first thing to spend effort on, because no amount of
 planning gets through a wall the model invented.
 
+### The catalogue is what the tools run now, not a JSON file beside them
+
+A catalogue that has to be pasted into a command by hand is a document, not an instrument. So
+the route argument every command already takes — `route`, `feasible`, `blame`, and the battery
+through them — now understands it:
+
+    route cat:game-3 1            # a catalogue route by name
+    route cat:opening-202-310     # ... the sixteen openings, the sweeps, the seams
+    route game:40:7 1             # 40 bands drawn slot by slot, seed 7
+    route run_002 1 steps         # a recording at the band's own speed, not a fitted ramp
+    feasible cat:sweep-60 1 pad=1.5
+    blame game:40:7 1
+
+**`pool:N[:seed]` now means the generator's draw.** It used to draw from one bag holding every
+band seen in any recording, weighted by how often each turned up — a distribution with no slot
+structure in it at all, so it would put an infinite-pool band into slot 2 and run a band that
+only exists at 60 through track moving at 30. It draws slot by slot now. The battery's five
+drawn routes therefore name different tracks than they did, and their numbers start again from
+this commit; what they measure is a track the game can lay down, which the old ones were not.
+
+**The judge takes a step profile.** `SIM.once` gained a `steps` argument — `{{z, speed}, …}`,
+held flat until the next entry — and `Track`, `build_field` and `run_group` thread it through,
+so the roof reach, the search's frame timeline and the Lua replay all step where the game
+steps. Passing nothing keeps the old ramp, which is what a recording is still replayed at by
+default: the recordings' published numbers were all measured on the fitted ramp and stay
+reproducible. `steps` as a bare argument asks for the accurate profile instead — on `run_002`
+the two agree to a metre (7390 against 7391), which is the fitted ramp's best case, since the
+accel was fitted to that very run.
+
+A recording also knows **which slot it starts at** now. `run_002` lost its first four bands to
+the frame buffer, so its chain begins at band 4: one band at 30 and then the step to 40, rather
+than the five bands at 30 a route replayed from slot 0 would get.
+
+### Running the catalogue
+
+`surfing_tracks.py catalogue` puts every route through the planner at its own speed steps —
+a `game` route stepping where the slots step, and every other kind held at the one speed its
+pool runs at (a 24-band sweep of the 40-pool would otherwise run its tail at 50 and 60, which
+are speeds the game never gives those layouts).
+
+**74 of 104** from the centre lane, against the planner at `fe2fa2e`:
+
+| kind | passed | reading |
+|---|---|---|
+| `opening` | **16 of 16** | the stretch every attempt runs is clear offline, on every start × every band 1 |
+| `seam` | 52 of 72 | every one of the 20 failures is a band that already fails alone |
+| `sweep` | 3 of 8 | four of the five failures likewise |
+| `game` | 3 of 8 | five drawn runs die between 1927 m and 7391 m |
+
+**Thirty of the thirty-two failures are the five layouts `cover` already named** — `312` at 30,
+`319` at 40, `2002` at 50, `2003` and `2004` at 60 — killing the route in the band they sit in,
+at the same metre they kill it in isolation. The catalogue is not turning up new track the
+planner cannot read; it is turning up the same five bands over and over, which is what a
+memoryless draw out of a small pool does.
+
+The `seam` result is the one worth reading carefully, because it is a negative and negatives
+are what a probe set is for. The seams were built to catch a roof running off the end of one
+band into the next — the shape the live roof-descent deaths have. **Not one of the 72 dies of
+that.** No seam in the catalogue kills a pair whose two bands are individually survivable.
+Either the model's seam handling is now right, or the seams that hurt live are ones this half
+dumped pool cannot build.
+
+Two failures out of thirty-two are not reducible to a single band, and they are the two worth
+a session:
+
+* `game-3` dies of a **roof seam at 6922 m**, in band 20 (`3008` at 50) — a drop between two
+  carriages, on a layout that clears in isolation;
+* `sweep-60-rev` dies on a **barrel at 5334 m**, in band 16 (`3003` at 60) — again a layout
+  that passes alone, killed by the state it is entered in.
+
+Both are the planner arriving in a band in a lane or at a height the isolated replay never puts
+it in. That is the failure mode a per-band score is structurally blind to, and it is now two
+named, reproducible cases rather than a suspicion.
+
 ### Commands
 
     python3 tools/dev/surfing_tracks.py model            # the schedule, and what is dumped
@@ -1522,3 +1596,6 @@ planning gets through a wall the model invented.
     python3 tools/dev/surfing_tracks.py draw 40 7        # one route, drawn the way the game draws
     python3 tools/dev/surfing_tracks.py routes --write   # the synthetic set -> results/
     python3 tools/dev/surfing_tracks.py cover            # every (layout, speed), three lanes
+    python3 tools/dev/surfing_tracks.py catalogue        # every catalogue route, centre lane
+    python3 tools/dev/surfing_tracks.py catalogue kind=seam 0 1 2
+    python3 tools/dev/surfing_offline.py route cat:game-3 1        # one of them by name
