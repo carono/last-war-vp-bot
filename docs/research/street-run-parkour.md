@@ -563,3 +563,60 @@ lists (10 of 48 failing for v41). Deaths cluster the same way on the second acco
 Note also that distances are **not comparable across sessions**: the event panel carries buff
 slots («Разогревать»), which were filled earlier in the day and empty during this run, and the
 historical 877–1242 m figures were recorded with them active.
+
+### What the human recordings say about roofs (#1160, measured — no attempts spent)
+
+The roof rules were the open question, and the three recorded human runs answer part of it
+without costing an attempt. All of this is measured off `results/street_run/human/*.txt`,
+whose frames carry the player's height and the perceived obstacle field.
+
+**Riding happens at TWO heights, and the model knows one.** The height histogram over 1651
+frames has flat plateaus, not a spread: y=0 (54.5%), **y≈4.0–4.5 (17.6%)**, **y≈7.0–7.5
+(4.7%)**, y=20 (7.6%, the jetpack), with the rest passing through in between. The 4.3 plateau
+is a carriage roof (their collider floor measures 3.53). The 7.2 plateau is a second tier the
+model has no representation of at all — `cfg.roofY` is a single threshold at 2.0, so both
+plateaus read as "on a roof" and are planned against the one set of carriage bodies.
+
+**Lane changes on the roof are ordinary play, and the planner forbids them.** Of 297 lane
+changes across the three runs:
+
+| between | count |
+|---|---|
+| ground → ground | 186 |
+| **roof → roof** | **101** |
+| roof → ground | 7 |
+| ground → roof | 3 |
+
+A third of the human's lane changes happen at roof height, most at a steady y≈4.30 on both
+sides. The planner cannot do any of them: `freeEnter` refuses to enter a lane whose bucket
+carries a ramp/roof body, so every roof-to-roof change is illegal by construction. This is in
+**v41 as well** — it is not something the reverted work introduced. It is also the assumption
+the reverted change #1 doubled down on by refusing to *leave* such a lane too, which is
+consistent with that change costing the most of the four in the live A/B.
+
+The one live observation the rule was built on — a run that died swerving off a ramp into a
+rampless carriage — is not contradicted by this. What it argues for is a **same-level** rule
+rather than a prohibition: a sideways move at roof height is safe when the target lane is roof
+*at that z*, and fatal when it is a carriage's end face or open air. "Never" is the wrong
+shape.
+
+**Movers look rideable too.** Where the model has nothing under the human at the moment of a
+roof-to-roof change, the objects actually beside them are led by the parked carriages, but
+`O_Object_high_truck_gold_move_2/_3` appear 37 times. A driving truck is classified
+`carriage=false` purely because `move_speed > 0`, so it is only ever a wall — yet the human
+appears to be up on one. `O_Object_high_zhalan2` also shows up 20 times, and its collider
+floor measures y0=4.07, i.e. it sits *at* the low ride height: it is plausibly a rail met while
+riding rather than a fence met on the ground.
+
+**Confidence.** The lane-change counts are solid — they use only the player's own lane and
+height. The "what was under them" attribution is weaker: the frame's obstacle list is sampled
+every 15 frames and filtered to the look-ahead window, so absence there is not proof of
+absence. Treat the two-tier finding and the roof lane-change finding as established, and the
+mover-riding as a lead to confirm live.
+
+**What this means for the next batch of attempts.** Do not spend them re-testing the reverted
+planner. Spend them on, in order: (1) confirming the on-demand template fix (`AI.version = 43`)
+on a client whose table is known sparse, since that is a measured defect with an unverified
+fix; (2) allowing roof-to-roof lane changes under a same-level rule and A/Bing that against
+v41. Both are grounded in measurement rather than in the replay's own assumptions, which is
+what the previous round got wrong.
