@@ -1729,8 +1729,89 @@ it in, where before this session there were two. **All three layouts are on the
 falsification list already**: a human ran `312` at 30 in `run_001` band 2 at y = 4.3, `2003` at
 60 in `run_002` band 37, `2004` at 60 in `run_002` band 26 and `run_003` band 22, every one of
 them on the roofs and none of them a flight. So the next wall is not the planner declining a
-manoeuvre — it is the model putting a wall where a recording shows a person running. That is
-where the next session starts.
+manoeuvre — it is the model putting a wall where a recording shows a person running. The two
+sections below carry that as far as it went.
+
+### The planner is at the ceiling on every route there is, so the ceiling is the work now
+
+The ceilings for the four routes the battery does not carry were searched afterwards, and they
+close the question the battery had left open:
+
+| route | planner | ceiling at 1.5 m |
+|---|---|---|
+| seed 7 | 7390.7 | 7389 |
+| seed 9 | 8710.7 | 8709 |
+| seed 11 | 1168.0 | 1166 |
+| seed 12 | 1168.0 | 1166 |
+
+With the battery's six that is **thirteen routes, and the planner is at the end of every one of
+them.** There is no planner gap left to close: `312` at 30, `2003` at 60 and `2004` at 60 cap
+four of these routes, and the exhaustive search agrees that nothing gets past them. Any further
+distance has to come from raising the ceiling itself — which means the track model.
+
+### A carriage has a roof whether or not the road leads onto it
+
+The model error the last section pointed at was localised, and the recording settles it without
+any argument. `run_001` band 2 is layout `312` at 30 u/s; laying the recording's own y and lane
+over the bodies the model believes in gives this:
+
+    z=743  band-rel 83.0   lane=centre  y=4.30
+    z=758  band-rel 98.0   lane=left    y=4.30   standing on the left body 84.9..126.1 (plain)
+    z=773  band-rel 113.0  lane=left    y=4.30   standing on the left body 84.9..126.1 (plain)
+    z=781  band-rel 121.0  lane=centre  y=4.30   standing on the centre body 121.0..154.0 (roof)
+    z=811  band-rel 151.0  lane=left    y=4.30   standing on the left body 140.9..182.1 (plain)
+    z=833  band-rel 173.0  lane=left    y=4.30   standing on the left body 140.9..182.1 (plain)
+    z=841  band-rel 181.0  lane=centre  y=4.30   standing on the centre body 177.6..194.0 (THE WALL)
+    z=856  band-rel 196.0  lane=left    y=4.24   — coming down
+
+The person crosses left-centre-left-centre without ever leaving y = 4.30, and **two of the four
+bodies they stand on are plain left-lane carriages the model gives no roof at all** — including
+the one at 177.6..194.0 that the route rams at 178 m from every start lane.
+
+The cause is one line of reasoning run together with another. A roof was entered into the model
+only for a carriage with a ramp, or one chained closely enough behind such a carriage. But a
+ramp decides whether the ROAD leads up onto a carriage; it does not decide whether the carriage
+has a top. The asymmetry the recordings actually show is about getting up, not about staying
+up — 257 lane changes with not one from the road into a carriage body, against 16 that end
+inside one, every one of those starting from y ≈ 4.3.
+
+So: every carriage is a roof span, `mountable` stays ramp-only, seams stay between chained
+pairs. Six lines, in `roof_holes` (`surfing_simulate.py`) and the matching walk in `planRoute`.
+Held against the recordings, the model stops denying roofs the person demonstrably stood on:
+
+| | before | after |
+|---|---|---|
+| `run_002`, no roof where the run was riding a carriage | 9 of 95 | **0 of 95** |
+| `run_003`, same | 13 of 82 | **0 of 82** |
+
+And it pays: the per-band score goes 141/144 to **144/144**, `cover` at 30 u/s goes 93/96 to
+**96/96** — `312` at 30 clears from all three lanes — and two drawn routes that died in a `312`
+come off the floor entirely, seed 11 1168 → 7391 and seed 12 1168 → 9371.
+
+**It is not committed, because it is not finished.** Two things have to be settled first, and
+both are named and reproducible:
+
+* **Layout `3006` at 30 becomes a planner failure**, and it costs seed 2 (9041 → 1268) and
+  seed 3 (11021 → 938) — both die in it. The band is NOT impassable: the search finds a nine-move
+  line through it at a true 1.5 m of clearance, and that line never goes on a roof at all — it
+  stays on the road and crosses into the right lane at 250, letting the oncoming truck pass in
+  the left. The planner instead rides the left ramp roof 213..246, comes down in the left lane,
+  and can no longer reach the right because the centre is walled at 253.1. The losing decision
+  is mounting that ramp.
+* **The clearance the ceiling is measured at goes soft.** `Track` exempts a body from the pad
+  when it lies inside a roof span, which was written for the far end of a ride — pad it and the
+  runner steps off the roof into a phantom wall. Once every carriage carries a roof, that
+  exemption takes the clearance off *every carriage in the game*, and "the ceiling at 1.5 m"
+  stops being measured at 1.5 m. The fix is to exempt the far end only and keep the pad on the
+  rear, which is what a runner on the road actually meets. Every ceiling in this file was
+  measured under the old model and has to be searched again under the new one.
+
+One tempting shortcut is already ruled out. The DP refuses to change into a lane that has a seam
+anywhere in the sweep, and a seam is only a drop to a runner who is UP — the judge gates it on
+`wasUp` — so relaxing that check to roof level only looks obviously right, and it does fix
+`3006`. It is a net loss: `cover` falls 267 → 261, with 40 u/s 72 → 67 and 50 u/s 45 → 41, and
+the new deaths are runners falling through seams. The planner and the judge disagree about
+level somewhere, and that check was covering it up. Find the disagreement first.
 
 ### The route set is a test now, not a command to run
 
