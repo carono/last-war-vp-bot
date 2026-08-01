@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 42
+AI.version = 41
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -102,15 +102,6 @@ cfg.buffBonus    = cfg.buffBonus    or 1.8   -- shield / morph / ally: worth cle
 cfg.jetpackBonus = cfg.jetpackBonus or 3.0
 cfg.pickupBonus  = cfg.pickupBonus  or 0.25  -- magnet / double / box: a tie-break like coins
 cfg.allowJump    = (cfg.allowJump ~= false)  -- hop barrels/fences; carriages never
--- The hop is an ARC: the avatar leaves the ground at the start and comes down at the end, so
--- only the middle of it is high enough to clear a body. These are the share of the hop spent
--- too low at each end. They are config so the share can be moved without touching the search.
-cfg.arcLead      = cfg.arcLead      or 0.15
-cfg.arcTail      = cfg.arcTail      or 0.15
--- What a badly-timed hop/duck costs, in lane-changes, when the thing it clears sits at the very
--- edge of the arc rather than in the middle of it. Priced well under a lane change so it only
--- ever chooses BETWEEN hops, never between hopping and going around.
-cfg.timingBias   = cfg.timingBias   or 0.5
 
 AI.stat = AI.stat or {}
 AI.log = AI.log or {}
@@ -118,7 +109,7 @@ AI.trace = AI.trace or {}
 AI.frames = AI.frames or {}   -- per-frame snapshot of the perceived field, for the route replay
 AI.err = nil
 
-local floor, ceil, min, max, abs = math.floor, math.ceil, math.min, math.max, math.abs
+local floor, ceil, min, max = math.floor, math.ceil, math.min, math.max
 
 local function logmsg(s)
   CS.UnityEngine.Debug.LogError("SRAI " .. tostring(s))
@@ -266,10 +257,8 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
 
   -- occupancy per lane: solid = kills a runner; noJump / noSlide = still kills while
   -- airborne / while sliding; reward = coins and buffs, priced as a negative cost
-  local solid, noJump, noSlide, reward, side, hole = {}, {}, {}, {}, {}, {}
-  for l = 0, 2 do
-    solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} hole[l] = {}
-  end
+  local solid, noJump, noSlide, reward, side = {}, {}, {}, {}, {}
+  for l = 0, 2 do solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} end
   -- Carriages are ridden, not dodged. A "xiepo" piece carries a ramp: the runner drives
   -- up it and then runs along the roof, and the roof carries on over the plain carriages
   -- that follow in the same lane. So a carriage body is only a wall when NOTHING leads up
@@ -379,18 +368,9 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           local rel = rel0 + j * drift
           if rel > -front and rel < backM then
             for ll = l0, l1 do
-              -- A `sideOnly` body is a FLOOR, not a wall: it is ridden along, and being
-              -- airborne or low over it is no worse than standing on it. Marking it noJump
-              -- (as every unhoppable body is marked) made the roof a place the route may not
-              -- be airborne — so a hop across a seam, which must LAND on the next roof, was
-              -- never legal and every carriage band ended with the runner riding off the end.
-              if sideOnly then
-                side[ll][j] = true
-              else
-                solid[ll][j] = true
-                if not k.jump then noJump[ll][j] = true end
-                if not k.slide then noSlide[ll][j] = true end
-              end
+              if sideOnly then side[ll][j] = true else solid[ll][j] = true end
+              if not k.jump then noJump[ll][j] = true end
+              if not k.slide then noSlide[ll][j] = true end
             end
           end
         end
@@ -404,14 +384,13 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
                 side[ll][j] = true
                 -- riding a ramp/roof is the through-path in a carriage group and is worth
                 -- preferring — reward each bucket on it so, among equally safe routes, the DP
-                -- climbs onto the roof rather than staying on a low lane that dead-ends.
-                -- Deliberately NOT noJump/noSlide: see the mover branch — the roof is floor.
+                -- climbs onto the roof rather than staying on a low lane that dead-ends
                 if (reward[ll][j] or 0) < cfg.rampReward then reward[ll][j] = cfg.rampReward end
               else
                 solid[ll][j] = true
-                if not k.jump then noJump[ll][j] = true end
-                if not k.slide then noSlide[ll][j] = true end
               end
+              if not k.jump then noJump[ll][j] = true end
+              if not k.slide then noSlide[ll][j] = true end
             end
           end
         end
@@ -434,7 +413,6 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
       for j = max(0, aj), min(H, bj) do
         solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
         noSlide[g.l][j] = true    -- ...not something a duck helps with...
-        hole[g.l][j] = true       -- ...and crossed by being AIRBORNE, not by arc height
         -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
       end
     end
@@ -454,12 +432,6 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     end
     return true
   end
-  -- Used for BOTH lanes of a change. A lane change sweeps the avatar through the two lanes at
-  -- once, and a ramp/roof body kills from the side whichever lane it is in — the one being
-  -- entered *and* the one being left. Only the entry was guarded before, so the planner was
-  -- free to schedule a swerve OFF a carriage roof it was riding: it mounted a ramp, ran along
-  -- it, and stepped sideways into thin air halfway down the body. That is the single commonest
-  -- death in the offline replay and it matches the live one the player described.
   local function freeEnter(l, a, b)      -- as above, plus nothing that kills a side entry
     for j = max(0, a), min(H, b) do
       if solid[l][j] or side[l][j] then return false end
@@ -481,46 +453,19 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
   -- in front of the barrel (seen live: a run that died at 88.8 m having jumped at 64.6 m).
   -- The last condition also rules out hops that clear nothing, which only make the avatar
   -- busy while a real obstacle closes in.
-  -- A gap in the roof is not cleared by arc HEIGHT, it is cleared by being off the ground at
-  -- all — so for a hop the takeoff and landing stretches may pass over a seam even though they
-  -- are too low to clear a barrel. Holding seams to the same middle-of-the-arc rule as a solid
-  -- shrank the crossable gap to ~70% of a hop, which is under the 15-unit seams the carriage
-  -- bands are built from: the planner could see no way along a roof and simply rode off the end.
-  local function freeLift(l, a, b)
-    for j = max(0, a), min(H, b) do
-      if solid[l][j] and not hole[l][j] then return false end
-    end
-    return true
-  end
-  local function clears(blocked, l, i, len, lift)
-    local lead = max(1, floor(len * cfg.arcLead))
-    local tail = max(1, floor(len * cfg.arcTail))
+  local function clears(blocked, l, i, len)
+    local lead = max(1, floor(len * 0.15))
+    local tail = max(1, floor(len * 0.15))
     local a, b = i + lead + 1, i + len - tail
-    if b <= a then return nil end
-    local ends = lift and freeLift or freeRun
-    -- the take-off itself has to be from solid footing, never from over the gap
-    if lift and hole[l][i] then return nil end
-    if not ends(l, i + 1, i + lead) then return nil end
-    if not ends(l, i + len - tail + 1, i + len) then return nil end
-    if not freeFor(blocked, l, a, b) then return nil end
-    -- WHERE in the arc the obstacle falls, not just whether it fits. `earlyBias` used to price
-    -- these, and since it charges for waiting it always picked the EARLIEST legal take-off —
-    -- which puts the obstacle hard against the landing end of the arc, the least margin the
-    -- model allows. That is the shape of the live death recorded at 88.8 m off a hop at 64.6 m.
-    -- Returning the off-centre fraction (0 = obstacle mid-arc, 1 = at the very edge) lets the
-    -- route price a well-timed hop below a barely-legal one. Nil means it clears nothing.
-    local first, lastj = nil, nil
-    for j = max(0, lift and (i + 1) or a), min(H, lift and (i + len) or b) do
-      if solid[l][j] then
-        if not first then first = j end
-        lastj = j
-      end
+    if b <= a then return false end
+    if not freeRun(l, i + 1, i + lead) then return false end
+    if not freeRun(l, i + len - tail + 1, i + len) then return false end
+    if not freeFor(blocked, l, a, b) then return false end
+    local useful = false
+    for j = max(0, a), min(H, b) do
+      if solid[l][j] then useful = true break end
     end
-    if not first then return nil end
-    local half = (b - a) / 2
-    if half <= 0 then return 0 end
-    local off = abs((first + lastj) / 2 - (a + b) / 2) / half
-    return off < 1 and off or 1
+    return useful
   end
 
   -- DP state arrays, flat: idx = i * 3 + lane
@@ -558,7 +503,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           --    state means it was survived; the lane being entered is checked in full.
           for d = -1, 1, 2 do
             local t = l + d
-            if t >= 0 and t <= 2 and freeEnter(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
+            if t >= 0 and t <= 2 and freeRun(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
               relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
@@ -566,20 +511,18 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
             end
           end
           -- 3. hop — clears barrels and fences; a jump into a carriage is still fatal
-          local jOff = cfg.allowJump and clears(noJump, l, i, JL, true) or nil
-          if jOff then
+          if cfg.allowJump and clears(noJump, l, i, JL) then
             local a, az = a0, z0
             if a == 0 then a = 3 az = i end
-            relax(i + JL, l, c + cfg.costJump + cfg.timingBias * jOff + outer * JL
+            relax(i + JL, l, c + cfg.costJump + cfg.earlyBias * i + outer * JL
                   - rewardOf(l, i + 1, i + JL), a, az)
           end
           -- 4. slide — the other way past a fence, and the only way through a bridge gate
           --    that spans every lane
-          local sOff = clears(noSlide, l, i, SLD)
-          if sOff then
+          if clears(noSlide, l, i, SLD) then
             local a, az = a0, z0
             if a == 0 then a = 4 az = i end
-            relax(i + SLD, l, c + cfg.costSlide + cfg.timingBias * sOff + outer * SLD
+            relax(i + SLD, l, c + cfg.costSlide + cfg.earlyBias * i + outer * SLD
                   - rewardOf(l, i + 1, i + SLD), a, az)
           end
         end
