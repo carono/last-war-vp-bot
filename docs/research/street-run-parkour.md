@@ -620,3 +620,182 @@ on a client whose table is known sparse, since that is a measured defect with an
 fix; (2) allowing roof-to-roof lane changes under a same-level rule and A/Bing that against
 v41. Both are grounded in measurement rather than in the replay's own assumptions, which is
 what the previous round got wrong.
+
+## Audit of the whole effort (#1162) — what was measured, and what was only believed
+
+This section is an outside review of everything above. It spends no attempts; every claim in
+it comes from the config already dumped to `results/street_run/config/`, the 93 death records
+in `results/street_run/ai_moves.log`, the three human recordings, and offline replays of the
+**committed** planner and judge. Where it contradicts a section above, this one carries the
+measurement.
+
+### The offline judge is wrong about the only stretch of track that decides a run
+
+`surfing_offline.py score` reports 38 of 48 bands cleared. Replay instead the sixteen tracks
+the game can actually lay down for the first two bands — every `start_scene` × every band-1
+pool entry, chained, from the centre lane, at 30 u/s, with the committed planner and the
+committed judge — and **all sixteen survive the full 660 m**. Live, on the same planner,
+twenty-three of twenty-nine attempts died inside that same 660 m, ten of them at 316–317 m.
+
+So the instrument that gates every tuning decision is not merely noisy on the live regime; it
+is silent there. Everything scored on it — the 866 → 2194 m "large gain" of #1160, the
+`padExtra` gate, the per-band pass count — was measured on track the bot has never reached.
+The #1160 conclusion "the offline replay and the live game disagree" was read as a puzzle
+about the roof model. It is broader than that: the replay and the game disagree at 300 m.
+
+### The track has a generator, and it is in the config
+
+`stage.json:50000` describes exactly how a run is assembled, and nothing in the toolchain uses
+it. `pre_scene` is 66 m of empty road; `start_scene` is one of four bands; `surfing_scene`
+reads `"N;pool"` — play N bands from that pool — and `infinite_scene` is what runs after them.
+That gives:
+
+| band index | drawn from | speed |
+|---|---|---|
+| 0 | `start_scene` — 201 202 203 204 | 30 |
+| 1 | 2001 3000 310 311 | 30 |
+| 2–4 | the 24-band pool | 30 |
+| 5–11 | the same 24 bands | 40 |
+| 12–20 | a 15-band pool (+ 518) | 50 |
+| 21+ | `infinite_scene`, 23 bands | 60 |
+
+Two independent measurements confirm it. The frame spacing in the human recordings gives a
+**step** speed profile — 30, then 40, then 50 from z ≈ 3960, then 60 from z ≈ 6930 — and
+3960 = 12 × 330 and 6930 = 21 × 330 exactly. And recovering each run's band ids from the
+obstacles it saw puts only 6xx bands after 6930, and 518 — which exists at no other speed — at
+band 14.
+
+Three consequences. Speed is a property of the **band**, not a ramp fitted from a run, so the
+judge's `speed0 + accel·z` is the wrong shape and the per-band `score` at a flat 30 u/s prices
+`623` or `642` — bands that only ever appear at 60 — at a speed they never run at. The bot's
+entire live distribution lives in bands 0–2 at 30 u/s, which is **eight band layouts**, six of
+them distinct (203 ≡ 310 and 204 ≡ 311 are the same born pattern). And a run reaching 1000 m
+is a run that has solved a fully enumerable list, not a lucky one.
+
+### Three-quarters of the deaths are not planning failures at all
+
+Of the 93 live deaths the autopilot froze a field for, **71 (76 %) have nothing solid in the
+lane the runner died in**, by the model's own record. The bot is not being out-planned; it is
+being hit by things it does not represent. `surfing_stats` already names this `unknown` and
+refuses to tune on it — correctly — but the project then went on to spend its effort on the
+DP's cost table, the roof rules and the A/B, none of which can touch a blind spot.
+
+The largest single blind spot is identified. Nineteen of the 93 deaths have a saw within 8
+units, and the two biggest clusters in the whole record — z ≈ 317 (×11) and z ≈ 655 (×4),
+together 16 % of all deaths — are the same signature: `A_Monster_surfing_dianju01` anchored at
+x = 36, the runner dead on the ground in lane 2. The human recordings say why: a single saw at
+z = 318 is observed at x = 33, 34, 35, 36, 37, 38, 39 over successive frames. **It sweeps the
+full width of the track.** The human crosses it on the ground, in whichever lane it has just
+vacated — 0 % airborne over the seven crossings in `run_001`.
+
+The model gets this wrong three times over, in three separate places, and none of them can
+catch the other two:
+
+* the planner blocks one lane — the saw's *projected* position — from a lateral velocity it
+  estimates itself, bouncing off x = 32/40 while the real sweep turns at 33/39;
+* `surfing_stats.classify` matches on the saw's **anchor** x, so a sweep death is filed
+  `unknown` and the record never names its own biggest killer;
+* `SIM.once` gives obstacles no lateral motion at all, so no offline replay can ever produce
+  this death.
+
+The trace of one of those runs shows the shape of it: for the entire 3 s before impact the
+planner reported a first action of "move left" — toward the saw's anchor — was not busy, and
+the lane never changed. Across all 93 traces, 54 % of samples want a move while free to move,
+and a lane change is observed once per thirty such samples. `act` is only issued when the
+route says "start now" (`az == 0`), and the trace does not log `az`, so a correctly deferred
+plan and a starved one are indistinguishable in the record. That is a gap in the telemetry,
+not proof of a bug — but it is the first thing to close, because the same trace is the only
+evidence any future change will be judged on.
+
+### The judge does not test the planner that flies
+
+`SIM.once` hands `planRoute` the kind table through `AI.kindOverride`, and that table is built
+by `surfing_simulate.classify` — a **second, independent** implementation of the same truth,
+which prices rewards differently from the live `kindOf`: coins 0.02 against 0.01, a jetpack
+0.9 against 3.0, a buff 0.9 against 1.8. Offline the planner will not fetch a jetpack (0.9 is
+cheaper than the 1.0 lane change); live it detours hard for one. And `SIM.once` passes
+`flying = false` unconditionally, so the planner's flight branch — which the recordings say
+covers ~10 % of expert play — is exercised by no instrument at all. The judge therefore scores
+a *different policy* than the one installed, and systematically penalises the behaviour that
+carries a human run.
+
+`surfing_stats.body_of` is a **third** implementation of obstacle geometry. Three copies of
+one truth is how a fix that only helps because two of them disagree gets shipped.
+
+### The learner can only ratchet
+
+`derive_cfg` is monotone in an undecaying count: `padExtra = 1.5 + 0.25 × (tight − 1)` over
+every death ever recorded, so past about eleven deaths it is pinned at its ceiling of 4.0
+forever, and `roofGap = 16 − 4 × roof` reaches 0 after four roof deaths and stays there. The
+`padExtra: 4.0` incident of #1160 was not an accident of a remembered baseline; it is what this
+function does by construction. It is still what it does — the current record proposes 4.0 on
+every attempt, and only the (broken) offline gate is stopping it.
+
+The record it learns from is also unusable for the comparison it exists to support:
+`street_run_ai.py` writes `version="v16"` into every death, hard-coded, so the 65 live deaths
+cannot be sliced by planner revision. And the comment at the watch loop still asserts the
+polling claim that the section above formally retracts.
+
+### Why the A/Bs could not have settled anything
+
+Three attempts per arm, one session, one client, against a between-arm confound (template
+coverage) later measured at hundreds of metres — that is the #1160 A/B, and its own section
+already says to treat the verdict as provisional. The deeper problem is that the metric was
+wrong even without the confound. Distances are not comparable across sessions (event buffs),
+the bot is deterministic, and the track is drawn from a small pool: an attempt's distance is
+almost entirely determined by **which bands were drawn**, not by the planner. Comparing two
+planners on three attempts each is comparing two dice rolls.
+
+The fix is available and costs nothing: the band ids of a run are recoverable from the
+obstacle field the autopilot already logs. Record them, and an attempt stops being one number
+and becomes a per-band pass/fail — at which point two planners can be compared on the bands
+they both met, and a single attempt is worth as much as the old ten.
+
+### What was right
+
+Worth keeping explicitly, because the list of errors above is long. Reading the obstacle field
+from Lua instead of pixels was correct and is the foundation of everything. Moving the dodge
+into the VM removed the round trip and gave a 60 Hz decision rate. Measuring collider extents
+live instead of guessing them fixed the single largest geometry error. Recording human play
+and comparing it frame by frame against what the model would have decided is the best
+instrument the project has, and it is the only one that has produced a finding that survived —
+the roof plateaus, the roof-to-roof lane changes, and now the saw sweep all come from it. The
+in-flight work on the oncoming movers is the same method and looks right for the same reason.
+
+### The plan, in order
+
+Each step is verifiable without spending an attempt, except where it says otherwise.
+
+1. **Make an attempt legible.** Log the band ids and per-band survival for every run (they are
+   recoverable from the field already logged), log `az` alongside `act` in the trace, and stamp
+   the real `AI.version` on every death record instead of `v16`. Verify: replay an existing
+   recording and recover its band chain; check a death record names the version installed.
+2. **Fix the saw.** Measure its real swept width live (the collider is already read every 20
+   frames — record min/max x per prefab across a run), then represent it by what it sweeps
+   rather than by where it is: until the sweep is known, treat `dianju` as spanning the lanes
+   it has been seen to reach. Teach `surfing_stats.classify` to match a saw on its collider,
+   not its anchor, and give `SIM.once` lateral motion so the death is reproducible offline.
+   Verify: the 317 m and 655 m deaths reproduce in the replay *before* the fix and stop after.
+   This alone addresses 16 % of deaths and the two most common distances.
+3. **Rebuild the offline objective around the real track.** Replace "48 bands in id order at a
+   fitted accel" with the generator above: draw band 0 from `start_scene`, band 1 from its
+   pool, and so on, at each band's own `speedZ`. Score the enumerable early set exhaustively
+   (4 × 4 × 24 = 384 tracks for the first three bands) rather than sampling rotations.
+   Verify: the replay must now fail somewhere in those first 660 m at roughly the live rate.
+   Until it does, the judge is not calibrated and no tuning should be gated on it.
+4. **Collapse the three geometry implementations into one.** `kindOf` is the live truth; the
+   judge and the death classifier should consume it, not re-derive it. Verify: delete
+   `classify`'s reward numbers and confirm the offline score changes — if it does, the judge
+   was testing a different policy, which is the claim.
+5. **Model flight.** Give `SIM.once` the pickup that grants it and the `flying` state, so the
+   branch that covers a tenth of expert play is testable at all.
+6. **Replace the ratchet.** A tuning knob should be proposed from a *window* of recent deaths
+   and re-derived from scratch, not accumulated; and it should be per-cause and bounded by the
+   count of deaths that cause still produces. Verify: feed the existing record and confirm the
+   proposal is no longer `padExtra: 4.0`.
+7. **Only then spend attempts**, and spend them on the two things #1160 already identified —
+   the on-demand template fix on a known-sparse client, and roof-to-roof lane changes under a
+   same-level rule — measured per band, not per run.
+
+The order matters. Steps 1–3 cost no attempts and turn a run from one number into evidence;
+without them, every further attempt is spent the way the previous 90 were.
