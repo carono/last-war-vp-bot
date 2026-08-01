@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 41
+AI.version = 43
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -121,10 +121,20 @@ AI.logmsg = logmsg
 -- --------------------------------------------------------------------------
 -- collide_damage > 0 is what kills (the player has maxBlood = 1, so any hit is fatal);
 -- everything else — coins, buffs, energy — is harmless and only worth collecting.
+-- `monsterTemps` only holds what the client has already parsed, and that is far less than the
+-- track uses: a freshly launched client had 14 of the 36 ids the born patterns place, a
+-- long-running one 35. Everything missing fell through to "solid, cannot be hopped, cannot be
+-- ducked" — which is wrong for a coin or a buff (harmless) and wrong for a barrel (hoppable),
+-- so on a fresh client the planner was reading a road full of walls that are not there.
+-- `GetTemplate(id)` loads any of them on demand; the result is cached by the caller.
 local function templateOf(mid)
   local tm = DataCenter.SurfingMonsterTemplateManager
-  local temps = tm and tm.monsterTemps
-  return temps and temps[mid] or nil
+  if not tm then return nil end
+  local t = tm.monsterTemps and tm.monsterTemps[mid]
+  if t == nil and tm.GetTemplate then
+    pcall(function() t = tm:GetTemplate(mid) end)
+  end
+  return t
 end
 
 -- kindOverride lets a caller state the truth about a template the client has not loaded —
