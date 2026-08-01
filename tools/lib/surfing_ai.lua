@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 44
+AI.version = 45
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -94,6 +94,11 @@ cfg.outerShare   = cfg.outerShare   or 0.3   -- centre preference, in lane-chang
 -- only a hop left to it and no room to time one. Priced above the coin now; measured, nothing
 -- moves any further above 0.1, so the greed can no longer shift a manoeuvre in time at all.
 cfg.earlyBias    = cfg.earlyBias    or 0.1
+-- How long a plan that reached the whole horizon keeps the runner from acting on one that did
+-- not — metres of track, so it is the same guard at every speed. Two planning frames' worth at
+-- the fastest the game runs is 4 m, which covers a bucket-grid flicker and nothing longer:
+-- a road that has really closed is still closed a bucket later. See the note at the return.
+cfg.holdSpan     = cfg.holdSpan     or 4.0
 -- Coins are a TIE-BREAK, not a reason. Safety is already absolute — the search only ever
 -- expands collision-free states, so nothing unsafe can be chosen at any price. What is left
 -- is the choice between routes that are all safe, and there the greedier one wins. The value
@@ -526,6 +531,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     end
     return true
   end
+  -- clear for a runner LEAVING a roof that runs out under it: every bucket judged at the
+  -- level the runner will actually be at there — a roofed one is ridden, a bare one is run on
+  -- the road and has to be clear of a body and of a ramp flank alike, and a seam is fatal
+  -- either way (over a drop the runner is above the gap, not past it).
+  local function freeDown(l, a, b)
+    for j = max(0, a), min(H, b) do
+      if hole[l][j] then return false end
+      if not roofB[l][j] and (solid[l][j] or side[l][j]) then return false end
+    end
+    return true
+  end
   local function freeFor(blocked, l, a, b)   -- clear for an action (airborne / sliding)
     for j = max(0, a), min(H, b) do
       if blocked[l][j] then return false end
@@ -680,10 +696,33 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           --    from the road into a carriage body, which is the same asymmetry the judge now
           --    keeps — a roof is mounted, not stepped into.
           local SWH = max(1, floor(SW / 2))
+          -- Coming off a roof, the runner may step down SIDEWAYS. The judge has always allowed
+          -- it — it reads the level off the lane the runner still HOLDS, so a roof that runs out
+          -- mid-change puts it on the tarmac of whichever lane it is in — and the recordings
+          -- have seven of them (three in run_002, four in run_003, every one starting from a
+          -- y between 2.0 and 3.2, i.e. already on the way down off a roof). The planner could
+          -- not: at roof level the only change it knew was roof-to-roof, so the last metres of
+          -- a roof were a lane it could not leave. That cost a whole route. On the drawn seed 1
+          -- it rode the right roof to 4014, planned "left" at every frame for the 40 m before
+          -- it, never had a bucket at which the move was legal, and rammed the carriage behind
+          -- the roof at 4053 with the centre lane clear beside it the entire time.
+          --
+          -- What the leaving lane has to be is "safe at the level the runner will actually be
+          -- at" — roofed buckets are ridden, bare ones are run on the road, and a bare one has
+          -- to be clear of a body and of a ramp flank alike (a side entry kills while a change
+          -- is in flight). A seam anywhere in the first half is still fatal: the runner is over
+          -- the drop, not past it.
           for d = -1, 1, 2 do
             local t = l + d
             local ok
+            local lvT = lev
             if t < 0 or t > 2 then ok = false
+            elseif lev == 1 and not roofB[l][i + SWH] then
+              -- the roof under the runner runs out before the handover, so by the time the
+              -- entering lane is charged the runner is on the road: this is a ground change
+              -- begun up on a carriage, and it lands at ground level
+              ok = freeDown(l, i + 1, i + SWH) and freeEnter(t, i + SWH, i + SW)
+              lvT = 0
             elseif lev == 1 then
               -- The lane being entered has to be roofed for the WHOLE sweep, not just the half
               -- it owns: a runner crossing at roof height needs something under it the whole
@@ -717,7 +756,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
             if ok then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
-              relax(i + SW, t, lev, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
+              relax(i + SW, t, lvT, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
                     - rewardOf(t, i + 1, i + SW), a, az)
             end
           end
@@ -770,7 +809,37 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
   end
   AI.stat.whyD = wd
   AI.stat.whyR = wr
-  return bestI, fact[bestIdx] or 0, faz[bestIdx] or -1
+  local act, az = fact[bestIdx] or 0, faz[bestIdx] or -1
+  -- A route that goes the distance is not surrendered to one that does not.
+  --
+  -- The DP reasons in one-metre buckets laid out from the runner's own z, so the grid slides
+  -- under the track by a fraction of a metre every frame. Where a manoeuvre's window is
+  -- narrower than a bucket, that is enough to hide it: on the drawn seed 2 the centre roof
+  -- ends at 1888 over a 27.3 m seam and the hop reaches 28.8, so the take-off may be anywhere
+  -- in 1.5 m — and on one planning frame in three the grid offered no bucket inside it. The
+  -- plan on those frames is not a change of mind; it is the same track read through a grid
+  -- half a metre out of step, and it says "reach 45" where the frame before it said 300.
+  -- Acting on it is what killed the run: at 1879.3 it issued a lane change to the right off a
+  -- dead-ended plan and drove into the very carriage the plan before it was hopping over.
+  --
+  -- So while a full-horizon plan is still fresh, a collapsed one issues nothing and the
+  -- runner holds its line. The guard lapses after `cfg.holdSpan` metres, which is what tells a
+  -- flicker from a road that has genuinely closed: a real dead end is still there a bucket
+  -- later, and then the best-effort move is taken as before.
+  local st = AI.stat
+  -- A replay that starts over must not inherit the last one's plan: the offline band score
+  -- puts 144 runs through a single VM, and the guard may only ever look at track THIS run has
+  -- already covered.
+  if st.planz and pz < st.planz then st.fullz = nil end
+  st.planz = pz
+  if bestI >= H then
+    st.fullz = pz
+    st.held = nil
+  elseif act ~= 0 and st.fullz and pz >= st.fullz and pz - st.fullz <= cfg.holdSpan then
+    st.held = (st.held or 0) + 1
+    act, az = 0, -1
+  end
+  return bestI, act, az
 end
 AI.planRoute = planRoute
 
