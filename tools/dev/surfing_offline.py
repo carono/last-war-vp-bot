@@ -18,6 +18,7 @@ obstacle kind is injected through ``AI.kindOverride`` exactly as the in-VM repla
 so ``templateOf`` is never reached. The obstacle field itself comes from
 ``surfing_simulate.build_field`` — the same function, the same track.
 
+    python3 tools/dev/surfing_offline.py route run_002  # the exact route a human ran
     python3 tools/dev/surfing_offline.py chain          # every start lane x every band order
     python3 tools/dev/surfing_offline.py chain 1        # one start lane
     python3 tools/dev/surfing_offline.py score          # per-band replay, fixed speed
@@ -113,7 +114,7 @@ def cmd_chain(argv, cfg):
     lanes = [int(argv[0])] if argv and argv[0].lstrip("-").isdigit() else [0, 1, 2]
     rt, _ = new_vm(cfg)
     nrot = len(S.bands(*S.load_config()))
-    zmax = nrot * 340
+    zmax = nrot * S.BAND_PITCH
     worst_overall = None
     for lane0 in lanes:
         worst = None
@@ -147,7 +148,7 @@ def cmd_score(argv, cfg):
     for lane0 in lanes:
         passed = 0
         for i, band in enumerate(band_src):
-            dist, dead, _ = run_group(rt, ov, band, hole_src[i], roof_src[i], lane0, speed, 0, 340)
+            dist, dead, _ = run_group(rt, ov, band, hole_src[i], roof_src[i], lane0, speed, 0, S.BAND_PITCH + 10)
             total_dist += dist
             if dead is None:
                 passed += 1
@@ -162,6 +163,47 @@ def cmd_score(argv, cfg):
 
 
 ACT_NAME = {0: "-", 1: "left", 2: "right", 3: "JUMP", 4: "SLIDE"}
+
+
+def _watch(rt, ai, rows):
+    """Hand every planning frame to `rows`, with planRoute's own account of why it chose."""
+    def snap():
+        st = ai["stat"]
+        d, r = st["whyD"], st["whyR"]
+        return ("%d/%d/%d" % (d[0], d[1], d[2]), "%d/%d/%d" % (r[0], r[1], r[2]))
+
+    rt.globals()["__SR_SIM"]["watch"] = (
+        lambda pz, lane, sp, act, az, reach, roof, j, sl, sw:
+        rows.append((pz, lane, sp, act, az, reach, roof, j, sl, sw) + snap()))
+
+
+def _show_rows(rows, dist, span):
+    """The decision stream over the last `span` metres — the frames where something changed.
+
+    A run of identical "hold" decisions says nothing and buries the two frames that matter."""
+    def show(row):
+        pz, lane, sp, act, az, reach, roof, j, sl, sw, clear, dpreach = row
+        print("  z=%7.1f lane=%-6s v=%4.1f act=%-5s in=%3d reach=%3d clear=%-12s "
+              "dp=%-12s%s%s%s%s"
+              % (pz, LANE_NAME[int(lane)], sp, ACT_NAME[int(act)], az, reach, clear,
+                 dpreach, " roof" if roof else "", " air" if j else "",
+                 " slide" if sl else "", " switching" if sw else ""))
+
+    last, prev = None, None
+    for row in rows:
+        if row[0] < dist - span:
+            continue
+        key = tuple(int(row[i]) for i in (1, 3, 4, 6, 7, 8, 9))
+        if key == prev and row[3] == 0:
+            last = row
+            continue
+        if last is not None:
+            show(last)
+            last = None
+        prev = key
+        show(row)
+    if last is not None:
+        show(last)
 
 
 def cmd_trace(argv, cfg):
@@ -179,56 +221,525 @@ def cmd_trace(argv, cfg):
     ov, band_src, hole_src, roof_src, kinds, names = S.build_field()
     order = sorted(S.bands(*S.load_config()))
     print("band %d (id %s), speed %g" % (idx, order[idx], speed))
-
-    def snap():
-        """planRoute's own account: per lane, how far it is clear and how far the DP got."""
-        st = ai["stat"]
-        d, r = st["whyD"], st["whyR"]
-        return ("%d/%d/%d" % (d[0], d[1], d[2]), "%d/%d/%d" % (r[0], r[1], r[2]))
-
     for lane0 in lanes:
         rows = []
-        rt.globals()["__SR_SIM"]["watch"] = (
-            lambda pz, lane, sp, act, az, reach, roof, j, sl, sw:
-            rows.append((pz, lane, sp, act, az, reach, roof, j, sl, sw) + snap()))
+        _watch(rt, ai, rows)
         dist, dead, _ = run_group(rt, ov, band_src[idx], hole_src[idx], roof_src[idx],
-                                  lane0, speed, 0, 340)
+                                  lane0, speed, 0, S.BAND_PITCH + 10)
         rt.globals()["__SR_SIM"]["watch"] = None
         head = "start=%-6s dist=%.1f" % (LANE_NAME[lane0], dist)
         print("\n%s  %s" % (head, "survived" if dead is None else describe(dead, names)))
         if dead is None:
             continue
-        last, prev = None, None
-
-        def show(row):
-            pz, lane, sp, act, az, reach, roof, j, sl, sw, clear, dpreach = row
-            print("  z=%7.1f lane=%-6s v=%4.1f act=%-5s in=%3d reach=%3d clear=%-12s "
-                  "dp=%-12s%s%s%s%s"
-                  % (pz, LANE_NAME[int(lane)], sp, ACT_NAME[int(act)], az, reach, clear,
-                     dpreach, " roof" if roof else "", " air" if j else "",
-                     " slide" if sl else "", " switching" if sw else ""))
-
-        for row in rows:
-            pz, lane, act, az, reach, roof, j, sl, sw = (
-                row[0], row[1], row[3], row[4], row[5], row[6], row[7], row[8], row[9])
-            if pz < dist - span:
-                continue
-            # only the frames where something changed — a run of identical "hold" decisions
-            # says nothing and buries the two frames that matter
-            key = (int(lane), int(act), int(az), int(roof), int(j), int(sl), int(sw))
-            if key == prev and act == 0:
-                last = row
-                continue
-            if last is not None:
-                show(last)
-                last = None
-            prev = key
-            show(row)
-        if last is not None:
-            show(last)
+        _show_rows(rows, dist, span)
         print("  --- the track it was reading ---")
         cmd_where([str(dead["obz"]), "-", str(span)], cfg, band=idx)
     return 0
+
+
+def route_accel(spec: str) -> float:
+    """The speed ramp to replay a route at.
+
+    From the recording itself where there is one, so the replay meets each obstacle at the
+    speed the human met it; a fixed default would flatter or punish the planner for a reason
+    unconnected to the route."""
+    path = spec if os.path.exists(spec) else os.path.join(
+        S.HUMAN_DIR, spec if spec.endswith(".txt") else spec + ".txt")
+    return S.run_accel(path) if os.path.exists(path) else 0.0027
+
+
+def resolve_route(spec: str):
+    """The band chain a `route` argument names, plus where it came from.
+
+    Either an explicit comma-separated band list, or a human recording — a file path, or just
+    ``run_002`` for one under results/street_run/human. Returns ``(order, note)``."""
+    if "," in spec or spec.isdigit():
+        return [b for b in spec.split(",") if b], "given on the command line"
+    path = spec
+    if not os.path.exists(path):
+        cand = os.path.join(S.HUMAN_DIR, spec if spec.endswith(".txt") else spec + ".txt")
+        if not os.path.exists(cand):
+            raise SystemExit("no such recording: %s (nor %s)" % (spec, cand))
+        path = cand
+    slots = S.band_order_from_run(path)
+    named = [s for s in slots if s[1]]
+    if not named:
+        raise SystemExit("%s names no band at all — is it a Street Run recording?" % path)
+    lost = named[0][0] // S.BAND_PITCH
+    order = [s[1] for s in slots[lost:]]
+    if any(b is None for b in order):
+        gaps = [str(slots[lost + i][0]) for i, b in enumerate(order) if b is None]
+        raise SystemExit("the recording has a hole at z=%s — no band explains it" % ",".join(gaps))
+    note = "%s: %d bands" % (os.path.basename(path), len(order))
+    if lost:
+        # the frame buffer keeps only the last ~900 samples, so a long run's opening is gone
+        note += " (the recording lost the first %d — %d m — to its frame buffer)" % (
+            lost, lost * S.BAND_PITCH)
+    return order, note
+
+
+def extend_route(order, extra: int, seed: int = 1161):
+    """Carry a recovered route on past its end with more bands from the same pool.
+
+    The game draws each band from the pool it has; the recovered routes show it drawing with
+    replacement and with no bar on drawing the same band twice running (run_002 has 313 313
+    and 2006 2006 back to back). So the extension is a seeded draw from the pool, weighted by
+    how often each band turned up across the recordings — which keeps the mix of band types
+    the same rather than inventing an even one. Seeded, so an extended route is reproducible."""
+    import glob
+    import random
+    weights: dict = {}
+    for path in sorted(glob.glob(os.path.join(S.HUMAN_DIR, "run_*.txt"))):
+        for _, band, _, _ in S.band_order_from_run(path):
+            if band:
+                weights[band] = weights.get(band, 0) + 1
+    for band in order:
+        weights.setdefault(band, 1)
+    pool = sorted(weights)
+    rng = random.Random(seed)
+    return list(order) + rng.choices(pool, weights=[weights[b] for b in pool], k=extra)
+
+
+def cmd_route(argv, cfg):
+    """Replay the EXACT band chain a recorded human run went through.
+
+    `chain` scans rotations of the whole pool in id order — useful for exercising seams, but
+    it is not a track the game ever laid down. This replays a real one, at the speed ramp the
+    human actually ran it at, so "would the autopilot have survived that 12.7 km run" is a
+    question with an answer.
+
+        route run_002                  # the recovered route, every start lane
+        route run_002 1                # ... starting centre
+        route run_002 1 extend=40      # ... carried on with 40 more bands from the pool
+        route run_002 1 trace          # ... and print the decisions leading into the death
+        route 2007,2003,315 1          # an explicit chain
+    """
+    if not argv:
+        raise SystemExit("usage: route <recording|band,band,...> [start-lane] "
+                         "[extend=N] [accel=A] [trace [span]]")
+    order, note = resolve_route(argv[0])
+    rest = argv[1:]
+    lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
+    extra, accel, seed = 0, None, 1161
+    trace, span = "trace" in rest, 60.0
+    for a in rest:
+        if a.startswith("extend="):
+            extra = int(a.split("=", 1)[1])
+        elif a.startswith("accel="):
+            accel = float(a.split("=", 1)[1])
+        elif a.startswith("seed="):
+            seed = int(a.split("=", 1)[1])
+        elif a.startswith("span="):
+            span = float(a.split("=", 1)[1])
+    if accel is None:
+        accel = route_accel(argv[0])
+    if extra:
+        order = extend_route(order, extra, seed)
+        note += " + %d more from the pool (seed %d)" % (extra, seed)
+    zmax = len(order) * S.BAND_PITCH
+    print("route %s" % note)
+    print("  %s" % " ".join(order))
+    print("  %d m of track, speed 30 -> %.0f (accel %.5f)"
+          % (zmax, min(30 + accel * zmax, 60), accel))
+    rt, ai = new_vm(cfg)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    worst = None
+    for lane0 in lanes:
+        rows = []
+        if trace:
+            _watch(rt, ai, rows)
+        dist, dead, moves = run_group(rt, ov, band[0], hole[0], roof[0],
+                                      lane0, 30, accel, zmax)
+        rt.globals()["__SR_SIM"]["watch"] = None
+        if dead is None:
+            print("ok  start=%-6s dist=%6.0f of %d m  (%d moves)" % (
+                LANE_NAME[lane0], dist, zmax, moves))
+        else:
+            slot = int(dist // S.BAND_PITCH)
+            print("DIE start=%-6s dist=%6.0f of %d m  band %d (%s)  %s" % (
+                LANE_NAME[lane0], dist, zmax, slot, order[min(slot, len(order) - 1)],
+                describe(dead, names)))
+            if trace:
+                _show_rows(rows, dist, span)
+                print("  --- the track it was reading ---")
+                cmd_where([str(dead["obz"]), "-", str(span)], cfg, route=order)
+        if worst is None or dist < worst:
+            worst = dist
+    print("ROUTE worst dist=%.0f of %d m" % (worst, zmax))
+    return 0 if worst >= zmax else 1
+
+
+def route_rows(order):
+    """The chained obstacle field of a route as plain rows, plus the kind and name tables."""
+    born, mon = S.load_config()
+    kinds = {int(k): S.classify(v, S.load_bounds()) for k, v in mon.items()}
+    per_band = S.bands(born, mon)
+    rows, off = [], 0
+    for band in order:
+        for x, z, mid in per_band[band]:
+            S.kind_for(kinds, mid)
+            rows.append((x, z + off, mid))
+        off += S.BAND_PITCH
+    names = {int(k): (v.get("asset") or "").split("/")[-1].replace(".prefab", "")
+             for k, v in mon.items()}
+    return rows, kinds, names
+
+
+class Track:
+    """The judge's collision rules over one route, as a steppable machine.
+
+    This exists to answer a question the planner cannot be asked: *is this route survivable at
+    all?* A planner that dies at 356 m is either a bad planner or a route with no way through,
+    and until those two are told apart, tuning is guessing. So the rules of
+    ``surfing_sim.lua`` are restated here — and only here, for a SEARCH, never for a verdict:
+    every path this finds is handed back to the real Lua judge to be confirmed (see
+    ``cmd_feasible``), so a mistake in this restatement shows up as a path the judge rejects
+    rather than as a false all-clear."""
+
+    DT = 1 / 60.0
+    SWITCH, JUMP, SLIDE = 0.16, 0.72, 0.50
+    CAP = 60.0
+    TRIGGER = 120.0    # SIM.moverTrigger — where a parked truck sets off
+
+    def __init__(self, order, speed0=30.0, accel=0.0027):
+        rows, kinds, names = route_rows(order)
+        self.names = names
+        self.zmax = len(order) * S.BAND_PITCH
+        holes, roofs = S.roof_holes(rows, kinds)
+        self.holes, self.roofs = holes, roofs
+        lane_of = (lambda x: min(range(3), key=lambda i: abs(x - (32 + 4 * i))))
+        self.static, self.moving, self.fly = [], [], []
+        for x, z, mid in rows:
+            k = kinds[mid]
+            if k.get("fly"):
+                self.fly.append((lane_of(x), z, k["fly"]))
+            if not k.get("solid"):
+                continue
+            rec = (lane_of(x), z, k.get("back", 0.0), k.get("front", 0.0), k.get("lanes", 1),
+                   bool(k.get("jump")), bool(k.get("slide")), bool(k.get("sideOnly")),
+                   k.get("speed", 0.0), mid)
+            (self.moving if k.get("speed") else self.static).append(rec)
+        self.static.sort(key=lambda r: r[1] - r[2])
+        self.speed0, self.accel = speed0, accel
+        # pz and the clock depend only on the frame number — the avatar's speed is a function
+        # of distance alone — so the whole timeline can be laid out once and shared by every
+        # branch of the search. Indexed as the judge counts: its first pass is frame 1, at z=0.
+        self.pz = [0.0, 0.0]
+        while self.pz[-1] < self.zmax:
+            p = self.pz[-1]
+            self.pz.append(p + min(speed0 + p * accel, self.CAP) * self.DT)
+        self.nframes = len(self.pz) - 2
+        self.air_roof = False
+        # A mover's clock starts when the RUNNER reaches it, and the runner's position is a
+        # function of the frame alone — so every mover's set-off moment is fixed in advance and
+        # does not vary between branches of the search.
+        import bisect
+        started = []
+        for rec in self.moving:
+            want = rec[1] - self.TRIGGER
+            f = bisect.bisect_left(self.pz, want, 1)
+            started.append(rec + (f * self.DT,))
+        self.moving = started
+
+    def on_roof(self, z, lane):
+        return any(r[0] == lane and r[1] <= z <= r[2] for r in self.roofs)
+
+    def _hits(self, frame, lane, sw_from, sw_to, switching, jumping, sliding, flying):
+        """Did the avatar die crossing frame `frame`? Mirrors SIM.once's collision block."""
+        z0, z1 = self.pz[frame], self.pz[frame + 1]
+        if not flying and not (self.on_roof(z0, lane) or (jumping and self.air_roof)):
+            t = frame * self.DT
+            for ol, oz, back, front, lanes, jmp, sld, side, speed, mid in self.static:
+                if oz - back >= z1:
+                    break
+                if oz + front <= z0:
+                    continue
+                if lanes >= 3:
+                    hit = True
+                elif switching:
+                    hit = ol in (sw_from, sw_to)
+                else:
+                    hit = ol == lane
+                if side and not switching:
+                    hit = False
+                if hit and not (jumping and jmp) and not (sliding and sld):
+                    return mid
+            for ol, oz, back, front, lanes, jmp, sld, side, speed, mid, t0 in self.moving:
+                # parked on its spawn mark until the runner closed in, then oncoming
+                z = oz if t < t0 else oz - speed * (t - t0)
+                if z - back >= z1 or z + front <= z0:
+                    continue
+                if lanes >= 3:
+                    hit = True
+                elif switching:
+                    hit = ol in (sw_from, sw_to)
+                else:
+                    hit = ol == lane
+                if side and not switching:
+                    hit = False
+                if hit and not (jumping and jmp) and not (sliding and sld):
+                    return mid
+        if not jumping and not flying:
+            for hl, h0, h1 in self.holes:
+                if hl == lane and z1 > h0 and z0 < h1:
+                    return -1
+        return None
+
+    def picks_up(self, frame, lane):
+        """Seconds of flight collected crossing this frame, or 0."""
+        z0, z1 = self.pz[frame], self.pz[frame + 1]
+        for fl, fz, secs in self.fly:
+            if fl == lane and z0 <= fz < z1:
+                return secs
+        return 0.0
+
+    def step(self, frame, lane, act, fly_until=0):
+        """Take `act` at a decision frame and run on to the next one.
+
+        `fly_until` is the frame the aeroplane buff wears off at. Returns the next decision
+        point as ``(frame, lane, fly_until)``, or None if it died on the way."""
+        sw_from = sw_to = lane
+        sw_t = jt = sl_t = 0.0
+        self.air_roof = False
+        if act == 1 and lane > 0:
+            sw_t, sw_from, sw_to, lane = self.SWITCH, lane, lane - 1, lane - 1
+        elif act == 2 and lane < 2:
+            sw_t, sw_from, sw_to, lane = self.SWITCH, lane, lane + 1, lane + 1
+        elif act == 3:
+            jt = self.JUMP
+            self.air_roof = self.on_roof(self.pz[frame], lane)
+        elif act == 4:
+            sl_t = self.SLIDE
+        while frame <= self.nframes:
+            secs = self.picks_up(frame, lane)
+            if secs:
+                fly_until = frame + int(secs / self.DT)
+            if self._hits(frame, lane, sw_from, sw_to, sw_t > 0, jt > 0, sl_t > 0,
+                          frame < fly_until) is not None:
+                return None
+            if sw_t > 0:
+                sw_t -= self.DT
+            if jt > 0:
+                jt -= self.DT
+            if sl_t > 0:
+                sl_t -= self.DT
+            frame += 1
+            # the judge only plans on odd frames, and only when nothing is in flight
+            if sw_t <= 0 and jt <= 0 and sl_t <= 0 and frame % 2 == 1:
+                return frame, lane, fly_until
+        return frame, lane, fly_until
+
+
+def cmd_feasible(argv, cfg):
+    """Is there ANY way through this route — and if so, hand it to the judge to prove it.
+
+    A search over the same rules the judge applies, from every start lane. Its answer is the
+    thing that makes a planner's distance mean something: 356 m out of 11880 is a planner
+    failure only if the other 11524 were there to be run.
+
+        feasible run_002
+        feasible run_002 1
+    """
+    if not argv:
+        raise SystemExit("usage: feasible <recording|band,band,...> [start-lane] [accel=A]")
+    order, note = resolve_route(argv[0])
+    rest = argv[1:]
+    lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
+    accel = route_accel(argv[0])
+    for a in rest:
+        if a.startswith("accel="):
+            accel = float(a.split("=", 1)[1])
+    tr = Track(order, 30.0, accel)
+    print("feasible %s" % note)
+    print("  %d m, %d frames, accel %.5f" % (tr.zmax, tr.nframes, accel))
+    rt, _ = new_vm(cfg)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    worst = 0.0
+    for lane0 in lanes:
+        path = _search(tr, lane0)
+        if path is None:
+            reached = _furthest(tr, lane0)
+            print("NO   start=%-6s no way through — the search dies by %.0f m of %d"
+                  % (LANE_NAME[lane0], reached, tr.zmax))
+            _explain_wall(tr, reached)
+            worst = max(worst, reached)
+            continue
+        dist, dead = _replay_moves(rt, ov, band[0], hole[0], roof[0], lane0, accel,
+                                   tr.zmax, path)
+        verdict = ("the judge agrees" if dead is None else
+                   "BUT the judge kills it at %.0f — %s" % (dist, describe(dead, names)))
+        print("yes  start=%-6s a %d-move path clears all %d m; %s"
+              % (LANE_NAME[lane0], sum(1 for a in path.values() if a), tr.zmax, verdict))
+        if dead is not None:
+            return 1
+    return 0
+
+
+def _explain_wall(tr: Track, at: float):
+    """What is standing at the point nothing gets past, and what could have carried the run
+    over it. A bare "no way through" is not actionable; the bodies and the pickups are."""
+    frame = min(range(1, tr.nframes), key=lambda f: abs(tr.pz[f] - at))
+    t = frame * tr.DT
+    for ol, oz, back, front, lanes, jmp, sld, side, sp, mid in tr.static:
+        if abs(oz - at) < 40:
+            print("       standing  z=%7.0f lane=%-6s %s" % (oz, LANE_NAME[ol], tr.names.get(mid, mid)))
+    for ol, oz, back, front, lanes, jmp, sld, side, sp, mid, t0 in tr.moving:
+        z = oz if t < t0 else oz - sp * (t - t0)
+        if abs(z - at) < 40:
+            print("       oncoming  z=%7.0f lane=%-6s %s (body %.0f long, %d u/s, from %.0f)"
+                  % (z, LANE_NAME[ol], tr.names.get(mid, mid), back + front, sp, oz))
+    ahead = [f for f in tr.fly if at - 400 <= f[1] <= at]
+    print("       aeroplanes on the %.0f m before it: %d" % (min(at, 400.0), len(ahead)))
+
+
+def _search(tr: Track, lane0: int):
+    """A surviving action schedule, as ``{decision frame: action}`` — or None if there is none.
+
+    Depth-first with a dead-end set: at a decision point every timer is zero, so the state is
+    just ``(frame, lane)`` and a point that has failed once can never succeed."""
+    dead_ends = set()
+    stack = [(1, lane0, 0, iter((0, 1, 2, 3, 4)))]
+    chosen: dict = {}
+    while stack:
+        frame, lane, fly, opts = stack[-1]
+        nxt = next(opts, None)
+        if nxt is None:
+            dead_ends.add((frame, lane, fly))
+            chosen.pop(frame, None)
+            stack.pop()
+            continue
+        res = tr.step(frame, lane, nxt, fly)
+        if res is None:
+            continue
+        if res in dead_ends:
+            continue
+        chosen[frame] = nxt
+        if res[0] >= tr.nframes:
+            return dict(chosen)
+        stack.append(res + (iter((0, 1, 2, 3, 4)),))
+    return None
+
+
+def _furthest(tr: Track, lane0: int) -> float:
+    """How far anything gets when nothing gets through — where the route walls up."""
+    dead_ends = set()
+    best = 0.0
+    stack = [(1, lane0, 0, iter((0, 1, 2, 3, 4)))]
+    while stack:
+        frame, lane, fly, opts = stack[-1]
+        best = max(best, tr.pz[min(frame, tr.nframes)])
+        nxt = next(opts, None)
+        if nxt is None:
+            dead_ends.add((frame, lane, fly))
+            stack.pop()
+            continue
+        res = tr.step(frame, lane, nxt, fly)
+        if res is None or res in dead_ends:
+            continue
+        stack.append(res + (iter((0, 1, 2, 3, 4)),))
+    return best
+
+
+def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path):
+    """Push a fixed schedule of moves through the REAL Lua judge.
+
+    The planner is swapped for one that reads the schedule, so the verdict on a searched path
+    comes from ``surfing_sim.lua`` itself rather than from the search's own arithmetic."""
+    rt.execute("__SR_PATH = {}")
+    tbl = rt.globals()["__SR_PATH"]
+    for frame, act in path.items():
+        tbl[frame] = act
+    rt.execute("""
+    __SR_REAL_PLAN = __SR_REAL_PLAN or __SR_AI.planRoute
+    __SR_FRAME = 0
+    __SR_AI.planRoute = function(pz, lane, speed, obs, flying, onRoof)
+      __SR_FRAME = __SR_FRAME + 1
+      -- the judge plans on odd frames only, so its Nth call is frame 2N-1
+      return 0, __SR_PATH[2 * __SR_FRAME - 1] or 0, 0
+    end
+    """)
+    try:
+        return run_group(rt, ov, band, hole, roof, lane0, 30, accel, zmax)[:2]
+    finally:
+        rt.execute("__SR_AI.planRoute = __SR_REAL_PLAN")
+
+
+def cmd_human(argv, cfg):
+    """Hold the track model up against the one ground truth there is: a run that SURVIVED.
+
+    The replay's verdict is only worth as much as its model of the ground, and a model can
+    only be checked against something outside itself. A human recording is exactly that — a
+    12.7 km path a person actually walked, position by position. So: lay the model's obstacle
+    field over that path and ask where it claims the person was inside a wall, or on thin air
+    while the recording has them riding a roof. Every hit is a place the model is wrong, or a
+    place the person jumped or slid (which the recording cannot show, so hoppable and
+    slideable pieces are reported apart from the ones nothing can save you from).
+
+        human run_002
+    """
+    if not argv:
+        raise SystemExit("usage: human <recording> [span]")
+    order, note = resolve_route(argv[0])
+    path = argv[0] if os.path.exists(argv[0]) else os.path.join(
+        S.HUMAN_DIR, argv[0] if argv[0].endswith(".txt") else argv[0] + ".txt")
+    slots = S.band_order_from_run(path)
+    off0 = next(s[0] for s in slots if s[1])
+    rows, kinds, names = route_rows(order)
+    holes, roofs = S.roof_holes(rows, kinds)
+    print("human %s" % note)
+
+    def lane_of(x):
+        return min(range(3), key=lambda i: abs(x - (32 + 4 * i)))
+
+    # A driving truck's template z is only where it SPAWNED — by the time the run reached it,
+    # it had moved. Nothing about it can be checked against a recorded position, so it is left
+    # out rather than counted as a model error. A ramp is left out too: it is ridden head-on,
+    # and the recording has the run doing exactly that.
+    solid = [(lane_of(x), z - kinds[mid].get("back", 0), z + kinds[mid].get("front", 0), mid)
+             for x, z, mid in rows
+             if kinds[mid].get("solid") and not kinds[mid].get("speed")
+             and not kinds[mid].get("sideOnly")]
+    frames = []
+    with open(path, "r", encoding="utf-8") as fh:
+        for ln in fh:
+            p = ln.rstrip("\n").split("|")
+            if len(p) < 8:
+                continue
+            frames.append((float(p[0]) - off0, int(p[1]), float(p[6].split(",")[0])))
+    hard, soft, roof_miss, seam_hit = [], [], [], []
+    for i in range(len(frames) - 1):
+        z0, lane, y = frames[i]
+        z1, lane1, _ = frames[i + 1]
+        if z0 < 0:
+            continue
+        on_roof = y >= 15.0            # the carriage roofs sit at y≈20; a hop peaks well below
+        if on_roof:
+            if not any(r[0] == lane and r[1] <= z0 <= r[2] for r in roofs):
+                roof_miss.append((z0, lane))
+            continue
+        if y > 1.0 or lane != lane1:   # airborne, or mid-change: the lane it swept is not known
+            continue
+        for ln_, b0, b1, mid in solid:
+            if ln_ != lane or b1 <= z0 or b0 >= z1:
+                continue
+            k = kinds[mid]
+            (soft if (k.get("jump") or k.get("slide")) else hard).append((z0, lane, mid))
+        for hl, h0, h1 in holes:
+            if hl == lane and h1 > z0 and h0 < z1:
+                seam_hit.append((z0, lane))
+    total = len(frames)
+    print("  %d frames, %.0f m of path" % (total, frames[-1][0] - max(frames[0][0], 0)))
+    print("  model says WALL where the run went on (nothing survives these): %d" % len(hard))
+    for z, lane, mid in hard[:20]:
+        print("    z=%7.0f lane=%-6s %s" % (z + off0, LANE_NAME[lane], names.get(mid, mid)))
+    print("  model says hoppable/slideable in the way (the run may well have hopped it): %d"
+          % len(soft))
+    print("  model has no roof where the run was riding one (y>=15): %d of %d such frames"
+          % (len(roof_miss), sum(1 for _, _, y in frames if y >= 15)))
+    for z, lane in roof_miss[:20]:
+        print("    z=%7.0f lane=%s" % (z + off0, LANE_NAME[lane]))
+    print("  model puts a roof seam under the run while it was on the ground: %d" % len(seam_hit))
+    return 0 if not hard and not roof_miss else 1
 
 
 def score_local(cfg=None, lane0: int = 1, speed: int = 30):
@@ -240,7 +751,7 @@ def score_local(cfg=None, lane0: int = 1, speed: int = 30):
     ov, band_src, hole_src, roof_src, _, _ = build_field_cached()
     passed, dist = 0, 0.0
     for i, band in enumerate(band_src):
-        d, dead, _ = run_group(rt, ov, band, hole_src[i], roof_src[i], lane0, speed, 0, 340)
+        d, dead, _ = run_group(rt, ov, band, hole_src[i], roof_src[i], lane0, speed, 0, S.BAND_PITCH + 10)
         dist += d
         if dead is None:
             passed += 1
@@ -257,11 +768,12 @@ def build_field_cached(accel: float = 0.0, rot: int = 0):
     return _FIELD_CACHE[key]
 
 
-def cmd_where(argv, cfg, band=None):
+def cmd_where(argv, cfg, band=None, route=None):
     """What the track actually holds around a distance — the context a death report lacks.
 
-    `band=` restricts it to one band on its own (the isolated replay); otherwise the chained
-    track at rotation `rot` is laid out, which is where the band seams live."""
+    `band=` restricts it to one band on its own (the isolated replay); `route=` lays out an
+    explicit band chain (a recovered human route); otherwise the chained track at rotation
+    `rot` is laid out, which is where the band seams live."""
     if not argv:
         raise SystemExit("usage: where <z> [rot|-] [span]   |   trace ... uses band=")
     at = float(argv[0])
@@ -277,7 +789,9 @@ def cmd_where(argv, cfg, band=None):
     kinds = {int(k): S.classify(v, bounds) for k, v in mon.items()}
     per_band = S.bands(born, mon)
     order = sorted(per_band)
-    if band is not None:
+    if route is not None:
+        order = list(route)
+    elif band is not None:
         order = [order[band]]
     else:
         order = order[rot % len(order):] + order[:rot % len(order)]
@@ -285,7 +799,7 @@ def cmd_where(argv, cfg, band=None):
     for band in order:
         for x, z, mid in per_band[band]:
             rows.append((x, z + off, mid, band))
-        off += 340
+        off += S.BAND_PITCH
     names = {int(k): (v.get("asset") or "").split("/")[-1].replace(".prefab", "")
              for k, v in mon.items()}
     holes, roofs = S.roof_holes([(x, z, m) for x, z, m, _ in rows], kinds)
@@ -337,7 +851,13 @@ def main(argv):
         return cmd_where(args, cfg)
     if cmd == "trace":
         return cmd_trace(args, cfg)
-    raise SystemExit("unknown command %r (chain | score | trace | where)" % cmd)
+    if cmd == "route":
+        return cmd_route(args, cfg)
+    if cmd == "human":
+        return cmd_human(args, cfg)
+    if cmd == "feasible":
+        return cmd_feasible(args, cfg)
+    raise SystemExit("unknown command %r (chain | feasible | human | route | score | trace | where)" % cmd)
 
 
 if __name__ == "__main__":

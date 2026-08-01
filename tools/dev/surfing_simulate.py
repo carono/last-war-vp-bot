@@ -43,8 +43,45 @@ from lua_client import get_evaluator  # noqa: E402
 
 MARK = "SSIM "
 CONFIG = os.path.join("results", "street_run", "config")
+HUMAN_DIR = os.path.join("results", "street_run", "human")
 LANE_NAME = {0: "left", 1: "centre", 2: "right"}
 SIM_LUA_PATH = os.path.join(_ROOT, "lib", "surfing_sim.lua")
+
+# How far apart the bands are laid down on the real track. Read straight off the human
+# recordings: every obstacle a recorded run saw lands on a band template shifted by an exact
+# multiple of 330 (645 of 645 static obstacles in run_002 bar 16 pickups). The chained replay
+# used to space them 340 apart, which inserted a 10-unit strip of empty road at every seam —
+# so it was judging a track the game never builds, at the one place the deaths happen.
+BAND_PITCH = 330
+
+# A frame sample is 15 game frames at 60 Hz.
+FRAME_DT = 15 / 60.0
+
+# The runner can FLY, and it is not a nicety — it is the only way past some of the track.
+# The human recordings have three flights, and each begins the instant a pickup is taken and
+# lasts exactly 11.0 s at cruise height (y=20), during which nothing on the ground touches the
+# runner. In one of them the ground below held three oncoming trucks abreast, one per lane, with
+# no gap at all: an exhaustive search of every jump, slide and lane change dies there, and the
+# person sailed over it. A judge that cannot fly cannot be asked whether a route is survivable.
+#
+# `buffType == 3` is the flight buff itself (the aeroplane, id 100004). The other pickups that
+# have produced a flight — the ally hero 100007 and the crate 110000 — are not flight at all
+# but random boxes: their `randomData` rolls one of five or six buffs, of which the aeroplane
+# is one. So they are a CHANCE of flight, never a certainty, and the feasibility search must
+# not lean on them (see `flight_chance`).
+FLIGHT_SECONDS = 11.0
+
+
+def flight_chance(rec: dict) -> float:
+    """How likely this pickup is to put the runner in the air: 1.0 for the aeroplane itself,
+    the roll probability for a random box, 0 for everything else."""
+    if rec.get("buffType") == 3:
+        return 1.0
+    rolls = rec.get("randomData") or []
+    total = float(rec.get("para2") or 0) or sum(float(r.get("p") or 0) for r in rolls)
+    if not rolls or not total:
+        return 0.0
+    return sum(float(r.get("p") or 0) for r in rolls if int(r.get("id") or 0) == 100004) / total
 
 
 def sim_lua() -> str:
@@ -91,8 +128,11 @@ def classify(rec: dict, bounds: dict) -> dict:
     if (rec.get("collide_damage") or 0) <= 0:
         mt = rec.get("monster_type") or 0
         strong = mt in (5, 7, 8, 9)
+        chance = flight_chance(rec)
         return {"solid": False, "jump": False, "slide": False, "back": 0.0, "front": 0.0,
-                "lanes": 1, "speed": 0.0, "buff": (0.9 if strong else 0.25) if mt else 0.02}
+                "lanes": 1, "speed": 0.0,
+                "fly": FLIGHT_SECONDS if chance >= 1.0 else 0.0, "flyChance": chance,
+                "buff": (0.9 if strong else 0.25) if mt else 0.02}
     # a saw (dianju / TrapSaw) is a low hazard — hoppable (it also patrols sideways, but the
     # config gives it no speed and the offline replay cannot move it, so only the hop matters here)
     saw = "dianju" in asset or "saw" in asset
@@ -131,6 +171,25 @@ def classify(rec: dict, bounds: dict) -> dict:
     return {"solid": True, "jump": jump, "slide": slide, "back": back, "front": front,
             "lanes": lanes, "sideOnly": side_only, "carriage": carriage, "ramp": ramp,
             "speed": speed}
+
+
+def kind_table(kinds: dict) -> str:
+    """The kind table as Lua source — the one description of the obstacles both hosts read.
+
+    It lived twice, once per entry point, and a field added to one copy was simply missing from
+    the other: that is how `carriage`/`ramp` once went astray and made every ramp read as a
+    plain wall in half the runs."""
+    return ",".join(
+        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,"
+        "back=%g,front=%g,lanes=%d,speed=%g,fly=%g,buff=%s}"
+        % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
+           str(k.get("sideOnly", False)).lower(),
+           str(k.get("carriage", False)).lower(), str(k.get("ramp", False)).lower(),
+           str(k.get("ignore", False)).lower(),
+           k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
+           k.get("fly", 0),
+           repr(k["buff"]) if k.get("buff") else "nil")
+        for mid, k in kinds.items())
 
 
 def roof_holes(rows, kinds, roof_gap: float = 16.0):
@@ -184,6 +243,73 @@ def bands(born, mon):
     return out
 
 
+def read_run(path: str):
+    """A recorded human run as ``(player_z, static obstacles seen)``.
+
+    A frame is ``pz|lane|act|reach|firstSolid|reachable|y,busy|x,z,mid,speed ...``. Only the
+    obstacles standing still are collected: a moving one reports where it had driven to by
+    that frame, which is nothing the band template can be matched against."""
+    zs, obs = [], set()
+    with open(path, "r", encoding="utf-8") as fh:
+        for ln in fh:
+            parts = ln.rstrip("\n").split("|")
+            if len(parts) < 8:
+                continue
+            zs.append(float(parts[0]))
+            for tok in parts[7].split():
+                f = tok.split(",")
+                if len(f) == 4 and float(f[3]) == 0:
+                    obs.add((int(f[0]), int(f[1]), int(f[2])))
+    return zs, obs
+
+
+def band_order_from_run(path: str, min_hits: int = 4):
+    """Which bands a recorded run went through, in order.
+
+    A recording carries no band id at all — only the obstacles the runner had in view. But
+    every band is a fixed template list, so each 330-metre slot can be named by asking which
+    band, shifted to that slot, explains the obstacles seen there. Returns one entry per slot:
+    ``(offset, band id or None, matched, seen)``, so a caller can tell a confident naming from
+    a slot the recording never got a look at (the frame buffer holds only the last ~900
+    samples, so a long run loses its opening bands entirely)."""
+    born, mon = load_config()
+    per_band = {b: rows for b, rows in bands(born, mon).items()
+                if max(z for _, z, _ in rows) <= BAND_PITCH + 10}
+    zs, obs = read_run(path)
+    if not zs:
+        return []
+    rounded = {(x, round(z), mid) for x, z, mid in obs}
+    out = []
+    for off in range(0, int(max(zs)) + BAND_PITCH, BAND_PITCH):
+        seen = sum(1 for _, z, _ in rounded if off < z <= off + BAND_PITCH)
+        scored = sorted(
+            ((sum(1 for x, z, mid in rows if (x, round(z) + off, mid) in rounded), b)
+             for b, rows in per_band.items()), reverse=True)
+        hits, band = scored[0]
+        out.append((off, band if hits >= min_hits else None, hits, seen))
+    return out
+
+
+def run_accel(path: str, speed0: float = 30.0, cap: float = 60.0) -> float:
+    """The speed ramp a recorded run actually ran at, as the judge's single `accel` number.
+
+    The judge models speed as ``min(speed0 + accel*z, cap)``; the recording gives the true
+    speed at every sample (the distance between two frames over their fixed interval). Fitting
+    the one against the other is what keeps a replay from clearing a gap the human had to take
+    at a speed the replay never reached."""
+    zs, _ = read_run(path)
+    obs = [(zs[i], (zs[i + 1] - zs[i]) / FRAME_DT) for i in range(len(zs) - 1)]
+    if not obs:
+        return 0.0
+    best = None
+    for step in range(1, 1201):
+        a = step / 200000.0
+        err = sum((min(speed0 + a * z, cap) - s) ** 2 for z, s in obs)
+        if best is None or err < best[1]:
+            best = (a, err)
+    return best[0]
+
+
 _SIM = r"""
 local function L(s) CS.UnityEngine.Debug.LogError("SSIM "..tostring(s)) end
 local AI = _G.__SR_AI
@@ -224,15 +350,7 @@ def kind_for(kinds: dict, mid: int) -> dict:
 def simulate(ev, rows, kinds, lane0, zmax):
     for _, _, mid in rows:
         kind_for(kinds, mid)
-    ov = ",".join(
-        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
-        % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
-           str(k.get("sideOnly", False)).lower(),
-           str(k.get("carriage", False)).lower(), str(k.get("ramp", False)).lower(),
-           str(k.get("ignore", False)).lower(),
-           k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
-           repr(k["buff"]) if k.get("buff") else "nil")
-        for mid, k in kinds.items())
+    ov = kind_table(kinds)
     obs = ",".join("{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
                    for x, z, mid in rows)
     holes, roofs = roof_holes(rows, kinds)
@@ -270,7 +388,7 @@ def main(argv):
                 continue
             rows = per_band[band]
             for lane0 in lanes:
-                res = simulate(ev, rows, kinds, lane0, 340)
+                res = simulate(ev, rows, kinds, lane0, BAND_PITCH + 10)
                 mark = "ok  " if res.startswith("OK") else "DIE "
                 if res.startswith("DEAD"):
                     failures += 1
@@ -333,7 +451,7 @@ def cmd_chain(argv):
     lane0 = int(argv[0]) if argv and argv[0].lstrip("-").isdigit() else 1
     born, mon = load_config()
     nb = len(bands(born, mon))
-    zmax = nb * 340
+    zmax = nb * BAND_PITCH
     ev = get_evaluator()
     worst = None
     try:
@@ -348,11 +466,14 @@ def cmd_chain(argv):
     return 0
 
 
-def build_field(accel: float = 0.0, rot: int = 0):
+def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None):
     """The obstacle field as Lua source: the kind table, and per group the obstacles, the roof
     seams and the rideable roof spans. Shared with the local runner (surfing_offline.py) so
     both hosts judge the SAME track — a fix that only helps because the two disagree about
-    what is on the ground would be worthless."""
+    what is on the ground would be worthless.
+
+    `order` chains an EXPLICIT band list (the one a recorded run actually went through, see
+    ``band_order_from_run``) instead of the whole pool in id order."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -360,18 +481,19 @@ def build_field(accel: float = 0.0, rot: int = 0):
     for rows in per_band.values():
         for _, _, mid in rows:
             kind_for(kinds, mid)
-    if accel > 0:
-        # CHAIN: concatenate every band into one long track (offset 340 each) so band SEAMS
-        # appear — that is where the live roof-descent deaths happen and an isolated band can't
-        # show them. `rot` rotates the band order so different seams are exercised (the live
-        # order is random). One "band" is fed, and ZMAX is the whole length.
-        order = sorted(per_band)
-        order = order[rot % len(order):] + order[:rot % len(order)]
+    if accel > 0 or order:
+        # CHAIN: concatenate the bands into one long track so band SEAMS appear — that is where
+        # the live roof-descent deaths happen and an isolated band can't show them. `rot`
+        # rotates the band order so different seams are exercised (the live order is random),
+        # unless an explicit `order` is given. One "band" is fed, and ZMAX is the whole length.
+        if not order:
+            order = sorted(per_band)
+            order = order[rot % len(order):] + order[:rot % len(order)]
         chained, off = [], 0
         for band in order:
             for x, z, mid in per_band[band]:
                 chained.append((x, z + off, mid))
-            off += 340
+            off += BAND_PITCH
         groups = [chained]
     else:
         groups = [per_band[b] for b in sorted(per_band)]
@@ -383,21 +505,14 @@ def build_field(accel: float = 0.0, rot: int = 0):
         holes, roofs = roof_holes(rows, kinds)
         hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
         roof_src.append("{" + ",".join("{%d,%g,%g}" % r for r in roofs) + "}")
-    ov = ",".join(
-        "[%d]={solid=%s,jump=%s,slide=%s,sideOnly=%s,carriage=%s,ramp=%s,ignore=%s,back=%g,front=%g,lanes=%d,speed=%g,buff=%s}"
-        % (mid, str(k["solid"]).lower(), str(k["jump"]).lower(), str(k.get("slide", False)).lower(),
-           str(k.get("sideOnly", False)).lower(),
-           str(k.get("carriage", False)).lower(), str(k.get("ramp", False)).lower(),
-           str(k.get("ignore", False)).lower(),
-           k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
-           repr(k["buff"]) if k.get("buff") else "nil")
-        for mid, k in kinds.items())
+    ov = kind_table(kinds)
     names = {int(k): (v.get("asset") or "").split("/")[-1].replace(".prefab", "")
              for k, v in mon.items()}
     return ov, band_src, hole_src, roof_src, kinds, names
 
 
-def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340, rot: int = 0):
+def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0,
+          zmax: int = BAND_PITCH + 10, rot: int = 0):
     """Replay every band from one start lane through the live planner at `speed` u/s. Returns
     ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
     Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot.
