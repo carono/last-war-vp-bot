@@ -51,13 +51,18 @@ cfg.roofY        = cfg.roofY        or 2.0   -- player y above this = up on a ca
 cfg.padSmall     = cfg.padSmall     or 1.0   -- default half-length of a small obstacle
 cfg.carUnit      = cfg.carUnit      or 8.24  -- one carriage segment; "_N" suffix = N of them
 cfg.moverBack    = cfg.moverBack    or 41.0  -- assumed length of an unmeasured driving truck
--- A driving truck is SLOWER than the runner (20/40 vs 30), so the player catches it from
--- behind and rams its rear. An earlier attempt inflated a mover's modelled rear (`moverLead`)
--- to make the planner vacate its lane sooner — but the player watched it backfire: an inflated
--- rear keeps a lane reading BLOCKED long after the truck has actually cleared it, so the bot
--- sat behind a truck that had already passed and missed the open gap beside it («грузовик уже
--- прошёл, можно было уйти влево»). Over-stating a truck's length hides real lateral gaps, so
--- the lead is left at 0: the truck's honest body is what blocks, nothing more.
+-- A driving truck comes STRAIGHT AT the runner: 751 frame-to-frame samples across the human
+-- recordings put every mover at exactly minus its declared move_speed, and not one of them
+-- travelling with the runner. It sets off only once the runner has closed to about 120 units;
+-- beyond that it sits on its spawn mark (the last frame a mover is seen parked is at a gap of
+-- 122). Both numbers are measurements off results/street_run/human/, not guesses.
+cfg.moverTrigger = cfg.moverTrigger or 120.0
+-- An earlier attempt inflated a mover's modelled rear (`moverLead`) to make the planner vacate
+-- its lane sooner — but the player watched it backfire: an inflated rear keeps a lane reading
+-- BLOCKED long after the truck has actually cleared it, so the bot sat behind a truck that had
+-- already passed and missed the open gap beside it («грузовик уже прошёл, можно было уйти
+-- влево»). Over-stating a truck's length hides real lateral gaps, so the lead is left at 0:
+-- the truck's honest body is what blocks, nothing more.
 cfg.moverLead    = cfg.moverLead    or 0.0
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
 cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
@@ -372,10 +377,20 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
         -- reach the rear further back so the planner starts vacating early enough to
         -- finish the lane change before the closing truck's rear arrives
         local backM = back + cfg.moverLead
-        local drift = v / speed - 1
+        -- A driving truck comes AT the runner, and only after the runner has closed to
+        -- `moverTrigger` — until then it sits on its spawn mark. So the gap shuts in two
+        -- phases: at the runner's own speed while the truck is still parked, then at the sum
+        -- of the two once it sets off. Projecting it as driving away (the old `v/speed - 1`)
+        -- put every oncoming truck далеко behind where it really meets the runner.
         local rel0 = o.z - pz
+        local park = rel0 - cfg.moverTrigger      -- how far the runner goes before it starts
         for j = 0, H do
-          local rel = rel0 + j * drift
+          local rel
+          if j <= park then
+            rel = rel0 - j
+          else
+            rel = min(rel0, cfg.moverTrigger) - (j - max(0, park)) * (1 + v / speed)
+          end
           if rel > -front and rel < backM then
             for ll = l0, l1 do
               if sideOnly then side[ll][j] = true else solid[ll][j] = true end
