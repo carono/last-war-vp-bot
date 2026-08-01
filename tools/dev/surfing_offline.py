@@ -759,9 +759,18 @@ def _alive(tr: Track, state, dead_ends: set, wins: set) -> bool:
 
 def _furthest(tr: Track, lane0: int) -> float:
     """How far anything gets when nothing gets through — where the route walls up."""
+    return _furthest_from(tr, tr.start(lane0))
+
+
+def _furthest_from(tr: Track, state) -> float:
+    """The same, from an arbitrary state: how far a branch runs before it walls up.
+
+    A blamed move is more legible with the distance beside it — "left walls up at 4853, hold
+    runs the lot" says at a glance whether the mistake was a step into a short dead end or a
+    step off the one line that goes."""
     dead_ends = set()
     best = 0.0
-    stack = [tr.start(lane0) + (iter((0, 1, 2, 3, 4)),)]
+    stack = [state + (iter((0, 1, 2, 3, 4)),)]
     while stack:
         frame, lane, level, fly, opts = stack[-1]
         best = max(best, tr.pz[min(frame, tr.nframes)])
@@ -887,16 +896,24 @@ def cmd_blame(argv, cfg):
             if nxt is not None and _alive(tr, nxt, dead_ends, wins):
                 state = nxt
                 continue
-            good = []
+            good, reach = [], []
             for alt in (0, 1, 2, 3, 4):
                 res = tr.step(state[0], state[1], state[2], alt, state[3])
-                if res is not None and _alive(tr, res, dead_ends, wins):
+                if res is None:
+                    reach.append("%s dies here" % ALIVE_ACT[alt])
+                    continue
+                if _alive(tr, res, dead_ends, wins):
                     good.append(alt)
+                    reach.append("%s runs the lot" % ALIVE_ACT[alt])
+                else:
+                    reach.append("%s walls up at %.0f"
+                                 % (ALIVE_ACT[alt], _furthest_from(tr, res)))
             z = tr.pz[state[0]]
             print("\n  start=%-6s LOST IT at z=%.1f in lane %s, %.0f m before the body hit at %.0f"
                   % (LANE_NAME[lane0], z, LANE_NAME[state[1]], dist - z, dist))
             print("      it chose      : %s" % ALIVE_ACT[act])
             print("      still winnable: %s" % (", ".join(ALIVE_ACT[a] for a in good) or "nothing"))
+            print("      every move    : %s" % "; ".join(reach))
             if ent is not None:
                 r = ent[1]
                 print("      it believed   : reach=%d  first solid=%s  dp reaches=%s"

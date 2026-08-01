@@ -410,8 +410,14 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           end
         end
       else
-        local aj = ceil(o.z - back - pz)
-        local bj = floor(o.z + front - pz)
+        -- Round the body OUTWARD, never in. `ceil` on the near end and `floor` on the far one
+        -- shaves up to a metre off each end of every obstacle, which is how the DP comes to
+        -- believe in gaps finer than the bucket it reasons in: on a drawn route it read a
+        -- 0.3 m window between a carriage's end and a fence as a lane change it could make,
+        -- stepped into the lane on the strength of it and was walled 90 m later. A bucket is
+        -- the finest thing this DP can see, so a body has to occupy every bucket it touches.
+        local aj = floor(o.z - back - pz)
+        local bj = ceil(o.z + front - pz)
         if bj >= 0 and aj <= H then
           for j = max(0, aj), min(H, bj) do
             for ll = l0, l1 do
