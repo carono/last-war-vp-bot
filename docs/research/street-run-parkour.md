@@ -1274,9 +1274,47 @@ run_002 gives up 142 m, and that is the change working: its ceiling at 1.5 m of 
 None of this has been near a live run. The next thing that would settle anything is an A/B in
 the game — the old planner and this one, alternating, with the supervisor quiet.
 
+### Greed was setting the clock on the manoeuvres (#1161, same session)
+
+The last 138 m of run_002's own ceiling came off one number. `earlyBias` prices a bucket of
+delay before a move at 0.004; a single coin inside the sweep is worth 0.01. So the pickup
+tie-break — the one thing declared unable to buy a swerve — was deciding *when* a lane change
+happened, and when is safety.
+
+At z=7238.5 a change to the right was legal and the route scheduled it "in 1" rather than now,
+for the coins. 1.9 m later the window had shut: a barrel's padded rear had closed on the lane
+behind and the fence ahead had not yet cleared. At 7244.1 only a hop was left and there was no
+room to time one — the barrel sat in the takeoff stretch, not the middle of the arc — and the
+run died at 7248. Priced above the coin, run_002 reaches 7390 m, which is its ceiling.
+
+Three faults in the roof model went with it: running off the end of a roof was read as landing
+on the road rather than falling into the gap (so the planner was told it was on the ground on
+the very frame it needed to hop); mounting a ramp was offered as a choice, which let a route
+plan a line straight through a ramp body; and a roof-to-roof change was checked from the bucket
+ahead when the drop is charged against the entering lane from the first frame.
+
+`blame` is judged against the distance anything can reach rather than the finish — most routes
+wall up short of 11880 m, and on those "can I still reach the end" is False from the first
+frame and blames nothing.
+
+#### Thirteen drawn routes, session start against the end of it
+
+| | run_002 | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 | s9 | s10 | s11 | s12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| start | 7390 | 190 | 4853 | 508 | 2552 | 632 | 632 | 1752 | 1409 | 726 | 583 | 2186 | 5407 |
+| end | 7390 | 3237 | 6822 | 508 | 3774 | 10141 | **11880** | 3439 | 8050 | 3568 | 4451 | 5149 | 2587 |
+| ceiling at 1.5 m | 7386 | — | — | 507 | — | — | 11880 | 11017 | 8048 | — | — | 7716 | 5421 |
+
+(a dash is the whole 11880 m.) **Share of the ceiling reached: 34% → 63%**, per-band holding
+at 141/144. Twelve of the thirteen improved. Seed 12 is the one that did not — 5407 to 2587 —
+and it is where the next session starts: it dies on a seam, in a lane whose roof chain begins
+outside the planner's 50 m look-back, which is the one thing the planner is structurally
+unable to see.
+
 #### Commands
 
     python3 tools/dev/surfing_battery.py                     # every standing measurement, ~9 min
+    python3 tools/dev/surfing_battery.py seeds=12            # ... over thirteen routes, ~20 min
     python3 tools/dev/surfing_offline.py blame run_002 1     # which decision lost the run
     python3 tools/dev/surfing_offline.py blame pool:36:4 1    # ... on a drawn route
     python3 tools/dev/surfing_offline.py feasible run_002 1 pad=1.5   # ceiling at real clearance
