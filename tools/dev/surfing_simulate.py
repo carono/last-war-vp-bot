@@ -211,7 +211,15 @@ def kind_table(kinds: dict) -> str:
         for mid, k in kinds.items())
 
 
-def roof_holes(rows, kinds, roof_gap: float = 16.0):
+JUMP_TIME = 0.72        # player.jumpDurationValue, live-read (see surfing_ai.lua cfg)
+
+
+def speed_profile(speed0: float = 30.0, accel: float = 0.0, cap: float = 60.0):
+    """The runner's speed as a function of distance — the judge's own model, as a callable."""
+    return lambda z: min(speed0 + accel * z, cap)
+
+
+def roof_holes(rows, kinds, roof_gap: float = 16.0, speed_at=None):
     """The gaps the runner has to hop while riding along the carriage roofs.
 
     A ramp piece starts a roof; the next carriage in the same lane continues it if it is
@@ -219,6 +227,13 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0):
     into it kills — which is what ended a live run off the far end of a truck. The judge has
     to model it, or it cannot tell whether the planner's hop is scheduled correctly.
     """
+    # How far a roof carries to the next carriage is NOT a constant: the gap is crossed by
+    # hopping it, so the reach is the hop — jumpTime * speed. Measured on the human recordings:
+    # all 40 roof-to-roof crossings satisfy gap <= 0.72 * speed, the greediest using 75% of it
+    # (23.6 m at 48 u/s). A flat 16 denied three of them — 19.0, 23.0 and 23.6 m gaps the person
+    # rode across — and broke the chain onto ground that was walled off. `roof_gap` is kept as a
+    # floor so a slow chain never does worse than before.
+    speed_at = speed_at or (lambda z: 30.0)
     per_lane: dict[int, list] = {0: [], 1: [], 2: []}
     for x, z, mid in rows:
         k = kinds.get(mid) or {}
@@ -232,7 +247,8 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0):
         items.sort()
         roof_until = None
         for z0, z1, is_ramp in items:
-            cont = roof_until is not None and z0 - roof_until <= roof_gap
+            reach = max(roof_gap, JUMP_TIME * speed_at(z0))
+            cont = roof_until is not None and z0 - roof_until <= reach
             if is_ramp or cont:
                 # a seam-hole belongs ONLY between two carriages that actually chain (small
                 # gap). A ramp starting a FRESH roof after a big gap is not a seam — the runner
@@ -521,7 +537,7 @@ def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None):
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
-        holes, roofs = roof_holes(rows, kinds)
+        holes, roofs = roof_holes(rows, kinds, speed_at=speed_profile(30.0, accel))
         hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
         roof_src.append("{" + ",".join("{%d,%g,%g}" % r for r in roofs) + "}")
     ov = kind_table(kinds)

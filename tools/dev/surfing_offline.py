@@ -405,7 +405,10 @@ class Track:
         rows, kinds, names = route_rows(order)
         self.names = names
         self.zmax = len(order) * S.BAND_PITCH
-        holes, roofs = S.roof_holes(rows, kinds)
+        # the same speed-derived roof reach the judge uses, so the ceiling and the replay
+        # cannot disagree about which carriages chain
+        holes, roofs = S.roof_holes(rows, kinds,
+                                    speed_at=S.speed_profile(speed0, accel, self.CAP))
         self.holes, self.roofs = holes, roofs
         lane_of = (lambda x: min(range(3), key=lambda i: abs(x - (32 + 4 * i))))
         self.static, self.moving, self.fly = [], [], []
@@ -447,7 +450,10 @@ class Track:
     def _hits(self, frame, lane, sw_from, sw_to, switching, jumping, sliding, flying):
         """Did the avatar die crossing frame `frame`? Mirrors SIM.once's collision block."""
         z0, z1 = self.pz[frame], self.pz[frame + 1]
-        if not flying and not (self.on_roof(z0, lane) or (jumping and self.air_roof)):
+        # the roof is read from the lane the runner is CHARGED for, the same one the collision
+        # test uses — mid-change that is the lane it still holds, not the one it is entering
+        held = sw_from if switching else lane
+        if not flying and not (self.on_roof(z0, held) or (jumping and self.air_roof)):
             t = frame * self.DT
             for ol, oz, back, front, lanes, jmp, sld, side, speed, mid in self.static:
                 if oz - back >= z1:
@@ -567,7 +573,7 @@ def cmd_feasible(argv, cfg):
             worst = max(worst, reached)
             continue
         dist, dead = _replay_moves(rt, ov, band[0], hole[0], roof[0], lane0, accel,
-                                   tr.zmax, path)
+                                   tr.zmax, path, tr)
         verdict = ("the judge agrees" if dead is None else
                    "BUT the judge kills it at %.0f — %s" % (dist, describe(dead, names)))
         print("yes  start=%-6s a %d-move path clears all %d m; %s"
@@ -642,22 +648,31 @@ def _furthest(tr: Track, lane0: int) -> float:
     return best
 
 
-def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path):
+def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr):
     """Push a fixed schedule of moves through the REAL Lua judge.
 
     The planner is swapped for one that reads the schedule, so the verdict on a searched path
-    comes from ``surfing_sim.lua`` itself rather than from the search's own arithmetic."""
-    rt.execute("__SR_PATH = {}")
+    comes from ``surfing_sim.lua`` itself rather than from the search's own arithmetic.
+
+    Keyed by DISTANCE, not by call count. The judge plans on odd frames but skips a call
+    entirely while a change, hop or duck is in flight, so its Nth call is not its (2N-1)th
+    frame — counting calls slid the whole schedule the moment the route made its first move,
+    and the replay then died metres in on a fence it had been told to duck 40 m earlier.
+    Distance is exact instead: both sides step `pz` with the same recurrence from the same
+    start, so the values match to the bit."""
+    rt.execute("__SR_PATH = {} __SR_IDX = 1")
     tbl = rt.globals()["__SR_PATH"]
-    for frame, act in path.items():
-        tbl[frame] = act
+    for i, frame in enumerate(sorted(f for f, a in path.items() if a), 1):
+        tbl[i] = rt.eval("function(z, a) return {z = z, a = a} end")(tr.pz[frame], path[frame])
     rt.execute("""
     __SR_REAL_PLAN = __SR_REAL_PLAN or __SR_AI.planRoute
-    __SR_FRAME = 0
     __SR_AI.planRoute = function(pz, lane, speed, obs, flying, onRoof)
-      __SR_FRAME = __SR_FRAME + 1
-      -- the judge plans on odd frames only, so its Nth call is frame 2N-1
-      return 0, __SR_PATH[2 * __SR_FRAME - 1] or 0, 0
+      local e = __SR_PATH[__SR_IDX]
+      if e and pz >= e.z - 0.001 then
+        __SR_IDX = __SR_IDX + 1
+        return 0, e.a, 0
+      end
+      return 0, 0, 0
     end
     """)
     try:
@@ -687,7 +702,9 @@ def cmd_human(argv, cfg):
     slots = S.band_order_from_run(path)
     off0 = next(s[0] for s in slots if s[1])
     rows, kinds, names = route_rows(order)
-    holes, roofs = S.roof_holes(rows, kinds)
+    # judge the roof model at the speed the recording actually ran, not at a nominal 30
+    holes, roofs = S.roof_holes(rows, kinds,
+                                speed_at=S.speed_profile(30.0, S.run_accel(path)))
     print("human %s" % note)
 
     def lane_of(x):

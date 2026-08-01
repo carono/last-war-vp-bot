@@ -65,7 +65,15 @@ cfg.moverTrigger = cfg.moverTrigger or 120.0
 -- the truck's honest body is what blocks, nothing more.
 cfg.moverLead    = cfg.moverLead    or 0.0
 cfg.bridgeBack   = cfg.bridgeBack   or 34.0  -- where a bridge gate's near edge sits before z
-cfg.roofGap      = cfg.roofGap      or 16.0  -- gap the roof carries across to the next carriage
+-- How far a roof carries across to the next carriage. NOT a constant: the runner crosses a gap
+-- by hopping it, so the reach is the hop itself — `jumpTime * speed`. Measured, not assumed: of
+-- the 40 roof-to-roof crossings in the human recordings, every single one satisfies
+-- `gap <= 0.72 * speed`, and the greediest uses 75% of it (23.6 m at 48 u/s). The old flat 16
+-- denied three of them outright — 19.0, 23.0 and 23.6 m gaps the person demonstrably rode
+-- across — which left the route stepping down onto ground that was walled off.
+-- `cfg.roofGap` stays as a FLOOR so a low-speed chain never falls below the old behaviour;
+-- shrinking it no longer moves the limit (see surfing_stats.derive_cfg).
+cfg.roofGap      = cfg.roofGap      or 16.0  -- floor only; the real reach is jumpTime * speed
 if cfg.rampSolid == nil then cfg.rampSolid = false end  -- learned: are ramps really rideable?
 cfg.padExtra     = cfg.padExtra     or 1.5   -- timing slack added at both ends
 -- route costs
@@ -309,7 +317,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     for i = 1, #t do
       local c = t[i]
       local autoStart = canAuto and (roofUntil == nil) and (c.z1 >= pz - 4)
-      local cont = roofUntil and (c.z0 - roofUntil <= cfg.roofGap)
+      local cont = roofUntil and (c.z0 - roofUntil <= max(cfg.roofGap, cfg.jumpTime * speed))
       if c.ramp or autoStart or cont then
         -- a seam-hole belongs ONLY between two carriages that actually chain (small gap):
         -- that drop must be HOPPED. A ramp starting a FRESH roof after a big gap is NOT a

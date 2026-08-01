@@ -135,10 +135,18 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
         elseif act == 4 then slT = SIM.slideTime moves = moves + 1 end
       end
     end
+    -- Which lane the runner is CHARGED for this frame: mid-change it is the one it still
+    -- holds (see the handover below). The roof has to be read from that same lane — the judge
+    -- used to read it from the lane before the change and collide against the lane after, so a
+    -- change begun on the road onto a lane with a roof went through the roof's obstacles, and
+    -- one begun on a roof was collided as if on the road. Both halves must agree.
+    local heldLane = lane
+    if swT > 0 then heldLane = (swT > SIM.switchTime * 0.5) and swFrom or swTo end
+    local roofNow = onRoofAt(pz, heldLane) or (jT > 0 and airRoof)
     -- riding a roof: the carriages are floor and ground obstacles are below — no ground
     -- collision. In the air on the aeroplane buff: nothing on the ground reaches at all.
     -- On the ground: the usual solid collisions (carriages are walls, etc.).
-    if not onRoof and fly <= 0 then
+    if not roofNow and fly <= 0 then
       for i = 1, #live do
         local o = live[i]
         local k = AI.kindOverride[o.mid]
