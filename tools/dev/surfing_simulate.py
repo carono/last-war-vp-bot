@@ -44,6 +44,14 @@ from lua_client import get_evaluator  # noqa: E402
 MARK = "SSIM "
 CONFIG = os.path.join("results", "street_run", "config")
 LANE_NAME = {0: "left", 1: "centre", 2: "right"}
+SIM_LUA_PATH = os.path.join(_ROOT, "lib", "surfing_sim.lua")
+
+
+def sim_lua() -> str:
+    """The judge itself — shared with the local runner (tools/dev/surfing_offline.py), so the
+    two hosts cannot drift apart in what they call a death."""
+    with open(SIM_LUA_PATH, "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 def load_config():
@@ -181,78 +189,20 @@ local function L(s) CS.UnityEngine.Debug.LogError("SSIM "..tostring(s)) end
 local AI = _G.__SR_AI
 if not AI or not AI.planRoute then L("no-autopilot") return end
 AI.kindOverride = { %s }
+if AI.resetKinds then AI.resetKinds() end
 local obs = { %s }
+local holes, roofs = { %s }, { %s }
 local ZMAX, LANE0 = %s, %s
-local function laneOf(x)
-  local l = math.floor((x - 36) / 4 + 0.5) + 1
-  if l < 0 then l = 0 elseif l > 2 then l = 2 end
-  return l
-end
-local speed, dt = 30, 1/60
-local pz, lane = 0, LANE0
-local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
-local dead, frame, moves, t = nil, 0, 0, 0
-local live, window = {}, {}
-for i = 1, #obs do live[i] = {x = obs[i].x, z = obs[i].z, mid = obs[i].mid, speed = obs[i].speed} end
-while pz < ZMAX and not dead do
-  frame = frame + 1
-  t = t + dt
-  for i = 1, #live do
-    if live[i].speed > 0 then live[i].z = obs[i].z + live[i].speed * t end
-  end
-  if frame %% 2 == 1 and swT <= 0 and jT <= 0 and slT <= 0 then
-    local n = 0
-    for i = 1, #live do
-      local o = live[i]
-      if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
-    end
-    for i = #window, n + 1, -1 do window[i] = nil end
-    local reach, act, az = AI.planRoute(pz, lane, speed, window)
-    if az == 0 and act ~= 0 then
-      if act == 1 and lane > 0 then
-        swT, swFrom, swTo, lane = 0.16, lane, lane - 1, lane - 1 moves = moves + 1
-      elseif act == 2 and lane < 2 then
-        swT, swFrom, swTo, lane = 0.16, lane, lane + 1, lane + 1 moves = moves + 1
-      elseif act == 3 then
-        jT = 0.72 moves = moves + 1
-      elseif act == 4 then
-        slT = 0.50 moves = moves + 1
-      end
-    end
-  end
-  -- collision against the TRUE extents (no planner padding): [z - back, z + front],
-  -- across every lane the body covers
-  local z0, z1 = pz, pz + speed * dt
-  for i = 1, #live do
-    local o = live[i]
-    local k = AI.kindOverride[o.mid]
-    if k and k.solid then
-      if z1 > o.z - k.back and z0 < o.z + k.front then
-        local ol = laneOf(o.x)
-        local hit
-        if k.lanes >= 3 then
-          hit = true
-        elseif swT > 0 then
-          hit = (ol == swFrom or ol == swTo)
-        else
-          hit = (ol == lane)
-        end
-        if k.sideOnly and swT <= 0 then hit = false end   -- ridden head-on, fatal only sideways
-        if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
-      end
-    end
-  end
-  if swT > 0 then swT = swT - dt end
-  if jT > 0 then jT = jT - dt end
-  if slT > 0 then slT = slT - dt end
-  pz = z1
-end
+-- one band at a fixed speed, judged with the SAME seam/roof model as the score and chain
+-- paths — an empty one used to make this command a laxer judge than the other two, so a band
+-- could "die" here and pass there for no reason but which entry point was typed.
+local pz, dead, moves = __SR_SIM.once(obs, holes, roofs, LANE0, 30, 0, ZMAX)
 AI.kindOverride = {}
 if dead then
-  L(string.format("DEAD z=%%.1f x=%%s obz=%%.1f mid=%%s lane=%%d moves=%%d", pz,
-    tostring(dead.x), dead.z, tostring(dead.mid), lane, moves))
+  L(string.format("DEAD z=%%.1f x=%%s obz=%%.1f mid=%%s moves=%%d", pz,
+    tostring(dead.x), dead.z or 0, tostring(dead.mid), moves))
 else
-  L(string.format("OK z=%%.1f lane=%%d moves=%%d", pz, lane, moves))
+  L(string.format("OK z=%%.1f moves=%%d", pz, moves))
 end
 """
 
@@ -285,7 +235,11 @@ def simulate(ev, rows, kinds, lane0, zmax):
         for mid, k in kinds.items())
     obs = ",".join("{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
                    for x, z, mid in rows)
-    lines = ev.run(_SIM % (ov, obs, zmax, lane0), marker=MARK, settle=6.0)
+    holes, roofs = roof_holes(rows, kinds)
+    hole_src = ",".join("{%d,%g,%g}" % h for h in holes)
+    roof_src = ",".join("{%d,%g,%g}" % r for r in roofs)
+    lines = ev.run(sim_lua() + _SIM % (ov, obs, hole_src, roof_src, zmax, lane0),
+                   marker=MARK, settle=6.0)
     for ln in lines:
         return ln.split(MARK, 1)[-1].rstrip()
     return "no-result"
@@ -341,96 +295,15 @@ local bands = { %s }
 local holes = { %s }
 local roofs = { %s }
 local LANE0, SPEED, ACCEL, ZMAX = %s, %s, %s, %s
-local function laneOf(x)
-  local l = math.floor((x - 36) / 4 + 0.5) + 1
-  if l < 0 then l = 0 elseif l > 2 then l = 2 end
-  return l
-end
-local function once(obs, hole, roof, LANE0)
-  local speed, dt = SPEED, 1/60
-  local function spdAt(z) local s = SPEED + z * ACCEL if s > 60 then s = 60 end return s end
-  local pz, lane = 0, LANE0
-  local swT, swFrom, swTo, jT, slT = 0, LANE0, LANE0, 0, 0
-  local dead, frame, t = nil, 0, 0
-  local live, window = {}, {}
-  for i = 1, #obs do live[i] = {x = obs[i].x, z = obs[i].z, mid = obs[i].mid, speed = obs[i].speed} end
-  -- level 2: is the avatar over a rideable carriage roof in lane `ln` at distance `z`?
-  local function onRoofAt(z, ln)
-    for i = 1, #roof do
-      local r = roof[i]
-      if r[1] == ln and z >= r[2] and z <= r[3] then return true end
-    end
-    return false
-  end
-  while pz < ZMAX and not dead do
-    frame = frame + 1
-    t = t + dt
-    speed = spdAt(pz)                        -- track speed accelerates with distance
-    for i = 1, #live do
-      if live[i].speed > 0 then live[i].z = obs[i].z + live[i].speed * t end
-    end
-    local onRoof = onRoofAt(pz, lane)
-    if frame %% 2 == 1 and swT <= 0 and jT <= 0 and slT <= 0 then
-      local n = 0
-      for i = 1, #live do
-        local o = live[i]
-        if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
-      end
-      for i = #window, n + 1, -1 do window[i] = nil end
-      local reach, act, az = AI.planRoute(pz, lane, speed, window, false, onRoof)
-      if az == 0 and act ~= 0 then
-        if act == 1 and lane > 0 then swT, swFrom, swTo, lane = 0.16, lane, lane - 1, lane - 1
-        elseif act == 2 and lane < 2 then swT, swFrom, swTo, lane = 0.16, lane, lane + 1, lane + 1
-        elseif act == 3 then jT = 0.72
-        elseif act == 4 then slT = 0.50 end
-      end
-    end
-    local z0, z1 = pz, pz + speed * dt
-    -- riding a roof: the carriages are floor and ground obstacles are below — no ground
-    -- collision. On the ground: the usual solid collisions (carriages are walls, etc.).
-    if not onRoof then
-      for i = 1, #live do
-        local o = live[i]
-        local k = AI.kindOverride[o.mid]
-        if k and k.solid then
-          if z1 > o.z - k.back and z0 < o.z + k.front then
-            local ol = laneOf(o.x)
-            local hit
-            if k.lanes >= 3 then hit = true
-            elseif swT > 0 then hit = (ol == swFrom or ol == swTo)
-            else hit = (ol == lane) end
-            if k.sideOnly and swT <= 0 then hit = false end
-            if hit and not (jT > 0 and k.jump) and not (slT > 0 and k.slide) then dead = o end
-          end
-        end
-      end
-    end
-    -- a seam between two carriage roofs: a drop, lethal unless the avatar is airborne over it
-    if not dead and jT <= 0 then
-      for i = 1, #hole do
-        local h = hole[i]
-        if h[1] == lane and z1 > h[2] and z0 < h[3] then dead = {z = h[2], mid = -1, x = 36} end
-      end
-    end
-    if swT > 0 then swT = swT - dt end
-    if jT > 0 then jT = jT - dt end
-    if slT > 0 then slT = slT - dt end
-    pz = z1
-  end
-  return pz, dead
-end
-local passed, total, dist = 0, 0, 0
-for bi = 1, #bands do
-  local z, dead = once(bands[bi], holes[bi], roofs[bi], LANE0)
-  total = total + 1
-  dist = dist + z
-  if dead == nil then passed = passed + 1
-  elseif #bands == 1 then
-    L(string.format("DEATH z=%%.0f mid=%%s x=%%s obz=%%.0f", z, tostring(dead.mid),
-      tostring(dead.x), dead.z or 0))
-  end
-end
+local passed, total, dist, deaths = __SR_SIM.score(bands, holes, roofs, LANE0, SPEED, ACCEL, ZMAX)
 AI.kindOverride = {}
+if #bands == 1 then
+  for i = 1, #deaths do
+    local d = deaths[i]
+    L(string.format("DEATH z=%%.0f mid=%%s x=%%s obz=%%.0f", d.z, tostring(d.mid),
+      tostring(d.x), d.obz or 0))
+  end
+end
 L(string.format("SCORE passed=%%d of=%%d dist=%%.0f", passed, total, dist))
 """
 
@@ -475,11 +348,11 @@ def cmd_chain(argv):
     return 0
 
 
-def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340, rot: int = 0):
-    """Replay every band from one start lane through the live planner at `speed` u/s. Returns
-    ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
-    Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot.
-    `accel`/`zmax` are for the chained-track run (cmd_chain): speed climbs with distance."""
+def build_field(accel: float = 0.0, rot: int = 0):
+    """The obstacle field as Lua source: the kind table, and per group the obstacles, the roof
+    seams and the rideable roof spans. Shared with the local runner (surfing_offline.py) so
+    both hosts judge the SAME track — a fix that only helps because the two disagree about
+    what is on the ground would be worthless."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -519,9 +392,20 @@ def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 3
            k.get("back", 0), k.get("front", 0), k.get("lanes", 1), k.get("speed", 0),
            repr(k["buff"]) if k.get("buff") else "nil")
         for mid, k in kinds.items())
-    lines = ev.run(_SCORE % (ov, ",".join(band_src), ",".join(hole_src),
-                             ",".join(roof_src), lane0, speed, accel, zmax),
-                   marker=MARK, settle=float(os.environ.get("SSIM_SETTLE","8")))
+    names = {int(k): (v.get("asset") or "").split("/")[-1].replace(".prefab", "")
+             for k, v in mon.items()}
+    return ov, band_src, hole_src, roof_src, kinds, names
+
+
+def score(ev, lane0: int = 1, speed: int = 30, accel: float = 0.0, zmax: int = 340, rot: int = 0):
+    """Replay every band from one start lane through the live planner at `speed` u/s. Returns
+    ``(passed, total, distance)`` — the objective the between-attempt learner is judged on.
+    Run at the higher speeds a long run reaches (45/60) to expose hops that overshoot.
+    `accel`/`zmax` are for the chained-track run (cmd_chain): speed climbs with distance."""
+    ov, band_src, hole_src, roof_src, _, _ = build_field(accel, rot)
+    lines = ev.run(sim_lua() + _SCORE % (ov, ",".join(band_src), ",".join(hole_src),
+                                         ",".join(roof_src), lane0, speed, accel, zmax),
+                   marker=MARK, settle=float(os.environ.get("SSIM_SETTLE", "8")))
     for ln in lines:
         body = ln.split(MARK, 1)[-1].strip()
         if body.startswith("DEATH "):

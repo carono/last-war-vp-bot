@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(_HERE, "lib"))
 
 sys.path.insert(0, os.path.join(_HERE, "dev"))
 
+import surfing_offline  # noqa: E402
 import surfing_simulate  # noqa: E402
 import surfing_stats  # noqa: E402
 from lua_client import get_evaluator  # noqa: E402
@@ -183,18 +184,38 @@ def _apply_cfg(ev, cfg: dict, baseline: dict | None = None):
     """
     if not cfg:
         return False
-    before = surfing_simulate.score(ev)
-    _push_cfg(ev, cfg)
-    after = surfing_simulate.score(ev)
+    # Judged LOCALLY (tools/dev/surfing_offline.py): the same planner file and the same judge,
+    # in a Lua of our own rather than the client's. Replaying the whole track inside the game
+    # once cost ~11 minutes of frozen client per pass and, on the full 48-band config, simply
+    # overran it — so the check that is supposed to protect a live attempt was itself the thing
+    # most likely to lose the client. Falls back to the in-VM replay if no local Lua is present.
+    #
+    # The comparison is always against the FILE DEFAULTS, never against a remembered baseline.
+    # The remembered one was itself a tuning, and the record showed how that ends: `padExtra:
+    # 4.0` was rejected on the replay and then reinstated as "the baseline to revert to", so
+    # every live attempt ran on the very value the gate had just refused.
+    local = True
+    try:
+        before = surfing_offline.score_local(cfg=None)
+        after = surfing_offline.score_local(cfg=cfg)
+    except (Exception, SystemExit) as exc:      # no lupa, or the local host could not load
+        print("  (local judge unavailable: %s — falling back to the in-game replay)" % exc)
+        local = False
+        before = surfing_simulate.score(ev)
+        _push_cfg(ev, cfg)
+        after = surfing_simulate.score(ev)
     # a tie is not evidence: leave a working configuration alone unless the replay is
     # actually better on it
     better = (after[0], after[2]) > (before[0], before[2])
     if better:
+        if local:
+            _push_cfg(ev, cfg)
         print("  tuning kept: %s  (offline %d/%d -> %d/%d bands)"
               % (cfg, before[0], before[1], after[0], after[1]))
         return True
-    _push_cfg(ev, dict(baseline or {}))
-    print("  tuning REJECTED: %s would score %d/%d vs %d/%d — reverted"
+    if not local:
+        install(ev)        # the in-VM path already pushed it; reinstalling restores the defaults
+    print("  tuning REJECTED: %s would score %d/%d vs %d/%d — running the defaults"
           % (cfg, after[0], after[1], before[0], before[1]))
     return False
 
@@ -364,6 +385,12 @@ def cmd_run(ev, reserve: int, revives: int):
     baseline = dict(store.get("cfg") or {})
     if _apply_cfg(ev, surfing_stats.derive_cfg(store), baseline):
         store["cfg"] = surfing_stats.derive_cfg(store)
+        surfing_stats.save_store(store)
+    elif baseline:
+        # the record claimed a tuning was in force that the replay will not have; leave the
+        # two agreeing, or the next session reinstates a rejected value as its "baseline"
+        store["cfg"] = {}
+        baseline = {}
         surfing_stats.save_store(store)
     attempt = 0
     try:

@@ -78,6 +78,36 @@ dump("BORN",  "SurfingMonsterBornTemplateManager", "monsterBornTemps")
 dump("SCENE", "SurfingStageSceneTemplateManager",  "stageSceneTemps")
 dump("MON",   "SurfingMonsterTemplateManager",     "monsterTemps")
 dump("STAGE", "SurfingStageTemplateManager",       "stageTemps")
+
+-- `monsterTemps` only holds what the client has already parsed, so a track piece that has
+-- never been on screen is simply absent — and the offline judge then has to guess. Guessing
+-- was expensive: a ramp carriage and a pass-under bridge were both invented as 24-unit walls,
+-- which walled off two of three lanes and made the planner look wrong where the CONFIG was.
+-- `GetTemplate(id)` loads any of them on demand, so every id the born patterns actually place
+-- is fetched here and the dump is complete by construction.
+local tm = DataCenter.SurfingMonsterTemplateManager
+local bt = DataCenter.SurfingMonsterBornTemplateManager
+if tm and tm.GetTemplate and bt and type(bt.monsterBornTemps) == "table" then
+  local want, extra = {}, 0
+  for _, b in pairs(bt.monsterBornTemps) do
+    if type(b) == "table" and type(b.monster) == "table" and b.monster[1] then
+      want[b.monster[1]] = true
+    end
+  end
+  for mid in pairs(want) do
+    if (tm.monsterTemps or {})[mid] == nil then
+      local t = nil
+      pcall(function() t = tm:GetTemplate(mid) end)
+      if type(t) == "table" then
+        extra = extra + 1
+        L("MON " .. tostring(mid) .. " " .. ser(t))
+      else
+        L("MISSTEMPLATE " .. tostring(mid))
+      end
+    end
+  end
+  L("COUNT ONDEMAND " .. extra)
+end
 L("END")
 """
 
