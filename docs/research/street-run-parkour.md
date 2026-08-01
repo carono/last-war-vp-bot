@@ -1158,3 +1158,126 @@ first time a path actually got through:
 the question this task kept reopening, and it closes it the right way round: not by arguing the
 stretch was passable, but by producing the moves and having the judge accept them. Everything
 left between 7390 and 11880 is the planner's to close, and the ceiling is no longer in doubt.
+
+### The ceiling was three centimetres wide, and the planner was already standing on it (#1161)
+
+"Everything left between 7390 and 11880 is the planner's to close" — the line the section
+above ends on — is wrong, and the way it is wrong is worth keeping.
+
+**The instrument that settled it.** `route` names the obstacle that collected the body and
+`feasible` says the route was passable; neither answers the question between them, which is
+*at which frame did the planner's own line stop being winnable?* `blame` walks the line
+forward and asks the exhaustive search that at every decision point. The first move after
+which the answer turns from yes to no is the mistake, and it prints the moves that would have
+kept the run alive beside it, with how far each of them gets.
+
+On run_002 it lands 6 m before the death, not 100:
+
+    LOST IT at z=7384.2 in lane right, 6 m before the body hit at 7390
+
+So no trap was walked into. What is at 7384.2 is a hairline. `feasible pad=P` demands P metres
+of clearance of every body, which is the only fair way to read a planner that keeps 1.5 m of
+its own:
+
+| clearance demanded | route reaches |
+|---|---|
+| 0 | 11 880 m |
+| 0.03 m | 11 880 m |
+| **0.05 m** | **7 388 m** |
+| 0.5 / 1.0 / 1.5 m | 7 388 / 7 388 / 7 386 m |
+
+The whole of run_002 past 7388 m hangs on one lane change with three to five centimetres of
+margin — at 57 u/s that is a fiftieth of the metre bucket the planner reasons in, and thinner
+than the safety pad that stands in for a truck length nobody has ever measured. `from=23`
+shows the rest is not like that: bands 23-35, the 4290 m beyond the pinch, are passable with
+1.5 m of clearance from end to end.
+
+So the 11880 m ceiling is real and useless as a target. The honest reading is that run_002's
+planner distance has been at its own ceiling all along.
+
+#### Drawn routes, because three recordings are not a test set
+
+`pool:N[:seed]` draws a route of N bands the way the game draws one. There are three
+recordings, and the planner has been read against them long enough that a good score on them
+says as much about the tuning as about the track. `surfing_battery.py` runs the lot — per-band
+across three start lanes, run_002, five drawn routes, each printed beside its own ceiling.
+
+That is where the planner's real faults were: on four of the five drawn routes the ceiling at
+1.5 m of clearance is the whole 11880 m and the planner was reaching a third of it.
+
+#### What was actually wrong
+
+**A seam hop landed in the seam.** The DP measures a hop as `ceil(jumpTime × speed)` buckets
+and asked whether the bucket it landed in was still a drop. `ceil` rounds the hop's reach up
+by as much as a metre. Riding the centre roof at 30.6 u/s into a seam at 178..189.6, it hopped
+at 166.7: the DP read 23 units of reach and a clear landing, the hop covers 22.05, and the
+runner came down 0.9 m short of the far roof. Hopping two frames later clears it outright.
+
+**The DP believed in gaps finer than its own bucket.** Bodies were rounded inward — `ceil` on
+the near end, `floor` on the far one — shaving up to a metre off each end of everything on the
+track. On a drawn route that turned a 0.3 m window between a carriage's far end and a fence
+into a lane change it thought it could make; it stepped into that lane and was walled 90 m
+later with no way back to the ramp group that was the only path through.
+
+**The planner could not plan onto a roof, only along one.** It knew the road, and a roof it
+was already standing on. So approaching a carriage group it read every ground obstacle beyond
+the ramp as a wall, went looking for a way past on the tarmac, and found a hop — taking off 2
+and 3 m before a ramp on two different routes, flying the whole 17 and 25 m roof at 36-38 m of
+reach, and landing past the far end on walled ground. Running up the ramp clears both routes
+outright. The level is a dimension of the route search now: onto a roof at the near end of a
+ramp in the lane already held, off it where the roof runs out onto road that has to be clear,
+and lane changes up there roof-to-roof over roof visible under every bucket of the crossing.
+
+#### Three faults in the arbiter, found by making it disagree with itself
+
+`feasible` hands every path it finds to the real judge. That guard is what caught these.
+
+**A roof was read, not mounted.** "Am I on a roof" was a question about the current z: is
+there a rideable span over this lane here. A ramp's span covers the ramp's own body, so
+stepping sideways into a ramp lane half-way along it put the runner instantly on the roof and
+skipped the whole ground collision block — `sideOnly` included, which left it unreachable for
+every ramp in the game, the one obstacle class it exists for. The planner never used it; the
+search did, calling routes passable on a move the game does not offer, and `blame` then charged
+the planner with declining it.
+
+The recordings settle it. Across 257 lane changes in run_002 and run_003 there is **not one**
+from the road into a carriage body; all 16 that end inside one begin at y≈4.3, already up on
+the roofs — a lane change along the roofs, which stays legal. The single change that starts
+below roof height starts at y=1.9, mid-hop, and lands on a ramp at 4.3. The level is state
+now: mounted head-on up a ramp, or landed on from a hop off another roof.
+
+**A seam is the absence of roof, not an object.** It killed unconditionally, so a runner on
+the road between two chained carriages died on open tarmac — track it cannot even see as
+special, because the ramp that roofed the carriage behind it is out of its 50 m look-back. It
+kills only a runner who was up on the roofs and has run out of them.
+
+**The offline judge handed the planner a narrower window than the game does** — `pz - 10`
+against the live `pz - 50`. An obstacle's anchor is its far end and a carriage hangs up to
+41 m behind it, so the carriage under the runner's own feet fell out of view.
+
+#### Where it stands
+
+| | before | after |
+|---|---|---|
+| per-band, three start lanes | 141/144 | 141/144 |
+| run_002 | 7390 | 7248 of a 7386 ceiling |
+| drawn route, seed 1 | 190 | 3237 |
+| drawn route, seed 2 | 4853 | 6822 |
+| drawn route, seed 3 | 508 | 508 — at its own 507 ceiling |
+| drawn route, seed 4 | 2552 | 7430 |
+| drawn route, seed 5 | 632 | 5374 |
+| share of the ceiling reached | 61 % | **65 %** |
+
+run_002 gives up 142 m, and that is the change working: its ceiling at 1.5 m of clearance is
+7386, so the old 7390 was the planner living inside its own safety pad.
+
+None of this has been near a live run. The next thing that would settle anything is an A/B in
+the game — the old planner and this one, alternating, with the supervisor quiet.
+
+#### Commands
+
+    python3 tools/dev/surfing_battery.py                     # every standing measurement, ~9 min
+    python3 tools/dev/surfing_offline.py blame run_002 1     # which decision lost the run
+    python3 tools/dev/surfing_offline.py blame pool:36:4 1    # ... on a drawn route
+    python3 tools/dev/surfing_offline.py feasible run_002 1 pad=1.5   # ceiling at real clearance
+    python3 tools/dev/surfing_offline.py feasible run_002 1 from=23   # ... of the tail alone

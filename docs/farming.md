@@ -107,7 +107,11 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   one-step detour for a shield or a jetpack on the way. It plays the run itself, without
   the game window needing to be in front, so the person can keep using the computer.
   When it picks up a jetpack it stops dodging altogether and just hoovers up coins, since
-  nothing on the ground can touch it while it flies. What runs by itself: the whole
+  nothing on the ground can touch it while it flies. It now also plans to go *over* a group
+  of carriages instead of round it — up the ramp, along the roofs, hopping the gaps between
+  them and coming down where they end — which is the way through the places the road is
+  blocked in all three lanes; that part has only been watched in the replay, never yet in a
+  live run. What runs by itself: the whole
   start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
   life**, against ~132 m for the older reflex version and ~88 m with no control at all;
   with revives, single attempts ran **1685 and 2700 m**. Left to the person: nothing during a run.
