@@ -44,7 +44,11 @@ import surfing_stats  # noqa: E402
 from lua_client import get_evaluator  # noqa: E402
 
 MARK = "SRAI "
-AI_LUA = os.path.join(_HERE, "lib", "surfing_ai.lua")
+# Which planner to install. Overridable (same variable the offline runner uses) so an older
+# revision can be put in front of the live game for a like-for-like A/B on one account:
+#   git show HEAD~1:tools/lib/surfing_ai.lua > /tmp/ai_before.lua
+#   SR_AI_LUA=/tmp/ai_before.lua ... street_run_ai.py install
+AI_LUA = os.environ.get("SR_AI_LUA") or os.path.join(_HERE, "lib", "surfing_ai.lua")
 RESULT_DIR = os.path.join("results", "street_run")
 # How often the supervisor may look in on a live run, and how long without progress means the
 # run is over. Deliberately coarse — see the watch loop in _one_attempt for what frequent
