@@ -148,6 +148,25 @@ def classify(rec: dict, bounds: dict) -> dict:
         if tail.isdigit():
             n = int(tail)
         back, front, lanes = 8.24 * n, 0.2, 1
+        if (rec.get("move_speed") or 0) > 0:
+            # THE most load-bearing unmeasured number in the whole model. Length is read from
+            # the "_N" in the prefab name, which is verified for the train carriages — bounds.json
+            # measured them at 8.22 / 16.44 / 24.86 / 32.98 / 41.10, exactly 8.24xN. But the
+            # driving trucks are `O_Object_high_truck_gold_move_N`, a different asset family
+            # that nothing has ever measured, and elsewhere in this same config `_N` is a
+            # VARIANT index (the bridge pieces qiaodong_1/2/3), not a segment count.
+            #
+            # It decides everything. Exhaustive search on run_002's route reaches 482 m of
+            # 11880 at 24.7, and 5469 m at anything 16.5 or shorter — the "impassable" convoy
+            # is that assumption and nothing else. The recordings refute 41.1 (they put the
+            # person inside a truck they survived, which is also what the player reported live
+            # about the old cfg.moverBack) but cannot separate 33 from 4: nobody ever ran that
+            # close to one in its own lane.
+            #
+            # So the default is left alone rather than tuned to a number that flatters the bot,
+            # and the assumption is named instead of buried. One live run with measure() over a
+            # gold truck settles it; SR_MOVER_BACK re-runs any verdict against a candidate.
+            back = float(os.environ.get("SR_MOVER_BACK") or back)
     else:
         back, front, lanes = 1.0, 1.0, 1
     if "qiaodong" in asset:

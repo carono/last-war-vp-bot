@@ -272,8 +272,10 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
 
   -- occupancy per lane: solid = kills a runner; noJump / noSlide = still kills while
   -- airborne / while sliding; reward = coins and buffs, priced as a negative cost
-  local solid, noJump, noSlide, reward, side = {}, {}, {}, {}, {}
-  for l = 0, 2 do solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} end
+  local solid, noJump, noSlide, reward, side, hole = {}, {}, {}, {}, {}, {}
+  for l = 0, 2 do
+    solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} hole[l] = {}
+  end
   -- Carriages are ridden, not dodged. A "xiepo" piece carries a ramp: the runner drives
   -- up it and then runs along the roof, and the roof carries on over the plain carriages
   -- that follow in the same lane. So a carriage body is only a wall when NOTHING leads up
@@ -413,8 +415,14 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
                 if (reward[ll][j] or 0) < cfg.rampReward then reward[ll][j] = cfg.rampReward end
               else
                 solid[ll][j] = true
+                if not k.jump then noJump[ll][j] = true end
               end
-              if not k.jump then noJump[ll][j] = true end
+              -- A `sideOnly` body is NOT marked unhoppable, and that is the judge's own rule:
+              -- it only ever registers a hit on one while a lane change is in flight
+              -- (`k.sideOnly and swT <= 0 then hit = false`), so a hop straight down the lane
+              -- passes over it untouched. Marking it noJump like a wall made landing on the
+              -- next roof illegal — which is the whole of a seam hop, since a seam is by
+              -- definition the gap BETWEEN two roofs. There was no legal way to cross one.
               if not k.slide then noSlide[ll][j] = true end
             end
           end
@@ -438,6 +446,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
       for j = max(0, aj), min(H, bj) do
         solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
         noSlide[g.l][j] = true    -- ...not something a duck helps with...
+        hole[g.l][j] = true       -- ...and cleared by being airborne, not by arc height
         -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
       end
     end
@@ -493,6 +502,25 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     return useful
   end
 
+  -- A seam is not a wall and must not be timed like one. `clears` above models a hop as an
+  -- ARC: the avatar is only off the ground in the middle of it, so takeoff and landing still
+  -- collide, which is right for a body standing on the track. A hole is the opposite — the
+  -- judge kills for one only while `jT <= 0`, so the avatar is clear of it for the WHOLE jump,
+  -- lead and tail included. Holding a seam to the arc rule threw away most of the hop's reach:
+  -- a 19-unit gap needs 19 of the 21.6 units a hop covers at 30 u/s, and the arc rule leaves
+  -- only 15.6 of them usable. So the route could not schedule the hop at all — it rode the
+  -- roof to the last bucket before the drop and stood there with no plan (`reach=0`,
+  -- `clear=1/1/1`), which is a seam death on bands 7, 22 and 47.
+  local function spansHole(l, i, len)
+    local any = false
+    for j = max(0, i + 1), min(H, i + len) do
+      if hole[l][j] then any = true end
+      if noJump[l][j] then return false end     -- a body a hop cannot clear is still a wall
+    end
+    -- and it has to come down on the far roof, not into the drop it just cleared
+    return any and not hole[l][min(H, i + len)]
+  end
+
   -- DP state arrays, flat: idx = i * 3 + lane
   local cost, fact, faz = {}, {}, {}
   local function relax(i, l, c, a, az)
@@ -526,9 +554,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           -- 2. lane change (the sweep must be free in both lanes). The bucket the avatar
           --    is already standing in is not re-checked for its own lane — reaching this
           --    state means it was survived; the lane being entered is checked in full.
+          --
+          --    The lane being LEFT is checked with `freeEnter` too, not `freeRun`. A ramp is
+          --    `sideOnly`: it sets `side[]`, never `solid[]`, because riding it head-on is
+          --    safe — but stepping off it SIDEWAYS is not, and the judge kills for it either
+          --    way round (`ol == swFrom or ol == swTo`). Checking the leaving lane against
+          --    `solid` alone let the route schedule a swerve off a ramp it was riding: on
+          --    band 2007 it committed to "left in 59" at z=125, climbed the ramp at 157, and
+          --    stepped off it at 184 exactly as planned. Dead at 185, every start lane.
           for d = -1, 1, 2 do
             local t = l + d
-            if t >= 0 and t <= 2 and freeRun(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
+            if t >= 0 and t <= 2 and freeEnter(l, i + 1, i + SW) and freeEnter(t, i, i + SW) then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
               relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
@@ -536,7 +572,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
             end
           end
           -- 3. hop — clears barrels and fences; a jump into a carriage is still fatal
-          if cfg.allowJump and clears(noJump, l, i, JL) then
+          if cfg.allowJump and (clears(noJump, l, i, JL) or spansHole(l, i, JL)) then
             local a, az = a0, z0
             if a == 0 then a = 3 az = i end
             relax(i + JL, l, c + cfg.costJump + cfg.earlyBias * i + outer * JL
