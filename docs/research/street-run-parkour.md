@@ -929,7 +929,10 @@ the recorded truck positions refutes 41.1 — it puts the person inside a truck 
 which is also what the player reported live about the old `cfg.moverBack` — but cannot separate
 33 from 4, because nobody ever ran that close to one in its own lane.
 
-**The bot's own death record supplies the other side of the bound**, and it needed no live run
+**~~The bot's own death record supplies the other side of the bound~~** — RETRACTED, see the
+section "the truck length cannot be measured from what we have" below: the `killer` field is
+derived from the very geometry under test, so what follows is circular, not a measurement.
+It needed no live run
 at all. A death names its killer, and the dump beside it carries that truck's live position, so
 a runner killed by a truck whose anchor was D ahead proves the body reaches at least D behind
 the anchor:
@@ -1050,3 +1053,59 @@ next carriage; at that distance the runner is at the 60 u/s cap, where a 0.72 s 
 So the question is whether a roof chain should carry across a gap the runner can hop, and the
 12-of-95 figure above says the chaining rule is too tight somewhere. That is the next thing to
 settle, and the recordings can gate it.
+
+### The truck length cannot be measured from what we have — and no longer needs to be
+
+Asked to settle `move_3` from the data already on disk, with no attempts left. The answer is
+that it cannot be settled, that the earlier claim it *had* been was circular, and that after
+the lane-change fix it stopped mattering. All three parts are worth recording.
+
+**Nothing measured a gold truck.** `bounds.json` holds 24 prefabs measured off live objects.
+Not one is `O_Object_high_truck_gold*`. The carriages, fences, saws, buffs and bridge arches
+are all there; the driving trucks never came into `measure()`'s sample.
+
+**The death-record "lower bound" was circular.** `surfing_stats.classify` names the killer by
+asking which body contains the runner, and `body_of` sizes an unmeasured truck as
+`8.24 × N` — the exact rule under test. So "a death by `move_2` at an offset of 15.6 proves
+`back ≥ 15.6`" proves only that the classifier was told to think so. Retracted.
+
+**Elimination does not close either.** Taking the death dumps and asking "if no *measured*
+body in the runner's lane contains it, and one truck is nearby, that truck did it" yields
+`move_1 ≥ 55` against a modelled 8.24 — absurd, and the tell is that most of those deaths are
+the ones `classify` itself calls `unknown`. The candidate set is not closed: a runner can fall
+off a roof, be hit by something outside the dump's `[pz-25, pz+130]` window, or be caught by a
+saw that has patrolled out of its anchor lane. Attributing the residue to the nearest truck
+manufactures a bound rather than measuring one.
+
+**What the data does support**, model-free — the runner alive, on the ground, not mid-change,
+sharing a lane with a truck at offset D, which means the body cannot reach D:
+
+| | upper bound | modelled | verdict |
+|---|---|---|---|
+| `..._move_1` | back < 37.0 | 8.24 | consistent |
+| `..._move_2` | back < 49.0 | 16.48 | consistent |
+| `..._move_3` | back < 58.0 | 24.72 | consistent |
+
+Loose, and loose for a structural reason: neither the person nor the bot ever runs close behind
+an oncoming truck in its own lane — avoiding exactly that is the game. Ten, four and one
+observation respectively.
+
+**And `_N` does not generalise across families.** Within the measured set the carriages scale
+perfectly — 8.22 / 16.44 / 24.86 / 32.98 / 41.10, exactly 8.24×N — while `qiaodong_1` and
+`qiaodong_2` both measure **16.39**. So the suffix means segment-count for one family and
+variant-index for another, and which one the gold trucks follow is not knowable from here.
+
+**It no longer matters.** The whole 482-vs-5469 sensitivity belonged to the broken lane-change
+rule, not to the truck. With the handover fixed, the route is flat across the entire plausible
+range:
+
+| `move_3` back | route reaches |
+|---|---|
+| 8.24 | 5458 m |
+| 24.72 (modelled) | 5458 m |
+| 41.10 (already refuted by the recordings) | 473 m |
+
+Identical at both ends of the plausible range. The ceiling now rests on the static carriage
+group at 5457..5462, whose bodies are all *measured*. So the outstanding measurement is no
+longer on the critical path, and the next work is the roof-chaining rule — which the recordings
+can gate, and which needs no attempts either.
