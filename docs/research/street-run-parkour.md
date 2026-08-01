@@ -927,10 +927,26 @@ elsewhere a variant index (`qiaodong_1/2/3`). Sensitivity, on the same route:
 Eleven times the distance, from one unmeasured constant. Laying the human's own path against
 the recorded truck positions refutes 41.1 — it puts the person inside a truck they survived,
 which is also what the player reported live about the old `cfg.moverBack` — but cannot separate
-33 from 4, because nobody ever ran that close to one in its own lane. So the default is left
-alone rather than tuned to the number that flatters the bot, and `SR_MOVER_BACK` re-runs any
-verdict against a candidate. **One live run with `measure()` over a gold truck settles it, and
-it is the highest-value measurement outstanding.**
+33 from 4, because nobody ever ran that close to one in its own lane.
+
+**The bot's own death record supplies the other side of the bound**, and it needed no live run
+at all. A death names its killer, and the dump beside it carries that truck's live position, so
+a runner killed by a truck whose anchor was D ahead proves the body reaches at least D behind
+the anchor:
+
+| truck | measured lower bound | modelled (8.24×N) | from |
+|---|---|---|---|
+| `..._move_2` | **≥ 15.6** | 16.48 | a wall death at 900 m |
+| `..._move_3` | ≥ 13.5 | 24.72 | a side-entry death at 877 m |
+
+So **8.24 is refuted** — the short-truck reading that opened the route to 5469 m cannot produce
+the kill at 900 m — and the `_N` rule holds snugly on the one truck that can be tested. The
+default stands, better supported than when it was a guess.
+
+What is still open is narrower and named: the whole 482-vs-5469 difference is `move_3` alone
+(it is the truck at the wall), and the record bounds it only at ≥ 13.5. The `_N` rule earning
+its keep on `move_2` is real support for 24.72, not proof. `SR_MOVER_BACK` re-runs any verdict
+against a candidate; a `measure()` over a `move_3` in a live run closes it outright.
 
 **Three planner bugs, priced separately.** All three were in the four-change bundle of #1160
 that failed live and was reverted whole; with a per-band instrument on a corrected track they
