@@ -419,3 +419,88 @@ it sometimes runs off a roof end / into a seam and falls. Getting the hop-chain 
 descent right at the accelerating speed is the open work, and it needs the offline simulator
 (`surfing_simulate.py`) extended to model height/roofs so the roof policy can be iterated
 against the real bands **and the recorded human runs** without spending live attempts.
+
+## The offline replay and the live game disagree (#1160)
+
+Two things came out of #1160. One is a tool that works. The other is a warning about what the
+tool's verdict is worth, and the second matters more than the first.
+
+### The offline loop no longer needs the game
+
+`tools/lib/surfing_sim.lua` is the judge, split out of `surfing_simulate.py` so it can run in
+two hosts: the client's Lua VM as before, and a local Lua (`lupa`) via
+`tools/dev/surfing_offline.py`, which loads the real `surfing_ai.lua` and needs no game at
+all. The local host reproduced the in-VM verdict rotation for rotation on the first try, and
+runs a full chained scan in ~1.5 min instead of ~11, without freezing the client. It also adds
+what iterating actually needs: `trace` (the planner's own per-frame decisions on the way to a
+death, plus its per-lane reach), `where` (what is really on that stretch of track), `cfg` to
+price a proposed tuning, and `SR_AI_LUA` to replay an older planner against the same track.
+`street_run_ai.py` takes the same variable, so an old revision can be put in front of the live
+game — which is how the A/B below was run.
+
+### The track config was only a fifth of the track
+
+`SurfingMonsterTemplateManager.monsterTemps` holds what the client has already parsed, so the
+dump captured whatever a run happened to have loaded: **10 born-pattern bands out of 48**, and
+three obstacle templates missing entirely. Two of those three mattered — a ramp carriage and a
+pass-under bridge arch — and the fallback invented both as 24-unit walls, closing lanes that
+are actually open. `GetTemplate(id)` loads any of them on demand, so `surfing_dump_config.py`
+now fetches every id the born patterns place and the dump is complete by construction. Anyone
+reading an old offline score should know it was scored against a fifth of the real track.
+
+### Four planner changes that the replay loved and the game did not
+
+Tracing the planner against the full track turned up four things that each look, and still
+look, like straightforward bugs:
+
+1. a lane change checked only the lane being **entered** for ramp/roof bodies, never the lane
+   being **left**, so the route could schedule a swerve off a carriage it was riding;
+2. a carriage that is part of a rideable roof was marked `noJump` like any unhoppable body, so
+   a hop across a seam — which must land on the next roof — was never legal at all;
+3. a seam was held to the same middle-of-the-arc rule as a solid, though a gap is cleared by
+   being airborne rather than by arc height;
+4. hops and ducks were priced by `earlyBias`, which charges for waiting and therefore always
+   picked the earliest legal take-off — the least margin the model allows.
+
+On the chained offline track (all 48 bands back to back at running speed, every band order)
+this was a large gain: median 866 -> 2194 m, mean 1204 -> 2751, best 4606 -> 8465, rotations
+reaching 3000 m 4 -> 18. The pre-fix median (866) matches what the bot really did live at the
+time (~900), which looked like good reason to trust the rest.
+
+**It did not survive contact.** A/B on one account (Casper), one session, three silent
+attempts per arm:
+
+| planner | attempts | median |
+|---|---|---|
+| v41 (before) | 1060, 854, 1060 | **1060 m** |
+| v42 minus change 1 | 908, 927, 837 | 908 m |
+| v42 (all four) | 722, 722, 910 | 722 m |
+
+So the whole change set is a **live regression**, change 1 costs the most, and the roof
+changes cost the rest. `surfing_ai.lua` is reverted to v41; the change is in history
+(`5b86507`, reverted by `6294190`) and can be replayed with `SR_AI_LUA`.
+
+**Why the replay was wrong is the open question, and the roof model is the suspect.** The
+judge's rule that a ramp/roof body kills from the side was the *basis* for change 1 — so the
+judge could only ever agree with it. Worse, the judge was made more permissive in the same
+pass (a hop that leaves a roof now stays at roof height until it lands, which is what let seam
+hops "work"), so both sides of the comparison moved together. None of that is measured against
+the game; it is assumed. Before any further roof work, the roof rules need to be established
+from the recorded human runs or from live observation — how far a roof chain really carries,
+what really happens on a sideways exit, and what a seam hop really costs — rather than from
+the model that is being tested.
+
+### Two harness faults worth knowing about
+
+**The supervisor's own polling was capping runs.** Every status read hijacks a thread inside
+the game process, and the watch loop did it twice a second for the whole run. Same account,
+same planner: polled attempts kept ending at ~317 m, the attempt whose supervisor had crashed
+carried on to 558 m, and a deliberately silent one reached 722 m. The autopilot is in-VM and
+needs nothing from the supervisor while it runs, so the interval is now 4 s — and any
+measurement worth trusting should be taken with the loop quiet.
+
+**The tuning gate reverted to a value it had just refused.** A rejected proposal was rolled
+back to the *remembered* baseline, and that baseline was itself `padExtra: 4.0` — the very
+value the replay rejects. Every live attempt for some time had been running on it, and it
+nearly stops the bot moving (one move in 317 m). The gate now compares against the file
+defaults and reverts to them.
