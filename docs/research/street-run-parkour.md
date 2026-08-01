@@ -799,3 +799,97 @@ Each step is verifiable without spending an attempt, except where it says otherw
 
 The order matters. Steps 1–3 cost no attempts and turn a run from one number into evidence;
 without them, every further attempt is spent the way the previous 90 were.
+
+## Replaying a real route, and what it showed about the model (#1161)
+
+#1162's plan asked for two things that cost no attempts: make a run legible by recovering its
+band ids, and rebuild the offline objective around a track the game actually lays down. Both
+are done, and doing them turned up three model errors — each measured against a human
+recording rather than argued from the code.
+
+### A recording names its own bands
+
+A recording carries no band id, only the obstacles the runner had in view. But every band is a
+fixed template list, so each 330-metre slot can be named by asking which band, shifted to that
+slot, explains what was seen there. `surfing_simulate.band_order_from_run` does that, and on
+`run_002` (12 759 m) it names 36 consecutive slots, most with every single observed obstacle
+accounted for and the runner-up scoring half as much. Of 645 static obstacles the run saw, 629
+land exactly on the reconstructed chain; the 16 that do not are pickups and a saw, which are
+placed at run time.
+
+`surfing_offline.py route run_002` then replays that exact chain, at the speed ramp fitted
+from the recording itself (`accel` 0.00366 against the 0.0027 the rotation scan assumed —
+r.m.s. 2.8 u/s against 5.2). `route <recording> extend=N` carries it on with N more bands drawn
+from the pool the recordings show, weighted by how often each turned up, seeded so an extended
+route is reproducible.
+
+**Caveat on the naming.** A slot is named by the band that best explains the *observed*
+obstacles, and a run only ever sees about a quarter of a band's templates. Bands 2005/2006,
+3001/635, 319/626 and 316/625 share enough content to score 2:1 rather than cleanly; the
+winner is used. So the chain reproduces the field that was observed, which is what the replay
+needs, but it is not proof that each slot's unobserved half is right.
+
+### The bands butt up at 330, not 340
+
+Every matched obstacle sits at a template shifted by an exact multiple of **330**. The chained
+replay spaced them 340 apart, inserting a 10-unit strip of empty road at every seam — at
+precisely the place the live roof-descent deaths happen. `BAND_PITCH` is now the measured 330.
+
+### The driving trucks come at you, and they wait for you
+
+Two measurements off the recordings, both unambiguous:
+
+* **Direction.** 751 frame-to-frame samples of movers put every one of them at exactly *minus*
+  its declared `move_speed` (681 at −20, 70 at −40). Not one sample has a mover travelling
+  with the runner. Both the judge (`live.z = obs.z + speed*t`) and the planner
+  (`drift = v/speed - 1`) had them driving away. Over a chained run of several kilometres that
+  put trucks hundreds of metres from where they belong, standing as walls in track they never
+  reach — and, worse, removed them from the track where they do.
+* **They start late.** A mover more than ~120 units ahead is still on its spawn mark; the last
+  frame one is seen parked is at a gap of 122, and below 120 they are essentially always
+  moving. So the gap closes in two phases: at the runner's own speed while the truck waits,
+  then at the sum of the two. `SIM.moverTrigger` / `cfg.moverTrigger` = 120.
+
+Corrected, the isolated per-band score from centre goes 38/48 → 28/48 with the old planner:
+the track got genuinely harder, because the trucks now arrive. The matching planner fix takes
+it back to **37/48**, which is the honest measure of that fix — 28 → 37 on the same track.
+
+### The runner flies, and sometimes that is the only way through
+
+The two long stretches of `run_002` at y = 20 are not roof rides. Each begins the frame a
+pickup is collected and lasts **exactly 11.0 s** (three flights across the three recordings,
+all 11.0). `mon.json` names it: `buffType == 3` is the aeroplane, id 100004.
+
+`SIM.once` passed `flying = false` unconditionally, so the branch that carries a tenth of
+expert play was exercised by nothing. It now models the pickup, the 11 s, and the immunity to
+everything on the ground.
+
+### run_002's route is not survivable on the ground — the human got lucky
+
+`surfing_offline.py feasible` searches every jump, slide and lane change at every decision
+point — an exhaustive answer to "is there any way through", which is what makes a planner's
+distance mean anything. Any path it finds is handed to the real Lua judge to be confirmed, so
+a slip in the search shows up as a rejected path rather than a false all-clear.
+
+On `run_002` it gets **482 m of 11 880, from every start lane**. What stands there is three
+oncoming trucks abreast — one per lane, spawning 16 and 20 units apart — and the recording
+confirms it: at that exact distance the person is at y = 20 with `right@1796, centre@1820,
+left@1850, centre@1874, right@1899` streaming underneath. They flew over it.
+
+The flight came from the ally crate (100007), and the crate is a **gamble**: its `randomData`
+rolls one of five buffs at 2000/10000 each, so the aeroplane is a 1-in-5. The recordings bear
+the odds out exactly — **9 ally pickups, 2 flights**. There is no guaranteed aeroplane in the
+400 m before the wall.
+
+So the 12 759 m run cannot be reproduced by any planner. It required a 20 % roll at the right
+moment. That is a fact about the game, and it retires a target: "clear the human's route" is
+not a thing to tune towards. What replaces it is per-band pass/fail on ground-passable track,
+with `feasible` marking off the stretches no policy can be blamed for.
+
+### Commands
+
+    python3 tools/dev/surfing_offline.py route run_002            # replay the real route
+    python3 tools/dev/surfing_offline.py route run_002 1 extend=40  # carry it on
+    python3 tools/dev/surfing_offline.py route run_002 1 trace    # decisions into the death
+    python3 tools/dev/surfing_offline.py feasible run_002         # is there a way through?
+    python3 tools/dev/surfing_offline.py human run_002            # model vs. the path a person walked
