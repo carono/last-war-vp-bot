@@ -256,7 +256,11 @@ def roof_holes(rows, kinds, roof_gap: float = 16.0, speed_at=None):
                 # marked a 1000-unit phantom hole down a whole lane and killed the run).
                 if cont and z0 > roof_until:
                     holes.append((lane, roof_until, z0))
-                roofs.append((lane, z0, z1))   # a rideable roof span (ramp-led chain)
+                # the 4th field says whether this span can be MOUNTED from the road. Only a
+                # ramp can: a plain carriage chained behind one is roof to a runner already
+                # up there and a wall to one on the ground, and the judge needs to tell the
+                # two apart (see SIM.once).
+                roofs.append((lane, z0, z1, 1 if is_ramp else 0))
                 roof_until = z1
             else:
                 roof_until = None
@@ -390,7 +394,7 @@ def simulate(ev, rows, kinds, lane0, zmax):
                    for x, z, mid in rows)
     holes, roofs = roof_holes(rows, kinds)
     hole_src = ",".join("{%d,%g,%g}" % h for h in holes)
-    roof_src = ",".join("{%d,%g,%g}" % r for r in roofs)
+    roof_src = ",".join("{%d,%g,%g,%d}" % r for r in roofs)
     lines = ev.run(sim_lua() + _SIM % (ov, obs, hole_src, roof_src, zmax, lane0),
                    marker=MARK, settle=6.0)
     for ln in lines:
@@ -542,7 +546,7 @@ def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None,
             for x, z, mid in rows) + "}")
         holes, roofs = roof_holes(rows, kinds, speed_at=speed_profile(speed0, accel))
         hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
-        roof_src.append("{" + ",".join("{%d,%g,%g}" % r for r in roofs) + "}")
+        roof_src.append("{" + ",".join("{%d,%g,%g,%d}" % r for r in roofs) + "}")
     ov = kind_table(kinds)
     names = {int(k): (v.get("asset") or "").split("/")[-1].replace(".prefab", "")
              for k, v in mon.items()}

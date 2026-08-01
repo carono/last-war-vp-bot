@@ -68,16 +68,32 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
   for i = 1, #obs do
     live[i] = {x = obs[i].x, z = obs[i].z, mid = obs[i].mid, speed = obs[i].speed}
   end
-  -- level 2: is the avatar over a rideable carriage roof in lane `ln` at distance `z`?
-  local function onRoofAt(z, ln)
+  -- level 2: is there a rideable carriage roof over lane `ln` at distance `z`, and can it be
+  -- MOUNTED from the road there (a ramp) rather than only ridden along (a plain carriage
+  -- chained behind one)?
+  local function roofAt(z, ln)
     for i = 1, #roof do
       local r = roof[i]
-      if r[1] == ln and z >= r[2] and z <= r[3] then return true end
+      if r[1] == ln and z >= r[2] and z <= r[3] then return r end
     end
-    return false
+    return nil
+  end
+  local function onRoofAt(z, ln)
+    return roofAt(z, ln) ~= nil
   end
   local speed = spdAt(0)
   local airRoof = false     -- took off from a roof: still at roof height until it lands
+  -- Being up on a roof is a STATE, not a question about the current z. A carriage is mounted
+  -- head-on, up the ramp at its near end, or landed on from a hop off another roof; stepping
+  -- into a roofed lane off the road puts the runner against the carriage's flank, which is
+  -- exactly what `sideOnly` is for. Reading the level as "is there a roof over this z in this
+  -- lane" made a side entry free and left `sideOnly` unreachable for every ramp — so the
+  -- feasibility search threaded ramp groups sideways at will and called routes passable on
+  -- moves the game does not offer. The recordings say it does not: across 257 lane changes in
+  -- run_002 and run_003 there is not ONE from the road into a carriage body, and all 16 that
+  -- end inside one start from y≈4.3, already up on the roofs.
+  local level = onRoofAt(0, lane0)
+  local prevZ, prevHeld = 0, lane0
   -- Flight. Some stretches of track have every lane blocked at once — three oncoming trucks
   -- abreast — and the only way over them is the aeroplane buff. A judge without it declares a
   -- perfectly ordinary route impassable, which is exactly what it used to do.
@@ -95,12 +111,32 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
         if o.t0 then o.z = obs[i].z - o.speed * (t - o.t0) end
       end
     end
-    -- Hopping a seam means leaving one roof and coming down on the next, and for that whole
-    -- arc the avatar is at ROOF height — it is not on the road, and the carriage it is about
-    -- to land on is a floor, not a wall. Reading the level at the current z alone made the
-    -- landing register as ramming the next carriage head-on, so a correctly planned seam hop
-    -- still "died" the moment it crossed into the roof it was aimed at.
-    local onRoof = onRoofAt(pz, lane) or (jT > 0 and airRoof)
+    -- Which lane the runner is CHARGED for this frame: mid-change it is the one it still
+    -- holds (the handover is at the midpoint, see the collision block). The roof has to be
+    -- read from that same lane — the judge used to read it from the lane before the change and
+    -- collide against the lane after, so a change begun on the road onto a lane with a roof
+    -- went through the roof's obstacles, and one begun on a roof was collided as if on the
+    -- road. Both halves must agree. At a planning frame nothing is in flight, so this is the
+    -- runner's own lane and the planner and the collision test see the same level.
+    local heldLane = lane
+    if swT > 0 then heldLane = (swT > SIM.switchTime * 0.5) and swFrom or swTo end
+    -- Carry the level forward. Hopping a seam means leaving one roof and coming down on the
+    -- next, and for that whole arc the avatar is at ROOF height — it is not on the road, and
+    -- the carriage it is about to land on is a floor, not a wall. A roof under the held lane
+    -- keeps an already-up runner up, which is how a lane change ALONG the roofs works (16 of
+    -- them in the recordings). A runner on the road gets up only by crossing the near end of a
+    -- MOUNTABLE span — a ramp — without changing lane to do it.
+    local over = roofAt(pz, heldLane)
+    if fly > 0 then
+      level = false
+    elseif jT > 0 and airRoof then
+      level = true
+    elseif over == nil then
+      level = false
+    elseif not level then
+      level = (prevHeld == heldLane) and (over[4] == 1) and not onRoofAt(prevZ, heldLane)
+    end
+    local onRoof = level
     local z0, z1 = pz, pz + speed * dt
     -- picked up on the way through: a buff is collected by running over it in its lane
     for i = 1, #live do
@@ -135,14 +171,7 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
         elseif act == 4 then slT = SIM.slideTime moves = moves + 1 end
       end
     end
-    -- Which lane the runner is CHARGED for this frame: mid-change it is the one it still
-    -- holds (see the handover below). The roof has to be read from that same lane — the judge
-    -- used to read it from the lane before the change and collide against the lane after, so a
-    -- change begun on the road onto a lane with a roof went through the roof's obstacles, and
-    -- one begun on a roof was collided as if on the road. Both halves must agree.
-    local heldLane = lane
-    if swT > 0 then heldLane = (swT > SIM.switchTime * 0.5) and swFrom or swTo end
-    local roofNow = onRoofAt(pz, heldLane) or (jT > 0 and airRoof)
+    local roofNow = level
     -- riding a roof: the carriages are floor and ground obstacles are below — no ground
     -- collision. In the air on the aeroplane buff: nothing on the ground reaches at all.
     -- On the ground: the usual solid collisions (carriages are walls, etc.).
@@ -185,6 +214,7 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
     if swT > 0 then swT = swT - dt end
     if jT > 0 then jT = jT - dt end
     if slT > 0 then slT = slT - dt end
+    prevZ, prevHeld = pz, heldLane
     pz = z1
   end
   return pz, dead, moves

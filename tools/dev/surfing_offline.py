@@ -427,6 +427,13 @@ class Track:
         # cfg.padExtra = 1.5, so its distance can only be read against the ceiling at the
         # SAME clearance — measured against the pad-0 ceiling it is charged for refusing
         # manoeuvres whose whole margin is thinner than its own safety pad.
+        #
+        # It is NOT applied to a carriage that carries a roof. Keeping clear of a body is the
+        # point of a clearance; a roof is a body the runner is meant to be standing on, and
+        # padding it puts a phantom wall at the far end of every ride — the runner steps off
+        # the roof at the body's true end and straight into the pad. That artefact produced a
+        # blame verdict of its own before it was caught: "the run lost it at 125 m by not
+        # hopping", 4.7 km before anything touched it.
         self.pad = pad
         self.names = names
         self.zmax = len(order) * S.BAND_PITCH
@@ -443,7 +450,11 @@ class Track:
                 self.fly.append((lane_of(x), z, k["fly"]))
             if not k.get("solid"):
                 continue
-            rec = (lane_of(x), z, k.get("back", 0.0) + pad, k.get("front", 0.0) + pad,
+            back, front, ln = k.get("back", 0.0), k.get("front", 0.0), lane_of(x)
+            ridden = any(r[0] == ln and r[1] <= z - back + 0.01 and z + front <= r[2] + 0.01
+                         for r in roofs)
+            p = 0.0 if ridden else pad
+            rec = (ln, z, back + p, front + p,
                    k.get("lanes", 1),
                    bool(k.get("jump")), bool(k.get("slide")), bool(k.get("sideOnly")),
                    k.get("speed", 0.0), mid)
@@ -458,7 +469,6 @@ class Track:
             p = self.pz[-1]
             self.pz.append(p + min(speed0 + p * accel, self.CAP) * self.DT)
         self.nframes = len(self.pz) - 2
-        self.air_roof = False
         # A mover's clock starts when the RUNNER reaches it, and the runner's position is a
         # function of the frame alone — so every mover's set-off moment is fixed in advance and
         # does not vary between branches of the search.
@@ -470,28 +480,28 @@ class Track:
             started.append(rec + (f * self.DT,))
         self.moving = started
 
-    def on_roof(self, z, lane):
-        return any(r[0] == lane and r[1] <= z <= r[2] for r in self.roofs)
+    def roof_at(self, z, lane):
+        for r in self.roofs:
+            if r[0] == lane and r[1] <= z <= r[2]:
+                return r
+        return None
 
-    def _hits(self, frame, lane, sw_from, sw_to, switching, jumping, sliding, flying):
+    def on_roof(self, z, lane):
+        return self.roof_at(z, lane) is not None
+
+    def _hits(self, frame, lane, held, level, switching, jumping, sliding, flying):
         """Did the avatar die crossing frame `frame`? Mirrors SIM.once's collision block."""
         z0, z1 = self.pz[frame], self.pz[frame + 1]
-        # the roof is read from the lane the runner is CHARGED for, the same one the collision
-        # test uses — mid-change that is the lane it still holds, not the one it is entering
-        held = sw_from if switching else lane
-        if not flying and not (self.on_roof(z0, held) or (jumping and self.air_roof)):
+        # `level` is whether the runner is UP on the roofs — carried as state by `step`, not
+        # asked of the current z, because a roof is mounted and not merely stood under
+        if not flying and not level:
             t = frame * self.DT
             for ol, oz, back, front, lanes, jmp, sld, side, speed, mid in self.static:
                 if oz - back >= z1:
                     break
                 if oz + front <= z0:
                     continue
-                if lanes >= 3:
-                    hit = True
-                elif switching:
-                    hit = ol in (sw_from, sw_to)
-                else:
-                    hit = ol == lane
+                hit = True if lanes >= 3 else (ol == held)
                 if side and not switching:
                     hit = False
                 if hit and not (jumping and jmp) and not (sliding and sld):
@@ -501,12 +511,7 @@ class Track:
                 z = oz if t < t0 else oz - speed * (t - t0)
                 if z - back >= z1 or z + front <= z0:
                     continue
-                if lanes >= 3:
-                    hit = True
-                elif switching:
-                    hit = ol in (sw_from, sw_to)
-                else:
-                    hit = ol == lane
+                hit = True if lanes >= 3 else (ol == held)
                 if side and not switching:
                     hit = False
                 if hit and not (jumping and jmp) and not (sliding and sld):
@@ -525,30 +530,56 @@ class Track:
                 return secs
         return 0.0
 
-    def step(self, frame, lane, act, fly_until=0):
+    def start(self, lane0: int):
+        """The state a run begins in: ``(frame, lane, up on the roofs, flight ends at)``."""
+        return (1, lane0, self.on_roof(0.0, lane0), 0)
+
+    def step(self, frame, lane, level, act, fly_until=0):
         """Take `act` at a decision frame and run on to the next one.
 
-        `fly_until` is the frame the aeroplane buff wears off at. Returns the next decision
-        point as ``(frame, lane, fly_until)``, or None if it died on the way."""
+        `level` is whether the runner is up on the roofs — part of the state, because a roof is
+        MOUNTED (head-on up a ramp, or landed on from a hop off another roof) and not merely
+        stood under; `fly_until` is the frame the aeroplane buff wears off at. Returns the next
+        decision point as ``(frame, lane, level, fly_until)``, or None if it died on the way."""
         sw_from = sw_to = lane
         sw_t = jt = sl_t = 0.0
-        self.air_roof = False
+        air_roof = False
         if act == 1 and lane > 0:
             sw_t, sw_from, sw_to, lane = self.SWITCH, lane, lane - 1, lane - 1
         elif act == 2 and lane < 2:
             sw_t, sw_from, sw_to, lane = self.SWITCH, lane, lane + 1, lane + 1
         elif act == 3:
             jt = self.JUMP
-            self.air_roof = self.on_roof(self.pz[frame], lane)
         elif act == 4:
             sl_t = self.SLIDE
+        # `level` arrives as it stood at the PREVIOUS frame; the judge recomputes it at the top
+        # of every frame and only then reads it into `airRoof`, so a hop taken here must be
+        # charged with this frame's level, not the last one's
+        took_off = act == 3
+        prev_z, prev_held = self.pz[frame - 1], sw_from
         while frame <= self.nframes:
             secs = self.picks_up(frame, lane)
             if secs:
                 fly_until = frame + int(secs / self.DT)
             # the judge hands the runner over at the midpoint of a change, not at its end
             held = sw_from if sw_t > self.SWITCH * 0.5 else sw_to
-            if self._hits(frame, lane, held, held, sw_t > 0, jt > 0, sl_t > 0,
+            z = self.pz[frame]
+            over = self.roof_at(z, held)
+            if frame < fly_until:
+                level = False
+            elif jt > 0 and air_roof:
+                level = True
+            elif over is None:
+                level = False
+            elif not level:
+                # up off the road only by crossing the near end of a MOUNTABLE span (a ramp),
+                # and without changing lane to do it — a step into a roofed lane off the road
+                # goes into the carriage's flank, which is what `sideOnly` is for
+                level = (prev_held == held and over[3] == 1
+                         and not self.on_roof(prev_z, held))
+            if took_off:
+                air_roof, took_off = level, False
+            if self._hits(frame, lane, held, level, sw_t > 0, jt > 0, sl_t > 0,
                           frame < fly_until) is not None:
                 return None
             if sw_t > 0:
@@ -557,11 +588,12 @@ class Track:
                 jt -= self.DT
             if sl_t > 0:
                 sl_t -= self.DT
+            prev_z, prev_held = z, held
             frame += 1
             # the judge only plans on odd frames, and only when nothing is in flight
             if sw_t <= 0 and jt <= 0 and sl_t <= 0 and frame % 2 == 1:
-                return frame, lane, fly_until
-        return frame, lane, fly_until
+                return frame, lane, level, fly_until
+        return frame, lane, level, fly_until
 
 
 def cmd_feasible(argv, cfg):
@@ -659,7 +691,7 @@ def _explain_wall(tr: Track, at: float, frame: int | None = None, span: float = 
     for hl, h0, h1 in tr.holes:
         if h1 >= at - span and h0 <= at + span:
             print("%sSEAM      %.1f..%.1f lane=%s" % (pad, h0, h1, LANE_NAME[hl]))
-    for rl, r0, r1 in tr.roofs:
+    for rl, r0, r1, _mount in tr.roofs:
         if r1 >= at - span and r0 <= at + span:
             print("%sROOF      %.1f..%.1f lane=%s" % (pad, r0, r1, LANE_NAME[rl]))
     ahead = [f for f in tr.fly if at - 400 <= f[1] <= at]
@@ -672,17 +704,17 @@ def _search(tr: Track, lane0: int):
     Depth-first with a dead-end set: at a decision point every timer is zero, so the state is
     just ``(frame, lane)`` and a point that has failed once can never succeed."""
     dead_ends = set()
-    stack = [(1, lane0, 0, iter((0, 1, 2, 3, 4)))]
+    stack = [tr.start(lane0) + (iter((0, 1, 2, 3, 4)),)]
     chosen: dict = {}
     while stack:
-        frame, lane, fly, opts = stack[-1]
+        frame, lane, level, fly, opts = stack[-1]
         nxt = next(opts, None)
         if nxt is None:
-            dead_ends.add((frame, lane, fly))
+            dead_ends.add((frame, lane, level, fly))
             chosen.pop(frame, None)
             stack.pop()
             continue
-        res = tr.step(frame, lane, nxt, fly)
+        res = tr.step(frame, lane, level, nxt, fly)
         if res is None:
             continue
         if res in dead_ends:
@@ -713,7 +745,7 @@ def _alive(tr: Track, state, dead_ends: set, wins: set) -> bool:
             dead_ends.add(st)
             stack.pop()
             continue
-        res = tr.step(st[0], st[1], nxt, st[2])
+        res = tr.step(st[0], st[1], st[2], nxt, st[3])
         if res is None or res in dead_ends:
             continue
         if res[0] >= tr.nframes or res in wins:
@@ -729,16 +761,16 @@ def _furthest(tr: Track, lane0: int) -> float:
     """How far anything gets when nothing gets through — where the route walls up."""
     dead_ends = set()
     best = 0.0
-    stack = [(1, lane0, 0, iter((0, 1, 2, 3, 4)))]
+    stack = [tr.start(lane0) + (iter((0, 1, 2, 3, 4)),)]
     while stack:
-        frame, lane, fly, opts = stack[-1]
+        frame, lane, level, fly, opts = stack[-1]
         best = max(best, tr.pz[min(frame, tr.nframes)])
         nxt = next(opts, None)
         if nxt is None:
-            dead_ends.add((frame, lane, fly))
+            dead_ends.add((frame, lane, level, fly))
             stack.pop()
             continue
-        res = tr.step(frame, lane, nxt, fly)
+        res = tr.step(frame, lane, level, nxt, fly)
         if res is None or res in dead_ends:
             continue
         stack.append(res + (iter((0, 1, 2, 3, 4)),))
@@ -842,7 +874,7 @@ def cmd_blame(argv, cfg):
         sched = {}
         for r in rows:
             sched[round(float(r[0]), 5)] = (int(r[3]) if int(r[4]) == 0 else 0, r)
-        state = (1, lane0, 0)
+        state = tr.start(lane0)
         if not _alive(tr, state, dead_ends, wins):
             print("  start=%-6s the route has no way through from this lane at all" % LANE_NAME[lane0])
             continue
@@ -851,13 +883,13 @@ def cmd_blame(argv, cfg):
             ent = sched.get(round(tr.pz[state[0]], 5))
             act = ent[0] if ent else 0
             seen.append((state, act, ent[1] if ent else None))
-            nxt = tr.step(state[0], state[1], act, state[2])
+            nxt = tr.step(state[0], state[1], state[2], act, state[3])
             if nxt is not None and _alive(tr, nxt, dead_ends, wins):
                 state = nxt
                 continue
             good = []
             for alt in (0, 1, 2, 3, 4):
-                res = tr.step(state[0], state[1], alt, state[2])
+                res = tr.step(state[0], state[1], state[2], alt, state[3])
                 if res is not None and _alive(tr, res, dead_ends, wins):
                     good.append(alt)
             z = tr.pz[state[0]]
@@ -1050,7 +1082,7 @@ def cmd_where(argv, cfg, band=None, route=None):
     for lane, z0, z1 in holes:
         if z1 >= at - span and z0 <= at + span:
             print("  SEAM  lane=%-6s %.1f..%.1f (a drop between roofs)" % (LANE_NAME[lane], z0, z1))
-    for lane, z0, z1 in roofs:
+    for lane, z0, z1, _mount in roofs:
         if z1 >= at - span and z0 <= at + span:
             print("  ROOF  lane=%-6s %.1f..%.1f (rideable)" % (LANE_NAME[lane], z0, z1))
     return 0
