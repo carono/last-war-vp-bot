@@ -501,14 +501,17 @@ def cmd_chain(argv):
     return 0
 
 
-def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None):
+def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None,
+                speed0: float = 30.0):
     """The obstacle field as Lua source: the kind table, and per group the obstacles, the roof
     seams and the rideable roof spans. Shared with the local runner (surfing_offline.py) so
     both hosts judge the SAME track — a fix that only helps because the two disagree about
     what is on the ground would be worthless.
 
     `order` chains an EXPLICIT band list (the one a recorded run actually went through, see
-    ``band_order_from_run``) instead of the whole pool in id order."""
+    ``band_order_from_run``) instead of the whole pool in id order. `speed0` is the speed the
+    track is ENTERED at — it only matters for the roof reach, which is the hop and so scales
+    with speed, and it is not 30 when a caller replays the tail of a route on its own."""
     born, mon = load_config()
     bounds = load_bounds()
     kinds = {int(k): classify(v, bounds) for k, v in mon.items()}
@@ -537,7 +540,7 @@ def build_field(accel: float = 0.0, rot: int = 0, order: list | None = None):
         band_src.append("{" + ",".join(
             "{x=%g,z=%g,mid=%d,speed=%g}" % (x, z, mid, kinds[mid]["speed"])
             for x, z, mid in rows) + "}")
-        holes, roofs = roof_holes(rows, kinds, speed_at=speed_profile(30.0, accel))
+        holes, roofs = roof_holes(rows, kinds, speed_at=speed_profile(speed0, accel))
         hole_src.append("{" + ",".join("{%d,%g,%g}" % h for h in holes) + "}")
         roof_src.append("{" + ",".join("{%d,%g,%g}" % r for r in roofs) + "}")
     ov = kind_table(kinds)

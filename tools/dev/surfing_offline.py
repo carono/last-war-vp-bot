@@ -401,8 +401,16 @@ class Track:
     CAP = 60.0
     TRIGGER = 120.0    # SIM.moverTrigger — where a parked truck sets off
 
-    def __init__(self, order, speed0=30.0, accel=0.0027):
+    def __init__(self, order, speed0=30.0, accel=0.0027, pad=0.0):
         rows, kinds, names = route_rows(order)
+        # Clearance demanded of every body, at both ends. At 0 this is the judge's own
+        # geometry and the ceiling it yields is the most anything could ever reach. Above 0 it
+        # asks a different and more useful question: how far is the route passable if you
+        # insist on running no closer than `pad` to anything? The planner runs at
+        # cfg.padExtra = 1.5, so its distance can only be read against the ceiling at the
+        # SAME clearance — measured against the pad-0 ceiling it is charged for refusing
+        # manoeuvres whose whole margin is thinner than its own safety pad.
+        self.pad = pad
         self.names = names
         self.zmax = len(order) * S.BAND_PITCH
         # the same speed-derived roof reach the judge uses, so the ceiling and the replay
@@ -418,7 +426,8 @@ class Track:
                 self.fly.append((lane_of(x), z, k["fly"]))
             if not k.get("solid"):
                 continue
-            rec = (lane_of(x), z, k.get("back", 0.0), k.get("front", 0.0), k.get("lanes", 1),
+            rec = (lane_of(x), z, k.get("back", 0.0) + pad, k.get("front", 0.0) + pad,
+                   k.get("lanes", 1),
                    bool(k.get("jump")), bool(k.get("slide")), bool(k.get("sideOnly")),
                    k.get("speed", 0.0), mid)
             (self.moving if k.get("speed") else self.static).append(rec)
@@ -547,21 +556,39 @@ def cmd_feasible(argv, cfg):
 
         feasible run_002
         feasible run_002 1
+        feasible run_002 1 pad=1.5    # ... insisting on 1.5 m of clearance, as the planner does
+        feasible run_002 1 from=23    # ... the tail only, entered at the speed the run had there
     """
     if not argv:
-        raise SystemExit("usage: feasible <recording|band,band,...> [start-lane] [accel=A]")
+        raise SystemExit("usage: feasible <recording|band,band,...> [start-lane] "
+                         "[accel=A] [pad=P] [from=N]")
     order, note = resolve_route(argv[0])
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     accel = route_accel(argv[0])
+    pad, skip = 0.0, 0
     for a in rest:
         if a.startswith("accel="):
             accel = float(a.split("=", 1)[1])
-    tr = Track(order, 30.0, accel)
+        elif a.startswith("pad="):
+            pad = float(a.split("=", 1)[1])
+        elif a.startswith("from="):
+            skip = int(a.split("=", 1)[1])
+    # Starting part-way along asks "is the REST of the route hairline too, or only this one
+    # spot" — which a run from z=0 can never answer, because it never gets there. The entry
+    # speed is the speed the run actually carries into that band, so the tail is stepped at
+    # the pace it is really met at rather than from a standing 30.
+    speed0 = 30.0
+    if skip:
+        speed0 = min(30.0 + accel * skip * S.BAND_PITCH, Track.CAP)
+        order = order[skip:]
+        note += ", from band %d (entered at %.0f u/s)" % (skip, speed0)
+    tr = Track(order, speed0, accel, pad)
     print("feasible %s" % note)
-    print("  %d m, %d frames, accel %.5f" % (tr.zmax, tr.nframes, accel))
+    print("  %d m, %d frames, accel %.5f, clearance demanded %.2f m" %
+          (tr.zmax, tr.nframes, accel, pad))
     rt, _ = new_vm(cfg)
-    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order, speed0=speed0)
     worst = 0.0
     for lane0 in lanes:
         path = _search(tr, lane0)
@@ -573,7 +600,7 @@ def cmd_feasible(argv, cfg):
             worst = max(worst, reached)
             continue
         dist, dead = _replay_moves(rt, ov, band[0], hole[0], roof[0], lane0, accel,
-                                   tr.zmax, path, tr)
+                                   tr.zmax, path, tr, speed0)
         verdict = ("the judge agrees" if dead is None else
                    "BUT the judge kills it at %.0f — %s" % (dist, describe(dead, names)))
         print("yes  start=%-6s a %d-move path clears all %d m; %s"
@@ -583,21 +610,36 @@ def cmd_feasible(argv, cfg):
     return 0
 
 
-def _explain_wall(tr: Track, at: float):
+def _explain_wall(tr: Track, at: float, frame: int | None = None, span: float = 40.0,
+                  pad: str = "       "):
     """What is standing at the point nothing gets past, and what could have carried the run
-    over it. A bare "no way through" is not actionable; the bodies and the pickups are."""
-    frame = min(range(1, tr.nframes), key=lambda f: abs(tr.pz[f] - at))
+    over it. A bare "no way through" is not actionable; the bodies and the pickups are.
+
+    Movers are printed where they ARE at that frame, not where they spawned. That distinction
+    is the whole of a truck stream: `where` lays out spawn marks, and by the time the runner
+    arrives an oncoming truck is tens of metres from its own — reading the spawn row as the
+    cross-section under the runner is the misreading that cost this task a session."""
+    if frame is None:
+        frame = min(range(1, tr.nframes), key=lambda f: abs(tr.pz[f] - at))
     t = frame * tr.DT
     for ol, oz, back, front, lanes, jmp, sld, side, sp, mid in tr.static:
-        if abs(oz - at) < 40:
-            print("       standing  z=%7.0f lane=%-6s %s" % (oz, LANE_NAME[ol], tr.names.get(mid, mid)))
+        if oz + front >= at - span and oz - back <= at + span:
+            print("%sstanding  body=[%.1f,%.1f] lane=%-6s %s"
+                  % (pad, oz - back, oz + front, LANE_NAME[ol], tr.names.get(mid, mid)))
     for ol, oz, back, front, lanes, jmp, sld, side, sp, mid, t0 in tr.moving:
         z = oz if t < t0 else oz - sp * (t - t0)
-        if abs(z - at) < 40:
-            print("       oncoming  z=%7.0f lane=%-6s %s (body %.0f long, %d u/s, from %.0f)"
-                  % (z, LANE_NAME[ol], tr.names.get(mid, mid), back + front, sp, oz))
+        if z + front >= at - span and z - back <= at + span:
+            print("%soncoming  body=[%.1f,%.1f] lane=%-6s %s (%g u/s, spawned at %.0f%s)"
+                  % (pad, z - back, z + front, LANE_NAME[ol], tr.names.get(mid, mid), sp, oz,
+                     "" if t >= t0 else ", still parked"))
+    for hl, h0, h1 in tr.holes:
+        if h1 >= at - span and h0 <= at + span:
+            print("%sSEAM      %.1f..%.1f lane=%s" % (pad, h0, h1, LANE_NAME[hl]))
+    for rl, r0, r1 in tr.roofs:
+        if r1 >= at - span and r0 <= at + span:
+            print("%sROOF      %.1f..%.1f lane=%s" % (pad, r0, r1, LANE_NAME[rl]))
     ahead = [f for f in tr.fly if at - 400 <= f[1] <= at]
-    print("       aeroplanes on the %.0f m before it: %d" % (min(at, 400.0), len(ahead)))
+    print("%saeroplanes on the %.0f m before it: %d" % (pad, min(at, 400.0), len(ahead)))
 
 
 def _search(tr: Track, lane0: int):
@@ -628,6 +670,37 @@ def _search(tr: Track, lane0: int):
     return None
 
 
+def _alive(tr: Track, state, dead_ends: set, wins: set) -> bool:
+    """Can anything at all reach the end of the route from `state`?
+
+    The same depth-first walk as ``_search``, but asked of an arbitrary state and answered
+    both ways: a state that failed can never succeed (``dead_ends``), and every state on a
+    surviving path can (``wins``). Both caches are shared across queries, so asking it once
+    per decision frame along a whole run costs about what one ``feasible`` costs."""
+    if state[0] >= tr.nframes or state in wins:
+        return True
+    if state in dead_ends:
+        return False
+    stack = [(state, iter((0, 1, 2, 3, 4)))]
+    while stack:
+        st, opts = stack[-1]
+        nxt = next(opts, None)
+        if nxt is None:
+            dead_ends.add(st)
+            stack.pop()
+            continue
+        res = tr.step(st[0], st[1], nxt, st[2])
+        if res is None or res in dead_ends:
+            continue
+        if res[0] >= tr.nframes or res in wins:
+            for s, _ in stack:
+                wins.add(s)
+            wins.add(res)
+            return True
+        stack.append((res, iter((0, 1, 2, 3, 4))))
+    return False
+
+
 def _furthest(tr: Track, lane0: int) -> float:
     """How far anything gets when nothing gets through — where the route walls up."""
     dead_ends = set()
@@ -648,7 +721,7 @@ def _furthest(tr: Track, lane0: int) -> float:
     return best
 
 
-def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr):
+def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr, speed0=30.0):
     """Push a fixed schedule of moves through the REAL Lua judge.
 
     The planner is swapped for one that reads the schedule, so the verdict on a searched path
@@ -676,9 +749,101 @@ def _replay_moves(rt, ov, band, hole, roof, lane0, accel, zmax, path, tr):
     end
     """)
     try:
-        return run_group(rt, ov, band, hole, roof, lane0, 30, accel, zmax)[:2]
+        return run_group(rt, ov, band, hole, roof, lane0, speed0, accel, zmax)[:2]
     finally:
         rt.execute("__SR_AI.planRoute = __SR_REAL_PLAN")
+
+
+ALIVE_ACT = {0: "hold", 1: "left", 2: "right", 3: "JUMP", 4: "SLIDE"}
+
+
+def cmd_blame(argv, cfg):
+    """The ONE decision that lost the run — not the obstacle that collected the body.
+
+    ``route`` says where the planner died and ``feasible`` says the route was passable; between
+    them sits the question neither answers: at which frame did the planner's own line stop
+    being winnable? A death at 7390 m is usually the bill for a lane held 100 m earlier, and
+    the obstacle that finally hit is the least informative thing about it.
+
+    So the planner's line is walked forward, and at every decision point the exhaustive search
+    is asked whether the end is still reachable *from here*. The first move after which the
+    answer turns from yes to no is the mistake, and the moves that would have kept the run
+    alive are printed beside it.
+
+        blame run_002 1
+        blame run_002 1 span=80
+    """
+    if not argv:
+        raise SystemExit("usage: blame <recording|band,band,...> [start-lane] [span=N]")
+    order, note = resolve_route(argv[0])
+    rest = argv[1:]
+    lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
+    accel = route_accel(argv[0])
+    span = 60.0
+    for a in rest:
+        if a.startswith("accel="):
+            accel = float(a.split("=", 1)[1])
+        elif a.startswith("span="):
+            span = float(a.split("=", 1)[1])
+    tr = Track(order, 30.0, accel)
+    rt, ai = new_vm(cfg)
+    ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
+    print("blame %s" % note)
+    print("  %d m, %d frames, accel %.5f" % (tr.zmax, tr.nframes, accel))
+    dead_ends, wins = set(), set()
+    rc = 0
+    for lane0 in lanes:
+        rows = []
+        _watch(rt, ai, rows)
+        dist, dead, _ = run_group(rt, ov, band[0], hole[0], roof[0], lane0, 30, accel, tr.zmax)
+        rt.globals()["__SR_SIM"]["watch"] = None
+        # the schedule the planner actually issued, keyed by distance — the judge plans on odd
+        # frames but skips the call outright while a move is in flight, so a call index is not
+        # a frame index (see _replay_moves)
+        sched = {}
+        for r in rows:
+            sched[round(float(r[0]), 5)] = (int(r[3]) if int(r[4]) == 0 else 0, r)
+        state = (1, lane0, 0)
+        if not _alive(tr, state, dead_ends, wins):
+            print("  start=%-6s the route has no way through from this lane at all" % LANE_NAME[lane0])
+            continue
+        seen = []
+        while state[0] < tr.nframes:
+            ent = sched.get(round(tr.pz[state[0]], 5))
+            act = ent[0] if ent else 0
+            seen.append((state, act, ent[1] if ent else None))
+            nxt = tr.step(state[0], state[1], act, state[2])
+            if nxt is not None and _alive(tr, nxt, dead_ends, wins):
+                state = nxt
+                continue
+            good = []
+            for alt in (0, 1, 2, 3, 4):
+                res = tr.step(state[0], state[1], alt, state[2])
+                if res is not None and _alive(tr, res, dead_ends, wins):
+                    good.append(alt)
+            z = tr.pz[state[0]]
+            print("\n  start=%-6s LOST IT at z=%.1f in lane %s, %.0f m before the body hit at %.0f"
+                  % (LANE_NAME[lane0], z, LANE_NAME[state[1]], dist - z, dist))
+            print("      it chose      : %s" % ALIVE_ACT[act])
+            print("      still winnable: %s" % (", ".join(ALIVE_ACT[a] for a in good) or "nothing"))
+            if ent is not None:
+                r = ent[1]
+                print("      it believed   : reach=%d  first solid=%s  dp reaches=%s"
+                      % (int(r[5]), r[10], r[11]))
+            print("      --- the decisions leading in ---")
+            _show_rows([s[2] for s in seen if s[2] is not None], z, span)
+            print("      --- the field AT that frame (movers where they are, not where they "
+                  "spawned) ---")
+            _explain_wall(tr, z, state[0], span, pad="      ")
+            rc = 1
+            break
+        else:
+            print("  start=%-6s never left a winnable state — it ran the whole %d m"
+                  % (LANE_NAME[lane0], tr.zmax))
+        if dead is not None and state[0] >= tr.nframes:
+            print("  (the judge still killed it at %.0f — the search model and the judge "
+                  "disagree here)" % dist)
+    return rc
 
 
 def cmd_human(argv, cfg):
@@ -886,7 +1051,11 @@ def main(argv):
         return cmd_human(args, cfg)
     if cmd == "feasible":
         return cmd_feasible(args, cfg)
-    raise SystemExit("unknown command %r (chain | feasible | human | route | score | trace | where)" % cmd)
+    if cmd == "blame":
+        return cmd_blame(args, cfg)
+    raise SystemExit(
+        "unknown command %r (blame | chain | feasible | human | route | score | trace | where)"
+        % cmd)
 
 
 if __name__ == "__main__":
