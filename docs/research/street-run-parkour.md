@@ -1109,3 +1109,52 @@ Identical at both ends of the plausible range. The ceiling now rests on the stat
 group at 5457..5462, whose bodies are all *measured*. So the outstanding measurement is no
 longer on the critical path, and the next work is the roof-chaining rule — which the recordings
 can gate, and which needs no attempts either.
+
+### A roof carries as far as the runner can hop — and the route is passable end to end
+
+`roofGap` was a flat 16: a roof chained to the next carriage only if the gap was under it.
+That is the wrong shape of rule. A gap between two roofs is crossed by **hopping** it, so the
+reach is the hop — `jumpTime × speed` — and at the 60 u/s cap that is 43 m, not 16.
+
+**Measured on the recordings, not chosen.** A roof-to-roof crossing is visible directly: the
+person over one carriage body at roof height (y≈4), airborne across the gap, then over the next
+without ever touching the ground. There are 40 of them across the three runs.
+
+| | |
+|---|---|
+| crossings satisfying `gap ≤ 0.72 × speed` | **40 of 40** |
+| greediest crossing | 23.6 m at 48 u/s — 75 % of what was available |
+| crossings the flat 16 denied outright | 3 — gaps of **19.0, 23.0 and 23.6 m** |
+
+The jump model checks out on the same data: at ~60 u/s the longest sampled arc is 45 m against
+the modelled 0.72 × 60 = 43.2. `cfg.roofGap` is kept as a floor so a slow chain never does worse
+than before, and `surfing_stats.derive_cfg`'s lever on it is now inert by construction.
+
+#### Two bugs the search's own verification caught
+
+`feasible` hands every path it finds to the real Lua judge, and that guard earned its keep the
+first time a path actually got through:
+
+* **The judge disagreed with itself about which lane it was in.** `SIM.once` read "am I on a
+  roof" from the lane held *before* a change and collided against the lane *after* it. So a
+  change begun on the road onto a roofed lane sailed through that roof's obstacles, and one
+  begun on a roof was collided as if on the road. Both halves now read the same held lane.
+* **The replay keyed its schedule by call count**, assuming the judge's Nth call is its
+  (2N-1)th frame. It is not — the judge skips the call entirely while a manoeuvre is in flight,
+  so the schedule slid the moment the route made its first move, and the replay died metres in
+  on a fence it had been told to duck 40 m earlier. Keyed by distance now; both sides step `pz`
+  with the same recurrence from the same start, so the values match exactly.
+
+#### Where it stands
+
+| | |
+|---|---|
+| run_002's route, planner | 483 → 5458 → **7390 m** of 11880 |
+| exhaustive ceiling | **11880 m — the whole route, confirmed by the judge** |
+| per-band from centre | **47/48** |
+| roof frames the model denies | 12 of 95 → **9 of 95** |
+
+**run_002's route is passable end to end, on the ground, with no flight buff.** That closes
+the question this task kept reopening, and it closes it the right way round: not by arguing the
+stretch was passable, but by producing the moves and having the judge accept them. Everything
+left between 7390 and 11880 is the planner's to close, and the ceiling is no longer in doubt.
