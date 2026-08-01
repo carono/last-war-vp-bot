@@ -504,3 +504,62 @@ back to the *remembered* baseline, and that baseline was itself `padExtra: 4.0` 
 value the replay rejects. Every live attempt for some time had been running on it, and it
 nearly stops the bot moving (one move in 317 m). The gate now compares against the file
 defaults and reverts to them.
+
+### Correction: it was the template table, not the polling (#1160, second session)
+
+The section above blames the supervisor's polling for attempts ending at ~317 m. **That is
+wrong, and the correction matters more than the original claim.** Spending both accounts' full
+allowance settled it:
+
+- 29 attempts on the main account with the supervisor silent for the first 75 s — longer than
+  a 317 m run lasts, so those runs were never polled at all — still produced 316/317 six times;
+- two attempts on a freshly relaunched second client, driven with *literally zero* reads
+  during the run, gave 317 and 76 m.
+
+317 m is a real death, reachable under every polling regime. What actually separated the good
+runs from the bad was **how much of the monster-template table the client had parsed**, and
+that is measurable: a freshly launched client held **14** of the 36 template ids the born
+patterns place, while one that had been running attempts for an hour held **35**. Every id
+that is missing falls through `kindOf`'s unknown-template case — *solid, cannot be hopped,
+cannot be ducked* — so on a sparse client the planner reads coins and buffs as walls, and
+barrels and fences as things it can do nothing about. The runs that produced 317 and 530 were
+early-in-session runs on sparse clients; the runs that produced 722–1060 came later, once more
+of the table had loaded.
+
+`kindOf` now calls `GetTemplate(id)` when the table lacks an id (`AI.version = 43`), which is
+the same on-demand load that fixed the offline config dump. Verified on the sparse client:
+before, most ids came back as plain walls; after, the coin and the shield are harmless, the
+barrel hoppable, the fence duckable, the bridge arch pass-under, and the carriage its true
+16.5 units. **It is not yet confirmed live** — both accounts were at zero attempts when the fix
+landed. That confirmation is the first thing the next session should spend attempts on.
+
+The grace period in the watch loop is kept: fewer hijacks in a live process is not a bad thing
+on its own. But it is not the reason a run ends where it does, and nothing should be attributed
+to it.
+
+**The A/B above inherits a caveat.** Its three arms ran back to back in one session on one
+client, so template coverage was drifting underneath them. The ordering it found (v41 best,
+v42 worst, v42-minus-the-first-change in between) does not follow the order the arms were run
+in, so drift alone does not explain it — but the margin is three attempts per arm against a
+confound now known to be worth hundreds of metres. Treat "v42 is a live regression" as the
+reason not to ship v42 unverified, not as a settled fact; re-run it on a client whose template
+table is known to be complete.
+
+### What a full allowance of attempts looks like
+
+29 attempts, main account, v41, one session:
+
+    316 316 317 317 317 317 462 462 463 486 486 486 487 487 558
+    647 647 647 647 647 654 655 689 733 747 790 792 840 876
+
+Median 558 m, mean 562, best 876. The striking part is not the numbers but their **shape**:
+twenty-nine attempts landed on about eleven distinct distances, several of them five or six
+times over. The bot is deterministic and the track is assembled from a pool of fixed band
+patterns, so a run ends at the first band the planner cannot solve and the distance is just the
+sum of the bands that came before it. The ceiling is therefore not variance to be ground down —
+it is a specific, enumerable set of bands, which is exactly what the offline per-band score
+lists (10 of 48 failing for v41). Deaths cluster the same way on the second account.
+
+Note also that distances are **not comparable across sessions**: the event panel carries buff
+slots («Разогревать»), which were filled earlier in the day and empty during this run, and the
+historical 877–1242 m figures were recorded with them active.
