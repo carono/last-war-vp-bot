@@ -172,6 +172,10 @@ def _push_cfg(ev, cfg: dict):
     _lines(ev, _APPLY_CFG % body, settle=0.5)
 
 
+# offline verdicts already reached this session: {} is the defaults, any other key a proposal
+_JUDGED: dict = {}
+
+
 def _apply_cfg(ev, cfg: dict, baseline: dict | None = None):
     """Adopt the learner's overrides only if the track agrees with them.
 
@@ -196,8 +200,19 @@ def _apply_cfg(ev, cfg: dict, baseline: dict | None = None):
     # every live attempt ran on the very value the gate had just refused.
     local = True
     try:
-        before = surfing_offline.score_local(cfg=None)
-        after = surfing_offline.score_local(cfg=cfg)
+        # The replay is deterministic, so a verdict holds for the whole session: the defaults
+        # never change and a proposal already refused will be refused again. Without this the
+        # record re-proposes the same tuning after every death and the gate spends two minutes
+        # re-deciding it — more time than the attempt it is guarding.
+        key = tuple(sorted(cfg.items()))
+        if key in _JUDGED:
+            before, after = _JUDGED[key]
+        else:
+            before = _JUDGED.get(())
+            if before is None:
+                before = _JUDGED[()] = surfing_offline.score_local(cfg=None)
+            after = surfing_offline.score_local(cfg=cfg)
+            _JUDGED[key] = (before, after)
     except (Exception, SystemExit) as exc:      # no lupa, or the local host could not load
         print("  (local judge unavailable: %s — falling back to the in-game replay)" % exc)
         local = False
@@ -256,7 +271,7 @@ def cmd_status(ev):
 
 
 def _one_attempt(ev, revives: int, log):
-    """Start one attempt, follow it to the end, return (distance, lives)."""
+    """Start one attempt, follow it to the end, return (distance, lives, death)."""
     _lines(ev, _START, settle=2.0)
     # wait for the runner scene: the autopilot starts counting frames as soon as it runs
     t0 = time.time()
@@ -270,7 +285,10 @@ def _one_attempt(ev, revives: int, log):
     if not started:
         print("  scene never started")
         _lines(ev, _DISMISS, settle=0.8)
-        return 0.0, 0
+        # three values, like every other exit: the caller unpacks (distance, lives, death),
+        # so the two-value form turned "the scene did not load" into a crash that ended the
+        # whole session — the one case where carrying on with the next attempt is the point
+        return 0.0, 0, None
 
     lives = 1
     best_z = 0.0
