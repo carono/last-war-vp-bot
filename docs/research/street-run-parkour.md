@@ -964,3 +964,24 @@ there is still a real gap — 4523 against 5469 — and that is where the next p
 established. What is established is narrower and more useful: the aeroplane is a 1-in-5 roll
 from the ally crate (nine pickups, two flights), so a route that *needs* flight is not
 reliably passable — but run_002's route has not been shown to need it.
+
+#### The next lead: the DP's reachability oscillates frame to frame
+
+Where the model still leaves room (`SR_MOVER_BACK=8.24`), the route now dies at 4523 m trapped
+in the left lane: left is a plain carriage wall at 4523, and both other lanes carry a ramp
+starting at 4503 that has to be mounted head-on, so the change had to happen before then. The
+decision stream shows it was not a case of never seeing the way — it is that the DP's own
+answer will not sit still:
+
+    z=4300.1  act=left  reach=221  dp=221/141/21
+    z=4301.6  act=left  reach=300  dp=220/300/263
+    z=4303.2  act=left  reach=218  dp=218/138/18
+    z=4304.7  act=left  reach=300  dp=216/300/260
+
+One frame apart, the centre lane goes from reaching 141 to reaching the full 300 horizon and
+back, twice. A route that is available on every other frame is a route the planner cannot
+commit to. The likely cause is the mover projection quantising to whole buckets — a truck that
+shifts by one bucket flips a `freeRun` and collapses a whole branch — but that is a guess and
+should be measured, not assumed. It is the next thing to look at, and it wants doing **after**
+the truck length is settled: at the modelled length the planner is already at the ceiling, so
+there is no headroom in which to tell an improvement from a regression.
