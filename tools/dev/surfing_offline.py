@@ -245,16 +245,33 @@ def route_accel(spec: str) -> float:
     unconnected to the route."""
     path = spec if os.path.exists(spec) else os.path.join(
         S.HUMAN_DIR, spec if spec.endswith(".txt") else spec + ".txt")
-    return S.run_accel(path) if os.path.exists(path) else 0.0027
+    if os.path.exists(path):
+        return S.run_accel(path)
+    if spec.startswith("pool:"):
+        # a drawn route has no recording of its own, so it is run at the ramp the recordings
+        # agree on — a nominal 0.0027 would meet every obstacle slower than the game ever does
+        return S.run_accel(os.path.join(S.HUMAN_DIR, "run_002.txt"))
+    return 0.0027
 
 
 def resolve_route(spec: str):
     """The band chain a `route` argument names, plus where it came from.
 
-    Either an explicit comma-separated band list, or a human recording — a file path, or just
-    ``run_002`` for one under results/street_run/human. Returns ``(order, note)``."""
+    Either an explicit comma-separated band list, a human recording — a file path, or just
+    ``run_002`` for one under results/street_run/human — or ``pool:N[:seed]``, a route of N
+    bands DRAWN from the pool the way the game draws one. Returns ``(order, note)``.
+
+    A drawn route is what makes a distance mean anything beyond this one recording. There are
+    three recordings, and the planner has been read against them long enough that a good score
+    on them says as much about the tuning as about the track; a fresh draw meets the same bands
+    in orders nothing has been fitted to."""
     if "," in spec or spec.isdigit():
         return [b for b in spec.split(",") if b], "given on the command line"
+    if spec.startswith("pool:"):
+        parts = spec.split(":")
+        n = int(parts[1])
+        seed = int(parts[2]) if len(parts) > 2 else 1161
+        return extend_route([], n, seed), "%d bands drawn from the pool (seed %d)" % (n, seed)
     path = spec
     if not os.path.exists(path):
         cand = os.path.join(S.HUMAN_DIR, spec if spec.endswith(".txt") else spec + ".txt")
@@ -566,7 +583,7 @@ def cmd_feasible(argv, cfg):
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     accel = route_accel(argv[0])
-    pad, skip = 0.0, 0
+    pad, skip, extra, seed = 0.0, 0, 0, 1161
     for a in rest:
         if a.startswith("accel="):
             accel = float(a.split("=", 1)[1])
@@ -574,6 +591,13 @@ def cmd_feasible(argv, cfg):
             pad = float(a.split("=", 1)[1])
         elif a.startswith("from="):
             skip = int(a.split("=", 1)[1])
+        elif a.startswith("extend="):
+            extra = int(a.split("=", 1)[1])
+        elif a.startswith("seed="):
+            seed = int(a.split("=", 1)[1])
+    if extra:
+        order = extend_route(order, extra, seed)
+        note += " + %d more from the pool (seed %d)" % (extra, seed)
     # Starting part-way along asks "is the REST of the route hairline too, or only this one
     # spot" — which a run from z=0 can never answer, because it never gets there. The entry
     # speed is the speed the run actually carries into that band, so the tail is stepped at
@@ -771,25 +795,40 @@ def cmd_blame(argv, cfg):
     alive are printed beside it.
 
         blame run_002 1
-        blame run_002 1 span=80
+        blame run_002 1 pad=1.5      # ... judged at the clearance the planner runs with
+        blame run_002 1 extend=40    # ... on the route carried on with fresh bands
     """
     if not argv:
-        raise SystemExit("usage: blame <recording|band,band,...> [start-lane] [span=N]")
+        raise SystemExit("usage: blame <recording|band,band,...> [start-lane] "
+                         "[span=N] [pad=P] [extend=N] [seed=S]")
     order, note = resolve_route(argv[0])
     rest = argv[1:]
     lanes = [int(rest[0])] if rest and rest[0].lstrip("-").isdigit() else [0, 1, 2]
     accel = route_accel(argv[0])
-    span = 60.0
+    span, pad, extra, seed = 60.0, 0.0, 0, 1161
     for a in rest:
         if a.startswith("accel="):
             accel = float(a.split("=", 1)[1])
         elif a.startswith("span="):
             span = float(a.split("=", 1)[1])
-    tr = Track(order, 30.0, accel)
+        elif a.startswith("pad="):
+            pad = float(a.split("=", 1)[1])
+        elif a.startswith("extend="):
+            extra = int(a.split("=", 1)[1])
+        elif a.startswith("seed="):
+            seed = int(a.split("=", 1)[1])
+    if extra:
+        order = extend_route(order, extra, seed)
+        note += " + %d more from the pool (seed %d)" % (extra, seed)
+    # The clearance the blame is judged at. At 0 a run is blamed for declining a manoeuvre
+    # whose whole margin is centimetres, which is not a planner fault but a coin toss; at the
+    # planner's own cfg.padExtra the verdict is one it could have acted on.
+    tr = Track(order, 30.0, accel, pad)
     rt, ai = new_vm(cfg)
     ov, band, hole, roof, _, names = S.build_field(accel=accel, order=order)
     print("blame %s" % note)
-    print("  %d m, %d frames, accel %.5f" % (tr.zmax, tr.nframes, accel))
+    print("  %d m, %d frames, accel %.5f, clearance demanded %.2f m"
+          % (tr.zmax, tr.nframes, accel, pad))
     dead_ends, wins = set(), set()
     rc = 0
     for lane0 in lanes:

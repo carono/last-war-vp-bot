@@ -525,8 +525,21 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
       if hole[l][j] then any = true end
       if noJump[l][j] then return false end     -- a body a hop cannot clear is still a wall
     end
-    -- and it has to come down on the far roof, not into the drop it just cleared
-    return any and not hole[l][min(H, i + len)]
+    if not any then return false end
+    -- And it has to come down on the far roof, not into the drop it just cleared. That test
+    -- has to be made against the REAL landing distance, not against a bucket: `JL` is
+    -- `ceil(jumpTime * speed)`, which rounds the hop's reach up by as much as a metre, and a
+    -- seam hop scheduled on the rounded figure comes down INSIDE the seam. Measured: a run
+    -- riding the centre roof to a seam at 178..189.6 hopped at 166.7 doing 30.6 u/s — the DP
+    -- read the hop as 23 units and the landing as clear, the hop covers 22.05, and the runner
+    -- came down 0.9 m short of the far roof. It had every reason to wait: hopping two frames
+    -- later clears the seam outright, and holding was one of the moves that kept the run alive.
+    local land = pz + i + cfg.jumpTime * speed
+    for gi = 1, #gaps do
+      local g = gaps[gi]
+      if g.l == l and land > g.z0 and land < g.z1 then return false end
+    end
+    return true
   end
 
   -- DP state arrays, flat: idx = i * 3 + lane
