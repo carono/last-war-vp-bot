@@ -489,7 +489,7 @@ class Track:
     def on_roof(self, z, lane):
         return self.roof_at(z, lane) is not None
 
-    def _hits(self, frame, lane, held, level, switching, jumping, sliding, flying):
+    def _hits(self, frame, lane, held, level, was_up, switching, jumping, sliding, flying):
         """Did the avatar die crossing frame `frame`? Mirrors SIM.once's collision block."""
         z0, z1 = self.pz[frame], self.pz[frame + 1]
         # `level` is whether the runner is UP on the roofs — carried as state by `step`, not
@@ -516,7 +516,8 @@ class Track:
                     hit = False
                 if hit and not (jumping and jmp) and not (sliding and sld):
                     return mid
-        if not jumping and not flying:
+        # a seam is the ABSENCE of roof, so it is only a drop to a runner who was up on one
+        if was_up and not jumping and not flying:
             for hl, h0, h1 in self.holes:
                 if hl == lane and z1 > h0 and z0 < h1:
                     return -1
@@ -565,6 +566,7 @@ class Track:
             held = sw_from if sw_t > self.SWITCH * 0.5 else sw_to
             z = self.pz[frame]
             over = self.roof_at(z, held)
+            was_up = level
             if frame < fly_until:
                 level = False
             elif jt > 0 and air_roof:
@@ -579,7 +581,7 @@ class Track:
                          and not self.on_roof(prev_z, held))
             if took_off:
                 air_roof, took_off = level, False
-            if self._hits(frame, lane, held, level, sw_t > 0, jt > 0, sl_t > 0,
+            if self._hits(frame, lane, held, level, was_up, sw_t > 0, jt > 0, sl_t > 0,
                           frame < fly_until) is not None:
                 return None
             if sw_t > 0:

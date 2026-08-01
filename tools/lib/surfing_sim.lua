@@ -127,6 +127,7 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
     -- them in the recordings). A runner on the road gets up only by crossing the near end of a
     -- MOUNTABLE span — a ramp — without changing lane to do it.
     local over = roofAt(pz, heldLane)
+    local wasUp = level
     if fly > 0 then
       level = false
     elseif jT > 0 and airRoof then
@@ -151,7 +152,13 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
       local n = 0
       for i = 1, #live do
         local o = live[i]
-        if o.z > pz - 10 and o.z < pz + 320 then n = n + 1 window[n] = o end
+        -- The window the LIVE planner gets is `z > pz - 50` (surfing_ai.gather); this used to
+        -- hand it `pz - 10`, so offline it was reading a narrower track than in the game. That
+        -- is not a nicety: an obstacle's anchor is its FAR end and a carriage hangs up to 41 m
+        -- behind it, so the carriage the runner is standing on — and the seam off the end of
+        -- it — drop out of a 10 m look-back while both are still under its feet. A run rode a
+        -- roof, could not see the roof it was on, and stepped off into the gap.
+        if o.z > pz - 50 and o.z < pz + 320 then n = n + 1 window[n] = o end
       end
       for i = #window, n + 1, -1 do window[i] = nil end
       local reach, act, az = AI.planRoute(pz, lane, speed, window, fly > 0, onRoof)
@@ -202,8 +209,15 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax)
         end
       end
     end
-    -- a seam between two carriage roofs: a drop, lethal unless the avatar is airborne over it
-    if not dead and jT <= 0 and fly <= 0 then
+    -- A seam between two carriage roofs is a drop, and a drop is only a drop to someone up
+    -- there: it is the ABSENCE of roof, not an object, so a runner on the ROAD between two
+    -- carriages is simply on the road. This used to kill unconditionally, which is a thing the
+    -- judge could not tell apart until it tracked the level — and it cost the planner a route
+    -- it had every right to run: from the road it cannot even see the seam, because the ramp
+    -- that roofed the carriage behind it is long out of its 50 m look-back, so it read open
+    -- tarmac and was killed for standing on it. `wasUp` is the level BEFORE this frame's
+    -- update, which is exactly "was up on the roofs and the roof has just run out".
+    if not dead and wasUp and jT <= 0 and fly <= 0 then
       for i = 1, #hole do
         local h = hole[i]
         if h[1] == lane and z1 > h[2] and z0 < h[3] then

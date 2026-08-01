@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 43
+AI.version = 44
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -280,9 +280,18 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
 
   -- occupancy per lane: solid = kills a runner; noJump / noSlide = still kills while
   -- airborne / while sliding; reward = coins and buffs, priced as a negative cost
+  -- `roofB` is the second storey: which buckets a rideable roof covers, and `mountB` the one
+  -- bucket per span where the road leads up onto it — the near end of a ramp. Without these
+  -- the DP could only ride a roof it was ALREADY standing on, so approaching a carriage group
+  -- it saw the ground obstacles beyond the roof as walls and went looking for a way past them
+  -- on the road. What it found was a hop: measured on two drawn routes, it took off 2 and 3 m
+  -- before a ramp, flew the whole 17 and 25 m roof at 36-38 m of reach, and came down past the
+  -- far end on walled ground. Holding — running up the ramp — clears both routes outright.
   local solid, noJump, noSlide, reward, side, hole = {}, {}, {}, {}, {}, {}
+  local roofB, mountB = {}, {}
   for l = 0, 2 do
     solid[l] = {} noJump[l] = {} noSlide[l] = {} reward[l] = {} side[l] = {} hole[l] = {}
+    roofB[l] = {} mountB[l] = {}
   end
   -- Carriages are ridden, not dodged. A "xiepo" piece carries a ramp: the runner drives
   -- up it and then runs along the roof, and the roof carries on over the plain carriages
@@ -327,6 +336,18 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           gaps[#gaps + 1] = {l = l, z0 = roofUntil, z1 = c.z0}
         end
         c.roof = true
+        -- the buckets this span covers, rounded INWARD: a roof the DP is not sure of is one it
+        -- should not plan to be standing on
+        local a, b = ceil(c.z0 - pz), floor(c.z1 - pz)
+        for j = max(0, a), min(H, b) do roofB[l][j] = true end
+        -- and where the road leads up onto it. A ramp is mounted head-on at its near end; a
+        -- plain carriage chained behind one is roof to a runner already up there and a WALL to
+        -- one on the road, so it never mounts. `autoStart` is the runner's own carriage: it is
+        -- standing on it already, which is a mount that has happened.
+        if (c.ramp or autoStart) and a >= 0 and a <= H then mountB[l][a] = true end
+        if autoStart then
+          for j = 0, min(H, max(0, a)) do roofB[l][j] = true mountB[l][j] = true end
+        end
         roofUntil = c.z1
         if autoStart then canAuto = false end   -- only the first chain from the runner auto-roofs
         if l == lane0 and onRoof then roofEndZ = max(roofEndZ, c.z1) end
@@ -341,12 +362,13 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     local k = kindOf(o.mid)
     local l = laneOfX(o.x)
     if k.ignore then       -- bridge deck: overhead, pass under — neither blocks nor rewards
-    elseif onRoof and k.solid and not k.carriage and o.z < roofEndZ then
-     -- riding a carriage roof (level 2): ground obstacles UNDER the roof — barrels, fences,
-     -- trucks, saws — are below and cannot hit. Only up to roofEndZ, though: past where the
-     -- roof ends the runner is back on the ground, so obstacles there stay in play (a run rode
-     -- a roof, came down, and hit a ground obstacle it had ignored while up).
     elseif k.solid then
+     -- Everything below is the GROUND storey. What a roof shields the runner from is not
+     -- decided here any more: the DP carries the level as a dimension and simply ignores
+     -- `solid` while up on a roof, which is the same rule for a roof the runner is standing
+     -- on now and one it is going to mount at a ramp forty metres ahead. The old code could
+     -- only do the first — it dropped ground obstacles under `roofEndZ` when `onRoof` was
+     -- already true — so a route was never planned onto a roof, only along one.
      -- a jetpack lifts the runner above the whole track: while it lasts a ground obstacle
      -- cannot hit, so it is dropped from the field entirely and the route is planned on the
      -- pickups alone (the reward branch below uses the flying coin bonus). Re-planned every
@@ -370,16 +392,23 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
         if off < 1.2 and pl > 0 then l0 = pl - 1 end
         if off > cfg.lineOffset - 1.2 and pl < 2 then l1 = pl + 1 end
       end
-      -- is this body one the runner can be on top of?
-      local sideOnly = false
+      -- Is this a body the runner can be on top of WITHOUT being up there already? Only a
+      -- ramp: it is driven up head-on, so it never blocks the road in its own lane. A plain
+      -- carriage chained behind one is roof to a runner on the roofs and a WALL to one on the
+      -- road, and it used to be marked `sideOnly` on the strength of its roof alone — which
+      -- told the ground storey it could be run straight into. It cannot; the judge kills for
+      -- it (`sideOnly` there is the ramp and nothing else). The level dimension makes that
+      -- distinction for free: at roof level `solid` is not consulted at all.
+      local sideOnly = k.carriage and k.ramp
+      -- does this body carry a roof? Then its GROUND block has to end exactly where the roof
+      -- does. Padding the far end of a ridden carriage walls off the very bucket the runner
+      -- steps down into, so a roof could be got onto and never got off — the same artefact
+      -- that made a padded feasibility search invent a death at the end of every ride.
+      local roofed = false
       if k.carriage then
-        if k.ramp then
-          sideOnly = true
-        else
-          local z0 = o.z - (o.back or k.back)
-          for _, c in ipairs(cars[l]) do
-            if math.abs(c.z0 - z0) < 0.01 and c.roof then sideOnly = true break end
-          end
+        local zc = o.z - (o.back or k.back)
+        for _, c in ipairs(cars[l]) do
+          if math.abs(c.z0 - zc) < 0.01 and c.roof then roofed = true break end
         end
       end
       local v = max(o.speed or 0, k.speed or 0)
@@ -418,6 +447,7 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
         -- the finest thing this DP can see, so a body has to occupy every bucket it touches.
         local aj = floor(o.z - back - pz)
         local bj = ceil(o.z + front - pz)
+        if roofed then bj = floor(o.z + (o.front or k.front) - pz) end
         if bj >= 0 and aj <= H then
           for j = max(0, aj), min(H, bj) do
             for ll = l0, l1 do
@@ -455,13 +485,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
   if not flying then
     for i = 1, #gaps do
       local g = gaps[i]
-      local aj = ceil(g.z0 - pz)
-      local bj = floor(g.z1 - pz)
+      -- outward, like every other lethal thing: a seam ending 0.6 of a bucket ahead used to
+      -- round away entirely, and the route scheduled a lane change into that lane on the very
+      -- frame the runner was still over the drop
+      local aj = floor(g.z0 - pz)
+      local bj = ceil(g.z1 - pz)
       for j = max(0, aj), min(H, bj) do
-        solid[g.l][j] = true      -- a hole in the roof: fatal to run into...
-        noSlide[g.l][j] = true    -- ...not something a duck helps with...
-        hole[g.l][j] = true       -- ...and cleared by being airborne, not by arc height
-        -- and deliberately NOT noJump: hopping the gap is exactly how it is crossed
+        -- Only `hole`, and deliberately not `solid`: a seam is the absence of roof, so it is
+        -- a drop to a runner up on the roofs and plain road to one below. The DP refuses it
+        -- at roof level (see `freeAt`) and walks under it on the ground, which is what the
+        -- judge now does too.
+        hole[g.l][j] = true
       end
     end
   end
@@ -525,11 +559,15 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
   -- only 15.6 of them usable. So the route could not schedule the hop at all — it rode the
   -- roof to the last bucket before the drop and stood there with no plan (`reach=0`,
   -- `clear=1/1/1`), which is a seam death on bands 7, 22 and 47.
+  -- A seam hop is taken from the roofs and lands on them, and for that whole arc the runner is
+  -- at roof height — the judge skips the ground collision block outright while `airRoof`. So
+  -- the bodies under the flight path say nothing about it. Testing them was what broke the hop
+  -- once the roofed carriages became honest walls to a runner on the ROAD: the carriage on the
+  -- far side of the seam is unhoppable from below, and it is the one being landed on.
   local function spansHole(l, i, len)
     local any = false
     for j = max(0, i + 1), min(H, i + len) do
       if hole[l][j] then any = true end
-      if noJump[l][j] then return false end     -- a body a hop cannot clear is still a wall
     end
     if not any then return false end
     -- And it has to come down on the far roof, not into the drop it just cleared. That test
@@ -548,24 +586,43 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     return true
   end
 
-  -- DP state arrays, flat: idx = i * 3 + lane
+  -- DP state arrays, flat: idx = (i * 3 + lane) * 2 + level, level 1 = up on the roofs.
+  -- The level has to be part of the STATE, not a fact about the current frame: whether the
+  -- ground obstacles forty metres ahead matter depends on whether the route means to be on a
+  -- roof by then, and that is a choice the DP makes rather than a reading it takes.
   local cost, fact, faz = {}, {}, {}
-  local function relax(i, l, c, a, az)
+  local function relax(i, l, lev, c, a, az)
     if i > H then i = H end
-    local idx = i * 3 + l
+    local idx = (i * 3 + l) * 2 + lev
     local cur = cost[idx]
     if cur == nil or c < cur - 1e-9 then
       cost[idx] = c fact[idx] = a faz[idx] = az
     end
   end
-  cost[0 * 3 + lane0] = 0
-  fact[0 * 3 + lane0] = 0
-  faz[0 * 3 + lane0] = -1
+  local lev0 = onRoof and 1 or 0
+  local start = (0 * 3 + lane0) * 2 + lev0
+  cost[start] = 0
+  fact[start] = 0
+  faz[start] = -1
 
-  local bestI, bestC, bestIdx = 0, 0, 0 * 3 + lane0
+  -- clear over [a,b] for a runner at `lev`. On the road that is the solid bodies; on the roofs
+  -- it is the roof holding out and no seam to drop through — `solid` says nothing up there.
+  local function freeAt(l, lev, a, b)
+    for j = max(0, a), min(H, b) do
+      if lev == 1 then
+        if not roofB[l][j] or hole[l][j] then return false end
+      elseif solid[l][j] then
+        return false
+      end
+    end
+    return true
+  end
+
+  local bestI, bestC, bestIdx = 0, 0, start
   for i = 0, H do
     for l = 0, 2 do
-      local idx = i * 3 + l
+      for lev = 0, 1 do
+      local idx = (i * 3 + l) * 2 + lev
       local c = cost[idx]
       if c ~= nil then
         if i > bestI or (i == bestI and c < bestC) then
@@ -574,9 +631,24 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
         if i < H then
           local a0, z0 = fact[idx], faz[idx]
           local outer = (l == 1) and 0 or outerBias
-          -- 1. run on
-          if not solid[l][i + 1] then
-            relax(i + 1, l, c + outer - (reward[l][i + 1] or 0), a0, z0)
+          -- 1. run on. Off the road onto a roof happens HERE and only here: crossing the near
+          --    end of a ramp in the lane it is already in. Off a roof back onto the road
+          --    happens where the roof runs out, and the road under that bucket has to be clear
+          --    to land on — a run that rode a roof, came down and hit a ground obstacle it had
+          --    stopped modelling is the reason that check is not skipped.
+          if lev == 0 then
+            if mountB[l][i + 1] then
+              relax(i + 1, l, 1, c + outer - cfg.rampReward - (reward[l][i + 1] or 0), a0, z0)
+            end
+            if not solid[l][i + 1] then
+              relax(i + 1, l, 0, c + outer - (reward[l][i + 1] or 0), a0, z0)
+            end
+          elseif not hole[l][i + 1] then
+            if roofB[l][i + 1] then
+              relax(i + 1, l, 1, c + outer - cfg.rampReward - (reward[l][i + 1] or 0), a0, z0)
+            elseif not solid[l][i + 1] then
+              relax(i + 1, l, 0, c + outer - (reward[l][i + 1] or 0), a0, z0)
+            end
           end
           -- 2. lane change (the sweep must be free in both lanes). The bucket the avatar
           --    is already standing in is not re-checked for its own lane — reaching this
@@ -594,33 +666,74 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           --    lane pitch of 4, so it is never standing in both at once. Demanding a full
           --    sweep-length hole in BOTH lanes made a 5.1 m change need 5.1 m clear either
           --    side, and on run_002 the gaps between oncoming trucks are 5 and 6 m.
+          --
+          --    Up on the roofs it is a different move with different rules: roof to roof, over
+          --    the roofs of both lanes. The recordings have 16 of those and not one change
+          --    from the road into a carriage body, which is the same asymmetry the judge now
+          --    keeps — a roof is mounted, not stepped into.
           local SWH = max(1, floor(SW / 2))
           for d = -1, 1, 2 do
             local t = l + d
-            if t >= 0 and t <= 2 and freeEnter(l, i + 1, i + SWH)
-               and freeEnter(t, i + SWH, i + SW) then
+            local ok
+            if t < 0 or t > 2 then ok = false
+            elseif lev == 1 then
+              -- The lane being entered has to be roofed for the WHOLE sweep, not just the half
+              -- it owns: a runner crossing at roof height needs something under it the whole
+              -- way, and the judge charges the drop against the entering lane from the first
+              -- frame. It also spares the planner a reconstruction it cannot make — the roof
+              -- chain on the far side may have been started by a ramp long out of its 50 m
+              -- look-back, so "I can see roof under every bucket of the crossing" is the only
+              -- honest test it has.
+              ok = freeAt(l, 1, i + 1, i + SWH) and freeAt(t, 1, i + 1, i + SW)
+            else
+              ok = freeEnter(l, i + 1, i + SWH) and freeEnter(t, i + SWH, i + SW)
+            end
+            -- A seam is charged differently from a body, and the judge is explicit about it:
+            -- bodies are collided against the lane the runner still HOLDS, half the sweep
+            -- each, but the drop is tested against the lane it is entering for the WHOLE
+            -- manoeuvre. So a change into a lane whose roof has a gap under the runner kills
+            -- from the first frame, before the handover — measured: a roof-to-roof change to
+            -- the left at 396.3 with left's seam running 384.0..399.0, dead on the spot.
+            if ok then
+              for j = max(0, i + 1), min(H, i + SW) do
+                if hole[t][j] then ok = false break end
+              end
+            end
+            if ok then
               local a, az = a0, z0
               if a == 0 then a = (d < 0) and 1 or 2 az = i end
-              relax(i + SW, t, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
+              relax(i + SW, t, lev, c + cfg.costSwitch + cfg.earlyBias * i + outer * SW
                     - rewardOf(t, i + 1, i + SW), a, az)
             end
           end
-          -- 3. hop — clears barrels and fences; a jump into a carriage is still fatal
-          if cfg.allowJump and (clears(noJump, l, i, JL) or spansHole(l, i, JL)) then
-            local a, az = a0, z0
-            if a == 0 then a = 3 az = i end
-            relax(i + JL, l, c + cfg.costJump + cfg.earlyBias * i + outer * JL
-                  - rewardOf(l, i + 1, i + JL), a, az)
+          -- 3. hop — clears barrels and fences; a jump into a carriage is still fatal. Off a
+          --    roof it is the seam hop, and it lands back on the roofs (or on the road, if the
+          --    chain has run out under the landing bucket).
+          if cfg.allowJump then
+            local hop = false
+            if lev == 1 then hop = spansHole(l, i, JL)
+            else hop = clears(noJump, l, i, JL) end
+            if hop then
+              local land = min(H, i + JL)
+              local lv = (lev == 1 and roofB[l][land]) and 1 or 0
+              if lv == 1 or not solid[l][land] then
+                local a, az = a0, z0
+                if a == 0 then a = 3 az = i end
+                relax(i + JL, l, lv, c + cfg.costJump + cfg.earlyBias * i + outer * JL
+                      - rewardOf(l, i + 1, i + JL), a, az)
+              end
+            end
           end
           -- 4. slide — the other way past a fence, and the only way through a bridge gate
-          --    that spans every lane
-          if clears(noSlide, l, i, SLD) then
+          --    that spans every lane. There is nothing to duck under up on a roof.
+          if lev == 0 and clears(noSlide, l, i, SLD) then
             local a, az = a0, z0
             if a == 0 then a = 4 az = i end
-            relax(i + SLD, l, c + cfg.costSlide + cfg.earlyBias * i + outer * SLD
+            relax(i + SLD, l, 0, c + cfg.costSlide + cfg.earlyBias * i + outer * SLD
                   - rewardOf(l, i + 1, i + SLD), a, az)
           end
         end
+      end
       end
     end
   end
@@ -634,7 +747,10 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     for j = 1, H do if solid[l][j] then d = j break end end
     wd[l] = d
     local r = 0
-    for i2 = 0, H do if cost[i2 * 3 + l] ~= nil and i2 > r then r = i2 end end
+    for i2 = 0, H do
+      local b = (i2 * 3 + l) * 2
+      if (cost[b] ~= nil or cost[b + 1] ~= nil) and i2 > r then r = i2 end
+    end
     wr[l] = r
   end
   AI.stat.whyD = wd
