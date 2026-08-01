@@ -864,7 +864,12 @@ all 11.0). `mon.json` names it: `buffType == 3` is the aeroplane, id 100004.
 expert play was exercised by nothing. It now models the pickup, the 11 s, and the immunity to
 everything on the ground.
 
-### run_002's route is not survivable on the ground — the human got lucky
+### ~~run_002's route is not survivable on the ground — the human got lucky~~ (retracted)
+
+> **Retracted the same day.** The section below is kept because its method is sound and its
+> measurements hold, but its headline conclusion was wrong, and wrong in the way this document
+> has been wrong before: a verdict that rests on an unmeasured constant, stated as if proven.
+> The correction is the next section. Read them together.
 
 `surfing_offline.py feasible` searches every jump, slide and lane change at every decision
 point — an exhaustive answer to "is there any way through", which is what makes a planner's
@@ -893,3 +898,69 @@ with `feasible` marking off the stretches no policy can be blamed for.
     python3 tools/dev/surfing_offline.py route run_002 1 trace    # decisions into the death
     python3 tools/dev/surfing_offline.py feasible run_002         # is there a way through?
     python3 tools/dev/surfing_offline.py human run_002            # model vs. the path a person walked
+
+### The wall was one unmeasured number, and the planner was three real bugs (#1161)
+
+The "impassable" verdict above was checked by trying to break it, which is what should have
+happened before it was written down.
+
+**The recordings contradict it directly.** Taking the movers' *live* positions straight out of
+the frames — no track model in between — there is exactly one place in three recordings where
+three lanes are crossed inside 45 m, at `run_002` z=8404, and the person went through it **on
+the ground, y=0, with a single lane change**: they were in `right` as the centre truck crossed,
+stepped to `centre`, and the left and right trucks crossed at 8419 and 8449 while they sat
+there. A three-abreast convoy is not by itself a wall. At the model's own wall the crossings
+are 20 m apart too, and the recording shows a clean line through them — stay left for the first
+three, step out before the fourth.
+
+**What actually walled it up was the truck's length.** `back` comes from the `_N` in the prefab
+name. That is verified for the train carriages: `bounds.json` measured them at 8.22 / 16.44 /
+24.86 / 32.98 / 41.10, exactly 8.24×N. It is *not* verified for `O_Object_high_truck_gold_move_N`
+— a different asset family that nothing has ever measured, and in this same config `_N` is
+elsewhere a variant index (`qiaodong_1/2/3`). Sensitivity, on the same route:
+
+| modelled mover `back` | exhaustive search reaches |
+|---|---|
+| 24.7 (as modelled) | 482 m |
+| 16.5 / 8.24 / 4.0 | **5469 m** |
+
+Eleven times the distance, from one unmeasured constant. Laying the human's own path against
+the recorded truck positions refutes 41.1 — it puts the person inside a truck they survived,
+which is also what the player reported live about the old `cfg.moverBack` — but cannot separate
+33 from 4, because nobody ever ran that close to one in its own lane. So the default is left
+alone rather than tuned to the number that flatters the bot, and `SR_MOVER_BACK` re-runs any
+verdict against a candidate. **One live run with `measure()` over a gold truck settles it, and
+it is the highest-value measurement outstanding.**
+
+**Three planner bugs, priced separately.** All three were in the four-change bundle of #1160
+that failed live and was reverted whole; with a per-band instrument on a corrected track they
+can go back one at a time.
+
+1. A lane change checked the lane being **left** against `solid` alone — but a ramp is
+   `sideOnly`, which sets `side`, never `solid`. So the route could step off a ramp sideways,
+   which the judge kills for. On band 2007 it committed to "left in 59" at z=125, climbed the
+   ramp at 157, stepped off at 184. Dead at 185 from every start lane.
+2. A **seam was timed like a wall**. `clears` models a hop as an arc with takeoff and landing
+   still on the ground — right for a body, wrong for a hole, which kills only while the runner
+   is not airborne. The arc rule left 15.6 of a hop's 21.6 units usable at 30 u/s; the gaps are
+   19. The route rode the roof to the last bucket before the drop and stood there with no plan.
+3. A `sideOnly` body was marked **unhoppable**, so a seam hop had nowhere legal to land — and a
+   seam is by definition the gap *between* two roofs. The judge only registers a hit on a
+   `sideOnly` body while a lane change is in flight, so a straight hop passes over it.
+
+Measured from centre on the corrected track:
+
+| | per-band | run_002's route |
+|---|---|---|
+| before | 37/48 | 185 m |
+| after | **45/48** | **483 m** — the exhaustive ceiling |
+| after, `SR_MOVER_BACK=8.24` | **47/48** | **4523 m** of a 5469 m ceiling |
+
+At the modelled truck length the planner is now at the limit of what the ground allows, so
+nothing further is to be gained there without settling the constant. Under the shorter body
+there is still a real gap — 4523 against 5469 — and that is where the next planner work is.
+
+**What this retracts.** "The human's 12 759 m cannot be reproduced by any planner" was not
+established. What is established is narrower and more useful: the aeroplane is a 1-in-5 roll
+from the ally crate (nine pickups, two flights), so a route that *needs* flight is not
+reliably passable — but run_002's route has not been shown to need it.
