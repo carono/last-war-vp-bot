@@ -222,8 +222,14 @@ stage load and dumpable with `tools/dev/surfing_dump_config.py`
 
 So a run is a chain of **330-metre bands** (21 dumped so far), each band a fixed list of
 objects at fixed lanes and distances; `speedZ` is 30 in most bands and 40 in the hard ones.
-The first band is identical every run — which is why an uncontrolled run always dies at the
-same barrel at 88.75 m. Only the order of bands varies.
+~~The first band is identical every run — which is why an uncontrolled run always dies at the
+same barrel at 88.75 m.~~ Only the order of bands varies.
+
+> **Corrected (#1163).** The first band is *drawn*, from a pool of four. Three of the four put
+> a barrel in the centre lane at 86–90 m, which is why an uncontrolled run so reliably dies
+> there; the fourth does not. And `speedZ` is not "30 mostly, 40 in the hard ones" — it is a
+> property of the *pool*, so the same layout runs at 30, 40, 50 and 60 in four different
+> slots. See [The track's generator](#the-tracks-generator-and-what-the-recordings-say-about-the-draw-1163).
 
 **Geometry (live-measured off the colliders, `street_run_ai.py bounds`).** The decisive
 correction: an obstacle's `z` is **not its centre**. The subway carriages hang entirely
@@ -1319,3 +1325,200 @@ unable to see.
     python3 tools/dev/surfing_offline.py blame pool:36:4 1    # ... on a drawn route
     python3 tools/dev/surfing_offline.py feasible run_002 1 pad=1.5   # ceiling at real clearance
     python3 tools/dev/surfing_offline.py feasible run_002 1 from=23   # ... of the tail alone
+
+## The track's generator, and what the recordings say about the draw (#1163)
+
+The track is not laid down freely. `stage.json:50000` names a **pool per slot**, and every
+recording obeys it exactly. What the recordings add is the part the config cannot state: how a
+band is picked out of its pool, and whether one band tells you anything about the next.
+
+### The schedule, and the recordings sitting inside it
+
+`pre_scene` is 66 m of empty road with nothing on it. After that the run is bands of 330 m:
+
+| band | drawn from | ids | dumped | speed |
+|---|---|---|---|---|
+| 0 | `start_scene` | 4 | 4 | 30 |
+| 1 | first `surfing_scene` entry | 4 | 4 | 30 |
+| 2–4 | second entry | 24 | 24 | 30 |
+| 5–11 | third entry | 24 | 24 | 40 |
+| 12–20 | fourth entry | 24 | 15 | 50 |
+| 21+ | `infinite_scene` | 48 | 21 | 60 |
+
+("dumped" is how much of the pool the config dump has templates for — the client parses a
+scene the first time it needs it, so the pools a recording never reached are half empty. Every
+command prints the shortfall rather than quietly covering less than it claims.)
+
+Naming a recording's slots **inside the pool its index allows** — `surfing_tracks.py chains` —
+gives 61 named slots across `run_001`, `run_002`, `run_003` and the autopilot's own frame
+buffer. All 61 lie in the allowed pool, and on all 61 the pool-restricted winner is the same
+band the unrestricted search over all 45 dumped layouts picks. If the naming were noise, the
+chance of 61 slots all landing inside the pool their slot allows is about 10⁻²⁴. The generator
+and the naming confirm each other; either one alone was an assumption.
+
+A recording sees a **median 27 %** of a band's templates (the runner's view is ~300 m of one
+band at a time and the frame buffer holds the last ~900 samples), so the naming is still a
+best-explanation and not a proof of a slot's unobserved half. It is the field that was there
+that gets reproduced, which is what a replay needs.
+
+### A scene id is not a layout — the unit of coverage is (layout, speed)
+
+`412`, `512` and `612` lay down the obstacles of born pattern `312`. What differs is the pool
+they belong to, and therefore the speed. Of the 45 dumped layouts, **24 appear at more than one
+speed**, giving **92 configurations** the game can actually put on the track.
+
+This is why the standing per-band score was measuring the wrong thing. It replays each of the
+48 dumped patterns once at a flat 30 u/s: `623` and `642` exist only at 60 and were priced at a
+speed they never run at, while `312`, which the game runs at all four speeds, was checked at
+one. Nine layouts are unique to a single pool — the four `start_scene` bands, the four of band
+1 (`3000`, `2001`, `310`, `311`) and `518`, which exists at 50 and nowhere else.
+
+Three of those 48 are not bands at all. Sorted by id, the first three are `108`, `109`, `110` —
+the flight coin trails below, which hold nothing solid and so cannot be failed. The
+per-band score has been counting three free passes per start lane: **141/144 is 141 of 135**
+things that could have gone wrong.
+
+### Speed is a step, not a ramp
+
+Frame spacing in the recordings gives the speed at every sample. Grouped by band index it is
+flat inside a band and changes on the boundary:
+
+| bands | z | speed |
+|---|---|---|
+| 0–4 | 0–1650 | 30 |
+| 5–11 | 1650–3960 | 40 |
+| 12–20 | 3960–6930 | 50 |
+| 21+ | 6930+ | 60 |
+
+— the pools' own `speedZ`, to the metre. The transition is inside the first frames of the new
+band, not spread over it.
+
+The judge models speed as `speed0 + accel·z` and `route_accel` fits `accel` off the recording
+(0.00366). That shape is wrong everywhere: at 1000 m it meets obstacles at 33.7 u/s where the
+game runs 30, at 6000 m at 52 where the game runs 50, and it is furthest out precisely at the
+speed changes. The fix is not a better `accel` — it is a speed keyed to the band index. Until
+the judge can take one, a route crossing a speed change cannot be replayed at the right speed
+in one piece; `surfing_tracks.py` splits every drawn route into its constant-speed stretches
+so each can be replayed at its own.
+
+### The draw is memoryless — there is no order to find
+
+This is the negative result the task was after, and it is worth stating plainly: **there are no
+groupings, no forced transitions, no ordering inside a pool.** Every check points the same way.
+
+* **Repeats happen, including back to back.** `run_002` has `313` at bands 12 and 13, and
+  `2006` at 15 and 16. A bag dealt without replacement, or a rule against repeating, produces
+  neither.
+* **The number of distinct bands drawn matches a uniform draw with replacement.** 18 draws out
+  of the band-12 pool gave 12 distinct where uniform-over-24 predicts 12.8; 22 draws out of the
+  48-band infinite pool gave 17 where it predicts 17.8; 14 out of the band-5 pool gave 13
+  against 10.8.
+* **A band does not depend on the one before it.** Over 49 consecutive pairs inside one pool,
+  2 repeat where a memoryless draw predicts 1.6.
+
+The bot's own deaths add 17 more draws at the low slots, where the long recordings have lost
+their opening to the frame buffer: a death names its band outright when exactly one layout in
+the slot's pool has that killer, in that lane, just ahead of where the runner stopped. They put
+`310`, `2001` and `311` at band 1 — 12 draws over 3 of the 4 layouts, which is what a uniform
+draw looks like.
+
+So all the structure there is lives in the schedule: **what varies is which of N, and the N is
+fixed per slot.** A run reaching 1000 m has solved bands 0, 1 and 2 — 4 × 4 × 24 = 384 tracks,
+fully enumerable — and not been lucky.
+
+### Two smaller things the config settles
+
+**The first band is drawn, not fixed.** Three of the four `start_scene` layouts put a barrel in
+the centre lane at 86–90 m (`201`, `203` at 90, `204` at 86); `202` does not, and puts a
+carriage in the left lane at 102 instead. That is why an uncontrolled run "always" died at
+88.75 m — it did so three times in four. Both recordings that still hold band 0 show `202`.
+
+**The flight is an overlay, not a band.** `sky_score` names layouts `108`, `109`, `110`: 250
+coins each, all at y = 20, spanning 1250 m, and no solid object anywhere in them. They have
+`max_meters` 0 and never occupy a slot. That is the trail the runner flies along, and it is
+longer than any flight (11 s at 60 u/s is 660 m).
+
+### The synthetic route set
+
+`surfing_tracks.py routes --write` builds 104 routes from the model above, into
+`results/street_run/routes.json` (results/ is not in the repo — the routes are reproducible
+from the seeds, which is why the generator is committed and the artefact is not):
+
+| kind | routes | what it is for |
+|---|---|---|
+| `opening` | 16 | every band 0 × every band 1. The bot's whole live distribution. |
+| `sweep` | 8 | one pool laid end to end at its own speed, forwards and backwards — every layout of the pool and 2N−2 of its seams, in two replays. |
+| `game` | 8 | 40 bands drawn slot by slot the way the game draws, with the speed steps marked. |
+| `seam` | 72 | a layout whose roof runs to the end of its band followed by one whose roof starts at the beginning of its own, at 30 and at 60. The seam is where the live roof deaths are, and it exists only between two bands. |
+
+The `game` routes replace `pool:N:seed`, which drew from "the pool the recordings show,
+weighted by how often each turned up" — a distribution with no slot structure, so it could put
+an infinite-pool band at index 2 and run a 60-speed band at 30.
+
+### Coverage of every configuration the game can lay down
+
+`surfing_tracks.py cover` replays each of the 92 configurations once at the speed its pool
+gives it, from all three start lanes — 276 replays, ~10 min, no game and no attempts spent.
+
+Against the planner at `453b842` it passes **263 of 276**:
+
+| speed | passed |
+|---|---|
+| 30 | 93 of 96 |
+| 40 | 69 of 72 |
+| 50 | 44 of 45 |
+| 60 | 57 of 63 |
+
+Five layouts account for all thirteen failures, and the shape of them is the point:
+
+| layout | fails at | passes at | what kills it |
+|---|---|---|---|
+| `312` | 30, all three lanes | 40, 50 | a carriage at 194, centre |
+| `319` | 40, all three lanes | 30, 50 | a carriage at 310, right |
+| `2002` | 50, from the right only | 30, 40 | a carriage at 134, right |
+| `2003` | 60, all three lanes | 30, 40 | a driving truck at 168, centre |
+| `2004` | 60, all three lanes | 30, 40 | a driving truck at 154, right |
+
+**A layout's verdict is not monotone in speed, and it is not even monotone the same way
+twice.** `312` is passable at 40 and 50 and fails at 30 — a roof gap needs speed to hop; `2003`
+and `2004` are passable at 30 and 40 and fail at 60 — a truck closes faster than the planner
+commits. Four of these five pass at 30, which is the only speed the standing per-band score
+ever ran them at: it reported them clear, and the game runs them at a speed where they are not.
+
+That is thirteen named, reproducible failures on track the game draws from every run, with no
+attempt spent, and each of them is one `surfing_offline.py blame <layout> <lane>` away from a
+decision to look at. (`blame` runs a route at the fitted ramp, so it reproduces the failures at
+30 as they stand; the ones at 40 and above need a speed it cannot yet be given.)
+
+#### Nine of the thirteen are the model being wrong, not the planner
+
+Cross the failing configurations against the recordings and three of the five layouts turn out
+to be track a human has run **at that exact speed, on the roofs, without flying**:
+
+| configuration | where a human ran it | height through it |
+|---|---|---|
+| `312` at 30 | `run_001` band 2 | y = 4.3 — up on the carriage roofs |
+| `2003` at 60 | `run_002` band 37 | y ≈ 4.1 |
+| `2004` at 60 | `run_002` band 26, `run_003` band 22 | y ≈ 4.1 |
+
+None of them is a flight: a flight sits at y = 20, and the highest sample through any of the
+three is 7.3, which is a hop. And `blame 312 1` does not report a planner mistake — it reports
+`still winnable: nothing`, i.e. the exhaustive search agrees the band is impassable.
+
+For `312` the place is exact. The model has a centre roof over 121–154 and reads the next
+centre carriage, body 177.6–194, as a wall; `run_001` is at y = 4.3 in the centre lane at 181,
+standing on top of that carriage. The runner rode a roof the model does not know is there.
+
+So the battery is not only a list of things to plan better. Nine of its thirteen failures are a
+falsification set for the **track model** — bands where the judge forbids what a recording
+shows being done — and they are the first thing to spend effort on, because no amount of
+planning gets through a wall the model invented.
+
+### Commands
+
+    python3 tools/dev/surfing_tracks.py model            # the schedule, and what is dumped
+    python3 tools/dev/surfing_tracks.py chains           # every recording's band chain
+    python3 tools/dev/surfing_tracks.py stats            # what the recordings say about the draw
+    python3 tools/dev/surfing_tracks.py draw 40 7        # one route, drawn the way the game draws
+    python3 tools/dev/surfing_tracks.py routes --write   # the synthetic set -> results/
+    python3 tools/dev/surfing_tracks.py cover            # every (layout, speed), three lanes
