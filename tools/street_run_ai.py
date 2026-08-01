@@ -53,8 +53,11 @@ RESULT_DIR = os.path.join("results", "street_run")
 # How often the supervisor may look in on a live run, and how long without progress means the
 # run is over. Deliberately coarse — see the watch loop in _one_attempt for what frequent
 # polling costs.
-WATCH_EVERY = 4.0
-WATCH_STALL = 9.0
+# Long enough that a typical attempt is already OVER before the supervisor looks at all —
+# reads after the run cost nothing, reads during it cost the run.
+WATCH_GRACE = 75.0
+WATCH_EVERY = 20.0
+WATCH_STALL = 45.0
 
 
 def _lines(ev, chunk, settle=0.6):
@@ -303,20 +306,28 @@ def _one_attempt(ev, revives: int, log):
     best_z = 0.0
     stall_since = time.time()
     last_z = -1.0
+    # Do not watch AT ALL for the first stretch. Every status read hijacks a thread inside the
+    # game process, and the run pays for it: on one account, one planner, attempts polled twice
+    # a second ended at ~317 m, polled every four seconds at ~530, and polled not at all at 722.
+    # Coarse was not enough — the only harmless read is one taken after the run is over. A
+    # typical attempt lasts well under this grace period, so most runs are now never touched;
+    # a long one gets a handful of looks, which is the price of noticing that it has ended.
+    time.sleep(WATCH_GRACE)
     while True:
-        # Watch SPARSELY. Every status read hijacks a thread inside the game process, and
-        # doing that twice a second while the runner is live costs the run: supervised
-        # attempts kept ending at ~317 m, while one whose supervisor had crashed reached 558
-        # and a deliberately silent attempt reached 722 on the same account. The autopilot is
-        # in-VM and needs nothing from here, so the loop only has to notice that the run is
-        # over — a coarse poll does that just as well and leaves the run alone.
-        time.sleep(WATCH_EVERY)
         st = _kv(_lines(ev, _STATUS, settle=0.2))
         z = float(st.get("z") or 0)
         maxz = float(st.get("maxz") or 0)
         best_z = max(best_z, maxz)
         if st.get("err"):
             print("  tick error: %s" % st["err"])
+        # The autopilot already knows the run has ended — it leaves the logic state and its own
+        # death flag behind. Reading that is exact and immediate, so the stall timer below is
+        # only a fallback; without it the loop would sit out the whole stall window after every
+        # attempt just to rediscover what the first read already said.
+        over = st.get("state") not in ("3", None) or st.get("dead") == "true"
+        if over and lives > revives:
+            best_z = max(best_z, z, maxz)
+            break
         if z > last_z + 0.5:
             last_z = z
             stall_since = time.time()
@@ -331,6 +342,7 @@ def _one_attempt(ev, revives: int, log):
             break
         print("    z=%.0f lane=%s obs=%s moves=%s" % (z, st.get("lane"), st.get("obs"),
                                                       st.get("moves")), end="\r")
+        time.sleep(WATCH_EVERY)
     print(" " * 60, end="\r")
     log.write("# attempt ended at z=%.0f, lives=%d\n" % (best_z, lives))
     death = None
