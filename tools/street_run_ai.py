@@ -46,6 +46,11 @@ from lua_client import get_evaluator  # noqa: E402
 MARK = "SRAI "
 AI_LUA = os.path.join(_HERE, "lib", "surfing_ai.lua")
 RESULT_DIR = os.path.join("results", "street_run")
+# How often the supervisor may look in on a live run, and how long without progress means the
+# run is over. Deliberately coarse — see the watch loop in _one_attempt for what frequent
+# polling costs.
+WATCH_EVERY = 4.0
+WATCH_STALL = 9.0
 
 
 def _lines(ev, chunk, settle=0.6):
@@ -295,6 +300,13 @@ def _one_attempt(ev, revives: int, log):
     stall_since = time.time()
     last_z = -1.0
     while True:
+        # Watch SPARSELY. Every status read hijacks a thread inside the game process, and
+        # doing that twice a second while the runner is live costs the run: supervised
+        # attempts kept ending at ~317 m, while one whose supervisor had crashed reached 558
+        # and a deliberately silent attempt reached 722 on the same account. The autopilot is
+        # in-VM and needs nothing from here, so the loop only has to notice that the run is
+        # over — a coarse poll does that just as well and leaves the run alone.
+        time.sleep(WATCH_EVERY)
         st = _kv(_lines(ev, _STATUS, settle=0.2))
         z = float(st.get("z") or 0)
         maxz = float(st.get("maxz") or 0)
@@ -304,7 +316,7 @@ def _one_attempt(ev, revives: int, log):
         if z > last_z + 0.5:
             last_z = z
             stall_since = time.time()
-        elif time.time() - stall_since > 2.5:
+        elif time.time() - stall_since > WATCH_STALL:
             # the run stopped advancing: dead, or the result popup is up
             if lives <= revives and _revive(ev):
                 lives += 1
@@ -315,7 +327,6 @@ def _one_attempt(ev, revives: int, log):
             break
         print("    z=%.0f lane=%s obs=%s moves=%s" % (z, st.get("lane"), st.get("obs"),
                                                       st.get("moves")), end="\r")
-        time.sleep(0.5)
     print(" " * 60, end="\r")
     log.write("# attempt ended at z=%.0f, lives=%d\n" % (best_z, lives))
     death = None
