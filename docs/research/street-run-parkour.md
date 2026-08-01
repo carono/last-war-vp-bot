@@ -1588,6 +1588,163 @@ Both are the planner arriving in a band in a lane or at a height the isolated re
 it in. That is the failure mode a per-band score is structurally blind to, and it is now two
 named, reproducible cases rather than a suspicion.
 
+## The two moves the planner would not make (#1164)
+
+The session opened with an instruction to get a drawn route through its whole 11880 m, and the
+first thing the battery said was that the instruction could not be followed on the routes it
+was aimed at: `run_002` dies at 7390 and its ceiling at the planner's own 1.5 m of clearance is
+7386, so it is already at the end of the road; the same is true of seeds 4 and 5, which run the
+whole way. **A distance without its ceiling beside it cannot be read at all**, and read
+properly the battery was not a list of six failures. It was one:
+
+| route | planner | ceiling |
+|---|---|---|
+| `run_002` | 7390 | 7386 — at it |
+| seed 1 | **4053** | **11880 — the whole route open ahead of it** |
+| seed 2 | **1927** | **9039** |
+| seed 3 | **6922** | **11019** |
+| seed 4 | 11881 | 11880 — at it |
+| seed 5 | 11881 | 11880 — at it |
+
+Three routes short of their ceiling, and seed 1 short by 7.8 km. That is where the session went,
+and what it found there was two moves the planner was refusing to make — both of them moves the
+judge has always allowed, and one of them a move the recordings show a person making seven times.
+
+### A roof is left sideways as well as forwards
+
+Seed 1 dies at 4053 m, hit by the rear of a plain carriage in the right lane whose body runs
+4052.9–4094.1. The 40 m before that read the same on every planning frame: **"change left, in
+N buckets"**, with N counting down to the same absolute metre — 4014.3, the far end of the
+right-hand roof — and the move never once issued. Then at 4015.7 the plan collapsed to
+`dp=0/0/34`: no route in any lane, and it held its line into the wall with the centre lane
+clear beside it the whole way.
+
+The field there leaves exactly one way on:
+
+* right lane — a ramp with a rideable roof over 3989.3–4014.0, then 38.9 m of open road, then
+  the carriage that kills. The gap is wider than the 36 m a hop reaches at 50 u/s, so the two
+  do not chain and the roof simply ends;
+* centre lane — a ramp with a roof over 4025.0–4058.0, which is the way on. It is mounted
+  head-on and its flank kills, so it has to be entered before 4023.5;
+* so the runner has to come DOWN off the right roof and be in the centre lane inside the
+  nine metres between them.
+
+The planner could not do it. Up on a roof the only lane change it knew was roof to roof — the
+lane being entered had to be roofed for the whole sweep — so the last metres of a roof were a
+lane it could not leave. The move it needed is a ground change begun while standing on a
+carriage, and it was not in the DP at all.
+
+**The judge has always allowed it**, and not by accident: it reads the level off the lane the
+runner still HOLDS, so a roof that runs out mid-change puts the runner on the tarmac of
+whichever lane it is in by then. And the recordings have seven of them — three in `run_002`
+(z = 3552, 4922, 10357) and four in `run_003` (4952, 5954, 6329, 6592) — every single one
+starting from a y between 2.0 and 3.2, which is a runner already on its way down off the end
+of a roof, not one stepping off the middle of a long one.
+
+So the DP gained the same move, gated the same way: *if the roof under the runner is gone by
+the handover, this is a ground change begun on a carriage.* The lane being left is judged at
+the level the runner will actually be at there — a roofed bucket is ridden, a bare one is run
+on the road and has to be clear of a body and of a ramp flank alike — the lane being entered
+gets the ordinary ground test over the half of the sweep it owns, and the landing is at ground
+level. A seam anywhere in the first half is still fatal; over a drop the runner is above the
+gap, not past it.
+
+On seed 1 the change now goes out at 4010.7, three and a bit metres before the roof it is
+leaving runs out, and the runner is in the centre lane at 4019 and up the centre ramp at
+4025.7. **4053 → 11881: the whole route, from all three start lanes.**
+
+### A route that goes the distance is not surrendered to one that does not
+
+Seed 2 died differently, and the trace of it is worth reading closely, because the mistake is
+one the planner makes wherever a window is narrow:
+
+    z= 1876.7 lane=centre act=JUMP  in= 10  reach=300  dp=300/300/300
+    z= 1878.0 lane=centre act=JUMP  in=  9  reach=300  dp=300/300/300
+    z= 1879.3 lane=centre act=right in=  0  reach= 45  dp=0/7/45      <-- issued
+    z= 1886.0 lane=right  act=hold  in= -1  reach= 38  dp=0/0/38
+    ... 40 m of holding ...
+    z= 1927.0 dead
+
+Two frames plan a hop — the seam hop off the end of the centre roof, which is the way on — and
+the third, 1.3 m further on, plans a lane change to the RIGHT off a route that reaches 45
+buckets of 300. Because that plan says "now", it is the one that gets executed, and it takes
+the runner out of the lane the hop was in and into one that dead-ends 40 m later.
+
+The third frame is not a change of mind. **The DP reasons in one-metre buckets laid out from
+the runner's own z**, so the grid slides under the track by a fraction of a metre every frame,
+and where a manoeuvre's window is narrower than a bucket that is enough to hide it. Here the
+centre roof ends at 1888.0 over a seam of 27.3 m and the hop reaches 28.8, so the take-off may
+be taken anywhere in **1.5 m** — and one planning frame in three offered no bucket inside it.
+Every collapsed frame in that stretch has the same signature: `pz` with a fractional part of
+.3, the same track, a different answer.
+
+The fix is not to chase the aliasing — a bucket is the finest thing this DP can see, and that
+is load-bearing elsewhere — it is to stop acting on it. While a plan that reached the whole
+horizon is less than `cfg.holdSpan` = 4 m behind, a collapsed plan issues nothing and the
+runner holds its line. Four metres is a couple of planning frames at the fastest the game runs,
+which covers a grid flicker and nothing longer: a road that has really closed is still closed a
+bucket later, the guard lapses, and the best-effort move is taken exactly as before.
+
+Seed 2: **1927 → 9041, against a ceiling of 9039.**
+
+### Where it stands
+
+Every measurement in the battery, before the session and after it:
+
+| route | before | after | ceiling |
+|---|---|---|---|
+| per-band, three lanes | 141/144 | 141/144 | — |
+| `run_002` | 7390 | 7390 | 7386 |
+| seed 1 | 4053 | **11881** | 11880 |
+| seed 2 | 1927 | **9041** | 9039 |
+| seed 3 | 6922 | **11021** | 11019 |
+| seed 4 | 11881 | 11881 | 11880 |
+| seed 5 | 11881 | 11881 | 11880 |
+| **share of the ceiling reached** | **70%** | **100%** | |
+
+Every route in the battery is now at the end of what anything can do on it at 1.5 m of
+clearance, and the per-band score did not move, which is what says the two new moves did not
+cost a class of obstacle somewhere else. Outside the battery, seed 6 goes 3247 → 11881, and
+seeds 7 and 8 are unchanged at 7391 and 11881.
+
+`cover` — every (layout, speed) the game can lay down, from all three lanes:
+
+| speed | before | after |
+|---|---|---|
+| 30 | 93 of 96 | 93 of 96 |
+| 40 | 69 of 72 | **72 of 72** |
+| 50 | 44 of 45 | **45 of 45** |
+| 60 | 57 of 63 | 57 of 63 |
+| **total** | **263 of 276** | **267 of 276** |
+
+Two of the five layouts that failed before this session are gone, one to each fix: `2002` at 50
+(the seed 1 killer) to the step-down, `319` at 40 to the hold guard. `catalogue` moves with
+them — 74 of 104 to **77 of 104**, `game` 3 of 8 to 5 of 8.
+
+What is left is three layouts — `312` at 30, `2003` at 60, `2004` at 60 — and every catalogue
+failure but one now reduces to a band that fails on its own. The exception is `sweep-60-rev`,
+which dies at 5306 m on a fence in band 16 (`3003` at 60), a layout that clears in isolation:
+the one case left of the planner arriving in a band in a state the isolated replay never puts
+it in, where before this session there were two. **All three layouts are on the
+falsification list already**: a human ran `312` at 30 in `run_001` band 2 at y = 4.3, `2003` at
+60 in `run_002` band 37, `2004` at 60 in `run_002` band 26 and `run_003` band 22, every one of
+them on the roofs and none of them a flight. So the next wall is not the planner declining a
+manoeuvre — it is the model putting a wall where a recording shows a person running. That is
+where the next session starts.
+
+### The route set is a test now, not a command to run
+
+Reading a drawn route had been a command someone had to remember to type. It is a test now:
+`tests/test_street_run_routes.py` replays twelve drawn routes and `run_002` and holds each to a
+floor — the searched ceiling where there is one, the measured distance where there is not. It
+fails both ways: below a floor is a regression, above a pinned *ceiling* means the ceiling was
+measured wrong or the judge has moved under it. ~7 minutes for the set; `SR_TEST_SEEDS=3` for a
+quick pass. Seeds 9 to 12 are in it as well, measured here for the first time: 8710, 11880,
+1168 and 1168, the last two dying in a `312` at 30.
+
+The per-band score stays in `surfing_battery.py`, where it belongs — it is the class-wide guard
+— and the new test is for the failure a per-band score cannot see.
+
 ### Commands
 
     python3 tools/dev/surfing_tracks.py model            # the schedule, and what is dumped
@@ -1599,3 +1756,5 @@ named, reproducible cases rather than a suspicion.
     python3 tools/dev/surfing_tracks.py catalogue        # every catalogue route, centre lane
     python3 tools/dev/surfing_tracks.py catalogue kind=seam 0 1 2
     python3 tools/dev/surfing_offline.py route cat:game-3 1        # one of them by name
+    python3 tests/test_street_run_routes.py              # the drawn routes, each against its floor
+    SR_TEST_SEEDS=3 python3 tests/test_street_run_routes.py        # ... the first three only
