@@ -1001,3 +1001,52 @@ shifts by one bucket flips a `freeRun` and collapses a whole branch — but that
 should be measured, not assumed. It is the next thing to look at, and it wants doing **after**
 the truck length is settled: at the modelled length the planner is already at the ceiling, so
 there is no headroom in which to tell an improvement from a regression.
+
+### There was no wall at 482 m — the judge was charging twice for a lane change
+
+The player disputed the "impassable" verdict: the aeroplane is a random buff and may not turn
+up, but the route is passable anyway, and the obstacles at that stretch had been read wrong.
+Both are right, and the second is what produced the first.
+
+**The trucks are a stream, not a rank.** In runner coordinates, the stretch reads:
+
+| where a lane kills (m of runner travel) | |
+|---|---|
+| left | 482..497 · 591..606 |
+| centre | 395..405 · 431..441 · 467..477 · 503..513 · 539..550 · 576..586 |
+| right | 451..462 · 519..534 |
+
+Points at which all three lanes are occupied: **zero**. The left lane carries one truck in the
+whole 200 m. "Three abreast, one per lane" came from reading three *live positions at one
+instant* — 449 right, 475 centre, 508 left — as a cross-section of the track, when they are 26
+and 33 metres apart along it. That was a plain misreading, and everything built on it was wrong.
+
+**What actually stalled the search** was `SIM.once` charging a lane change for *both* lanes
+over its entire 0.16 s. That is not a geometry this game can have: the measured colliders are
+3.48 wide against a lane pitch of 4, so there is an x between two of them that belongs to
+neither, and the runner is handed over well before the manoeuvre ends. The rule made a 5.1 m
+change need a 5.1 m hole in both lanes *simultaneously* — and the gaps in that stream are 5 and
+6 m. It missed by centimetres, in a place where nothing was actually blocking.
+
+The judge now hands over at the midpoint and the planner's DP checks each lane over the half of
+the sweep it owns. **run_002's route: 483 m → 5458 m**, against a ceiling the exhaustive search
+puts at 5469. Per-band from centre: 45/48 → **47/48**.
+
+#### The instrument that hid it
+
+`human` called `y >= 15` "riding a roof". But y≈20 is the **aeroplane**, and a carriage roof
+sits at **y≈4** (bounds.json: body top 3.53 + 0.76). Conflating the two is why roof-riding
+looked absent from expert play and flight looked mandatory — the 84 flight frames were counted
+as roofs and the 160 actual roof frames were not counted at all. Corrected, the model's roof
+reconstruction is mostly sound and measurably a little too strict: it denies a roof in **12 of
+the 95 frames** where the person was demonstrably standing on a carriage body.
+
+#### The next wall is a real one, and roofs are the way over it
+
+At 5457..5462 there are five metres where all three lanes do carry a carriage body on the
+ground — a genuine carriage group, and the intended path through one is over the top. The
+model's roof there stops at 5434 because `roofGap` (16) will not chain across the 24 m to the
+next carriage; at that distance the runner is at the 60 u/s cap, where a 0.72 s hop covers 43 m.
+So the question is whether a roof chain should carry across a gap the runner can hop, and the
+12-of-95 figure above says the chaining rule is too tight somewhere. That is the next thing to
+settle, and the recordings can gate it.
