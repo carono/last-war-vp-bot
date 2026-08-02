@@ -1,0 +1,3 @@
+# Batch files are read by cmd.exe, which wants CRLF: an LF-only .bat breaks
+# on a goto out of a block or a for loop, and does it silently.
+*.bat text eol=crlf

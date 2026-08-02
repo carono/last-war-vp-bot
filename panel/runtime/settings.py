@@ -25,6 +25,7 @@ written before any of this existed.
 from __future__ import annotations
 
 import os
+import sys
 import tkinter as tk
 
 import lua_client
@@ -34,8 +35,31 @@ from .. import mapsweep as mapsweepmod
 # Where the Windows client and its launcher live by default. A profile may name
 # another install (a second client in its own Windows session), which is the whole
 # reason these are knobs and not constants any more.
-WIN_PYTHON = r"C:\Python312\python.exe"
+MANAGED_PYTHON = r"C:\Python312\python.exe"
 GAME_DIR = r"C:\Program Files\LastWar"
+
+
+def _default_python() -> str:
+    """The interpreter a child process is launched with when nothing says otherwise.
+
+    `install.bat` puts Python 3.12 in `C:\\Python312` precisely so this answers
+    itself. On a machine where 3.12 already lived somewhere else the installer
+    reuses it, and then that path does not exist — so fall back to the panel's own
+    interpreter, which by definition has the packages the children need. A windowed
+    build has no console for a child's stdout to travel through, so its console twin
+    is preferred when it is there.
+    """
+    if os.path.exists(MANAGED_PYTHON):
+        return MANAGED_PYTHON
+    exe = sys.executable or ""
+    if os.path.basename(exe).lower() == "pythonw.exe":
+        console = os.path.join(os.path.dirname(exe), "python.exe")
+        if os.path.exists(console):
+            return console
+    return exe or MANAGED_PYTHON
+
+
+WIN_PYTHON = _default_python()
 
 #: Every knob the Settings page owns, with the value a profile that has never been
 #: there behaves by. A default here IS the old constant, so nothing changes for an

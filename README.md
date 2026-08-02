@@ -8,7 +8,13 @@ Supports both local models (via [Ollama](https://ollama.com)) and cloud services
 
 ## Installation
 
-See [`docs/install/`](docs/install/README.md) — step-by-step Windows guides for Python, Ollama, and the bot itself.
+Download **[`install.bat`](install.bat)** and double-click it: it installs Git and
+Python 3.12, clones this repository, installs the dependencies and puts the
+control panel on the Desktop — on a machine with none of that already there.
+Details and options: [`docs/install/00-installer.md`](docs/install/00-installer.md).
+
+Prefer to do it by hand? [`docs/install/`](docs/install/README.md) has the
+step-by-step Windows guides for Python, Ollama and the bot itself.
 
 ## Architecture
 
@@ -22,9 +28,20 @@ routine: [`docs/farming.md`](docs/farming.md)
 
 ## Running
 
-Easiest: double-click **`run.bat`** in the repository root. It activates the venv and launches the control UI.
+The control panel — the window everything is driven from — opens with
+**`panel.bat`**, which is what the Desktop shortcut points at. **`update.bat`**
+next to it pulls the latest sources and refreshes the dependencies.
+
+`run.bat` is the older, venv-based launcher for the vision UI below.
 
 Or from a terminal:
+
+```powershell
+python -m panel                  # the control panel
+python -m panel --profile second # …on another profile
+```
+
+The vision UI, from an activated venv:
 
 ```powershell
 .venv\Scripts\activate

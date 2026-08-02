@@ -1,6 +1,13 @@
 # Installation (Windows)
 
-These guides target Windows 10/11. All commands are for PowerShell. Go through the steps in order.
+These guides target Windows 10/11.
+
+**The short way — [`install.bat`](00-installer.md).** One file installs Git and
+Python 3.12, clones the repository, installs the dependencies and puts the panel
+on the Desktop. Nothing has to be installed first, and running it again repairs
+a half-finished install. Everything below is the same work done by hand.
+
+The manual route, in order (all commands are for PowerShell):
 
 1. [Python 3.12](01-python.md) — interpreter and `pip`.
 2. [The bot](03-bot.md) — clone the repository, virtual environment, dependencies, smoke test in `stub` mode (no external models needed).

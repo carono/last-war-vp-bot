@@ -1,0 +1,13 @@
+# Extras for the tools under tools/ — the passive traffic capture, which the
+# panel drives as child processes (secret tasks, ghost recon, rally, chat).
+#
+# Kept out of requirements.txt because the bot itself runs without them: the
+# panel opens, the scenarios play, only the sniffers stay silent. install.bat
+# installs this file too, so a fresh machine gets the whole set.
+#
+# scapy talks to the npcap driver directly — no dumpcap.exe, no tshark.exe —
+# so npcap itself still has to be installed (https://npcap.com); install.bat
+# offers it. Tick "WinPcap API-compatible Mode" in its window.
+scapy>=2.5
+# The game compresses part of its frames; the decoder needs this to read them.
+zstandard>=0.22
