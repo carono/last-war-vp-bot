@@ -15,15 +15,18 @@ from ._data import DataTab, _group, _int, _marker_payloads, _run_lua
 class AccountsTab(DataTab):
     """The characters this login can switch between — the in-game «Account» screen.
 
-    Every character you have logged into is listed with its server, zone, HQ level
+    Every character this login still has is listed with its server, zone, HQ level
     and name; the one you are playing right now is highlighted and carries no button.
     Each of the others has a «Switch» button that reconnects the client to that
     character — exactly what tapping the row in the game does. Because a switch tears
     down the current session and reconnects, the button asks for confirmation first.
 
-    The read is CONFIRMED against a live client (tools/account_switch.py); the switch
-    reproduces the game's own select handler. Degrades to an empty state with no
-    daemon, no game, or before the account manager has loaded."""
+    What the game hands over is a cache of every login it has ever made, so one
+    character shows up once per server it has ever been on and abandoned characters
+    linger; tools/account_switch.py trims that to the characters themselves before we
+    draw it. The read is CONFIRMED against a live client; the switch reproduces the
+    game's own select handler. Degrades to an empty state with no daemon, no game, or
+    before the account manager has loaded."""
 
     ID = "accounts"
     TITLE_KEY = "tab.accounts"

@@ -553,7 +553,7 @@
   "accounts.switch": "Switch",
   "accounts.count": "{n} other characters",
   "accounts.empty": "no characters — press Refresh (needs the game running)",
-  "accounts.hint": "Characters this login can switch between. Switching reconnects the client to that server — the running session moves with it.",
+  "accounts.hint": "Characters this login can play. Switching reconnects the client to that server — the running session moves with it. The game keeps a row per login it has ever made, so a character that has changed server, or one that was abandoned, sits in there more than once; only the characters themselves are listed here.",
   "accounts.confirm": "Switch to {name} on server {server}? This disconnects the current session and reconnects as that character.",
   "accounts.switching": "switching…",
   "accounts.switched": "[accounts] switched to {name} (server {server})",
