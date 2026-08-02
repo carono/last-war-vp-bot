@@ -83,6 +83,7 @@ class TabRegistry:
 TABS: tuple = (
     TabSpec("scenarios", "panel.tabs.scenarios", "ScenariosTab", order=20),
     TabSpec("timers",    "panel.tabs.timers",    "TimersTab",    order=30),
+    TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40),
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200),
     TabSpec("profile",   "panel.tabs.profile",   "ProfileTab",   order=210),

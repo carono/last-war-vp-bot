@@ -95,16 +95,14 @@ from . import __version__ as APP_VERSION
 # LabelFrame, Scrollbar, Text, Treeview, Spinbox, Listbox, Menu, PanedWindow)
 # come straight from tk/ttk above.
 from . import widgets
-from .widgets import (NumericEntry, ScrollableFrame, numeric_spinbox,
-                      font as ui_font)
+from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
 from . import childmon as childmonmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
-from . import debug_sender as dbgsender
 from . import i18n as i18nmod
 from . import runtime
-from . import mapsweep as mapsweepmod
+from . import debug_sender as dbgsender
 from . import profile as profilemod
 from . import tabs as tabsreg
 from .tabs import rally as rallytab
@@ -124,7 +122,6 @@ SRC = os.path.join(REPO, "src")
 for _tp in (TOOLS, TOOLS_LIB, SRC):
     if _tp not in sys.path:
         sys.path.insert(0, _tp)
-import lua_client       # noqa: E402  (lightweight — no il2cpp deps)
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
@@ -316,18 +313,7 @@ SNIFF_READY_TIMEOUT = 25.0
 # Where the DSL action scripts live — the runtime's constant now, re-exported because
 # this file's callers (and the tests) reach for it by the old name.
 ACTIONS_DIR = runtime.ACTIONS_DIR
-# The Settings page: one entry per sub-tab THE SHELL owns, in the order they appear.
-# `builder` is the Panel method that fills the tab; None means "not written yet" and
-# gets the placeholder.
-#
-# It is no longer the whole page. A tab contributes its own page by declaring
-# `SETTINGS_PAGE_KEY` and implementing `settings_page` (docs/research/
-# panel-tabs-refactor.md §6), and those are appended after these — «Авторалли» is the
-# rally tab's now, so switching rally off takes its settings with it.
-SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
-    ("general", "_build_general_settings"),
-    ("game", "_build_game_settings"),
-)
+# The Settings page's own sub-pages moved with it (panel/tabs/settings.py SHELL_PAGES).
 
 # Every knob the Settings page owns, with the value a profile that has never been
 # there behaves by. The panel reads them through `_opt_*`, so a default here IS the
@@ -344,28 +330,10 @@ def _settings_var(master, default):
             else tk.StringVar(master=master, value=str(default)))
 
 
-SETTINGS_DEFAULTS: dict = {
-    "win_python": DEFAULT_WIN_PYTHON,
-    "daemon_port": lua_client.DEFAULT_PORT,
-    "log_max_lines": LOG_MAX_LINES,
-    "autoloot_limit": AUTOLOOT_LIMIT,
-    "autoloot_poll": AUTOLOOT_POLL,
-    "autoloot_pause_min": int(AUTOLOOT_SPENT_PAUSE // 60),
-    "trace_filter": TRACE_FILTER,
-    "sniff_ready_timeout": SNIFF_READY_TIMEOUT,
-    "launcher": LAUNCHER,
-    "game_exe": GAME_EXE,
-    "watchdog": False,
-    "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
-    "sweep_step": mapsweepmod.DEFAULT_STEP,
-    "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
-    "sweep_rest_min": 5,           # pause between two full passes, minutes
-    # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
-    # Empty = do not send: the archive is still written, but nothing leaves the box.
-    # A stub for now — no transport is wired. The rotating debug log itself is not
-    # configured here: it is a fixed 5 MiB × 3 (panel/debug_log.py).
-    "debug_send_url": "",
-}
+# Every knob the Settings page owns — the runtime's now (panel/runtime/settings.py),
+# because a page that draws them can be a tab of its own and a standalone tab has no
+# panel to ask. Re-exported: this file's callers and the tests reach for the old name.
+SETTINGS_DEFAULTS = runtime.DEFAULTS
 
 # The retranslation registry's sweep threshold — the runtime owns it now
 # (panel/runtime/i18n.py). Re-exported under the old name because that is what the
@@ -689,24 +657,6 @@ class Panel(tk.Tk):
 
     def _autoloot_limit(self) -> int:
         return self._opt_int("autoloot_limit", low=1, high=50)
-
-    def _trace_filter(self) -> str:
-        return self._opt_str("trace_filter")
-
-    def _sniff_timeout(self) -> float:
-        return self._opt_float("sniff_ready_timeout", low=1.0, high=600.0)
-
-    def _sweep_box(self) -> tuple[int, int, float, float]:
-        """``(radius, step, dwell, rest)`` of the map sweep, all bounded."""
-        return (
-            self._opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
-                          high=mapsweepmod.MAX_RADIUS),
-            self._opt_int("sweep_step", low=mapsweepmod.MIN_STEP,
-                          high=mapsweepmod.MAX_STEP),
-            self._opt_float("sweep_dwell", low=mapsweepmod.MIN_DWELL,
-                            high=mapsweepmod.MAX_DWELL),
-            self._opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
-        )
 
     def _child_env(self) -> dict:
         """The environment every child is launched with (panel/runtime/children.py)."""
@@ -1192,7 +1142,6 @@ class Panel(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
-        settings_tab = ttk.Frame(nb)
         self._main_nb = nb
 
         # WHICH TABS THIS WINDOW HAS IS THE PROFILE'S BUSINESS (§5). The registry says
@@ -1205,8 +1154,7 @@ class Panel(tk.Tk):
         # move three of them; «Главная» never moves — §4.4). They are ordered into the
         # same sequence by the numbers the registry would have given them, so the tab
         # bar reads the same whichever half a tab comes from.
-        entries = [("main", main, "tab.main", 0),
-                   ("settings", settings_tab, "tab.settings", 40)]
+        entries = [("main", main, "tab.main", 0)]
         want_order = self._binder.tab_list("order")
         specs = tabsreg.resolve(
             enabled=self._binder.tab_list("enabled"), order=want_order,
@@ -1245,9 +1193,6 @@ class Panel(tk.Tk):
                 if tab.ID == "timers":
                     self._schedule.timer_config_source = tab._timer_widget_config
                     self._schedule.trigger_config_source = tab._trigger_widget_config
-        # The Settings page is an aggregator now: the shell's own sub-tabs, then one per
-        # tab that brought a page along («Авторалли» comes with rally).
-        self._build_settings_tab(settings_tab)
         # The account summary strip goes into the «Аккаунты» tab, beside the list of
         # characters it summarises — and only if this profile has that tab at all.
         if "accounts" in frames:
@@ -1700,37 +1645,6 @@ class Panel(tk.Tk):
             dbg.info(msg)
         else:
             dbg.debug(msg)
-
-    def _send_debug_archive(self) -> None:
-        """«Отправить диагностику»: zip the debug logs and hand them to `debug_send_url`.
-
-        The destination is a stub for now (no transport wired), so this always
-        produces the zip and reports where it went — an empty URL means "do not send",
-        which is not an error: the archive is still written for a by-hand hand-off.
-        """
-        url = self._opt_str("debug_send_url")
-        path = self._profiles.debug_log()
-        self._say("debug", "log.debug.packing")
-
-        def work():
-            try:
-                status, archive, _detail = dbgsender.send(
-                    url, path=path, logger=dbgmod.get_logger("sender"))
-            except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._say("debug", "log.debug.failed", error=exc))
-                return
-            rel = _repo_rel(archive)
-
-            def done():
-                if status == "disabled":
-                    self._say("debug", "log.debug.no_dest", path=rel)
-                elif status == "sent":
-                    self._say("debug", "log.debug.sent", dest=url, path=rel)
-                else:                 # "stub" — archive is ready, transport is not
-                    self._say("debug", "log.debug.stub", path=rel, dest=url)
-            self.after(0, done)
-
-        threading.Thread(target=work, daemon=True).start()
 
     def _say(self, tag: str, key: str, **fmt) -> None:
         """Log one translated line under ``[tag]``."""
@@ -2613,150 +2527,12 @@ class Panel(tk.Tk):
             tab.ensure_loaded()
             tab.on_show()
 
-    def _build_settings_tab(self, parent: ttk.Frame) -> None:
-        """The Settings page: an aggregator, not a page.
-
-        The shell's own sub-tabs come from SETTINGS_TABS (a builder of None shows the
-        placeholder), and then every plugin tab that declares a `SETTINGS_PAGE_KEY`
-        contributes one of its own — so «Авторалли» is drawn by the rally tab, travels
-        with it, and is simply not there when rally is switched off
-        (docs/research/panel-tabs-refactor.md §6).
-        """
-        sub_nb = ttk.Notebook(parent)
-        sub_nb.pack(fill="both", expand=True, padx=4, pady=4)
-
-        pages = [(f"settings.tab.{key}", getattr(self, builder) if builder else None)
-                 for key, builder in SETTINGS_TABS]
-        for tab in getattr(self, "_plugin_tabs", {}).values():
-            if tab.SETTINGS_PAGE_KEY:
-                pages.append((tab.SETTINGS_PAGE_KEY, tab.settings_page))
-
-        for title_key, fill in pages:
-            frame = ttk.Frame(sub_nb, padding=8)
-            sub_nb.add(frame, text=self._t(title_key))
-            self._hook(
-                lambda nb=sub_nb, f=frame, k=title_key: nb.tab(f, text=self._t(k)),
-                key=f"settings-tab-{title_key}",
-            )
-            if fill is None:
-                self._tr(ttk.Label(frame, foreground="#888"),
-                         "settings.placeholder").pack(anchor="w")
-                continue
-            try:
-                fill(frame)
-            except Exception as exc:            # noqa: BLE001 — a page, not the panel
-                self._dbg.error("settings page %r failed", title_key, exc_info=True)
-                self._say("panel", "log.tab.failed", tab=title_key, error=exc)
-
-    # -- settings: the knobs that used to be constants in this file -----------
+    # -- «Настройки» is a plugin tab now (panel/tabs/settings.py) ------------
     #
-    # Both tabs said "Скоро" while WIN_PYTHON, the auto-loot budget, the trace
-    # filter, the game paths and the sweep box were all edit-the-source. Every row
-    # below is one entry in SETTINGS_DEFAULTS bound to its `_opt_vars` variable, so
-    # a new knob is a line there plus a row here plus two locale strings.
-    def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
-                 width: int = 12, spin: "tuple | None" = None) -> None:
-        """One labelled field on a Settings tab, bound to ``_opt_vars[key]``."""
-        self._tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
-                                                       padx=(0, 8), pady=3)
-        var = self._opt_vars[key]
-        if isinstance(var, tk.BooleanVar):
-            ttk.Checkbutton(parent, variable=var).grid(row=row, column=1, sticky="w")
-        elif spin is not None:
-            # A float knob (poll seconds, dwell, timeout) needs the decimal point;
-            # an integer one stays digit-only.
-            decimal = isinstance(SETTINGS_DEFAULTS.get(key), float)
-            numeric_spinbox(parent, from_=spin[0], to=spin[1], width=width,
-                        decimal=decimal, textvariable=var).grid(
-                            row=row, column=1, sticky="w")
-        else:
-            ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1,
-                                                                  sticky="we")
-        self._tr(ttk.Label(parent, foreground="#888", wraplength=340, justify="left"),
-                 f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
-
-    def _build_general_settings(self, parent: ttk.Frame) -> None:
-        """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
-        grid = ttk.Frame(parent)
-        grid.pack(fill="x")
-        grid.columnconfigure(1, weight=0)
-        grid.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("win_python", {"width": 34}),
-                ("daemon_port", {"spin": (1, 65535), "width": 10}),
-                ("log_max_lines", {"spin": (200, 200000), "width": 10}),
-                ("autoloot_limit", {"spin": (1, 50), "width": 10}),
-                ("autoloot_poll", {"spin": (1, 600), "width": 10}),
-                ("autoloot_pause_min", {"spin": (1, 1440), "width": 10}),
-                ("trace_filter", {"width": 20}),
-                ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
-        )):
-            self._opt_row(grid, row, key, **kwargs)
-        self._build_debug_log_settings(parent)
-
-    def _build_debug_log_settings(self, parent: ttk.Frame) -> None:
-        """The technical debug log: the send target and «Отправить диагностику».
-
-        The debug file is separate from panel.log and the UI widget — a developer
-        diagnostic (panel/debug_log.py) that keeps every component's key events, every
-        traceback and a systems snapshot, rotated at a fixed 5 MiB × 3. The only knob
-        is where the zipped logs go; «Отправить диагностику» packs and hands them to
-        `debug_send_url` (empty = do not send; a stub until a transport is wired).
-        """
-        frame = self._tr(ttk.LabelFrame(parent, padding=8), "debug.frame")
-        frame.pack(fill="x", pady=(12, 0))
-        frame.columnconfigure(2, weight=1)
-        self._opt_row(frame, 0, "debug_send_url", width=34)
-        self._tr(ttk.Button(frame, command=self._send_debug_archive),
-                 "debug.send").grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
-
-    def _build_game_settings(self, parent: ttk.Frame) -> None:
-        """«Игра»: where the client is, whether to put it back, and the sweep box."""
-        grid = ttk.Frame(parent)
-        grid.pack(fill="x")
-        grid.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("launcher", {"width": 34}),
-                ("game_exe", {"width": 20}),
-                ("watchdog", {}),
-        )):
-            self._opt_row(grid, row, key, **kwargs)
-
-        sweep = self._tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
-        sweep.pack(fill="x", pady=(12, 0))
-        sweep.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("sweep_radius", {"spin": (mapsweepmod.MIN_RADIUS,
-                                           mapsweepmod.MAX_RADIUS), "width": 10}),
-                ("sweep_step", {"spin": (mapsweepmod.MIN_STEP,
-                                         mapsweepmod.MAX_STEP), "width": 10}),
-                ("sweep_dwell", {"spin": (mapsweepmod.MIN_DWELL,
-                                          mapsweepmod.MAX_DWELL), "width": 10}),
-                ("sweep_rest_min", {"spin": (0, 1440), "width": 10}),
-        )):
-            self._opt_row(sweep, row, key, **kwargs)
-        # The box in words, so the numbers above are not abstract.
-        hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
-        hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        self._sweep_settings_hint = hint
-        for key in ("sweep_radius", "sweep_step", "sweep_dwell"):
-            self._opt_vars[key].trace_add(
-                "write", lambda *a: self._refresh_sweep_settings_hint())
-        self._refresh_sweep_settings_hint()
-
-    def _refresh_sweep_settings_hint(self) -> None:
-        hint = getattr(self, "_sweep_settings_hint", None)
-        if hint is None:
-            return
-        radius, step, dwell, _rest = self._sweep_box()
-        # A centre of (0, 0) would be clamped against the map edge and undercount, so
-        # describe the box from a point well inside the map instead.
-        jumps, seconds = mapsweepmod.describe(500, 500, radius, step, dwell)
-        try:
-            hint.configure(text=self._t("sweep.settings_hint", side=radius * 2 + 1,
-                                        jumps=jumps, mins=max(1, int(seconds // 60))))
-        except tk.TclError:
-            pass
+    # It was already an aggregator — the shell's own knobs plus a page per tab that
+    # brings one — so it moved as one. The knobs' DEFAULTS went to
+    # panel/runtime/settings.py, which is what a page (and a standalone tab) reads
+    # them from.
 
     # -- «Авторалли» is the rally tab's own settings page now ----------------
     #

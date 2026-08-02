@@ -56,9 +56,13 @@ class _Reader:
         self._binder.values = dict(settings)  # no widgets: the saved value is the answer
         for name in ("_opt", "_opt_int", "_opt_float", "_opt_str", "_opt_bool",
                      "_python", "_daemon_port", "_game_exe", "_launcher",
-                     "_autoloot_limit", "_trace_filter", "_sniff_timeout",
-                     "_sweep_box"):
+                     "_autoloot_limit"):
             setattr(self, name, types.MethodType(getattr(pm.Panel, name), self))
+        # The map-sweep box is read by the two that use it — the sweep itself and the
+        # Settings page that describes it — rather than by the shell that has neither.
+        from panel.tabs.settings import SettingsTab
+        self.rt = types.SimpleNamespace(settings=self._binder)
+        self._sweep_box = types.MethodType(SettingsTab._sweep_box, self)
 
 
 # ---------------------------------------------------------------------------
@@ -72,8 +76,8 @@ def test_the_settings_knobs_read_back_exactly():
     assert r._game_exe() == "LastWar.exe"
     assert r._launcher() == r"C:\Games\LastWar\launcher.exe"
     assert r._autoloot_limit() == 4, r._autoloot_limit()
-    assert r._trace_filter() == "ghost"
-    assert abs(r._sniff_timeout() - 30.0) < 1e-9, r._sniff_timeout()
+    assert r._binder.opt_str("trace_filter") == "ghost"
+    assert abs(r._binder.opt_float("sniff_ready_timeout") - 30.0) < 1e-9
     assert r._opt_int("log_max_lines", low=200, high=200000) == 4000
     assert r._opt_bool("watchdog") is True
     assert r._sweep_box() == (9, 3, 1.5, 12 * 60.0), r._sweep_box()

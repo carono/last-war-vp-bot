@@ -33,10 +33,10 @@ from .i18n import Translator
 from .log import LogBus
 from . import reads
 from .schedule import Schedule
-from .settings import SettingsBinder
+from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
 
 __all__ = ["paths", "reads", "game_process", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
-           "Schedule", "SettingsBinder", "Ticker", "Translator",
+           "DEFAULTS", "Schedule", "SettingsBinder", "Ticker", "Translator",
            "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

@@ -24,6 +24,49 @@ written before any of this existed.
 """
 from __future__ import annotations
 
+import os
+
+import lua_client
+
+from .. import mapsweep as mapsweepmod
+
+# Where the Windows client and its launcher live by default. A profile may name
+# another install (a second client in its own Windows session), which is the whole
+# reason these are knobs and not constants any more.
+WIN_PYTHON = r"C:\Python312\python.exe"
+GAME_DIR = r"C:\Program Files\LastWar"
+
+#: Every knob the Settings page owns, with the value a profile that has never been
+#: there behaves by. A default here IS the old constant, so nothing changes for an
+#: existing profile — and adding a knob is a line here, a row on a page, and two
+#: locale strings.
+#:
+#: `daemon_port` is the one with teeth: a second client lives in its own Windows
+#: session with its own daemon on its own port (tools/rdp_instance.py), so a profile
+#: naming 47655 drives THAT client — the panel's own client and every child it
+#: launches (they read LW_DAEMON_PORT from the environment). That is what turns "two
+#: profiles" into "two accounts farmed at once".
+DEFAULTS: dict = {
+    "win_python": WIN_PYTHON,
+    "daemon_port": lua_client.DEFAULT_PORT,
+    "log_max_lines": 4000,
+    "autoloot_limit": 5,
+    "autoloot_poll": 2.0,
+    "autoloot_pause_min": 30,
+    "trace_filter": "SFS",
+    "sniff_ready_timeout": 25.0,
+    "launcher": os.path.join(GAME_DIR, "LastWarLauncher.exe"),
+    "game_exe": "LastWar.exe",
+    "watchdog": False,
+    "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
+    "sweep_step": mapsweepmod.DEFAULT_STEP,
+    "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
+    "sweep_rest_min": 5,           # pause between two full passes, minutes
+    # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
+    # Empty = do not send: the archive is still written, but nothing leaves the box.
+    "debug_send_url": "",
+}
+
 
 class SettingsBinder:
     """The active profile's values: read, write, and the widgets bound to them."""
