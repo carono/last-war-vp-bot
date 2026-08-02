@@ -97,7 +97,6 @@ from . import __version__ as APP_VERSION
 from . import widgets
 from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
-from . import childmon as childmonmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -643,12 +642,6 @@ class Panel(tk.Tk):
 
     # Named readers for the knobs used in more than one place, so the bounds live
     # once and a caller reads a phrase instead of a key and two magic numbers.
-    def _python(self) -> str:
-        return self._opt_str("win_python")
-
-    def _daemon_port(self) -> int:
-        return self._opt_int("daemon_port", low=1, high=65535)
-
     def _game_exe(self) -> str:
         return self._opt_str("game_exe")
 
@@ -657,10 +650,6 @@ class Panel(tk.Tk):
 
     def _autoloot_limit(self) -> int:
         return self._opt_int("autoloot_limit", low=1, high=50)
-
-    def _child_env(self) -> dict:
-        """The environment every child is launched with (panel/runtime/children.py)."""
-        return self._children.env()
 
     def _daemon_up(self) -> bool:
         """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
@@ -693,9 +682,6 @@ class Panel(tk.Tk):
     def _hook(self, func, key=None) -> None:
         """Register a language-change hook — once, however often this is reached."""
         self._i18n.hook(func, key)
-
-    def _sweep_tr_widgets(self) -> None:
-        self._i18n.sweep()
 
     def _set_language(self, lang: str) -> None:
         if self._i18n.set_lang(lang):
@@ -1852,10 +1838,6 @@ class Panel(tk.Tk):
         """(Re)arm the repeating callback ``name`` — cancelling any pending one."""
         self._tick.arm(name, delay_ms, func)
 
-    def _disarm(self, name: str) -> None:
-        """Cancel the pending callback under ``name``, if there is one."""
-        self._tick.disarm(name)
-
     def _disarm_all(self) -> None:
         self._tick.disarm_all()
 
@@ -2029,17 +2011,7 @@ class Panel(tk.Tk):
         self._schedule.stop()
         self._say("panel", "panic.done")
 
-    def _current_server(self) -> str:
-        """Which server the client is on (panel/runtime/daemon.py owns the read)."""
-        return self._game.current_server()
-
     # -- one way to run a child ---------------------------------------------
-    def _child(self, tag: str, cmd: list, *, on_line=None, on_exit=None,
-               capture_stderr: bool = True) -> "childmonmod.ChildMonitor":
-        """A :class:`panel.childmon.ChildMonitor` wired to this panel."""
-        return self._children.spawn(tag, cmd, on_line=on_line, on_exit=on_exit,
-                                    capture_stderr=capture_stderr)
-
     # -- the secret-task capture went with its tab (panel/tabs/secret_tasks/) -
     #
     # The child, the panel-side line filter, the findings log and the nudge that
@@ -2085,10 +2057,6 @@ class Panel(tk.Tk):
     # lives beside the range that aims it.
 
     # -- Develop menu: raw sniffers -----------------------------------------
-    def _spawn_sniffer(self, cmd: list, tag: str) -> "subprocess.Popen | None":
-        """A raw child whose stdout a reader thread streams (panel/runtime/children.py)."""
-        return self._children.spawn_raw(cmd, tag)
-
     # -- the Develop sniffers are a tab now (panel/tabs/develop.py) ----------
     #
     # Both halves, the readiness watch, the graceful stop that unwraps the tracer's

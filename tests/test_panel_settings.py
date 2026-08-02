@@ -143,6 +143,53 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         root.destroy()
 
 
+def test_the_tabs_page_writes_the_profile_and_asks_for_a_restart():
+    """«Настройки → Вкладки» is the UI over `tabs.enabled` — the point of the refactor.
+
+    Unticking one has to REACH THE PROFILE (or the next start builds it again) and has
+    to say that a restart is what applies it: a tab brings up its own standing orders
+    when it is built, so taking one down mid-flight is a different job.
+    """
+    if ttk is None:
+        _skip()
+        return
+    try:
+        import tkinter as tk
+        import fake_runtime
+        from panel import tabs as tabsreg
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    root.withdraw()
+    try:
+        rt = fake_runtime.cold_runtime(root)
+        saved = {}
+        rt.settings.values = saved
+        rt.settings.save = lambda raw=None: None        # no profile on disk here
+        tab = SettingsTab(rt, ttk.Frame(root))
+        tab._build_tabs_settings(ttk.Frame(root))
+
+        # Every registered tab has a row, ticked as the profile resolves it.
+        assert set(tab._tab_vars) == {s.id for s in tabsreg.TABS}, tab._tab_vars
+        assert tab._tab_vars["rally"].get() is True
+        assert tab._tab_vars["develop"].get() is False, "a default-off tab starts off"
+
+        tab._tab_vars["rally"].set(False)
+        tab._save_tab_choice()
+        assert "rally" not in saved["tabs"]["enabled"], saved["tabs"]
+        # …and `known` goes with it, or the next start would read the unticked tab as
+        # one that did not exist yet and switch it back on.
+        assert "rally" in saved["tabs"]["known"], saved["tabs"]
+        assert [s.id for s in tabsreg.resolve(
+            enabled=saved["tabs"]["enabled"],
+            known=saved["tabs"]["known"])].count("rally") == 0
+        assert tab._tabs_note.cget("text") == rt.t("settings.tabs.restart")
+    finally:
+        root.destroy()
+
+
 def test_a_tab_contributes_its_own_settings_page():
     """«Авторалли» is drawn by the rally tab, so it is there when rally is, and not
     when it is not (docs/research/panel-tabs-refactor.md §6)."""

@@ -55,8 +55,7 @@ class _Reader:
                                               defaults=pm.SETTINGS_DEFAULTS)
         self._binder.values = dict(settings)  # no widgets: the saved value is the answer
         for name in ("_opt", "_opt_int", "_opt_float", "_opt_str", "_opt_bool",
-                     "_python", "_daemon_port", "_game_exe", "_launcher",
-                     "_autoloot_limit"):
+                     "_game_exe", "_launcher", "_autoloot_limit"):
             setattr(self, name, types.MethodType(getattr(pm.Panel, name), self))
         # The map-sweep box is read by the two that use it — the sweep itself and the
         # Settings page that describes it — rather than by the shell that has neither.
@@ -71,8 +70,8 @@ class _Reader:
 
 def test_the_settings_knobs_read_back_exactly():
     r = _Reader(_saved())
-    assert r._python() == r"C:\Python312\python.exe", r._python()
-    assert r._daemon_port() == 47655, r._daemon_port()      # the second session's client
+    assert r._opt_str("win_python") == r"C:\Python312\python.exe"
+    assert r._opt_int("daemon_port") == 47655   # the second session's client
     assert r._game_exe() == "LastWar.exe"
     assert r._launcher() == r"C:\Games\LastWar\launcher.exe"
     assert r._autoloot_limit() == 4, r._autoloot_limit()
@@ -88,8 +87,8 @@ def test_a_knob_the_profile_never_set_keeps_its_default():
     import panel.__main__ as pm
 
     bare = _Reader({})
-    assert bare._daemon_port() == int(pm.SETTINGS_DEFAULTS["daemon_port"])
-    assert bare._python() == str(pm.SETTINGS_DEFAULTS["win_python"])
+    assert bare._opt_int("daemon_port") == int(pm.SETTINGS_DEFAULTS["daemon_port"])
+    assert bare._opt_str("win_python") == str(pm.SETTINGS_DEFAULTS["win_python"])
     assert bare._autoloot_limit() == int(pm.SETTINGS_DEFAULTS["autoloot_limit"])
     assert bare._opt_bool("watchdog") is bool(pm.SETTINGS_DEFAULTS["watchdog"])
 
@@ -98,7 +97,7 @@ def test_bounds_are_applied_not_just_stored():
     """A half-typed box must never be obeyed — an empty limit read as 0 stops auto-loot."""
     r = _Reader({"daemon_port": "not a port", "autoloot_limit": "", "log_max_lines": 5})
     import panel.__main__ as pm
-    assert r._daemon_port() == int(pm.SETTINGS_DEFAULTS["daemon_port"])
+    assert r._opt_int("daemon_port") == int(pm.SETTINGS_DEFAULTS["daemon_port"])
     assert r._autoloot_limit() == int(pm.SETTINGS_DEFAULTS["autoloot_limit"])
     assert r._opt_int("log_max_lines", low=200, high=200000) == 200      # clamped up
 

@@ -35,7 +35,17 @@ from .base import PanelTab
 SHELL_PAGES: tuple = (
     ("general", "_build_general_settings"),
     ("game", "_build_game_settings"),
+    ("tabs", "_build_tabs_settings"),
 )
+
+
+def _loadable(spec) -> bool:
+    """Whether the registry can import this tab — a broken one still gets a row."""
+    try:
+        spec.load()
+        return True
+    except Exception:                        # noqa: BLE001 — a row, not the page
+        return False
 
 
 class SettingsTab(PanelTab):
@@ -47,6 +57,63 @@ class SettingsTab(PanelTab):
     PREFERRED_SIZE = "820x640"
     LOCALE_NS = ("settings", "opt", "debug")
     NEEDS = frozenset()
+
+    # -- «Вкладки»: which of them this profile shows --------------------------
+    def _build_tabs_settings(self, parent: ttk.Frame) -> None:
+        """One row per tab in the registry: show it or not, and in what order.
+
+        This is the page the whole refactor was for. A tab that is unticked here is not
+        built at all on the next start — no widgets, no settings page of its own, no
+        triggers offered, and none of its captures or watchers started. That last one is
+        the part that costs: «Secret Tasks» switched off is a pcap child and two watcher
+        threads that never run.
+
+        WHY A RESTART. A tab brings up its own standing orders and hands the schedule
+        its triggers when it is built; taking one down live would mean unwinding all of
+        that in the right order with a capture mid-flight. The list is a profile
+        setting, so it is written now and obeyed at the next start — said in as many
+        words on the page, rather than left to be discovered.
+        """
+        from .. import tabs as tabsreg
+
+        self.tr(ttk.Label(parent, foreground="#888", wraplength=620, justify="left"),
+                "settings.tabs.hint").pack(anchor="w", pady=(0, 8))
+        grid = ttk.Frame(parent)
+        grid.pack(fill="x")
+
+        saved = self.rt.settings.tab_list("enabled")
+        shown = {spec.id for spec in tabsreg.resolve(
+            enabled=saved, known=self.rt.settings.tab_list("known"))}
+        self._tab_vars = {}
+        for row, spec in enumerate(sorted(tabsreg.TABS, key=lambda s: s.order)):
+            var = tk.BooleanVar(master=self.rt.root, value=spec.id in shown)
+            self._tab_vars[spec.id] = var
+            box = ttk.Checkbutton(grid, variable=var, command=self._save_tab_choice)
+            self.tr(box, spec.title_key).grid(row=row, column=0, sticky="w", pady=1)
+            # What the tab brings up when it is on, so the cost of each is readable.
+            needs = ", ".join(sorted(spec.load().NEEDS)) if _loadable(spec) else "?"
+            ttk.Label(grid, foreground="#888", text=needs).grid(
+                row=row, column=1, sticky="w", padx=(14, 0))
+        self._tabs_note = ttk.Label(parent, foreground="#e0a84f", wraplength=620,
+                                    justify="left")
+        self._tabs_note.pack(anchor="w", pady=(8, 0))
+
+    def _save_tab_choice(self) -> None:
+        """Write the ticked list into the profile, and say a restart is what applies it."""
+        from .. import tabs as tabsreg
+
+        enabled = [spec.id for spec in sorted(tabsreg.TABS, key=lambda s: s.order)
+                   if self._tab_vars[spec.id].get()]
+        values = self.rt.settings.values
+        block = dict(values.get("tabs") or {})
+        block["enabled"] = enabled
+        block["known"] = [spec.id for spec in tabsreg.TABS]
+        values["tabs"] = block
+        self.rt.settings.save()
+        try:
+            self._tabs_note.configure(text=self.t("settings.tabs.restart"))
+        except tk.TclError:
+            pass
 
     def _sweep_box(self) -> tuple:
         """``(radius, step, dwell, rest)`` of the map sweep, all bounded.
