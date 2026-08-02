@@ -304,18 +304,47 @@ MINISTRY_POSTS: dict[int, tuple[str, str, str]] = {
 MINISTRY_SLUGS: dict[str, int] = {slug: pid for pid, (slug, _, _) in MINISTRY_POSTS.items()}
 
 
+def ministry_apply_cooldown_ms(position_id: int) -> str:
+    """Lua *expression* -> milliseconds left on the apply cooldown for `position_id`.
+
+    `0` when the post may be asked for now (and when the reading is unavailable, so an
+    unknown client cannot lock the ability out). Roughly 1_800_000 straight after an
+    application — the same half hour the resign lock runs for.
+
+    This is the real pre-flight, and it is NOT the one the manager advertises.
+    `GetOwnApplyCD` reads `ownApplyTimeList[id]` against a config value and the server
+    clock; read live it answered `1_696_421` (~28 min) 45 s after an application, and a
+    large negative number for posts never asked for. Sending anyway earns
+    `errorCode E000000, errorMsg "in cd"` and a toast — the trap the collect-readiness
+    gate exists for.
+
+    The id is a STRING here for the usual reason, and this one is worth naming twice:
+    `GetOwnApplyCD(10007)` answers a flat `0` — "go ahead" — while
+    `GetOwnApplyCD('10007')` answers the truth.
+    """
+    return ("(function() local ok, cd = pcall(function() "
+            "return DataCenter.OfficialApplyManager:GetOwnApplyCD('%d') end) "
+            "if not ok or type(cd) ~= 'number' or cd < 0 then return 0 end "
+            "return math.floor(cd) end)()" % int(position_id))
+
+
 def _ministry_gate(position_id: int) -> str:
     """Lua expression: may an application for `position_id` be sent right now?
 
-    Two conditions, because the client's own pre-flight only covers the first:
+    Four conditions, and the client's own `CheckCanApply` is only the weakest of them.
+    Read back, that method walks `GetCanApplyGovernmentList()` and answers whether the
+    id is *in the list* — it is a "does this post exist" test, not a permission one,
+    which is why it says `true` while a post is held, while the cooldown runs, and for
+    the commander posts nobody may have. Everything it does not cover has to be here,
+    because every miss is a request that leaves the client, is rejected, and puts a
+    toast in the player's face:
 
-    * `CheckCanApply(id)` — already holding a post, still on this post's cooldown.
-    * the conqueror check for `type == 1` posts (the zone-war commanders).
-      `CheckCanApply` returns **true** for those even when the zone war is over and
-      nobody may have them, so relying on it alone puts a doomed request on the wire:
-      the server answers `kingdom.position.apply` with `errorCode officer_apply_045`,
-      `errorMsg "not conqueror <alliance uuid>"`, and the client raises the matching
-      toast. Observed live against the Administrative Commander post.
+    * `CheckCanApply(id)` — the post is one of the applicable ones at all.
+    * the apply cooldown (`ministry_apply_cooldown_ms`) — `errorMsg "in cd"`.
+    * a post already held — `errorMsg "has position"`, observed live holding 10005.
+    * the conqueror check for `type == 1` posts (the zone-war commanders): the server
+      answers `errorCode officer_apply_045`, `errorMsg "not conqueror <alliance uuid>"`.
+      Observed live against the Administrative Commander post.
 
     The conqueror half is verified only in the negative (a non-conqueror is correctly
     blocked); no conqueror account was available to confirm it opens.
@@ -324,9 +353,13 @@ def _ministry_gate(position_id: int) -> str:
         "(function() local M=DataCenter.OfficialApplyManager "
         "local G=DataCenter.GovernmentManager "
         "if not M:CheckCanApply('%d') then return false end "
+        "if %s > 0 then return false end "
+        "local ok, own = pcall(function() return M:GetOwnPositionId() end) "
+        "if ok and (tonumber(own) or 0) > 0 then return false end "
         "local t=DataCenter.GovernmentTemplateManager:GetTemplate('%d') "
         "if t and t.type==1 then return G:IsConqueror(G.curDataServerId) and true or false end "
-        "return true end)()" % (int(position_id), int(position_id))
+        "return true end)()" % (int(position_id), ministry_apply_cooldown_ms(position_id),
+                                int(position_id))
     )
 
 

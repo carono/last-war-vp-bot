@@ -195,6 +195,48 @@ READ_LUA (function() local n=0 for _ in pairs(DataCenter.OfficialApplyManager:Ge
 `lua_actions.ministry_can_apply / ministry_queue_len / ministry_held_minutes` build those
 expressions, so a recipe and the CLI never drift apart.
 
+## `CheckCanApply` is not a permission test at all
+
+The two traps below were found one at a time, and then the method itself was read back
+(`string.dump`, `docs/skills/sniff.md` §8.11). Its constants are the whole story:
+
+```
+GetCanApplyGovernmentList | ipairs | positionId | list | canApply
+```
+
+It walks the list of applicable posts and answers whether the id is **in** it. That is a
+"does this post exist" test wearing the name of a permission one — which is why it says
+`true` for a post already held, `true` inside the apply cooldown, and `true` for the
+commander posts nobody may have. Everything that actually decides whether an application
+can be sent has to be read separately; `lua_actions._ministry_gate` now reads all of it,
+so `TAP apply_<post>` and its `xall` count refuse where the server would.
+
+## The apply cooldown: `errorMsg "in cd"`
+
+Half an hour, per post, and the client will not tell you about it unless asked exactly
+right. Live, with no post held and `canApply` reading `yes`:
+
+```
+SEND  kingdom.position.apply
+REPLY errorCode = E000000
+      errorMsg  = "in cd"
+```
+
+The reading is `OfficialApplyManager:GetOwnApplyCD(id)` → **milliseconds left**, computed
+from `ownApplyTimeList[id]`, a config value and the server clock (read off its bytecode).
+Two things about it:
+
+* **it takes the post id**, and the no-argument call the obvious reading suggests
+  (`GetOwnApplyCD()`) answers `0`;
+* **the id is a string**, and this is the loudest instance of that rule yet —
+  `GetOwnApplyCD(10007)` answers `0`, *go ahead*, for a post with 28 minutes left on it,
+  while `GetOwnApplyCD('10007')` answers `1696421`.
+
+A post never asked for reads a large negative number, so "greater than zero" is the test,
+not "non-zero". Measured live: `1696421` ms 45 s after an application, `1620108` ms a
+minute later — a 1800 s cooldown, the same half hour as the resign lock and the same half
+hour the panel's timer runs on. `lua_actions.ministry_apply_cooldown_ms` builds it.
+
 ## The third trap: `CheckCanApply` says yes with a post already in hand
 
 The commander gate above is not the only hole in the client's pre-flight. Holding a post
@@ -240,19 +282,28 @@ The one rule that shapes it: **the clock restarts on a granted application and o
 else.** The scheduler moves `last_run` when a scenario finishes clean and leaves it alone
 when the scenario fails, so every ending that did not seat us at the post has to be a
 FAIL — otherwise a timer that has never once applied looks exactly like one that keeps
-succeeding. Four endings:
+succeeding. Five endings:
 
 | after the run | ending | why |
 |---|---|---|
 | the post is ours already | success | nothing to ask for; look again in half an hour |
 | another post is held | FAIL, nothing sent | the server refuses («has position») |
-| `CheckCanApply` closed | FAIL, nothing sent | cooldown, or the post is closed |
+| the apply cooldown is running | FAIL, nothing sent | the server refuses («in cd») |
+| the post is not applicable | FAIL, nothing sent | closed, or a commander's and we are not the conqueror |
 | pressed, post not granted | FAIL | the application did not take |
 
 Half an hour is also the period after a failure (`retry_sec` = `interval_sec` = 1800), so
 a refused attempt is made again on the same cadence rather than sitting out a longer
-hold. It is a period worth knowing the neighbours of: `GetResignOfficeTime()` is `1801` s,
-the minimum time in office.
+hold. It is not an arbitrary half hour: the apply cooldown is 1800 s, so a shorter period
+would only produce runs that find the cooldown still running, and a longer one would
+leave the post unasked-for while it was free. `GetResignOfficeTime()` — the minimum time
+in office — is `1801` s, the same half hour again.
+
+The Timers tab shows both halves of it: «следующий» counts down to the next attempt (the
+retry hold included, so it no longer says «сейчас» through a hold the scheduler is
+sitting out), and «последняя попытка» says how the last one ended — succeeded / failed /
+not run yet, in green, red or grey. The reason a failed one gives goes to the panel's
+log, carrying the scenario's own FAIL text.
 
 «Another post is held» is a standing condition, not a transient one — it only clears when
 that post is lost or given up — so the errand will keep failing, with the reason in the

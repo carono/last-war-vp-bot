@@ -652,17 +652,18 @@ def test_ministry_errand_only_succeeds_when_the_post_was_granted():
     the post held after the press — the server grants an accepted application straight
     away, so a round trip later it either is 10007 or the request did not take.
     """
-    # Granted: no post held, the client's pre-flight open, 10007 on the first poll.
-    ok, ev, _log = _run_ministry([0, 1, 10007])
+    # The reads, in order: the post held, the apply cooldown, the post's own gate.
+    # Granted: nothing held, cooldown out, gate open, 10007 on the first poll.
+    ok, ev, _log = _run_ministry([0, 0, 1, 10007])
     assert ok is True, "an application that seated us must count as a run"
     assert len(_applied(ev)) == 1, ev.chunks
 
     # Granted a beat late: the poll waits for the answer instead of calling it a failure.
-    ok, ev, _log = _run_ministry([0, 1, 0, 0, 10007])
+    ok, ev, _log = _run_ministry([0, 0, 1, 0, 0, 10007])
     assert ok is True, "a slow reply was written off as a refusal"
 
     # Sent and refused: the press went out, the post never changed hands.
-    ok, ev, _log = _run_ministry([0, 1, 0, 0, 0, 0])
+    ok, ev, _log = _run_ministry([0, 0, 1, 0, 0, 0, 0])
     assert ok is False, "a refused application must not restart the clock"
     assert len(_applied(ev)) == 1, ev.chunks
 
@@ -684,18 +685,57 @@ def test_ministry_errand_sends_nothing_while_another_post_is_held():
     assert ok is False, "holding another post is a failed errand, not a quiet success"
     assert not _applied(ev), "an application was sent while another post was held"
 
-    # The gate is state, not the client's pre-flight: the post read comes before the
-    # CheckCanApply read, so a `true` from it can never let the request through.
-    reads = [c for c in ev.chunks if "GetOwnPositionId" in c]
-    assert reads, ev.chunks
+    # The gate is state, and it is read FIRST: nothing else is even consulted, so a
+    # `true` from the client's pre-flight can never let the request through.
+    assert [c for c in ev.chunks if "GetOwnPositionId" in c], ev.chunks
     assert not [c for c in ev.chunks if "CheckCanApply" in c], \
         "the pre-flight was consulted before the held-post gate: %r" % (ev.chunks,)
 
 
-def test_ministry_errand_respects_the_clients_own_pre_flight():
-    """A closed post / an apply cooldown ends the errand before the press, as a failure."""
-    ok, ev, _log = _run_ministry([0, 0])
+def test_ministry_errand_waits_out_the_apply_cooldown_without_sending():
+    """«in cd»: the server refuses an application inside the half-hour apply cooldown.
+
+    The client's CheckCanApply says `true` right through it — read back, it only asks
+    whether the id is in the list of applicable posts — so the cooldown has to be read
+    on its own, and read BEFORE the press. It was live: 27 minutes left on 10007 and the
+    request going out anyway earned `errorCode E000000, errorMsg "in cd"` and a toast.
+    """
+    ok, ev, _log = _run_ministry([0, 1_620_108])
+    assert ok is False, "a run that could not even ask must not restart the clock"
+    assert not _applied(ev), "an application was sent inside the apply cooldown"
+    assert [c for c in ev.chunks if "GetOwnApplyCD" in c], ev.chunks
+
+
+def test_ministry_errand_respects_the_posts_own_gate():
+    """A post that cannot be applied for at all ends the errand before the press."""
+    ok, ev, _log = _run_ministry([0, 0, 0])
     assert ok is False and not _applied(ev), ev.chunks
+
+
+def test_the_ministry_gate_covers_what_check_can_apply_does_not():
+    """Every rejection seen live has to be closed off before the request leaves.
+
+    `CheckCanApply` is not a permission test — it walks `GetCanApplyGovernmentList()`
+    and answers whether the id is in it — so on its own it lets three different doomed
+    requests onto the wire, each one a toast in the player's face: «has position»,
+    «in cd», and «not conqueror» for the commander posts.
+    """
+    import lua_actions as la
+
+    gate = la.ministry_can_apply(10007)
+    assert "CheckCanApply('10007')" in gate, gate
+    assert "GetOwnApplyCD('10007')" in gate, "the apply cooldown is not gated: %s" % gate
+    assert "GetOwnPositionId" in gate, "a post already held is not gated: %s" % gate
+    assert "IsConqueror" in gate, "the commander posts are not gated: %s" % gate
+    # Ids are strings in the apply manager, and the cooldown is the loudest case: asked
+    # with a number it answers a flat 0 — "go ahead" — for a post still on cooldown.
+    assert "GetOwnApplyCD(10007)" not in gate, gate
+    # The press and its `xall` count share the one gate, or the loop would report a
+    # press the chunk then declines to make.
+    import game_buttons as gb
+
+    assert gb.get("apply_minister_interior").count_lua == gate
+    assert "GetOwnApplyCD('10007')" in gb.get("apply_minister_interior").lua
 
 
 def test_ministry_own_position_reading_is_numeric_and_shared():
@@ -711,6 +751,8 @@ def test_ministry_own_position_reading_is_numeric_and_shared():
     assert source.count(expr) == 2, "the recipe reads the post before AND after the press"
     assert la.ministry_can_apply(10007) in source, \
         "the pre-flight expression drifted from lua_actions"
+    assert la.ministry_apply_cooldown_ms(10007) in source, \
+        "the cooldown expression drifted from lua_actions"
 
 
 def _main() -> int:
