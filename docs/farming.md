@@ -115,12 +115,14 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   the roof, the way a person does it — and while it is falling it no longer tries to cross
   over to the roof beside it. That crossing is what ended the last two runs: off the end of a
   roof it moved across onto what it took for the next one and was already in the air with
-  nothing under it. Neither part has yet been proven by a run that survived it. What runs
+  nothing under it. The run after that fix came off a roof, held its lane the whole way down
+  and landed safely — the first one to do so — though the sideways moves themselves are still
+  unproven. What runs
   by itself: the whole
   start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
   life**, against ~132 m for the older reflex version and ~88 m with no control at all;
   with revives, single attempts ran **1685 and 2700 m**; one run on 2026-08-02 went **976 m**
-  on a single life, and five more the same day ran **1341, 1070, 288, 1062 and 734 m**.
+  on a single life, and six more the same day ran **1341, 1070, 288, 1062, 734 and 1100 m**.
   Left to the person: nothing during a run.
   Still open: the record 8185 m and the 20000 m target are not reached yet, the bot does not
   yet know about holes in the road — it reads one as a small thing to steer around rather

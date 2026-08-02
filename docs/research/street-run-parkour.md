@@ -2092,3 +2092,23 @@ Three things follow, in the order they are worth doing:
   not entering it from the side; it is coming down onto its slope. Whether the game agrees is
   a question one recording would answer, and it is the difference between seed 1 having a
   route and not.
+
+### The run after it
+
+One attempt on v47, same account, single life, no revives, tuning rejected as before: **1100 m**,
+attempts 24 → 23. What matters is the middle of it, not the number. At 1017 it went up a roof,
+rode it to 1052, and came down:
+
+    z=1017 lane=right y=2.96 act=hold
+    z=1028 lane=right y=4.30 act=hold
+    z=1052 lane=right y=3.05 act=hold      -- coming off the end
+    z=1062 lane=right y=0.00 act=hold      -- on the road, no move issued at any point
+    z=1101 DEAD, x=40.00, on the ground
+
+Not one lane change was issued through the descent — the last move of the whole run went out
+at 873 — which is the frame-for-frame behaviour the two previous runs were killed for. It died
+40 m later on the ground, in the right lane, with `reach = 0` on every frame from 1093: the
+road had genuinely closed and the planner had nothing to offer, which is a different and more
+honest failure than the two before it. The killer is not in the frozen field either (the
+nearest body is an oncoming truck in the centre lane at 1104.7), so it joins the `unknown`
+pile of #1162 — but it is not the roofs.
