@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import threading
 
-from .. import debug_log as dbgmod
 from .. import debug_sender as dbgsender
 from .paths import repo_rel
 
@@ -35,7 +34,7 @@ def send_archive(rt) -> None:
     def work():
         try:
             status, archive, _detail = dbgsender.send(
-                url, path=path, logger=dbgmod.get_logger("sender"))
+                url, path=path, logger=rt.dbg("sender"))
         except Exception as exc:  # noqa: BLE001
             # BOUND, not captured: Python deletes the `except` name when the block
             # ends, so a lambda closing over it raised NameError at the one moment

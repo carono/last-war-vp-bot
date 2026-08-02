@@ -15,6 +15,11 @@ the runtime while the tabs move out one at a time, and they go away in the last 
 What is here now: the translator, the ticker, the event bus, the capture list, the log
 sink, the child factory, the game link, the action runner and the settings binder —
 all of wave 0. The schedule follows with the Timers tab.
+
+And on top of all of it, one level up: a :class:`ProfileSession` is one OPEN profile
+— a runtime plus its lifecycle — and a :class:`Workspace` is the set of them one
+window holds. A panel with one profile open has one session and behaves exactly as it
+always has (docs/research/multi-profile-panel.md).
 """
 from __future__ import annotations
 
@@ -41,12 +46,15 @@ from .i18n import Translator
 from .log import LogBus
 from . import reads
 from .schedule import Schedule
+from .session import ProfileSession, SessionScoped
 from . import settings
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
+from .workspace import Workspace
 from . import updates
 
 __all__ = ["paths", "reads", "diag", "game_process", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "Translator",
-           "updates", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]
+           "updates", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE",
+           "ProfileSession", "SessionScoped", "Workspace"]

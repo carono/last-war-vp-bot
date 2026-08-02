@@ -87,11 +87,6 @@ AUTOSTART_LOG = "autostart.log"
 # the lock dies with the process whatever killed it. Its contents are the pid, for
 # somebody reading the folder; the LOCK is the part that means anything.
 LOCK_FILE = "panel.lock"
-# The instance lock: an open file the panel holds an exclusive OS lock on for its whole
-# life, so "a panel is on this profile" is answered by the kernel and cannot go stale —
-# the lock dies with the process whatever killed it. Its contents are the pid, for
-# somebody reading the folder; the LOCK is the part that means anything.
-LOCK_FILE = "panel.lock"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -165,14 +160,28 @@ class ProfileManager:
     def active(self) -> str:
         return self._active
 
-    # -- active-profile pointer (panel/settings.json) -----------------------
-    def _read_active(self) -> str:
-        name = DEFAULT_PROFILE
+    # -- the panel-wide file (panel/settings.json) --------------------------
+    #
+    # Two facts live here, both about the PANEL rather than about any one profile:
+    # which profile's page is on screen (`active_profile`) and which profiles are open
+    # beside it (`open_profiles`). A pinned manager speaks for one open profile and
+    # writes neither — see the class docstring.
+    @staticmethod
+    def _read_settings() -> dict:
         try:
             with open(SETTINGS_FILE, encoding="utf-8") as fh:
-                name = json.load(fh).get("active_profile", DEFAULT_PROFILE)
+                data = json.load(fh)
         except (OSError, ValueError):
-            pass
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_setting(self, key: str, value) -> None:
+        data = self._read_settings()
+        data[key] = value
+        _write_json(SETTINGS_FILE, data)
+
+    def _read_active(self) -> str:
+        name = self._read_settings().get("active_profile", DEFAULT_PROFILE)
         if not self.exists(name):
             names = self.list()
             name = names[0] if names else self._ensure_dir(DEFAULT_PROFILE)
@@ -188,15 +197,36 @@ class ProfileManager:
         self._active = name
         if self.pinned:
             return name
-        data = {}
-        try:
-            with open(SETTINGS_FILE, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
-            data = {}
-        data["active_profile"] = name
-        _write_json(SETTINGS_FILE, data)
+        self._write_setting("active_profile", name)
         return name
+
+    def open_profiles(self) -> list[str]:
+        """Which profiles the panel had open last time, the on-screen one first.
+
+        Names that no longer exist are dropped — a profile deleted between two runs
+        must not be re-opened, and an empty answer means "just the active one", which
+        is every panel there has ever been before this (#1206).
+        """
+        raw = self._read_settings().get("open_profiles")
+        if not isinstance(raw, list):
+            return []
+        out: list[str] = []
+        for item in raw:
+            name = sanitize(str(item))
+            if name and self.exists(name) and name not in out:
+                out.append(name)
+        return out
+
+    def set_open_profiles(self, names) -> None:
+        """Remember which profiles are open. Not for a pinned manager to say."""
+        if self.pinned:
+            return
+        seen: list[str] = []
+        for item in names or ():
+            name = sanitize(str(item))
+            if name and name not in seen:
+                seen.append(name)
+        self._write_setting("open_profiles", seen)
 
     # -- lifecycle: create / rename / delete --------------------------------
     def create(self, name: str) -> str:
@@ -347,10 +377,6 @@ class ProfileManager:
     def heartbeat(self, name: str | None = None) -> str:
         """Where the open panel says it is still answering (panel/runtime/autostart.py)."""
         return os.path.join(self.dir(name), ALIVE_FILE)
-
-    def lock_file(self, name: str | None = None) -> str:
-        """The file whose OS lock means «a panel process holds this profile»."""
-        return os.path.join(self.dir(name), LOCK_FILE)
 
     def lock_file(self, name: str | None = None) -> str:
         """The file whose OS lock means «a panel process holds this profile»."""

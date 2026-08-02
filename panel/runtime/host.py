@@ -89,7 +89,12 @@ class PanelRuntime:
         self.children = ChildFactory(
             log=self.log, cwd=REPO,
             python=lambda: self.settings.opt_str("win_python"),
-            port=self.daemon_port, schedule=root.after,
+            # `root.after` is how a child's line gets onto the Tk thread. A runtime
+            # built with no root has no Tk thread to get onto — every other piece here
+            # already tolerates that (`Ticker`, `EventBus`, the variables above), and
+            # this was the one line that did not.
+            port=self.daemon_port,
+            schedule=root.after if root is not None else None,
             token=lambda: self.game.token)
         self.game = GameLink(
             port=self.daemon_port,
