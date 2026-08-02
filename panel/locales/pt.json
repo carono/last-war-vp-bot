@@ -161,6 +161,7 @@
   "log.autostart.off": "a verificação de hora em hora é retirada do perfil {profile}",
   "log.autostart.failed": "não deu para mudar a verificação de hora em hora: {error}",
   "log.autostart.leftover": "a verificação de hora em hora de {name} ainda está no agendador: {error}",
+  "log.autostart.second_panel": "já há outro painel aberto no perfil {profile} — eles compartilham um único config.json, então fique de olho em qual você está configurando",
   "log.boot.slow": "os sistemas ainda estão subindo — o painel abre sem esperar",
   "log.chat.ended": "o monitor terminou",
   "log.chat.history": "histórico carregado: {n} mensagens",

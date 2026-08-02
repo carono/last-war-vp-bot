@@ -115,12 +115,21 @@ it cannot be translated, it cannot be reviewed beside its siblings, and it does 
 change when the person changes the language.
 
 **A key goes into every shipped locale at once, translated.** The repository ships
-`en.json`, `ru.json` and `de.json`, and the change that adds a key adds it to all three
-in the same commit — not «English now, the rest later». A locale that is behind falls
-back to English silently, so the gap breaks nothing and nobody notices it for months;
-that is exactly why it is forbidden rather than merely discouraged. There is still no
-table of languages anywhere in the code — the set is the contents of `panel/locales/`,
-so a fourth file added tomorrow is a fourth file to fill in.
+**eleven**: `en` `ru` `de` `fr` `es` `it` `pt` `pl` `tr` `id` `vi`. The change that adds
+a key adds it to all eleven in the same commit — not «English now, the rest later». A
+locale that is behind falls back to English silently, so the gap breaks nothing and
+nobody notices it for months; that is exactly why it is forbidden rather than merely
+discouraged. There is still no table of languages anywhere in the code — the set is the
+contents of `panel/locales/`, so a twelfth file added tomorrow is a twelfth to fill in.
+
+Eleven is not an arbitrary number: it is the languages the GAME has a table for, minus
+the ones this toolkit cannot draw. The client ships nineteen
+([`docs/research/game-locale-tables.md`](docs/research/game-locale-tables.md)), and
+Chinese, Japanese, Korean, Arabic and Thai are deliberately not panel languages — Tcl/Tk
+8.6 does no bidi reordering and no Arabic joining, and nobody here can proofread the CJK
+ones. **Anything the game has already named is copied out of its own tables rather than
+translated** — the list is [`docs/game-glossary.md`](docs/game-glossary.md), and
+`tools/game_locale.py --term "Doom Elite"` prints any other term in all eleven.
 
 Only strings nobody reads as words may be literals: numeric formats (`"(%d–%d)"`),
 separators, Tk option values, internal tags. **If it can be translated, it is a key.**
@@ -144,14 +153,16 @@ self.say("mything", "mything.refreshed")
 ```
 
 ```jsonc
-// ✅ …and the key lands in ALL THREE in the same commit, translated
+// ✅ …and the key lands in ALL ELEVEN in the same commit, translated
 // panel/locales/en.json   "mything.refresh": "Refresh",
 // panel/locales/ru.json   "mything.refresh": "Обновить",
 // panel/locales/de.json   "mything.refresh": "Auffrischen",
+// panel/locales/fr.json   "mything.refresh": "Rafraîchir",
+// …es it pt pl tr id vi
 ```
 
 ```jsonc
-// ❌ en.json only, «the rest later» — the other two silently show English
+// ❌ en.json only, «the rest later» — the other ten silently show English
 // and the tab looks finished in every screenshot anybody takes
 ```
 

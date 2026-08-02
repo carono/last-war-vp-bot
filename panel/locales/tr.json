@@ -161,6 +161,7 @@
   "log.autostart.off": "{profile} profili için saatlik denetim kaldırıldı",
   "log.autostart.failed": "saatlik denetim değiştirilemedi: {error}",
   "log.autostart.leftover": "{name} için saatlik denetim hâlâ zamanlayıcıda: {error}",
+  "log.autostart.second_panel": "{profile} profilinde zaten başka bir panel açık — tek bir config.json'u paylaşıyorlar, bu yüzden hangisini ayarladığına dikkat et",
   "log.boot.slow": "sistemler daha kalkıyor — panel beklemeden açılıyor",
   "log.chat.ended": "gözcü sona erdi",
   "log.chat.history": "geçmiş yüklendi: {n} ileti",

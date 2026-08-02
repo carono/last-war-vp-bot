@@ -161,6 +161,7 @@
   "log.autostart.off": "pemeriksaan tiap jam dicabut untuk profil {profile}",
   "log.autostart.failed": "pemeriksaan tiap jam tidak bisa diubah: {error}",
   "log.autostart.leftover": "pemeriksaan tiap jam milik {name} masih ada di penjadwal: {error}",
+  "log.autostart.second_panel": "sudah ada panel lain yang terbuka di profil {profile} — keduanya berbagi satu config.json, jadi perhatikan yang mana yang sedang kamu atur",
   "log.boot.slow": "sistemnya masih naik — panel dibuka tanpa menunggu",
   "log.chat.ended": "pemantau berakhir",
   "log.chat.history": "riwayat dimuat: {n} pesan",

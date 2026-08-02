@@ -161,6 +161,7 @@
   "log.autostart.off": "godzinne sprawdzanie usunięte dla profilu {profile}",
   "log.autostart.failed": "nie udało się zmienić godzinnego sprawdzania: {error}",
   "log.autostart.leftover": "godzinne sprawdzanie {name} wciąż jest w harmonogramie: {error}",
+  "log.autostart.second_panel": "na profilu {profile} jest już otwarty inny panel — dzielą jeden config.json, więc uważaj, który z nich właśnie ustawiasz",
   "log.boot.slow": "systemy jeszcze się podnoszą — panel otwiera się bez czekania",
   "log.chat.ended": "monitor się zakończył",
   "log.chat.history": "wczytano historię: {n} wiadomości",

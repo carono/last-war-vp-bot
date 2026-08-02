@@ -161,6 +161,7 @@
   "log.autostart.off": "the hourly check is removed for profile {profile}",
   "log.autostart.failed": "the hourly check could not be changed: {error}",
   "log.autostart.leftover": "the hourly check of {name} is still in the scheduler: {error}",
+  "log.autostart.second_panel": "another panel is already open on profile {profile} — they share one config.json, so keep an eye on which one you are setting up",
   "log.boot.slow": "the systems are still coming up — opening the panel without waiting",
   "log.chat.ended": "the monitor has ended",
   "log.chat.history": "history loaded: {n} messages",

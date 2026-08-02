@@ -161,6 +161,7 @@
   "log.autostart.off": "stündliche Prüfung für Profil {profile} entfernt",
   "log.autostart.failed": "die stündliche Prüfung ließ sich nicht ändern: {error}",
   "log.autostart.leftover": "die stündliche Prüfung von {name} steht noch in der Aufgabenplanung: {error}",
+  "log.autostart.second_panel": "auf Profil {profile} ist bereits ein anderes Panel offen — beide teilen sich eine config.json, achten Sie also darauf, welches Sie einrichten",
   "log.boot.slow": "die Systeme fahren noch hoch — das Pult öffnet, ohne zu warten",
   "log.chat.ended": "die Überwachung ist zu Ende",
   "log.chat.history": "Verlauf geladen: {n} Nachrichten",

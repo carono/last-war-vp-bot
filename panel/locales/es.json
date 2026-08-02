@@ -161,6 +161,7 @@
   "log.autostart.off": "la comprobación horaria se quita del perfil {profile}",
   "log.autostart.failed": "no se pudo cambiar la comprobación horaria: {error}",
   "log.autostart.leftover": "la comprobación horaria de {name} sigue en el programador: {error}",
+  "log.autostart.second_panel": "ya hay otro panel abierto en el perfil {profile} — comparten un mismo config.json, así que ten cuidado con cuál estás configurando",
   "log.boot.slow": "los sistemas aún están subiendo — el panel se abre sin esperar",
   "log.chat.ended": "el monitor ha terminado",
   "log.chat.history": "historial cargado: {n} mensajes",

@@ -161,6 +161,7 @@
   "log.autostart.off": "la vérification horaire est retirée pour le profil {profile}",
   "log.autostart.failed": "la vérification horaire n'a pas pu être changée : {error}",
   "log.autostart.leftover": "la vérification horaire de {name} est encore dans le planificateur : {error}",
+  "log.autostart.second_panel": "un autre panneau est déjà ouvert sur le profil {profile} — ils partagent un seul config.json, alors garde un œil sur celui que tu es en train de régler",
   "log.boot.slow": "les systèmes montent encore — le panneau s'ouvre sans attendre",
   "log.chat.ended": "le moniteur s'est terminé",
   "log.chat.history": "historique chargé : {n} messages",

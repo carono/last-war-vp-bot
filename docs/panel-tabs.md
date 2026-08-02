@@ -45,7 +45,7 @@ TabSpec("mything", "panel.tabs.mything", "MyThingTab", order=400),
 ```
 
 and two locale keys (`tab.mything`, `mything.hint`) in **every** shipped locale —
-`panel/locales/en.json`, `ru.json` **and** `de.json`, translated, in this same change
+**all eleven** files in `panel/locales/`, translated, in this same change
 (see «Not a word of it is written in the tab» below). That is the whole registration:
 the shell builds it, «Настройки →
 Вкладки» lists it, the profile can switch it off, and
@@ -223,10 +223,16 @@ cell, a status line) and has to be re-asked in `on_language_change`. Placeholder
 one, because the order of the pieces is not the same in every language.
 
 **And a key is added to every shipped locale in the same change, translated.** Three
-files today: `en.json` (the canonical one), `ru.json`, `de.json`. Not English first and
-the others «when there is time» — a missing key falls back to English *silently*, so
-half a tab in the wrong language looks exactly like a tab that is finished, and nobody
-finds out for months. Add the key to all three or the tab is not done.
+files today: `en.json` (the canonical one), then `ru` `de` `fr` `es` `it` `pt` `pl` `tr`
+`id` `vi`. Not English first and the others «when there is time» — a missing key falls
+back to English *silently*, so half a tab in the wrong language looks exactly like a tab
+that is finished, and nobody finds out for months. Add the key to all eleven or the tab
+is not done.
+
+You do not translate the game's own words. Anything the game has already named — a
+rally, the Doom Elite, Ghost Ops, a Secretary — is copied out of the client's own
+tables: the list is [`game-glossary.md`](game-glossary.md), and
+`tools/game_locale.py --term "..."` answers for anything not on it.
 
 The only literals allowed are the ones nobody reads as words — a numeric format
 (`"(%d–%d)"`), a separator, a Tk option value, an internal tag such as the `label=`
@@ -252,9 +258,9 @@ menu IS `panel/locales/`: the code comes from the file name, the label from the
 
 So a person who wants the panel in their own language copies `en.json` to `fr.json`,
 translates the values, sets `"language.name": "Français"` — and it is in the menu on the
-next start. Nothing else is touched. (That is how German got here: `de.json` is a file
-and nothing else, and the only thing that changed by shipping it is that a new key now
-has three translations to write instead of two.) (The label lives in the file rather than being
+next start. Nothing else is touched. (That is how the other ten got here: each is a file
+and nothing else. What changed by shipping them is only the size of the chore — a new
+key now has eleven translations to write instead of two.) (The label lives in the file rather than being
 derived from the code because only the file can say it in its own script: a table of
 `de → Deutsch` somewhere would be the same hard-coded list under another name, and a
 bare `de` in the menu is not a language anyone recognises. `language.name` is spelled
@@ -263,7 +269,7 @@ like every other key so it is translated, reviewed and diffed with the rest.)
 Ask through the runtime, never past it:
 
 ```python
-self.rt.i18n.available()      # ['en', 'de', 'ru'] — codes, default first
+self.rt.i18n.available()      # ['en', 'de', 'es', 'fr', …] — codes, default first
 self.rt.i18n.name("ru")       # 'Русский' — what ru.json calls itself
 self.rt.i18n.known("fr")      # is there a locale for it?
 ```

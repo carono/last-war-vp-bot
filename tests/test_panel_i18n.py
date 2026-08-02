@@ -192,16 +192,32 @@ def test_there_is_no_table_of_languages_in_the_code():
                 f"{path.name}:{node.lineno} maps language codes to something"
 
 
+#: The languages the panel ships — the ones the game has a table for AND that Tk can
+#: draw. The game has nineteen; Chinese (zh_CN, zh_TW, gn_CN), Japanese, Korean, Arabic
+#: and Thai are deliberately not here (Tcl/Tk 8.6 does no bidi reordering and no Arabic
+#: joining, and nobody on this side can proofread the CJK ones), and `vr` is not either
+#: — it is a 99.7% copy of `vi`. Kept in step with `tools/game_locale.py`.
+BASE_LANGS = {"en", "ru", "de", "fr", "es", "it", "pt", "pl", "tr", "id", "vi"}
+
+#: What each locale calls itself, in its own script — the Language menu reads this out
+#: of the file, so a typo here is a menu entry nobody recognises.
+LANG_NAMES = {
+    "en": "English", "ru": "Русский", "de": "Deutsch", "fr": "Français",
+    "es": "Español", "it": "Italiano", "pt": "Português", "pl": "Polski",
+    "tr": "Türkçe", "id": "Bahasa Indonesia", "vi": "Tiếng Việt",
+}
+
+
 def test_every_shipped_locale_names_itself():
     """Every locale carries its own display name, in its own script — that is where the
     menu label comes from now, so a file without it is a menu entry saying «ru»."""
     shipped = _shipped()
-    assert {"en", "ru", "de"} <= set(shipped), f"a base language is gone: {sorted(shipped)}"
+    missing = sorted(BASE_LANGS - set(shipped))
+    assert not missing, f"a base language is gone: {missing}"
     for lang, table in shipped.items():
         assert table.get(i18n.LANG_NAME_KEY), f"{lang}.json has no {i18n.LANG_NAME_KEY}"
-    assert i18n.lang_name("en") == "English"
-    assert i18n.lang_name("ru") == "Русский"
-    assert i18n.lang_name("de") == "Deutsch"
+    for lang, name in sorted(LANG_NAMES.items()):
+        assert i18n.lang_name(lang) == name, f"{lang} calls itself {i18n.lang_name(lang)!r}"
 
 
 def test_every_shipped_locale_translates_every_key():

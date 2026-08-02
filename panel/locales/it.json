@@ -161,6 +161,7 @@
   "log.autostart.off": "il controllo orario è tolto per il profilo {profile}",
   "log.autostart.failed": "non è stato possibile cambiare il controllo orario: {error}",
   "log.autostart.leftover": "il controllo orario di {name} è ancora nell'utilità di pianificazione: {error}",
+  "log.autostart.second_panel": "c'è già un altro pannello aperto sul profilo {profile} — condividono un solo config.json, quindi tieni d'occhio quale stai impostando",
   "log.boot.slow": "i sistemi stanno ancora salendo — il pannello si apre senza aspettare",
   "log.chat.ended": "il monitor è terminato",
   "log.chat.history": "cronologia caricata: {n} messaggi",
