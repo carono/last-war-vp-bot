@@ -193,6 +193,9 @@ DAYS: tuple = (
         _hero_level(),
         _Action("drone_level", "vsduel.drone_level",
                 _Amount("drone_gears", "vsduel.drone_gears")),
+        # Last of the day on purpose: it is the one with a clock on it — the squads have
+        # to be digging BEFORE the daily reset for the points to count.
+        _Action("mines_before_reset", "vsduel.mines_before_reset"),
     )),
     ("tue", (
         _Action("build_speedup", "vsduel.build_speedup"),

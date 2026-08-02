@@ -727,6 +727,7 @@
   "vsduel.hero_exp_boxes": "XP-Truhen öffnen, wenn sie gebraucht werden",
   "vsduel.drone_level": "Die Drohne verbessern",
   "vsduel.drone_gears": "höchstens, Zahnräder",
+  "vsduel.mines_before_reset": "Truppen vor dem Server-Reset in die Minen schicken",
   "vsduel.build_speedup": "Den Bau beschleunigen",
   "vsduel.build_collect": "Fertige Gebäude abholen",
   "vsduel.survivor_tickets": "Überlebenden-Tickets öffnen",

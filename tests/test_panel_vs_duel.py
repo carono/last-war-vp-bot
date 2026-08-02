@@ -100,7 +100,7 @@ def test_each_day_holds_the_actions_it_scores():
 
     days = dict(vs_duel.DAYS)
     assert [a.key for a in _actions(days["mon"])] == [
-        "drone_parts", "hero_level", "drone_level"]
+        "drone_parts", "hero_level", "drone_level", "mines_before_reset"]
     assert [a.key for a in _actions(days["tue"])] == [
         "build_speedup", "build_collect", "survivor_tickets", "build_start"]
     assert [a.key for a in _actions(days["wed"])] == [
