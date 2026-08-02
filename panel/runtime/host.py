@@ -20,7 +20,7 @@ from .daemon import GameLink
 from .i18n import Translator
 from .log import LogBus
 from .paths import LUA_DAEMON, REPO
-from .settings import SettingsBinder
+from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
 
 
@@ -33,8 +33,17 @@ class PanelRuntime:
         self.root = root
         self.profiles = profiles if profiles is not None else profilemod.ProfileManager()
 
-        self.settings = SettingsBinder(self.profiles, defaults)
+        # EVERY window starts from the panel's own knobs, whether or not its builder
+        # named them: `win_python` is what the child factory below launches with, and a
+        # standalone tab whose binder held nothing spawned its captures with an empty
+        # path and drew its Settings rows into a KeyError (#1191). A caller may add to
+        # them (a tab's `SETTINGS`); nothing has to re-state them.
+        self.settings = SettingsBinder(self.profiles, {**DEFAULTS, **(defaults or {})})
         self.settings.load()
+        # One Tk variable per knob, BEFORE any tab is built — a row that binds to one
+        # has to find it there.
+        if root is not None:
+            self.settings.create_vars(root)
 
         saved_lang = lang or self.settings.values.get("language")
         self.i18n = Translator()

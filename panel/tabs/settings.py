@@ -17,15 +17,12 @@ log says which one broke.
 """
 from __future__ import annotations
 
-import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .. import debug_log as dbgmod
-from .. import debug_sender as dbgsender
 from .. import mapsweep as mapsweepmod
 from .. import runtime
-from ..runtime.paths import repo_rel
+from ..runtime import diag
 from ..widgets import numeric_spinbox
 from .base import PanelTab
 
@@ -280,39 +277,12 @@ class SettingsTab(PanelTab):
 
 
     def _send_debug_archive(self) -> None:
-        """«Отправить диагностику»: zip the debug logs and hand them to `debug_send_url`.
+        """«Отправить диагностику»: the packing lives in the runtime.
 
-        The destination is a stub for now (no transport wired), so this always
-        produces the zip and reports where it went — an empty URL means "do not send",
-        which is not an error: the archive is still written for a by-hand hand-off.
+        The shell's "send the log to the developer" dialog presses the same thing, and
+        a routine two pages share belongs to neither of them (panel/runtime/diag.py).
         """
-        url = self.rt.settings.opt_str("debug_send_url")
-        path = self.rt.profiles.debug_log()
-        self.say("debug", "log.debug.packing")
-
-        def work():
-            try:
-                status, archive, _detail = dbgsender.send(
-                    url, path=path, logger=dbgmod.get_logger("sender"))
-            except Exception as exc:  # noqa: BLE001
-                # BOUND, not captured: Python deletes the `except` name when the block
-                # ends, so a lambda closing over it raised NameError at the one moment
-                # this line exists for — reporting that the send failed.
-                self.rt.root.after(0, lambda e=exc: self.say("debug",
-                                                             "log.debug.failed", error=e))
-                return
-            rel = repo_rel(archive)
-
-            def done():
-                if status == "disabled":
-                    self.say("debug", "log.debug.no_dest", path=rel)
-                elif status == "sent":
-                    self.say("debug", "log.debug.sent", dest=url, path=rel)
-                else:                 # "stub" — archive is ready, transport is not
-                    self.say("debug", "log.debug.stub", path=rel, dest=url)
-            self.rt.root.after(0, done)
-
-        threading.Thread(target=work, daemon=True).start()
+        diag.send_archive(self.rt)
 
 if __name__ == "__main__":
     from .base import run_tab

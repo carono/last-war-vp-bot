@@ -25,6 +25,7 @@ written before any of this existed.
 from __future__ import annotations
 
 import os
+import tkinter as tk
 
 import lua_client
 
@@ -68,6 +69,12 @@ DEFAULTS: dict = {
 }
 
 
+def _settings_var(master, default):
+    """One Tk variable per Settings knob — a checkbox for a bool, a box for the rest."""
+    return (tk.BooleanVar(master=master, value=bool(default)) if isinstance(default, bool)
+            else tk.StringVar(master=master, value=str(default)))
+
+
 class SettingsBinder:
     """The active profile's values: read, write, and the widgets bound to them."""
 
@@ -76,6 +83,7 @@ class SettingsBinder:
         self.defaults: dict = dict(defaults or {})
         self._values: dict = {}
         self.vars: dict = {}         # knob key -> Tk variable, once widgets exist
+        self._master = None          # what those variables hang off, for a late block
         self.loading = False         # suppresses auto-save while an apply is running
         # "Something bound changed — write the profile out." Set by whoever owns the
         # whole snapshot: the shell's `_save_settings`, or the standalone harness's
@@ -118,19 +126,34 @@ class SettingsBinder:
 
     # -- the knobs ----------------------------------------------------------
     def register(self, defaults: dict) -> None:
-        """Add another block of defaults (a tab's own `SETTINGS`)."""
-        self.defaults.update(defaults)
+        """Add another block of defaults (a tab's own `SETTINGS`).
 
-    def create_vars(self, master, factory) -> dict:
-        """Build one variable per default. ``factory(default) -> Tk variable``.
+        A block that arrives after the variables were made gets its own — registering
+        is what the standalone harness does with the tab's `SETTINGS`, and it happens
+        after the runtime is built.
+        """
+        self.defaults.update(defaults)
+        if self.vars and self._master is not None:
+            self.create_vars(self._master)
+
+    def create_vars(self, master, factory=None) -> dict:
+        """Build one variable per default. ``factory(master, default) -> Tk variable``.
 
         Called before any tab is built, so a widget can bind to a knob's variable and
         two widgets showing the same knob can never disagree — the Main tab's watchdog
         checkbox and the Settings page's are literally the same variable.
+
+        The runtime calls this for every window it builds, the shell's and a standalone
+        tab's alike. It used to be the shell's own line, with the factory in
+        `panel/__main__.py` where a tab cannot reach it: `python -m panel.tabs.settings`
+        opened with «Общие» and «Игра» empty and a `'win_python'` in the log, because
+        every row bound to a variable that was never made (#1191).
         """
+        self._master = master
+        make = factory or _settings_var
         for key, default in self.defaults.items():
             if key not in self.vars:
-                self.vars[key] = factory(master, default)
+                self.vars[key] = make(master, default)
         return self.vars
 
     def var(self, key):

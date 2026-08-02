@@ -110,7 +110,7 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.t(key, **fmt)` / `rt.tr(widget, key)` | words; `self.t` / `self.tr` are the same |
 | `rt.say(tag, key)` / `rt.put(line)` | the log sink (no widget — «Главная» owns the view) |
 | `rt.profiles` | the active profile's paths |
-| `rt.settings` | knobs: `opt_int` / `opt_str` / `opt_bool` / `opt_float`, and `changed()` |
+| `rt.settings` | knobs: `opt_int` / `opt_str` / `opt_bool` / `opt_float`, `vars[key]` (one Tk variable per knob, made by the runtime before any tab is built), and `changed()` |
 | `rt.game` | `evaluator()`, `client`, `up()`, `claim()` / `release()`, `jump()`, `port()` |
 | `rt.actions` | `run(name, args)`, `play(...) -> Outcome`, `run_text`, `resolve`, `problem` |
 | `rt.play_async(name, args, …)` | run a scenario on a worker under the claim |
@@ -142,6 +142,14 @@ and standalone, which is what makes a tab launchable at all.
 5. **No saving by yourself.** Return `config()`, accept `apply_config(raw)`, list
    `persist_vars()`; the container writes the profile. For a control that is not a Tk
    variable (a tri-state button, a combobox), call `rt.settings.changed()`.
+6. **When you move a method here, bring its callers.** A method that leaves
+   `panel/__main__.py` leaves a `self._whatever()` behind that still parses, still
+   imports, and raises the first time that line runs. #1184 left three, and the one in
+   `_apply_settings_to_ui` meant the panel did not open at all (#1191). What a tab has
+   to re-draw after a restored value, the tab does at the end of its own
+   `apply_config` — the shell must never name a widget it does not own. Run
+   `C:\Python312\python.exe tests\test_panel_dangling_refs.py`: it fails on any
+   `self.x` a class cannot possibly have, in the shell and in every tab.
 
 ---
 
@@ -203,9 +211,11 @@ the unsubscribe callable, and `shutdown()` must call it.
 
 ```
 C:\Python312\python.exe tests\test_panel_tab_contract.py
+C:\Python312\python.exe tests\test_panel_dangling_refs.py
 ```
 
-covers your tab the moment it is in the registry: it must import, build cold, request no
+The second one is source-only and takes a second: no class in the panel may mention a
+`self.x` it cannot have. The first covers your tab the moment it is in the registry: it must import, build cold, request no
 game during `build()` (nor during `ensure_loaded` if `EAGER`), survive
 `apply_config` → `on_show` → `on_hide` → `panic` → `shutdown`, and leave no armed `after`
 chain and no bus subscription behind.

@@ -41,63 +41,33 @@ except Exception:                           # noqa: BLE001
 
 
 def _page(plugin_tabs: dict | None = None):
-    """A Panel stand-in with the Settings page really built.
+    """The real «Настройки» tab, built, in a window of its own.
 
     ``plugin_tabs`` are the tabs this window has; the aggregator asks each of them for
     a page, so passing one is how the contributed half is tested (§6).
+
+    This used to be a `Panel` stand-in that borrowed `_build_settings_tab` and its
+    helpers off the shell class. Every one of them moved into `panel/tabs/settings.py`
+    in #1184, and the borrow started raising `AttributeError` — which the callers below
+    catch and report as "no tkinter / display". Both tests said SKIP under a perfectly
+    good Tk for four commits, in a run that printed `6/6 passed` (#1191). Building the
+    tab the way the shell builds it cannot go stale that way.
     """
-    import logging
     import tkinter as tk
     import fake_runtime
-    from panel import runtime as rtmod
-    import panel.__main__ as pm
+    from panel.tabs.settings import SettingsTab
 
     root = tk.Tk()          # the panel is a plain tkinter/ttk app
     root.withdraw()
+    rt = fake_runtime.cold_runtime(root)
+    rt.settings.save = lambda raw=None: None            # no profile on disk here
+    for tab in (plugin_tabs or {}).values():
+        rt.tabs.add(tab)
 
-    class _Page:
-        def __init__(self):
-            self._i18n = rtmod.Translator("ru")
-            self.saves = 0
-            # The Settings page's knobs live in one dict of Tk variables created
-            # before any tab is built (see Panel.__init__), and «Общие» / «Игра»
-            # bind their rows to it. Without them neither tab can be built, and the
-            # page under test is the page with both of them filled.
-            self._settings: dict = {}
-            self._plugin_tabs: dict = dict(plugin_tabs or {})
-            self._opt_vars: dict = {}
-
-        _t = pm.Panel._t
-        _tr = pm.Panel._tr
-        _hook = pm.Panel._hook
-        _opt = pm.Panel._opt
-        _opt_int = pm.Panel._opt_int
-        _opt_float = pm.Panel._opt_float
-        _sweep_box = pm.Panel._sweep_box
-        _opt_row = pm.Panel._opt_row
-        _build_settings_tab = pm.Panel._build_settings_tab
-        _build_general_settings = pm.Panel._build_general_settings
-        _build_debug_log_settings = pm.Panel._build_debug_log_settings
-        _build_game_settings = pm.Panel._build_game_settings
-        _refresh_sweep_settings_hint = pm.Panel._refresh_sweep_settings_hint
-
-        def _save_settings(self):
-            self.saves += 1
-
-        def _say(self, *a, **k):
-            pass
-
-        def _send_debug_archive(self):
-            """The «Отправить диагностику» button's command — never pressed here."""
-
-    page = _Page()
-    page._dbg = logging.getLogger("test-settings")
-    # The knobs come from the binder, exactly as the panel's do: one variable per
-    # default, created before any tab is built.
-    binder = fake_runtime.attach_binder(page)
-    page._opt_vars = binder.create_vars(root, pm._settings_var)
-    page._build_settings_tab(ttk.Frame(root))
-    return root, page, pm
+    page = SettingsTab(rt, ttk.Frame(root))
+    page.parent.pack(fill="both", expand=True)
+    page.build()
+    return root, page, rt
 
 
 def _skip(exc=None) -> None:
@@ -111,8 +81,10 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
     except Exception:                                   # noqa: BLE001
         _skip()
         return
+    from panel import runtime as rtmod
+    from panel.tabs.settings import SHELL_PAGES
     try:
-        root, page, pm = _page()
+        root, page, rt = _page()
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
@@ -123,21 +95,21 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
                      if isinstance(w, ttk.Notebook)]
         assert notebooks, "the settings page has no notebook"
         tabs = notebooks[0].tabs()
-        # This stand-in has no plugin tabs, so the page is the shell's own two.
-        assert len(tabs) == len(pm.SETTINGS_TABS), tabs
+        # This window has no plugin tabs, so the page is the shell's own three.
+        assert len(tabs) == len(SHELL_PAGES), tabs
         labels = [notebooks[0].tab(t, "text") for t in tabs]
-        assert labels[0] == page._t("settings.tab.general"), labels
+        assert labels[0] == page.t("settings.tab.general"), labels
 
-        # Every tab in the registry has a builder now, so none of them is the
+        # Every page of the shell's own half has a builder now, so none of them is the
         # placeholder — «Общие» and «Игра» hold the knobs that used to be constants
         # in panel/__main__.py.
-        assert all(builder for _key, builder in pm.SETTINGS_TABS), pm.SETTINGS_TABS
+        assert all(builder for _key, builder in SHELL_PAGES), SHELL_PAGES
         for key in ("win_python", "daemon_port", "watchdog", "sweep_step"):
-            assert key in page._opt_vars, key
+            assert key in rt.settings.vars, key
         # …and the panel reads them back through the same accessors, defaults and all.
-        assert page._opt_int("daemon_port") == pm.SETTINGS_DEFAULTS["daemon_port"]
-        page._opt_vars["daemon_port"].set("not a port")
-        assert page._opt_int("daemon_port") == pm.SETTINGS_DEFAULTS["daemon_port"], \
+        assert rt.settings.opt_int("daemon_port") == rtmod.DEFAULTS["daemon_port"]
+        rt.settings.vars["daemon_port"].set("not a port")
+        assert rt.settings.opt_int("daemon_port") == rtmod.DEFAULTS["daemon_port"], \
             "a half-typed port must fall back, not be obeyed"
     finally:
         root.destroy()
@@ -207,9 +179,10 @@ def test_a_tab_contributes_its_own_settings_page():
         def settings_page(self, parent):
             self.drawn.append(parent)
 
+    from panel.tabs.settings import SHELL_PAGES
     tab = _Contributor()
     try:
-        root, page, pm = _page({"rally": tab})
+        root, page, _rt = _page({"rally": tab})
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
@@ -217,15 +190,15 @@ def test_a_tab_contributes_its_own_settings_page():
         nb = [w for w in root.winfo_children()[0].winfo_children()
               if isinstance(w, ttk.Notebook)][0]
         labels = [nb.tab(t, "text") for t in nb.tabs()]
-        assert len(labels) == len(pm.SETTINGS_TABS) + 1, labels
-        assert labels[-1] == page._t("settings.tab.autorally"), labels
+        assert len(labels) == len(SHELL_PAGES) + 1, labels
+        assert labels[-1] == page.t("settings.tab.autorally"), labels
         assert tab.drawn, "the tab was never asked to draw its page"
     finally:
         root.destroy()
 
     # …and a window without that tab has no auto-rally page at all.
     try:
-        root, page, pm = _page()
+        root, page, _rt = _page()
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
@@ -233,7 +206,7 @@ def test_a_tab_contributes_its_own_settings_page():
         nb = [w for w in root.winfo_children()[0].winfo_children()
               if isinstance(w, ttk.Notebook)][0]
         labels = [nb.tab(t, "text") for t in nb.tabs()]
-        assert page._t("settings.tab.autorally") not in labels, labels
+        assert page.t("settings.tab.autorally") not in labels, labels
     finally:
         root.destroy()
 

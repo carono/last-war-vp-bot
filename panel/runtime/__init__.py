@@ -27,16 +27,18 @@ from .bus import EventBus
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
 from .daemon import GameLink
+from . import diag
 from . import game_process
 from .host import PanelRuntime, standalone
 from .i18n import Translator
 from .log import LogBus
 from . import reads
 from .schedule import Schedule
+from . import settings
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
 
-__all__ = ["paths", "reads", "game_process", "ACTIONS_DIR",
+__all__ = ["paths", "reads", "diag", "game_process", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
-           "DEFAULTS", "Schedule", "SettingsBinder", "Ticker", "Translator",
+           "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "Translator",
            "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

@@ -314,20 +314,9 @@ SNIFF_READY_TIMEOUT = 25.0
 ACTIONS_DIR = runtime.ACTIONS_DIR
 # The Settings page's own sub-pages moved with it (panel/tabs/settings.py SHELL_PAGES).
 
-# Every knob the Settings page owns, with the value a profile that has never been
-# there behaves by. The panel reads them through `_opt_*`, so a default here IS the
-# old constant and nothing changes for an existing profile.
-#
-# `daemon_port` is the one with teeth: a second client lives in its own Windows
-# session with its own daemon on its own port (tools/rdp_instance.py), so a profile
-# that names 47655 drives THAT client — the panel's own DaemonClient and every child
-# it launches (which read LW_DAEMON_PORT from the environment). That is what turns
-# "two profiles" into "two accounts farmed at once".
-def _settings_var(master, default):
-    """One Tk variable per Settings knob — a checkbox for a bool, a box for the rest."""
-    return (tk.BooleanVar(master=master, value=bool(default)) if isinstance(default, bool)
-            else tk.StringVar(master=master, value=str(default)))
-
+# One Tk variable per Settings knob is the RUNTIME's job now, done for every window it
+# builds (panel/runtime/settings.py) — the factory used to live here, where a standalone
+# tab cannot reach it, so `python -m panel.tabs.settings` drew its rows into a KeyError.
 
 # Every knob the Settings page owns — the runtime's now (panel/runtime/settings.py),
 # because a page that draws them can be a tab of its own and a standalone tab has no
@@ -469,10 +458,6 @@ class Panel(tk.Tk):
 
 
 
-        # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
-        # built — the Settings tabs bind widgets to them and the main tab's watchdog
-        # checkbox shares the very same variable, so the two can never disagree.
-        self._binder.create_vars(self, _settings_var)
         # The daemon this profile drives. A profile naming a non-default port drives
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
@@ -806,9 +791,13 @@ class Panel(tk.Tk):
             self._senddiag_win = None
 
     def _send_log_and_close(self, win) -> None:
-        """«Отправить»: hand the archive to the sender (result lands in the log)."""
+        """«Отправить»: hand the archive to the sender (result lands in the log).
+
+        The packing is the runtime's — the «Настройки» tab's button presses the same
+        function, and this dialog must work in a profile that switched that tab off.
+        """
         win.destroy()
-        self._send_debug_archive()
+        runtime.diag.send_archive(self._rt)
 
     @staticmethod
     def _tail_debug_log(path: str, lines: int = 100) -> str:
@@ -1054,13 +1043,16 @@ class Panel(tk.Tk):
                 if var is not None:
                     var.set(s.get(key, default))
             # Each plugin tab restores its own block — the new `tabs.config.<id>` if the
-            # profile has one, else the flat keys it used to be spelled with.
+            # profile has one, else the flat keys it used to be spelled with. Whatever a
+            # restored value has to re-draw (a rule hint, a status line) the tab does at
+            # the end of its own `apply_config`: the shell does not know what its
+            # widgets are, and a line here naming one of them is a crash waiting for the
+            # release that moves it.
             for tab in getattr(self, "_plugin_tabs", {}).values():
                 tab.apply_config(
                     self._binder.tab_config(tab.ID, type(tab).LEGACY_KEYS))
         finally:
             self._loading = False
-        self._refresh_rule_hints()
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
@@ -1611,14 +1603,19 @@ class Panel(tk.Tk):
         timer/trigger checkbuttons safely. This is the "statuses of systems" stream —
         daemon, game, how many timers/triggers are armed, and whether the dashboard
         poll is up or complaining.
+
+        The counts come from the schedule, not from the rows: the rows belong to the
+        «Таймеры» tab and are not here when the profile switches it off, whereas the
+        schedule answers either way — off the widgets while they exist, off the saved
+        catalogue when they do not. That is the same reading the schedule fires on.
         """
         dbg = getattr(self, "_dbg", None)
         if dbg is None:
             return
         try:
-            timers_on = sum(1 for v in self._timer_vars.values()
-                            if v.get("enabled") and v["enabled"].get())
-            triggers_on = sum(1 for v in self._trigger_vars.values() if v.get())
+            timers_on = sum(1 for row in self._schedule.timer_config().values()
+                            if row.get("enabled"))
+            triggers_on = sum(1 for on in self._schedule.trigger_config().values() if on)
         except (tk.TclError, AttributeError):
             timers_on = triggers_on = -1
         dash = "err" if self._dash_err else ("on" if self._dash_stop else "off")

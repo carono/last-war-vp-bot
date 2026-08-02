@@ -423,8 +423,8 @@ class ChatTab(PanelTab):
         top.bind("<Escape>", lambda _e: top.destroy())
         try:
             top.update_idletasks()
-            x = self.winfo_rootx() + 60
-            y = self.winfo_rooty() + 80
+            x = self.parent.winfo_rootx() + 60
+            y = self.parent.winfo_rooty() + 80
             top.geometry(f"+{x}+{y}")
         except tk.TclError:
             pass
@@ -837,7 +837,7 @@ class ChatTab(PanelTab):
         path = chat_assets.photo_path(uid, pic_ver, big=True) or fallback
         if not path or not os.path.isfile(path):
             return
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        sw, sh = self.parent.winfo_screenwidth(), self.parent.winfo_screenheight()
         max_w, max_h = int(sw * 0.85), int(sh * 0.85)
         try:
             if _PIL_OK:
@@ -1200,7 +1200,7 @@ class ChatTab(PanelTab):
 
         def work() -> None:
             uid = self._resolve_char_uid()
-            self.after(0, lambda: self._open_chat_store(uid))
+            self.rt.root.after(0, lambda: self._open_chat_store(uid))
 
         threading.Thread(target=work, daemon=True).start()
 

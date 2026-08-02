@@ -328,7 +328,7 @@ class DevelopTab(PanelTab):
         checkmark must stay — it is the pair's state, not one process's.
         """
         if self._sniff_proc is None and self._trace_proc is None:
-            self.after(0, lambda: self._sniff_var.set(False))
+            self.rt.root.after(0, lambda: self._sniff_var.set(False))
             # Both children died on their own (the game restarted, tshark lost
             # the interface) — the session is over just as surely as after a
             # Stop, so it gets the same save/delete prompt. Whichever path runs
