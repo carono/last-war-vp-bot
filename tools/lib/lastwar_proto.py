@@ -1343,6 +1343,193 @@ def filter_ghost_recon(missions, level=None, family=None, star_only=False,
     return out
 
 
+def load_fresh_ghost_recon(path, max_age_seconds: float = TASK_FRESH_SECONDS,
+                           now: float | None = None) -> list:
+    """Load a ghost-recon scan checkpoint, keeping only tiles re-seen this window.
+
+    The `load_fresh_tasks` rule applied to the `f2 = 29` scan: a squad the map has
+    stopped re-sending may have returned, been looted out or expired, and a stale
+    record is indistinguishable from a live one. What survives comes back as
+    `GhostReconMission` objects, so `can_loot` is recomputed against the clock.
+    """
+    now = time.time() if now is None else now
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    records = data.get("missions") if isinstance(data, dict) else data
+    fresh = []
+    for record in records or ():
+        seen = record.get("seen_at")
+        if seen is None or now - seen > max_age_seconds:
+            continue
+        fresh.append(GhostReconMission.from_dict(record))
+    return fresh
+
+
+# --------------------------------------------------------------------------
+# World-map treasures — the detect-event chests (`f2 = 21`)
+# --------------------------------------------------------------------------
+#
+# A treasure is a map point like every other interactable: `world.get.block`
+# hands it to anyone who pans over it, and `push.world.point.update` re-sends it
+# whenever it changes. Decoded from the live capture of task #1107
+# (`results/traffic/20260728_155731_сокровище_traffic.jsonl`, eleven frames of the
+# same chest plus the `push.detect.treasure.claim` that finished it), so every
+# field below was read off a real treasure rather than inferred:
+#
+#     f1   500553                 packed pointId
+#     f2   21                     WorldPointType.TREASURE
+#     f100 1397117530950313784    uuid — what `detect.event.claim.treasure` takes
+#     f102/f103 935               the server the chest sits on
+#     f11  the treasure record:
+#          f1  uuid (again)       f9  placed-at
+#          f2  owner uid          f12 name          ("Uzilla")
+#          f3  cfgId  ("25193")   f13 expiry ts
+#          f5  alliance uuid      f7  **operator uid — the dug flag**
+#          f6  alliance abbr      f16 {uuid, pointId, …}
+#
+# `f7` is the one field that carries a decision. It is ABSENT in the first ten
+# frames — the chest is still being dug — and appears in the eleventh, the same
+# frame the alliance got `push.detect.treasure.claim {uuid, operator}` for. So
+# "still digging vs already dug" is `f7` present, exactly as
+# docs/research/world-treasures.md predicted from the same session.
+#
+# ⚠ The x/y below are unpacked the way every other tile in this module is
+# (`packed % area`, `packed // area`), which puts this chest at (553,500). The
+# game's own `SceneUtils.IndexToTilePos(500553)` answered (552,500) and the
+# in-game system line agreed with the game — so a treasure ROW may sit one tile
+# east of where the game names it. Nothing that acts is affected: the dig and the
+# claim take `point_id` and `uuid`, never x/y, and the panel's other treasure
+# list reads its coordinates through `IndexToTilePos` itself.
+WORLD_TREASURE_TILE_TYPE = 21
+
+
+@dataclass(slots=True)
+class WorldTreasure:
+    uuid: int | None
+    cfg_id: str | None
+    server_id: int | None
+    point_id: int | None
+    x: int | None
+    y: int | None
+    name: str | None
+    owner_uid: str | None
+    alliance_id: str | None
+    alliance_abbr: str | None
+    operator_uid: str | None      # who finished the dig; None while it is still on
+    expires_at: int | None
+
+    @property
+    def dug(self) -> bool:
+        """Fully dug — the point carries the finisher's uid (`f11.f7`).
+
+        This is the split the whole feature turns on: a chest still being dug wants
+        a march, a dug one wants the claim.
+        """
+        return bool(self.operator_uid)
+
+    @property
+    def expired(self) -> bool:
+        return (self.expires_at is not None
+                and self.expires_at <= int(time.time() * 1000))
+
+    def as_dict(self) -> dict:
+        return {
+            "uuid": self.uuid, "cfg_id": self.cfg_id, "server_id": self.server_id,
+            "point_id": self.point_id, "x": self.x, "y": self.y, "name": self.name,
+            "owner_uid": self.owner_uid, "alliance_id": self.alliance_id,
+            "alliance_abbr": self.alliance_abbr, "operator_uid": self.operator_uid,
+            "expires_at": self.expires_at,
+        }
+
+    @classmethod
+    def from_dict(cls, record: dict) -> "WorldTreasure":
+        return cls(
+            uuid=record.get("uuid"), cfg_id=record.get("cfg_id"),
+            server_id=record.get("server_id"), point_id=record.get("point_id"),
+            x=record.get("x"), y=record.get("y"), name=record.get("name"),
+            owner_uid=record.get("owner_uid"), alliance_id=record.get("alliance_id"),
+            alliance_abbr=record.get("alliance_abbr"),
+            operator_uid=record.get("operator_uid"),
+            expires_at=record.get("expires_at"),
+        )
+
+
+def _treasure_from_point(point: dict, area: int, server=None):
+    """One decoded map point → `WorldTreasure`, or None if it is not a treasure."""
+    tile = (point or {}).get("_protobuf") or {}
+    if tile.get("f2") != WORLD_TREASURE_TILE_TYPE:
+        return None
+    detail = tile.get("f11") or {}
+    packed = tile.get("f1") or 0
+    return WorldTreasure(
+        uuid=tile.get("f100") or detail.get("f1"),
+        cfg_id=detail.get("f3"),
+        server_id=tile.get("f102") or tile.get("f103") or server,
+        point_id=packed or None,
+        x=packed % area, y=packed // area,
+        name=detail.get("f12"),
+        owner_uid=detail.get("f2"),
+        alliance_id=detail.get("f5"),
+        alliance_abbr=detail.get("f6"),
+        operator_uid=detail.get("f7"),
+        expires_at=detail.get("f13"),
+    )
+
+
+def world_treasures(payload: dict):
+    """Yield every treasure drawn on the map in one `world.get.block` response."""
+    for block in payload.get("serverPointArr") or ():
+        area = block.get("maxAreaSize") or 1000
+        for point in block.get("points") or ():
+            treasure = _treasure_from_point(point, area)
+            if treasure is not None:
+                yield treasure
+
+
+def world_treasure_points(command: str | None, payload):
+    """Yield every treasure in a `push.world.point.update` frame.
+
+    This is the stream the chest was actually captured on, and the one that carries
+    the moment it is dug: the push repeats the point on every change, so the row
+    flips from digging to dug without anyone panning over it again. A `remove`
+    update is skipped — the point is gone, and yielding it would put a chest that
+    no longer exists on a list.
+
+    The push has no `maxAreaSize`, so the coordinates use the standard 1000-wide
+    server; the `point_id` it also yields is exact regardless.
+    """
+    if command != "push.world.point.update" or not isinstance(payload, dict):
+        return
+    if payload.get("type") == "remove":
+        return
+    server = payload.get("sid")
+    for point in payload.get("points") or ():
+        treasure = _treasure_from_point(point, 1000, server=server)
+        if treasure is not None:
+            yield treasure
+
+
+def load_fresh_treasures(path, max_age_seconds: float = TASK_FRESH_SECONDS,
+                         now: float | None = None) -> list:
+    """Load a treasure-scan checkpoint, keeping only points re-seen this window.
+
+    Same rule as `load_fresh_tasks`, and for the same reason: a chest the map has
+    stopped re-sending may have been dug and taken minutes ago, and a stale record
+    reads exactly like a live one.
+    """
+    now = time.time() if now is None else now
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    records = data.get("treasures") if isinstance(data, dict) else data
+    fresh = []
+    for record in records or ():
+        seen = record.get("seen_at")
+        if seen is None or now - seen > max_age_seconds:
+            continue
+        fresh.append(WorldTreasure.from_dict(record))
+    return fresh
+
+
 # --------------------------------------------------------------------------
 # Map semantics: trucks, the march-type-37 `train` objects
 # --------------------------------------------------------------------------

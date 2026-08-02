@@ -83,6 +83,16 @@ SHARE_LINE = re.compile(
 # standalone tool — it spawns a child that walks the VM a few times.
 GHOST_RERE_MS = 9000
 
+# How long a map scan listens, and how often it flushes its checkpoint. A tile only
+# crosses the wire while the map moves, so the window has to be long enough for the
+# «Автообъезд карты» sweep (or a person) to pan somewhere — but it is a window, not a
+# standing capture: the scan is a button, and a button that never ends is a leak.
+SCAN_SECONDS = 180
+SCAN_INTERVAL = 5
+# Where the two scan children live, relative to tools/.
+GHOST_SCAN_SCRIPT = os.path.join("dev", "secret_mission_capture.py")
+TREASURE_SCAN_SCRIPT = os.path.join("dev", "treasure_capture.py")
+
 # Squads a treasure dig may be sent with, and the one preselected.
 TREASURE_SQUADS = (1, 2, 3)
 
@@ -139,6 +149,9 @@ class _Pane:
         self.parent = parent
         self._loaded = False
         self._busy = False
+        # The map-scan child, while one is listening (pages that offer a scan).
+        self._scan_child = None
+        self._scan_btn = None
         self._status_var = tk_stringvar(app)
         self._info_var = tk_stringvar(app)
         self.build()
@@ -207,6 +220,61 @@ class _Pane:
         self.app._tr(ttk.Label(self._scroll, foreground=DIM), key).pack(
             anchor="w", pady=6)
 
+    # -- the map scan -------------------------------------------------------
+    # Two of the three pages find their targets by *panning the map*: a ghost-recon
+    # squad and a treasure are both `world.get.block` tiles, handed to whoever pans
+    # over them and to nobody else. So the scan is a passive capture child, exactly
+    # like the «Секретки» monitor — it writes a checkpoint this page then merges.
+    # Nothing pans by itself here: «Автообъезд карты» on the «Секретки» tab is what
+    # moves the camera, and each page's hint says so.
+
+    def _scan_toggle(self, script: str, checkpoint: str, extra=()) -> None:
+        """The «Сканировать» button: start a listening window, or stop it early."""
+        if self._scan_child is not None:
+            self._scan_stop()
+        else:
+            self._scan_start(script, checkpoint, extra)
+
+    def _scan_start(self, script: str, checkpoint: str, extra=()) -> None:
+        cmd = [self.app._python(), "-u", os.path.join(TOOLS, script),
+               "--json", checkpoint,
+               "--seconds", str(SCAN_SECONDS),
+               "--interval", str(SCAN_INTERVAL), *extra]
+        child = self.app._child(self.LOG_TAG, cmd, on_exit=self._scan_ended)
+        if not child.start():
+            return
+        self._scan_child = child
+        self._scan_label("cmdpost.scan_stop")
+        self._log("cmdpost.scan_on", n=SCAN_SECONDS)
+
+    def _scan_stop(self) -> None:
+        child, self._scan_child = self._scan_child, None
+        if child is not None:
+            child.stop()
+            self._scan_label("cmdpost.scan")
+            self._log("cmdpost.scan_off")
+
+    def _scan_ended(self) -> None:
+        """The window ran out (or the child died): merge what it wrote."""
+        self._scan_child = None
+        self._scan_label("cmdpost.scan")
+        self.refresh()
+
+    def _scan_label(self, key: str) -> None:
+        if self._scan_btn is not None:
+            try:
+                self._scan_btn.configure(text=self.app._t(key))
+            except Exception:          # noqa: BLE001 — the widget may be gone
+                pass
+
+    def shutdown(self) -> None:
+        """Stop whatever this page has running. Subclasses extend, never replace."""
+        self._scan_stop()
+
+    def restart(self) -> None:
+        """Profile switched: a scan captures for one client, so it does not carry."""
+        self._scan_stop()
+
     # -- talking to the panel (safe from any thread) ------------------------
     def _status(self, key: str, **fmt) -> None:
         text = self.app._t(key, **fmt) if key else ""
@@ -260,7 +328,21 @@ class GhostReconPane(_Pane):
         self._all_btn = self.app._tr(ttk.Button(act, width=18, command=self._steal_all),
                                      "cmdpost.ghost.steal_all")
         self._all_btn.pack(side="left")
+        self._scan_btn = self.app._tr(ttk.Button(act, width=16, command=self._scan),
+                                      "cmdpost.scan")
+        self._scan_btn.pack(side="left", padx=(6, 0))
         self._scroll = self._list(body)
+
+    def _scan(self) -> None:
+        """Scan the map for `f2 = 29` tiles — the squads the client's own list misses.
+
+        The two sources answer different questions and both are wanted. The client's
+        `ghost.recon.get.task.list` knows this alliance's squads in full; the map
+        knows whatever has been panned over, including other alliances' — the ones a
+        robbery is actually aimed at. So a scan ADDS to the list rather than replacing
+        it, and a row says which it came from.
+        """
+        self._scan_toggle(GHOST_SCAN_SCRIPT, self.app._profiles.ghost_json())
 
     def _build_autoloot_bar(self, parent) -> None:
         """The «Операция Призрак» standing order — moved here off the «Секретки» tab.
@@ -296,8 +378,46 @@ class GhostReconPane(_Pane):
             can = {t.get("uuid") for t in grs.robbable(ev, targets)}
         for t in targets:
             t["can"] = t.get("uuid") in can
+            t["scanned"] = False
+        targets += self._scanned_targets({str(t.get("uuid")) for t in targets})
         targets.sort(key=lambda t: (not t.get("can"), -t.get("done", 0)))
         return status, targets
+
+    def _scanned_targets(self, known: set) -> list:
+        """The scan checkpoint's squads that the client's own list does not carry.
+
+        The game's per-tile gate (`GetPointStealType`) only answers for a squad in
+        `taskList`, so a foreign-alliance tile off the map has no verdict from it —
+        its readiness is the clock instead (the squad is back and the tile has not
+        expired), which is what `GhostReconMission.can_loot` reads. The event-day and
+        budget halves still gate the send itself in the VM, and the server has the
+        last word either way.
+
+        No checkpoint (a scan never ran) is simply no extra rows.
+        """
+        import lastwar_proto as proto
+        try:
+            missions = proto.load_fresh_ghost_recon(self.app._profiles.ghost_json())
+        except Exception:              # noqa: BLE001 — no file, or a half-written one
+            return []
+        out = []
+        for m in missions:
+            if m.uuid is None or str(m.uuid) in known or m.empty:
+                continue
+            out.append({
+                "uuid": str(m.uuid), "cfg": m.cfg_id or 0,
+                "srv": m.owner_server or m.target_server or 0,
+                "x": m.x or 0, "y": m.y or 0,
+                "done": m.completion_time or 0, "ends": m.expire_time or 0,
+                "looted": m.steal_count,
+                # Deliberately NOT the tile's own `state` (f9): that is a different
+                # enum from the steal verdict this column shows, and on a ghost tile
+                # it reads 3 whether the squad is back or not. A scanned row is
+                # labelled off the clock instead — see `_row`.
+                "state": None,
+                "mine": False, "can": bool(m.can_loot), "scanned": True,
+            })
+        return out
 
     def render(self, data) -> None:
         status, targets = data
@@ -329,9 +449,8 @@ class GhostReconPane(_Pane):
         ttk.Label(frame, width=22, text=coords_fmt.fmt(
             target.get("x", 0), target.get("y", 0), target.get("srv", 0))).pack(
             side="left", padx=(0, 8))
-        ttk.Label(frame, width=18, foreground=DIM, text=self.app._t(
-            GHOST_STATE_KEYS.get(target.get("state"),
-                                 "cmdpost.ghost.state.not_shown"))).pack(
+        ttk.Label(frame, width=18, foreground=DIM,
+                  text=self.app._t(self._state_key(target))).pack(
             side="left", padx=(0, 8))
         ttk.Label(frame, width=12, foreground=DIM, text=self.app._t(
             "cmdpost.ghost.looted", n=target.get("looted", 0))).pack(
@@ -349,6 +468,22 @@ class GhostReconPane(_Pane):
                                 command=lambda t=target: self._jump(t)),
                      "cmdpost.jump").pack(side="right")
         return frame
+
+    @staticmethod
+    def _state_key(target) -> str:
+        """The locale key for a row's state column.
+
+        A row read from the client carries the game's own `GhostreconPointStealType`
+        and is labelled with it. A row that came off the map has no such verdict —
+        the gate only answers for squads in the client's own list — so it is labelled
+        off the clock and says «с карты», rather than borrowing a word the game did
+        not say.
+        """
+        if target.get("scanned"):
+            return ("cmdpost.ghost.state.map_ready" if target.get("can")
+                    else "cmdpost.ghost.state.map_running")
+        return GHOST_STATE_KEYS.get(target.get("state"),
+                                    "cmdpost.ghost.state.not_shown")
 
     # -- actions ------------------------------------------------------------
     def _jump(self, target) -> None:
@@ -642,10 +777,12 @@ class SharedMissionsPane(_Pane):
         self._paint()
 
     def shutdown(self) -> None:
+        super().shutdown()
         self._stop_listener()
 
     def restart(self) -> None:
         """Bounce the listener onto the profile the panel just switched to."""
+        super().restart()
         if self._child is None:
             return
         self._stop_listener()
@@ -681,9 +818,23 @@ class TreasuresPane(_Pane):
         for squad in TREASURE_SQUADS:
             ttk.Radiobutton(box, text=str(squad), value=squad,
                             variable=self._squad_var).pack(side="left", padx=4)
+        self._scan_btn = self.app._tr(ttk.Button(box, width=16, command=self._scan),
+                                      "cmdpost.scan")
+        self._scan_btn.pack(side="right")
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
         self._scroll = self._list(body)
+
+    def _scan(self) -> None:
+        """Scan the map for `f2 = 21` chests — the other half of «is there one?».
+
+        Asking the server (the «Обновить» path) only ever answers about this
+        alliance's own detect event. A chest is also an ordinary map point: it is
+        handed to whoever pans over it, and its point update is re-sent the moment
+        someone finishes the dig — which is the moment the row has to flip from
+        «копают» to «раскопано». Both sources feed the same list.
+        """
+        self._scan_toggle(TREASURE_SCAN_SCRIPT, self.app._profiles.treasures_json())
 
     # -- reading the game ---------------------------------------------------
     def fetch(self):
@@ -719,7 +870,35 @@ class TreasuresPane(_Pane):
                 "x": _int(fields.get("x")), "y": _int(fields.get("y")),
                 "cross": bool(home) and _int(fields.get("srv")) != home,
             })
+        targets += self._scanned_targets({str(t["uuid"]) for t in targets}, home)
         return num, daily, targets
+
+    def _scanned_targets(self, known: set, home: int) -> list:
+        """Chests the map scan saw that the server's own list did not carry.
+
+        A treasure the alliance's detect event did not place — another alliance's, or
+        one this client was never told about — only exists on the map, so this is the
+        only way it reaches the list. The dug/digging split comes off the point's
+        finisher field, the same one the recorded live treasure proved it with.
+
+        No checkpoint (a scan never ran) is simply no extra rows.
+        """
+        import lastwar_proto as proto
+        try:
+            found = proto.load_fresh_treasures(self.app._profiles.treasures_json())
+        except Exception:              # noqa: BLE001 — no file, or a half-written one
+            return []
+        out = []
+        for t in found:
+            if t.uuid is None or str(t.uuid) in known or t.expired:
+                continue
+            out.append({
+                "i": 0, "pid": t.point_id, "uuid": str(t.uuid),
+                "server": t.server_id or 0, "dug": t.dug,
+                "x": t.x or 0, "y": t.y or 0,
+                "cross": bool(home) and (t.server_id or 0) != home,
+            })
+        return out
 
     @staticmethod
     def _read_state(ev):

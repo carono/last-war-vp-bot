@@ -637,5 +637,11 @@
   "cmdpost.treasure.log_dig": "отряд отправлен копать ({uuid})",
   "cmdpost.treasure.log_claim": "запрос на награду отправлен ({uuid})",
   "cmdpost.treasure.log_failed": "не отправлено ({uuid}) — сокровище исчезло, лимит на день или игра не запущена",
-  "cmdpost.treasure.log_no_squad": "нет заряженного отряда {squad} — некому идти копать"
+  "cmdpost.treasure.log_no_squad": "нет заряженного отряда {squad} — некому идти копать",
+  "cmdpost.scan": "Сканировать",
+  "cmdpost.scan_stop": "Остановить",
+  "cmdpost.scan_on": "слушаю карту {n} с — води камеру (или включи «Автообъезд карты» на вкладке «Секретки»), иначе тайлы не придут",
+  "cmdpost.scan_off": "сканирование карты остановлено",
+  "cmdpost.ghost.state.map_ready": "готов (с карты)",
+  "cmdpost.ghost.state.map_running": "ещё идёт (с карты)"
 }

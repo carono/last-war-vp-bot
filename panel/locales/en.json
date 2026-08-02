@@ -637,5 +637,11 @@
   "cmdpost.treasure.log_dig": "a squad is on its way to dig ({uuid})",
   "cmdpost.treasure.log_claim": "the claim has been sent ({uuid})",
   "cmdpost.treasure.log_failed": "not sent ({uuid}) — the treasure is gone, the day's limit is spent or the game is not running",
-  "cmdpost.treasure.log_no_squad": "squad {squad} is not loaded — nobody to send digging"
+  "cmdpost.treasure.log_no_squad": "squad {squad} is not loaded — nobody to send digging",
+  "cmdpost.scan": "Scan",
+  "cmdpost.scan_stop": "Stop",
+  "cmdpost.scan_on": "listening to the map for {n}s — pan the camera (or tick «Автообъезд карты» on the Secret Tasks tab), or no tile will arrive",
+  "cmdpost.scan_off": "the map scan has stopped",
+  "cmdpost.ghost.state.map_ready": "ready (from the map)",
+  "cmdpost.ghost.state.map_running": "still out (from the map)"
 }

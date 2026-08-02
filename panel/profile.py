@@ -42,6 +42,13 @@ CHAT_DB = "chat_history.db"
 # Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
 # current state of the map, which is what an auto-loot decision has to read.
 TASKS_JSON = "secret_tasks.json"
+# The same shape for the other two map scans the «Командный пункт» tab drives: the
+# ghost-recon squad tiles (f2 = 29, tools/dev/secret_mission_capture.py) and the
+# detect-event treasures (f2 = 21, tools/dev/treasure_capture.py). Separate files
+# because the record shapes differ — handing one scan's checkpoint to the other's
+# reader is exactly the mix-up the secret-task capture already guards against.
+GHOST_JSON = "ghost_recon_tiles.json"
+TREASURES_JSON = "world_treasures.json"
 # The profile's own timer catalogue and the record of when each of them last ran
 # (panel/timers.py). Both per profile: one account's schedule is not the other's,
 # and neither is its clock. A profile with no catalogue yet is seeded from the
@@ -246,6 +253,14 @@ class ProfileManager:
     def tasks_json(self, name: str | None = None) -> str:
         """Where the secret-task capture checkpoints what it currently sees."""
         return os.path.join(self.dir(name), TASKS_JSON)
+
+    def ghost_json(self, name: str | None = None) -> str:
+        """Where the ghost-recon tile scan checkpoints the squads it can see."""
+        return os.path.join(self.dir(name), GHOST_JSON)
+
+    def treasures_json(self, name: str | None = None) -> str:
+        """Where the treasure scan checkpoints the chests it can see."""
+        return os.path.join(self.dir(name), TREASURES_JSON)
 
     def timers_json(self, name: str | None = None) -> str:
         """This profile's timer catalogue (panel/timers.py)."""

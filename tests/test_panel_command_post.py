@@ -280,6 +280,123 @@ def test_tab_builds_and_drives_its_controls():
         app.destroy()
 
 
+def test_a_scanned_row_is_never_labelled_with_a_verdict_the_game_did_not_give():
+    """The state column: the client's own verdict, or the clock — never mixed.
+
+    A tile off the map has no `GhostreconPointStealType` (the gate only answers for
+    squads in the client's list) and its own `f9` is a different enum that reads 3
+    whether the squad is back or not. Borrowing either would print a confident word
+    the game never said.
+    """
+    cp = _module()
+    if cp is None:
+        return
+    key = cp.GhostReconPane._state_key
+    assert key({"state": 2}) == "cmdpost.ghost.state.can"
+    assert key({"state": 1}) == "cmdpost.ghost.state.preview"
+    assert key({"state": None}) == "cmdpost.ghost.state.not_shown"
+    assert key({"scanned": True, "can": True}) == "cmdpost.ghost.state.map_ready"
+    assert key({"scanned": True, "can": False}) == "cmdpost.ghost.state.map_running"
+    # A scanned row keeps its own label even when a stale `state` rides along.
+    assert key({"scanned": True, "can": True, "state": 4}) == \
+        "cmdpost.ghost.state.map_ready"
+
+
+def test_the_scan_checkpoints_feed_the_two_lists():
+    """A scan's checkpoint becomes rows, minus what the client already knows."""
+    cp = _module()
+    if cp is None:
+        return
+    import json as _json
+    import tempfile
+    import time
+    import lastwar_proto as proto
+
+    tmp = Path(tempfile.mkdtemp())
+    ghost_path, treasure_path = tmp / "ghost.json", tmp / "treasure.json"
+
+    class Profiles:
+        def ghost_json(self):
+            return str(ghost_path)
+
+        def treasures_json(self):
+            return str(treasure_path)
+
+    class App:
+        _profiles = Profiles()
+
+    now = int(time.time())
+    mission = proto.GhostReconMission(
+        uuid=111, cfg_id=60302, family="6", level=5, state=3, target_server=1006,
+        owner_id="someone", owner_server=1006, alliance_id=None, alliance_show=True,
+        point_id=500553, x=553, y=500, member_count=1, steal_count=0,
+        team_start_time=None, completion_time=1, expire_time=None)
+    known = proto.GhostReconMission(**{**mission.as_dict(), "uuid": 222})
+    ghost_path.write_text(_json.dumps([mission.as_dict() | {"seen_at": now},
+                                       known.as_dict() | {"seen_at": now}]),
+                          encoding="utf-8")
+
+    pane = cp.GhostReconPane.__new__(cp.GhostReconPane)   # no Tk needed for this
+    pane.app = App()
+    rows = pane._scanned_targets({"222"})
+    assert [r["uuid"] for r in rows] == ["111"], rows
+    assert rows[0]["scanned"] is True and rows[0]["state"] is None
+    assert rows[0]["srv"] == 1006 and (rows[0]["x"], rows[0]["y"]) == (553, 500)
+
+    # The treasure half, off the recorded live chest.
+    fixture = _json.loads((ROOT / "tests" / "fixtures" /
+                           "world_treasure_points.json").read_text(encoding="utf-8"))
+    frame = [f for f in fixture["frames"]
+             if f["command"] == "push.world.point.update"][-1]
+    chest = next(iter(proto.world_treasure_points(frame["command"], frame["payload"])))
+    record = chest.as_dict() | {"seen_at": now, "expires_at": None}
+    treasure_path.write_text(_json.dumps([record]), encoding="utf-8")
+
+    tpane = cp.TreasuresPane.__new__(cp.TreasuresPane)
+    tpane.app = App()
+    trows = tpane._scanned_targets(set(), home=935)
+    assert len(trows) == 1, trows
+    assert trows[0]["uuid"] == str(chest.uuid) and trows[0]["dug"] is True
+    assert trows[0]["cross"] is False        # same server as home
+    # …and one the list already carries is not added twice.
+    assert tpane._scanned_targets({str(chest.uuid)}, home=935) == []
+
+
+def test_a_missing_checkpoint_is_no_rows_not_a_crash():
+    cp = _module()
+    if cp is None:
+        return
+
+    class Profiles:
+        def ghost_json(self):
+            return "/nonexistent/ghost.json"
+
+        def treasures_json(self):
+            return "/nonexistent/treasure.json"
+
+    class App:
+        _profiles = Profiles()
+
+    pane = cp.GhostReconPane.__new__(cp.GhostReconPane)
+    pane.app = App()
+    assert pane._scanned_targets(set()) == []
+    tpane = cp.TreasuresPane.__new__(cp.TreasuresPane)
+    tpane.app = App()
+    assert tpane._scanned_targets(set(), home=0) == []
+
+
+def test_the_scan_children_are_the_two_map_scanners():
+    cp = _module()
+    if cp is None:
+        return
+    assert cp.GHOST_SCAN_SCRIPT.endswith("secret_mission_capture.py")
+    assert cp.TREASURE_SCAN_SCRIPT.endswith("treasure_capture.py")
+    for script in (cp.GHOST_SCAN_SCRIPT, cp.TREASURE_SCAN_SCRIPT):
+        assert (ROOT / "tools" / script).exists(), script
+    # A scan is a window, not a standing capture — a button that never ends is a leak.
+    assert 30 <= cp.SCAN_SECONDS <= 900
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
