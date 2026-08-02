@@ -47,6 +47,9 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fake_runtime  # noqa: E402
+
 from panel import timers as timersmod  # noqa: E402
 
 BASE = "collect_base_resources"
@@ -675,6 +678,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
             self._profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
             self.afters: list = []
             self.logs: list = []
+            fake_runtime.attach_bus(self)
             # The rows read the scheduler's queue to mark a waiting errand, so the
             # stand-in needs something that answers `pending()`.
             self._timers = types.SimpleNamespace(pending=lambda: set())

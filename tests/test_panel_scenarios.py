@@ -33,6 +33,9 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fake_runtime  # noqa: E402
+
 SLOW = 'LOG "one"\nWAIT 0.4\nLOG "two"\nWAIT 0.4\nLOG "three"\n'
 
 
@@ -61,6 +64,7 @@ def _tab(tmp: Path):
             import threading
             self._busy_lock = threading.Lock()
             self.logs: list = []
+            fake_runtime.attach_bus(self)
 
         # everything the tab builder and the paths under test touch
         _t = pm.Panel._t

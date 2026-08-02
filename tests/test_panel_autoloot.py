@@ -38,6 +38,9 @@ for _p in (_REPO_ROOT, _REPO_ROOT / "tools", _REPO_ROOT / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fake_runtime  # noqa: E402
+
 try:
     import tkinter  # noqa: F401
     _HAS_TK = True
@@ -80,6 +83,9 @@ class _Watcher:
         self._autoloot_warned = False
         self._autoloot_seen: set = set()
         self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
+        # `_log_put` and `_say` are both faces of one sink now, so the stand-in
+        # collects through the sink rather than beside it.
+        fake_runtime.attach_bus(self)
         self._log_put = self.logs.append
         # The child is never spawned here; record the checkpoint the tick would rob
         # from, so the assertions read exactly as before the (checkpoint, vm_ready) split.

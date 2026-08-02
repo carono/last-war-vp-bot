@@ -1,0 +1,53 @@
+"""Stand-ins for the panel runtime, shared by the panel tests.
+
+Every panel test used to hand-roll its own minimal app: an echoing `_t`, a `_tr` that
+sets a widget option, a list that collects log lines, a `_daemon_port` that points
+nowhere. Those ad-hoc fakes were the tab interface before there was one
+(docs/research/panel-tabs-refactor.md §1) — this is that interface, written down once.
+
+Import it rather than growing a fourth copy:
+
+    from fake_runtime import RecordingBus
+
+Nothing here touches the game, the daemon or the network: a fake runtime is COLD by
+construction, which is also what the standalone harness hands a tab at build time.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
+from panel import runtime as rtmod  # noqa: E402
+
+
+class RecordingBus(rtmod.LogBus):
+    """A LogBus that appends every line to a list instead of queueing it.
+
+    The panel's `_log_put` and `_say` are both faces of the bus, so a stand-in that
+    collects lines has to collect them HERE — one list, whichever door the line came
+    through, exactly as the real panel has one sink.
+    """
+
+    def __init__(self, translate=None, lines: list | None = None) -> None:
+        super().__init__(translate=translate)
+        self.lines = [] if lines is None else lines
+
+    def put(self, line: str) -> None:
+        self.lines.append(line)
+
+
+def attach_bus(app, lines: list | None = None) -> RecordingBus:
+    """Give ``app`` a recording bus wired to its own `_t`, and return it.
+
+    ``app.logs`` ends up being the same list the bus writes to, so a test that already
+    asserts on ``app.logs`` keeps working unchanged.
+    """
+    bus = RecordingBus(translate=getattr(app, "_t", None),
+                       lines=lines if lines is not None else getattr(app, "logs", None))
+    app._logbus = bus
+    app.logs = bus.lines
+    return bus
