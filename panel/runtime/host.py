@@ -30,9 +30,16 @@ class PanelRuntime:
 
     def __init__(self, root, profiles=None, defaults: dict | None = None,
                  lang: str | None = None, echo_log: bool = False,
-                 daemon_state=None) -> None:
+                 daemon_state=None, scope: str | None = None) -> None:
         self.root = root
         self.profiles = profiles if profiles is not None else profilemod.ProfileManager()
+        # This runtime's slice of the debug log (panel/debug_log.py). `None` is the
+        # shared tree — which is every window there has ever been until a second
+        # profile is opened beside the first, and then the second one names a scope so
+        # the two profiles' `debug.log`s fill independently (#1206). A SLOT, not a
+        # profile name: switching this runtime's profile re-points the same scope at
+        # the new profile's file rather than starting a third one.
+        self.scope = scope
 
         # EVERY window starts from the panel's own knobs, whether or not its builder
         # named them: `win_python` is what the child factory below launches with, and a
@@ -56,13 +63,17 @@ class PanelRuntime:
         saved_lang = lang or self.settings.values.get("language")
         unknown_lang = saved_lang if (saved_lang
                                       and not i18nmod.known(saved_lang)) else None
-        self.i18n = Translator(i18nmod.DEFAULT_LANG if unknown_lang else None)
+        # A SCOPED runtime is one of several open profiles, and its language is that
+        # profile's business alone: writing the machine-wide fallback there would rename
+        # the language of every OTHER profile that has never chosen one (#1206).
+        self.i18n = Translator(i18nmod.DEFAULT_LANG if unknown_lang else None,
+                               persist=scope is None)
         if saved_lang and not unknown_lang:
             self.i18n.set_lang(saved_lang)
 
-        dbgmod.configure(self.profiles.debug_log())
+        dbgmod.configure(self.profiles.debug_log(), scope=self.scope)
         self.log = LogBus(translate=self.i18n.t,
-                          debug_logger=dbgmod.get_logger("ui"), echo=echo_log)
+                          debug_logger=self.dbg("ui"), echo=echo_log)
         self.log.open_file(self.profiles.panel_log())
         # Said only now: the log is what it is said into, and it needs the translator.
         if unknown_lang:
@@ -71,17 +82,22 @@ class PanelRuntime:
 
         self.tick = Ticker(root)
         self.bus = EventBus(root)
+        # `token` and `target` are read lazily on purpose: both answer off `self.game`,
+        # which is built on the next line. They are what makes this runtime's children
+        # and this runtime's scenarios press THIS profile's client rather than whichever
+        # one the process environment happens to name (#1206).
         self.children = ChildFactory(
             log=self.log, cwd=REPO,
             python=lambda: self.settings.opt_str("win_python"),
-            port=self.daemon_port, schedule=root.after)
+            port=self.daemon_port, schedule=root.after,
+            token=lambda: self.game.token)
         self.game = GameLink(
             port=self.daemon_port,
             python=lambda: self.settings.opt_str("win_python"),
             log=self.log, env=self.children.env, cwd=REPO,
             daemon_script=LUA_DAEMON, on_state=daemon_state,
-            debug=dbgmod.get_logger("daemon"))
-        self.actions = ActionRunner(log=self.log)
+            debug=self.dbg("daemon"))
+        self.actions = ActionRunner(log=self.log, target=self.game_target)
         self._schedule = None           # built on first ask (see the property below)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         # Which tabs this window actually built. Empty until somebody fills it, never
@@ -110,6 +126,15 @@ class PanelRuntime:
         self._schedule = value
 
     # -- the shorthands every tab uses constantly ---------------------------
+    def dbg(self, component: str = "panel"):
+        """This runtime's technical logger for one component (panel/debug_log.py).
+
+        Always through here rather than `debug_log.get_logger` directly: the module
+        function writes into the SHARED file, which is the right answer for one open
+        profile and the wrong one for two.
+        """
+        return dbgmod.get_logger(component, scope=self.scope)
+
     def t(self, key: str, **fmt) -> str:
         return self.i18n.t(key, **fmt)
 
@@ -167,6 +192,15 @@ class PanelRuntime:
         """The daemon this profile drives — a non-default port is another session's."""
         return self.settings.opt_int("daemon_port", low=1, high=65535)
 
+    def game_target(self) -> dict:
+        """Which client a scenario of THIS runtime drives, and under whose lease.
+
+        Handed to the interpreter on every run (`Context.game_port` / `game_token`).
+        Read fresh each time rather than snapshotted: the port follows a profile switch
+        or an edited setting, and the token is only there for as long as the claim is.
+        """
+        return {"game_port": self.daemon_port(), "game_token": self.game.token}
+
     # -- «I am still here» --------------------------------------------------
     def start_heartbeat(self) -> None:
         """Say once a minute that this panel is alive — from the Tk queue, deliberately.
@@ -220,9 +254,10 @@ def standalone(profile: str | None = None, lang: str | None = None,
     ``port`` overrides the profile's daemon port for this run only and is never written
     back — pointing a tab at the other client's daemon should not edit the profile.
     """
-    profiles = profilemod.ProfileManager()
-    if profile:
-        profiles.set_active(profile)
+    # PINNED when a profile was named: opening one tab against another profile is not
+    # the same as telling the panel to switch to it, and until this it was — the next
+    # `python -m panel` came up on whatever profile the last standalone tab was given.
+    profiles = profilemod.ProfileManager(pin=profile or None)
     rt = PanelRuntime(root, profiles=profiles, defaults=defaults, lang=lang,
                       echo_log=True)
     if port:

@@ -67,6 +67,7 @@ class Schedule:
             runner=self.run_errand,
             log=lambda key, **fmt: rt.put("[timer] " + rt.t(key, **fmt)),
             gate=self.gate,
+            debug=rt.dbg("timers"),
         )
         self.triggers = triggersmod.TriggerWatcher(
             catalogue=lambda: self.trigger_catalogue,
@@ -75,6 +76,7 @@ class Schedule:
             submit=self.timers.submit,
             poll=self.poll,
             log=lambda key, **fmt: rt.put("[trigger] " + rt.t(key, **fmt)),
+            debug=rt.dbg("triggers"),
         )
 
     # -- what a tab brings with it ------------------------------------------

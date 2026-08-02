@@ -85,6 +85,10 @@ class ColdGameLink:
         self.asked: list = []
         self.client = None
         self.busy = False
+        # A cold link holds no lease. Read (not asked-about) by the child factory and
+        # by `rt.game_target()`, both of which are wired at construction and must not
+        # count as the tab having touched the game.
+        self.token = ""
 
     def port(self) -> int:
         self.asked.append("port")

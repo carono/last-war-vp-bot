@@ -696,6 +696,20 @@ class Context:
     # game primitives (LUA / READ_LUA / GAME / JUMP). Created on first use so
     # vision-only scripts never touch the daemon. See Interpreter._evaluator().
     evaluator: Any = None
+    # WHICH client this run drives, and under whose lease. Both `None` mean "whatever
+    # this process is set to" — the environment's LW_DAEMON_PORT and LW_GAME_LEASE —
+    # which is right for every script started from a shell and is what every caller
+    # got before these existed.
+    #
+    # A caller that holds the answer says it here instead. The panel does: a profile
+    # naming a non-default port drives the client of ANOTHER Windows session
+    # (tools/rdp_instance.py), and until this existed its scenarios went to the
+    # console session's client regardless, because the module-level port in
+    # `lua_client` is read from the environment at import. One panel process may also
+    # hold two profiles' leases at once, and an environment variable can hold one
+    # (#1206) — so the token travels with the run as well.
+    game_port: int | None = None
+    game_token: str | None = None
     # Script variables written by READ_LUA and tested by numeric IF/WHILE conditions.
     vars: dict = field(default_factory=dict)
     # Optional stop flag — anything with `.is_set()` (a threading.Event). Checked
@@ -1162,6 +1176,9 @@ class Interpreter:
         Backed by the warm daemon when it is up, otherwise a fresh local `LuaEval`
         (see tools/lib/lua_client.get_evaluator). Cached on the Context so every game
         primitive in one action reuses the same connection.
+
+        On the port and the lease the context names, when it names them — see
+        `Context.game_port`. Left unsaid, the environment answers, exactly as before.
         """
         if self.ctx.evaluator is None:
             self._tools_lib_on_path()
@@ -1171,7 +1188,12 @@ class Interpreter:
                 raise ScriptRuntimeError(
                     f"game primitives need the Lua bridge in tools/lib — {exc}"
                 ) from exc
-            self.ctx.evaluator = lua_client.get_evaluator()
+            opts = {}
+            if self.ctx.game_port is not None:
+                opts["port"] = int(self.ctx.game_port)
+            if self.ctx.game_token is not None:
+                opts["token"] = self.ctx.game_token
+            self.ctx.evaluator = lua_client.get_evaluator(**opts)
         return self.ctx.evaluator
 
     def _run_lua(self, chunk: str, marker: str = "ACT", settle: float = 1.2) -> list:
@@ -1471,6 +1493,21 @@ class Interpreter:
     # into the game's Lua VM is bound to a PROCESS ID. Left alone, everything after a
     # restart drives a pid that no longer exists.
 
+    def _fail(self, reason: str) -> None:
+        """End the run as a deliberate failure, in the scenario's own words.
+
+        The same thing a `FAIL "…"` line does, raised from inside a primitive: the
+        reason lands on the context, so the panel's timer row shows it verbatim and
+        the errand is retried rather than counted as done. A `ScriptRuntimeError`
+        would be the wrong shape here — the project keeps blow-ups and deliberate
+        failures apart on purpose (tests/test_panel_action_outcome.py), and a client
+        that did not come back is a condition to try again later, not a broken script.
+        """
+        self.ctx.failed = True
+        self.ctx.fail_reason = reason
+        self._log(f"FAIL -> {reason}")
+        raise _FailSignal()
+
     def _detach(self) -> None:
         """Let go of this run's Lua link, so the next primitive builds a fresh one.
 
@@ -1523,8 +1560,7 @@ class Interpreter:
             self._log("QUIT_GAME -> no client is running")
             return
         if not game_client.close(pid, timeout=QUIT_TIMEOUT_SEC):
-            raise ScriptRuntimeError(
-                f"line {stmt.line_no}: the client (pid {pid}) did not close")
+            self._fail(f"the client (pid {pid}) would not close")
         self._log(f"QUIT_GAME -> client pid {pid} closed")
 
     def _do_attach_game(self, stmt: AttachGameStmt) -> None:
@@ -1566,11 +1602,10 @@ class Interpreter:
             if time.time() >= deadline:
                 break
             time.sleep(2.0)
-        raise ScriptRuntimeError(
-            f"line {stmt.line_no}: the game link did not come back within "
-            f"{stmt.timeout:g}s"
-            + (f" (client pid {pid} is up, the daemon would not attach)" if pid
-               else " (no client is running)"))
+        self._fail(
+            f"the game link did not come back within {stmt.timeout:g}s"
+            + (f" — the client (pid {pid}) is up, but the daemon would not attach to it"
+               if pid else " — no client is running"))
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.
@@ -1600,6 +1635,8 @@ def new_context(
     profile: Any = None,
     variables: dict | None = None,
     cancel: Any = None,
+    game_port: int | None = None,
+    game_token: str | None = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -1607,12 +1644,15 @@ def new_context(
     writes to — so a caller can hand a script its parameters and the script tests
     them with the ordinary ``IF x > 3`` / ``WHILE x > 0`` conditions.
 
+    `game_port` / `game_token` name WHICH client this run drives and under whose lease;
+    left out, the environment answers as it always has (see :class:`Context`).
+
     Pass the same context to several `run_action` / `run_text` calls to run them
     as one session: variables, the last FIND and the Lua evaluator are shared, so
     a sequence costs one daemon connection rather than one per step.
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
-                  cancel=cancel)
+                  cancel=cancel, game_port=game_port, game_token=game_token)
     if variables:
         ctx.vars.update(variables)
     return ctx
@@ -1626,6 +1666,8 @@ def run_action(
     variables: dict | None = None,
     ctx: Context | None = None,
     cancel: Any = None,
+    game_port: int | None = None,
+    game_token: str | None = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -1635,10 +1677,12 @@ def run_action(
 
     `variables` seeds ``ctx.vars`` (see :func:`new_context`); `ctx` runs in an
     existing context instead of a fresh one, which is how a caller chains several
-    actions into one session.
+    actions into one session. `game_port` / `game_token` are ignored when `ctx` is
+    given — the context already names its own client.
     """
     if ctx is None:
-        ctx = new_context(hwnd, on_event, profile, variables, cancel)
+        ctx = new_context(hwnd, on_event, profile, variables, cancel,
+                          game_port, game_token)
     return Interpreter(ctx).run_action(name)
 
 
@@ -1651,6 +1695,8 @@ def run_text(
     ctx: Context | None = None,
     cancel: Any = None,
     label: str = "inline",
+    game_port: int | None = None,
+    game_token: str | None = None,
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
 
@@ -1663,7 +1709,8 @@ def run_text(
     a failing action file would be.
     """
     if ctx is None:
-        ctx = new_context(hwnd, on_event, profile, variables, cancel)
+        ctx = new_context(hwnd, on_event, profile, variables, cancel,
+                          game_port, game_token)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

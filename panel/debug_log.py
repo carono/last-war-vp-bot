@@ -22,6 +22,18 @@ the single rotating file under all of them::
 The panel calls :func:`configure` at start-up and on every profile switch to point
 that shared file at the active profile (idempotent — it never stacks two handlers).
 Zipping and shipping the files lives next door in :mod:`panel.debug_sender`.
+
+SCOPES. One panel window may hold several profiles open at once (#1206), and each owes
+its own ``debug.log``. A *scope* is a name inserted into the logger tree —
+``lastwar.panel.<scope>.<component>`` — with that profile's rotating handler on
+``lastwar.panel.<scope>``. Two scopes are two files, filled independently::
+
+    log = debug_log.get_logger("timers", scope="alt")
+    debug_log.configure(profiles.debug_log("alt"), scope="alt")
+
+An unscoped call means exactly what it always meant: the shared tree, the shared file.
+So nothing that has not been given a scope changes behaviour, and a window with one
+profile open is unchanged in every respect.
 """
 from __future__ import annotations
 
@@ -63,48 +75,73 @@ def level_of(name) -> int:
     return _LEVELS.get(str(name or "").strip().upper(), logging.DEBUG)
 
 
+def _scope_name(scope: "str | None") -> str:
+    """The logger the handler for ``scope`` sits on — the shared root when unscoped."""
+    scope = _clean(scope)
+    return f"{ROOT_NAME}.{scope}" if scope else ROOT_NAME
+
+
+def _clean(part) -> str:
+    """A logger-name-safe piece: dots would silently make a whole extra level."""
+    return str(part or "").strip().replace(".", "_")
+
+
 class _ComponentFilter(logging.Filter):
     """Give every record a ``component`` field derived from its logger name.
 
     ``lastwar.panel.timers`` → ``timers``; the bare ``lastwar.panel`` → ``panel``.
     Without this the ``[%(component)s]`` in the format would raise on a record that
     did not set it, so it is attached to the handler and covers all of them.
+
+    A scoped handler is told its own prefix, so ``lastwar.panel.alt.timers`` reads as
+    ``timers`` in ``alt``'s file rather than as ``alt.timers``. The file already IS the
+    profile; repeating its name on all forty thousand lines says nothing.
     """
+
+    def __init__(self, prefix: str = ROOT_NAME) -> None:
+        super().__init__()
+        self.prefix = prefix
 
     def filter(self, record: logging.LogRecord) -> bool:
         name = record.name
-        if name == ROOT_NAME:
+        if name == self.prefix:
             record.component = "panel"
-        elif name.startswith(ROOT_NAME + "."):
-            record.component = name[len(ROOT_NAME) + 1:]
+        elif name.startswith(self.prefix + "."):
+            record.component = name[len(self.prefix) + 1:]
         else:
             record.component = name
         return True
 
 
-def get_logger(component: str = "panel") -> logging.Logger:
+def get_logger(component: str = "panel", scope: "str | None" = None) -> logging.Logger:
     """The debug logger for one component (``timers`` / ``triggers`` / …).
 
     Configured centrally by :func:`configure`; usable before it is called (records
     are simply dropped until the handler exists), so a module can grab its logger at
     import time and the panel wires the file later.
+
+    ``scope`` names one open profile's own file (see the module docstring); left out,
+    this is the shared tree it has always been.
     """
-    component = str(component or "panel").strip() or "panel"
-    return logging.getLogger(f"{ROOT_NAME}.{component}")
+    component = _clean(component) or "panel"
+    return logging.getLogger(f"{_scope_name(scope)}.{component}")
 
 
 def configure(path: str | None = None, *, max_bytes: int = DEFAULT_MAX_BYTES,
-              backups: int = DEFAULT_BACKUPS, level: str = DEFAULT_LEVEL) -> logging.Logger:
-    """Point the shared rotating handler at ``path``. Idempotent.
+              backups: int = DEFAULT_BACKUPS, level: str = DEFAULT_LEVEL,
+              scope: "str | None" = None) -> logging.Logger:
+    """Point ``scope``'s rotating handler at ``path``. Idempotent.
 
-    Replaces any handler this module installed before, so calling it again on a
-    profile switch re-points the file without ever stacking two handlers. Never
-    raises: logging must not be the thing that stops the panel, so a directory that
-    cannot be created just leaves the parent handler-less (records are dropped)
-    rather than crashing the caller.
+    Replaces any handler this module installed on that scope before, so calling it
+    again on a profile switch re-points the file without ever stacking two handlers —
+    and leaves every OTHER scope's file exactly where it was, which is what lets two
+    open profiles each keep their own. Never raises: logging must not be the thing
+    that stops the panel, so a directory that cannot be created just leaves the parent
+    handler-less (records are dropped) rather than crashing the caller.
     """
     path = path or DEBUG_LOG
-    root = logging.getLogger(ROOT_NAME)
+    name = _scope_name(scope)
+    root = logging.getLogger(name)
     root.setLevel(level_of(level))
     root.propagate = False        # ours alone — never up to the process root logger
     for handler in list(root.handlers):
@@ -122,15 +159,15 @@ def configure(path: str | None = None, *, max_bytes: int = DEFAULT_MAX_BYTES,
     except (OSError, ValueError):
         return root
     handler._panel_debug = True      # our marker, so the next configure() finds it
-    handler.addFilter(_ComponentFilter())
+    handler.addFilter(_ComponentFilter(name))
     handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
     root.addHandler(handler)
     return root
 
 
-def shutdown() -> None:
-    """Close our rotating handler — called when the panel is going away."""
-    root = logging.getLogger(ROOT_NAME)
+def shutdown(scope: "str | None" = None) -> None:
+    """Close ``scope``'s rotating handler — called when its window is going away."""
+    root = logging.getLogger(_scope_name(scope))
     for handler in list(root.handlers):
         if getattr(handler, "_panel_debug", False):
             root.removeHandler(handler)

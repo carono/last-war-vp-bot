@@ -58,15 +58,39 @@ class Outcome:
 class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
-    def __init__(self, log, claim=None, release=None) -> None:
+    def __init__(self, log, claim=None, release=None, target=None) -> None:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
+        # callable() -> {"game_port": int, "game_token": str} — WHICH client this
+        # runner's scenarios drive, and under whose lease. See :meth:`_target`.
+        self._target = target
+
+    def _target_kw(self) -> dict:
+        """The client this runner presses into, as keyword arguments for a context.
+
+        Without it the interpreter falls back to the environment, which names ONE
+        daemon for the whole process — so a profile on a non-default port pressed its
+        scenarios into the console session's client while its captures and its children
+        correctly drove the other one, and two profiles open at once could not both be
+        right at all (#1206). A runner built without a target keeps the old behaviour,
+        which is what a bare harness wants.
+        """
+        if self._target is None:
+            return {}
+        try:
+            target = self._target() or {}
+        except Exception:                 # noqa: BLE001 — a read, never the run
+            return {}
+        return {key: target[key] for key in ("game_port", "game_token")
+                if target.get(key) is not None}
 
     # -- running ------------------------------------------------------------
     def context(self, on_event=None, **kw):
         """A fresh interpreter context whose events land in the log."""
         from lastwar_bot import script_engine
+        for key, value in self._target_kw().items():
+            kw.setdefault(key, value)
         return script_engine.new_context(
             on_event=on_event if on_event is not None else self._log.put, **kw)
 
@@ -80,9 +104,12 @@ class ActionRunner:
         """
         from lastwar_bot import script_engine
         if ctx is not None:
-            kw["ctx"] = ctx
-        elif on_event is not None or not kw.get("on_event"):
-            kw.setdefault("on_event", on_event or self._log.put)
+            kw["ctx"] = ctx               # it already names its own client
+        else:
+            if on_event is not None or not kw.get("on_event"):
+                kw.setdefault("on_event", on_event or self._log.put)
+            for key, value in self._target_kw().items():
+                kw.setdefault(key, value)
         return bool(script_engine.run_action(name, hwnd=hwnd,
                                              variables=args or {}, **kw))
 

@@ -808,7 +808,11 @@ class TimerScheduler:
 
     def __init__(self, *, store: LastRunStore, catalogue, config, runner, log,
                  gate=None, tick: float = TICK_SEC,
-                 busy_retry: float = BUSY_RETRY_SEC) -> None:
+                 busy_retry: float = BUSY_RETRY_SEC, debug=None) -> None:
+        # `debug` is the OWNING RUNTIME's technical logger (`rt.dbg("timers")`), so two
+        # open profiles keep two debug.logs (#1206). The module-level one is the
+        # fallback for a scheduler built without a runtime, which is what the tests do.
+        self._dbg = debug if debug is not None else _dbg
         self._store = store
         self._catalogue = catalogue
         self._config = config
@@ -853,11 +857,11 @@ class TimerScheduler:
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="panel-timers")
         self._thread.start()
-        _dbg.info("scheduler started")
+        self._dbg.info("scheduler started")
 
     def stop(self) -> None:
         self._stop.set()
-        _dbg.info("scheduler stopped")
+        self._dbg.info("scheduler stopped")
 
     @property
     def running(self) -> bool:
@@ -979,7 +983,7 @@ class TimerScheduler:
                 # A scheduler that dies takes every timer with it, silently —
                 # so nothing above is allowed to escape this loop.
                 self._log("timers.log.tick_error", error=exc)
-                _dbg.error("tick error", exc_info=True)
+                self._dbg.error("tick error", exc_info=True)
                 self._stop.wait(self._tick)
 
     def enqueue_due(self, now: float | None = None) -> list[str]:
@@ -1086,24 +1090,24 @@ class TimerScheduler:
         if scheduled:
             self._log("timers.log.fire", name=timer.name,
                       mins=self._minutes_since(timer.name))
-            _dbg.info("fire %s (scheduled)", timer.name)
+            self._dbg.info("fire %s (scheduled)", timer.name)
         else:
             self._log("timers.log.manual", name=timer.name)
-            _dbg.info("fire %s (manual)", timer.name)
+            self._dbg.info("fire %s (manual)", timer.name)
         try:
             started = self._runner(timer)
         except Exception as exc:                          # noqa: BLE001
             self._store.mark_failed(timer.name)
             self._log("timers.log.failed", name=timer.name, error=exc)
-            _dbg.error("run of %s failed", timer.name, exc_info=True)
+            self._dbg.error("run of %s failed", timer.name, exc_info=True)
             return False, False
         if not started:
             self._log("timers.log.skip_busy", name=timer.name)
-            _dbg.warning("skipped %s — panel busy", timer.name)
+            self._dbg.warning("skipped %s — panel busy", timer.name)
             return False, True
         self._store.mark_run(timer.name)
         self._log("timers.log.done", name=timer.name)
-        _dbg.info("done %s", timer.name)
+        self._dbg.info("done %s", timer.name)
         return True, False
 
     def _minutes_since(self, name: str) -> int:

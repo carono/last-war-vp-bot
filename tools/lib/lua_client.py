@@ -174,7 +174,8 @@ def is_running(host: str = HOST, port: int = PORT, timeout: float = 1.0) -> bool
         return False
 
 
-def get_evaluator(prefer_daemon: bool = True, host: str = HOST, port: int = PORT):
+def get_evaluator(prefer_daemon: bool = True, host: str = HOST, port: int = PORT,
+                  token: "str | None" = None):
     """Return a `.run(chunk, marker, settle)` evaluator.
 
     Daemon-backed when reachable, otherwise a fresh local `LuaEval` (imported lazily so
@@ -183,9 +184,15 @@ def get_evaluator(prefer_daemon: bool = True, host: str = HOST, port: int = PORT
     The fallback applies to the default port only. A non-default port names another
     session's client, which a local `LuaEval` cannot reach — there, an unreachable
     daemon raises instead of quietly driving the client of this session.
+
+    ``token`` names the lease this evaluator runs under, for a caller that holds one
+    without the environment saying so. ``None`` keeps the old meaning — whatever
+    `current_lease()` reads — and is right for every script started from a shell. It is
+    the PANEL that needs to be explicit: one process there may hold two profiles' leases
+    at once, and an environment variable can only ever hold one of them (#1206).
     """
     if prefer_daemon and is_running(host, port):
-        return DaemonClient(host, port)
+        return DaemonClient(host, port, token=token)
     if port != DEFAULT_PORT:
         raise ConnectionRefusedError(
             f"no Lua daemon on {host}:{port} — that is another session's client, and it "

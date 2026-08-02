@@ -122,8 +122,12 @@ def build_chunk(readings: "tuple[Reading, ...] | None" = None) -> str:
     return "".join(lines)
 
 
-def parse(lines) -> dict:
+def parse(lines, debug=None) -> dict:
     """The chunk's answer line back into ``{key: int | float | None}``.
+
+    ``debug`` is the caller's technical logger (`rt.dbg("dashboard")`); without one the
+    module's own is used, which is the shared file — right for one open profile, and
+    the reason a second one passes its own (#1206).
 
     ``None`` for anything the VM could not evaluate *and* for anything the line did
     not mention at all, so a caller never has to tell a missing key from a broken
@@ -132,6 +136,7 @@ def parse(lines) -> dict:
     Reads the LAST matching line: a poll that overlapped a previous one would
     otherwise be answered with the older numbers.
     """
+    dbg = debug if debug is not None else _dbg
     out: dict = {key: None for key in KEYS}
     payload = None
     for line in lines or ():
@@ -139,14 +144,14 @@ def parse(lines) -> dict:
         if sep:
             payload = tail
     if payload is None:
-        _dbg.debug("no answer line (marker %r) in the poll output", MARKER)
+        dbg.debug("no answer line (marker %r) in the poll output", MARKER)
         return out
     for token in payload.split():
         key, sep, raw = token.partition("=")
         if not sep or key not in out:
             continue
         out[key] = _number(raw)
-    _dbg.debug("read %d/%d readings", sum(v is not None for v in out.values()), len(out))
+    dbg.debug("read %d/%d readings", sum(v is not None for v in out.values()), len(out))
     return out
 
 

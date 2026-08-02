@@ -17,36 +17,54 @@ THE ENVIRONMENT IS THE INTERESTING PART. Two variables travel with every child:
 * ``LW_GAME_LEASE`` — for as long as the runtime is holding the game
   (tools/lib/game_lease.py). Auto-loot claims the lease and *then* spawns the tool that
   does the robbing; without the token that child would wait for a lease its own parent
-  is holding. It rides in `os.environ` while held, so it is simply inherited.
+  is holding. It is READ OFF THIS RUNTIME'S GAME LINK, not off `os.environ`: with two
+  profiles open the environment can only hold one of the two live tokens, and a child
+  carrying the other profile's would have its every run refused (#1206). An unheld
+  lease removes the variable rather than passing an empty one, so a stale token
+  inherited from whoever launched the panel cannot leak into a child either.
 """
 from __future__ import annotations
 
 import os
 import subprocess
 
+import lua_client
+
 from .. import childmon as childmonmod
 
 # Windows: no console window for a child the panel is reading through a pipe.
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 
+#: The variable a child reads its inherited lease from (tools/lib/lua_client.py).
+LEASE_VAR = lua_client.LEASE_ENV_VAR
+
 
 class ChildFactory:
     """Makes :class:`panel.childmon.ChildMonitor`s bound to one runtime."""
 
-    def __init__(self, log, cwd: str, python, port, schedule) -> None:
+    def __init__(self, log, cwd: str, python, port, schedule, token=None) -> None:
         self._log = log                 # the LogBus
         self._cwd = cwd
         self._python = python           # callable: the interpreter to run children with
         self._port = port               # callable: this profile's daemon port
         self._schedule = schedule       # widget.after — how a child gets onto the Tk thread
+        # callable: the lease this runtime's game link is holding, or "". A factory
+        # built without one passes no lease at all, which is what a harness wants.
+        self._token = token or (lambda: "")
 
     def python(self) -> str:
         return self._python()
 
     def env(self) -> dict:
         """The environment every child is launched with (see the module docstring)."""
-        return dict(os.environ, PYTHONIOENCODING="utf-8",
-                    LW_DAEMON_PORT=str(self._port()))
+        env = dict(os.environ, PYTHONIOENCODING="utf-8",
+                   LW_DAEMON_PORT=str(self._port()))
+        token = str(self._token() or "")
+        if token:
+            env[LEASE_VAR] = token
+        else:
+            env.pop(LEASE_VAR, None)
+        return env
 
     def spawn(self, tag: str, cmd: list, *, on_line=None, on_exit=None,
               capture_stderr: bool = True) -> "childmonmod.ChildMonitor":

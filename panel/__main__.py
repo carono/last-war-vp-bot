@@ -448,8 +448,8 @@ class Panel(tk.Tk):
         # and errors, `ui` for the mirror of every widget line. _dbg_status_prev
         # remembers the last systems snapshot so only transitions are logged at INFO.
         self._configure_debug_log()
-        self._dbg = dbgmod.get_logger("panel")
-        self._dbg_ui = dbgmod.get_logger("ui")
+        self._dbg = self._rt.dbg("panel")
+        self._dbg_ui = self._rt.dbg("ui")
         self._logbus.set_debug_logger(self._dbg_ui)
         self._dbg_status_prev = None
         self._install_exception_logging()
@@ -1500,7 +1500,7 @@ class Panel(tk.Tk):
         if self._dash_stop is not None:
             return
         self._dash_stop = threading.Event()
-        dbgmod.get_logger("dashboard").info("poller started")
+        self._rt.dbg("dashboard").info("poller started")
         threading.Thread(target=self._dash_loop, args=(self._dash_stop,),
                          daemon=True).start()
 
@@ -1508,7 +1508,7 @@ class Panel(tk.Tk):
         stop, self._dash_stop = self._dash_stop, None
         if stop is not None:
             stop.set()
-            dbgmod.get_logger("dashboard").info("poller stopped")
+            self._rt.dbg("dashboard").info("poller stopped")
 
     def _dash_loop(self, stop: threading.Event) -> None:
         """Re-read the strip until the panel closes.
@@ -1526,7 +1526,7 @@ class Panel(tk.Tk):
                 if err != self._dash_err:
                     self._dash_err = err
                     self._say("dash", "log.dash.unreadable", error=err)
-                    dbgmod.get_logger("dashboard").warning(
+                    self._rt.dbg("dashboard").warning(
                         "readings unreadable", exc_info=True)
             if stop.wait(DASH_POLL_SEC):
                 return
@@ -1549,7 +1549,7 @@ class Panel(tk.Tk):
             return
         lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
                                  settle=dashmod.SETTLE)
-        values = dashmod.parse(lines)
+        values = dashmod.parse(lines, debug=self._rt.dbg("dashboard"))
         self._dash_err = ""
         self._dash_values = values
         self.after(0, self._render_dashboard)
@@ -1665,7 +1665,7 @@ class Panel(tk.Tk):
         stacking handlers. The rotation is fixed (5 MiB × 3); only the destination
         follows the profile.
         """
-        dbgmod.configure(self._profiles.debug_log())
+        dbgmod.configure(self._profiles.debug_log(), scope=self._rt.scope)
 
     def _install_exception_logging(self) -> None:
         """Route uncaught errors — Tk callbacks and worker threads — into the debug log.
@@ -2654,7 +2654,7 @@ class Panel(tk.Tk):
         # gets, because the log has just been closed above.
         self._disarm_all()
         self._dbg.info("panel closing")
-        dbgmod.shutdown()
+        dbgmod.shutdown(self._rt.scope)
         self.destroy()
 
     # -- window geometry, remembered per profile -----------------------------

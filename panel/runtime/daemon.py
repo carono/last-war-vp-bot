@@ -19,14 +19,25 @@ The daemon's answer is authoritative. A failed claim releases the local flag aga
 nothing is left held. No daemon reachable means nothing else can be driving the game
 either, so the local flag alone is enough there — the fallback is honest, not a hole.
 
-The token lives in `os.environ` for exactly as long as the claim does. That is what
-reaches the two places this object does not: an evaluator a recipe builds for itself
-mid-action (which is how the lease gets renewed at all), and every child spawned
-meanwhile — auto-loot claims and *then* spawns the tool that does the robbing.
+THE TOKEN BELONGS TO THE LINK, NOT TO THE PROCESS. It used to live in `os.environ`, and
+that was fine while a panel meant one profile. It is not fine with two profiles open at
+once (#1206): the second link to claim overwrote the first one's token, the first to
+release deleted the second one's live one, and a child spawned in between inherited
+whichever happened to be there. So the token is `self.token` and is handed explicitly to
+the three places that need it —
+
+* the evaluator this link builds (`evaluator()`), which is how a chunk run mid-action
+  renews the claim rather than being refused by it;
+* every child spawned by the same runtime (`ChildFactory.env` asks for it) — auto-loot
+  claims and *then* spawns the tool that does the robbing;
+* the scenario interpreter, through `Context.game_token`, which is where a recipe
+  building an evaluator for itself gets one that carries the lease.
+
+`LW_GAME_LEASE` is still what a tool started from a shell inherits; it simply stopped
+being how the panel talks to itself.
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 import time
@@ -72,30 +83,46 @@ class GameLink:
         self._dbg = debug
         self._busy = False
         self._busy_lock = threading.Lock()
-        self.client = lua_client.DaemonClient(port=self.port())
+        # `token=""` — explicitly unleased, rather than "whatever this process
+        # inherited". A panel process may hold two profiles' leases at once, so a
+        # client that picked one up out of the environment would be carrying the
+        # other profile's right to drive the other profile's client.
+        self.client = lua_client.DaemonClient(port=self.port(), token="")
 
     # -- the connection -----------------------------------------------------
     def port(self) -> int:
         return int(self._port())
+
+    @property
+    def token(self) -> str:
+        """The lease this link holds, or ``""``. What a child and a run are handed."""
+        client = self.client
+        return str(getattr(client, "token", "") or "") if client is not None else ""
 
     def up(self) -> bool:
         """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
         return lua_client.is_running(port=self.port())
 
     def evaluator(self):
-        """The warm evaluator, on this profile's port.
+        """The warm evaluator, on this profile's port and under THIS link's lease.
 
-        Carries whatever lease this process is running under, so a chunk run through it
-        during an action renews the claim rather than being refused by it.
+        A chunk run through it during an action renews the claim rather than being
+        refused by it — and it renews the claim of the profile that took it, which is
+        the part an environment variable could not get right with two of them open.
         """
-        return lua_client.get_evaluator(port=self.port())
+        return lua_client.get_evaluator(port=self.port(), token=self.token)
 
     def rebind(self) -> bool:
-        """Point the client at the profile's port. ``True`` if it actually moved."""
+        """Point the client at the profile's port. ``True`` if it actually moved.
+
+        The lease comes along: re-pointing is what a profile switch and a port edit do,
+        and a claim silently dropped there would leave the daemon holding a lease this
+        link no longer knows it has.
+        """
         port = self.port()
         if getattr(self.client, "port", None) == port:
             return False
-        self.client = lua_client.DaemonClient(port=port)
+        self.client = lua_client.DaemonClient(port=port, token=self.token)
         return True
 
     def ensure(self) -> bool:
@@ -148,7 +175,9 @@ class GameLink:
             if not self.up():
                 break
             time.sleep(FREE_WAIT)
-        self.client = lua_client.DaemonClient(port=self.port())
+        # No token carried over: the daemon that granted it is gone, so the lease died
+        # with it. A fresh one starts unleased rather than waving a dead token about.
+        self.client = lua_client.DaemonClient(port=self.port(), token="")
         return self.ensure()
 
     # -- the claim ----------------------------------------------------------
@@ -165,7 +194,11 @@ class GameLink:
         return True
 
     def _claim_lease(self, owner: str) -> bool:
-        """Claim the daemon's lease. True also when there is no daemon to claim it from."""
+        """Claim the daemon's lease. True also when there is no daemon to claim it from.
+
+        `acquire` stores the token on the client itself, which is this link's own state
+        and nobody else's — see the module docstring on why that matters.
+        """
         client = self.client
         if client is None or not hasattr(client, "acquire"):
             return True
@@ -174,7 +207,6 @@ class GameLink:
         except OSError:            # no daemon — nothing else can be driving the game
             return True
         if token:
-            os.environ[lua_client.LEASE_ENV_VAR] = token
             return True
         try:
             held = client.lease_state()
@@ -185,10 +217,9 @@ class GameLink:
         return False
 
     def release(self) -> None:
-        # Clear the environment FIRST: a child spawned between the release and the pop
-        # would carry a token the daemon has already given away, and every run it made
-        # would be refused as a lost lease.
-        os.environ.pop(lua_client.LEASE_ENV_VAR, None)
+        # `client.release()` clears the token on the way out even when the daemon is
+        # unreachable, so a child spawned after this can never carry a token the daemon
+        # has already given away — every run it made would be refused as a lost lease.
         client = self.client
         if client is not None and hasattr(client, "release"):
             try:

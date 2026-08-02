@@ -82,6 +82,11 @@ LEADERBOARD_DB = "leaderboard_history.db"
 ALIVE_FILE = "panel_alive.json"
 AUTOSTART_STATE = "autostart.json"
 AUTOSTART_LOG = "autostart.log"
+# The instance lock: an open file the panel holds an exclusive OS lock on for its whole
+# life, so "a panel is on this profile" is answered by the kernel and cannot go stale —
+# the lock dies with the process whatever killed it. Its contents are the pid, for
+# somebody reading the folder; the LOCK is the part that means anything.
+LOCK_FILE = "panel.lock"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -116,15 +121,26 @@ def _sanitize_uid(uid: str) -> str:
 
 
 class ProfileManager:
-    """On-disk store of named profiles and the active-profile pointer."""
+    """On-disk store of named profiles and the active-profile pointer.
 
-    def __init__(self) -> None:
+    ``pin`` makes this manager *be* one named profile instead of following the panel's
+    saved pointer: `active` is that profile, and :meth:`set_active` moves this manager
+    alone and writes nothing to the shared `panel/settings.json`.
+
+    That is what lets one window hold several profiles open at once (#1206). Without it
+    every runtime built in the process shares one answer to "which profile is this",
+    and the second one to be built silently redefines the first. Unpinned — the default
+    — is the panel's own manager and behaves exactly as it always has.
+    """
+
+    def __init__(self, pin: str | None = None) -> None:
         os.makedirs(PROFILES_DIR, exist_ok=True)
         # A fresh install has no profiles — seed the default so the UI always
         # has something to select.
         if not self.list():
             self._ensure_dir(DEFAULT_PROFILE)
-        self._active = self._read_active()
+        self.pinned = bool(sanitize(pin or ""))
+        self._active = self._ensure_dir(pin) if self.pinned else self._read_active()
 
     # -- profile enumeration ------------------------------------------------
     def list(self) -> list[str]:
@@ -158,9 +174,15 @@ class ProfileManager:
         return name
 
     def set_active(self, name: str) -> str:
-        """Point the panel at ``name`` (creating it if missing) and persist it."""
+        """Point the panel at ``name`` (creating it if missing) and persist it.
+
+        A PINNED manager moves itself and stops there: it speaks for one open profile,
+        not for the panel, and the shared pointer is the workspace's to write.
+        """
         name = self._ensure_dir(name) if not self.exists(name) else sanitize(name)
         self._active = name
+        if self.pinned:
+            return name
         data = {}
         try:
             with open(SETTINGS_FILE, encoding="utf-8") as fh:
@@ -320,6 +342,10 @@ class ProfileManager:
     def heartbeat(self, name: str | None = None) -> str:
         """Where the open panel says it is still answering (panel/runtime/autostart.py)."""
         return os.path.join(self.dir(name), ALIVE_FILE)
+
+    def lock_file(self, name: str | None = None) -> str:
+        """The file whose OS lock means «a panel process holds this profile»."""
+        return os.path.join(self.dir(name), LOCK_FILE)
 
     def autostart_state(self, name: str | None = None) -> str:
         """What the hourly check last made of that heartbeat."""

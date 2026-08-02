@@ -126,7 +126,19 @@ def translated(t, value) -> str:
 
 
 class I18n:
-    def __init__(self, lang: str | None = None) -> None:
+    """Locale lookup for one window, and the machine-wide fallback language.
+
+    ``persist`` is what writes the chosen language to `~/.last_war_panel.json`, which
+    is only ever a FALLBACK: the language a profile is set to lives in that profile's
+    own `config.json` and is applied when the profile is opened. With one profile open
+    the two agree and writing it costs nothing. With two (#1206) they do not — whichever
+    window's language was changed last would become the machine's, and the other
+    profile would come back in it — so a window that belongs to a profile is built with
+    ``persist=False`` and the profile alone remembers.
+    """
+
+    def __init__(self, lang: str | None = None, persist: bool = True) -> None:
+        self.persist = persist
         self.lang = lang or self._load_pref()
         if self.lang not in available_langs():
             self.lang = DEFAULT_LANG
@@ -154,7 +166,8 @@ class I18n:
         if lang not in available_langs() or lang == self.lang:
             return False
         self.lang = lang
-        self._save_pref(lang)
+        if self.persist:
+            self._save_pref(lang)
         return True
 
     def _load_pref(self) -> str:
