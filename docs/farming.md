@@ -100,12 +100,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Code Name
 - ❌ Desert Storm
 - ❌ Snow Storm
-- 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot plays the run
-  itself: it finds the open event, starts a run, dodges its way down the road, revives and
-  writes down every distance. The game window does not need to be in front, so the person
-  can keep using the computer. Left to the person: nothing during a run. Still open: it
-  does not hold a distance past about 1000 m — the 8185 m record and the 20000 m target are
-  well out of reach.
+- 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot runs it by
+  itself; it does not hold a distance past about 1000 m.
 
 ### Arms Race
 
