@@ -162,6 +162,47 @@ def test_the_tabs_page_writes_the_profile_and_asks_for_a_restart():
         root.destroy()
 
 
+def test_ticking_develop_on_the_tabs_page_turns_it_on():
+    """The other direction, for the one tab that ships off (#1199).
+
+    «Develop» is the sniffers: not in a fresh profile, and the page is the ONLY way to
+    ask for it. Unticking is tested above; this is the half that would leave the tab
+    unreachable if it broke — the box would tick and the next start would still not
+    build it.
+    """
+    if ttk is None:
+        _skip()
+        return
+    try:
+        import tkinter as tk
+        import fake_runtime
+        from panel import tabs as tabsreg
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    root.withdraw()
+    try:
+        rt = fake_runtime.cold_runtime(root)
+        saved = {}
+        rt.settings.values = saved
+        rt.settings.save = lambda raw=None: None
+        tab = SettingsTab(rt, ttk.Frame(root))
+        tab._build_tabs_settings(ttk.Frame(root))
+        assert tab._tab_vars["develop"].get() is False
+
+        tab._tab_vars["develop"].set(True)
+        tab._save_tab_choice()
+        assert "develop" in saved["tabs"]["enabled"], saved["tabs"]
+        # …and that is what the next start reads, in the tab's own order — last.
+        resolved = [s.id for s in tabsreg.resolve(enabled=saved["tabs"]["enabled"],
+                                                  known=saved["tabs"]["known"])]
+        assert resolved[-1] == "develop", resolved
+    finally:
+        root.destroy()
+
+
 def test_a_tab_contributes_its_own_settings_page():
     """«Авторалли» is drawn by the rally tab, so it is there when rally is, and not
     when it is not (docs/research/panel-tabs-refactor.md §6)."""

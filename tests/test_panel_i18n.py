@@ -15,7 +15,9 @@ from __future__ import annotations
 import ast
 import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -93,6 +95,14 @@ def test_a_language_added_by_hand_is_offered_and_usable():
         # …and a key it does not translate still falls back to the default language
         # rather than showing the bare key: a half-translated locale stays usable.
         assert tr.t("menu.help") == i18n.I18n("en").t("menu.help")
+
+        # And through the RUNTIME, which is what the Language menu iterates — the
+        # module being right is no use if the panel asks something else.
+        from panel.runtime.i18n import Translator
+        menu = Translator()
+        assert "zz" in menu.available(), menu.available()
+        assert menu.name("zz") == "Тестовый"
+        assert menu.known("zz")
     assert "zz" not in i18n.available_langs(), "the temporary locale was not removed"
 
 
@@ -123,6 +133,83 @@ def test_a_broken_locale_is_not_a_crash():
                               i18n.LANG_NAME_KEY: 17}):
         assert i18n.lang_name("zw") == "zw"
         assert i18n.I18n("zw").t("menu.language") == "menu.language"
+
+
+def test_known_tells_a_missing_language_from_the_current_one():
+    """`set_lang` returns False for BOTH "no such language" and "already that one", and
+    only the first is worth a line in the log — so the question is asked separately."""
+    assert i18n.known("en") and i18n.known("ru")
+    assert not i18n.known("zq")
+    assert not i18n.known("")
+    assert not i18n.known(None)
+
+
+def test_a_profile_naming_a_language_with_no_file_falls_back_and_says_so():
+    """A profile written where `de.json` existed, opened on a machine where it is not.
+
+    English, a line in the log naming the language — and NOT a rewritten preference:
+    the remembered choice survives, so the language comes back by itself the moment the
+    file does.
+    """
+    try:
+        import tkinter as tk
+        from panel.runtime import host as hostmod
+        root = tk.Tk()
+    except Exception as exc:                            # noqa: BLE001
+        print(f"  SKIP no Tk: {exc}")
+        return
+    root.withdraw()
+    # The panel remembers the language in the REAL home directory; a test must not be
+    # what changes it, and `set_lang` writes on every successful switch.
+    pref, tmp = i18n._PREF_FILE, tempfile.mkdtemp()
+    i18n._PREF_FILE = os.path.join(tmp, "pref.json")
+    try:
+        rt = hostmod.PanelRuntime(root, lang="zq")
+        assert rt.i18n.lang == i18n.DEFAULT_LANG, rt.i18n.lang
+        said = "\n".join(rt.log.drain())
+        assert "zq" in said, f"the fallback was silent: {said!r}"
+        assert rt.t("menu.language") == i18n.I18n("en").t("menu.language")
+        # The fallback did not persist: nothing was remembered at all.
+        assert not os.path.exists(i18n._PREF_FILE), "a fallback rewrote the preference"
+
+        # …and a language there IS a file for is honoured, quietly.
+        rt2 = hostmod.PanelRuntime(root, lang="ru")
+        assert rt2.i18n.lang == "ru", rt2.i18n.lang
+        assert not [ln for ln in rt2.log.drain() if "zq" in ln]
+    finally:
+        i18n._PREF_FILE = pref
+        shutil.rmtree(tmp, ignore_errors=True)
+        root.destroy()
+
+
+def test_switching_to_a_profile_with_a_missing_language_says_so_too():
+    """The same rule on the other door: a profile SWITCHED TO, not opened with.
+
+    `Panel._profile_language` called unbound against a stand-in — no window, no profile
+    on disk, no game.
+    """
+    import types
+
+    from panel import __main__ as pm
+
+    said = []
+    stand_in = types.SimpleNamespace(
+        _settings={"language": "zq"},
+        _i18n=types.SimpleNamespace(known=i18n.known),
+        _say=lambda tag, key, **fmt: said.append((tag, key, fmt)),
+    )
+    assert pm.Panel._profile_language(stand_in) == i18n.DEFAULT_LANG
+    assert said and said[0][1] == "log.lang.unknown", said
+    assert said[0][2]["lang"] == "zq", said
+
+    said.clear()
+    stand_in._settings = {"language": "ru"}
+    assert pm.Panel._profile_language(stand_in) == "ru"
+    assert said == [], said
+    # A profile with no language at all is not a complaint either — it is the default.
+    stand_in._settings = {}
+    assert not pm.Panel._profile_language(stand_in)
+    assert said == [], said
 
 
 def test_the_default_language_is_always_offerable():

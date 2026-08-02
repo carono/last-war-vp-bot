@@ -712,12 +712,12 @@ class Panel(tk.Tk):
         lang_menu = tk.Menu(menubar, tearoff=0)
         self._lang_var = getattr(self, "_lang_var", tk.StringVar())
         self._lang_var.set(self._i18n.lang)
-        # The menu IS the locales directory: a file each, named by what the file calls
-        # itself. Adding a language is copying en.json and translating it — there is no
-        # list here to add it to (panel/i18n.py).
-        for lang in i18nmod.available_langs():
+        # The menu IS the locales directory: a file each, labelled with what the file
+        # calls itself. Adding a language is copying en.json and translating it — there
+        # is no list here to add it to (panel/i18n.py).
+        for lang in self._i18n.available():
             lang_menu.add_radiobutton(
-                label=i18nmod.lang_name(lang), value=lang,
+                label=self._i18n.name(lang), value=lang,
                 variable=self._lang_var, command=lambda l=lang: self._set_language(l))
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -937,9 +937,26 @@ class Panel(tk.Tk):
         self._reload_active_profile()
         self._say("profile", "log.profile.active", name=name)
 
+    def _profile_language(self) -> str | None:
+        """The language the active profile asks for — or English, said out loud.
+
+        A profile carries a language code, and it may have been written on a machine
+        that had `de.json` when this one does not. The panel must not follow it into a
+        language it cannot render, and must not go quiet about why: English, and a line
+        naming the missing file. Nothing is rewritten, so the profile's choice comes
+        back by itself once the locale is put back (panel/runtime/host.py does the same
+        for the language a window opens with).
+        """
+        lang = self._settings.get("language")
+        if lang and not self._i18n.known(lang):
+            self._say("panel", "log.lang.unknown", lang=lang,
+                      used=i18nmod.DEFAULT_LANG)
+            return i18nmod.DEFAULT_LANG
+        return lang
+
     def _reload_active_profile(self) -> None:
         """Re-apply language, all UI values, and monitor state from self._settings."""
-        lang = self._settings.get("language")
+        lang = self._profile_language()
         if lang and lang != self._i18n.lang and self._i18n.set_lang(lang):
             self._apply_language()
         self._apply_settings_to_ui()

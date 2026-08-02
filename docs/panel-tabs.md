@@ -199,9 +199,29 @@ menu IS `panel/locales/`: the code comes from the file name, the label from the
 
 So a person who wants the panel in their own language copies `en.json` to `de.json`,
 translates the values, sets `"language.name": "Deutsch"` — and it is in the menu on the
-next start. A file that forgets `language.name` still appears, labelled with its bare
-code; a key it does not translate falls back to English, so a half-finished locale is
-usable rather than broken.
+next start. Nothing else is touched. (The label lives in the file rather than being
+derived from the code because only the file can say it in its own script: a table of
+`de → Deutsch` somewhere would be the same hard-coded list under another name, and a
+bare `de` in the menu is not a language anyone recognises. `language.name` is spelled
+like every other key so it is translated, reviewed and diffed with the rest.)
+
+Ask through the runtime, never past it:
+
+```python
+self.rt.i18n.available()      # ['en', 'ru'] — codes, default first
+self.rt.i18n.name("ru")       # 'Русский' — what ru.json calls itself
+self.rt.i18n.known("de")      # is there a locale for it?
+```
+
+What it does when things are missing, because the panel now reads whatever is in that
+directory and has to survive it:
+
+| | |
+|---|---|
+| no `language.name` in the file | it still appears, labelled with its bare code |
+| a key the file does not translate | falls back to English — a half-finished locale is usable |
+| the file is not valid JSON | an empty locale, everything falls back; not a crash |
+| the profile names a language with no file | English **and a line in the log** naming it; the remembered choice is not rewritten, so the language returns by itself when the file does |
 
 What this means for a tab author is only what it always meant: put your keys in **both**
 shipped files. `tests/test_panel_i18n.py` pins the rest, including that the table of

@@ -175,6 +175,7 @@
   "log.game.watchdog_hold": "watchdog: the last relaunch was {mins} min ago — waiting",
   "log.game.watchdog_relaunch": "watchdog: starting the game again",
   "log.ghost.error": "the poll failed: {error}",
+  "log.lang.unknown": "there is no translation file for language «{lang}» — using «{used}». Put {lang}.json into panel/locales to get it back.",
   "log.launch_failed": "could not be launched: {error}",
   "log.no_daemon": "no route into the game (the daemon is unreachable)",
   "log.profile.active": "active profile: {name}",

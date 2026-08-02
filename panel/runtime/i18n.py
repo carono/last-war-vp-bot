@@ -51,6 +51,23 @@ class Translator:
     def t(self, key: str, **fmt) -> str:
         return self._i18n.t(key, **fmt)
 
+    # -- which languages there are ------------------------------------------
+    # The answer is the locales directory and nothing else, so it is asked for rather
+    # than held: a caller that wants the Language menu must not have its own idea of
+    # what is in it. Passed through here so a tab never has to reach past the runtime
+    # (docs/panel-tabs.md, «The runtime is the only thing you get»).
+    def available(self) -> list[str]:
+        """The language codes there are locale files for, default first."""
+        return i18nmod.available_langs()
+
+    def name(self, lang: str) -> str:
+        """What to call ``lang`` in the menu — its own locale file says so."""
+        return i18nmod.lang_name(lang)
+
+    def known(self, lang: str) -> bool:
+        """Is there a locale for ``lang``? Ask before switching to one from a profile."""
+        return i18nmod.known(lang)
+
     def tr(self, widget, key: str, option: str = "text", **fmt):
         """Set ``widget[option]`` from a locale key and remember it for retranslation."""
         widget.configure(**{option: self.t(key, **fmt)})

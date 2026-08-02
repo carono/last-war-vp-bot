@@ -175,6 +175,7 @@
   "log.game.watchdog_hold": "вотчдог: перезапуск был {mins} мин назад — жду",
   "log.game.watchdog_relaunch": "вотчдог: поднимаю игру заново",
   "log.ghost.error": "ошибка опроса: {error}",
+  "log.lang.unknown": "нет файла перевода для языка «{lang}» — включён «{used}». Положите {lang}.json в panel/locales, чтобы вернуть его.",
   "log.launch_failed": "ошибка запуска: {error}",
   "log.no_daemon": "нет связи с игрой (демон недоступен)",
   "log.profile.active": "активный профиль: {name}",

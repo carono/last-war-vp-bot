@@ -12,6 +12,7 @@ in the profile's `panel.log` and `debug.log`.
 from __future__ import annotations
 
 from .. import debug_log as dbgmod
+from .. import i18n as i18nmod
 from .. import profile as profilemod
 from .actions import ActionRunner
 from .bus import EventBus
@@ -45,15 +46,28 @@ class PanelRuntime:
         if root is not None:
             self.settings.create_vars(root)
 
+        # A profile — or a `--lang` on the command line — may name a language whose
+        # locale file is not on this machine: somebody's own translation, a panel copied
+        # somewhere else, a file moved out of panel/locales. That is English and a line
+        # in the log, never a crash and never a menu the language is missing from.
+        # `Translator(DEFAULT_LANG)` rather than `set_lang` on purpose: a fallback must
+        # not rewrite the remembered choice, so the language comes back by itself the
+        # moment the file does.
         saved_lang = lang or self.settings.values.get("language")
-        self.i18n = Translator()
-        if saved_lang:
+        unknown_lang = saved_lang if (saved_lang
+                                      and not i18nmod.known(saved_lang)) else None
+        self.i18n = Translator(i18nmod.DEFAULT_LANG if unknown_lang else None)
+        if saved_lang and not unknown_lang:
             self.i18n.set_lang(saved_lang)
 
         dbgmod.configure(self.profiles.debug_log())
         self.log = LogBus(translate=self.i18n.t,
                           debug_logger=dbgmod.get_logger("ui"), echo=echo_log)
         self.log.open_file(self.profiles.panel_log())
+        # Said only now: the log is what it is said into, and it needs the translator.
+        if unknown_lang:
+            self.log.say("panel", "log.lang.unknown",
+                         lang=unknown_lang, used=self.i18n.lang)
 
         self.tick = Ticker(root)
         self.bus = EventBus(root)

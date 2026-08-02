@@ -468,7 +468,10 @@ class TimersTab(PanelTab):
         pick = ttk.Frame(frm)
         pick.grid(row=6, column=0, columnspan=2, sticky="we", pady=(6, 0))
         self.tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
-        actions = list_actions()
+        # …in the panel's language: a scenario's title line carries a translation per
+        # language tag, and without saying which one we want every row here fell back to
+        # the untagged (English) title while «Сценарии» next door showed Russian.
+        actions = list_actions(lang=self.rt.i18n.lang)
         pick_var = tk.StringVar()
         pick_combo = ttk.Combobox(pick, textvariable=pick_var, state="readonly",
                                   width=34,

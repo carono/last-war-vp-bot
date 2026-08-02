@@ -60,6 +60,18 @@ def available_langs() -> list[str]:
     return sorted(found, key=lambda lang: (lang != DEFAULT_LANG, lang))
 
 
+def known(lang: str) -> bool:
+    """Is there a locale for ``lang``?
+
+    Asked BEFORE switching, because "no such language" and "already that language" are
+    both a `False` out of :meth:`I18n.set_lang` and only one of them is worth a line in
+    the log. A profile may name a language whose file this machine does not have — the
+    person's own locale, a panel copied to a second machine — and that is a fallback
+    with a log line, never a crash.
+    """
+    return bool(lang) and lang in available_langs()
+
+
 def lang_name(lang: str) -> str:
     """What to call ``lang`` in the Language menu — its own file says so.
 
