@@ -376,7 +376,14 @@ Resolution:
 ```
 enabled = profile["tabs"]["enabled"]  if present else  [t.id for t in TABS if t.default_enabled]
 order   = profile["tabs"]["order"]    if present else  sorted by TabSpec.order
+known   = profile["tabs"]["known"]    if present else  enabled
 ```
+
+`known` was not in the first draft and the omission made the whole thing a no-op:
+"switched off" and "did not exist when this profile was written" have the same shape —
+absent from `enabled` — and the rule below for the second (append it) undid the first.
+Every unticked tab came back on the next start. So each save records which tabs the
+build offered, and the two are told apart.
 
 * An id in the profile that no longer exists in code → **skipped, one log line.** A
   profile written by a newer build must not break an older panel.
@@ -538,15 +545,15 @@ exist and the panel bypasses them:
 | Tab | What it does today | What it should do | Scenario |
 |---|---|---|---|
 | Rally | ~~`RallyTab._one_send` calls `rally_create.create_on_level(ev, …)` directly~~ | **done, wave 2** — `rt.actions.play("create_rally", …)`, and the tab quotes the `Outcome`'s reason | `create_rally.md` exists |
-| Secret tasks | `_autoloot_run` spawns `tools/steal_secret_task.py` as a child | `rt.actions.run("steal_secret_task", …)` | `steal_secret_task.md` **exists** |
-| Command post | `_ghost_run` spawns `tools/ghost_recon_steal.py` as a child | `rt.actions.run("steal_ghost_recon", …)` | `steal_ghost_recon.md` **exists** |
+| Secret tasks | `AutoLoot.run` spawns `tools/steal_secret_task.py` as a child | ~~`rt.actions.run("steal_secret_task", …)`~~ — **not a swap at all**, see the second correction | `steal_secret_task.md` exists but only SPENDS a queue |
+| Command post | `GhostOrder.rob` spawns `tools/ghost_recon_steal.py` as a child | ~~`rt.actions.run("steal_ghost_recon", …)`~~ — same | `steal_ghost_recon.md` exists but only SPENDS a queue |
 | Secret tasks | the auto-loot gate (range, budget, "is it raidable") is ≈290 lines of Python in `_autoloot_*` | the gate belongs in the scenario; the tab keeps the switch and the range | needs `ARGS` on the existing file |
 | Command post | ghost `IsOpenDay` / 5-per-day gate in `_ghost_tick` | same | same |
 | Dashboard, Alliance/Profile/Inventory/Heroes | read the VM through hand-written Lua chunks in Python | `READ_LUA` scenarios | not written |
 
 > **Correction, found in wave 2, and its fix.** The rally row above was over-claimed.
-> The other two only *spawn the tool the scenario already wraps*, so swapping them for
-> `rt.actions.run(...)` costs nothing. Rally does not: `create_on_level` returns a
+> (So were the two below it — see the second correction; at the time of writing this
+> one they were still believed to be free.) Rally is not free: `create_on_level` returns a
 > result the tab reads four ways (`no_elite` / `no_formation` / `no_panel` /
 > `no_squad`), each reported differently, and `run_action` answers with a bool.
 >
@@ -566,13 +573,44 @@ exist and the panel bypasses them:
 > that changes which code drives the game is not a pure move, whatever the diff looks
 > like.
 
+> **Second correction, found before wave 3, and why the swap did NOT happen there.**
+> Rows two and three said the tool is "the thing the scenario already wraps", so
+> replacing the spawn with `rt.actions.run(...)` would cost one line. It is the same
+> mistake the rally row made, and it would have been a worse one: the swap would have
+> silently thrown the target selection away.
+>
+> Read the two recipes and it is plain. `steal_secret_task.md` and
+> `steal_ghost_recon.md` both OPEN with a read of a queue —
+> `READ_LUA … #(M.__lw_steal_queue or {}) INTO targets`, and `IF targets == 0` they
+> log "run tools/steal_secret_task.py first" and press nothing. They SPEND a queue;
+> they do not fill one. The filling is the tool's: `steal_secret_task.py` parks it with
+> `secret_task_queue_set(...)` and `ghost_recon_steal.py` with
+> `ghost_recon_queue_set(...)`, and the tool is also where the rule that CHOOSES the
+> targets lives — `--star-max`, `--level-min` / `--level-max`, `--limit`. Swap the spawn
+> for the recipe and the panel runs a recipe over an empty queue: nothing is robbed, and
+> nothing says why.
+>
+> The honest version is two steps, not one: run the tool with `--queue-only` (it selects
+> and parks, then stops — the flag already exists on both), and then
+> `rt.actions.run(...)` to spend what was parked. The "budget is spent" detection
+> survives it: `steal_secret_task.py` prints `robberies left today: %d` before it
+> returns under `--queue-only`, and the ghost watcher never read that off the child at
+> all — it asks the VM before it starts.
+>
+> **But that changes whose code does the robbing, on a budget of five a day.** Which is
+> the one thing wave 3 forbids itself ("do not fold a behaviour change into this wave"),
+> for the reason #1099 taught: a mistake here does not fail loudly, it spends a raid on
+> the wrong tile and nobody finds out until the reset. So wave 3 moved both orders
+> **as they were** — the tabs still spawn the tools — and the swap is its own task,
+> with its own live confirmation.
+
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
-game logic may be added under `panel/`. Where a wave lifts a block that merely *spawns
-the tool the scenario already wraps* (the top three rows), swap it to
-`rt.actions.run(...)` in the same wave — a one-line change, and the whole reason
-`ActionRunner` is in the runtime. Where the gate itself has to move into the scenario
-(rows four and five), that is its own task, filed separately, not smuggled into a
-refactor wave.
+game logic may be added under `panel/`. The version of this rule that said the top
+three rows were a one-line swap is retracted: of the three, only rally was, and only
+after `Outcome` existed. Where a block merely spawns a tool the recipe genuinely
+wraps, swap it in the same wave; where the recipe turns out to be half of the job
+(rows two and three) or the gate itself has to move into the scenario (rows four and
+five), that is its own task, filed separately, not smuggled into a refactor wave.
 
 ---
 
@@ -730,24 +768,60 @@ Four things the plan did not say, found by doing it:
 the shell and is absent when rally is not built. **Still owed: one live rally**, which
 is why the farming item is 🟡 (§8).
 
-**Wave 3 — Secret tasks + Command post.** The §9.1/§9.3 machinery, moved whole: capture
-child, auto-loot watcher, map sweep, ghost order, and the Tk vars that gate them.
-*Accept:* a profile switch still bounces both captures and both watchers (now via
-`on_profile_switch`); «Стоп всё» still stops them (via `panic`); the standalone tab robs
-a tile; the auto-loot range still restarts the push listener on edit (#1099's fix).
-**Do not fold a behaviour change into this wave.**
+**Wave 3 — Secret tasks + Command post. DONE.** The §9.1/§9.3 machinery, moved whole:
+capture child, auto-loot watcher, map sweep, ghost order, and the seventeen Tk vars that
+gate them. `panel/tabs/secret_tasks/` is four files (tab / capture / autoloot / sweep);
+`panel/tabs/command_post/` is two (tab / ghost). `game_status` had to move too — it was a
+`psutil` probe defined in `panel/__main__.py`, which a tab cannot import — and is
+`panel/runtime/game_process.py`.
 
-**Wave 4 — Scenarios.** List, editor with its debounced save, runner, repeat loop. The
-only runtime it needs is `actions`, the busy lock and the log.
+**The swap of §8's rows two and three did NOT happen here, on purpose** — see the second
+correction there. Both orders still spawn their tool, which is what "moved whole" means.
+
+*Accept:* a profile switch still bounces both captures and both watchers (via
+`on_profile_switch`); «Стоп всё» still stops them (via `panic`); the auto-loot range
+still restarts the push listener on edit (#1099's fix); the settings block spells all
+fourteen keys as the flat profile did.
+
+> **What EAGER cost, and the guard that now catches it.** Two of these tabs carry
+> standing orders, so they are loaded at BOOT — and `ensure_loaded` was doing double
+> duty: bringing the orders up AND making the tab's first game read. Every profile then
+> paid a VM round trip at start-up for a tab it might never open, and the command post's
+> own `_shown` guard (written for exactly that) was defeated by the boot that set it.
+> `on_show` had been in the contract since wave 1 with nothing calling it; the shell
+> calls it now, the two jobs are told apart, and the contract test asserts that an EAGER
+> tab's `ensure_loaded` touches no game.
+
+**Wave 4 — Scenarios. DONE.** List, editor with its debounced parse-then-save, runner,
+repeat loop → `panel/tabs/scenarios.py`. `PanelRuntime.play_async` and the action
+catalogue (`list_actions` / `action_titles`) went to the runtime, each because a second
+caller needed them. The `TAP` reference is still drawn by the shell — it writes into the
+DSL command line on «Главная» — so the tab publishes `cmd.reference` and the shell
+listens, which is the bus doing what §7 put it there for.
 *Accept:* standalone scenarios edits, saves and runs an `actions/*.md`; the loop stops
 on «Стоп всё».
 
-**Wave 5 — Schedule, then Timers.** First `runtime/schedule.py` (scheduler, watcher,
-catalogue load/save, the runner, the gate) — the rally gate and the triggers already
-depend on it. Then `panel/tabs/timers/`: the grid, the editor dialog, the trigger rows,
-grouped by contributing tab (§3.2).
+**Wave 5 — Schedule, then Timers. DONE.** `panel/runtime/schedule.py` (scheduler,
+watcher, catalogue load/save, the runner, the gate, the listeners), then
+`panel/tabs/timers.py` (the two grids, the editor dialog, the master switch).
+
+The four SENTINEL errands went with it and came out the other side as §3.2 intended:
+`inventory_refresh`, `secret_task_share` and `resource_tracker` are
+`TriggerSpec(handler=…)` declared by the tab that does the work, bound when that tab is
+built. Which answers what the `if timer.name == …` chain could not — **a trigger whose
+tab is not in this profile is not offered**, so no listener is spawned and nothing fires
+into a tab that is not there. (`leaderboard_collect` stays a special case in the
+schedule: its listener IS the work, and no tab is involved.) The resource tracker moved
+into the «Статистика» tab with its trigger, baseline and all.
+
+`rt.schedule` is built on first ask and only the shell `start()`s it, so a standalone
+Timers window costs two file reads and a standalone «Ралли» window costs nothing (§4.3's
+rule, kept without a `NEEDS` lookup).
+
 *Accept:* **the schedule keeps firing with the Timers tab disabled in the profile** —
-that is the test that the split is real and not cosmetic.
+that is the test that the split is real and not cosmetic. It holds because the tab only
+SUPPLIES the switches (`timer_config_source`), and the saved catalogue answers when
+there are no rows to ask.
 
 **Wave 6 — Chat, Settings, Develop.** `panel/tabs/chat/` (views, DM pane, emoji picker,
 image cache, reader child, per-character store); Settings becomes the aggregator of §6;
