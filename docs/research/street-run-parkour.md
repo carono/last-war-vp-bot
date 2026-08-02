@@ -2210,3 +2210,35 @@ after it plans identically (`reach` 28, 18, 10 and `hold` at each, either way), 
 since the runner was never off the ground and `autoStart` only speaks for a runner who is. What
 killed it is the same thing that will not let the trucks be their true length — the route onto
 the roofs is one the DP does not find until it is too late to take.
+
+A second attempt on the same build ran **794 m**, cause `unknown` — nothing the model knows
+about was in the lane it died in. So the two runs this planner has are 752 and 794, against
+930, 837, 770 and 1764 from the day before it, and the honest reading of that is that two
+samples cannot separate them. The fix it carries was never expected to show up as distance:
+it removes a phantom that only appears when the runner is up on the roofs, and both of these
+runs spent their whole length on the road.
+
+### What a longer horizon does not buy (#1170)
+
+Worth recording because it is the obvious next idea and it is worth nothing. If the planner
+walks past a ramp and then meets a convoy it cannot pass, the natural suspicion is that the
+convoy was outside its 300 m horizon when the ramp went by. It was not the reason: at
+`cfg.horizon` 300, 500 and 700 — with the judge's own obstacle window widened to match, or the
+horizon is capped by it — run_005 and run_007 come out at the same metre on both the shipped
+lengths and the measured ones.
+
+The trace says why. On the ramp roof at 2116..2141 (measured lengths) the planner asks for
+`left` every single frame, at `az` 55, 52, 50 ... 30 — a move pinned to a fixed z ≈ 2171, which
+is thirty metres past the end of the roof and therefore a GROUND lane change, not a crossing.
+The roof-to-roof crossing is legal at those frames — at 2122.3 both lanes carry roof across the
+whole sweep and `freeAt` passes either side — and the DP declines it because it does not extend
+`reach`: at horizon 500 it already reads 339, i.e. it knows its best line ends at 2455 and the
+roofs do not carry it further. A moving roof is about 26 buckets (40 m of body against a closing
+speed of 1.53 per bucket) and then it is gone; chaining one to the next is the move that is
+missing, and no amount of looking further ahead invents it.
+
+One more correction, to the reading of run_005's death at 3770. It is not a case of the model
+running out of truck under a runner riding one: the trace has `roof = false` and `py = 0.00`
+from 3700 to the end. It never got up. The seven to twenty-one metres of missing body are real,
+but they are in the RECORDINGS — the 94 roof-height frames the model cannot put a body under —
+and not in that death.
