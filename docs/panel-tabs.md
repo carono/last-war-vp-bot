@@ -44,8 +44,10 @@ Then one line in `panel/tabs/__init__.py`:
 TabSpec("mything", "panel.tabs.mything", "MyThingTab", order=400),
 ```
 
-and two locale keys (`tab.mything`, `mything.hint`) in **both** `panel/locales/en.json`
-and `ru.json`. That is the whole registration: the shell builds it, «Настройки →
+and two locale keys (`tab.mything`, `mything.hint`) in **every** shipped locale —
+`panel/locales/en.json`, `ru.json` **and** `de.json`, translated, in this same change
+(see «Not a word of it is written in the tab» below). That is the whole registration:
+the shell builds it, «Настройки →
 Вкладки» lists it, the profile can switch it off, and
 
 ```
@@ -67,7 +69,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `ORDER` | Where it sits. Existing tabs are spaced by tens, so there is room between any two. | Always. |
 | `DEFAULT_ENABLED` | Is it in a fresh profile's list. `False` for something most people never use — `develop` is the example. | Rarely. |
 | `PREFERRED_SIZE` | The standalone window's default geometry. | If `760x600` is wrong for it. |
-| `LOCALE_NS` | The locale prefixes this tab owns. | Always — it is what keeps the two locale files reviewable. |
+| `LOCALE_NS` | The locale prefixes this tab owns. | Always — it is what keeps the locale files reviewable. |
 | `NEEDS` | `"daemon"` / `"children"` / `"actions"` / `"schedule"`. Shown beside the tab on the «Вкладки» page, so a person can see what switching it on costs. | Always. |
 | `SETTINGS` | `{key: default}` the tab adds to the Settings knobs. | If it has knobs of its own. |
 | `LEGACY_KEYS` | `{block key: old flat key}` — how the profile spelled this setting before the tab existed. | Only when moving existing settings; see below. |
@@ -150,6 +152,9 @@ and standalone, which is what makes a tab launchable at all.
    `apply_config` — the shell must never name a widget it does not own. Run
    `C:\Python312\python.exe tests\test_panel_dangling_refs.py`: it fails on any
    `self.x` a class cannot possibly have, in the shell and in every tab.
+7. **No words written in the tab.** `text="Обновить"` is a bug — every string a person
+   reads is a locale key, in every shipped locale. The next section is the whole rule;
+   `CLAUDE.md` is binding on it.
 
 ---
 
@@ -191,15 +196,65 @@ to the bot, not to your tab, and is always offered.
 
 ---
 
+## Not a word of it is written in the tab
+
+Everything a person can read comes out of `panel/locales/`. Not «most of it», not
+«everything except the little ones» — the label, the button, the checkbox, the hint, the
+column head, the window title, the message box, the line in the log:
+
+```python
+# ❌ the tab speaks for itself
+ttk.Button(self.parent, text="Обновить", command=self.refresh).pack()
+ttk.Label(self.parent, text="Ничего не прочитано").pack()
+messagebox.showerror("Ошибка", f"не удалось: {exc}")
+self.rt.put("[mything] обновлено")
+
+# ✅ the tab names a key and the runtime says it
+self.tr(ttk.Button(self.parent, command=self.refresh), "mything.refresh").pack()
+self.tr(ttk.Label(self.parent), "mything.empty").pack()
+messagebox.showerror(self.t("mything.error.title"), self.t("mything.error", error=exc))
+self.say("mything", "mything.refreshed")
+```
+
+`self.tr(widget, key)` registers the widget, so it re-labels itself when the language
+changes; `self.t(key, **fmt)` is for a string you build yourself (a dialog, a treeview
+cell, a status line) and has to be re-asked in `on_language_change`. Placeholders are
+`{named}` and go through `str.format` — never glue a translated fragment onto another
+one, because the order of the pieces is not the same in every language.
+
+**And a key is added to every shipped locale in the same change, translated.** Three
+files today: `en.json` (the canonical one), `ru.json`, `de.json`. Not English first and
+the others «when there is time» — a missing key falls back to English *silently*, so
+half a tab in the wrong language looks exactly like a tab that is finished, and nobody
+finds out for months. Add the key to all three or the tab is not done.
+
+The only literals allowed are the ones nobody reads as words — a numeric format
+(`"(%d–%d)"`), a separator, a Tk option value, an internal tag such as the `label=`
+handed to `run_text`. **If it can be translated, it is a key.**
+
+`tests/test_panel_i18n.py` enforces both halves and takes a second:
+
+```
+C:\Python312\python.exe tests\test_panel_i18n.py
+```
+
+It fails on a key any shipped locale is missing (in either direction — a key nobody
+uses any more has to go from all of them at once), and on a translatable literal handed
+to a widget, a menu entry or a dialog anywhere under `panel/`.
+
+---
+
 ## A language is a file
 
 There is no list of languages anywhere in the code, and none may be added. The Language
 menu IS `panel/locales/`: the code comes from the file name, the label from the
 `language.name` key **inside** that file, written in its own script.
 
-So a person who wants the panel in their own language copies `en.json` to `de.json`,
-translates the values, sets `"language.name": "Deutsch"` — and it is in the menu on the
-next start. Nothing else is touched. (The label lives in the file rather than being
+So a person who wants the panel in their own language copies `en.json` to `fr.json`,
+translates the values, sets `"language.name": "Français"` — and it is in the menu on the
+next start. Nothing else is touched. (That is how German got here: `de.json` is a file
+and nothing else, and the only thing that changed by shipping it is that a new key now
+has three translations to write instead of two.) (The label lives in the file rather than being
 derived from the code because only the file can say it in its own script: a table of
 `de → Deutsch` somewhere would be the same hard-coded list under another name, and a
 bare `de` in the menu is not a language anyone recognises. `language.name` is spelled
@@ -208,9 +263,9 @@ like every other key so it is translated, reviewed and diffed with the rest.)
 Ask through the runtime, never past it:
 
 ```python
-self.rt.i18n.available()      # ['en', 'ru'] — codes, default first
+self.rt.i18n.available()      # ['en', 'de', 'ru'] — codes, default first
 self.rt.i18n.name("ru")       # 'Русский' — what ru.json calls itself
-self.rt.i18n.known("de")      # is there a locale for it?
+self.rt.i18n.known("fr")      # is there a locale for it?
 ```
 
 What it does when things are missing, because the panel now reads whatever is in that
@@ -223,8 +278,8 @@ directory and has to survive it:
 | the file is not valid JSON | an empty locale, everything falls back; not a crash |
 | the profile names a language with no file | English **and a line in the log** naming it; the remembered choice is not rewritten, so the language returns by itself when the file does |
 
-What this means for a tab author is only what it always meant: put your keys in **both**
-shipped files. `tests/test_panel_i18n.py` pins the rest, including that the table of
+What this means for a tab author is only what it always meant: put your keys in **every**
+shipped file. `tests/test_panel_i18n.py` pins the rest, including that the table of
 languages has not come back.
 
 ---
@@ -250,13 +305,15 @@ the unsubscribe callable, and `shutdown()` must call it.
 ```
 C:\Python312\python.exe tests\test_panel_tab_contract.py
 C:\Python312\python.exe tests\test_panel_dangling_refs.py
+C:\Python312\python.exe tests\test_panel_i18n.py
 ```
 
 The second one is source-only and takes a second: no class in the panel may mention a
 `self.x` it cannot have. The first covers your tab the moment it is in the registry: it must import, build cold, request no
 game during `build()` (nor during `ensure_loaded` if `EAGER`), survive
 `apply_config` → `on_show` → `on_hide` → `panic` → `shutdown`, and leave no armed `after`
-chain and no bus subscription behind.
+chain and no bus subscription behind. The third is the words: no literal a person can
+read anywhere under `panel/`, and every key in every shipped locale.
 
 Then check the two things a test cannot:
 

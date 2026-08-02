@@ -101,7 +101,40 @@ tracker — until:
 - the ability is one runnable scenario in `src/lastwar_bot/actions/`;
 - everything the panel does with it goes through `run_action`;
 - any primitive added along the way is documented in `docs/dsl.md`;
+- every string it shows is a locale key, present in **all** the shipped locales;
 - and, once the user has confirmed it live, both farming files say so (below).
+
+## Not one word of the panel is written in the panel
+
+**Also binding, on every agent, with no exceptions.** Every string a person can read —
+a label, a button, a checkbox, a hint, a column head, a window title, a message box, a
+line in the log — is a **key** in `panel/locales/`, reached through the runtime:
+`self.t(key)`, `self.tr(widget, key)`, `rt.say(tag, key, **fmt)`. A literal handed to a
+widget is a bug even when it is written in the language the panel happens to be showing:
+it cannot be translated, it cannot be reviewed beside its siblings, and it does not
+change when the person changes the language.
+
+**A key goes into every shipped locale at once, translated.** The repository ships
+`en.json`, `ru.json` and `de.json`, and the change that adds a key adds it to all three
+in the same commit — not «English now, the rest later». A locale that is behind falls
+back to English silently, so the gap breaks nothing and nobody notices it for months;
+that is exactly why it is forbidden rather than merely discouraged. There is still no
+table of languages anywhere in the code — the set is the contents of `panel/locales/`,
+so a fourth file added tomorrow is a fourth file to fill in.
+
+Only strings nobody reads as words may be literals: numeric formats (`"(%d–%d)"`),
+separators, Tk option values, internal tags. **If it can be translated, it is a key.**
+
+`tests/test_panel_i18n.py` holds both halves — it fails on a key missing from any
+shipped locale, and on a translatable literal handed to a widget, a menu entry or a
+dialog anywhere under `panel/`. Run it before you call panel work done:
+
+```
+C:\Python312\python.exe tests\test_panel_i18n.py
+```
+
+The details a tab author needs — where the keys live, what happens when one is missing,
+how to add a language — are in [`docs/panel-tabs.md`](docs/panel-tabs.md).
 
 ## Feature list upkeep
 
