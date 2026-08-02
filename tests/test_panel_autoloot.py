@@ -83,9 +83,6 @@ class _Watcher:
         self._autoloot_warned = False
         self._autoloot_seen: set = set()
         self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
-        # `_log_put` and `_say` are both faces of one sink now, so the stand-in
-        # collects through the sink rather than beside it.
-        fake_runtime.attach_bus(self)
         self._log_put = self.logs.append
         # The child is never spawned here; record the checkpoint the tick would rob
         # from, so the assertions read exactly as before the (checkpoint, vm_ready) split.
@@ -114,6 +111,12 @@ class _Watcher:
                      "_autoloot_levels", "_autoloot_targets", "_autoloot_all_targets",
                      "_autoloot_vm_targets"):
             setattr(self, name, types.MethodType(getattr(Panel, name), self))
+        # `_log_put` and `_say` are both faces of one sink now, so the stand-in
+        # collects through the sink rather than beside it — attached AFTER `_t` is
+        # bound above, or the bus would echo keys instead of the words the operator
+        # reads, which is exactly what these cases assert on.
+        fake_runtime.attach_bus(self)
+        self._log_put = self.logs.append
         self.tick = types.MethodType(Panel._autoloot_tick, self)
 
 
