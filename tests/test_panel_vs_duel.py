@@ -159,9 +159,6 @@ def test_the_ceilings_and_the_details_hang_off_the_right_actions():
                for a in _actions(items) if a.choice is not None}
     assert list(choices) == ["wed.research_start"]
     assert choices["wed.research_start"].default == vs_duel.CATEGORY_ANY
-    # The categories themselves are deliberately not invented: until they are read off
-    # a live client the picker offers «any» alone (see the TODO on the constant).
-    assert vs_duel.RESEARCH_CATEGORIES == ()
 
 
 def test_an_action_scoring_on_two_days_is_written_once():
@@ -405,6 +402,33 @@ def test_saturdays_shield_is_a_pick_the_day_always_answers():
 # ---------------------------------------------------------------------------
 # the picker
 # ---------------------------------------------------------------------------
+
+def test_the_categories_are_the_games_own_tabs():
+    """The eighteen tabs of the Tech Center, read off the client's own config
+    (docs/research/tech-center-tabs.md) — ids, not words, because that is what a
+    scenario will aim with."""
+    from panel.tabs import vs_duel
+
+    cats = vs_duel.RESEARCH_CATEGORIES
+    assert len(cats) == 18, len(cats)
+    ids = [value for value, _key in cats]
+    assert len(set(ids)) == 18, "a tab id is listed twice"
+    assert all(v.isdigit() for v in ids), ids
+    assert set(ids) == {str(n) for n in range(1, 19)}, "the eighteen tabs are not all there"
+    # Display order, which is NOT id order: the truck tab is drawn tenth.
+    assert ids[:9] == ["1", "2", "3", "4", "5", "6", "7", "8", "9"], ids
+    assert ids[9] == "13", ids
+    assert ids[-1] == "18", ids
+    # «any» is not one of them — it is the picker's own first option.
+    assert vs_duel.CATEGORY_ANY not in ids
+    picker = vs_duel._research_category()
+    assert picker.options[0] == (vs_duel.CATEGORY_ANY,
+                                 "vsduel.research_category.any")
+    assert len(picker.options) == 19
+    # Each carries its own key, and no key is shared between two tabs.
+    keys = [key for _v, key in cats]
+    assert len(set(keys)) == 18
+    assert all(k.startswith("vsduel.research_category.") for k in keys)
 
 def test_the_category_picker_keeps_a_value_and_survives_a_language_change():
     """What is stored is the VALUE, never the words that were on screen — otherwise a

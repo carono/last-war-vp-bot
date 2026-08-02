@@ -166,27 +166,39 @@ def _drone_parts() -> _Action:
 #: The research categories «start a new research» may be aimed at, as
 #: ``(value, locale key)``.
 #:
-#: TODO(#1200): EMPTY ON PURPOSE, and what the search for them turned up so far.
+#: The Tech Center's own eighteen tabs, in the order the game draws them, as
+#: ``(value, locale key)``.
 #:
-#: The game's own translation tables (docs/research/game-locale-tables.md) were read for
-#: this. What they DO carry is the ALLIANCE technology's two categories — key `454119`
-#: «Развитие / Development / Entwicklung» and `454120` «Война / War / Krieg», sitting
-#: right under `454117` «Технологии Альянса» — which is a different window from the one
-#: the science minister's buff speeds up.
+#: THE VALUE IS THE GAME'S OWN TAB ID, not a word — that is what a scenario will aim
+#: with, and it does not move when the wording does. Where they come from, so nobody has
+#: to find them twice (docs/research/tech-center-tabs.md): the running client's
+#: `DataCenter.ScienceTemplateManager.scienceTabTemplateDic`, one record per tab with an
+#: `id`, an `order` and a `name` that is a key into the game's own translation tables
+#: (docs/research/game-locale-tables.md). The words below are the game's, read out of
+#: those tables in each language — not a translation of the English.
 #:
-#: For the player's OWN Tech Center the tables carry no category strip at all: the techs
-#: are grouped into chapters, and only the late ones are named (`tech_name_13..18` —
-#: Intercity Truck, Tank Mastery, Missile Mastery, Aircraft Mastery, The Age of Oil,
-#: Tactical Weapon); the early chapters have no top-level name key. The other
-#: Combat/Economy/Development pairs in the tables belong to provably other screens — the
-#: buffs window (`110289`/`110290`), the headquarters talents (`131002`…`131005`) and the
-#: shop's pack types (`100068`/`100069`).
-#:
-#: So a category written here would still be a guess, and it would aim a scenario at
-#: something that may not exist. Until the real names are confirmed the picker offers
-#: «any» alone; filling this tuple is all it takes to offer them — plus each new locale
-#: key in EVERY shipped locale, like anything else a person reads (CLAUDE.md).
-RESEARCH_CATEGORIES: tuple = ()
+#: The id order is not the display order: the truck tab (13) is drawn tenth, and 10, 11
+#: and 12 come after it. The list below is in DISPLAY order, which is what a person sees.
+RESEARCH_CATEGORIES: tuple = (
+    ("1", "vsduel.research_category.development"),
+    ("2", "vsduel.research_category.economy"),
+    ("3", "vsduel.research_category.hero"),
+    ("4", "vsduel.research_category.units"),
+    ("5", "vsduel.research_category.squad1"),
+    ("6", "vsduel.research_category.squad2"),
+    ("7", "vsduel.research_category.squad3"),
+    ("8", "vsduel.research_category.squad4"),
+    ("9", "vsduel.research_category.alliance_duel"),
+    ("13", "vsduel.research_category.intercity_truck"),
+    ("12", "vsduel.research_category.special_forces"),
+    ("10", "vsduel.research_category.siege_to_seize"),
+    ("11", "vsduel.research_category.defense_fortifications"),
+    ("14", "vsduel.research_category.tank_mastery"),
+    ("15", "vsduel.research_category.missile_mastery"),
+    ("16", "vsduel.research_category.aircraft_mastery"),
+    ("17", "vsduel.research_category.age_of_oil"),
+    ("18", "vsduel.research_category.tactical_weapon"),
+)
 
 #: What the category picker holds while no particular category is chosen — and, for now,
 #: the only thing it can hold.
@@ -771,7 +783,7 @@ class VsDuelTab(PanelTab):
             row = self._indented(box)
             self.tr(ttk.Label(row, foreground="#888"), action.choice.label).pack(
                 side="left", padx=(0, 6))
-            combo = ttk.Combobox(row, state="readonly", width=24)
+            combo = ttk.Combobox(row, state="readonly", width=28)
             combo.pack(side="left")
             combo.bind("<<ComboboxSelected>>",
                        lambda _e, n=name: self._on_choice(n))
