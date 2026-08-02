@@ -66,7 +66,7 @@ including what to do with the panel code that predates the rule, is in
 
 ```
 AGENTS.md                              <- you are here
-README.md                              user-facing intro
+README.md                              user-facing intro (RU mirror: README.ru.md)
 run.bat                                Windows launcher (forwards %*)
 requirements.txt                       pip dependencies
 pyproject.toml                         setuptools package
