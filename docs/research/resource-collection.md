@@ -93,6 +93,71 @@ The collectors were tested one method at a time, watching `GetBuildingCurrStorag
 End-to-end proof: looping `SendCollect` over all 38 buildings dropped their summed
 pending storage from **~29k to ~6k (16 ready → 0)**.
 
+### What the sweep costs the client, and where the stutter comes from (task #1189)
+
+The player reported the game freezing while the base is harvested. It is **not** a read
+spam of ours: `collect_base_resources` is a single VM round trip, and the sweep itself is
+cheap. The freeze is the client's own reaction to each collect *reply*, multiplied by the
+number of buildings.
+
+Read off `results/traces/20260802_151055_обычная_игра_trace.log` — a broad XSTRACE
+(wrapped=6535, depth=2, no dedup) of one ordinary session, 86,070 traced Lua calls.
+`building.production.collect` crossed the wire 61 times in six bursts. Five of them (36
+requests) follow a `BuildingUtils.CityCollectionByItemId` call each — the player tapping
+the HUD resource icons. The sixth, lines 56015–56207, is ours: 25 requests inside 193
+lines with nothing but SFS marshalling between them and no UI call ahead of it.
+`ProductLineManager` is not in the wrapped set, so the chunk is invisible in the trace;
+that marshalling run is its fingerprint.
+
+**Sending is free. Being answered is not.**
+
+| | traced Lua calls |
+|---|---|
+| all 25 requests going out | 386 (~15 each) |
+| each reply coming back | **~425** |
+| the whole sweep, lines 56520–66210 | **9,691 — 11% of the session** |
+
+The replies arrive one per frame, evenly spaced (424, 427, 427, 425, … lines apart), so
+that is 25 consecutive frames each doing ~425 Lua calls on top of the frame's own work.
+One reply expands into:
+
+- **114 × `DataCenter.BuildBubbleManager.checkShowBubbleAction`** — every base bubble
+  re-walked (42 distinct bubble objects, ~2.7 passes). Across the whole session 9,009 of
+  the 9,507 bubble checks — 95% — sit behind a collect reply;
+- **~30 × the building-condition sweep** — `SceneUtils.GetIsInCity` plus
+  `BuildingLevelTemplate.IsPreBuildConditionValid` / `GetPreBuild` / `GetNeedResource` /
+  `IsTimeConditionValid` for every building, because the balance moved and each
+  building's "can I afford / unlock this upgrade" state is recomputed from scratch;
+- the flying-resource animation: `UIUtil.DoFlyCustom`, `UIAnimator.Play`,
+  `UIImage.LoadSprite` + `CheckPath`, `UIText.SetText`.
+
+Taken over the session, the 61 replies account for 17,566 traced calls — 20% of
+everything the VM did — for an action the player experiences as one tap.
+
+**Our own second-order contribution.** That same burst also produced 20
+`push.resource.info` and 6 `push.resource.item.update`. Three panel listeners hang off
+`push.resource.item.update` — the `resource_tracker` trigger, the `inventory_refresh`
+trigger, and the «Инвентарь» tab's `refresh_live` — and each one is a fresh VM round trip
+(settle 0.6 s) that hijacks the main thread *while* the client is still digesting the
+cascade. `TimerScheduler.submit` coalesces only what arrives while the previous run is
+queued or running, so a burst spread over several seconds still costs several hijacks.
+Nothing throttles them.
+
+**Leads for a fix, none verified live yet**, best first:
+
+1. **Do the harvest outside the city scene.** Every leg of the cascade is city UI, and
+   each one asks `SceneUtils.GetIsInCity` before doing its work — 1,863 of those calls in
+   the sweep's window alone. If the bubbles and the fly animation short-circuit in the
+   world scene, the reply cost collapses. Cheapest to test, biggest prize.
+2. **Pace the sends.** 25 requests in one chunk queue 25 heavy frames back to back; a
+   short gap between them lets the client digest one reply per idle frame instead.
+3. **Debounce the panel's `push.resource.item.update` listeners** so a harvest costs one
+   read, not one per push that slips past the coalescer.
+
+Note that the retired path is no cheaper: the player's 8 icon taps still produced 36
+separate `building.production.collect` requests. One request per building is the game's
+own shape — there is no batch collect to move to.
+
 ### Why not `CityCollectionByItemId` (the old, retired approach)
 
 The earlier `collect_base_resources` reconstructed the harvest from the
@@ -142,6 +207,9 @@ API alternatives if the bubble path proves unreliable.
 run against a real base it collected every ready resource generator in a single tap.
 Since #1087 it skips the not-ready ones, so the harvest no longer trails a queue of
 "In production, please be patient." toasts.
+
+It does, however, make the client stutter while it runs — diagnosed in #1189 above, not
+yet fixed.
 
 ## Notes for the next session
 
