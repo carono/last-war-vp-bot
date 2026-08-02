@@ -2191,3 +2191,22 @@ It is a regression: run_005 3770 → 793, run_007 6600 → 4082. The padding at 
 margin between one truck's tail and the next one's nose, and the planner spends every centimetre
 of it. So the contradiction stands, and the answer to it is a step-down that knows what level the
 runner is on, not a thinner body. Recorded here rather than left to be re-derived.
+
+### The live run after it (#1170)
+
+One attempt, single life, on the fixed planner: **752 m**, which is an ordinary number for this
+account — the same day's runs are 930, 837, 770 and 1764, and the record over 104 attempts is
+2700. One attempt says nothing on its own, and this one is not read as saying anything.
+
+What it does carry is the shape of the death, and it is the shape this whole entry is about. The
+runner died on the road at 752.4 in the right lane, at the nose of a `chexiang_5` whose body runs
+752.9..794. Twenty metres before that the trace has `act = 0` and `reach` counting 17, 16, 14 ...
+0: it saw the group close and had nothing to offer. Three metres further back down the road there
+was a `chexiangxiepo_4` in the CENTRE lane, body 725..758 — the ramp that leads onto the roofs
+over the whole group, and its near end had gone by while the runner was still in the right lane.
+
+The fix in this commit is not implicated: the death frame replayed through the planner before and
+after it plans identically (`reach` 28, 18, 10 and `hold` at each, either way), which it would,
+since the runner was never off the ground and `autoStart` only speaks for a runner who is. What
+killed it is the same thing that will not let the trucks be their true length — the route onto
+the roofs is one the DP does not find until it is too late to take.
