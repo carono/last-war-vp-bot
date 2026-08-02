@@ -20,8 +20,9 @@ needs no rescue either: the two branches point at the same commit. `git
 switch master` when convenient.)
 
 A checkout is what this page assumes, and what the update route below needs.
-[`install.bat`](00-installer.md) takes the other road: it works out of an
-unpacked archive, which has no history to pull.
+[`install.bat`](00-installer.md) starts from an unpacked archive instead, which
+has no history at all — so it offers to attach that folder to the repository,
+which gets it to the same place from the other side.
 
 ## Virtual environment and dependencies
 
@@ -104,9 +105,10 @@ VISION_PROVIDER=ollama
 ## Keeping it up to date
 
 There is no release channel: the bot **is** this checkout, so updating it means moving
-it forward to `origin`. (An install made from an unpacked archive has no history and
-none of this applies to it — there, updating means unpacking a fresh archive over the
-folder.) The panel does that itself — «Главная» has an «Обновление» block
+it forward to `origin`. (An install made from an unpacked archive has no history, so
+none of this applies until [`install.bat`](00-installer.md) has attached the folder to
+the repository; declined, updating there means unpacking a fresh archive over it.)
+The panel does that itself — «Главная» has an «Обновление» block
 showing the version and the commit it is running, and it asks `origin` shortly after the
 window opens and every six hours after that.
 

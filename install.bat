@@ -10,6 +10,13 @@ REM  is put the surroundings in place - Python 3.12, Git, the Python
 REM  dependencies - and drop shortcuts to the panel in THIS folder onto the
 REM  Desktop.
 REM
+REM  An archive has no git history, so the panel's «Обновить» button and
+REM  update.bat would have nothing to pull. Rather than leave updating broken,
+REM  the installer offers to ATTACH the folder to the repository - init,
+REM  remote, fetch, track - which turns it into a checkout without moving a
+REM  single file out of it. Say no and everything works except updating, which
+REM  then means unpacking a newer archive over the folder.
+REM
 REM  Re-running it is safe: whatever is already installed is detected and
 REM  kept, and the dependencies are refreshed. That makes it the repair tool
 REM  as well - and the thing to run after moving the folder, because the
@@ -83,8 +90,12 @@ REM ---------------------------------------------------------------- args
 if "%~1"=="" goto args_done
 if /i "%~1"=="--pydir"        ( set "LW_PY_DIR=%~2"   & shift & shift & goto parse_args )
 if /i "%~1"=="--desktop"      ( set "LW_DESKTOP=%~2"  & shift & shift & goto parse_args )
+if /i "%~1"=="--user"         ( set "LW_USER=%~2"     & shift & shift & goto parse_args )
+if /i "%~1"=="--repo"         ( set "LW_REPO_URL=%~2" & shift & shift & goto parse_args )
+if /i "%~1"=="--branch"       ( set "LW_BRANCH=%~2"   & shift & shift & goto parse_args )
 if /i "%~1"=="--profile"      ( set "LW_PROFILES=!LW_PROFILES! %~2" & shift & shift & goto parse_args )
 if /i "%~1"=="--daemon-shortcut" ( set "LW_DAEMON_LNK=1"  & shift & goto parse_args )
+if /i "%~1"=="--no-attach"    ( set "LW_NO_ATTACH=1"    & shift & goto parse_args )
 if /i "%~1"=="--no-npcap"     ( set "LW_SKIP_NPCAP=1"   & shift & goto parse_args )
 if /i "%~1"=="--no-shortcuts" ( set "LW_NO_SHORTCUTS=1" & shift & goto parse_args )
 if /i "%~1"=="--yes"          ( set "LW_ASSUME_YES=1"   & shift & goto parse_args )
@@ -108,6 +119,10 @@ echo     --profile ИМЯ       ещё один ярлык: панель на э
 echo                         Ключ можно повторять — по ярлыку на аккаунт
 echo     --daemon-shortcut   ярлык демона; обычно не нужен, панель поднимает
 echo                         его сама
+echo     --no-attach         не подключать папку к репозиторию: обновляться
+echo                         тогда можно только новым архивом
+echo     --repo URL          к какому репозиторию подключать
+echo     --branch ИМЯ        какую ветку отслеживать [по умолчанию master]
 echo     --no-npcap          не предлагать установку npcap
 echo     --no-shortcuts      не трогать рабочий стол
 echo     --yes               ничего не спрашивать
@@ -121,13 +136,20 @@ exit /b 0
 
 :args_done
 if not defined LW_PY_DIR   set "LW_PY_DIR=C:\Python312"
+if not defined LW_REPO_URL set "LW_REPO_URL=https://github.com/carono/last-war-vp-bot.git"
+if not defined LW_BRANCH   set "LW_BRANCH=master"
 if not defined LW_DESKTOP call :resolve_desktop
+REM Who is being installed for. Kept across the elevation: from here on an
+REM administrator writes inside a folder that belongs to somebody else, and
+REM what it creates there has to stay writable by them.
+if not defined LW_USER set "LW_USER=%USERDOMAIN%\%USERNAME%"
 
 echo.
 echo   Last War Bot — установка
 echo   ------------------------
 echo   папка бота   : "%LW_DIR%"
 echo   Python       : %LW_PY_DIR%  [%PY_VERSION%]
+echo   обновления   : %LW_REPO_URL%  [ветка %LW_BRANCH%]
 echo   рабочий стол : %LW_DESKTOP%
 echo.
 
@@ -158,12 +180,24 @@ if errorlevel 1 (
 
 if not exist "%LW_TMP%" mkdir "%LW_TMP%" >nul 2>&1
 
+REM The folder is the person's, but everything below this line runs as an
+REM administrator inside it - pip's egg-info, the .git the attach step makes.
+REM Granted on the folder and inheritable, so those arrive already writable by
+REM the person who will run the panel; the files already there are theirs and
+REM are left alone, which is also why this does not walk the tree (/T) and cost
+REM a minute on a folder full of captures.
+icacls "%LW_DIR%" /grant "%LW_USER%:(OI)(CI)M" /Q >nul 2>&1
+if errorlevel 1 call :warn "не удалось выдать %LW_USER% права на запись в папку — панель может не сохранить профиль"
+
 call :step "Python %PY_VERSION%"
 call :ensure_python
 if errorlevel 1 goto abort
 
 call :step "Git"
 call :ensure_git
+
+call :step "Обновления"
+call :attach_repo
 
 call :step "Пакеты Python"
 call :install_requirements
@@ -181,6 +215,11 @@ echo     панель      : "%LW_DIR%\panel.bat"    [ярлык «Last War — 
 echo     обновление  : "%LW_DIR%\update.bat"   [ярлык «Last War — обновление»]
 echo     демон       : "%LW_DIR%\daemon.bat"   [панель поднимает его сама]
 echo     Python      : !PY!
+if exist "%LW_DIR%\.git" (
+    echo     обновляется : кнопкой «Обновить» в панели, на «Главной»
+) else (
+    echo     обновляется : только новым архивом, распакованным поверх папки
+)
 if not "!WARNINGS!"=="0" echo     Выше есть предупреждения, штук !WARNINGS! — прочитайте их до первого запуска.
 echo.
 echo   Бот живёт в этой папке и больше нигде: сюда же пишутся профили, логи
@@ -276,9 +315,10 @@ REM command text: a path with a quote or an apostrophe in it would otherwise
 REM end the string it sits in. Where the bot is does not travel at all - the
 REM elevated copy is this same file and works it out from its own path.
 set "PS_FILE=%LW_SELF%"
-set "PS_ARGS=--elevated --desktop "%LW_DESKTOP%" --pydir "%LW_PY_DIR%""
+set "PS_ARGS=--elevated --desktop "%LW_DESKTOP%" --user "%LW_USER%" --pydir "%LW_PY_DIR%" --repo "%LW_REPO_URL%" --branch "%LW_BRANCH%""
 for %%p in (!LW_PROFILES!) do set "PS_ARGS=!PS_ARGS! --profile %%p"
 if defined LW_DAEMON_LNK   set "PS_ARGS=!PS_ARGS! --daemon-shortcut"
+if defined LW_NO_ATTACH    set "PS_ARGS=!PS_ARGS! --no-attach"
 if defined LW_SKIP_NPCAP   set "PS_ARGS=!PS_ARGS! --no-npcap"
 if defined LW_NO_SHORTCUTS set "PS_ARGS=!PS_ARGS! --no-shortcuts"
 if defined LW_ASSUME_YES   set "PS_ARGS=!PS_ARGS! --yes"
@@ -409,6 +449,71 @@ for /f "delims=" %%g in ('where git.exe 2^>nul') do if not defined GIT set "GIT=
 if not defined GIT if exist "%ProgramFiles%\Git\cmd\git.exe" set "GIT=%ProgramFiles%\Git\cmd\git.exe"
 if not defined GIT if exist "%ProgramW6432%\Git\cmd\git.exe" set "GIT=%ProgramW6432%\Git\cmd\git.exe"
 if not defined GIT if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" set "GIT=%LOCALAPPDATA%\Programs\Git\cmd\git.exe"
+exit /b 0
+
+:attach_repo
+REM An unpacked archive carries no history, so the panel's «Обновить» button and
+REM update.bat have nothing to pull. This makes the folder a checkout where it
+REM stands: init, remote, a shallow fetch of the one branch, and the branch set
+REM to track it. Nothing is cloned and nothing moves - the files already on disk
+REM stay where the person unpacked them, brought up to the branch's tip.
+REM
+REM It is offered rather than done: it reaches the network, it can pick up
+REM changes the person did not ask for, and refusing costs only the update
+REM route. A failure rolls the half-made repository back, so a folder that was
+REM an archive before is an archive after.
+if exist "%LW_DIR%\.git" (
+    echo     папка уже git-репозиторий — кнопка «Обновить» в панели работает
+    exit /b 0
+)
+if defined LW_NO_ATTACH (
+    echo     пропущено — обновляться можно, распаковав новый архив поверх папки
+    exit /b 0
+)
+if not defined GIT (
+    call :warn "Git не найден — подключить папку не к чему; обновляться придётся, распаковывая новый архив поверх неё"
+    exit /b 0
+)
+echo     Папка распакована из архива, истории git в ней нет — значит кнопка
+echo     «Обновить» в панели и update.bat обновлять её не смогут. Могу
+echo     подключить папку к репозиторию: файлы бота обновятся до последней
+echo     версии ветки %LW_BRANCH%, профили, логи и записи не тронутся, никуда
+echo     ничего не копируется.
+call :ask "     Подключить папку к репозиторию?"
+if errorlevel 1 (
+    echo     пропущено — обновляться можно, распаковав новый архив поверх папки
+    exit /b 0
+)
+"!GIT!" -C "%LW_DIR%" init >nul 2>&1
+if errorlevel 1 (
+    call :warn "git init не отработал — папка осталась как была, обновлять её придётся новым архивом"
+    exit /b 0
+)
+REM `init -b` is git 2.28 and newer; this says the same to every version, and
+REM the branch it names does not have to exist yet.
+"!GIT!" -C "%LW_DIR%" symbolic-ref HEAD "refs/heads/%LW_BRANCH%" >nul 2>&1
+"!GIT!" -C "%LW_DIR%" remote add origin "%LW_REPO_URL%" >nul 2>&1
+echo     качаю историю ветки %LW_BRANCH%...
+REM One branch, one commit deep: the panel only ever asks "есть ли что-то
+REM новее", and a shallow fetch answers that without pulling years of history
+REM down a home connection. `git pull --ff-only` later deepens it as needed.
+"!GIT!" -C "%LW_DIR%" fetch --quiet --depth=1 origin "%LW_BRANCH%"
+if errorlevel 1 goto attach_failed
+"!GIT!" -C "%LW_DIR%" reset --mixed FETCH_HEAD >nul 2>&1
+if errorlevel 1 goto attach_failed
+"!GIT!" -C "%LW_DIR%" branch --set-upstream-to="origin/%LW_BRANCH%" "%LW_BRANCH%" >nul 2>&1
+REM The archive may have been downloaded weeks ago; this brings the tracked
+REM files up to the commit just fetched. Untracked ones - profiles, logs,
+REM captures, .env - are not touched by it.
+"!GIT!" -C "%LW_DIR%" checkout -- . >nul 2>&1
+echo     подключено: origin/%LW_BRANCH% — кнопка «Обновить» в панели теперь работает
+exit /b 0
+
+:attach_failed
+REM Leave nothing half-made behind: without this the folder would look like a
+REM repository to the panel and report "нет origin" for ever.
+rd /s /q "%LW_DIR%\.git" >nul 2>&1
+call :warn "не удалось подключиться к %LW_REPO_URL% — папка осталась как была. Обновляться можно, распаковав новый архив поверх неё"
 exit /b 0
 
 :install_requirements

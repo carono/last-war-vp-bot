@@ -14,14 +14,16 @@ bot](03-bot.md)); this page is what the installer does in its place.
 ## Running it
 
 1. Download the archive —
-   `https://github.com/carono/last-war-vp-bot/archive/refs/heads/v2.zip`.
+   `https://github.com/carono/last-war-vp-bot/archive/refs/heads/master.zip`.
 2. Right-click it and pick **Extract All**. Choose a folder you can write to and
    intend to keep — Documents, for instance. Do **not** run `install.bat`
    straight out of the .zip window: that copy lives in a temporary folder
    Windows deletes afterwards, and the installer refuses to run from there.
 3. Open the unpacked folder and double-click `install.bat`. It asks for
    administrator rights once — Windows shows the UAC prompt — and does the rest
-   by itself. Windows may also warn that the file came from the internet:
+   by itself, stopping only for two yes/no questions: whether to attach the
+   folder to the repository so that updates work (below), and whether to install
+   npcap. Windows may also warn that the file came from the internet:
    **More info → Run anyway**.
 4. When it finishes, **Last War — панель** is on the Desktop.
 
@@ -39,6 +41,10 @@ install.bat [ключи]
   --profile ИМЯ       ещё один ярлык: панель на этом профиле.
                       Ключ можно повторять — по ярлыку на аккаунт
   --daemon-shortcut   ярлык демона; обычно не нужен, панель поднимает его сама
+  --no-attach         не подключать папку к репозиторию: обновляться тогда
+                      можно только новым архивом
+  --repo URL          к какому репозиторию подключать
+  --branch ИМЯ        какую ветку отслеживать [по умолчанию master]
   --no-npcap          не предлагать установку npcap
   --no-shortcuts      не трогать рабочий стол
   --yes               ничего не спрашивать
@@ -69,10 +75,34 @@ that same folder. Back it up by copying the folder; move it by moving the folder
 and running `install.bat` again.
 
 Git is set up but never required: the sources arrived in the archive, so nothing
-in the install needs it. It is there for `update.bat` and for the panel's own
-«Обновление» block, both of which work only when the folder is a git checkout
-rather than an unpacked archive. If it cannot be installed the run carries on
-with a warning.
+in the install needs it. It is there for updating — see below. If it cannot be
+installed the run carries on with a warning.
+
+## Updating, and the folder the archive left behind
+
+An archive has no git history, and both routes to a newer version — `update.bat`
+and the panel's «Обновить» button on «Главная» — are a `git pull`. So the
+installer offers to **attach the folder to the repository**: `git init`, the
+remote, a shallow fetch of the one branch, and the branch set to track it. The
+folder becomes a checkout exactly where it stands — nothing is cloned, nothing
+moves, and the files already on disk are brought up to the tip of the branch.
+After that the panel's button works like it does for a developer's checkout.
+
+It is offered, not done behind your back: it reaches the network and it can pick
+up changes you did not ask for. Answer no (or pass `--no-attach`) and everything
+else still works — updating then means downloading a fresh archive and unpacking
+it over the folder, which is what `update.bat` and the panel will tell you.
+
+* **Untracked files are never touched by it.** Your profiles, logs, captures and
+  `.env` are not in the repository, so neither the attach nor any later update
+  can overwrite them.
+* **A failure leaves no trace.** If the remote cannot be reached — no network, a
+  private repository, a wrong `--repo` — the half-made `.git` is removed again
+  and the folder is exactly the archive it was.
+* **`--repo` and `--branch`** exist for a fork or another branch. They say what
+  to *attach to*; there is still nothing that clones.
+* **Already a checkout?** Then the step says so and does nothing. A developer's
+  clone is left exactly as it is.
 
 ### Why the shortcuts run as administrator
 
@@ -118,11 +148,9 @@ installed along with `requirements.txt`.
 * **`panel.bat`** — opens the panel. Arguments pass straight through, so
   `panel.bat --profile second` opens it on another profile.
 * **`update.bat`** — refreshes the dependencies, and pulls the latest sources
-  when the folder is a git checkout. From an unpacked archive there is no
-  history to pull, and it says so instead of failing at git: update the sources
-  by downloading a fresh archive and unpacking it over the folder, replacing the
-  files. Your profiles, logs and captures sit in folders of their own and
-  survive that.
+  when the folder is a checkout (which it is, if the attach step above ran).
+  Without a `.git` it says so instead of failing at git, points at the two ways
+  forward, and refreshes the packages anyway.
 * **`daemon.bat`** — starts the Lua daemon in a window of its own. The panel
   starts its own, so this is only for driving the game without the panel.
 
