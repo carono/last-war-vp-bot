@@ -395,9 +395,9 @@ recipe in section 6.
 - **`docs/game/`** — game knowledge: overview, daily cycle, glossary,
   per-screen notes.
 - **`docs/install/`** — Windows install for a new operator.
-- **`docs/panel-tab-plugins.md`** — the migration plan for the control
-  panel: every tab a self-contained runnable module, the panel a shell
-  that plugs them in. Read it before touching `panel/__main__.py`.
+- **`docs/research/panel-tabs-refactor.md`** — the migration plan for the
+  control panel: every tab a self-contained runnable module, the panel a
+  shell that plugs them in. Read it before touching `panel/__main__.py`.
 
 ---
 
