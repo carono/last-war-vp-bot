@@ -68,3 +68,58 @@ def attach_bus(app, lines: list | None = None) -> RecordingBus:
     app._logbus = bus
     app.logs = bus.lines
     return bus
+
+
+# ---------------------------------------------------------------------------
+# a whole runtime, cold
+# ---------------------------------------------------------------------------
+class ColdGameLink:
+    """A game link that refuses everything, and remembers being asked.
+
+    "Refuses" is the honest model of a standalone tab before anything is running: no
+    daemon, no client, no network. `asked` is what the contract test reads to prove a
+    tab's `build()` did not touch the game.
+    """
+
+    def __init__(self):
+        self.asked: list = []
+        self.client = None
+        self.busy = False
+
+    def port(self) -> int:
+        self.asked.append("port")
+        return 47999
+
+    def up(self) -> bool:
+        self.asked.append("up")
+        return False
+
+    def evaluator(self):
+        self.asked.append("evaluator")
+        raise ConnectionRefusedError("cold runtime: no daemon")
+
+    def claim(self, owner="panel") -> bool:
+        self.asked.append("claim")
+        return False
+
+    def release(self) -> None: ...
+    def rebind(self) -> bool:
+        return False
+
+
+def cold_runtime(root, profile: str | None = None, settings: dict | None = None):
+    """A PanelRuntime with the game replaced by :class:`ColdGameLink`.
+
+    Everything else is real — the translator reads the actual locale files, the binder
+    the actual defaults — so a tab built against this is built against what it will
+    really be handed, minus anything that would reach the network.
+    """
+    import panel.__main__ as pm
+    from panel.runtime import host as hostmod
+
+    rt = hostmod.PanelRuntime(root, defaults=pm.SETTINGS_DEFAULTS)
+    if settings:
+        rt.settings.values = dict(settings)
+    rt.game = ColdGameLink()
+    rt.log = RecordingBus(translate=rt.i18n.t)
+    return rt

@@ -197,6 +197,8 @@
   "log.sniff.unconfirmed": "готовность не подтверждена за {sec} с: {pending} — смотри лог выше",
   "log.sniff.waiting": "жду готовности обеих половин — пока не действуй в игре …",
   "log.sweep.error": "ошибка обхода: {error}",
+  "log.tab.failed": "вкладка «{tab}» не собралась: {error}",
+  "log.tab.unknown": "вкладка «{tab}» есть в профиле, но её больше нет — пропущена",
   "log.trace.ended": "трассировщик завершён",
   "log.trace.no_evaluator": "снятие хуков: доступа к игре нет ({error})",
   "log.trace.started": "трассировщик запущен (pid {pid}); вывод идёт в лог, запись — в results/traces/",
@@ -361,6 +363,7 @@
   "settings.tab.general": "Общие",
 
   "splash.chat": "Загрузка истории чата…",
+  "standalone.started": "{tab} — отдельное окно, профиль «{profile}»",
   "splash.daemon": "Подключение к daemon…",
   "splash.monitors": "Запуск наблюдателей…",
   "splash.profile": "Загрузка профиля…",

@@ -197,6 +197,8 @@
   "log.sniff.unconfirmed": "readiness unconfirmed after {sec} s: {pending} — see the log above",
   "log.sniff.waiting": "waiting for both halves — do nothing in the game yet …",
   "log.sweep.error": "the sweep failed: {error}",
+  "log.tab.failed": "tab «{tab}» could not be built: {error}",
+  "log.tab.unknown": "tab «{tab}» is in the profile but no longer exists — skipped",
   "log.trace.ended": "the tracer has ended",
   "log.trace.no_evaluator": "unhooking: no route into the game ({error})",
   "log.trace.started": "the tracer is running (pid {pid}); its output goes to the log, the recording to results/traces/",
@@ -361,6 +363,7 @@
   "settings.tab.general": "General",
 
   "splash.chat": "Loading the chat history…",
+  "standalone.started": "{tab} — standalone window, profile «{profile}»",
   "splash.daemon": "Connecting to the daemon…",
   "splash.monitors": "Starting the monitors…",
   "splash.profile": "Loading the profile…",

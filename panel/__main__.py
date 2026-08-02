@@ -113,6 +113,7 @@ from . import rally_limits as rallylimitsmod
 from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
 from . import tabs_extra as tabsextra
+from . import tabs as tabsreg
 from . import secret_tasks as secrettasksmod
 from . import command_post as commandpostmod
 
@@ -602,27 +603,30 @@ def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
 class Panel(tk.Tk):
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
-        # Locale lookup AND the registry of what to re-render on a language switch
-        # (panel/runtime/i18n.py). `_t` / `_tr` / `_hook` below are its three faces.
-        self._i18n = runtime.Translator()
-        # Repeating callbacks, one chain per name (panel/runtime/tick.py). Created
-        # before anything can arm a loop, which is before the first widget is built.
-        self._tick = runtime.Ticker(self)
-        # Profiles: the active profile's config.json drives every panel setting.
-        self._profiles = profilemod.ProfileManager()
-        # An explicit --profile overrides the saved last-active profile, creating
-        # it on the fly if it does not exist yet.
+        # THE RUNTIME (panel/runtime/): the profile and its settings, the translator,
+        # the log sink, the tick, the child factory, the link to the game and the
+        # action runner. A tab launched on its own builds the very same object around
+        # a bare root — which is what makes it launchable at all.
+        #
+        # An explicit --profile overrides the saved last-active profile, creating it
+        # on the fly if it does not exist yet.
+        profiles = profilemod.ProfileManager()
         if active_profile:
-            self._profiles.set_active(active_profile)
-        # The profile's values, its widget variables and the typed readers with their
-        # bounds (panel/runtime/settings.py). `_settings` / `_loading` / `_opt_vars`
-        # below stay as this file's names for the same three things.
-        self._binder = runtime.SettingsBinder(self._profiles, SETTINGS_DEFAULTS)
-        self._binder.load()
+            profiles.set_active(active_profile)
+        self._rt = runtime.PanelRuntime(self, profiles=profiles,
+                                        defaults=SETTINGS_DEFAULTS,
+                                        daemon_state=self._daemon_state)
+        # The names the rest of this file (and the tests that borrow its methods)
+        # already use, pointing at the runtime's own pieces.
+        self._profiles = self._rt.profiles
+        self._binder = self._rt.settings
+        self._i18n = self._rt.i18n
+        self._logbus = self._rt.log
+        self._tick = self._rt.tick
+        self._children = self._rt.children
+        self._game = self._rt.game
+        self._actions = self._rt.actions
         self._binder.loading = True   # suppresses auto-save while we apply settings
-        saved_lang = self._settings.get("language")
-        if saved_lang:                # profile is the source of truth for language
-            self._i18n.set_lang(saved_lang)
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
@@ -641,7 +645,6 @@ class Panel(tk.Tk):
         # WIDGET is this shell's — a tab launched on its own has none, and says the
         # same lines into the same two files.
         self._log = None              # the widget, built by _build_ui
-        self._logbus = runtime.LogBus(translate=self._t)
         self._log_lines = 0           # lines in the widget, for the retention cap
         self._log_kept: list = []     # every line this session, for a filter redraw
         # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
@@ -802,24 +805,6 @@ class Panel(tk.Tk):
         # The daemon this profile drives. A profile naming a non-default port drives
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
-        # How every child process is launched (panel/runtime/children.py): the
-        # interpreter, the environment — the daemon port and the game lease — and
-        # where its output goes.
-        self._children = runtime.ChildFactory(
-            log=self._logbus, cwd=REPO, python=self._python,
-            port=self._daemon_port, schedule=self.after)
-        # The link to the game (panel/runtime/daemon.py): which daemon this profile
-        # drives, whether it is up, and the one-action-at-a-time claim — the local
-        # flag AND the daemon's lease, so a separately-launched tab cannot drive the
-        # same client at the same time.
-        self._game = runtime.GameLink(
-            port=self._daemon_port, python=self._python, log=self._logbus,
-            env=self._children.env, cwd=REPO,
-            daemon_script=os.path.join(TOOLS, "lua_daemon.py"),
-            on_state=self._daemon_state, debug=dbgmod.get_logger("daemon"))
-        # Playing an actions/*.md scenario — the one door the panel presses through
-        # (panel/runtime/actions.py).
-        self._actions = runtime.ActionRunner(log=self._logbus)
         # Profile picker lives in a modal (menu → «Профиль»), not on the main page.
         # The var is always live; the combo exists only while that modal is open.
         self._profile_var = tk.StringVar(value=self._profiles.active)
@@ -1698,11 +1683,27 @@ class Panel(tk.Tk):
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
-        self._build_stats_tab(stats_tab)
-        # The three read-only tabs (panel/tabs_extra.py). Their UI is built now but the
-        # data is read lazily — the first time each tab is opened (_on_main_tab_changed).
         self._main_nb = nb
-        self._inventory_tab = tabsextra.InventoryTab(self, inventory_tab)
+        # THE PLUGIN TABS (panel/tabs/). Each is a class the registry names, built from
+        # the runtime and nothing else — the same six lines `run_tab` performs when one
+        # of them is launched on its own. A tab that fails to import or build is skipped
+        # with a line in the log; it used to take the whole boot down with it.
+        self._plugin_tabs: dict = {}
+        plugin_frames = {"alliance": alliance_tab, "profile": profile_tab,
+                         "inventory": inventory_tab, "heroes": heroes_tab,
+                         "accounts": accounts_tab, "stats": stats_tab}
+        for spec in tabsreg.resolve(on_unknown=lambda t: self._say(
+                "panel", "log.tab.unknown", tab=t)):
+            frame = plugin_frames.get(spec.id)
+            if frame is None:
+                continue
+            tab = self._build_plugin_tab(spec, frame)
+            if tab is not None:
+                self._plugin_tabs[spec.id] = tab
+        self._inventory_tab = self._plugin_tabs.get("inventory")
+        self._stats_tab = self._plugin_tabs.get("stats")
+        if self._stats_tab is not None:      # the tracker owns the live tally
+            self._stats_tab.adopt(self._resource_stats)
         self._secret_tasks_tab = secrettasksmod.SecretTasksTab(self, secret_tasks_tab)
         # «Секретный командный пункт» — ghost recon, shared missions and treasures. Built
         # eagerly like the one above (its ghost page owns `_ghost_autoloot_var`, which the
@@ -1714,14 +1715,13 @@ class Panel(tk.Tk):
         # below so the strip packs above that tab's own header.
         self._build_dashboard(accounts_tab)
         self._lazy_tabs = {
-            str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
-            str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
-            str(inventory_tab): self._inventory_tab,
-            str(heroes_tab): tabsextra.HeroesTab(self, heroes_tab),
-            str(accounts_tab): tabsextra.AccountsTab(self, accounts_tab),
             str(secret_tasks_tab): self._secret_tasks_tab,
             str(command_post_tab): self._command_post_tab,
         }
+        for tab_id, frame in plugin_frames.items():
+            tab = self._plugin_tabs.get(tab_id)
+            if tab is not None:
+                self._lazy_tabs[str(frame)] = tab
         # The «Ралли» tab drives the game (raise a rally on an elite, loop N times); it
         # has no data to lazy-load, so it is built eagerly and not in _lazy_tabs.
         self._rally_tab = tabsextra.RallyTab(self, rally_tab)
@@ -1905,6 +1905,24 @@ class Panel(tk.Tk):
                  "cmd.run").pack(side="left")
         self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
                  "cmd.reference").pack(side="left", padx=(4, 0))
+
+    def _build_plugin_tab(self, spec, frame):
+        """Build one registry tab into ``frame``. ``None`` if it could not be built.
+
+        A tab that raises used to take the boot with it — `_build_ui` was one straight
+        line of fourteen constructions. Now the panel opens without it and says so.
+        """
+        try:
+            cls = spec.load()
+            self._binder.register(cls.SETTINGS)
+            tab = cls(self._rt, frame)
+            tab.build()
+            tab.apply_config(self._binder.tab_config(cls.ID, cls.LEGACY_KEYS))
+            return tab
+        except Exception as exc:                 # noqa: BLE001
+            self._dbg.error("tab %r failed to build", spec.id, exc_info=True)
+            self._say("panel", "log.tab.failed", tab=spec.id, error=exc)
+            return None
 
     # -- the rally monitor (shown on the «Ралли» tab) ------------------------
     def _build_rally_monitor(self, parent: ttk.Frame) -> None:
@@ -5609,51 +5627,8 @@ class Panel(tk.Tk):
 
     # -- resource tracker (panel/resource_stats.py) -------------------------
     def _read_resource_balance(self) -> dict:
-        """The current resource balance off the game, in the tracker's keys.
-
-        The balance is a flat dict on the wire (`init.resource`: money / metal / wood /
-        petroleum / food …, docs/research/city-protocol.md); at runtime it is read
-        through the daemon from `DataCenter.ResourceManager`. BEST-EFFORT: the exact
-        getter is not confirmed live, so several plausible field/accessor shapes are
-        tried and a resource that cannot be read is left out (never guessed). Returns
-        ``{}`` when nothing readable — the caller then records no gain.
-        """
-        if not self._daemon_up():
-            return {}
-        # For each key, read the game field (gold=money, oil=petroleum) off a resource
-        # object, trying `:GetXxx()` / `.xxx` / an index. `RB k=v …` on one line.
-        chunk = (
-            'local R = DataCenter.ResourceManager or DataCenter.ResourceItemDataManager '
-            'local function bal(field) '
-            'if not R then return nil end '
-            'local ok, v = pcall(function() return R["Get"..field:sub(1,1):upper()..field:sub(2)](R) end) '
-            'if ok and type(v)=="number" then return v end '
-            'ok, v = pcall(function() return R[field] end) if ok and type(v)=="number" then return v end '
-            'ok, v = pcall(function() return R.resource[field] end) '
-            'if ok and type(v)=="number" then return v end return nil end '
-            'local out = {} '
-            'for _, p in ipairs({{"food","food"},{"wood","wood"},{"metal","metal"},'
-            '{"oil","petroleum"},{"gold","money"}}) do '
-            'local n = bal(p[2]) if n ~= nil then out[#out+1] = p[1].."="..tostring(math.floor(n)) end end '
-            'CS.UnityEngine.Debug.LogError("RB "..table.concat(out, " "))'
-        )
-        try:
-            ev = lua_client.get_evaluator(port=self._daemon_port())
-            lines = ev.run(chunk, marker="RB", settle=0.6)
-        except Exception:                        # noqa: BLE001 — a bad read is not a gain
-            return {}
-        out: dict = {}
-        for ln in lines or []:
-            if "RB " not in ln:
-                continue
-            for tok in ln.split("RB ", 1)[1].split():
-                if "=" in tok:
-                    key, _, val = tok.partition("=")
-                    try:
-                        out[key] = int(val)
-                    except ValueError:
-                        pass
-        return out
+        """The current resource balance off the game (panel/runtime/reads.py)."""
+        return runtime.reads.resource_balance(self._game)
 
     def _track_resources(self) -> None:
         """One balance-changed push: read the balance and tally what went up.
@@ -5714,45 +5689,11 @@ class Panel(tk.Tk):
             tab.ensure_loaded()
 
     # -- statistics tab: resources gained per day ---------------------------
-    def _build_stats_tab(self, parent) -> None:
-        """A table of resources gained per day (panel/resource_stats.py).
-
-        Filled by the «resource_tracker» trigger — one row per day, newest first, a
-        column per resource. Nothing here drives the game; it reads the profile's tally.
-        """
-        frame = self._tr(ttk.LabelFrame(parent, padding=8), "stats.frame")
-        frame.pack(fill="both", expand=True, padx=8, pady=8)
-        self._stats_grid = ttk.Frame(frame)
-        self._stats_grid.pack(fill="x")
-        self._tr(ttk.Label(frame, foreground="#888", wraplength=620, justify="left"),
-                 "stats.hint").pack(anchor="w", pady=(8, 0))
-        self._refresh_stats_table()
-
     def _refresh_stats_table(self) -> None:
-        """Redraw the per-day resource table from the profile's tally."""
-        grid = getattr(self, "_stats_grid", None)
-        if grid is None:
-            return
-        for child in grid.winfo_children():
-            child.destroy()
-        self._tr(ttk.Label(grid, foreground="#888"), "stats.col.date").grid(
-            row=0, column=0, sticky="w", padx=(0, 14), pady=(0, 4))
-        for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
-            self._tr(ttk.Label(grid, foreground="#888"), f"stats.res.{key}").grid(
-                row=0, column=col, sticky="e", padx=(0, 10), pady=(0, 4))
-        dates = self._resource_stats.dates()
-        if not dates:
-            self._tr(ttk.Label(grid, foreground="#888"), "stats.empty").grid(
-                row=1, column=0, columnspan=len(resourcestatsmod.RESOURCES) + 1,
-                sticky="w", pady=4)
-            return
-        for r, date in enumerate(dates, start=1):
-            ttk.Label(grid, text=date).grid(row=r, column=0, sticky="w",
-                                           padx=(0, 14), pady=1)
-            row = self._resource_stats.on(date)
-            for col, key in enumerate(resourcestatsmod.RESOURCES, start=1):
-                ttk.Label(grid, text=f"{row[key]:,}").grid(
-                    row=r, column=col, sticky="e", padx=(0, 10))
+        """Repaint the «Статистика» tab, if it is one of the tabs this profile shows."""
+        tab = getattr(self, "_stats_tab", None)
+        if tab is not None:
+            tab.adopt(self._resource_stats)
 
     def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.
