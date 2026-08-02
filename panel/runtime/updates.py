@@ -94,7 +94,7 @@ class UpdateState:
     branch: str = ""
     local: str = ""              # short hash of HEAD
     remote: str = ""             # short hash of the upstream tip
-    upstream: str = ""           # e.g. "origin/v2"
+    upstream: str = ""           # e.g. "origin/master"
     behind: int = 0              # commits upstream has and this copy has not
     ahead: int = 0               # the other way round
     dirty: bool = False          # tracked files modified — independent of `state`
