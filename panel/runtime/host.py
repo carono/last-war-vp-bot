@@ -100,6 +100,8 @@ class PanelRuntime:
         self.actions = ActionRunner(log=self.log, target=self.game_target)
         self._schedule = None           # built on first ask (see the property below)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
+        self._lock = None               # this profile's instance lock, held open
+        self._lock_on = None            # …and which profile it is holding
         # Which tabs this window actually built. Empty until somebody fills it, never
         # None — a tab reaching for another one asks `rt.tabs.get(id)` and gets `None`
         # for "not in this window", in the shell and standalone alike.
@@ -203,29 +205,46 @@ class PanelRuntime:
 
     # -- «I am still here» --------------------------------------------------
     def start_heartbeat(self) -> None:
-        """Say once a minute that this panel is alive — from the Tk queue, deliberately.
+        """Hold this profile, and say once a minute that the window is still answering.
 
-        The scheduled hourly check (panel/runtime/autostart.py) reads that file to decide whether
-        to open the panel. Armed on `tick`, so what it proves is not «the process exists»
-        but «the event loop is still turning»: a window that has been white and
-        unresponsive for an hour stops writing it, which is exactly the case a plain
-        process-list check cannot tell from a working panel.
+        TWO signals, because one question is really two. The instance LOCK is held open
+        for the life of the process, so «is a panel on this profile» is answered by the
+        kernel and cannot go stale — it is released by the OS whatever ends the process.
+        The BEAT is armed on `tick`, so it proves the thing a lock cannot: that the event
+        loop is still turning. A window that has been white and unresponsive for an hour
+        still holds its lock and stops beating, which is exactly how the hourly check
+        (panel/runtime/autostart.py) tells a wedged panel from a working one.
 
-        Only the SHELL starts it. A standalone tab is not the panel, and a beat from one
-        would tell the check that a panel is running when none is.
+        The lock follows the profile, because the panel does: switching profiles hands
+        this window's claim to the new one and lets the old one go, so an autostart task
+        for the profile just left can open a panel on it — which is the point of a task
+        per profile.
+
+        Only the SHELL starts this. A standalone tab is not the panel, and a beat from
+        one would tell the check that a panel is running when none is.
         """
         from . import autostart as autostartmod
 
         self._heartbeat = True
 
         def beat() -> None:
+            if self._lock_on != self.profiles.active:
+                autostartmod.drop_lock(self._lock)
+                self._lock = autostartmod.take_lock(self.profiles)
+                self._lock_on = self.profiles.active
+                if self._lock is None:
+                    # Not refused — only noted. A window a person asked for opens; it is
+                    # the UNASKED-FOR one the hourly check must not open, and it reads
+                    # this same lock to decide.
+                    self.log.say("panel", "log.autostart.second_panel",
+                                 profile=self._lock_on)
             autostartmod.beat(self.profiles)
             self.tick.arm("heartbeat", int(autostartmod.BEAT_SEC * 1000), beat)
 
         beat()
 
     def stop_heartbeat(self) -> None:
-        """The panel is closing on purpose — take the file with it.
+        """The panel is closing on purpose — take the beat and the lock with it.
 
         A no-op for a window that never started one, which is what keeps a standalone
         tab's `shutdown` from deleting the running panel's heartbeat.
@@ -237,6 +256,8 @@ class PanelRuntime:
         self._heartbeat = False
         self.tick.disarm("heartbeat")
         autostartmod.clear(self.profiles)
+        autostartmod.drop_lock(self._lock)
+        self._lock, self._lock_on = None, None
 
     # -- teardown -----------------------------------------------------------
     def shutdown(self) -> None:

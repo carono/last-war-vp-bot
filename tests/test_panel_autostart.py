@@ -157,6 +157,71 @@ def test_the_check_reports_without_launching_anything():
         assert autostartmod.check(profiles.active, launch=False)["state"] == "running"
 
 
+def test_the_instance_lock_is_exclusive_and_dies_with_its_holder():
+    """«A panel is on this profile», answered by the kernel.
+
+    This is the half a heartbeat cannot do: a file's CONTENTS can be stale, a lock cannot
+    — the OS drops it when the process ends, however it ends. It is per profile, so two
+    accounts open at once do not see each other.
+    """
+    with _profiles_in_tmp() as profiles:
+        profiles.create("second")
+        assert autostartmod.locked(profiles) is False
+        held = autostartmod.take_lock(profiles)
+        assert held is not None
+        try:
+            assert autostartmod.locked(profiles) is True
+            assert autostartmod.take_lock(profiles) is None, "two holders at once"
+            assert autostartmod.locked(profiles, "second") is False, "not per profile"
+        finally:
+            autostartmod.drop_lock(held)
+        assert autostartmod.locked(profiles) is False
+        # The pid is in it for a person reading the folder; the lock is what counts.
+        assert Path(profiles.lock_file()).read_text(encoding="utf-8").strip() \
+            == str(os.getpid())
+
+
+def test_a_held_profile_is_never_opened_a_second_time():
+    """The lock has the last word when the beat says nothing — no file, no psutil."""
+    with _profiles_in_tmp() as profiles:
+        name, launched = profiles.active, []
+        real_open, real_pids = autostartmod.open_panel, autostartmod.panel_pids
+        autostartmod.open_panel = lambda p, n: launched.append(n)
+        autostartmod.panel_pids = lambda p, n=None: []     # nothing to see there either
+        held = autostartmod.take_lock(profiles)
+        try:
+            record = autostartmod.check(name)
+        finally:
+            autostartmod.drop_lock(held)
+            autostartmod.open_panel, autostartmod.panel_pids = real_open, real_pids
+        assert launched == [], "it opened a second panel on a held profile"
+        assert record["state"] == "running" and record["seen"] == "lock"
+        assert record["locked"] is True
+
+
+def test_the_daemon_port_is_read_per_profile_and_is_not_the_liveness_test():
+    """The daemon answers «can I drive the game», never «is the panel running».
+
+    It is started detached and outlives the panel that started it, it has no idle
+    timeout, and `daemon.bat` runs one with no panel at all — so it says «up» with
+    nothing open. Kept as a diagnostic, and per profile, because a second account in its
+    own Windows session drives its own client on its own port.
+    """
+    import lua_client
+
+    with _profiles_in_tmp() as profiles:
+        assert autostartmod._daemon_port(profiles) == lua_client.DEFAULT_PORT
+        profiles.save({"daemon_port": 47655})
+        assert autostartmod._daemon_port(profiles) == 47655
+        for junk in ("", "abc", None, 0, 99999):
+            profiles.save({"daemon_port": junk})
+            assert autostartmod._daemon_port(profiles) == lua_client.DEFAULT_PORT, junk
+        # And it is nowhere near the verdict: a profile with a daemon up and no beat is
+        # «stopped», which is the whole point of not testing liveness with a port.
+        profiles.save({})
+        assert autostartmod.probe(profiles).state == "stopped"
+
+
 def test_a_panel_process_is_told_from_a_tab_and_from_the_check_itself():
     """What counts as «a panel is already on this profile».
 

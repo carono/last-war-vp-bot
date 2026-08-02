@@ -132,6 +132,105 @@ def beat(profiles, name: str | None = None) -> None:
     })
 
 
+# ------------------------------------------------------ the instance lock --
+#
+# «A panel is on this profile» answered by the KERNEL rather than by a file's contents.
+#
+# The obvious instrument for this is a port, and the obvious port is the Lua daemon's.
+# It does not work, and the reason is written in `panel/runtime/daemon.py`'s own comment:
+# the daemon is started DETACHED, «so the daemon outlives the panel that started it». It
+# has no idle timeout and no parent watch (tools/lua_daemon.py is a bare `while True:
+# accept()`), the panel never shuts it down on close, and `daemon.bat` exists precisely
+# to run one with no panel at all. So a listening port means «a daemon is up», which is
+# true with the panel closed, true while the panel is wedged, and true for a daemon
+# somebody started by hand — every case the check has to tell apart.
+#
+# An exclusive lock on a file in the profile directory is the same idea with the right
+# owner: the panel PROCESS holds it, and the OS drops it the moment that process dies —
+# no stale state, nothing to expire, and no port to allocate per profile. It cannot go
+# stale the way the heartbeat can, and the heartbeat says the one thing it cannot: that
+# the window is still ANSWERING. Both, therefore, and neither alone.
+def _lock_exclusive(handle) -> bool:
+    """Take the lock on byte 0 without blocking. ``False`` if somebody else holds it.
+
+    THE SEEK IS LOAD-BEARING. `msvcrt.locking` locks a range starting at the file's
+    current position, and the handle is opened for append — so once the first holder had
+    written its pid, the next one to ask locked the byte AFTER it, was granted, and both
+    believed they held the profile. Byte 0 every time, whatever the file contains.
+    """
+    try:
+        handle.seek(0)
+        if WINDOWS:
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def take_lock(profiles, name: str | None = None):
+    """Hold this profile's instance lock for as long as the returned handle lives.
+
+    The panel keeps the handle open for its whole life, so «is the lock held» is exactly
+    «is a panel process on this profile». Returns ``None`` when it is already held —
+    which the panel only logs: refusing to open a window a person asked for is a
+    different decision from refusing to open one nobody asked for.
+    """
+    path = profiles.lock_file(name)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        handle = open(path, "a+b")
+    except OSError:
+        return None
+    if not _lock_exclusive(handle):
+        handle.close()
+        return None
+    try:                                      # for a person reading the folder
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"{os.getpid()}\n".encode())
+        handle.flush()
+    except OSError:
+        pass
+    return handle
+
+
+def drop_lock(handle) -> None:
+    """Let it go early. The OS does this anyway when the process ends."""
+    if handle is None:
+        return
+    try:
+        if WINDOWS:
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        handle.close()
+    except OSError:
+        pass
+
+
+def locked(profiles, name: str | None = None) -> bool:
+    """Is a panel process holding this profile? Asked by taking the lock and giving it back.
+
+    A lock this process could take was, by definition, held by nobody — and it is
+    released again immediately, so asking never blocks the panel that is about to start.
+    """
+    handle = take_lock(profiles, name)
+    if handle is None:
+        return True
+    drop_lock(handle)
+    return False
+
+
 def clear(profiles, name: str | None = None) -> None:
     """Drop the heartbeat — the panel is closing on purpose."""
     try:
@@ -349,11 +448,11 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
     Settings page reads back.
 
     NEVER two panels on one profile. They share a `config.json` and would write it over
-    each other, so the launch is gated twice: on the heartbeat, and — when that says
-    nothing is there — on a scan for a panel process on this profile anyway. Only a
-    verdict of «hung» opens one on top of something, and only after closing it: a beat
-    that started and then stopped is proof of a wedge, where a beat that never existed
-    is just as likely to be a deleted file.
+    each other, so the launch is gated three times: on the heartbeat, on this profile's
+    instance lock (the kernel's answer, which cannot go stale), and on a scan for a panel
+    process anyway. Only a verdict of «hung» opens one on top of something, and only
+    after closing it: a beat that started and then stopped is proof of a wedge, where a
+    beat that never existed is just as likely to be a deleted file.
     """
     profiles = profilemod.ProfileManager()
     name = profilemod.sanitize(profile) if profile else profiles.active
@@ -361,17 +460,21 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
     record = {"ts": time.time(), "profile": name, "seen": live.state,
               "pid": live.pid, "age": round(live.age or 0)}
 
+    held = False if (live.running or not launch) else locked(profiles, name)
     others = [] if (live.running or not launch) else panel_pids(profiles, name)
+    record["locked"] = held
 
     if live.running:
         record["state"] = "running"
     elif not launch:
         record["state"] = live.state
-    elif others and live.state != "hung":
+    elif (held or others) and live.state != "hung":
         # A panel is there; it is simply not saying so. Leaving it alone is the whole
         # point — a second one on this profile costs the profile itself.
-        _log(profiles, name, f"no beat, but panel {others} is running — left alone")
-        record.update(state="running", seen="process", pid=others[0])
+        _log(profiles, name, f"no beat, but the profile is held (lock={held}, "
+                             f"pids={others}) — left alone")
+        record.update(state="running", seen="lock" if held else "process",
+                      pid=others[0] if others else None)
     else:
         doomed = [live.pid] if (live.state == "hung" and live.pid) else []
         doomed += [pid for pid in others if pid not in doomed]
@@ -611,6 +714,42 @@ class Status:
     last: dict = field(default_factory=dict)
 
 
+def _daemon_port(profiles, name: str | None = None) -> int:
+    """This profile's daemon port, read from its saved settings.
+
+    The knob lives in the profile (`daemon_port`), so a second account in its own Windows
+    session drives its own client on its own port — read here from the file rather than
+    from a Tk variable, because nothing in this module has a window.
+    """
+    import lua_client
+
+    saved = profiles.load(name) if name else profiles.load()
+    try:
+        port = int(float(str(saved.get("daemon_port")).strip()))
+    except (TypeError, ValueError, AttributeError):
+        return int(lua_client.DEFAULT_PORT)
+    return port if 1 <= port <= 65535 else int(lua_client.DEFAULT_PORT)
+
+
+def daemon_up(profiles, name: str | None = None) -> bool:
+    """Is this profile's Lua daemon answering? **Not** whether the panel is running.
+
+    Worth showing when something is being diagnosed, and worth nothing as a gate. The
+    daemon is a separate process the panel starts DETACHED — `panel/runtime/daemon.py`
+    says so in as many words, «so the daemon outlives the panel that started it» — with
+    no idle timeout and no parent watch, which the panel never shuts down on close and
+    which `daemon.bat` is there to run without a panel at all. So a listening port is
+    true with the panel closed (the check would then never open it again) and true while
+    the panel is wedged (the very case it exists to catch). The lock and the beat answer
+    those two questions; this one answers «can I drive the game».
+    """
+    try:
+        import lua_client
+        return bool(lua_client.is_running(port=_daemon_port(profiles, name)))
+    except Exception:                         # noqa: BLE001 — a diagnostic, never a crash
+        return False
+
+
 def status(profiles, name: str | None = None) -> Status:
     """What is set up for this profile, and what the last look made of it."""
     profile = name or profiles.active
@@ -683,6 +822,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"panel     : {live.state}"
               + (f" (pid {live.pid}, beat {int(live.age)}s ago)"
                  if live.pid and live.age is not None else ""))
+        print(f"held      : {locked(profiles, name)}"
+              f"   pids: {panel_pids(profiles, name) or '-'}")
+        # Diagnostics only, and labelled as such. A listening daemon is NOT a running
+        # panel: it is started detached and outlives the panel that started it, it has
+        # no idle timeout, and `daemon.bat` runs one with no panel at all — so it can
+        # say «up» with nothing open, and says nothing at all about a wedged window.
+        print(f"daemon    : port {_daemon_port(profiles, name)} "
+              f"{'up' if daemon_up(profiles, name) else 'down'} (not a liveness test)")
         if info.last:
             print(f"last check: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(info.last.get('ts') or 0))}"
                   f" -> {info.last.get('state')}")

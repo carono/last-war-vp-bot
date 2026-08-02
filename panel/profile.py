@@ -87,6 +87,11 @@ AUTOSTART_LOG = "autostart.log"
 # the lock dies with the process whatever killed it. Its contents are the pid, for
 # somebody reading the folder; the LOCK is the part that means anything.
 LOCK_FILE = "panel.lock"
+# The instance lock: an open file the panel holds an exclusive OS lock on for its whole
+# life, so "a panel is on this profile" is answered by the kernel and cannot go stale —
+# the lock dies with the process whatever killed it. Its contents are the pid, for
+# somebody reading the folder; the LOCK is the part that means anything.
+LOCK_FILE = "panel.lock"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -342,6 +347,10 @@ class ProfileManager:
     def heartbeat(self, name: str | None = None) -> str:
         """Where the open panel says it is still answering (panel/runtime/autostart.py)."""
         return os.path.join(self.dir(name), ALIVE_FILE)
+
+    def lock_file(self, name: str | None = None) -> str:
+        """The file whose OS lock means «a panel process holds this profile»."""
+        return os.path.join(self.dir(name), LOCK_FILE)
 
     def lock_file(self, name: str | None = None) -> str:
         """The file whose OS lock means «a panel process holds this profile»."""
