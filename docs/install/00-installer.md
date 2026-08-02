@@ -40,7 +40,6 @@ install.bat [ключи]
   --pydir ПУТЬ        куда ставить Python 3.12 [по умолчанию C:\Python312]
   --profile ИМЯ       ещё один ярлык: панель на этом профиле.
                       Ключ можно повторять — по ярлыку на аккаунт
-  --daemon-shortcut   ярлык демона; обычно не нужен, панель поднимает его сама
   --no-attach         не подключать папку к репозиторию: обновляться тогда
                       можно только новым архивом
   --repo URL          к какому репозиторию подключать
@@ -68,7 +67,7 @@ install.bat --profile main --profile second
 | Python 3.12.10 | `C:\Python312` (all users) | the panel's `Settings → General → Python` defaults to exactly this path, so the sniffers and every other child process it spawns find their interpreter with nothing configured |
 | Git for Windows | its own default (`C:\Program Files\Git`) | on `PATH`, so `update.bat` and the tools can call it |
 | dependencies | into that Python, not a venv | the panel and its children must share one interpreter; a venv would leave the children without the packages |
-| shortcuts | the Desktop | `Last War — панель`, `Last War — обновление`, and `Last War — демон` with `--daemon-shortcut` |
+| shortcuts | the Desktop | `Last War — панель` and `Last War — обновление`, plus one per `--profile`. Nothing for the daemon: the panel starts its own |
 
 The bot's own files — its profiles, its logs, every capture — are written inside
 that same folder. Back it up by copying the folder; move it by moving the folder
@@ -151,8 +150,9 @@ installed along with `requirements.txt`.
   when the folder is a checkout (which it is, if the attach step above ran).
   Without a `.git` it says so instead of failing at git, points at the two ways
   forward, and refreshes the packages anyway.
-* **`daemon.bat`** — starts the Lua daemon in a window of its own. The panel
-  starts its own, so this is only for driving the game without the panel.
+* **`daemon.bat`** — starts the Lua daemon in a window of its own. No shortcut
+  is made for it and none is meant to be: the panel starts its own daemon, so
+  this is only for driving the game without the panel.
 
 Where the game client lives is set in the panel itself, on its Settings page
 under Game.

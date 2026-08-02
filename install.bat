@@ -94,7 +94,6 @@ if /i "%~1"=="--user"         ( set "LW_USER=%~2"     & shift & shift & goto par
 if /i "%~1"=="--repo"         ( set "LW_REPO_URL=%~2" & shift & shift & goto parse_args )
 if /i "%~1"=="--branch"       ( set "LW_BRANCH=%~2"   & shift & shift & goto parse_args )
 if /i "%~1"=="--profile"      ( set "LW_PROFILES=!LW_PROFILES! %~2" & shift & shift & goto parse_args )
-if /i "%~1"=="--daemon-shortcut" ( set "LW_DAEMON_LNK=1"  & shift & goto parse_args )
 if /i "%~1"=="--no-attach"    ( set "LW_NO_ATTACH=1"    & shift & goto parse_args )
 if /i "%~1"=="--no-npcap"     ( set "LW_SKIP_NPCAP=1"   & shift & goto parse_args )
 if /i "%~1"=="--no-shortcuts" ( set "LW_NO_SHORTCUTS=1" & shift & goto parse_args )
@@ -117,8 +116,6 @@ echo.
 echo     --pydir ПУТЬ        куда ставить Python 3.12 [по умолчанию C:\Python312]
 echo     --profile ИМЯ       ещё один ярлык: панель на этом профиле.
 echo                         Ключ можно повторять — по ярлыку на аккаунт
-echo     --daemon-shortcut   ярлык демона; обычно не нужен, панель поднимает
-echo                         его сама
 echo     --no-attach         не подключать папку к репозиторию: обновляться
 echo                         тогда можно только новым архивом
 echo     --repo URL          к какому репозиторию подключать
@@ -213,7 +210,6 @@ echo.
 echo   Готово.
 echo     панель      : "%LW_DIR%\panel.bat"    [ярлык «Last War — панель»]
 echo     обновление  : "%LW_DIR%\update.bat"   [ярлык «Last War — обновление»]
-echo     демон       : "%LW_DIR%\daemon.bat"   [панель поднимает его сама]
 echo     Python      : !PY!
 if exist "%LW_DIR%\.git" (
     echo     обновляется : кнопкой «Обновить» в панели, на «Главной»
@@ -317,7 +313,6 @@ REM elevated copy is this same file and works it out from its own path.
 set "PS_FILE=%LW_SELF%"
 set "PS_ARGS=--elevated --desktop "%LW_DESKTOP%" --user "%LW_USER%" --pydir "%LW_PY_DIR%" --repo "%LW_REPO_URL%" --branch "%LW_BRANCH%""
 for %%p in (!LW_PROFILES!) do set "PS_ARGS=!PS_ARGS! --profile %%p"
-if defined LW_DAEMON_LNK   set "PS_ARGS=!PS_ARGS! --daemon-shortcut"
 if defined LW_NO_ATTACH    set "PS_ARGS=!PS_ARGS! --no-attach"
 if defined LW_SKIP_NPCAP   set "PS_ARGS=!PS_ARGS! --no-npcap"
 if defined LW_NO_SHORTCUTS set "PS_ARGS=!PS_ARGS! --no-shortcuts"
@@ -585,10 +580,10 @@ call :shortcut "Last War — панель" "%LW_DIR%\panel.bat" "" 1
 for %%p in (!LW_PROFILES!) do call :shortcut "Last War — панель (%%p)" "%LW_DIR%\panel.bat" "--profile %%p" 1
 REM Elevated as well: refreshing the packages writes into an all-users Python.
 call :shortcut "Last War — обновление" "%LW_DIR%\update.bat" "" 1
-REM Off by default: the panel starts the daemon itself, and a second one on
-REM the same port only fails to bind. It is for driving the game without the
-REM panel - scripts, or a second client in its own Windows session.
-if defined LW_DAEMON_LNK call :shortcut "Last War — демон" "%LW_DIR%\daemon.bat" "" 1
+REM No shortcut for daemon.bat, and there is not to be one: the panel starts the
+REM daemon itself, and a second one on the same port only fails to bind. The file
+REM stays in the folder for driving the game without the panel - scripts, or a
+REM second client in its own Windows session.
 exit /b 0
 
 :shortcut

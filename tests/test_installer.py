@@ -280,6 +280,24 @@ def test_the_shortcuts_point_back_at_the_unpacked_folder():
     assert any(t.endswith("panel.bat") for t in (ln.split("|")[0] for ln in lines)), lines
 
 
+def test_the_daemon_gets_no_shortcut():
+    """The panel starts the daemon itself; a second one on the same port only fails to bind."""
+    folder = _tree("демон")
+    desktop = SCRATCH / "desk-daemon"
+    _rmtree(desktop)
+    desktop.mkdir(parents=True)
+    code, out = _run(folder / "install.bat", "--yes", "--no-attach", "--no-npcap",
+                     "--desktop", f'"{_win(desktop)}"')
+    assert code == 0, out
+    targets = [ln.split("|")[0] for ln in _shortcuts(desktop)]
+    assert targets, f"no shortcuts read back from {desktop}"
+    assert not [t for t in targets if t.endswith("daemon.bat")], targets
+    # Nor is it offered anywhere the person reads: not in the summary, not in --help.
+    assert "daemon.bat" not in out, out
+    _code, help_out = _run(folder / "install.bat", "--help")
+    assert "--daemon-shortcut" not in help_out, help_out
+
+
 # -- updating an archive install -----------------------------------------------
 def test_attach_turns_the_folder_into_a_checkout():
     """The archive has no history; attaching gives «Обновить» something to pull."""
