@@ -166,11 +166,26 @@ def _drone_parts() -> _Action:
 #: The research categories «start a new research» may be aimed at, as
 #: ``(value, locale key)``.
 #:
-#: TODO(#1200): EMPTY ON PURPOSE. The game's own category names have not been read off
-#: a live client yet, and a category invented here would aim the scenario at something
-#: that does not exist. Until they are known the picker offers «any» alone; filling this
-#: tuple is all it takes to offer them — plus each new locale key in EVERY shipped
-#: locale, like anything else a person reads (CLAUDE.md).
+#: TODO(#1200): EMPTY ON PURPOSE, and what the search for them turned up so far.
+#:
+#: The game's own translation tables (docs/research/game-locale-tables.md) were read for
+#: this. What they DO carry is the ALLIANCE technology's two categories — key `454119`
+#: «Развитие / Development / Entwicklung» and `454120` «Война / War / Krieg», sitting
+#: right under `454117` «Технологии Альянса» — which is a different window from the one
+#: the science minister's buff speeds up.
+#:
+#: For the player's OWN Tech Center the tables carry no category strip at all: the techs
+#: are grouped into chapters, and only the late ones are named (`tech_name_13..18` —
+#: Intercity Truck, Tank Mastery, Missile Mastery, Aircraft Mastery, The Age of Oil,
+#: Tactical Weapon); the early chapters have no top-level name key. The other
+#: Combat/Economy/Development pairs in the tables belong to provably other screens — the
+#: buffs window (`110289`/`110290`), the headquarters talents (`131002`…`131005`) and the
+#: shop's pack types (`100068`/`100069`).
+#:
+#: So a category written here would still be a guess, and it would aim a scenario at
+#: something that may not exist. Until the real names are confirmed the picker offers
+#: «any» alone; filling this tuple is all it takes to offer them — plus each new locale
+#: key in EVERY shipped locale, like anything else a person reads (CLAUDE.md).
 RESEARCH_CATEGORIES: tuple = ()
 
 #: What the category picker holds while no particular category is chosen — and, for now,
@@ -221,8 +236,11 @@ DAYS: tuple = (
         _hero_level(),
         _Action("hero_rank_ur", "vsduel.hero_rank_ur"),
         _Action("hero_rank_ssr", "vsduel.hero_rank_ssr"),
-        _Action("honour_wall", "vsduel.honour_wall"),
-        _Action("honour_wall_chests", "vsduel.honour_wall_chests"),
+        # The extra chests are not a second thing to do: they are how far the wall is
+        # pushed when what is already in the bag runs out — the hero's experience boxes
+        # in another shape.
+        _Action("honour_wall", "vsduel.honour_wall",
+                subs=(_Sub("extra_chests", "vsduel.honour_wall_chests"),)),
         _Action("exclusive_weapon", "vsduel.exclusive_weapon"),
     )),
     ("fri", (

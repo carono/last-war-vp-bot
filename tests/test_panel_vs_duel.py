@@ -107,7 +107,7 @@ def test_each_day_holds_the_actions_it_scores():
         "drone_parts", "research_speedup", "research_collect", "research_start"]
     assert [a.key for a in _actions(days["thu"])] == [
         "hero_level", "hero_rank_ur", "hero_rank_ssr", "honour_wall",
-        "honour_wall_chests", "exclusive_weapon"]
+        "exclusive_weapon"]
     assert [a.key for a in _actions(days["fri"])] == [
         "lord_rank", "lord_train", "lord_skills", "lord_level", "unit_train",
         "unit_upgrade"]
@@ -153,7 +153,7 @@ def test_the_ceilings_and_the_details_hang_off_the_right_actions():
             for d, items in vs_duel.DAYS for a in _actions(items)}
     assert {k: v for k, v in subs.items() if v} == {
         "mon.hero_level": ["exp_boxes"], "tue.build_start": ["ministry"],
-        "thu.hero_level": ["exp_boxes"]}
+        "thu.hero_level": ["exp_boxes"], "thu.honour_wall": ["extra_chests"]}
     # Only starting a research is aimed at something, and «any» is what it starts on.
     choices = {f"{d}.{a.key}": a.choice for d, items in vs_duel.DAYS
                for a in _actions(items) if a.choice is not None}
@@ -314,6 +314,31 @@ def test_a_ministry_box_belongs_to_the_action_that_starts_the_work():
         assert tab.plan("tue") == {}, "the ministry planned itself with no construction"
         tab._flags["tue.build_start"].set(True)
         assert tab.plan("tue") == {"build_start": {"limit": None, "ministry": True}}
+    finally:
+        root.destroy()
+
+
+def test_the_extra_chests_belong_to_the_wall_of_honour():
+    """Same shape as the hero's experience boxes: it is how far the wall is pushed once
+    what is in the bag runs out, not a sixth thing to do on Thursday."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab._flags["thu.honour_wall.extra_chests"].set(True)
+        assert tab.plan("thu") == {}, "the chests planned themselves with no wall"
+
+        tab._flags["thu.honour_wall"].set(True)
+        assert tab.plan("thu") == {"honour_wall": {"limit": None,
+                                                   "extra_chests": True}}
+        widget, _flag, _live = tab._dependents["thu.honour_wall.extra_chests"]
+        tab._sync_dependents()
+        assert str(widget.cget("state")) == "normal"
+        tab._flags["thu.honour_wall"].set(False)
+        tab._sync_dependents()
+        assert str(widget.cget("state")) == "disabled"
     finally:
         root.destroy()
 
