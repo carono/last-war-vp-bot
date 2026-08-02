@@ -12,15 +12,18 @@ The migration is deliberately gradual (docs/research/panel-tabs-refactor.md §10
 panel keeps its familiar `_t` / `_tr` / `_arm` method names as one-line delegations onto
 the runtime while the tabs move out one at a time, and they go away in the last wave.
 
-What is here now: the translator, the ticker, the event bus and the capture list. The
-log sink, the settings binder, the game link and the child factory follow in this same
-wave; the schedule with the Timers tab.
+What is here now: the translator, the ticker, the event bus, the capture list, the log
+sink and the child factory. The game link, the action runner and the settings binder
+follow in this same wave; the schedule with the Timers tab.
 """
 from __future__ import annotations
 
 from .bus import EventBus
+from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
 from .i18n import Translator
+from .log import LogBus
 from .tick import Ticker
 
-__all__ = ["EventBus", "Translator", "Ticker", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]
+__all__ = ["EventBus", "ChildFactory", "LogBus", "Translator", "Ticker",
+           "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

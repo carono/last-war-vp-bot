@@ -180,38 +180,10 @@ LOG_COLOURS = {"sev_error": "#ff6b6b", "sev_warn": "#e8c069", "sev_ok": "#7bd88f
 # the control blocks above it are given the height they ask for, but never so much
 # that the log below is left with nothing to show.
 LOG_MIN_HEIGHT = 150
-# Severity colouring, as ordered patterns. FIRST MATCH WINS, so the bad news comes
-# first: «готовность не подтверждена» has to read as the failure it is rather than
-# as the «готов» inside it.
-#
-# Both languages are listed because everything the panel says goes through the
-# locale files now, and a child's own output arrives in whatever language the child
-# speaks — so classifying only one of them would leave half the log flat.
-#
-# Russian entries are STEMS (`не подтвержд` covers -ено / -ена / -ена за) because
-# the ending moves with the noun. Latin ones carry `\b` on purpose: `ok` as a bare
-# substring also matches "token" and "look", which is exactly the sort of quiet
-# mis-colouring nobody would ever chase down.
-def _sev(*words: str) -> "tuple[re.Pattern, ...]":
-    return tuple(
-        re.compile(w if any("а" <= c.lower() <= "я" or c in "ёЁ" for c in w)
-                   else r"\b" + re.escape(w) + r"\b", re.IGNORECASE)
-        for w in words)
-
-
-LOG_SEVERITY_WORDS: tuple[tuple[str, tuple], ...] = (
-    ("error", _sev("ошибк", "не удалось", "не поднялся", "не подтвержд",
-                   "недоступ", "не читается", "НЕ ГОТОВ",
-                   "error", "failed", "cannot", "could not", "traceback",
-                   "NOT READY", "unconfirmed")),
-    ("warn", _sev("занят", "пауза", "паузу", "пропущ", "останов", "выключен",
-                  "стоп", "завершён", "ЧАСТИЧНО",
-                  "warn", "skip", "skipped", "stopped", "off", "paused",
-                  "PARTLY READY", "spent", "lost")),
-    ("ok", _sev("готов", "сохранён", "сохранена", "сохранено", "запущен",
-                "включён", "присоединяюсь",
-                "ok", "ready", "READY", "done", "saved", "running", "on")),
-)
+# Severity colouring and the producer tag both live in panel/runtime/log.py now — the
+# classifier and the word lists belong with the sink that applies them, and a tab
+# launched on its own colours its lines by the very same rules.
+LOG_SEVERITY_WORDS = runtime.log.SEVERITY_WORDS
 
 # -- the boot ---------------------------------------------------------------
 # How long the splash may hold the window back while the systems come up. Longer
@@ -654,10 +626,12 @@ class Panel(tk.Tk):
         except Exception:             # noqa: BLE001
             self._splash = None
         self._splash_step("splash.profile", 0.12)
-        self._log_q: "queue.Queue[str]" = queue.Queue()
-        # The on-disk mirror of the log, held open instead of reopened per line.
-        # Re-pointed on a profile switch (_open_panel_log).
-        self._log_fh = None
+        # Everything the panel says goes through one sink (panel/runtime/log.py): the
+        # queue this window drains, the profile's panel.log, and the debug log. The
+        # WIDGET is this shell's — a tab launched on its own has none, and says the
+        # same lines into the same two files.
+        self._log = None              # the widget, built by _build_ui
+        self._logbus = runtime.LogBus(translate=self._t)
         self._log_lines = 0           # lines in the widget, for the retention cap
         self._log_kept: list = []     # every line this session, for a filter redraw
         # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
@@ -669,6 +643,7 @@ class Panel(tk.Tk):
         self._configure_debug_log()
         self._dbg = dbgmod.get_logger("panel")
         self._dbg_ui = dbgmod.get_logger("ui")
+        self._logbus.set_debug_logger(self._dbg_ui)
         self._dbg_status_prev = None
         self._install_exception_logging()
         self._dbg.info("panel starting — profile %r, version %s",
@@ -827,6 +802,12 @@ class Panel(tk.Tk):
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
         self._client = lua_client.DaemonClient(port=self._daemon_port())
+        # How every child process is launched (panel/runtime/children.py): the
+        # interpreter, the environment — the daemon port and the game lease — and
+        # where its output goes.
+        self._children = runtime.ChildFactory(
+            log=self._logbus, cwd=REPO, python=self._python,
+            port=self._daemon_port, schedule=self.after)
         # Profile picker lives in a modal (menu → «Профиль»), not on the main page.
         # The var is always live; the combo exists only while that modal is open.
         self._profile_var = tk.StringVar(value=self._profiles.active)
@@ -1044,19 +1025,8 @@ class Panel(tk.Tk):
         )
 
     def _child_env(self) -> dict:
-        """The environment every child is launched with.
-
-        `LW_DAEMON_PORT` travels with it, so a profile pointed at the second client's
-        daemon (see SETTINGS_DEFAULTS) drives that client from its captures and
-        robberies too — not just from the panel's own presses.
-
-        So does `LW_GAME_LEASE` — it rides along in `os.environ` for exactly as long as
-        this panel holds the game (`_claim_lease` sets it, `_release_busy` pops it).
-        Auto-loot claims the lease and *then* spawns the tool that does the robbing, so
-        without the token the child would sit waiting for a lease its own parent holds.
-        """
-        return dict(os.environ, PYTHONIOENCODING="utf-8",
-                    LW_DAEMON_PORT=str(self._daemon_port()))
+        """The environment every child is launched with (panel/runtime/children.py)."""
+        return self._children.env()
 
     def _daemon_up(self) -> bool:
         """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
@@ -2155,10 +2125,9 @@ class Panel(tk.Tk):
             self._log_menu.grab_release()
         return "break"
 
-    # -- logging ------------------------------------------------------------
+    # -- logging (panel/runtime/log.py holds the sink; the widget is this file's) --
     def _log_put(self, line: str) -> None:
-        self._dbg_mirror(line)        # the debug log gets every line, at its severity
-        self._log_q.put(line)
+        self._logbus.put(line)
 
     # -- the technical debug log (panel/debug_log.py) -----------------------
     def _configure_debug_log(self) -> None:
@@ -2198,18 +2167,6 @@ class Panel(tk.Tk):
             dbg.error("uncaught in a Tk callback", exc_info=(exc, val, tb))
         traceback.print_exception(exc, val, tb)
 
-    def _dbg_mirror(self, line: str) -> None:
-        """Mirror one widget line into the debug log, at its severity, under `ui`."""
-        dbg = getattr(self, "_dbg_ui", None)
-        if dbg is None:
-            return
-        clean = _ANSI.sub("", line)
-        level = {"error": logging.ERROR, "warn": logging.WARNING}.get(
-            self._log_severity(clean), logging.INFO)
-        try:
-            dbg.log(level, "%s", clean)
-        except Exception:             # noqa: BLE001 — logging must never crash the panel
-            pass
 
     def _dbg_status(self, game_ok: bool, daemon_warm: bool) -> None:
         """Record a systems snapshot: DEBUG every poll, INFO only when it changes.
@@ -2271,22 +2228,14 @@ class Panel(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     def _say(self, tag: str, key: str, **fmt) -> None:
-        """Log one translated line under ``[tag]``.
-
-        Everything the panel says used to be a Russian literal at the call site —
-        some seventy of them against a fully mirrored pair of locale files, so
-        picking English switched the buttons and left every word the bot spoke in
-        Russian. This is the one door those lines go through now; the raw
-        :meth:`_log_put` stays for the lines that are a CHILD's own output (already
-        in the child's language) and for the handful that are pure data.
-        """
-        self._log_put(f"[{tag}] " + self._t(key, **fmt))
+        """Log one translated line under ``[tag]``."""
+        self._logbus.say(tag, key, **fmt)
 
     def _pump_log(self) -> None:
         drawn = False
         try:
             while True:
-                line = self._log_q.get_nowait()
+                line = self._logbus.q.get_nowait()
                 stamp = time.strftime("%H:%M:%S")
                 self._log_kept.append((stamp, line))
                 if len(self._log_kept) > self._log_cap() * 2:
@@ -2310,71 +2259,19 @@ class Panel(tk.Tk):
                 pass
         self._arm("log", 120, self._pump_log)
 
-    # -- the on-disk mirror -------------------------------------------------
+    # -- the on-disk mirror (panel/runtime/log.py) --------------------------
     def _open_panel_log(self) -> None:
-        """Point the mirror at the active profile's panel.log, keeping the handle.
-
-        Reopening the file for every line was fine at a handful a minute and
-        wasteful the moment a tracer streams thousands. Line-buffered append, so the
-        file is never behind the widget even if the panel is killed.
-        """
-        self._close_panel_log()
-        try:
-            path = self._profiles.panel_log()
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            self._log_fh = open(path, "a", encoding="utf-8", buffering=1)
-        except OSError:
-            self._log_fh = None      # logging must never stop the panel
+        self._logbus.open_file(self._profiles.panel_log())
 
     def _close_panel_log(self) -> None:
-        fh, self._log_fh = self._log_fh, None
-        if fh is not None:
-            try:
-                fh.close()
-            except Exception:         # noqa: BLE001
-                pass
+        self._logbus.close_file()
 
     def _append_log(self, line: str) -> None:
-        """Mirror a log line to the active profile's panel.log.
-
-        The file keeps the full date (the widget only has room for the clock) and is
-        never trimmed: the widget is a window onto the session, the file is the
-        record.
-        """
-        fh = self._log_fh
-        if fh is None:
-            return
-        try:
-            clean = _ANSI.sub("", line)
-            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {clean}\n")
-        except Exception:
-            pass                    # logging must never crash the panel
+        self._logbus.append_file(line)
 
     # -- severity, filtering, retention -------------------------------------
-    @staticmethod
-    def _log_tag(line: str) -> str:
-        """The producer of a line — the `[secret]` it opens with, or ``""``."""
-        clean = _ANSI.sub("", line).lstrip()
-        if not clean.startswith("["):
-            return ""
-        end = clean.find("]")
-        return clean[1:end] if end > 1 else ""
-
-    @staticmethod
-    def _log_severity(line: str) -> str:
-        """``"error"`` / ``"warn"`` / ``"ok"`` / ``""`` — how the line is coloured.
-
-        A keyword match, not a level the producers pass in: half the lines are a
-        CHILD's own output, so there is nobody to ask. Order matters —
-        LOG_SEVERITY_WORDS puts the bad news first so a line that says both
-        «ошибка» and «готово» reads as the error it is.
-        """
-        clean = _ANSI.sub("", line)
-        for level, patterns in LOG_SEVERITY_WORDS:
-            for pattern in patterns:
-                if pattern.search(clean):
-                    return level
-        return ""
+    _log_tag = staticmethod(runtime.log.tag_of)
+    _log_severity = staticmethod(runtime.log.severity_of)
 
     def _log_cap(self) -> int:
         return self._opt_int("log_max_lines", low=200, high=200000)
@@ -2847,18 +2744,9 @@ class Panel(tk.Tk):
     # -- one way to run a child ---------------------------------------------
     def _child(self, tag: str, cmd: list, *, on_line=None, on_exit=None,
                capture_stderr: bool = True) -> "childmonmod.ChildMonitor":
-        """A :class:`panel.childmon.ChildMonitor` wired to this panel.
-
-        The four monitors used to carry a copy each of "spawn a child, stream it
-        into the log, untick the box when it dies" — four places for every fix to be
-        made, or forgotten in three. What differs between them is the command, the
-        tag, what a line means and what its death means; that is exactly the
-        signature here.
-        """
-        return childmonmod.ChildMonitor(
-            cmd, tag, log=self._log_put, cwd=REPO, on_line=on_line, on_exit=on_exit,
-            schedule=self.after, env=self._child_env(),
-            capture_stderr=capture_stderr)
+        """A :class:`panel.childmon.ChildMonitor` wired to this panel."""
+        return self._children.spawn(tag, cmd, on_line=on_line, on_exit=on_exit,
+                                    capture_stderr=capture_stderr)
 
     # -- secret-task monitoring ---------------------------------------------
     def _toggle_monitor(self) -> None:
