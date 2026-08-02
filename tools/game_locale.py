@@ -37,9 +37,13 @@ from pathlib import Path
 #: the CJK ones. `vr` is not here either: it is a 99.7% copy of `vi`.
 BASE_LANGS = ("en", "ru", "de", "fr", "es", "it", "pt", "pl", "tr", "id", "vi")
 
-#: What the panel names, and what the GAME calls it — the English wording to look up.
-#: Add a line here when a panel string starts naming something the game has a word for;
-#: `--glossary` turns it into the table everybody translating a locale reads.
+#: What the panel names, and what the GAME calls it — the English wording to look up,
+#: and optionally the exact key to read it from. PIN THE KEY whenever the English is a
+#: word with more than one meaning: the tables hold «Gear» as both the drone currency
+#: and a hero's equipment, «Oil» as both the resource and a cooking ingredient, and
+#: the lookup cannot tell which one was meant. Add a line here when a panel string
+#: starts naming something the game has a word for; `--glossary` turns it into the
+#: table everybody translating a locale reads.
 PANEL_TERMS = (
     ("the rally the panel raises and joins",      "Rally"),
     ("the boss a rally is raised on",             "Doom Elite"),
@@ -59,14 +63,24 @@ PANEL_TERMS = (
     ("the ministry the panel applies for",        "Secretary of Interior"),
     ("where the wounded are healed",              "Hospital"),
     ("what a squad is called",                    "Squad"),
-    ("the drone the duel upgrades",               "Drone"),
-    ("what the duel spends on the drone",         "Gear"),
-    ("resource: food",                            "Food"),
-    ("resource: wood",                            "Wood"),
-    ("resource: metal",                           "Metal"),
-    ("resource: oil",                             "Oil"),
-    ("resource: gold",                            "Gold"),
+    ("the drone the duel upgrades",               "Drone", "alliance_duel_tips10005"),
+    ("what the duel spends on the drone",         "Gear", "140404"),
+    ("resource: food",                            "Food", "resource_name001"),
+    ("resource: wood",                            "Wood", "180265"),
+    ("resource: metal",                           "Metal", "resource_name002"),
+    ("resource: oil",                             "Oil", "resource_name_23"),
+    ("resource: gold",                            "Gold", "ghost_parkour_gold"),
 )
+
+#: Rows whose cells the game itself got wrong in some language, so a translator does
+#: not copy nonsense out of the table. `Gear` is the one that bit: the single-word key
+#: is «bieg» in Polish (a car's gear) and «gigi» in Indonesian (a tooth), while the
+#: same currency inside a sentence is «elementy wyposażenia». Use the sane word and say
+#: so, rather than shipping the game's slip.
+KNOWN_BAD = {
+    "Gear": "pl «bieg» and id «gigi» are the game's own homonym slips — "
+            "use the wording the game uses in a sentence (`--term \"Use {0} Gears\"`)",
+}
 
 _REPO = Path(__file__).resolve().parents[1]
 _GLOSSARY = _REPO / "docs" / "game-glossary.md"
@@ -173,22 +187,34 @@ def find(term: str, tables: dict[str, dict[str, str]]) -> tuple[str | None, dict
 
 def write_glossary(tables: dict[str, dict[str, str]]) -> str:
     langs = [l for l in BASE_LANGS if l in tables]
-    rows, missing = [], []
-    for what, term in PANEL_TERMS:
-        key, said = find(term, tables)
-        if key is None:
+    rows, missing, caveats = [], [], []
+    for entry in PANEL_TERMS:
+        what, term, pinned = (entry + (None,))[:3]
+        if pinned:
+            key = pinned
+            said = {l: t.get(pinned, "") for l, t in tables.items()}
+        else:
+            key, said = find(term, tables)
+        if key is None or not any(said.values()):
             missing.append(term)
             continue
+        mark = " ⚠" if term in KNOWN_BAD else ""
+        if term in KNOWN_BAD:
+            caveats.append(f"* **{term}** — {KNOWN_BAD[term]}")
         cells = " | ".join(said.get(l, "").replace("|", "¦") or "—" for l in langs)
-        rows.append(f"| {what} | **{term}** | {cells} |")
+        rows.append(f"| {what} | **{term}**{mark} | `{key}` | {cells} |")
 
-    head = "| what the panel means | the game's English | " + " | ".join(langs) + " |"
-    rule = "|---" * (2 + len(langs)) + "|"
+    head = ("| what the panel means | the game's English | key | "
+            + " | ".join(langs) + " |")
+    rule = "|---" * (3 + len(langs)) + "|"
     body = "\n".join(rows)
     note = ""
     if missing:
         note = ("\n> Not found in the tables, so the panel's own wording stands: "
                 + ", ".join(f"«{m}»" for m in missing) + ".\n")
+    if caveats:
+        note += ("\n### ⚠ Where the game contradicts itself\n\n"
+                 + "\n".join(caveats) + "\n")
     return f"""# The game's words for the things the panel names
 
 Generated — do not hand-edit. Re-run after a game update:
@@ -201,6 +227,13 @@ The panel may not invent a name for something the game has already named, in ANY
 languages it ships. This is the list to translate a locale against: find the row, copy
 the cell. Everything else in a locale file is the panel's own words and is translated
 normally.
+
+Every row is ONE key out of the game's tables, and the key is in the table so any cell
+can be checked — `--key <key>` prints it again. Read a cell rather than trusting it:
+the translators of the game were not always consistent, so a key that is a noun in one
+language can be an imperative in another («Rally» → pt «Mobilizar»). When a cell reads
+like the wrong part of speech, look the term up in a sentence instead:
+`--term "Launch Rally"`.
 
 The columns are the panel's base languages. The game ships eight more — Chinese
 (`zh_CN`, `zh_TW`, `gn_CN`), Japanese, Korean, Arabic, Thai, and `vr` (a copy of `vi`) —
