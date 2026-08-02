@@ -632,7 +632,7 @@ class AccountsTab(_DataTab):
             self.app._log_put(self.app._t("accounts.switch_fail", name=name,
                                           state=state or "?"))
         # The client is reconnecting; give it a moment, then reread the list.
-        self.app.after(4000, self.refresh)
+        self.app._arm("accounts_reread", 4000, self.refresh)
 
 
 # ---------------------------------------------------------------------------

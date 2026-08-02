@@ -627,11 +627,15 @@ class Panel(tk.Tk):
         self._tr_widgets: list = []
         self._tr_watermark = TR_REGISTRY_SWEEP
         self._tr_hooks: list = []     # callables run on every language change
+        self._tr_hook_keys: set = set()   # what is already in it (see `_hook`)
         # The capture-monitor kinds, exposed on the instance so the «Secret Tasks» tab
         # (panel/secret_tasks.py) can build its combo without importing this module —
         # `python -m panel` runs this file as `__main__`, so `from . import __main__`
         # would re-execute the whole file as a second `panel.__main__`.
         self.capture_options = CAPTURE_OPTIONS
+        # Pending repeating callbacks, one per name — see `_arm`. Created before
+        # anything can arm a loop, which is before the first widget is built.
+        self._loops: dict = {}
         # Profiles: the active profile's config.json drives every panel setting.
         self._profiles = profilemod.ProfileManager()
         # An explicit --profile overrides the saved last-active profile, creating
@@ -1092,6 +1096,23 @@ class Panel(tk.Tk):
             self._sweep_tr_widgets()
         return widget
 
+    def _hook(self, func, key=None) -> None:
+        """Register a language-change hook — once, however often this is reached.
+
+        `_build_menu` already carried a hand-written "is it in the list already"
+        guard, because rebuilding the menu bar re-registers it. The other nine
+        registrations had none: they are all on paths that run once today, so the
+        list stays short — but nothing says so, and a hook registered twice is a
+        page redrawn twice per language switch, growing every time the path is
+        reached again. `key` names a lambda, which can never be recognised by
+        identity; a bound method is its own key.
+        """
+        key = func if key is None else key
+        if key in self._tr_hook_keys:
+            return
+        self._tr_hook_keys.add(key)
+        self._tr_hooks.append(func)
+
     def _sweep_tr_widgets(self) -> None:
         """Drop the entries whose widget has been destroyed.
 
@@ -1148,8 +1169,7 @@ class Panel(tk.Tk):
         menubar.add_cascade(label=self._t("menu.develop"), menu=develop_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
-        if self._build_menu not in self._tr_hooks:
-            self._tr_hooks.append(self._build_menu)
+        self._hook(self._build_menu)
 
     def _show_about(self) -> None:
         win = tk.Toplevel(self)
@@ -1737,22 +1757,23 @@ class Panel(tk.Tk):
         nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
         nb.add(command_post_tab, text=self._t("tab.command_post"))
         nb.add(rally_tab, text=self._t("tab.rally"))
-        self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
-                                       nb.tab(scenarios, text=self._t("tab.scenarios")),
-                                       nb.tab(timers_tab, text=self._t("tab.timers")),
-                                       nb.tab(settings_tab, text=self._t("tab.settings")),
-                                       nb.tab(chat_tab, text=self._t("tab.chat")),
-                                       nb.tab(stats_tab, text=self._t("tab.stats")),
-                                       nb.tab(alliance_tab, text=self._t("tab.alliance")),
-                                       nb.tab(profile_tab, text=self._t("tab.profile")),
-                                       nb.tab(inventory_tab, text=self._t("tab.inventory")),
-                                       nb.tab(heroes_tab, text=self._t("tab.heroes")),
-                                       nb.tab(accounts_tab, text=self._t("tab.accounts")),
-                                       nb.tab(secret_tasks_tab,
-                                              text=self._t("tab.secret_tasks")),
-                                       nb.tab(command_post_tab,
-                                              text=self._t("tab.command_post")),
-                                       nb.tab(rally_tab, text=self._t("tab.rally"))))
+        self._hook(key="tab-titles", func=lambda: (
+            nb.tab(main, text=self._t("tab.main")),
+            nb.tab(scenarios, text=self._t("tab.scenarios")),
+            nb.tab(timers_tab, text=self._t("tab.timers")),
+            nb.tab(settings_tab, text=self._t("tab.settings")),
+            nb.tab(chat_tab, text=self._t("tab.chat")),
+            nb.tab(stats_tab, text=self._t("tab.stats")),
+            nb.tab(alliance_tab, text=self._t("tab.alliance")),
+            nb.tab(profile_tab, text=self._t("tab.profile")),
+            nb.tab(inventory_tab, text=self._t("tab.inventory")),
+            nb.tab(heroes_tab, text=self._t("tab.heroes")),
+            nb.tab(accounts_tab, text=self._t("tab.accounts")),
+            nb.tab(secret_tasks_tab,
+                   text=self._t("tab.secret_tasks")),
+            nb.tab(command_post_tab,
+                   text=self._t("tab.command_post")),
+            nb.tab(rally_tab, text=self._t("tab.rally"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
         self._build_settings_tab(settings_tab)
@@ -1927,7 +1948,7 @@ class Panel(tk.Tk):
         self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
                                      justify="left")
         self._rally_hint.pack(anchor="w", pady=(4, 0))
-        self._tr_hooks.append(self._update_path_hints)
+        self._hook(self._update_path_hints)
 
         # Alliance auto-help used to live here as its own checkbox. It is a wire-
         # driven standing order — answer «Помочь всем» the instant a request lands —
@@ -2141,7 +2162,7 @@ class Panel(tk.Tk):
         menu.add_command(command=self._select_all_log)            # idx 1: Select All
         self._log_menu = menu
         self._retranslate_log_menu()
-        self._tr_hooks.append(self._retranslate_log_menu)
+        self._hook(self._retranslate_log_menu)
         # Button-3 is right-click on Windows/X11; Button-2 covers macOS.
         widget.bind("<Button-3>", self._popup_log_menu)
         widget.bind("<Button-2>", self._popup_log_menu)
@@ -2335,7 +2356,7 @@ class Panel(tk.Tk):
                 self._log.see("end")
             except tk.TclError:
                 pass
-        self.after(120, self._pump_log)
+        self._arm("log", 120, self._pump_log)
 
     # -- the on-disk mirror -------------------------------------------------
     def _open_panel_log(self) -> None:
@@ -2608,11 +2629,48 @@ class Panel(tk.Tk):
         self._start_dashboard()
         self._boot_at("splash.systems", 1.0)
 
+    # -- repeating callbacks: one chain per name, always -----------------------
+    #
+    # Every `after` that re-arms itself is a loop, and two of the same loop is a
+    # panel that ticks twice as often for the rest of the session — invisible from
+    # the outside, permanent, and cumulative if it happens again. Today each of them
+    # is started from exactly one place, but that is a property of the call graph,
+    # not of the code: one `self._refresh_timer_rows()` added to the grid rebuild
+    # (which runs on every «перезагрузить») and the schedule would gain a chain per
+    # press, for ever.
+    #
+    # So a loop is not armed with a bare `after` any more. `_arm` keeps the pending
+    # id under a name and cancels the previous one first, which makes "started
+    # twice" impossible rather than merely absent: the second start replaces the
+    # first instead of racing it. `_disarm` is the same guarantee at the other end —
+    # a pending callback must not fire into a window that is being torn down.
+    def _arm(self, name: str, delay_ms: int, func) -> None:
+        """(Re)arm the repeating callback ``name`` — cancelling any pending one."""
+        self._disarm(name)
+        try:
+            self._loops[name] = self.after(int(delay_ms), func)
+        except (tk.TclError, RuntimeError):     # the window is going away
+            self._loops.pop(name, None)
+
+    def _disarm(self, name: str) -> None:
+        """Cancel the pending callback under ``name``, if there is one."""
+        job = self._loops.pop(name, None)
+        if job is None:
+            return
+        try:
+            self.after_cancel(job)
+        except (tk.TclError, ValueError):       # already fired, or already gone
+            pass
+
+    def _disarm_all(self) -> None:
+        for name in list(self._loops):
+            self._disarm(name)
+
     # -- is the panel still healthy after three days? ------------------------
     def _start_health_watch(self) -> None:
         """Arm the periodic health snapshot (see HEALTH_SNAPSHOT_MS)."""
         self._health_prev: dict = {}
-        self.after(HEALTH_SNAPSHOT_MS, self._health_snapshot)
+        self._arm("health", HEALTH_SNAPSHOT_MS, self._health_snapshot)
 
     def _health_snapshot(self) -> None:
         """Write what could be growing into the debug log, and re-arm.
@@ -2648,7 +2706,7 @@ class Panel(tk.Tk):
             self._health_prev = now
         else:
             self._dbg.debug("health %s", line)
-        self.after(HEALTH_SNAPSHOT_MS, self._health_snapshot)
+        self._arm("health", HEALTH_SNAPSHOT_MS, self._health_snapshot)
 
     @staticmethod
     def _tag_count(widget) -> int:
@@ -2752,7 +2810,7 @@ class Panel(tk.Tk):
     # into the retry hold. A poll is a process-list scan off the Tk thread: free.
     def _poll_status(self) -> None:
         self._refresh_status()
-        self.after(STATUS_POLL_MS, self._poll_status)
+        self._arm("status", STATUS_POLL_MS, self._poll_status)
 
     def _refresh_status(self) -> None:
         # One reading at a time. The poll fires every eight seconds and the reading
@@ -3642,7 +3700,7 @@ class Panel(tk.Tk):
             self._sniff_var.set(False)
             return
         self._say("sniff", "log.sniff.waiting")
-        self.after(int(self._sniff_timeout() * 1000), self._sniff_ready_watchdog)
+        self._arm("sniff_ready", int(self._sniff_timeout() * 1000), self._sniff_ready_watchdog)
 
     def _mark_sniff_ready(self, part: str, ok: bool) -> None:
         """Record one half's verdict; announce as soon as both have reported.
@@ -3762,7 +3820,7 @@ class Panel(tk.Tk):
             # Stop, so it gets the same save/delete prompt. Whichever path runs
             # first empties _sniff_files, so the other one finds nothing to ask
             # about; both land on the Tk thread, so they cannot interleave.
-            self.after(SNIFF_FLUSH_MS, self._finish_sniff_session)
+            self._arm("sniff_flush", SNIFF_FLUSH_MS, self._finish_sniff_session)
 
     def _stop_sniff(self) -> None:
         proc, self._sniff_proc = self._sniff_proc, None
@@ -3792,7 +3850,7 @@ class Panel(tk.Tk):
         # about the last lines still travelling through the reader threads — the
         # traffic child announces its transcript path early, the tracer's «trace
         # file:» line can still be in flight when a very short run is stopped.
-        self.after(SNIFF_FLUSH_MS, self._finish_sniff_session)
+        self._arm("sniff_flush", SNIFF_FLUSH_MS, self._finish_sniff_session)
 
     # -- end of a sniffer session: keep it with a description, or drop it ----
     def _finish_sniff_session(self) -> None:
@@ -4485,6 +4543,10 @@ class Panel(tk.Tk):
         self._triggers.stop()
         self._timers.stop()
         self._close_panel_log()
+        # Every repeating callback goes with the window. One that fires into a
+        # half-torn-down panel is a traceback nobody sees and a log line nobody
+        # gets, because the log has just been closed above.
+        self._disarm_all()
         self._dbg.info("panel closing")
         dbgmod.shutdown()
         self.destroy()
@@ -6027,7 +6089,7 @@ class Panel(tk.Tk):
                     row["next"].configure(
                         text=self._t("timers.in_span", span=self._fmt_span(due - now)))
         self._refresh_trigger_rows()
-        self.after(1000, self._refresh_timer_rows)
+        self._arm("timer_rows", 1000, self._refresh_timer_rows)
 
     def _paint_timer_outcome(self, row: dict, name: str, records: dict,
                              now: float) -> None:
@@ -6106,8 +6168,9 @@ class Panel(tk.Tk):
         for key, builder in SETTINGS_TABS:
             frame = ttk.Frame(sub_nb, padding=8)
             sub_nb.add(frame, text=self._t(f"settings.tab.{key}"))
-            self._tr_hooks.append(
-                lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}"))
+            self._hook(
+                lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}")),
+                key=f"settings-tab-{key}",
             )
             fill = getattr(self, builder) if builder else None
             if fill is None:
@@ -6521,7 +6584,7 @@ class Panel(tk.Tk):
             self._chat_tree_rows[type_key] = 0
         # One hook for all of them: the labels carry an unread count, so they are
         # rewritten together and by the same code that draws the marks.
-        self._tr_hooks.append(self._paint_chat_tabs)
+        self._hook(self._paint_chat_tabs)
         # A DM that arrived while another tab was open used to be silent. Selecting a
         # tab is what marks it read.
         sub_nb.bind("<<NotebookTabChanged>>", self._on_chat_tab_changed)
@@ -6563,7 +6626,7 @@ class Panel(tk.Tk):
         self._chat_count_var = tk.StringVar(value=self._t("chat.count", n=0))
         ttk.Label(bot, textvariable=self._chat_count_var, foreground="#888").pack(
             side="right", padx=8)
-        self._tr_hooks.append(self._retranslate_chat_bottom)
+        self._hook(self._retranslate_chat_bottom)
 
         self._pump_chat()
 
@@ -7223,7 +7286,7 @@ class Panel(tk.Tk):
         total = (self._chat_store.total() if self._chat_store is not None
                  else sum(len(v) for v in self._chat_msgs.values()))
         self._chat_count_var.set(self._t("chat.count", n=total))
-        self.after(1000, self._pump_chat)
+        self._arm("chat", 1000, self._pump_chat)
 
     def _dm_append(self, record: dict) -> bool:
         """Append a live DM to the OPEN conversation. True if a full rebuild is needed.

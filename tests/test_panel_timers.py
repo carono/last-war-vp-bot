@@ -688,6 +688,8 @@ def test_timers_tab_builds_from_the_config_and_binds():
             # an empty one makes that an early return, so this scheduled-only case
             # needs no trigger catalogue or watcher.
             self._trigger_rows: dict = {}
+            self._loops: dict = {}
+            self.cancelled: list = []
 
         _t = Panel._t
         _tr = Panel._tr
@@ -705,12 +707,20 @@ def test_timers_tab_builds_from_the_config_and_binds():
         _paint_timer_selection = Panel._paint_timer_selection
         _selected_timer = Panel._selected_timer
         _timer_duplicate = Panel._timer_duplicate
+        # The repaint re-arms itself through the panel's loop registry, so the
+        # stub carries it too (see Panel._arm).
+        _arm = Panel._arm
+        _disarm = Panel._disarm
 
         def _log_put(self, line):
             self.logs.append(line)
 
         def after(self, _ms, _fn=None):                # the 1 s re-arm, not run here
             self.afters.append(_ms)
+            return f"after#{len(self.afters)}"
+
+        def after_cancel(self, job):
+            self.cancelled.append(job)
 
     tab = _Tab()
     try:

@@ -536,7 +536,9 @@ class GhostReconPane(_Pane):
         """Hand the whole robbable set to the standalone tool (the same one the standing
         order spawns), then re-read the list once it has had time to walk the VM."""
         self.app._ghost_run(self.app._autoloot_limit())
-        self.app.after(GHOST_RERE_MS, self.refresh)
+        # Named: pressing «ограбить всё» twice must leave ONE re-read pending,
+        # not one per press (see Panel._arm).
+        self.app._arm("cmdpost_ghost_reread", GHOST_RERE_MS, self.refresh)
 
 
 # ---------------------------------------------------------------------------
@@ -1103,7 +1105,7 @@ class CommandPostTab:
             page = cls(app, frame)
             self._pages[str(frame)] = page
             self._by_key[key] = page
-        app._tr_hooks.append(self._retranslate)
+        app._hook(self._retranslate)
         nb.bind("<<NotebookTabChanged>>", self._on_page_changed)
 
     # -- lifecycle ----------------------------------------------------------

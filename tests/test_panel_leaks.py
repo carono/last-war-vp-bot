@@ -321,6 +321,111 @@ def test_the_boot_gate_has_a_ceiling():
         pm.BOOT_MAX_WAIT_SEC = was
 
 
+# ---------------------------------------------------------------------------
+# Repeating callbacks: one chain per name, whatever the call graph does.
+# ---------------------------------------------------------------------------
+class _Loops:
+    """`Panel._arm` / `_disarm` on a bare object with a counting `after`."""
+
+    def __init__(self):
+        import panel.__main__ as pm
+        self._loops = {}
+        self.armed, self.cancelled, self.seq = [], [], 0
+        self._arm = pm.Panel._arm.__get__(self)
+        self._disarm = pm.Panel._disarm.__get__(self)
+        self._disarm_all = pm.Panel._disarm_all.__get__(self)
+
+    def after(self, delay, func):
+        self.seq += 1
+        job = f"job{self.seq}"
+        self.armed.append(job)
+        return job
+
+    def after_cancel(self, job):
+        self.cancelled.append(job)
+
+    @property
+    def pending(self):
+        return set(self.armed) - set(self.cancelled)
+
+
+def test_arming_a_loop_twice_leaves_one_chain():
+    loops = _Loops()
+    for _ in range(20):
+        loops._arm("log", 120, lambda: None)
+    # Twenty starts, one live chain. This is the whole point: a loop that is
+    # started from a second place — a repaint that re-arms the repaint — used to
+    # double the tick rate for the rest of the session, invisibly and for ever.
+    assert len(loops.pending) == 1, loops.pending
+    assert len(loops.cancelled) == 19, loops.cancelled
+
+    # Different names are different chains; they do not cancel each other.
+    for name in ("status", "chat", "timer_rows"):
+        loops._arm(name, 1000, lambda: None)
+    assert len(loops.pending) == 4, loops.pending
+
+    # …and the window takes all of them with it.
+    loops._disarm_all()
+    assert loops.pending == set(), loops.pending
+    assert loops._loops == {}, loops._loops
+    # Cancelling twice is not an error — a callback that has already fired is gone.
+    loops._disarm("log")
+
+
+def test_the_panels_repeating_callbacks_all_go_through_the_registry():
+    """No bare `self.after(<delay>, <the same method>)` re-arm is left anywhere.
+
+    A grep, deliberately: the guarantee above is only worth anything if every loop
+    actually uses it, and the next one added is the one that will not.
+    """
+    import re
+    root = Path(__file__).resolve().parents[1] / "panel"
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        if path.name == "splash.py":            # its own window, torn down at boot
+            continue
+        text = path.read_text(encoding="utf-8")
+        for func in re.finditer(r"\n    (?:async )?def (\w+)\(", text):
+            name = func.group(1)
+            body = text[func.end():]
+            nxt = re.search(r"\n    (?:@|def )", body)
+            body = body[:nxt.start()] if nxt else body
+            # a method that schedules ITSELF is a loop
+            if re.search(r"\.after\(\s*[^,]+,\s*self(?:\.app)?\.%s\b" % name, body):
+                offenders.append(f"{path.name}:{name}")
+    assert offenders == [], f"loops still armed with a bare after(): {offenders}"
+
+
+def test_a_language_hook_is_registered_once():
+    import panel.__main__ as pm
+
+    class _App:
+        def __init__(self):
+            self._tr_hooks = []
+            self._tr_hook_keys = set()
+            self._hook = pm.Panel._hook.__get__(self)
+
+    app = _App()
+    marker = []
+
+    def repaint():
+        marker.append(1)
+
+    for _ in range(10):
+        app._hook(repaint)
+    assert app._tr_hooks == [repaint], app._tr_hooks
+
+    # A lambda can never be recognised by identity, so it is named instead —
+    # rebuilding the page that registers it must not stack another copy.
+    for _ in range(10):
+        app._hook(lambda: marker.append(2), key="tab-titles")
+    assert len(app._tr_hooks) == 2, len(app._tr_hooks)
+
+    for hook in app._tr_hooks:
+        hook()
+    assert marker == [1, 2], marker
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

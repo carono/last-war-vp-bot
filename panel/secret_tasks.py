@@ -260,7 +260,7 @@ class SecretTasksTab:
             values=[app._t(o["key"]) for o in app.capture_options])
         app._mon_combo.current(0)
         app._mon_combo.pack(side="left", padx=(0, 8))
-        app._tr_hooks.append(app._retranslate_capture_combo)
+        app._hook(app._retranslate_capture_combo)
         app._mon_var = tk.BooleanVar(master=app, value=False)
         app._tr(ttk.Checkbutton(row1, variable=app._mon_var,
                                 command=app._toggle_monitor),
@@ -480,7 +480,9 @@ class SecretTasksTab:
             self._maybe_start_poll()
         finally:
             try:
-                self.app.after(1000, self._tick)
+                # Named, so the countdown is one chain however often
+                # `_start_ticking` is reached (see Panel._arm).
+                self.app._arm("secret_tick", 1000, self._tick)
             except Exception:                 # noqa: BLE001 — panel gone, stop ticking
                 self._ticking = False
 
@@ -524,7 +526,7 @@ class SecretTasksTab:
         if any(r.get("ready") for r in self._rows.values()):
             self._polling = True
             try:
-                self.app.after(POLL_MS, self._poll_tick)
+                self.app._arm("secret_poll", POLL_MS, self._poll_tick)
             except Exception:                 # noqa: BLE001 — panel gone
                 self._polling = False
 
@@ -541,7 +543,7 @@ class SecretTasksTab:
             return
         threading.Thread(target=self._poll_work, args=(ready,), daemon=True).start()
         try:
-            self.app.after(POLL_MS, self._poll_tick)
+            self.app._arm("secret_poll", POLL_MS, self._poll_tick)
         except Exception:                     # noqa: BLE001 — panel gone
             self._polling = False
 

@@ -202,6 +202,8 @@ def test_tab_builds_and_drives_its_controls():
                 # attribute of that name would shadow the Tk method it needs.
                 self._tk = root
                 self._tr_hooks = []
+                self._hook_keys = set()
+                self._loops = {}
                 self.logged = []
 
             def _t(self, key, **fmt):
@@ -228,6 +230,23 @@ def test_tab_builds_and_drives_its_controls():
 
             def after(self, ms, func=None, *a):
                 return self._tk.after(ms, func, *a) if func else None
+
+            # The pages register their language hook and arm their re-read through
+            # the panel (Panel._hook / Panel._arm): same shape, same once-only rule.
+            def _hook(self, func, key=None):
+                key = func if key is None else key
+                if key not in self._hook_keys:
+                    self._hook_keys.add(key)
+                    self._tr_hooks.append(func)
+
+            def _arm(self, name, delay_ms, func):
+                self._disarm(name)
+                self._loops[name] = self._tk.after(int(delay_ms), func)
+
+            def _disarm(self, name):
+                job = self._loops.pop(name, None)
+                if job is not None:
+                    self._tk.after_cancel(job)
 
             def __getattr__(self, name):
                 return getattr(self.__dict__["_tk"], name)
