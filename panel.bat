@@ -5,6 +5,10 @@ REM stays minimised and is there to read if the panel refuses to start.
 REM
 REM Any argument is passed straight through - `panel.bat --profile second`
 REM opens the panel on another profile.
+REM
+REM UTF-8 first, and this file is saved UTF-8 without a BOM: what it prints
+REM is read by a player, so it is Russian (the comments stay English).
+chcp 65001 >nul
 setlocal EnableExtensions
 cd /d "%~dp0"
 
@@ -19,7 +23,7 @@ if not defined PY set "PY=python"
 
 if errorlevel 1 (
     echo.
-    echo The panel exited with an error. If it never opened, re-run
-    echo install.bat - it repairs a half-installed set of dependencies.
+    echo Панель завершилась с ошибкой. Если окно так и не открылось —
+    echo запустите install.bat: он чинит недоустановленное окружение.
     pause >nul
 )
