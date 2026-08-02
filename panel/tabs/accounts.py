@@ -21,12 +21,14 @@ class AccountsTab(DataTab):
     character — exactly what tapping the row in the game does. Because a switch tears
     down the current session and reconnects, the button asks for confirmation first.
 
-    What the game hands over is a cache of every login it has ever made, so one
-    character shows up once per server it has ever been on and abandoned characters
-    linger; tools/account_switch.py trims that to the characters themselves before we
-    draw it. The read is CONFIRMED against a live client; the switch reproduces the
-    game's own select handler. Degrades to an empty state with no daemon, no game, or
-    before the account manager has loaded."""
+    The list comes from the server, not from the client's cache of past logins —
+    tools/account_switch.py asks for it the way the game's own «Персонажи» screen
+    does, without opening a window. CONFIRMED against a live capture (#1190): the
+    server named two characters where the cache held six rows for them.
+
+    The «Switch» button is known not to work — the send it reproduces is rejected by
+    the server (see tools/account_switch.py). Degrades to an empty state with no
+    daemon, no game, or when the server does not answer."""
 
     ID = "accounts"
     TITLE_KEY = "tab.accounts"

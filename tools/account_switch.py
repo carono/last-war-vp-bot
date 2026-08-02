@@ -3,48 +3,49 @@ r"""List the game characters this login can switch to, and switch between them.
 
 Where they come from
 --------------------
-The game keeps every character you have logged into cached in
+The server is asked, and it answers with the characters the account actually has:
 
-    DataCenter.AccountListManager:GetAccountInfos()
+    SFSNetwork.SendMessage(MsgDefines.AccountLoginNew)      -- "account.login.new"
 
-one ``AccountInfo`` per server login, carrying ``serverid``, ``nickname`` (the
-character's in-game name), ``gameUid``, ``newLevel`` (HQ level), ``zone`` and the
-connection routing. The character you are playing right now is the one whose
-``serverid`` equals the live ``curServerId``.
+The reply lands as a ``push.account.login.new`` carrying ``accountArr``, which the
+client parses into ``DataCenter.AccountManager.rolesList`` — one entry per
+character with ``id`` (its server), ``gameUid``, ``gameUserName``,
+``gameUserLevel`` (HQ), ``zone``, ``power`` and ``alAbbr`` (alliance tag). This is
+the list the game's own «Персонажи» screen draws, and the request carries only
+``airKey``/``deviceId``/``type`` — no credentials, and it opens no window.
 
-Why that list is not the character list
----------------------------------------
-It is a cache of *logins*, not of characters, and the client only ever appends to
-it: the manager keys an entry by ``gameUid`` + ``serverid`` + ``urlEnv``, so every
-server the same character has ever connected to — the one it was created on, the
-one it moved to, each cross-server event server it was pulled into — stays behind
-as its own row. A character is identified by its ``gameUid``, so the same
-``gameUid`` on four servers is one character with three stale rows, not four
-characters. Characters that were made and abandoned linger too, recognisable by an
-HQ level that never left 0.
+The character in play is the one whose ``id`` equals the live ``curServerId``.
 
-:func:`playable_accounts` trims the cache down to what you can actually play: one
-row per ``gameUid`` — the one in play, else the highest HQ level, else the freshest
-cache entry — and nothing that never reached HQ level 1. Confirmed on a live client
-whose cache held six rows for two characters. ``--all`` prints the raw cache.
+Why the login cache is NOT used
+-------------------------------
+``AccountListManager:GetAccountInfos()`` looks like the same list and is not: it
+caches *logins*, keyed by ``gameUid`` + ``serverid`` + ``urlEnv``, so every server a
+character has ever connected to — the one it was created on, the one it moved to,
+each cross-server event server it was pulled into — stays behind as its own row,
+and abandoned characters linger for good. On the live client it held **six** rows
+for **two** characters, which is exactly the bug this tool was written to stop
+(#1190). It is read only by ``--cache``, to show what the game keeps.
 
-Switching
----------
-Tapping a row on that screen runs the account-list cell's own select handler,
-which builds an ``az.account.login`` message from the picked ``AccountInfo`` and
-sends it — the client then reconnects to that server as that character. This tool
-reproduces the tap faithfully by calling the game's own handler with the target
-``AccountInfo`` (no hand-built payload):
+Switching — KNOWN BROKEN, do not trust it
+-----------------------------------------
+:func:`switch_account` calls the login screen's account-list cell handler:
 
     require("...UIAccountListCell").OnBtnSelectClick({data = <AccountInfo>})
 
-Because a switch tears down the current game session and reconnects, it is a heavy,
-one-way action: after it fires the warm daemon's client is on a different character.
+It reports ``sent`` and it does send — but a capture of that send (#1190) shows the
+message it builds is ``az.account.login`` with an **empty** ``userName``, because
+the handler expects ``AccountManager:SetParam`` to have been filled by the screen
+first. The server answers ``120618 email format error`` and nothing switches.
+
+The game's own route is different: the character list's cell (``UIRolesCell``)
+opens ``UIRoleLogin`` for the picked role, which logs in with that role's
+``loginKey`` — the field the server hands out in ``accountArr``. Wiring that up is
+its own task; until then the «Switch» button reports a send that the server drops.
 
 Usage (run under the Windows Python so it can reach the daemon)
 --------------------------------------------------------------
     C:\Python312\python.exe tools\account_switch.py                 # list
-    C:\Python312\python.exe tools\account_switch.py --all           # + the stale cache rows
+    C:\Python312\python.exe tools\account_switch.py --cache         # the login cache instead
     C:\Python312\python.exe tools\account_switch.py --json          # list as JSON
     C:\Python312\python.exe tools\account_switch.py --switch 2105   # switch to server 2105
 """
@@ -54,6 +55,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
@@ -66,19 +68,64 @@ MARKER = "ACT"
 # account window has never been opened this session.
 _CELL_MODULE = "UI.UIAccount2.UIAccountList.Component.UIAccountListCell"
 
-_READ_LUA = r"""
+# Ask the server for the characters. Headless: no window is opened, and the request
+# carries no credentials — the game builds it from the device id.
+_ASK_LUA = r"""
+local function L(s) CS.UnityEngine.Debug.LogError("ACT "..tostring(s)) end
+local ok, err = pcall(function() SFSNetwork.SendMessage(MsgDefines.AccountLoginNew) end)
+L("ASK "..(ok and "sent" or ("error:"..tostring(err))))
+"""
+
+# Read what came back. `rolesList` is filled by the push handler, so this is polled
+# until it lands rather than read once.
+_ROLES_LUA = r"""
 local function hex(s) return (tostring(s):gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
 local function L(s) CS.UnityEngine.Debug.LogError("ACT "..s) end
 pcall(function()
+  -- Which character is in play. `WorldFavoDataManager.curServerId` is empty on a
+  -- freshly logged-in client, so the player's own record is asked first.
   local cur = 0
-  pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end)
+  pcall(function() cur = LuaEntry.Player.serverId end)
+  if not cur or cur == 0 then
+    pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end)
+  end
+  L("cur="..tostring(cur))
+  local roles = DataCenter.AccountManager.rolesList
+  if type(roles) ~= "table" then return end
+  for _, v in pairs(roles) do
+    -- The screen puts an `isEmpty` placeholder first (its "add a character" slot);
+    -- it is not a character and carries none of the fields below.
+    if type(v) == "table" and not v.isEmpty then
+      L("R serverid="..tostring(v.id)
+        .." gameUid="..tostring(v.gameUid)
+        .." level="..tostring(v.gameUserLevel or 0)
+        .." power="..tostring(v.power or 0)
+        .." nick="..hex(tostring(v.gameUserName or ""))
+        .." zone="..hex(tostring(v.zone or ""))
+        .." alliance="..hex(tostring(v.alAbbr or "")))
+    end
+  end
+end)
+"""
+
+# The login cache — NOT the character list (see the module docstring). Kept for
+# `--cache`, which is how the six-rows-for-two-characters bug was demonstrated.
+_CACHE_LUA = r"""
+local function hex(s) return (tostring(s):gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
+local function L(s) CS.UnityEngine.Debug.LogError("ACT "..s) end
+pcall(function()
+  -- Which character is in play. `WorldFavoDataManager.curServerId` is empty on a
+  -- freshly logged-in client, so the player's own record is asked first.
+  local cur = 0
+  pcall(function() cur = LuaEntry.Player.serverId end)
+  if not cur or cur == 0 then
+    pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end)
+  end
   L("cur="..tostring(cur))
   local infos = DataCenter.AccountListManager:GetAccountInfos()
   if type(infos) ~= "table" then return end
-  -- ipairs, not pairs: the cache is appended to, so the position is how recent the
-  -- login is, and that is what tells the live row from a stale one of the same uid.
   for i, v in ipairs(infos) do
-    L("A seq="..tostring(i)
+    L("R seq="..tostring(i)
       .." serverid="..tostring(v.serverid)
       .." gameUid="..tostring(v.gameUid)
       .." level="..tostring(v.newLevel or v.level or 0)
@@ -104,67 +151,79 @@ def _num(v):
         return 0
 
 
-def playable_accounts(rows: list[dict]) -> list[dict]:
-    """The characters you can actually play, out of the raw login cache.
-
-    Two things go: the rows of a character that is already listed on another server
-    (same ``gameUid`` — an old server it was created on or an event server it was
-    pulled into), and the rows of a character that never reached HQ level 1 (made
-    and abandoned, or since deleted). Of the rows sharing a ``gameUid`` the one kept
-    is the one in play, else the highest HQ level, else the freshest cache entry —
-    which is the server that character is on now.
-    """
-    best: dict[str, dict] = {}
-    for r in rows:
-        if r["level"] <= 0 and not r["is_current"]:
-            continue           # never played — nothing to switch to
-        rank = (r["is_current"], r["level"], r["seq"])
-        keep = best.get(r["gameUid"])
-        if keep is None or rank > (keep["is_current"], keep["level"], keep["seq"]):
-            best[r["gameUid"]] = r
-    return [r for r in rows if best.get(r["gameUid"]) is r]
-
-
-def read_accounts(ev, keep_stale: bool = False) -> list[dict]:
-    """The characters this login can switch to, current one flagged.
-
-    Each record: ``serverid``, ``gameUid``, ``level`` (HQ), ``nickname``, ``zone``,
-    ``env``, ``seq`` (position in the login cache) and ``is_current``. Trimmed to the
-    characters that still exist by :func:`playable_accounts` unless ``keep_stale``
-    asks for the cache as it stands. Returns ``[]`` when the game/daemon is
-    unreachable or the manager is not loaded yet.
-    """
+def _parse_rows(lines) -> tuple[list[dict], int]:
+    """The ``R``/``cur=`` lines either reader prints, as records."""
     cur = 0
     rows: list[dict] = []
-    for ln in ev.run(_READ_LUA, MARKER, 2.0):
+    for ln in lines:
         body = ln[4:] if ln.startswith("ACT ") else ln
         if body.startswith("cur="):
             cur = _num(body[4:])
             continue
-        if not body.startswith("A "):
+        if not body.startswith("R "):
             continue
         rec: dict = {}
         for tok in body[2:].split(" "):
             key, sep, value = tok.partition("=")
             if not sep:
                 continue
-            rec[key] = _hexdec(value) if key in ("nick", "zone", "env") else value
-        rows.append({
-            "seq": _num(rec.get("seq")),
+            rec[key] = (_hexdec(value)
+                        if key in ("nick", "zone", "env", "alliance") else value)
+        row = {
             "serverid": _num(rec.get("serverid")),
             "gameUid": rec.get("gameUid", "0"),
             "level": _num(rec.get("level")),
             "nickname": rec.get("nick", ""),
             "zone": rec.get("zone", ""),
-            "env": rec.get("env", ""),
-        })
+        }
+        for key, name in (("power", "power"), ("alliance", "alliance"),
+                          ("env", "env"), ("seq", "seq")):
+            if key in rec:
+                row[name] = _num(rec[key]) if key in ("power", "seq") else rec[key]
+        rows.append(row)
+    return rows, cur
+
+
+def _sorted(rows: list[dict], cur: int) -> list[dict]:
     for r in rows:
         r["is_current"] = (r["serverid"] == cur and cur != 0)
-    if not keep_stale:
-        rows = playable_accounts(rows)
     # Current first, then by level (strongest character next), then by server id.
     rows.sort(key=lambda r: (not r["is_current"], -r["level"], r["serverid"]))
     return rows
+
+
+def read_accounts(ev, timeout: float = 6.0) -> list[dict]:
+    """The characters this account has, as the server reports them.
+
+    Sends ``account.login.new`` and waits for the push that answers it to fill
+    ``rolesList`` — up to ``timeout`` seconds, since the reply is asynchronous. Each
+    record: ``serverid``, ``gameUid``, ``level`` (HQ), ``nickname``, ``zone``,
+    ``power``, ``alliance`` and ``is_current``. Returns ``[]`` when the game/daemon
+    is unreachable, or when nothing came back inside the timeout — an empty tab is
+    the honest answer there, and stale cache rows are not.
+    """
+    rows, cur = _parse_rows(ev.run(_ROLES_LUA, MARKER, 1.5))
+    if rows:
+        return _sorted(rows, cur)
+
+    ev.run(_ASK_LUA, MARKER, 1.0)
+    deadline = time.time() + max(0.0, timeout)
+    while time.time() < deadline:
+        time.sleep(0.5)
+        rows, cur = _parse_rows(ev.run(_ROLES_LUA, MARKER, 1.5))
+        if rows:
+            return _sorted(rows, cur)
+    return []
+
+
+def read_login_cache(ev) -> list[dict]:
+    """The client's cache of logins — what the tab used to draw, and why #1190.
+
+    Not the character list: see the module docstring. One row per
+    ``gameUid``+``serverid``+``urlEnv`` the client has ever connected as.
+    """
+    rows, cur = _parse_rows(ev.run(_CACHE_LUA, MARKER, 2.0))
+    return _sorted(rows, cur)
 
 
 def _switch_lua(serverid: int) -> str:
@@ -211,8 +270,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", action="store_true", help="print the list as JSON")
-    ap.add_argument("--all", action="store_true", dest="keep_stale",
-                    help="print the login cache whole, stale duplicates and all")
+    ap.add_argument("--cache", action="store_true",
+                    help="print the client's login cache instead — not the character "
+                         "list, and the reason this tool no longer reads it (#1190)")
     ap.add_argument("--switch", type=int, metavar="SERVERID",
                     help="switch to the character on this server id (reconnects the client)")
     args = ap.parse_args()
@@ -225,19 +285,18 @@ def main() -> int:
               else f"switch {args.switch}: {state or 'no response'}")
         return 0 if state == "sent" else 1
 
-    rows = read_accounts(ev, keep_stale=args.keep_stale)
+    rows = read_login_cache(ev) if args.cache else read_accounts(ev)
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
     if not rows:
-        print("no accounts (game/daemon unreachable, or the account manager is not loaded)")
+        print("no characters (game/daemon unreachable, or the server did not answer)")
         return 0
-    live = {id(r) for r in playable_accounts(rows)} if args.keep_stale else None
     for r in rows:
         mark = "* " if r["is_current"] else "  "
-        stale = "" if live is None or id(r) in live else "   (stale cache row)"
+        tail = f"  [{r['alliance']}]" if r.get("alliance") else ""
         print(f"{mark}srv {r['serverid']:<6} lvl {r['level']:<3} "
-              f"{r['zone']:<10} {r['nickname']}{stale}")
+              f"{r['zone']:<10} {r['nickname']}{tail}")
     return 0
 
 
