@@ -55,8 +55,13 @@ def _picks(items):
     return [i for i in walk_items(items) if isinstance(i, _Choice)]
 
 
-def _tab():
-    """A built «Дуэль VS» tab on a cold runtime, plus the root to destroy afterwards."""
+def _tab(blank=True):
+    """A built «Дуэль VS» tab on a cold runtime, plus the root to destroy afterwards.
+
+    ``blank`` puts it on an EMPTY set — nothing ticked — because that is what most of
+    these tests are about: what one box does. The shipped sets, which arrive with the
+    week already ticked, have tests of their own below.
+    """
     import tkinter as tk
     from tkinter import ttk
     import fake_runtime
@@ -68,6 +73,9 @@ def _tab():
     tab = VsDuelTab(rt, ttk.Frame(root))
     rt.tabs.add(tab)
     tab.build()
+    if blank:
+        tab.apply_config({"presets": [{"id": "blank", "name": "Blank", "values": {}}],
+                          "days": {}})
     return root, tab
 
 
@@ -360,11 +368,9 @@ def test_saturdays_shield_is_a_pick_the_day_always_answers():
                                    "shield_buy": {"limit": None},
                                    "mine_points": {"limit": None}}
 
-        # It round-trips, and a profile that never touched it comes back to the first.
+        # It round-trips inside the day's set, like everything else on the day.
         saved = tab.config()
-        assert saved["sat.shield"] == "once_24h"
-        tab.apply_config({})
-        assert tab._choices["sat.shield"].get() == "twice_12h"
+        assert saved["presets"][0]["values"]["sat.shield"] == "once_24h"
         tab.apply_config(saved)
         assert tab.plan("sat")["shield"] == {"pick": "once_24h"}
     finally:
@@ -411,6 +417,7 @@ def test_the_category_picker_keeps_a_value_and_survives_a_language_change():
 # ---------------------------------------------------------------------------
 
 def test_the_choices_round_trip_through_a_profile():
+    """What is on screen belongs to the day's SET, and the set is what is written."""
     try:
         root, tab = _tab()
     except Exception as exc:                            # noqa: BLE001
@@ -421,22 +428,22 @@ def test_the_choices_round_trip_through_a_profile():
         tab._flags["mon.hero_level.exp_boxes"].set(True)
         tab._amounts["mon.hero_exp_m"].set("12")
         saved = tab.config()
-        assert saved["mon.hero_level"] is True
-        assert saved["mon.hero_level.exp_boxes"] is True
-        assert saved["mon.hero_exp_m"] == "12"
-
-        tab.apply_config({})                       # a profile that has never seen it
-        assert tab.plan("mon") == {}
-        assert tab._amounts["mon.hero_exp_m"].get() == "", "a default was inherited"
+        values = saved["presets"][0]["values"]
+        assert values["mon.hero_level"] is True
+        assert values["mon.hero_level.exp_boxes"] is True
+        assert values["mon.hero_exp_m"] == "12"
+        assert set(saved["days"]) == {"mon", "tue", "wed", "thu", "fri", "sat"}
 
         tab.apply_config(saved)
         assert tab.plan("mon") == {"hero_level": {"limit": 12, "exp_boxes": True}}
-        # Every variable a change of which must be written is offered to the container.
-        # (By identity: a Tk variable is unhashable and compares by its VALUE.)
+        # Every variable a change of which must be written is offered to the container —
+        # the day's own set-picker among them. (By identity: a Tk variable is
+        # unhashable and compares by its VALUE.)
         offered = {id(v) for v in tab.persist_vars()}
         assert offered == {id(v) for v in (list(tab._flags.values())
                                            + list(tab._amounts.values())
-                                           + list(tab._choices.values()))}
+                                           + list(tab._choices.values())
+                                           + list(tab._day_set.values()))}
     finally:
         root.destroy()
 
@@ -454,10 +461,9 @@ def test_a_picked_category_round_trips_and_defaults_back():
         tab._flags["wed.research_start"].set(True)
         tab._choices[name].set("something_the_game_will_name")
         saved = tab.config()
-        assert saved[name] == "something_the_game_will_name"
+        assert saved["presets"][0]["values"][name] == "something_the_game_will_name"
 
-        # A profile that never picked one comes back to «any», not to what the last
-        # account left behind.
+        # A profile that has never seen the tab gets the shipped sets, on «any».
         tab.apply_config({})
         assert tab._choices[name].get() == vs_duel.CATEGORY_ANY
         tab.apply_config(saved)
@@ -465,6 +471,162 @@ def test_a_picked_category_round_trips_and_defaults_back():
             "something_the_game_will_name"
     finally:
         root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# the sets
+# ---------------------------------------------------------------------------
+
+def test_the_two_shipped_sets_differ_in_what_they_spend():
+    """«Hoarding» and «Push» do the same things — what tells them apart is whether they
+    break into what the account is storing."""
+    from panel.tabs import vs_duel
+
+    sets = {p["id"]: p for p in vs_duel.default_presets()}
+    assert list(sets) == [vs_duel.PRESET_HOARD, vs_duel.PRESET_PUSH]
+    # Named by a locale key, so they read in the panel's own language.
+    assert all(p["name_key"] and not p["name"] for p in sets.values())
+
+    hoard = sets[vs_duel.PRESET_HOARD]["values"]
+    push = sets[vs_duel.PRESET_PUSH]["values"]
+    # Both DO the week: push ticks every box there is, and hoarding skips only the one
+    # whose whole purpose is to spend — buying shields.
+    for day, items in vs_duel.DAYS:
+        for action in _actions(items):
+            key = f"{day}.{action.key}"
+            assert push[key] is True, f"push skips {key}"
+            assert hoard[key] is (key != "sat.shield_buy"), f"hoarding is wrong on {key}"
+    # …and they differ exactly where something stored would be spent.
+    differs = {k for k in push if hoard.get(k) != push.get(k)}
+    assert differs == {"mon.hero_level.exp_boxes", "thu.hero_level.exp_boxes",
+                       "sat.shield_buy", "sat.shield"}, differs
+    assert push["mon.hero_level.exp_boxes"] is True
+    assert hoard["mon.hero_level.exp_boxes"] is False
+    assert hoard["sat.shield_buy"] is False and push["sat.shield_buy"] is True
+    # One shield covering the day costs one; two half-days cost two.
+    assert hoard["sat.shield"] == "once_24h" and push["sat.shield"] == "twice_12h"
+
+
+def test_each_day_is_played_from_the_set_its_own_picker_names():
+    """Monday hoarding while Saturday pushes — and neither day's numbers leak into the
+    other's set."""
+    from panel.tabs import vs_duel
+
+    try:
+        root, tab = _tab(blank=False)
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        assert {v.get() for v in tab._day_set.values()} == {vs_duel.PRESET_HOARD}
+        # Saturday moves to «Push»: what it shows changes, Monday's does not.
+        tab._day_set["sat"].set(vs_duel.PRESET_PUSH)
+        tab._load_day("sat")
+        assert tab.plan("sat")["shield"] == {"pick": "twice_12h"}
+        assert tab.plan("sat")["shield_buy"] == {"limit": None}
+        assert tab.plan("mon")["hero_level"]["exp_boxes"] is False
+
+        # Editing Saturday writes into PUSH, and hoarding is left as it was.
+        tab._flags["sat.mine_points"].set(False)
+        saved = tab.config()
+        by_id = {p["id"]: p["values"] for p in saved["presets"]}
+        assert by_id[vs_duel.PRESET_PUSH]["sat.mine_points"] is False
+        assert by_id[vs_duel.PRESET_HOARD]["sat.mine_points"] is True
+        assert saved["days"]["sat"] == vs_duel.PRESET_PUSH
+        assert saved["days"]["mon"] == vs_duel.PRESET_HOARD
+    finally:
+        root.destroy()
+
+
+def test_a_day_switched_to_another_set_keeps_the_first_ones_numbers():
+    """Switching is not editing: the set left behind still holds what was typed into
+    it, and coming back shows it again."""
+    from panel.tabs import vs_duel
+
+    try:
+        root, tab = _tab(blank=False)
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab._amounts["mon.hero_exp_m"].set("25")
+        tab._store_day("mon")                      # what the picker does before it moves
+        tab._day_set["mon"].set(vs_duel.PRESET_PUSH)
+        tab._load_day("mon")
+        assert tab._amounts["mon.hero_exp_m"].get() == ""
+
+        tab._amounts["mon.hero_exp_m"].set("999")
+        tab._store_day("mon")
+        tab._day_set["mon"].set(vs_duel.PRESET_HOARD)
+        tab._load_day("mon")
+        assert tab._amounts["mon.hero_exp_m"].get() == "25"
+    finally:
+        root.destroy()
+
+
+def test_a_profile_written_before_the_sets_keeps_its_choices():
+    """One flat week is what the tab used to save. It becomes the first set, and every
+    day is played from it — the operator finds their own choices where they left them."""
+    try:
+        root, tab = _tab(blank=False)
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab.apply_config({"mon.hero_level": True, "mon.hero_exp_m": "7",
+                          "mon.drone_level": False})
+        assert tab.plan("mon")["hero_level"]["limit"] == 7
+        assert "drone_level" not in tab.plan("mon")
+        assert len({v.get() for v in tab._day_set.values()}) == 1
+    finally:
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# making, renaming and dropping a set — the store, with no Tk in the way
+# ---------------------------------------------------------------------------
+
+def test_the_store_makes_renames_and_drops_sets():
+    from panel.tabs import vs_duel
+
+    def t(key):                       # a stand-in translator: the key IS the name
+        return key
+
+    store = vs_duel.PresetStore()
+    assert store.ids() == [vs_duel.PRESET_HOARD, vs_duel.PRESET_PUSH]
+    assert store.name(vs_duel.PRESET_HOARD, t) == "vsduel.preset.hoard"
+
+    mine = store.add("Week of the boss", {"mon.hero_level": True})
+    assert store.name(mine, t) == "Week of the boss"
+    assert store.values(mine)["mon.hero_level"] is True
+
+    # A rename replaces the shipped key: from then on it is the person's name, in
+    # every language.
+    store.rename(vs_duel.PRESET_HOARD, "Quiet week")
+    assert store.name(vs_duel.PRESET_HOARD, t) == "Quiet week"
+
+    assert store.remove(vs_duel.PRESET_PUSH)
+    assert vs_duel.PRESET_PUSH not in store.ids()
+    assert not store.remove("nonesuch")
+
+    # The last one cannot go — a day has to be played from something.
+    store.remove(mine)
+    assert len(store.ids()) == 1
+    assert not store.remove(store.first())
+    assert store.ids() == [vs_duel.PRESET_HOARD]
+
+
+def test_the_store_survives_a_hand_edited_profile():
+    """Junk in the file is «the shipped sets», never a crash on start-up."""
+    from panel.tabs import vs_duel
+
+    for junk in (None, [], "sets", [{"no": "id"}], [{"id": ""}], 17):
+        store = vs_duel.PresetStore(junk)
+        assert store.ids() == [vs_duel.PRESET_HOARD, vs_duel.PRESET_PUSH], junk
+    # A record missing everything but its id is still a set, with nothing in it.
+    store = vs_duel.PresetStore([{"id": "bare"}])
+    assert store.ids() == ["bare"]
+    assert store.values("bare") == {}
 
 
 def test_a_ceiling_is_greyed_out_while_its_action_is_off():
