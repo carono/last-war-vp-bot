@@ -64,12 +64,34 @@ Values typed in the UI travel the same way and no further: the scenario declares
 
 ### The code that predates this rule
 
-Most of the panel still speaks to the game directly — `panel/__main__.py`,
-`panel/tabs_extra.py`, `panel/dashboard.py`, `panel/command_post.py`,
-`panel/triggers.py`, `panel/secret_tasks.py`, `panel/mapsweep.py`. They are debt,
-not precedent. Do not rewrite them all at once, but when a task takes you into one
-of those paths, move the game logic out into a scenario and leave the panel
-calling it. **Never add a new one.**
+Less of it than there was: the panel's tabs are plugins now
+(`docs/panel-tabs.md`), and what still speaks to the game directly is down to
+`panel/dashboard.py`, `panel/tabs/_data.py` and the reads inside a few tabs. They
+are debt, not precedent. Do not rewrite them all at once, but when a task takes
+you into one of those paths, move the game logic out into a scenario and leave the
+panel calling it. **Never add a new one.**
+
+Two of them are itemised and NOT free, whatever a plan may say: the secret-task
+and ghost-recon robberies spawn their tool because the recipe only spends a queue
+the tool fills (task #1188). Read that before "just" swapping a spawn for
+`rt.actions.run(...)`.
+
+## Every panel tab is a plugin
+
+**Also binding.** A new tab goes in `panel/tabs/`, subclasses `PanelTab`, is named
+in the registry, and talks to `PanelRuntime` and nothing else. It must open on its
+own with `python -m panel.tabs.<id>` and disappear completely when its profile
+switches it off.
+
+**Read [`docs/panel-tabs.md`](docs/panel-tabs.md) before writing one.** It has the
+skeleton, what to declare, the runtime's surface, the `ensure_loaded` / `on_show`
+distinction that costs a game read per start-up when it is got wrong, and the five
+things that are forbidden — chief among them importing `panel/__main__.py`, which
+re-executes the whole panel as a second module.
+
+Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, log,
+menu, «Главная». If a change needs something from it, move that something into
+`panel/runtime/` first and use it from there.
 
 ### Definition of done
 

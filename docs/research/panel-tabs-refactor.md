@@ -823,13 +823,32 @@ that is the test that the split is real and not cosmetic. It holds because the t
 SUPPLIES the switches (`timer_config_source`), and the saved catalogue answers when
 there are no rows to ask.
 
-**Wave 6 — Chat, Settings, Develop.** `panel/tabs/chat/` (views, DM pane, emoji picker,
+**Wave 6 — Chat, Settings, Develop. DONE.** Clickable coordinates went to
+`panel/widgets.py` first, because chat and the log both carry them and the tab would
+otherwise have dragged the shell in with it. Then `panel/tabs/chat.py` (views, DM pane,
+picker, image cache, reader child, per-character store — a profile without the tab now
+opens no store and starts no child), `panel/tabs/develop.py` (`DEFAULT_ENABLED=False`;
+it was a menu entry, which cannot be switched off) and `panel/tabs/settings.py` (it was
+already an aggregator, so it moved whole; `SETTINGS_DEFAULTS` went to the runtime with
+it, because a page that draws a knob can now be a tab of its own).
+*Originally:* `panel/tabs/chat/` (views, DM pane, emoji picker,
 image cache, reader child, per-character store); Settings becomes the aggregator of §6;
 the Develop-menu sniffers become `panel/tabs/develop.py` with `default_enabled=False`.
 *Accept:* standalone chat reads and sends; a profile with chat disabled starts no reader
 child and opens no store.
 
-**Wave 7 — Cleanup.** Delete the delegating shims. Replace `_sync_monitors`, `_panic`,
+**Wave 7 — Cleanup. DONE.** «Настройки → Вкладки» is the UI over `tabs.enabled`, and
+the shims eight tabs no longer needed are deleted (`_child`, `_python`, `_child_env`,
+`_spawn_sniffer`, `_daemon_port`, `_current_server`, `_disarm`, `_sweep_tr_widgets`).
+Live add/remove stays unbuilt on purpose: a tab brings up its own standing orders when
+it is BUILT, so the page says a restart is what applies the list rather than pretending
+otherwise. `panel/__main__.py` landed at ~2 540 lines, against the ~900 this plan
+guessed — the difference is «Главная» itself (the log view with its filter, severity,
+links and retention, the DSL command line, the status strip, the profile dialogs and
+the boot), which was never counted as a tab and never moved.
+
+How to write one now: `docs/panel-tabs.md`.
+*Originally:* Delete the delegating shims. Replace `_sync_monitors`, `_panic`,
 `_on_close` and the tab-title hook with §7's four loops. Add the «Вкладки» page.
 `panel/__main__.py` should land under ~900 lines — the shell plus «Главная».
 *Accept:* `grep -n "self\._t(" panel/__main__.py` returns shell chrome only; the four
