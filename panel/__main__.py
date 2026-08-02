@@ -4939,8 +4939,12 @@ class Panel(tk.Tk):
         self._timer_vars.clear()
         self._timer_rows.clear()
         grid.columnconfigure(0, weight=1)
+        # «последняя попытка» stands where «последний запуск» used to: that column only
+        # ever moved on a SUCCESS, so an errand failing every half hour read from here
+        # as one nobody had switched on. It is the same reading, plus how it went — and
+        # putting it in the old column's place keeps the row inside the window.
         for col, key in enumerate(("timers.col.action", "timers.col.interval",
-                                   "timers.col.last", "timers.col.next")):
+                                   "timers.col.outcome", "timers.col.next")):
             self._tr(ttk.Label(grid, foreground="#888"), key).grid(
                 row=0, column=col, sticky="w", padx=(0, 10), pady=(0, 4))
 
@@ -4973,8 +4977,8 @@ class Panel(tk.Tk):
                         to=timersmod.MAX_INTERVAL_SEC, width=7,
                         textvariable=seconds).grid(row=row, column=1, sticky="w",
                                                    padx=(0, 10))
-            last = ttk.Label(grid, foreground="#888", width=18)
-            last.grid(row=row, column=2, sticky="w", padx=(0, 10))
+            outcome = ttk.Label(grid, foreground="#888", width=20)
+            outcome.grid(row=row, column=2, sticky="w", padx=(0, 10))
             nxt = ttk.Label(grid, foreground="#888", width=18)
             nxt.grid(row=row, column=3, sticky="w", padx=(0, 10))
             self._tr(ttk.Button(grid, command=lambda t=timer: self._timer_run_now(t)),
@@ -4983,7 +4987,7 @@ class Panel(tk.Tk):
             self._tr(ttk.Button(grid, width=3,
                                 command=lambda t=timer: self._timer_cancel(t)),
                      "timers.cancel").grid(row=row, column=5, sticky="e", padx=(4, 0))
-            self._timer_rows[timer.name] = {"last": last, "next": nxt, "box": box}
+            self._timer_rows[timer.name] = {"next": nxt, "outcome": outcome, "box": box}
         self._bind_timer_autosave()
         self._paint_timer_selection()
 
@@ -5431,7 +5435,12 @@ class Panel(tk.Tk):
                     ok = script_engine.run_text(step, ctx=ctx,
                                                 label=step.splitlines()[0])
                 if not ok:
-                    raise RuntimeError(self._t("timers.log.step_failed", step=step))
+                    # The scenario's own FAIL reason when it left one. It is what the
+                    # row's status column will show, and «the step did not work: X»
+                    # tells the operator nothing they cannot already see in the name.
+                    reason = str(getattr(ctx, "fail_reason", "") or "").strip()
+                    raise RuntimeError(
+                        reason or self._t("timers.log.step_failed", step=step))
             # The join ran clean — count what we let through, one per rally that was
             # out and under its cap (best-effort: join_rally joins all it can).
             if join_types:
@@ -5690,7 +5699,7 @@ class Panel(tk.Tk):
             self._say("timer", "timers.log.already_queued", name=timer.name)
 
     def _refresh_timer_rows(self) -> None:
-        """Repaint the "last / next run" columns (and the trigger status); re-armed once a second."""
+        """Repaint the "last attempt / next run" columns (and the trigger status); re-armed once a second."""
         if self._timer_rows:
             config = self._timer_config()
             records = self._timer_store.records()
@@ -5702,10 +5711,7 @@ class Panel(tk.Tk):
                 row = self._timer_rows.get(timer.name)
                 if row is None:
                     continue
-                last = float((records.get(timer.name) or {}).get("last_run") or 0.0)
-                row["last"].configure(
-                    text=self._t("timers.never") if not last
-                    else self._t("timers.ago", ago=self._fmt_span(now - last)))
+                self._paint_timer_outcome(row, timer.name, records, now)
                 due = self._timer_catalogue.next_due(timer, config, records)
                 if timer.name in pending:
                     row["next"].configure(text=self._t("timers.queued"))
@@ -5718,6 +5724,37 @@ class Panel(tk.Tk):
                         text=self._t("timers.in_span", span=self._fmt_span(due - now)))
         self._refresh_trigger_rows()
         self.after(1000, self._refresh_timer_rows)
+
+    def _paint_timer_outcome(self, row: dict, name: str, records: dict,
+                             now: float) -> None:
+        """Say how the last attempt ended — succeeded, failed, or never ran.
+
+        Green / red / grey rather than a word alone: the one thing an operator wants off
+        this tab at a glance is whether the schedule is getting anywhere, and an errand
+        that fails on a standing condition (the ministry one, while another post is
+        held) would otherwise be indistinguishable from one that keeps succeeding — both
+        leave the row looking idle between fires.
+
+        *Why* it failed is not here: the reason is a sentence, the column is twenty
+        characters, and a label that grows to fit one would push the row's buttons off a
+        760-wide window. It goes to the log instead, where the failure is already
+        announced (``timers.log.failed``) — carrying the scenario's own FAIL reason
+        since :meth:`_run_timer_action` started passing it up.
+        """
+        label = row.get("outcome")
+        if label is None:
+            return
+        state, when = timersmod.last_attempt(records, name)
+        if state == timersmod.ATTEMPT_FAILED:
+            text = self._t("timers.outcome.failed", ago=self._fmt_span(now - when))
+            colour = "#c0392b"
+        elif state == timersmod.ATTEMPT_OK:
+            text = self._t("timers.outcome.ok", ago=self._fmt_span(now - when))
+            colour = "#2e7d32"
+        else:
+            text = self._t("timers.outcome.never")
+            colour = "#888"
+        label.configure(text=text, foreground=colour)
 
     def _refresh_trigger_rows(self) -> None:
         """Repaint each trigger's status: queued / listening / off."""

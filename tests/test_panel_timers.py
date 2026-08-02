@@ -551,6 +551,77 @@ def test_next_due_reads_back_what_the_rows_show():
     assert abs(due_at - (now + 3600)) < 1, due_at
 
 
+def test_the_countdown_shows_the_retry_hold_not_a_due_it_will_not_honour():
+    """After a failure the row must count down the HOLD, not say «сейчас» for it.
+
+    `last_run` does not move on a failure, so the period is already over as far as the
+    old reading went — and the column said "due now" for the whole retry hold while the
+    scheduler deliberately did nothing. The two must agree: whichever wait ends later is
+    the one the row shows.
+    """
+    now = 10_000.0
+    cat = _catalogue()
+    timer = cat.by_name(BASE)                             # retry_sec = 300
+    cfg = _cfg(**{BASE: 3600})
+
+    # Never run, just failed: the hold is the whole answer.
+    records = {BASE: {"failed_at": now}}
+    assert cat.next_due(timer, cfg, records) == now + timer.retry_sec
+    assert cat.due_names(cfg, records, now + 299) == []
+    assert cat.due_names(cfg, records, now + 301) == [BASE]
+
+    # Ran an hour ago and failed a minute ago: the hold outlasts the period.
+    records = {BASE: {"last_run": now - 3600, "failed_at": now - 60}}
+    assert cat.next_due(timer, cfg, records) == now - 60 + timer.retry_sec
+
+    # Failed long ago, succeeded since: the failure is spent and the period rules.
+    records = {BASE: {"last_run": now, "failed_at": 0.0}}
+    assert cat.next_due(timer, cfg, records) == now + 3600
+
+
+def test_the_row_can_tell_a_failing_errand_from_one_that_never_ran():
+    """The status reading behind the «последняя попытка» column.
+
+    Both a never-run errand and a failing one leave `last_run` at zero, so the row had
+    no way to show the difference — and an errand that has been refused every half hour
+    since morning looked exactly like one nobody had switched on.
+    """
+    assert timersmod.last_attempt({}, BASE) == (timersmod.ATTEMPT_NONE, 0.0)
+    assert timersmod.last_attempt({BASE: {"failed_at": 500.0}}, BASE) == \
+        (timersmod.ATTEMPT_FAILED, 500.0)
+
+    # The later of the two wins: a success after a failure, and a failure after a
+    # success, are both read off the timestamps rather than off which key exists.
+    ok_then_failed = {BASE: {"last_run": 400.0, "failed_at": 500.0}}
+    assert timersmod.last_attempt(ok_then_failed, BASE)[0] == timersmod.ATTEMPT_FAILED
+    failed_then_ok = {BASE: {"last_run": 600.0, "failed_at": 500.0}}
+    assert timersmod.last_attempt(failed_then_ok, BASE) == (timersmod.ATTEMPT_OK, 600.0)
+
+
+def test_a_failure_survives_a_restart_and_a_success_clears_it():
+    """The status is read off the file, so a panel reopened still shows it."""
+    tmp = Path(tempfile.mkdtemp())
+    store = _store(tmp)
+    store.mark_failed(BASE, when=500.0)
+    assert timersmod.last_attempt(_store(tmp).records(), BASE) == \
+        (timersmod.ATTEMPT_FAILED, 500.0)
+    store.mark_run(BASE, when=600.0)
+    assert timersmod.last_attempt(_store(tmp).records(), BASE) == \
+        (timersmod.ATTEMPT_OK, 600.0), "the failure outlived the run that cleared it"
+
+
+def test_a_scheduled_failure_shows_up_as_one_on_the_row():
+    """What the scheduler writes down is what the status column reads."""
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, _cfg(**{BASE: 3600}),
+                   outcome=RuntimeError("another ministry post is held"))
+    s.sched.tick_once()
+    assert timersmod.last_attempt(s.store.records(), BASE)[0] == timersmod.ATTEMPT_FAILED
+    # The reason is not on the row — it is a sentence and the column is 20 characters —
+    # but it must reach the log, and as the scenario's own words.
+    assert "timers.log.failed" in s.logs, s.logs
+
+
 # --- the tab itself ---------------------------------------------------------
 
 def test_timers_tab_builds_from_the_config_and_binds():
@@ -568,6 +639,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
     try:
+        from panel import __main__ as mainmod
         from panel.__main__ import Panel
         from panel import i18n as i18nmod
         root = tk.Tk()
@@ -594,6 +666,11 @@ def test_timers_tab_builds_from_the_config_and_binds():
         def __init__(self):
             self._i18n = i18nmod.I18n("ru")
             self._tr_widgets: list = []
+            # `_tr` sweeps its registry once the list outgrows this; the real panel
+            # seeds it in __init__, so a stand-in that skips it crashes on the first
+            # translated widget. `getattr` because the sweep is newer than this test:
+            # without it the attribute is simply never read.
+            self._tr_watermark = getattr(mainmod, "TR_REGISTRY_SWEEP", 1000)
             self._settings: dict = {}
             self._loading = False
             self._timer_vars: dict = {}
@@ -623,6 +700,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
         _timer_config = Panel._timer_config
         _fmt_span = Panel._fmt_span
         _refresh_timer_rows = Panel._refresh_timer_rows
+        _paint_timer_outcome = Panel._paint_timer_outcome
         _select_timer = Panel._select_timer
         _paint_timer_selection = Panel._paint_timer_selection
         _selected_timer = Panel._selected_timer
@@ -657,9 +735,24 @@ def test_timers_tab_builds_from_the_config_and_binds():
         # period away.
         tab._refresh_timer_rows()
         row = tab._timer_rows[BASE]
-        assert row["last"].cget("text") == tab._t("timers.never"), row["last"].cget("text")
         assert row["next"].cget("text") == tab._t("timers.due_now")
         assert tab._timer_rows["inline_one"]["next"].cget("text") == tab._t("timers.off")
+        # Nothing has been tried yet, and the status column says so rather than
+        # looking like a success.
+        assert row["outcome"].cget("text") == tab._t("timers.outcome.never")
+
+        # A failed attempt shows up as a failure, and the countdown switches to the
+        # retry hold instead of claiming the errand is due now.
+        tab._timer_store.mark_failed(BASE)
+        tab._refresh_timer_rows()
+        assert row["outcome"].cget("text") == tab._t(
+            "timers.outcome.failed", ago=tab._t("timers.span.now")), \
+            row["outcome"].cget("text")
+        # str(): a ttk widget hands `cget` back a Tcl object, which is never == a str.
+        assert str(row["outcome"].cget("foreground")) == "#c0392b", \
+            row["outcome"].cget("foreground")
+        assert row["next"].cget("text") != tab._t("timers.due_now"), \
+            "the row claimed the errand was due while the retry hold was running"
 
         tab._timer_store.mark_run(BASE)
         tab._refresh_timer_rows()
@@ -668,6 +761,10 @@ def test_timers_tab_builds_from_the_config_and_binds():
         expected = {tab._t("timers.in_span", span=tab._t("timers.span.min", n=n))
                     for n in (14, 15)}
         assert row["next"].cget("text") in expected, row["next"].cget("text")
+        # …and the success replaced the failure on the row, reason and colour with it.
+        assert row["outcome"].cget("text") == tab._t(
+            "timers.outcome.ok", ago=tab._t("timers.span.now")), row["outcome"].cget("text")
+        assert str(row["outcome"].cget("foreground")) == "#2e7d32"
 
         # A queued errand is shown as queued rather than as "due now" — the
         # scheduler's own queue used to be invisible.

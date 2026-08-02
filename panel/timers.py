@@ -412,15 +412,52 @@ class Catalogue:
         return [name for _overdue, name in out]
 
     def next_due(self, timer: Timer, config: dict, records: dict) -> float | None:
-        """Wall clock the timer fires at, ``0.0`` for "now" and ``None`` when off."""
+        """Wall clock the timer fires at, ``0.0`` for "now" and ``None`` when off.
+
+        The retry hold counts. A failed attempt leaves ``last_run`` where it was, so
+        without it the row would say «сейчас» for the whole half hour the scheduler is
+        deliberately sitting out — the display disagreeing with the schedule exactly in
+        the case a retry hold exists for. Whichever of the two waits ends later wins.
+        """
         item = config.get(timer.name) or {}
         if not item.get("enabled"):
             return None
         rec = records.get(timer.name) or {}
         last = float(rec.get("last_run") or 0.0)
+        failed_at = float(rec.get("failed_at") or 0.0)
+        after_failure = failed_at + timer.retry_sec if failed_at else 0.0
         if not last:
-            return 0.0
-        return last + _as_interval(item.get("interval_sec"), timer.interval_sec)
+            return max(0.0, after_failure)
+        return max(last + _as_interval(item.get("interval_sec"), timer.interval_sec),
+                   after_failure)
+
+
+# How the last attempt ended — what the Timers tab's status column says. The three
+# states live here rather than in the panel because telling them apart is a decision
+# about the record, not a paint job: a run that FAILED and one that has never happened
+# both leave `last_run` at zero, and a row that showed them the same way would hide a
+# timer that has been trying and getting nowhere for hours.
+ATTEMPT_NONE = "none"        # never tried (or the record was lost)
+ATTEMPT_OK = "ok"            # the last attempt finished clean
+ATTEMPT_FAILED = "failed"    # the last attempt failed and is waiting out its retry
+
+
+def last_attempt(records: dict, name: str) -> tuple[str, float]:
+    """How ``name`` last ended, and when: ``(state, when)``.
+
+    The later of the two timestamps wins, which is what makes this readable at all: a
+    success clears the failure mark (:meth:`LastRunStore.mark_run`), and a failure
+    leaves ``last_run`` alone, so "failed at 12:30 having last succeeded at 09:00" is
+    the normal shape of a timer that is stuck — and the one worth showing.
+    """
+    rec = records.get(name) or {}
+    last = float(rec.get("last_run") or 0.0)
+    failed_at = float(rec.get("failed_at") or 0.0)
+    if failed_at > last:
+        return ATTEMPT_FAILED, failed_at
+    if last:
+        return ATTEMPT_OK, last
+    return ATTEMPT_NONE, 0.0
 
 
 def default_catalogue() -> Catalogue:
