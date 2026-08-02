@@ -83,6 +83,7 @@ class PanelRuntime:
             debug=dbgmod.get_logger("daemon"))
         self.actions = ActionRunner(log=self.log)
         self._schedule = None           # built on first ask (see the property below)
+        self._heartbeat = False         # only the shell beats (see start_heartbeat)
         # Which tabs this window actually built. Empty until somebody fills it, never
         # None — a tab reaching for another one asks `rt.tabs.get(id)` and gets `None`
         # for "not in this window", in the shell and standalone alike.
@@ -166,8 +167,46 @@ class PanelRuntime:
         """The daemon this profile drives — a non-default port is another session's."""
         return self.settings.opt_int("daemon_port", low=1, high=65535)
 
+    # -- «I am still here» --------------------------------------------------
+    def start_heartbeat(self) -> None:
+        """Say once a minute that this panel is alive — from the Tk queue, deliberately.
+
+        The scheduled hourly check (panel/autostart.py) reads that file to decide whether
+        to open the panel. Armed on `tick`, so what it proves is not «the process exists»
+        but «the event loop is still turning»: a window that has been white and
+        unresponsive for an hour stops writing it, which is exactly the case a plain
+        process-list check cannot tell from a working panel.
+
+        Only the SHELL starts it. A standalone tab is not the panel, and a beat from one
+        would tell the check that a panel is running when none is.
+        """
+        from .. import autostart as autostartmod
+
+        self._heartbeat = True
+
+        def beat() -> None:
+            autostartmod.beat(self.profiles)
+            self.tick.arm("heartbeat", int(autostartmod.BEAT_SEC * 1000), beat)
+
+        beat()
+
+    def stop_heartbeat(self) -> None:
+        """The panel is closing on purpose — take the file with it.
+
+        A no-op for a window that never started one, which is what keeps a standalone
+        tab's `shutdown` from deleting the running panel's heartbeat.
+        """
+        if not getattr(self, "_heartbeat", False):
+            return
+        from .. import autostart as autostartmod
+
+        self._heartbeat = False
+        self.tick.disarm("heartbeat")
+        autostartmod.clear(self.profiles)
+
     # -- teardown -----------------------------------------------------------
     def shutdown(self) -> None:
+        self.stop_heartbeat()
         self.tick.disarm_all()
         self.game.release()
         self.log.close_file()

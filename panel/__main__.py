@@ -97,6 +97,7 @@ from . import __version__ as APP_VERSION
 from . import widgets
 from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
+from . import autostart as autostartmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -414,6 +415,11 @@ class Panel(tk.Tk):
         # says so, and only a window that HAS a strip does anything about it.
         self._game.on_settled = lambda: self.after(400, self._refresh_status)
         self._actions = self._rt.actions
+        # «I am still here», once a minute, from this window's own event queue — the
+        # hourly scheduled check reads it (panel/autostart.py). Started HERE rather than
+        # in `_startup`: bringing the systems up takes tens of seconds, and a check that
+        # landed in the middle of that would find no beat and open a second panel.
+        self._rt.start_heartbeat()
         self._binder.loading = True   # suppresses auto-save while we apply settings
         self.title(self._t("app.title"))
         self.geometry("760x600")
@@ -1023,6 +1029,10 @@ class Panel(tk.Tk):
         # The directory moved under the schedule's feet: re-point both files, or
         # the next run would write into a re-created old directory.
         self._schedule.on_profile_switch()
+        # …and so did the profile the hourly autostart names. A task left pointing at
+        # the old name would open the panel on a profile that no longer exists — which
+        # `--profile` obligingly re-creates, empty (panel/autostart.py).
+        autostartmod.rename(cur, newn)
         self._say("profile", "log.profile.renamed", old=cur, new=newn)
 
     def _delete_profile(self) -> None:
@@ -1042,6 +1052,13 @@ class Panel(tk.Tk):
                                  parent=self._profile_dialog_parent())
             return
         self._refresh_profile_combo(select=now_active)
+        # Its hourly task goes with it. Left behind, it would re-create the profile it
+        # names — an empty one — and open a panel on it every hour for ever.
+        try:
+            autostartmod.unregister(cur)
+        except RuntimeError as exc:
+            self._say("profile", "log.autostart.leftover", name=cur,
+                      error=self._error_text(exc))
         self._settings = self._profiles.load()
         self._reload_active_profile()
         self._say("profile", "log.profile.deleted", name=cur, active=now_active)
@@ -2613,6 +2630,9 @@ class Panel(tk.Tk):
             tab.shutdown()
         self._stop_dashboard()
         self._schedule.stop()
+        # Closed on purpose: take the heartbeat with it, so the hourly check reads
+        # «not running» straight away instead of waiting for the beat to go stale.
+        self._rt.stop_heartbeat()
         self._close_panel_log()
         # Every repeating callback goes with the window. One that fires into a
         # half-torn-down panel is a traceback nobody sees and a log line nobody

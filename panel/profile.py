@@ -73,6 +73,15 @@ RESOURCE_STATS_STATE = "resource_stats.json"
 # The accumulating SQLite history of ranking-board snapshots (tools/lib/leaderboard_store.py),
 # filled by the «leaderboard_collect» trigger.
 LEADERBOARD_DB = "leaderboard_history.db"
+# The three files the autostart uses (panel/autostart.py). ALIVE_FILE is the heartbeat
+# the open panel rewrites once a minute from its Tk event loop — the hourly scheduled
+# check reads it to tell a live panel from a wedged one. AUTOSTART_STATE is what that
+# check made of it last time (which is what the Settings page shows, since the
+# scheduler's own «last run» column only says a task ran). AUTOSTART_LOG keeps the
+# launches and anything a panel printed before its own logging was up.
+ALIVE_FILE = "panel_alive.json"
+AUTOSTART_STATE = "autostart.json"
+AUTOSTART_LOG = "autostart.log"
 PANEL_LOG = "panel.log"
 # The technical debug log (panel/debug_log.py): every action, every traceback and a
 # running snapshot of the systems' state, rotated by size. Kept apart from PANEL_LOG,
@@ -307,6 +316,18 @@ class ProfileManager:
     def debug_log(self, name: str | None = None) -> str:
         """Rotating technical debug log for this profile (panel/debug_log.py)."""
         return os.path.join(self.dir(name), DEBUG_LOG)
+
+    def heartbeat(self, name: str | None = None) -> str:
+        """Where the open panel says it is still answering (panel/autostart.py)."""
+        return os.path.join(self.dir(name), ALIVE_FILE)
+
+    def autostart_state(self, name: str | None = None) -> str:
+        """What the hourly check last made of that heartbeat."""
+        return os.path.join(self.dir(name), AUTOSTART_STATE)
+
+    def autostart_log(self, name: str | None = None) -> str:
+        """Every launch the hourly check made, and what the panel printed on the way up."""
+        return os.path.join(self.dir(name), AUTOSTART_LOG)
 
     # -- helpers ------------------------------------------------------------
     def _ensure_dir(self, name: str) -> str:

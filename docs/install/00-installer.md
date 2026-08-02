@@ -157,6 +157,42 @@ installed along with `requirements.txt`.
 Where the game client lives is set in the panel itself, on its Settings page
 under Game.
 
+### Opening the panel by itself
+
+*Settings → General → Autostart* puts a task in the Windows scheduler that looks
+once an hour and opens the panel on that profile when it is not there. It also
+looks a minute after every logon, so a machine that rebooted overnight does not
+sit panel-less until the next full hour.
+
+What it registers is that install and that profile — the interpreter the panel is
+running under, the folder it is running from — so a second copy elsewhere, or a
+second profile, gets a task of its own (`Last War Bot\panel-<profile>` in
+`taskschd.msc`). The tick shows what the scheduler actually holds, not what was
+ticked last, so a task removed by hand there shows as off here.
+
+It knows a working panel from a frozen one: an open panel notes the time in its
+profile once a minute *from the window's own event loop*, so one that has stopped
+answering stops noting it and is closed and opened again rather than left as a
+window nobody is behind.
+
+Two things worth knowing:
+
+* The panel is normally elevated (`install.bat` sets that on the shortcut,
+  because reading the client's memory and npcap both want it). The task mirrors
+  the panel that registered it — tick it from an elevated panel and it opens an
+  elevated one. Asking Windows for that is what needs administrator rights; from
+  a plain panel it registers a plain task instead, and says so under the tick.
+* The check is per profile. A task for a profile the panel is not currently on
+  will open a *second* panel on it — which is the point when two accounts are
+  farmed at once, and a surprise otherwise.
+
+The same thing from a terminal, for when it needs looking at:
+
+```
+C:\Python312\python.exe -m panel.autostart --status
+C:\Python312\python.exe -m panel.autostart --profile main       # look now
+```
+
 ## When it goes wrong
 
 * **The UAC prompt never appears** — right-click `install.bat` and pick *Run as
