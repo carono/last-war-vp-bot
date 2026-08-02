@@ -40,7 +40,7 @@ def _tab(tmp: Path):
     """A Panel stand-in with the Scenarios tab really built, on a temp actions dir."""
     import tkinter as tk  # noqa: F401
     from tkinter import ttk
-    from panel import i18n as i18nmod
+    from panel import runtime as rtmod
     import panel.__main__ as pm
     from lastwar_bot import script_engine as se
 
@@ -55,8 +55,8 @@ def _tab(tmp: Path):
 
     class _Tab:
         def __init__(self):
-            self._i18n = i18nmod.I18n("ru")
-            self._tr_widgets: list = []
+            # The translator IS the registry now (panel/runtime/i18n.py).
+            self._i18n = rtmod.Translator("ru")
             self._busy = False
             import threading
             self._busy_lock = threading.Lock()

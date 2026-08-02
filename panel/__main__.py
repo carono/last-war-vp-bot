@@ -88,7 +88,6 @@ import tempfile
 import threading
 import time
 import traceback
-import weakref
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -105,6 +104,7 @@ from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import debug_sender as dbgsender
 from . import i18n as i18nmod
+from . import runtime
 from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
@@ -273,12 +273,10 @@ GAME_EXE = "LastWar.exe"
 # Capture options: a stable i18n key (combobox label) paired with its capture script.
 # The selected script is resolved by combobox index, so the visible label can be
 # translated freely without breaking the lookup.
-# `script` is a path relative to tools/ — secret_mission_capture.py lives under
-# tools/dev/, so the subdir must travel with the name or the launch FileNotFounds.
-CAPTURE_OPTIONS = [
-    {"key": "capture.secret_tasks", "script": "secret_task_capture.py"},
-    {"key": "capture.ghost_op", "script": os.path.join("dev", "secret_mission_capture.py")},
-]
+# The captures the monitor offers — data, in panel/runtime/captures.py, so the tab that
+# draws the combo can simply import it (it used to be handed the list off the app
+# instance, because this file cannot be imported from a tab).
+CAPTURE_OPTIONS = runtime.CAPTURE_OPTIONS
 
 # Auto-loot watcher (the «Автолут ★» checkbox in the secret-task block).
 # All three are DEFAULTS now, not constants: the Settings → «Общие» page writes
@@ -439,11 +437,10 @@ CHAT_MSGS_MAX = 2000
 # back to.
 CHAT_IMG_CACHE_MAX = 1500
 
-# How many entries the retranslation registry may hold before it is swept for
-# widgets that have been destroyed (see `Panel._tr`). Comfortably above the number
-# of translated widgets a fully built panel has, so a panel nobody repaints never
-# pays for the sweep at all.
-TR_REGISTRY_SWEEP = 1000
+# The retranslation registry's sweep threshold — the runtime owns it now
+# (panel/runtime/i18n.py). Re-exported under the old name because that is what the
+# panel's own tests reach for.
+TR_REGISTRY_SWEEP = runtime.i18n.REGISTRY_SWEEP
 
 # How long the daemon holds this panel's claim on the game without hearing from it
 # (tools/lib/game_lease.py). Every chunk the action runs renews it, so this only ever
@@ -627,21 +624,12 @@ def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
 class Panel(tk.Tk):
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
-        self._i18n = i18nmod.I18n()
-        # (weakref-to-widget, option, key, fmt) — retranslated in place. Weak, and
-        # swept, because most of these are rows a page redraws (see `_tr`).
-        self._tr_widgets: list = []
-        self._tr_watermark = TR_REGISTRY_SWEEP
-        self._tr_hooks: list = []     # callables run on every language change
-        self._tr_hook_keys: set = set()   # what is already in it (see `_hook`)
-        # The capture-monitor kinds, exposed on the instance so the «Secret Tasks» tab
-        # (panel/secret_tasks.py) can build its combo without importing this module —
-        # `python -m panel` runs this file as `__main__`, so `from . import __main__`
-        # would re-execute the whole file as a second `panel.__main__`.
-        self.capture_options = CAPTURE_OPTIONS
-        # Pending repeating callbacks, one per name — see `_arm`. Created before
-        # anything can arm a loop, which is before the first widget is built.
-        self._loops: dict = {}
+        # Locale lookup AND the registry of what to re-render on a language switch
+        # (panel/runtime/i18n.py). `_t` / `_tr` / `_hook` below are its three faces.
+        self._i18n = runtime.Translator()
+        # Repeating callbacks, one chain per name (panel/runtime/tick.py). Created
+        # before anything can arm a loop, which is before the first widget is built.
+        self._tick = runtime.Ticker(self)
         # Profiles: the active profile's config.json drives every panel setting.
         self._profiles = profilemod.ProfileManager()
         # An explicit --profile overrides the saved last-active profile, creating
@@ -1083,56 +1071,20 @@ class Panel(tk.Tk):
         self._say("daemon", "log.daemon.port", port=port)
         self._refresh_status()
 
-    # -- i18n ---------------------------------------------------------------
+    # -- i18n (panel/runtime/i18n.py holds it; these stay as the panel's names) ----
     def _t(self, key: str, **fmt) -> str:
         return self._i18n.t(key, **fmt)
 
     def _tr(self, widget, key: str, option: str = "text", **fmt):
-        """Set ``widget[option]`` from a locale key and remember it for retranslation.
-
-        The registry holds a WEAK reference. Half the panel's translated widgets are
-        rows a page repaints — the ghost list every nine seconds, the inventory on
-        every keystroke in its search box — and each repaint destroys the previous
-        row and builds a new one. A strong reference here meant every widget the
-        panel had ever drawn stayed alive in this list for the rest of the session:
-        an unbounded list of dead Tk objects, and a language switch walking all of
-        them. A destroyed widget drops out of its parent's `children` map, so a weak
-        reference goes dead exactly when the widget does.
-        """
-        widget.configure(**{option: self._t(key, **fmt)})
-        self._tr_widgets.append((weakref.ref(widget), option, key, fmt))
-        # getattr: `_tr` is also borrowed by the settings pages, which carry the
-        # registry but not the bookkeeping around it.
-        if len(self._tr_widgets) > getattr(self, "_tr_watermark", TR_REGISTRY_SWEEP):
-            self._sweep_tr_widgets()
-        return widget
+        """Set ``widget[option]`` from a locale key and remember it for retranslation."""
+        return self._i18n.tr(widget, key, option, **fmt)
 
     def _hook(self, func, key=None) -> None:
-        """Register a language-change hook — once, however often this is reached.
-
-        `_build_menu` already carried a hand-written "is it in the list already"
-        guard, because rebuilding the menu bar re-registers it. The other nine
-        registrations had none: they are all on paths that run once today, so the
-        list stays short — but nothing says so, and a hook registered twice is a
-        page redrawn twice per language switch, growing every time the path is
-        reached again. `key` names a lambda, which can never be recognised by
-        identity; a bound method is its own key.
-        """
-        key = func if key is None else key
-        if key in self._tr_hook_keys:
-            return
-        self._tr_hook_keys.add(key)
-        self._tr_hooks.append(func)
+        """Register a language-change hook — once, however often this is reached."""
+        self._i18n.hook(func, key)
 
     def _sweep_tr_widgets(self) -> None:
-        """Drop the entries whose widget has been destroyed.
-
-        The next sweep is due at twice what survived this one (never below
-        TR_REGISTRY_SWEEP), so the cost stays amortised — a fixed threshold would
-        re-walk the whole list on every registration once the live set passed it.
-        """
-        self._tr_widgets[:] = [e for e in self._tr_widgets if e[0]() is not None]
-        self._tr_watermark = max(TR_REGISTRY_SWEEP, len(self._tr_widgets) * 2)
+        self._i18n.sweep()
 
     def _set_language(self, lang: str) -> None:
         if self._i18n.set_lang(lang):
@@ -1141,17 +1093,7 @@ class Panel(tk.Tk):
 
     def _apply_language(self) -> None:
         self.title(self._t("app.title"))
-        self._sweep_tr_widgets()
-        for ref, option, key, fmt in self._tr_widgets:
-            widget = ref()
-            if widget is None:
-                continue
-            try:
-                widget.configure(**{option: self._t(key, **fmt)})
-            except tk.TclError:
-                pass
-        for hook in self._tr_hooks:
-            hook()
+        self._i18n.retranslate()
         self._refresh_status()   # re-render translated daemon/status words
 
     def _build_menu(self) -> None:
@@ -2657,25 +2599,14 @@ class Panel(tk.Tk):
     # a pending callback must not fire into a window that is being torn down.
     def _arm(self, name: str, delay_ms: int, func) -> None:
         """(Re)arm the repeating callback ``name`` — cancelling any pending one."""
-        self._disarm(name)
-        try:
-            self._loops[name] = self.after(int(delay_ms), func)
-        except (tk.TclError, RuntimeError):     # the window is going away
-            self._loops.pop(name, None)
+        self._tick.arm(name, delay_ms, func)
 
     def _disarm(self, name: str) -> None:
         """Cancel the pending callback under ``name``, if there is one."""
-        job = self._loops.pop(name, None)
-        if job is None:
-            return
-        try:
-            self.after_cancel(job)
-        except (tk.TclError, ValueError):       # already fired, or already gone
-            pass
+        self._tick.disarm(name)
 
     def _disarm_all(self) -> None:
-        for name in list(self._loops):
-            self._disarm(name)
+        self._tick.disarm_all()
 
     # -- is the panel still healthy after three days? ------------------------
     def _start_health_watch(self) -> None:
@@ -2699,7 +2630,7 @@ class Panel(tk.Tk):
         now = {
             "after": pending,
             "threads": threading.active_count(),
-            "tr": len(self._tr_widgets),
+            "tr": self._i18n.registry_size(),
             "log_tags": self._tag_count(getattr(self, "_log", None)),
             "chat_tags": sum(self._tag_count(v) for v in self._chat_trees.values()),
             "log_lines": self._log_lines,
@@ -2730,25 +2661,8 @@ class Panel(tk.Tk):
             return 0
 
     def _on_tk(self, func, timeout: float = 20.0) -> None:
-        """Run ``func`` on the Tk thread from a worker and wait for it to finish.
-
-        Only safe while somebody is pumping Tk — during the boot that is
-        `_await_boot`, afterwards the mainloop — so the wait is bounded and a
-        timeout simply means the call is still queued, not that it was lost.
-        """
-        done = threading.Event()
-
-        def call() -> None:
-            try:
-                func()
-            finally:
-                done.set()
-
-        try:
-            self.after(0, call)
-        except (tk.TclError, RuntimeError):
-            return
-        done.wait(timeout)
+        """Run ``func`` on the Tk thread from a worker and wait for it to finish."""
+        self._tick.on_tk(func, timeout)
 
     def _ensure_daemon(self) -> bool:
         dbg = dbgmod.get_logger("daemon")
@@ -2974,7 +2888,7 @@ class Panel(tk.Tk):
         # cannot send a robbery at a tile that has already been taken.
         # Only for the secret-task capture: the ghost-recon one writes its own
         # record shape, and auto-loot must never be handed that by mistake.
-        if script == CAPTURE_OPTIONS[0]["script"]:
+        if script == runtime.SECRET_TASK_CAPTURE:
             cmd += ["--json", self._profiles.tasks_json()]
         # Capture tick interval from the panel (falls back to the child's own
         # default if the field is blank or non-numeric).

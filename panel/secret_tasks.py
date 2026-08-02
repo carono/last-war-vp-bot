@@ -48,6 +48,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .widgets import NumericEntry, ScrollableFrame, font as ui_font, numeric_spinbox
+from . import runtime
 from .tabs_extra import tk_stringvar
 
 # The star glyph in front of a row and the icons for the two row states: a tile still
@@ -257,7 +258,7 @@ class SecretTasksTab:
         row1.pack(fill="x")
         app._mon_combo = ttk.Combobox(
             row1, state="readonly", width=20,
-            values=[app._t(o["key"]) for o in app.capture_options])
+            values=[app._t(o["key"]) for o in runtime.CAPTURE_OPTIONS])
         app._mon_combo.current(0)
         app._mon_combo.pack(side="left", padx=(0, 8))
         app._hook(app._retranslate_capture_combo)

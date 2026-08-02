@@ -641,7 +641,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
     try:
         from panel import __main__ as mainmod
         from panel.__main__ import Panel
-        from panel import i18n as i18nmod
+        from panel import runtime as rtmod
         root = tk.Tk()
     except Exception as exc:                           # noqa: BLE001
         print(f"  SKIP no display / panel deps: {exc}")
@@ -664,13 +664,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
         """A Panel stand-in carrying only what the tab builder touches."""
 
         def __init__(self):
-            self._i18n = i18nmod.I18n("ru")
-            self._tr_widgets: list = []
-            # `_tr` sweeps its registry once the list outgrows this; the real panel
-            # seeds it in __init__, so a stand-in that skips it crashes on the first
-            # translated widget. `getattr` because the sweep is newer than this test:
-            # without it the attribute is simply never read.
-            self._tr_watermark = getattr(mainmod, "TR_REGISTRY_SWEEP", 1000)
+            self._i18n = rtmod.Translator("ru")
             self._settings: dict = {}
             self._loading = False
             self._timer_vars: dict = {}
@@ -688,7 +682,9 @@ def test_timers_tab_builds_from_the_config_and_binds():
             # an empty one makes that an early return, so this scheduled-only case
             # needs no trigger catalogue or watcher.
             self._trigger_rows: dict = {}
-            self._loops: dict = {}
+            # Repeating callbacks live in the runtime's Ticker now; the panel's
+            # `_arm` is a face for it, and this stand-in supplies the `after`.
+            self._tick = rtmod.Ticker(self)
             self.cancelled: list = []
 
         _t = Panel._t

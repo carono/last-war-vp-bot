@@ -102,8 +102,8 @@ class _Watcher:
         # Everything the panel says goes through the locale files now, so the
         # watcher's own lines come out of `_say` — bound here, with a real I18n
         # behind it, so the test asserts on the words the operator actually reads.
-        from panel import i18n as i18nmod
-        self._i18n = i18nmod.I18n("ru")
+        from panel import runtime as rtmod
+        self._i18n = rtmod.Translator("ru")
         for name in ("_t", "_say", "_opt", "_opt_int", "_autoloot_limit",
                      "_autoloot_levels", "_autoloot_targets", "_autoloot_all_targets",
                      "_autoloot_vm_targets"):

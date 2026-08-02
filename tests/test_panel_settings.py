@@ -34,7 +34,7 @@ def _page():
     """A Panel stand-in with the Settings page really built."""
     import tkinter as tk
     from tkinter import ttk
-    from panel import i18n as i18nmod
+    from panel import runtime as rtmod
     import panel.__main__ as pm
 
     root = tk.Tk()          # the panel is a plain tkinter/ttk app
@@ -42,9 +42,7 @@ def _page():
 
     class _Page:
         def __init__(self):
-            self._i18n = i18nmod.I18n("ru")
-            self._tr_widgets: list = []
-            self._tr_hooks: list = []
+            self._i18n = rtmod.Translator("ru")
             self.saves = 0
             # The Settings page's knobs live in one dict of Tk variables created
             # before any tab is built (see Panel.__init__), and «Общие» / «Игра»
@@ -235,7 +233,7 @@ def _autorally_page():
     """
     import tkinter as tk
     from tkinter import ttk
-    from panel import i18n as i18nmod
+    from panel import runtime as rtmod
     import panel.__main__ as pm
 
     root = tk.Tk()          # a plain tkinter/ttk app
@@ -243,9 +241,7 @@ def _autorally_page():
 
     class _Page:
         def __init__(self):
-            self._i18n = i18nmod.I18n("ru")
-            self._tr_widgets: list = []
-            self._tr_hooks: list = []
+            self._i18n = rtmod.Translator("ru")
             self.saves = 0
 
         _t = pm.Panel._t

@@ -159,23 +159,15 @@ def test_the_translation_registry_forgets_a_destroyed_row():
         return
     try:
         from tkinter import ttk
-        import panel.__main__ as pm
+        from panel import runtime
 
-        class _App:
-            def __init__(self):
-                self._tr_widgets = []
-                self._tr_watermark = pm.TR_REGISTRY_SWEEP
-                self._tr = pm.Panel._tr.__get__(self)
-                self._sweep_tr_widgets = pm.Panel._sweep_tr_widgets.__get__(self)
-
-            def _t(self, key, **fmt):
-                return key
-
-        app = _App()
+        # The registry belongs to the runtime's Translator now, which is what the
+        # panel's `_tr` is a one-line face for — so this tests the owner directly.
+        tr = runtime.Translator("en")
         page = ttk.Frame(root)
         for _ in range(50):
-            app._tr(ttk.Label(page), "timers.reload").pack()
-        assert len(app._tr_widgets) == 50, len(app._tr_widgets)
+            tr.tr(ttk.Label(page), "timers.reload").pack()
+        assert tr.registry_size() == 50, tr.registry_size()
 
         # A page repaint destroys its rows. The registry must not be what keeps
         # them alive — the Command Post redraws every nine seconds and the
@@ -183,10 +175,10 @@ def test_the_translation_registry_forgets_a_destroyed_row():
         rows = list(page.winfo_children())
         while rows:
             rows.pop().destroy()          # nothing left holding the last one
-        app._sweep_tr_widgets()
-        assert app._tr_widgets == [], len(app._tr_widgets)
+        tr.sweep()
+        assert tr.registry_size() == 0, tr.registry_size()
         # The next sweep is due later, not on the very next registration.
-        assert app._tr_watermark >= pm.TR_REGISTRY_SWEEP, app._tr_watermark
+        assert tr._watermark >= runtime.i18n.REGISTRY_SWEEP, tr._watermark
     finally:
         root.destroy()
 
@@ -325,15 +317,19 @@ def test_the_boot_gate_has_a_ceiling():
 # Repeating callbacks: one chain per name, whatever the call graph does.
 # ---------------------------------------------------------------------------
 class _Loops:
-    """`Panel._arm` / `_disarm` on a bare object with a counting `after`."""
+    """A counting `after`, driven through the runtime's Ticker (the panel's `_arm`)."""
 
     def __init__(self):
-        import panel.__main__ as pm
-        self._loops = {}
+        from panel import runtime
         self.armed, self.cancelled, self.seq = [], [], 0
-        self._arm = pm.Panel._arm.__get__(self)
-        self._disarm = pm.Panel._disarm.__get__(self)
-        self._disarm_all = pm.Panel._disarm_all.__get__(self)
+        self._ticker = runtime.Ticker(self)
+        self._arm = self._ticker.arm
+        self._disarm = self._ticker.disarm
+        self._disarm_all = self._ticker.disarm_all
+
+    @property
+    def _loops(self):
+        return self._ticker._loops
 
     def after(self, delay, func):
         self.seq += 1
@@ -397,31 +393,25 @@ def test_the_panels_repeating_callbacks_all_go_through_the_registry():
 
 
 def test_a_language_hook_is_registered_once():
-    import panel.__main__ as pm
+    from panel import runtime
 
-    class _App:
-        def __init__(self):
-            self._tr_hooks = []
-            self._tr_hook_keys = set()
-            self._hook = pm.Panel._hook.__get__(self)
-
-    app = _App()
+    tr = runtime.Translator("en")
     marker = []
 
     def repaint():
         marker.append(1)
 
     for _ in range(10):
-        app._hook(repaint)
-    assert app._tr_hooks == [repaint], app._tr_hooks
+        tr.hook(repaint)
+    assert tr._hooks == [repaint], tr._hooks
 
     # A lambda can never be recognised by identity, so it is named instead —
     # rebuilding the page that registers it must not stack another copy.
     for _ in range(10):
-        app._hook(lambda: marker.append(2), key="tab-titles")
-    assert len(app._tr_hooks) == 2, len(app._tr_hooks)
+        tr.hook(lambda: marker.append(2), key="tab-titles")
+    assert len(tr._hooks) == 2, len(tr._hooks)
 
-    for hook in app._tr_hooks:
+    for hook in tr._hooks:
         hook()
     assert marker == [1, 2], marker
 
