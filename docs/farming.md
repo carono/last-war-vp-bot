@@ -100,35 +100,12 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ❌ Code Name
 - ❌ Desert Storm
 - ❌ Snow Storm
-- 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot finds the open
-  event, starts a run, runs it, writes down every distance and keeps a few attempts in
-  reserve. **It no longer squints at the screen, and it no longer just reacts to whatever
-  is nearest.** It sees the whole road about seven seconds ahead — every barrel, fence,
-  parked carriage and driving truck, in which lane and how far — and picks a route through
-  all of it: which lane to be in at which metre, when to hop, when to slide, and it takes a
-  one-step detour for a shield or a jetpack on the way. It plays the run itself, without
-  the game window needing to be in front, so the person can keep using the computer.
-  When it picks up a jetpack it stops dodging altogether and just hoovers up coins, since
-  nothing on the ground can touch it while it flies. It now also plans to go *over* a group
-  of carriages instead of round it — up the ramp, along the roofs, hopping the gaps between
-  them, and stepping off the end into whichever lane carries on — sideways as well as
-  straight ahead — which is the way through the places the road is blocked in all three
-  lanes. Stepping off sideways it now holds back until it is already falling off the end of
-  the roof, the way a person does it — and while it is falling it no longer tries to cross
-  over to the roof beside it. That crossing is what ended the last two runs: off the end of a
-  roof it moved across onto what it took for the next one and was already in the air with
-  nothing under it. The run after that fix came off a roof, held its lane the whole way down
-  and landed safely — the first one to do so — though the sideways moves themselves are still
-  unproven. What runs
-  by itself: the whole
-  start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
-  life**, against ~132 m for the older reflex version and ~88 m with no control at all;
-  with revives, single attempts ran **1685 and 2700 m**; one run on 2026-08-02 went **976 m**
-  on a single life, and six more the same day ran **1341, 1070, 288, 1062, 734 and 1100 m**.
-  Left to the person: nothing during a run.
-  Still open: the record 8185 m and the 20000 m target are not reached yet, the bot does not
-  yet know about holes in the road — it reads one as a small thing to steer around rather
-  than as ground it cannot land on.
+- 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot plays the run
+  itself: it finds the open event, starts a run, dodges its way down the road, revives and
+  writes down every distance. The game window does not need to be in front, so the person
+  can keep using the computer. Left to the person: nothing during a run. Still open: it
+  does not hold a distance past about 1000 m — the 8185 m record and the 20000 m target are
+  well out of reach.
 
 ### Arms Race
 
