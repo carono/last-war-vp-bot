@@ -308,8 +308,8 @@ class SecretTasksTab:
         app._sweep_cy_var = tk.StringVar(master=app)
         NumericEntry(sweep, textvariable=app._sweep_cy_var, width=6,
                      signed=True).pack(side="left")
-        app._tr(ttk.Button(sweep, command=app._sweep_centre_from_coords),
-                "sweep.take_centre").pack(side="left", padx=(4, 0))
+        # «Отсюда» stood here and copied the Main tab's jump fields into the two boxes
+        # to its left. That block is gone (#1183); the centre is typed in directly.
         app._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
                                     justify="left")
         app._sweep_hint.pack(side="left", padx=(10, 0))

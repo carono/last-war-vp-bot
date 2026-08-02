@@ -473,6 +473,47 @@ def test_emoji_picker_inserts_token_and_sticker_sends():
     assert box.images == len(emojis) and box.images > 0, box.images
 
 
+def test_coords_button_shares_what_is_written_in_the_box():
+    """«📍 координаты» reads the message box, not the Main tab.
+
+    The X/Y/server fields it used to read went with the «Навигация» block (#1183),
+    so the source is now the box the message is typed into, parsed by the same
+    tolerant reader the log's clickable links use. A box with no coordinate in it
+    sends nothing and says so; one with a coordinate sends the pin and is cleared,
+    or the next «Отправить» would post the pin's text alongside the pin.
+    """
+    try:
+        import panel.__main__ as pm
+    except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
+        print(f"  SKIP test_coords_button_shares_what_is_written_in_the_box: {exc}")
+        return
+
+    def stand_in(text):
+        P = types.SimpleNamespace()
+        P._chat_msg_var = _FakeVar(text)
+        P.sent, P.said = [], []
+        P._chat_send = lambda args, what: P.sent.append((args, what))
+        P._say = lambda tag, key, **kw: P.said.append(key)
+        P._chat_send_coords = pm.Panel.__dict__["_chat_send_coords"].__get__(P)
+        P._chat_send_coords()
+        return P
+
+    # The canonical token the panel itself prints, server and all.
+    P = stand_in("#2305 X:568 Y:371")
+    assert P.sent == [(["--coords", "568,371", "--coord-server", "2305"],
+                       "#2305 X:568 Y:371")], P.sent
+    assert P._chat_msg_var.get() == "", P._chat_msg_var.get()
+
+    # A bare tile, pasted in any of the forms the log links: no server on the wire.
+    P = stand_in("глянь @[568,371] там шахта")
+    assert P.sent == [(["--coords", "568,371"], "X:568 Y:371")], P.sent
+
+    # Nothing to share: one line in the log, nothing sent, and the text left alone.
+    P = stand_in("всем привет")
+    assert P.sent == [] and P.said == ["chat.no_coords"], (P.sent, P.said)
+    assert P._chat_msg_var.get() == "всем привет", P._chat_msg_var.get()
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

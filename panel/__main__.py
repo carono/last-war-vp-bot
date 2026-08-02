@@ -1444,10 +1444,10 @@ class Panel(tk.Tk):
         """Snapshot every persisted panel setting into a plain dict."""
         out = {
             "language": self._i18n.lang,
-            "coord_x": self._x_var.get(),
-            "coord_y": self._y_var.get(),
-            "coord_server": self._srv_var.get(),
-            "coord_history": list(self._jump_hist),
+            # `coord_x` / `coord_y` / `coord_server` / `coord_history` are no longer
+            # written: the block they belonged to is gone (#1183). A profile saved by
+            # an older panel still carries them — they are simply ignored, and drop
+            # out on the next save.
             "monitor_kind": self._mon_combo.current(),
             "monitor_interval": self._interval_var.get(),
             "filter_star": self._star_var.get(),
@@ -1506,10 +1506,6 @@ class Panel(tk.Tk):
         s = self._settings
         self._loading = True
         try:
-            self._x_var.set(s.get("coord_x", ""))
-            self._y_var.set(s.get("coord_y", ""))
-            self._srv_var.set(s.get("coord_server", DEFAULT_SERVER))
-            self._set_jump_history(s.get("coord_history"))
             idx = s.get("monitor_kind", 0)
             if isinstance(idx, int) and 0 <= idx < len(CAPTURE_OPTIONS):
                 self._mon_combo.current(idx)
@@ -1559,7 +1555,7 @@ class Panel(tk.Tk):
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
-        for var in (self._x_var, self._y_var, self._srv_var, self._star_var,
+        for var in (self._star_var,
                     self._pending_var, self._can_loot_var,
                     self._flt_from_var, self._flt_to_var,
                     self._lvl_from_var, self._lvl_to_var,
@@ -1871,36 +1867,23 @@ class Panel(tk.Tk):
         self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
                  "game.watchdog").pack(side="right")
 
-        # The «Навигация» wrapper and its «Сцена» row (🏠 Домой / 🌍 Мир) are gone
-        # (#1183): switching scene is what `SCENE` in a scenario does, and the two
-        # buttons cost the Main tab a block of its own. The jump by coordinates stays
-        # — it is typed into, and the map sweep's «Отсюда» and the chat's «поделиться
-        # координатами» read the very fields below.
-        coord = self._tr(ttk.LabelFrame(main, padding=6), "coord.frame")
-        coord.pack(fill="x", padx=8, pady=(0, 6))
-        self._x_var = tk.StringVar()
-        self._y_var = tk.StringVar()
-        self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
-        self._tr(ttk.Label(coord), "coord.x").pack(side="left")
-        NumericEntry(coord, textvariable=self._x_var, width=7, signed=True).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Label(coord), "coord.y").pack(side="left")
-        NumericEntry(coord, textvariable=self._y_var, width=7, signed=True).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Label(coord), "coord.server").pack(side="left")
-        NumericEntry(coord, textvariable=self._srv_var, width=7).pack(side="left", padx=(2, 8))
-        self._tr(ttk.Button(coord, command=self._goto_coord),
-                 "coord.jump").pack(side="left", padx=4, ipady=2)
-        self._tr(ttk.Button(coord, command=self._load_current_server),
-                 "coord.reload_server").pack(side="left", padx=4)
-        # Where it has been. Jumping between a handful of known tiles is routine and
-        # the triple X/Y/server was the only memory there was — retyping it was the
-        # whole cost. Picking an entry fills the three fields and jumps.
-        self._jump_hist: list = []
-        self._jump_hist_var = tk.StringVar()
-        self._jump_hist_combo = ttk.Combobox(coord, textvariable=self._jump_hist_var,
-                                             state="readonly", width=18, values=[])
-        self._jump_hist_combo.pack(side="right", padx=(4, 0))
-        self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
-        self._tr(ttk.Label(coord), "coord.history").pack(side="right", padx=(8, 2))
+        # -- «Навигация» is gone (#1183) ----------------------------------------
+        #
+        # Both of its rows went with the block: the «Сцена» switch (🏠 Домой / 🌍 Мир),
+        # because changing scene is what `SCENE` does in a scenario, and «Переход по
+        # координатам» — the X/Y/server triple, «Перейти», «↻ сервер» and the «куда
+        # ходил» history — with the four `coord_*` settings that remembered them.
+        #
+        # Jumping itself did NOT go: `_jump` is still here and still the only way a
+        # coordinate is walked to. What used to aim it now aims it from where the
+        # coordinate already is — a `#2305 X:568 Y:371` in the log is clickable
+        # (`_bind_coord_links` → `_on_coord_click`), the «Командный пункт» tab jumps to
+        # the tile a row is about, and a scenario's `JUMP` names its own.
+        #
+        # Two buttons read the deleted fields and were re-sourced rather than left
+        # pointing at nothing: «Отсюда» in «Автообъезд карты» is gone (that block has
+        # its own centre boxes, two widgets to the left), and the chat's «📍 координаты»
+        # now shares whatever coordinate is written in the message box.
 
         # -- Secret tasks + «Операция Призрак» moved to the «Secret Tasks» tab ----
         #
@@ -2639,8 +2622,9 @@ class Panel(tk.Tk):
         self._triggers.start()
         self._boot_at("splash.daemon", 0.90)
         self._ensure_daemon()
-        self._boot_at("splash.server", 0.96)
-        self._load_current_server()
+        # The server used to be read here to fill the «Сервер» box of the jump block.
+        # That block is gone (#1183) and `_jump` reads the current server for itself,
+        # so the boot no longer spends a game round trip on it.
         # The strip needs a warm daemon and a live game, so it starts last.
         self._start_dashboard()
         self._boot_at("splash.systems", 1.0)
@@ -2920,13 +2904,6 @@ class Panel(tk.Tk):
         if getattr(self, "_sched_var", None) is not None:
             self._sched_var.set(False)
         self._say("panel", "panic.done")
-
-    def _load_current_server(self) -> None:
-        def work() -> None:
-            srv = self._current_server()
-            self.after(0, lambda: (self._srv_var.set(srv),
-                                   self._say("server", "log.server.current", srv=srv)))
-        threading.Thread(target=work, daemon=True).start()
 
     def _current_server(self) -> str:
         try:
@@ -4096,7 +4073,6 @@ class Panel(tk.Tk):
                     self._log_put(f"[coord] {ln}")
                 if not quiet:
                     self._say("coord", "log.done")
-                    self.after(0, lambda: self._remember_jump(x, y, target))
             except Exception as exc:
                 self._say("coord", "log.error", error=exc)
             finally:
@@ -4110,54 +4086,10 @@ class Panel(tk.Tk):
         self._say("coord", "log.coord.clicked", where=coords.fmt(x, y, server))
         self._jump(x, y, server)
 
-    def _goto_coord(self) -> None:
-        x, y, srv = self._x_var.get().strip(), self._y_var.get().strip(), self._srv_var.get().strip()
-        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
-            self._say("coord", "log.coord.bad_xy")
-            return
-        srv = srv if srv.isdigit() else DEFAULT_SERVER
-        self._jump(int(x), int(y), int(srv))
-
-    # -- where the jump has been --------------------------------------------
-    #
-    # X/Y/server was one triple and there was no memory of it at all, though
-    # hopping between a handful of known tiles (the base, an alliance city, the
-    # mine somebody keeps taking) is the routine use. The most recent jump is
-    # first, the list is capped, and it belongs to the profile like everything
-    # else — one account's tiles are not the other's.
-    JUMP_HISTORY_MAX = 20
-
-    def _remember_jump(self, x: int, y: int, server) -> None:
-        token = coords.fmt(x, y, server)
-        hist = [t for t in self._jump_hist if t != token]
-        hist.insert(0, token)
-        self._set_jump_history(hist[:self.JUMP_HISTORY_MAX])
-        self._save_settings()
-
-    def _set_jump_history(self, tokens) -> None:
-        """Replace the history and repaint the combobox (tolerant of junk)."""
-        self._jump_hist = [str(t) for t in (tokens or []) if str(t).strip()]
-        combo = getattr(self, "_jump_hist_combo", None)
-        if combo is None:
-            return
-        try:
-            combo.configure(values=self._jump_hist)
-            self._jump_hist_var.set("")
-        except tk.TclError:
-            pass
-
-    def _on_jump_history(self, _event=None) -> None:
-        """A history entry was picked: fill the three fields from it and jump."""
-        token = self._jump_hist_var.get().strip()
-        found = coords.parse(token)
-        if not found:
-            return
-        _s, _e, x, y, srv = found[0]
-        self._x_var.set(str(x))
-        self._y_var.set(str(y))
-        if srv is not None:
-            self._srv_var.set(str(srv))
-        self._jump(int(x), int(y), int(srv) if srv is not None else None)
+    # `_goto_coord` (the «Перейти» button), the «куда ходил» history and its
+    # `_remember_jump` / `_set_jump_history` / `_on_jump_history` went with the
+    # «Навигация» block (#1183). Every remaining caller of `_jump` already knows the
+    # coordinate it wants: a log link, a «Командный пункт» row, a scenario's `JUMP`.
 
     # -- generic action -----------------------------------------------------
     # -- one game action at a time ------------------------------------------
@@ -4249,14 +4181,9 @@ class Panel(tk.Tk):
             return None
         return int(cx), int(cy)
 
-    def _sweep_centre_from_coords(self) -> None:
-        """«Отсюда» — take the centre from the jump fields above."""
-        x, y = self._x_var.get().strip(), self._y_var.get().strip()
-        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
-            self._say("sweep", "sweep.no_centre")
-            return
-        self._sweep_cx_var.set(x)
-        self._sweep_cy_var.set(y)
+    # «Отсюда» — which copied the jump block's X/Y into the two boxes above — went
+    # with that block (#1183). The centre is typed into `_sweep_cx_var` /
+    # `_sweep_cy_var` directly, and those two are still saved to the profile.
 
     def _sweep_rule_text(self) -> str:
         """What the checkbox is about to do, in one phrase — box, jumps, minutes."""
@@ -6630,8 +6557,8 @@ class Panel(tk.Tk):
         self._chat_entry = entry
         self._tr(ttk.Button(send, command=self._chat_send_text),
                  "chat.send").pack(side="left", padx=(4, 0))
-        # The coordinate in the main tab's X/Y/server fields, shared as a map pin —
-        # not as text. A pin is tappable in the game; "567,471" is not.
+        # The coordinate written in the box beside it, shared as a map pin — not as
+        # text. A pin is tappable in the game; "567,471" is not.
         self._tr(ttk.Button(send, command=self._chat_send_coords),
                  "chat.send_coords").pack(side="left", padx=(4, 0))
 
@@ -6750,16 +6677,26 @@ class Panel(tk.Tk):
         self._chat_send(["--text", text], text[:40])
 
     def _chat_send_coords(self) -> None:
-        """Share the main tab's X/Y/server as a map pin in the open room."""
-        x, y = self._x_var.get().strip(), self._y_var.get().strip()
-        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+        """Share the coordinate written in the message box as a map pin.
+
+        It used to be read from the Main tab's X/Y/server fields; that block is gone
+        (#1183), so the box the message is typed into is the source — through the same
+        tolerant parser the log's clickable links use, so anything a coordinate is
+        written as elsewhere in the panel (`#2305 X:568 Y:371`, `@[568,371]`,
+        `(568,371)`) can simply be pasted in and shared.
+        """
+        found = coords.parse(self._chat_msg_var.get())
+        if not found:
             self._say("chat", "chat.no_coords")
             return
-        srv = self._srv_var.get().strip()
+        _s, _e, x, y, srv = found[0]
         args = ["--coords", f"{x},{y}"]
-        if srv.isdigit():
-            args += ["--coord-server", srv]
-        self._chat_send(args, coords.fmt(int(x), int(y), srv or None))
+        if srv is not None:
+            args += ["--coord-server", str(srv)]
+        # The box held the coordinate, not a message — clear it like a send does, or
+        # the next «Отправить» would post the pin's text alongside the pin.
+        self._chat_msg_var.set("")
+        self._chat_send(args, coords.fmt(x, y, srv))
 
     # -- emoji / sticker picker ---------------------------------------------
     def _open_emoji_picker(self) -> None:
