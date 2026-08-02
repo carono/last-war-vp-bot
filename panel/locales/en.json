@@ -710,7 +710,11 @@
 
   "tab.vs_duel": "VS Duel",
   "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive.",
-  "vsduel.later": "The actions of this day come later.",
+  "vsduel.shield": "Shield:",
+  "vsduel.shield.twice_12h": "twice, twelve hours each",
+  "vsduel.shield.once_24h": "once, a whole day",
+  "vsduel.shield_buy": "Buy shields when they are needed",
+  "vsduel.mine_points": "Score duel points on the mines",
   "vsduel.day.mon": "Monday",
   "vsduel.day.tue": "Tuesday",
   "vsduel.day.wed": "Wednesday",

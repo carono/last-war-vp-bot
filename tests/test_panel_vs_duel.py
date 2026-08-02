@@ -41,6 +41,20 @@ def _skip(exc=None) -> None:
     print(f"  SKIP no tkinter / display: {exc}" if exc else "  SKIP no tkinter")
 
 
+def _actions(items):
+    """The actions of a day — a group also holds the day's own picks."""
+    from panel.tabs.vs_duel import _Choice
+
+    return [i for i in items if not isinstance(i, _Choice)]
+
+
+def _picks(items):
+    """The picks the DAY makes, with no box above them (Saturday's shield)."""
+    from panel.tabs.vs_duel import _Choice
+
+    return [i for i in items if isinstance(i, _Choice)]
+
+
 def _tab():
     """A built «Дуэль VS» tab on a cold runtime, plus the root to destroy afterwards."""
     import tkinter as tk
@@ -65,11 +79,11 @@ def test_the_week_is_monday_first_and_ends_on_saturday():
     """Six groups, in the order the duel runs — the tab's whole shape, in one line."""
     from panel.tabs import vs_duel
 
-    assert [day for day, _actions in vs_duel.DAYS] == [
+    assert [day for day, _items in vs_duel.DAYS] == [
         "mon", "tue", "wed", "thu", "fri", "sat"]
-    # Saturday is the one still to be written down; the five before it are filled.
-    empty = [day for day, actions in vs_duel.DAYS if not actions]
-    assert empty == ["sat"], empty
+    # The whole week is written down now — no day is a placeholder any more.
+    empty = [day for day, items in vs_duel.DAYS if not items]
+    assert empty == [], empty
 
 
 def test_each_day_holds_the_actions_it_scores():
@@ -77,21 +91,22 @@ def test_each_day_holds_the_actions_it_scores():
     from panel.tabs import vs_duel
 
     days = dict(vs_duel.DAYS)
-    assert [a.key for a in days["mon"]] == [
+    assert [a.key for a in _actions(days["mon"])] == [
         "drone_parts", "hero_level", "drone_level"]
-    assert [a.key for a in days["tue"]] == [
+    assert [a.key for a in _actions(days["tue"])] == [
         "build_speedup", "build_collect", "survivor_tickets", "build_start"]
-    assert [a.key for a in days["wed"]] == [
+    assert [a.key for a in _actions(days["wed"])] == [
         "drone_parts", "research_speedup", "research_collect", "research_start"]
-    assert [a.key for a in days["thu"]] == [
+    assert [a.key for a in _actions(days["thu"])] == [
         "hero_level", "hero_rank_ur", "hero_rank_ssr", "honour_wall",
         "honour_wall_chests", "exclusive_weapon"]
-    assert [a.key for a in days["fri"]] == [
+    assert [a.key for a in _actions(days["fri"])] == [
         "lord_rank", "lord_train", "lord_skills", "lord_level", "unit_train",
         "unit_upgrade"]
-    for day, actions in vs_duel.DAYS:
-        keys = [a.key for a in actions]
-        assert len(keys) == len(set(keys)), f"{day} lists an action twice: {keys}"
+    assert [a.key for a in _actions(days["sat"])] == ["shield_buy", "mine_points"]
+    for day, items in vs_duel.DAYS:
+        keys = [i.key for i in items]
+        assert len(keys) == len(set(keys)), f"{day} lists something twice: {keys}"
 
 
 def test_the_ceilings_and_the_details_hang_off_the_right_actions():
@@ -99,18 +114,18 @@ def test_the_ceilings_and_the_details_hang_off_the_right_actions():
 
     days = dict(vs_duel.DAYS)
     ceilings = {f"{d}.{a.key}": (a.amount.key if a.amount else None)
-                for d, actions in vs_duel.DAYS for a in actions}
+                for d, items in vs_duel.DAYS for a in _actions(items)}
     assert {k: v for k, v in ceilings.items() if v} == {
         "mon.hero_level": "hero_exp_m", "mon.drone_level": "drone_gears",
         "thu.hero_level": "hero_exp_m"}
     subs = {f"{d}.{a.key}": [s.key for s in a.subs]
-            for d, actions in vs_duel.DAYS for a in actions}
+            for d, items in vs_duel.DAYS for a in _actions(items)}
     assert {k: v for k, v in subs.items() if v} == {
         "mon.hero_level": ["exp_boxes"], "tue.build_start": ["ministry"],
         "wed.research_start": ["ministry"], "thu.hero_level": ["exp_boxes"]}
     # Only starting a research is aimed at something, and «any» is what it starts on.
-    choices = {f"{d}.{a.key}": a.choice for d, actions in vs_duel.DAYS
-               for a in actions if a.choice is not None}
+    choices = {f"{d}.{a.key}": a.choice for d, items in vs_duel.DAYS
+               for a in _actions(items) if a.choice is not None}
     assert list(choices) == ["wed.research_start"]
     assert choices["wed.research_start"].default == vs_duel.CATEGORY_ANY
     # The categories themselves are deliberately not invented: until they are read off
@@ -124,13 +139,13 @@ def test_an_action_scoring_on_two_days_is_written_once():
     from panel.tabs import vs_duel
 
     days = dict(vs_duel.DAYS)
-    mon_hero = [a for a in days["mon"] if a.key == "hero_level"][0]
-    thu_hero = [a for a in days["thu"] if a.key == "hero_level"][0]
+    mon_hero = [a for a in _actions(days["mon"]) if a.key == "hero_level"][0]
+    thu_hero = [a for a in _actions(days["thu"]) if a.key == "hero_level"][0]
     assert mon_hero.label == thu_hero.label
     assert mon_hero.amount.label == thu_hero.amount.label
     assert [s.label for s in mon_hero.subs] == [s.label for s in thu_hero.subs]
-    assert [a for a in days["mon"] if a.key == "drone_parts"][0].label == \
-        [a for a in days["wed"] if a.key == "drone_parts"][0].label
+    assert [a for a in _actions(days["mon"]) if a.key == "drone_parts"][0].label == \
+        [a for a in _actions(days["wed"]) if a.key == "drone_parts"][0].label
     # …and the SETTINGS are not shared: two days, two ceilings.
     try:
         root, tab = _tab()
@@ -153,10 +168,13 @@ def test_every_label_is_translated_in_every_shipped_locale():
     it, and this is the tab's own half of that check."""
     from panel.tabs import vs_duel
 
-    keys = {"tab.vs_duel", "vsduel.hint", "vsduel.later"}
-    for day, actions in vs_duel.DAYS:
+    keys = {"tab.vs_duel", "vsduel.hint"}
+    for day, items in vs_duel.DAYS:
         keys.add(f"vsduel.day.{day}")
-        for action in actions:
+        for pick in _picks(items):
+            keys.add(pick.label)
+            keys.update(label for _v, label in pick.options)
+        for action in _actions(items):
             keys.add(action.label)
             if action.amount is not None:
                 keys.add(action.amount.label)
@@ -194,8 +212,7 @@ def test_plan_lists_only_what_is_ticked_with_its_ceiling():
 
         # Another day's boxes are its own: nothing of Monday's leaks into Tuesday.
         assert tab.plan("tue") == {}
-        # A day nobody has written actions for plans nothing, and is not an error.
-        assert tab.plan("sat") == {}
+        # A day that is not in the week at all plans nothing, and is not an error.
         assert tab.plan("nonesuch") == {}
     finally:
         root.destroy()
@@ -265,6 +282,46 @@ def test_a_ministry_box_belongs_to_the_action_that_starts_the_work():
         tab._flags["wed.research_start"].set(True)
         assert tab.plan("wed") == {"research_start": {
             "limit": None, "ministry": False, "category": "any"}}
+    finally:
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# the day's own decision
+# ---------------------------------------------------------------------------
+
+def test_saturdays_shield_is_a_pick_the_day_always_answers():
+    """Not «whether» but «which»: two twelve-hour shields or one that lasts a day. So
+    it is in the plan even when nothing on Saturday is ticked."""
+    from panel.tabs import vs_duel
+
+    sat = dict(vs_duel.DAYS)["sat"]
+    picks = _picks(sat)
+    assert [p.key for p in picks] == ["shield"]
+    assert [v for v, _label in picks[0].options] == ["twice_12h", "once_24h"]
+    assert picks[0].radio, "a two-way decision drawn as a list hides one of its ways"
+
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        assert tab.plan("sat") == {"shield": {"pick": "twice_12h"}}
+        tab._choices["sat.shield"].set("once_24h")
+        tab._flags["sat.shield_buy"].set(True)
+        tab._flags["sat.mine_points"].set(True)
+        assert tab.plan("sat") == {"shield": {"pick": "once_24h"},
+                                   "shield_buy": {"limit": None},
+                                   "mine_points": {"limit": None}}
+
+        # It round-trips, and a profile that never touched it comes back to the first.
+        saved = tab.config()
+        assert saved["sat.shield"] == "once_24h"
+        tab.apply_config({})
+        assert tab._choices["sat.shield"].get() == "twice_12h"
+        tab.apply_config(saved)
+        assert tab.plan("sat")["shield"] == {"pick": "once_24h"}
     finally:
         root.destroy()
 

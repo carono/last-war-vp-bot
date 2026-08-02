@@ -1,11 +1,10 @@
 """The «VS Duel» tab: what the bot is allowed to do on each day of the alliance duel.
 
 The duel scores a DIFFERENT set of actions every weekday (docs/game/daily_cycle.md),
-so the tab is a column of day groups — Monday to Saturday — and each group holds the
-actions that day pays points for. Saturday is still an empty group saying its actions
-come later; the rest are written out.
+so the tab is a column of day groups — Monday to Saturday, the whole week the duel
+runs — and each group holds the actions that day pays points for.
 
-Three shapes make up every group, and nothing else:
+Four shapes make up every group, and nothing else:
 
 * **an action** — a box. Ticked means «do this on that day».
 * **a ceiling** — the number beside an action that spends something scarce: hero
@@ -15,9 +14,13 @@ Three shapes make up every group, and nothing else:
   break experience boxes out of the bag when what the account holds does not reach the
   ceiling, use a ministry to start a construction or a research. A pick from a list is
   the same thing in another shape — which research category to start.
+* **a decision the DAY makes** — a pick with no box above it, drawn as radio buttons.
+  Saturday's shield is one: the same points come either from two twelve-hour shields or
+  from one that lasts a day, so the question is not whether but which.
 
 A detail and a ceiling go grey with their action, because a choice about something
-nobody is doing is not a choice.
+nobody is doing is not a choice. A day's own pick never greys out — one of its options
+is always chosen.
 
 An action that scores on two different days is written ONCE and placed in both — the
 hero (Monday and Thursday) and the drone components (Monday and Wednesday). They are
@@ -58,15 +61,23 @@ class _Sub:
 
 
 class _Choice:
-    """A pick from a list, belonging to an action the way a :class:`_Sub` does.
+    """A pick of one option out of several.
 
     ``options`` is ``((value, locale key), …)``: the value is what the profile keeps and
     what :meth:`VsDuelTab.plan` answers with, the key is what the person reads. The
     first option is the default.
+
+    Two places and two shapes. Given to an action it belongs to it the way a
+    :class:`_Sub` does — a dropdown, greyed out with its action. Placed in a day
+    directly it is that day's own decision, with no box above it to switch off, and
+    then ``radio=True`` draws it as a row of radio buttons: two ways of spending a day
+    are read at a glance, where a list would hide one of them.
     """
 
-    def __init__(self, key: str, label: str, options: tuple) -> None:
+    def __init__(self, key: str, label: str, options: tuple,
+                 radio: bool = False) -> None:
         self.key, self.label, self.options = key, label, options
+        self.radio = radio
 
     @property
     def default(self) -> str:
@@ -170,7 +181,16 @@ DAYS: tuple = (
         _Action("unit_train", "vsduel.unit_train"),
         _Action("unit_upgrade", "vsduel.unit_upgrade"),
     )),
-    ("sat", ()),
+    ("sat", (
+        # The shield is not «do it or do not» but «which way»: the same day's points come
+        # either from two twelve-hour shields or from one that lasts a day. So it is a
+        # pick rather than a box — there is no state in which neither is chosen.
+        _Choice("shield", "vsduel.shield",
+                (("twice_12h", "vsduel.shield.twice_12h"),
+                 ("once_24h", "vsduel.shield.once_24h")), radio=True),
+        _Action("shield_buy", "vsduel.shield_buy"),
+        _Action("mine_points", "vsduel.mine_points"),
+    )),
 )
 
 
@@ -205,8 +225,15 @@ class VsDuelTab(PanelTab):
         #: "<day>.<action>.<choice>" -> (combobox, the choice) — what a language change
         #: has to re-fill, since a combobox's list is not a widget option `tr` can set.
         self._combos: dict = {}
-        for day, actions in DAYS:
-            for action in actions:
+        for day, items in DAYS:
+            for item in items:
+                if isinstance(item, _Choice):           # the day's own pick
+                    name = f"{day}.{item.key}"
+                    self._choices[name] = tk.StringVar(master=master,
+                                                       value=item.default)
+                    self._defaults[name] = item.default
+                    continue
+                action = item
                 self._flags[f"{day}.{action.key}"] = tk.BooleanVar(master=master,
                                                                    value=False)
                 if action.amount is not None:
@@ -236,17 +263,29 @@ class VsDuelTab(PanelTab):
 
         scroll = ScrollableFrame(self.parent)
         scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        for day, actions in DAYS:
+        for day, items in DAYS:
             box = self.tr(ttk.LabelFrame(scroll, padding=8), f"vsduel.day.{day}")
             box.pack(fill="x", padx=(0, 4), pady=(0, 8))
-            if not actions:
-                self.tr(ttk.Label(box, foreground="#888"), "vsduel.later").pack(
-                    anchor="w")
-                continue
-            for action in actions:
-                self._build_action(box, day, action)
+            for item in items:
+                if isinstance(item, _Choice):
+                    self._build_day_choice(box, day, item)
+                else:
+                    self._build_action(box, day, item)
         self._retranslate_choices()
         self._sync_dependents()
+
+    def _build_day_choice(self, box, day: str, choice: _Choice) -> None:
+        """A decision the DAY makes, with no box above it — drawn as radio buttons.
+
+        Nothing greys it out: one of its options is always chosen, so there is no state
+        in which the pick means nothing (unlike a picker that belongs to an action).
+        """
+        name = f"{day}.{choice.key}"
+        self.tr(ttk.Label(box), choice.label).pack(anchor="w", pady=(0, 2))
+        for value, label in choice.options:
+            self.tr(ttk.Radiobutton(box, variable=self._choices[name], value=value),
+                    label).pack(anchor="w", padx=(24, 0), pady=(0, 2))
+        ttk.Frame(box, height=4).pack()          # air before the boxes below
 
     def _build_action(self, box, day: str, action: _Action) -> None:
         """One box, and — indented under it — what only makes sense while it is ticked:
@@ -332,12 +371,20 @@ class VsDuelTab(PanelTab):
         what it takes to get there». ``"limit": None`` says the action has no ceiling —
         an empty field, or an action that spends nothing countable. An action that is
         not ticked is simply absent, and so is a day nobody has written actions for.
+
+        A decision the day itself makes — Saturday's shield — is always there, under its
+        own key as ``{"pick": <value>}``: one of its options is always chosen, so there
+        is nothing for its absence to mean.
         """
         out: dict = {}
-        for name, actions in DAYS:
+        for name, items in DAYS:
             if name != day:
                 continue
-            for action in actions:
+            for item in items:
+                if isinstance(item, _Choice):
+                    out[item.key] = {"pick": self._choices[f"{day}.{item.key}"].get()}
+                    continue
+                action = item
                 if not self._flags[f"{day}.{action.key}"].get():
                     continue
                 entry = {"limit": (None if action.amount is None

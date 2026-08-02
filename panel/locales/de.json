@@ -710,7 +710,11 @@
 
   "tab.vs_duel": "VS-Duell",
   "vsduel.hint": "Das Duell zahlt an jedem Tag Punkte für andere Handlungen. Hake an, was an einem gegebenen Tag getan werden soll, und begrenze, was es dafür ausgeben darf. Von selbst läuft noch nichts — die Auswahl wird für den Tag aufgehoben, an dem die Handlungen kommen.",
-  "vsduel.later": "Die Handlungen dieses Tages kommen später.",
+  "vsduel.shield": "Schild:",
+  "vsduel.shield.twice_12h": "zweimal, je zwölf Stunden",
+  "vsduel.shield.once_24h": "einmal, einen ganzen Tag",
+  "vsduel.shield_buy": "Schilde kaufen, wenn sie gebraucht werden",
+  "vsduel.mine_points": "Duellpunkte an den Minen sammeln",
   "vsduel.day.mon": "Montag",
   "vsduel.day.tue": "Dienstag",
   "vsduel.day.wed": "Mittwoch",
