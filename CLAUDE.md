@@ -14,42 +14,62 @@ Every ability of the bot lives in exactly one place: a scenario under
 It decides *when* to press and *how the result is drawn* — never *what the press
 is*.
 
-### Where a change belongs
+1. **New behaviour → a new `actions/*.md`.** Compose it out of the primitives
+   that already exist (`TAP`, `LUA`, `READ_LUA`, `GAME`, `JUMP`, `FIND`, `CLICK`,
+   `WAIT`, `CALL`, …), declare its inputs with `ARGS`, and give it a title line
+   with its `# ru:` translation. One file, one ability.
+2. **A panel button = running that scenario.** `script_engine.run_action(name, …)`
+   with the UI's values passed as arguments, and nothing else. Code under
+   `panel/` holds widgets, layout, i18n, schedules, settings, persistence and
+   presentation.
+3. **`tools/lib/lua_actions.py` — and `game_buttons.py`, `script_engine.py` —
+   grow only when the DSL lacks a primitive.** Add the primitive, document it in
+   `docs/dsl.md`, then write the scenario that uses it. A primitive presses one
+   thing or reads one value; the order, the gates and the routine stay in the
+   scenario.
 
-1. **A new ability → a new `actions/*.md` scenario.** Compose it out of the
-   primitives that already exist (`TAP`, `LUA`, `READ_LUA`, `GAME`, `JUMP`,
-   `FIND`, `CLICK`, `WAIT`, `CALL`, …). One file, one ability, with the title line
-   and its `# ru:` translation.
-2. **A new panel button or tab → it runs a scenario by name** through
-   `script_engine.run_action(name, …)`, passes its parameters as `ARGS`, and
-   renders what the run logged. Code under `panel/` may hold widgets, layout,
-   i18n, schedules, settings, persistence and presentation — nothing else.
-3. **Python only when a primitive is missing.** If the DSL cannot express the
-   step, add the primitive first — a named button in `tools/lib/game_buttons.py`,
-   a chunk in `tools/lib/lua_actions.py`, a keyword in `script_engine.py` —
-   document it in `docs/dsl.md`, and only then write the scenario that uses it.
-   A primitive presses one thing or reads one value; it never knows the order of
-   a flow, its gates, or the day's routine.
+Nothing under `panel/` may assemble Lua for the game VM, walk a sequence of game
+steps, hold the gates of an ability (quota left, is-it-open-today, cooldowns,
+"collect first, then heal"), or retry on a game reply. If a panel change needs any
+of that, the ability is not finished: write the scenario and call it.
 
-### What must never appear under `panel/`
+### What that looks like
 
-- Lua for the game VM assembled, embedded or branched on in panel code;
-- a sequence of game steps (open X → press Y → wait → read Z);
-- the gates of an ability (quota left, is-it-open-today, cooldowns,
-  "collect first, then heal");
-- retries or waits tied to a game reply.
+```python
+# ❌ panel/hospital_tab.py — the game routine lives in the panel
+def _on_heal(self) -> None:
+    ev = get_evaluator()
+    ev.run(lua_actions.collect_healed(), marker="ACT", settle=0.8)
+    if self._wounded() > 0:                      # a gate of the ability, in Tk
+        ev.run(lua_actions.heal_all(), marker="ACT", settle=1.2)
+    ev.run(lua_actions.call_help(), marker="ACT", settle=0.6)
+```
 
-A panel change that needs any of these means the ability is not finished yet:
-write it as a scenario and let the button call it.
+```md
+<!-- ✅ src/lastwar_bot/actions/heal_units.md — the ability, in one file -->
+# Heal the wounded soldiers in the base hospital.
+# ru: Лечение раненых в госпитале базы.
+TAP collect_healed xall
+TAP heal_all xall
+TAP call_help xall
+```
+
+```python
+# ✅ panel/… — the button only plays it
+script_engine.run_action("heal_units", hwnd=0, on_event=self._log_put)
+```
+
+Values typed in the UI travel the same way and no further: the scenario declares
+`ARGS level = 30`, the button passes `variables={"level": self._level.get()}`.
 
 ### The code that predates this rule
 
-Parts of the panel still call the Lua chunks directly — `panel/dashboard.py`
-(the readings), `panel/command_post.py`, `panel/secret_tasks.py`,
-`panel/mapsweep.py`, and a handful of places in `panel/__main__.py`. They are
-debt, not precedent. Do not rewrite them all at once, but when a task takes you
-into one of those paths, move the game logic out into a scenario and leave the
-panel calling it. **Never add a new one.**
+Most of the panel still speaks to the game directly — `panel/__main__.py`,
+`panel/tabs_extra.py`, `panel/dashboard.py`, `panel/command_post.py`,
+`panel/triggers.py`, `panel/secret_tasks.py`, `panel/mapsweep.py`. They are debt,
+not precedent. Do not rewrite them all at once, but when a task takes you into one
+of those paths, move the game logic out into a scenario and leave the panel
+calling it. **Never add a new one.**
 
 ### Definition of done
 
