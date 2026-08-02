@@ -40,6 +40,16 @@ SIM.speedCap   = 60
 --     one is seen parked is at a gap of 122; below 120 they are essentially always moving).
 SIM.moverTrigger = 120
 
+-- The runner's own height, which the planner needs to tell a roof plateau from the fall off the
+-- end of one. Measured, and again not the planner's opinion of itself: a plateau reads 4.30 in
+-- every recording, and gravity is the hop's (jumpVo 16.5 apexing at 3.24 => 42). It fits the
+-- #1165 death frames to 3 cm. Note what the judge can and cannot show with it: the level here
+-- outlives a roof only over a SEAM, so that is the only place a height below the plateau is
+-- ever reported — a roof running out onto open road puts this runner on the road at once,
+-- where the live game has it in the air for 13.6 m at 30 u/s.
+SIM.roofTop = 4.30
+SIM.gravity = 42.0
+
 local function laneOf(x)
   local l = floor((x - SIM.baseX) / SIM.laneOffset + 0.5) + 1
   if l < 0 then l = 0 elseif l > 2 then l = 2 end
@@ -114,6 +124,7 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax, steps)
   -- run_002 and run_003 there is not ONE from the road into a carriage body, and all 16 that
   -- end inside one start from y≈4.3, already up on the roofs.
   local level = onRoofAt(0, lane0)
+  local lastRoofZ = level and 0 or nil   -- last z with roof under the runner, for the height
   local prevZ, prevHeld = 0, lane0
   -- Flight. Some stretches of track have every lane blocked at once — three oncoming trucks
   -- abreast — and the only way over them is the aeroplane buff. A judge without it declares a
@@ -168,6 +179,21 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax, steps)
       level = false
     end
     local onRoof = level
+    -- how high the runner is, for the planner alone: on the plateau while a roof is under the
+    -- held lane, falling from it once the roof has run out (which is what a seam is). Nothing in
+    -- the collision model reads this — the level is still the level, and a body still kills or
+    -- does not exactly as before.
+    if level and over ~= nil then lastRoofZ = pz end
+    local py = 0
+    if level then
+      if over ~= nil then
+        py = SIM.roofTop
+      else
+        local d = (pz - (lastRoofZ or pz)) / max(speed, 1)
+        py = SIM.roofTop - 0.5 * SIM.gravity * d * d
+        if py < 0 then py = 0 end
+      end
+    end
     local z0, z1 = pz, pz + speed * dt
     -- picked up on the way through: a buff is collected by running over it in its lane
     for i = 1, #live do
@@ -191,7 +217,7 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax, steps)
         if o.z > pz - 50 and o.z < pz + 320 then n = n + 1 window[n] = o end
       end
       for i = #window, n + 1, -1 do window[i] = nil end
-      local reach, act, az = AI.planRoute(pz, lane, speed, window, fly > 0, onRoof)
+      local reach, act, az = AI.planRoute(pz, lane, speed, window, fly > 0, onRoof, py)
       -- A death report names the killer but never says what the planner believed on the way in.
       -- `SIM.watch` is that missing half: set it and every planning frame is handed over, so a
       -- mistimed hop can be read off the decisions instead of guessed at from the corpse.

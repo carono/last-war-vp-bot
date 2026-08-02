@@ -1923,3 +1923,119 @@ So before concluding there are no attempts today, check the sockets. And note th
 (Screenshots were not available this session at all — GDI `BitBlt` fails for the whole
 desktop, not just the game window, so `street_run_bot.py shot` cannot run. The telemetry
 above is the record of the run.)
+
+## The step-down is gated on the height, and the height was not the reason (#1166)
+
+#1165 left one thing to do about the sideways step off a roof: the live run had started it at
+`y = 4.20`, and every human step-down starts between 2.0 and 3.2 — a runner on its way down
+off the end of a roof, not one at plateau height. So the move is gated on the height now
+(planner **v46**), and then it was put in front of the game again. The gate holds. The move
+survives it. The death does not go away.
+
+### What the gate is
+
+`cfg.stepDownY = 3.5`, and `planRoute` takes the runner's own `y` as a seventh argument. The
+gate is not "check the height before issuing" — that shape is the planner/judge asymmetry
+#1164 was bitten by, a manoeuvre laid into a route for forty metres and refused on the frame
+it is due. It is the other shape: **the DP never plans a step-down at all, and takes one only
+from the state it is in right now.** Every level-1 state the search relaxes into stands over a
+bucket with roof under it, i.e. a plateau at 4.30, so the height is known everywhere ahead
+without measuring it; the only state that can be mid-fall is the start state, and only it is
+offered the move. Nothing is planned that will not be issued.
+
+The fall is worth writing down, because it turns the height into a distance. The plateau is
+4.30 and gravity is the hop's — `jumpVo` 16.5 topping out at 3.24, so g = 42. The #1165 death
+frames fit that to three centimetres (off the end at 970.2 doing 30 u/s: 4.20 at 972 against
+a model 4.22, 3.93 at 974 against 3.96, 3.51 at 976 against 3.51). So at 30 u/s the gate opens
+5.9 m past the end of a roof and the runner is on the road 13.6 m past it — a window of about
+7.7 m, and it scales with speed.
+
+`tests/test_street_run_stepdown.py` is the guard: one field — a roof about to end, a wall in
+the runner's own lane beyond it, a clear lane beside it — asked at four heights and once with
+no height at all. What it watches is not which way the planner wants to go, which is the same
+every time, but `az`, the bucket the manoeuvre is scheduled at: only `az == 0` is issued.
+
+### The live run: four attempts, and the first human-height step-down
+
+Four attempts, 2026-08-02, main account, single lives, no revives, no tuning applied (the
+learner's `padExtra=4.0` was scored and rejected before every one of them, so this is the
+committed planner and nothing else). Attempts 29 → 25.
+
+    1341 m   wall — TrapSaw03, walled in with reach=0, three lanes shut
+    1070 m   unknown
+     288 m   ramp_head_on — chexiangxiepo_4
+    1062 m   unknown  <- the one that matters
+
+For scale, v45's single attempt earlier the same day was 976 m. Four attempts against one is
+not a verdict on the change and is not offered as one.
+
+**The fourth attempt is the measurement.** Its frame log has the whole manoeuvre:
+
+    z=1011 lane=left  y=0.00  act=right          -- at the foot of the ramp
+    z=1020 lane=left  y=4.30  act=right          -- up on the roof
+    ...                                          -- 32 m of plateau, act=right on every frame
+    z=1052 lane=left  y=4.30  act=right
+    z=1054 lane=left  y=4.18                     -- the roof ends about 1052.5
+    z=1057 lane=left  y=3.71                     -- (free fall from 4.30: 3.72)
+    z=1060 lane=left  y=2.78  act=right ISSUED   -- (2.81) — the gate is open
+    z=1060.7 lane=centre busy=1                  -- mid change
+    z=1061.8 DEAD, x=33.76                       -- mid change, the fall model puts it 2.3 up
+
+So the gate did exactly what it was built to do: it held the move through 32 m of plateau and
+released it at **y = 2.78**, inside the 2.0–3.2 band every human step-down was taken from. And
+the runner died 1.6 m later, in the middle of it, exactly as at #1165.
+
+**The height was not the reason.** What is at 1061.8 is: the runner's own lane, whose roof
+ran out at 1052.5; a ramp body in the centre lane, `chexiangxiepo_3` anchored at 1080 with a
+29.3 m tail, so **1050.7 → 1080**; and a plain carriage in the right lane, `chexiang_5` at
+1064 with a 41.2 m tail, so 1022.8 → 1064. All three lanes are carriages, and the lane the
+runner stepped into was a ramp's flank for the whole of the crossing. A side entry onto a
+ramp kills — that is what
+`sideOnly` is, and `freeEnter` on the entering lane is supposed to refuse the move on it. It
+did not refuse it, and *that* is the fault to chase next: either the flank was not in the
+block at all, or the change was taken by the roof-to-roof branch (the centre ramp carries a
+roof over exactly that span, and `freeAt(t, 1, ...)` does not consult `side`), which would let
+a runner in mid-air cross into a body it cannot enter.
+
+Read against #1165 the two deaths are the same event at two heights: 4.20 and 2.78, both in
+the first two metres of a sideways step off a roof end, both with the death classifier naming
+either nothing at all or a body the planner ignores by design. The gate is worth keeping —
+the move is now made the way a person makes it — but it does not buy the manoeuvre, and no
+run should be read as having proven it until one survives it.
+
+### What the gate costs offline, and why the number is not the argument
+
+|  | per-band | run_002 | seed 1 | seed 2 | seed 3 | seed 4 | seed 5 | share of ceiling |
+|---|---|---|---|---|---|---|---|---|
+| v45 | 141/144 | 7390 | 11881 | 9041 | 11021 | 11881 | 11881 | 100% |
+| v46 | 141/144 | 7390 | **4053** | 9041 | **6922** | 11881 | 11881 | **83%** |
+
+Two routes, and both are routes #1164 bought with the step-down in the first place. Seed 3
+now dies at 6922 on **a roof seam** — up on the roofs, the roof running out over a drop it
+cannot hop, and the sideways step was the way off it. Seed 1's geometry says the rest: in its
+band 12 (a 2002 at 50 u/s) the right lane's roof runs 29.3 → 54.0 band-relative, the centre
+lane's ramp body runs 65.0 → 98.0, and the right lane is walled from 92.9. The pre-gate planner left the roof sideways at 50.7, three metres before
+its end and up on the plateau, and was in the centre lane before the ramp's flank began. Under
+the gate the earliest legal frame is 9.8 m past the roof end at that speed — z = 63.8 — and a
+change begun there is still crossing when the flank arrives at 65. There is no window. The
+same reading covers the offline judge in general: **it puts the runner on the road the instant
+a roof ends** (a level only survives over a seam), so the fall the gate is defined on does not
+exist in it at all, and the move is simply unavailable there. What the judge is measuring
+after this change is a planner without the step-down, which is why seeds 1 and 3 are re-pinned
+in `tests/test_street_run_routes.py` as measured floors with their ceilings recorded beside
+them rather than as ceilings the planner is expected to reach.
+
+Three things follow, in the order they are worth doing:
+
+* **The entering lane, mid-fall.** Why a change into a ramp flank was legal at 1060.2 — the
+  question above. It is the only one of the two live deaths with a body standing where the
+  runner went, so it is the one that can be answered without another attempt.
+* **The fall as a state.** The judge has no airborne-after-a-roof-end state and the DP has no
+  bucket for one, so between them they cannot represent the move at all except at bucket 0 of
+  a live frame. Giving the judge the descent (level survives, height decays at g = 42, ground
+  collisions skipped while above a body) would put planner and judge back on the same track
+  and give seed 1 its route back honestly instead of by not asking.
+* **Landing on a ramp from above.** A runner descending from 4.30 into a neighbouring ramp is
+  not entering it from the side; it is coming down onto its slope. Whether the game agrees is
+  a question one recording would answer, and it is the difference between seed 1 having a
+  route and not.

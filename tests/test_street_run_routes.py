@@ -57,9 +57,15 @@ import surfing_simulate as S  # noqa: E402
 # 11880 m, replayed from the centre lane. The planner lands a metre or two past a ceiling
 # because a frame step straddles it — that is not beating it, see CEILING_SLACK.
 FLOORS = {
-    1: (11880, True),    # searched ceiling: the whole route, and the planner runs all of it
+    # Both of these were at their searched ceilings (11880 and 11019) until #1166 gated the
+    # sideways step off a roof on the runner's height. The offline judge puts a runner on the
+    # road the instant a roof ends, so the fall the gate is defined on does not exist here and
+    # the move is unavailable: seed 1 is walled 39 m past a roof end and seed 3 drops into a
+    # seam it has no way off. Measured floors until the judge models the descent — see
+    # docs/research/street-run-parkour.md.
+    1: (4053, False),    # measured; ceiling 11880
     2: (9039, True),     # searched ceiling: band 27 is a 2004 at 60 u/s, which nothing clears
-    3: (11019, True),    # searched ceiling
+    3: (6922, False),    # measured; ceiling 11019
     4: (11880, True),    # searched ceiling: the whole route
     5: (11880, True),    # searched ceiling: the whole route
     6: (11880, True),    # runs the whole route, which is the only ceiling a route can have

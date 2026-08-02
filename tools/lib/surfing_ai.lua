@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 45
+AI.version = 46
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -45,6 +45,20 @@ cfg.slideTime    = cfg.slideTime    or 0.50  -- Const.SlideTime
 cfg.lineOffset   = cfg.lineOffset   or 4     -- Const.LineOffset (lane spacing in x)
 cfg.baseX        = cfg.baseX        or 36    -- Const.ParkourSceneCenter (centre lane)
 cfg.roofY        = cfg.roofY        or 2.0   -- player y above this = up on a carriage roof (level 2)
+-- The height a SIDEWAYS step off a roof may begin at. A roof plateau is y = 4.30; run off the
+-- end of one and the runner falls from there, and only then does the recorded human move
+-- happen — all seven step-downs in the recordings start between y = 2.0 and 3.2, a runner
+-- already on its way down. The first live run to try the move started it at 4.20, barely off
+-- the plateau, and was dead 4 m later still 3.5 up and still moving across (#1165). So 3.5 is
+-- the plateau's own floor and nothing more: below it the runner is demonstrably falling, at it
+-- or above it the roof is still under its feet.
+--
+-- Being a height, it is also a clock, and the fall is the game's own: 4.30 down at g = 42 (from
+-- the hop — jumpVo 16.5 topping out at 3.24). The #1165 death frames confirm that to 3 cm — off
+-- the end at 970.2 doing 30 u/s, y = 4.20 at 972 (model 4.22), 3.93 at 974 (3.96), 3.51 at 976
+-- (3.51) — so at 30 u/s the gate opens 5.9 m past the roof end and the runner is on the road
+-- 13.6 m past it. The judge models the same fall, from its own copy of both constants.
+cfg.stepDownY    = cfg.stepDownY    or 3.5
 -- collision geometry. An obstacle's anchor z is NOT its centre: the subway carriages
 -- measure 25-41 units and hang entirely BEHIND their anchor (live-measured, see
 -- AI.bounds), so they must be modelled as [z - back, z + front], never as z ± half.
@@ -273,7 +287,13 @@ end
 -- low obstacles only). A state is only reachable through free track, so any route the DP
 -- returns is collision-free under this model; it then maximises the distance reached and,
 -- among routes that survive the whole horizon, takes the cheapest one.
-local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
+-- `py` is the runner's own height, and it is the only thing that tells a runner standing on a
+-- roof plateau from one that has run off the end of it and is falling — the two are the same
+-- state to everything else here (`onRoof` is true for both, and a roof the DP can see under the
+-- current bucket is not a roof that is still under the runner's feet a frame later). It gates
+-- the sideways step-down below and nothing else. Omitted, it reads as the plateau, which is the
+-- safe answer: a caller that cannot measure a height does not get the move.
+local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
   local H = cfg.horizon
   local outerBias = cfg.outerShare * cfg.costSwitch / cfg.horizon
   local SW = max(1, ceil(cfg.switchTime * speed))
@@ -622,6 +642,13 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
     end
   end
   local lev0 = onRoof and 1 or 0
+  -- Is the runner ALREADY on its way down off the end of a roof? Only the start state can be:
+  -- every level-1 state the search reaches was relaxed into over a bucket with roof under it,
+  -- i.e. a plateau at cfg.roofTop, so the height is knowable everywhere else without measuring
+  -- it. That is why the step-down is offered at bucket 0 and nowhere ahead — not a gate the
+  -- planner keeps and the issuing frame drops, but a move it never plans and only ever takes
+  -- when the height says it is there. A route is never laid through one.
+  local stepDown = (lev0 == 1) and (py ~= nil) and (py < cfg.stepDownY)
   local start = (0 * 3 + lane0) * 2 + lev0
   cost[start] = 0
   fact[start] = 0
@@ -712,12 +739,19 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof)
           -- to be clear of a body and of a ramp flank alike (a side entry kills while a change
           -- is in flight). A seam anywhere in the first half is still fatal: the runner is over
           -- the drop, not past it.
+          --
+          -- And it is a step DOWN, which the height has to say: the human move is made by a
+          -- runner already falling off the end of a roof (y 2.0..3.2 in all seven recordings),
+          -- not by one at plateau height with the roof end a couple of metres either side. The
+          -- first live run to try it did the latter — the change went out at y = 4.20, and it
+          -- was dead 4 m later, still 3.5 up and still moving across (#1165). `stepDown` is that
+          -- reading, and it is only ever true at bucket 0: see the note where it is taken.
           for d = -1, 1, 2 do
             local t = l + d
             local ok
             local lvT = lev
             if t < 0 or t > 2 then ok = false
-            elseif lev == 1 and not roofB[l][i + SWH] then
+            elseif lev == 1 and i == 0 and stepDown and not roofB[l][i + SWH] then
               -- the roof under the runner runs out before the handover, so by the time the
               -- entering lane is charged the runner is on the road: this is a ground change
               -- begun up on a carriage, and it lands at ground level
@@ -1076,7 +1110,7 @@ local function tick(logic)
   st.onRoof = onRoof
 
   local n = gather(mm, pz, obsBuf)
-  local reach, act, az = planRoute(pz, lane, speed, obsBuf, flying, onRoof)
+  local reach, act, az = planRoute(pz, lane, speed, obsBuf, flying, onRoof, pos.y or 0)
   st.reach = reach
   st.act = act
   st.actz = az
