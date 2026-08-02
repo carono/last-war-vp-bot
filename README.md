@@ -21,24 +21,17 @@ counts them.
 
 ## Installation
 
-Download **[`install.bat`](install.bat)** and double-click it. On a bare Windows
-10/11 box it installs Git and Python 3.12, clones this repository, installs the
-dependencies and puts the panel on the Desktop — nothing has to be there
-beforehand, and running it again repairs a half-finished install. Options and
-what it does step by step:
-[`docs/install/00-installer.md`](docs/install/00-installer.md).
+**`install.bat`** takes a bare Windows box to a panel on the Desktop: it brings
+everything the bot needs, sets the dependencies up and makes the shortcuts.
+What it does, how to run it and what to do when it stops is one page —
+[`docs/install/00-installer.md`](docs/install/00-installer.md); the manual route
+is [`docs/install/`](docs/install/README.md).
 
-Prefer to do it by hand? [`docs/install/`](docs/install/README.md) has the same
-work as Windows guides.
-
-What it needs:
-
-- Windows 10/11 (64-bit) and the Last War PC client;
-- Python 3.12 (the installer puts it in `C:\Python312`, which is what the panel
-  defaults to for the child processes it spawns);
-- [npcap](https://npcap.com) — only for the passive traffic capture behind the
-  secret-task, ghost-recon and rally monitors. The installer offers it. Without
-  it the panel opens and the scenarios play; only those monitors stay silent.
+What it needs: Windows 10/11 (64-bit), Python 3.12 and the Last War PC client.
+The passive traffic capture behind the secret-task, ghost-recon and rally
+monitors additionally wants [npcap](https://npcap.com), which the installer
+offers — without it the panel still opens and the scenarios still play, only
+those monitors stay silent.
 
 ## Running
 
@@ -53,8 +46,10 @@ What it needs:
 From a terminal:
 
 ```powershell
-python -m panel                   # the control panel
-python -m panel --profile second  # …on another account
+python -m panel                              # the control panel
+python -m panel --profile second             # …on another account
+python -m panel.tabs --list                  # which tabs exist
+python -m panel.tabs.rally --profile default # one tab, in a window of its own
 ```
 
 ## Inside the panel
@@ -69,9 +64,11 @@ that says whether this checkout has fallen behind the repository and offers to
 follow. Under it all is the log, where every coordinate the bot prints is a
 clickable jump.
 
-Everything else is a tab, and **every tab is a plugin**: it is switched on and off
-per account, it opens on its own (`python -m panel.tabs.<id>`), and it talks to
-the panel's runtime rather than to the shell.
+Everything else is a tab, and **every tab is a plugin**. Which ones a window shows
+is the profile's business: a tab switched off is not built at all, so it starts
+none of its captures, watchers or standing orders. Each one also opens on its own
+(`python -m panel.tabs.<id> --profile <name>`), which is how one is worked on
+without the other thirteen in the way.
 
 | Tab | What it is for |
 |---|---|
@@ -103,6 +100,11 @@ are farmed on two schedules and both survive a restart.
 - **The panel plays scenarios, it is not a bot.** A button runs a scenario by
   name and draws what comes back. No game logic, no gates and no step sequences
   live under `panel/`.
+- **The panel is a shell plus plugins.** `panel/__main__.py` is a window, a
+  notebook, a log and a menu, and knows what none of the tabs do; each tab lives
+  in `panel/tabs/` and speaks only to the runtime in `panel/runtime/` — the
+  daemon, the settings, the schedule, the child processes, the reads, the log
+  bus. That is what makes a tab switchable off and runnable on its own.
 - **The presses go through a warm daemon.** `tools/lua_daemon.py` keeps one hot
   connection into the game's VM, so a button dispatches in about a tenth of a
   second instead of re-resolving everything each time. The panel starts it by

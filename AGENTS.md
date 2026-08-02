@@ -388,8 +388,13 @@ recipe in section 6.
 
 ## 10. Pointers — where to dig deeper
 
+- **`docs/farming.md`** (RU mirror `docs/farming.ru.md`) — the feature list:
+  what is automated, what is half-way, what is still done by hand. The
+  README points a reader here first; keep the two in step.
 - **`docs/architecture.md`** — system design with component diagram.
 - **`docs/dsl.md`** — formal grammar (user-facing reference).
+- **`docs/panel-tabs.md`** — how to write a panel tab (the how-to; the
+  reasoning is `docs/research/panel-tabs-refactor.md` below).
 - **`docs/actions-authoring.md`** — deep-dive recipes and primitive-
   authoring checklist.
 - **`docs/game/`** — game knowledge: overview, daily cycle, glossary,
