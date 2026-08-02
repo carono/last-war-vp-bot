@@ -326,7 +326,7 @@ def test_rally_tab_builds_and_reads_controls():
         app.destroy()
 
 
-def test_rally_tab_level_slider_reads_whole_levels():
+def test_rally_tab_level_box_and_quick_buttons():
     try:
         import tkinter as tk
         from tkinter import ttk
@@ -353,22 +353,33 @@ def test_rally_tab_level_slider_reads_whole_levels():
         return
     try:
         tab = tx.RallyTab(app, ttk.Frame(app))
-        # The slider spans the whole range, the same one for both kinds.
-        assert (int(float(tab._level_scale.cget("from"))),
-                int(float(tab._level_scale.cget("to")))) \
-            == (tx.RALLY_LEVEL_MIN, tx.RALLY_LEVEL_MAX)
-        # It writes floats; the level is read as a whole number and the label follows.
-        tab._level_scale.set(180.4)
-        tab._on_level()
-        assert tab._level() == 180
-        assert tab._level_text.get() == "180"
-        tab._level_scale.set(34.6)
-        tab._on_level()
-        assert tab._level() == 35 and tab._level_text.get() == "35"
-        # The ceiling holds even if the variable is written past it directly.
-        tab._level_var.set(500)
-        assert tab._level() == tx.RALLY_LEVEL_MAX
+        # One button per quick level, and pressing one IS setting the level — the button
+        # and the box are the same variable, which is what makes a single press enough.
+        assert sorted(tab._quick_buttons) == sorted(tx.RALLY_QUICK_LEVELS)
+        for quick in tx.RALLY_QUICK_LEVELS:
+            tab._quick_buttons[quick].invoke()
+            assert tab._level() == quick, f"pressing {quick} must aim the run at it"
+            assert tab._level_var.get() == str(quick)
+        # …and typing a quick level lights its button back up (same variable, so the
+        # radio reads pressed), while any other level leaves all four unpressed.
+        tab._level_var.set("35")
+        assert "selected" in tab._quick_buttons[35].state()
+        tab._level_var.set("47")
+        assert all("selected" not in b.state() for b in tab._quick_buttons.values())
+        assert tab._level() == 47
+        # Whatever the box holds is read as a level: junk, empty, out of range, and a
+        # float left over from the profile the slider used to write.
+        for text, expected in (("", tx.RALLY_LEVEL_MIN), ("0", tx.RALLY_LEVEL_MIN),
+                               ("500", tx.RALLY_LEVEL_MAX), ("35.0", 35),
+                               ("nonsense", tx.RALLY_LEVEL_MIN)):
+            tab._level_var.set(text)
+            assert tab._level() == expected, f"{text!r} must read as {expected}"
+            # …and leaving the box puts that same level back into it, so what is on
+            # screen is what the run would go out on.
+            tab._normalise_level()
+            assert tab._level_var.get() == str(expected)
         # Elite is the default kind; an unknown one (a hand-edited var) falls back to it.
+        tab._kind_var.set(tx.RALLY_KIND_ELITE)
         assert tab._kind() == tx.RALLY_KIND_ELITE
         tab._kind_var.set(tx.RALLY_KIND_MONSTER)
         assert tab._kind() == tx.RALLY_KIND_MONSTER
@@ -376,6 +387,111 @@ def test_rally_tab_level_slider_reads_whole_levels():
         assert tab._kind() == tx.RALLY_KIND_ELITE
     finally:
         app.destroy()
+
+
+def test_rally_tab_config_round_trip_and_bad_blocks():
+    """What the tab saves comes back, and a junk block cannot aim a run."""
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    from panel import tabs_extra as tx
+
+    class _App(tk.Tk):
+        def _t(self, key, **fmt):
+            return key
+        def _tr(self, widget, key, option="text", **fmt):
+            try:
+                widget.configure(**{option: key})
+            except Exception:                           # noqa: BLE001
+                pass
+            return widget
+
+    try:
+        app = _App()
+        app.withdraw()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab = tx.RallyTab(app, ttk.Frame(app))
+        # A fresh tab saves its defaults, so a first-run profile is a valid one.
+        assert tab.config() == {"kind": tx.RALLY_KIND_ELITE, "level": tx.RALLY_LEVEL_MIN,
+                                "squads": [], "repeats": 1}
+        # Set all four, save, wipe, restore: the tab comes back the way it was left.
+        tab._kind_var.set(tx.RALLY_KIND_MONSTER)
+        tab._level_var.set("120")
+        tab._squad_vars[2].set(True)
+        tab._squad_vars[4].set(True)
+        tab._repeats_var.set("7")
+        saved = tab.config()
+        assert saved == {"kind": tx.RALLY_KIND_MONSTER, "level": 120,
+                         "squads": [2, 4], "repeats": 7}
+        tab.apply_config({})
+        assert tab.config() == {"kind": tx.RALLY_KIND_ELITE, "level": tx.RALLY_LEVEL_MIN,
+                                "squads": [], "repeats": 1}
+        tab.apply_config(saved)
+        assert tab.config() == saved
+        assert "selected" in tab._quick_buttons[120].state(), \
+            "a restored quick level shows on its button"
+        # A hand-edited or older config cannot smuggle in a level, a kind, a squad or a
+        # repeat count the tab would refuse from the UI.
+        tab.apply_config({"kind": "nonsense", "level": 9999, "squads": "1,2",
+                          "repeats": 0})
+        assert tab.config() == {"kind": tx.RALLY_KIND_ELITE, "level": tx.RALLY_LEVEL_MAX,
+                                "squads": [], "repeats": 1}
+        tab.apply_config({"level": -5, "squads": [3, 99], "repeats": True})
+        assert tab.config() == {"kind": tx.RALLY_KIND_ELITE, "level": tx.RALLY_LEVEL_MIN,
+                                "squads": [3], "repeats": 1}
+        tab.apply_config("not a block at all")
+        assert tab.config()["level"] == tx.RALLY_LEVEL_MIN
+        # Every control the panel has to persist is offered for tracing — miss one and
+        # that choice silently stops being remembered.
+        names = {str(v) for v in tab.persist_vars()}
+        for var in (tab._kind_var, tab._level_var, tab._repeats_var,
+                    *tab._squad_vars.values()):
+            assert str(var) in names, f"{var} is not persisted"
+    finally:
+        app.destroy()
+
+
+def test_panel_saves_the_tab_block_without_erasing_it_at_startup():
+    """The panel side of the round trip (panel/__main__.py `_rally_tab_config`).
+
+    Settings are collected on every save, including saves that happen before the tab
+    is built — those must hand back the block that is on disk, or the choices would be
+    overwritten with defaults in the moment before they are restored.
+    """
+    try:
+        import panel.__main__ as pm                      # needs tkinter
+    except Exception as exc:                             # noqa: BLE001
+        _skip(exc)
+        return
+
+    block = {"kind": "monster", "level": 60, "squads": [1, 3], "repeats": 4}
+
+    class _NoTabYet:
+        _settings = {"rally_tab": block}
+
+    class _Built:
+        _settings = {"rally_tab": block}
+
+        class _rally_tab:                                # the tab, once it exists
+            @staticmethod
+            def config():
+                return {"kind": "boss", "level": 35, "squads": [], "repeats": 1}
+
+    class _Fresh:                                        # a profile with nothing saved
+        _settings = {}
+
+    assert pm.Panel._rally_tab_config(_NoTabYet()) == block, \
+        "a save before the tab is built must keep what is on disk"
+    assert pm.Panel._rally_tab_config(_Built()) == {"kind": "boss", "level": 35,
+                                                    "squads": [], "repeats": 1}
+    assert pm.Panel._rally_tab_config(_Fresh()) == {}
+    assert pm.Panel._rally_tab_config(object()) == {}    # not even a settings dict yet
 
 
 def test_status_keys_are_named_per_kind():
@@ -391,6 +507,7 @@ def test_every_status_key_exists_in_both_locales():
     # Every miss the engine can report has a line of its own — a run that comes to nothing
     # must say which of the five ways it did.
     keys = ["rally_tab.kind", "rally_tab.kind_boss", "rally_tab.kind_monster",
+            "rally_tab.level", "rally_tab.level_quick",
             "rally_tab.no_formation", "rally_tab.no_panel", "rally_tab.no_squad",
             "rally_tab.not_armed"]
     for base in ("searching", "no_elite", "raised"):

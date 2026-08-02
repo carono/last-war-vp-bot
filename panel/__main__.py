@@ -1329,6 +1329,8 @@ class Panel(tk.Tk):
             # Settings page -> «Авторалли»: which squads may be sent, and the
             # alliance-drill variant with its single banner-carrier.
             "autorally": self._autorally_config(),
+            # The «Ралли» tab's own four choices (target kind, level, squads, repeats).
+            "rally_tab": self._rally_tab_config(),
             # The schedule is NOT here: a timer's switch and period live in the
             # profile's own timers.json beside its scenario, and when each last
             # ran in timers_last_run.json (see panel/timers.py).
@@ -1384,6 +1386,9 @@ class Panel(tk.Tk):
                 if var is not None:
                     var.set(s.get(key, default))
             self._apply_autorally_config(s.get("autorally"))
+            tab = getattr(self, "_rally_tab", None)
+            if tab is not None:
+                tab.apply_config(s.get("rally_tab"))
             self._reload_rally_limits_ui()
         finally:
             self._loading = False
@@ -1407,6 +1412,12 @@ class Panel(tk.Tk):
                     self._create_elite_var,
                     *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
+        # The «Ралли» tab's own controls (panel/tabs_extra.py RallyTab). Traced from here
+        # like every other bound setting, so the tab stays free of the profile machinery.
+        rally_tab = getattr(self, "_rally_tab", None)
+        if rally_tab is not None:
+            for var in rally_tab.persist_vars():
+                var.trace_add("write", lambda *a: self._save_settings())
         # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
         # boxes are about to do; keep them true as the numbers are typed.
         for var in (self._lvl_from_var, self._lvl_to_var,
@@ -6109,6 +6120,20 @@ class Panel(tk.Tk):
             level = RALLY_ELITE_MIN
         self._create_elite_var.set(str(level))
         self._paint_create_squads()
+
+    def _rally_tab_config(self) -> dict:
+        """The «Ралли» tab's block for the profile (panel/tabs_extra.py RallyTab).
+
+        A snapshot taken before the tab exists must not erase the saved block — the
+        settings are collected on every save, and one taken during startup would
+        otherwise write a default over the choices about to be restored.
+        """
+        tab = getattr(self, "_rally_tab", None)
+        if tab is None:
+            saved = getattr(self, "_settings", None) or {}
+            block = saved.get("rally_tab")
+            return block if isinstance(block, dict) else {}
+        return tab.config()
 
     # -- chat tab -----------------------------------------------------------
 

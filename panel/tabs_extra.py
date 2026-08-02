@@ -645,6 +645,10 @@ RALLY_KINDS = (RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
 # it has, so the tab offers the whole span and lets an empty answer say "not there".
 # Same range as tools/rally_create.py SEARCH_LEVEL_RANGE — the search clamps to it too.
 RALLY_LEVEL_MIN, RALLY_LEVEL_MAX = 1, 200
+# The levels a rally is actually raised on, each a button of its own beside the level
+# box. Two hundred levels on a slider meant a drag and a squint to land on one of them,
+# and the four that matter are always the same four.
+RALLY_QUICK_LEVELS = (30, 35, 60, 120)
 RALLY_SQUADS = (1, 2, 3, 4)
 # A «Роковая Элита» rally is an ordinary-monster rally, so it counts against the
 # "monster" daily cap in panel/rally_limits.py (DEFAULT_RALLY_LIMITS).
@@ -672,11 +676,11 @@ class RallyTab:
     """The «Ралли» tab: raise a rally on a world monster, one squad each, N times.
 
     The player picks what to rally — a «Роковая Элита» or an ordinary world monster —
-    drags the level slider (1–200 for both, as high as a season goes; the number next to
-    it reads the current level), ticks the squads that should each raise a rally, and a
-    repeat count; «Запустить» then loops «search the map «лупа» for a target of that kind
-    and level → raise the rally with the next squad», N times over, and «Стоп» interrupts
-    it. A status line narrates each step and the daily per-type cap
+    sets the level (1–200 for both, as high as a season goes: typed into the box, or one
+    press on the button of a level actually rallied at), ticks the squads that should each
+    raise a rally, and a repeat count; «Запустить» then loops «search the map «лупа» for a
+    target of that kind and level → raise the rally with the next squad», N times over,
+    and «Стоп» interrupts it. A status line narrates each step and the daily per-type cap
     (panel/rally_limits.py) is honoured — a run stops when the «monster» budget for today
     is spent.
 
@@ -689,6 +693,12 @@ class RallyTab:
     status line distinguishes the ways a repeat can come to nothing: no target of that
     level on the map, the squad missing, the «Стягивание» press not bringing up the squad
     screen, the screen refusing the squad, or the launch leaving no banner behind.
+
+    All four choices are remembered in the active profile — :meth:`config` /
+    :meth:`apply_config` are what the panel saves and restores, and :meth:`persist_vars`
+    says which variables a change of has to be written out. The tab used to open on «элита,
+    уровень 1, ни одного отряда» every launch, so the same four fields were set by hand
+    before every single run.
     """
 
     def __init__(self, app, parent):
@@ -698,9 +708,11 @@ class RallyTab:
         self._done = 0             # rallies raised in the current/last run (for the status)
         import tkinter as tk
         self._kind_var = tk.StringVar(master=app, value=RALLY_KIND_ELITE)
-        # The slider writes a float here; `_level()` is the one place that rounds it.
-        self._level_var = tk.DoubleVar(master=app, value=RALLY_LEVEL_MIN)
-        self._level_text = tk_stringvar(app)        # the number shown beside the slider
+        # The box and the quick-pick buttons share this one variable: each button is a
+        # radio whose value is its level, so pressing it writes the number into the box,
+        # and a level typed by hand lights the matching button back up. `_level()` is the
+        # one place that turns whatever it holds into a level.
+        self._level_var = tk.StringVar(master=app, value=str(RALLY_LEVEL_MIN))
         self._repeats_var = tk.StringVar(master=app, value="1")
         self._squad_vars: dict[int, tk.BooleanVar] = {
             s: tk.BooleanVar(master=app, value=False) for s in RALLY_SQUADS}
@@ -729,18 +741,29 @@ class RallyTab:
         lrow = ttk.Frame(form)
         lrow.pack(fill="x", pady=(6, 0))
         self.app._tr(ttk.Label(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
-        # A slider over the whole range, with the level it currently sits on spelled out
-        # next to it — the slider is coarse (200 levels over a few hundred pixels), so the
-        # number is what the player actually reads. Arrow keys nudge it by one.
-        self._level_scale = ttk.Scale(
-            lrow, from_=RALLY_LEVEL_MIN, to=RALLY_LEVEL_MAX, orient="horizontal",
-            length=260, variable=self._level_var, command=self._on_level)
-        self._level_scale.pack(side="left")
-        ttk.Label(lrow, textvariable=self._level_text, width=4,
-                  font=ui_font(weight="bold")).pack(side="left", padx=(8, 0))
+        # A digits-only box for any level in the range, and a button per level a rally is
+        # actually raised on — one press, no dragging. The buttons are radios over the same
+        # variable, so the pressed one is always the level the box holds (and none looks
+        # pressed while the box holds some other level, which is the truth).
+        level_entry = ttk.Entry(lrow, width=5, textvariable=self._level_var,
+                                font=ui_font(weight="bold"))
+        install_numeric_field(level_entry)
+        # Leaving the box writes back the level the run would actually use, so a typed
+        # «999» never sits there while the search goes out on 200 — the reading and the
+        # number on screen are the same thing or the tab is lying about what it will do.
+        level_entry.bind("<FocusOut>", self._normalise_level, add="+")
+        level_entry.bind("<Return>", self._normalise_level, add="+")
+        level_entry.pack(side="left")
         ttk.Label(lrow, text="(%d–%d)" % (RALLY_LEVEL_MIN, RALLY_LEVEL_MAX),
                   foreground="#888").pack(side="left", padx=(6, 0))
-        self._on_level()
+        self.app._tr(ttk.Label(lrow), "rally_tab.level_quick").pack(
+            side="left", padx=(14, 4))
+        self._quick_buttons = {}
+        for quick in RALLY_QUICK_LEVELS:
+            btn = ttk.Radiobutton(lrow, text=str(quick), value=str(quick), width=4,
+                                  variable=self._level_var, style="Toolbutton")
+            btn.pack(side="left", padx=2)
+            self._quick_buttons[quick] = btn
 
         srow = ttk.Frame(form)
         srow.pack(fill="x", pady=(6, 0))
@@ -781,16 +804,23 @@ class RallyTab:
         return kind if kind in RALLY_KINDS else RALLY_KIND_ELITE
 
     def _level(self) -> int:
-        """The slider's level as a whole number, inside the range whatever it holds."""
+        """The level in the box as a whole number, inside the range whatever it holds.
+
+        An empty box, junk, or a profile saved when the level was a slider float ("35.0")
+        all read as a level here rather than as an error — the box is the only thing the
+        run is aimed with, so it always answers with one.
+        """
         try:
             level = round(float(self._level_var.get()))
         except Exception:                          # noqa: BLE001 — TclError on a junk var too
             return RALLY_LEVEL_MIN
         return max(RALLY_LEVEL_MIN, min(RALLY_LEVEL_MAX, level))
 
-    def _on_level(self, _value=None) -> None:
-        """Slider moved: show the level it landed on (the slider itself stays continuous)."""
-        self._level_text.set(str(self._level()))
+    def _normalise_level(self, _event=None) -> None:
+        """Put the level the run would use back into the box (on leaving it / on Enter)."""
+        level = str(self._level())
+        if self._level_var.get() != level:
+            self._level_var.set(level)
 
     def _repeats(self) -> int:
         try:
@@ -800,6 +830,43 @@ class RallyTab:
 
     def _selected_squads(self) -> list:
         return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
+
+    # -- remembering the choices -------------------------------------------
+    def config(self) -> dict:
+        """The tab as it is stored in the profile: read through the same readers the run
+        is aimed with, so what is saved is exactly what «Запустить» would have used."""
+        return {
+            "kind": self._kind(),
+            "level": self._level(),
+            "squads": self._selected_squads(),
+            "repeats": self._repeats(),
+        }
+
+    def apply_config(self, raw) -> None:
+        """Restore the tab from a profile's saved block; anything odd falls back to the
+        default rather than being trusted (a hand-edited config cannot aim a run)."""
+        raw = raw if isinstance(raw, dict) else {}
+        kind = raw.get("kind")
+        self._kind_var.set(kind if kind in RALLY_KINDS else RALLY_KIND_ELITE)
+        level = raw.get("level")
+        if not isinstance(level, (int, float)) or isinstance(level, bool):
+            level = RALLY_LEVEL_MIN
+        level = max(RALLY_LEVEL_MIN, min(RALLY_LEVEL_MAX, int(level)))
+        self._level_var.set(str(level))
+        squads = raw.get("squads")
+        squads = squads if isinstance(squads, list) else []
+        for squad, var in self._squad_vars.items():
+            var.set(squad in squads)
+        repeats = raw.get("repeats")
+        if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 1:
+            repeats = 1
+        self._repeats_var.set(str(repeats))
+
+    def persist_vars(self) -> list:
+        """Every control a change of has to be written to the profile (the panel traces
+        these; the tab itself never saves, so a profile switch can set them quietly)."""
+        return [self._kind_var, self._level_var, self._repeats_var,
+                *self._squad_vars.values()]
 
     # -- start / stop -------------------------------------------------------
     def _launch(self) -> None:
