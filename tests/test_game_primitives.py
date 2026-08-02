@@ -628,6 +628,91 @@ def test_visitor_presses_search_every_queue():
         assert "d.uid, 1) return end" in press, f"the send must stop the scan: {press}"
 
 
+# --- the ministry errand (#1176) --------------------------------------------
+
+def _run_ministry(rluas) -> tuple[bool, FakeEval, list[str]]:
+    """Run actions/apply_ministry_interior.md against scripted READ_LUA answers."""
+    ev = FakeEval(rluas=list(rluas))
+    log: list[str] = []
+    ctx = se.Context(hwnd=0, on_event=log.append, evaluator=ev)
+    return se.run_action("apply_ministry_interior", hwnd=0, ctx=ctx), ev, log
+
+
+def _applied(ev: FakeEval) -> list[str]:
+    """The chunks that actually put an application on the wire."""
+    return [c for c in ev.chunks if "SendKingdomPositionApply" in c]
+
+
+def test_ministry_errand_only_succeeds_when_the_post_was_granted():
+    """#1176: the timer's clock may only restart on an application that took.
+
+    The scheduler moves `last_run` when the scenario returns True and leaves it alone
+    when it returns False, so "reset on success only" is the recipe's job: every ending
+    that did not seat us at the post has to be a FAILURE. The reading that decides it is
+    the post held after the press — the server grants an accepted application straight
+    away, so a round trip later it either is 10007 or the request did not take.
+    """
+    # Granted: no post held, the client's pre-flight open, 10007 on the first poll.
+    ok, ev, _log = _run_ministry([0, 1, 10007])
+    assert ok is True, "an application that seated us must count as a run"
+    assert len(_applied(ev)) == 1, ev.chunks
+
+    # Granted a beat late: the poll waits for the answer instead of calling it a failure.
+    ok, ev, _log = _run_ministry([0, 1, 0, 0, 10007])
+    assert ok is True, "a slow reply was written off as a refusal"
+
+    # Sent and refused: the press went out, the post never changed hands.
+    ok, ev, _log = _run_ministry([0, 1, 0, 0, 0, 0])
+    assert ok is False, "a refused application must not restart the clock"
+    assert len(_applied(ev)) == 1, ev.chunks
+
+    # Already ours: nothing to ask for — a clean success, and no request sent.
+    ok, ev, _log = _run_ministry([10007])
+    assert ok is True and not _applied(ev), ev.chunks
+
+
+def test_ministry_errand_sends_nothing_while_another_post_is_held():
+    """«has position»: the server refuses a second application, and the client won't say so.
+
+    `CheckCanApply` answers **true** with a post already in hand — live, holding 10005 it
+    said yes and the server came back `errorCode E000000, errorMsg "has position"`. Every
+    such request is a wasted round trip and a toast in the player's face (the same trap as
+    the resource-collect readiness gate), so the recipe reads the held post FIRST and
+    fails without pressing.
+    """
+    ok, ev, _log = _run_ministry([10005])
+    assert ok is False, "holding another post is a failed errand, not a quiet success"
+    assert not _applied(ev), "an application was sent while another post was held"
+
+    # The gate is state, not the client's pre-flight: the post read comes before the
+    # CheckCanApply read, so a `true` from it can never let the request through.
+    reads = [c for c in ev.chunks if "GetOwnPositionId" in c]
+    assert reads, ev.chunks
+    assert not [c for c in ev.chunks if "CheckCanApply" in c], \
+        "the pre-flight was consulted before the held-post gate: %r" % (ev.chunks,)
+
+
+def test_ministry_errand_respects_the_clients_own_pre_flight():
+    """A closed post / an apply cooldown ends the errand before the press, as a failure."""
+    ok, ev, _log = _run_ministry([0, 0])
+    assert ok is False and not _applied(ev), ev.chunks
+
+
+def test_ministry_own_position_reading_is_numeric_and_shared():
+    """The recipe and the library must read the held post the same way."""
+    import lua_actions as la
+
+    expr = la.ministry_own_position()
+    assert "GetOwnPositionId" in expr and "self_positionId" in expr
+    assert "tonumber" in expr, "IF post == 10007 needs a number, not '10007'"
+    path = se.resolve_action("apply_ministry_interior")
+    assert path is not None, "actions/apply_ministry_interior.md is missing"
+    source = path.read_text(encoding="utf-8")
+    assert source.count(expr) == 2, "the recipe reads the post before AND after the press"
+    assert la.ministry_can_apply(10007) in source, \
+        "the pre-flight expression drifted from lua_actions"
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

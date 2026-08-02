@@ -195,6 +195,69 @@ READ_LUA (function() local n=0 for _ in pairs(DataCenter.OfficialApplyManager:Ge
 `lua_actions.ministry_can_apply / ministry_queue_len / ministry_held_minutes` build those
 expressions, so a recipe and the CLI never drift apart.
 
+## The third trap: `CheckCanApply` says yes with a post already in hand
+
+The commander gate above is not the only hole in the client's pre-flight. Holding a post
+does not close it either:
+
+```
+GetOwnPositionId()      -> 10005      -- Министр строительства, held for two minutes
+CheckCanApply('10007')  -> true       -- confident, and wrong again
+```
+
+Sending it anyway, with `SFSNetwork.SendMessage` and the reply class wrapped:
+
+```
+SEND  kingdom.position.apply
+REPLY errorCode = E000000
+      errorMsg  = "has position"
+```
+
+Nothing moved: the holder of `10007` stayed who it was, `self_positionId` stayed `10005`,
+and `ownApplyTimeList['10007']` was not touched. So the request is a round trip spent to
+earn the player a toast — the resource-collect trap for the third time. The post held is
+therefore read *first*, before the pre-flight, and an application is not sent while one is
+in hand (`lua_actions.ministry_own_position`).
+
+That also settles what "the application went through" means without a hook on the reply.
+Where the President has the server grant applications automatically — every server seen so
+far — an accepted application seats the applicant at once, so one round trip after the
+press the held post either is the one asked for or the request did not take. Both
+directions are recorded live: `0` → `10007` in the verification above, and unmoved at
+`10005` here.
+
+`GetApplyListOwnIndex(id)` looked like the reading for the queued case and is not one:
+live it answered `1` for `10002` while the only name in that post's queue was another
+player's. It is a view index, not a place in the queue.
+
+## Applying on a schedule (the panel's timer)
+
+`actions/apply_ministry_interior.md` is the scheduled form of the press, and
+`apply_ministry_interior` in the panel's Timers tab runs it every 30 minutes. Off by
+default, like every other errand.
+
+The one rule that shapes it: **the clock restarts on a granted application and on nothing
+else.** The scheduler moves `last_run` when a scenario finishes clean and leaves it alone
+when the scenario fails, so every ending that did not seat us at the post has to be a
+FAIL — otherwise a timer that has never once applied looks exactly like one that keeps
+succeeding. Four endings:
+
+| after the run | ending | why |
+|---|---|---|
+| the post is ours already | success | nothing to ask for; look again in half an hour |
+| another post is held | FAIL, nothing sent | the server refuses («has position») |
+| `CheckCanApply` closed | FAIL, nothing sent | cooldown, or the post is closed |
+| pressed, post not granted | FAIL | the application did not take |
+
+Half an hour is also the period after a failure (`retry_sec` = `interval_sec` = 1800), so
+a refused attempt is made again on the same cadence rather than sitting out a longer
+hold. It is a period worth knowing the neighbours of: `GetResignOfficeTime()` is `1801` s,
+the minimum time in office.
+
+«Another post is held» is a standing condition, not a transient one — it only clears when
+that post is lost or given up — so the errand will keep failing, with the reason in the
+log, until the account is free to take a new one.
+
 ## Not done
 
 * **Appointment notification** — `push.*` for "you were appointed" was not isolated;

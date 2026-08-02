@@ -362,6 +362,28 @@ def ministry_can_apply(position_id: int) -> str:
     return "(%s and 1 or 0)" % _ministry_gate(position_id)
 
 
+def ministry_own_position() -> str:
+    """Lua *expression* -> the id of the post you hold right now, `0` when none.
+
+    The one reading that says whether an application went through: the server grants an
+    accepted application straight away, so a round trip later the held post either is the
+    one asked for or the request did not take. Proven both ways —
+    `0` -> `10007` on the application recorded in docs/research/ministry.md, and unmoved
+    at `10005` when the server answered `errorMsg "has position"`.
+
+    It is also the reading that says an application must NOT be sent at all: the server
+    refuses one from a player who already holds a post, and `CheckCanApply` does not
+    cover that (it answers `true` while a post is held). Without the check the request
+    leaves the client, is rejected, and the player gets a toast for it.
+
+    Numeric, so a recipe can test it with the ordinary `IF post == 10007` conditions.
+    """
+    return ("(function() local ok, p = pcall(function() "
+            "return DataCenter.OfficialApplyManager:GetOwnPositionId() end) "
+            "if not ok or p == nil then p = DataCenter.GovernmentManager.self_positionId end "
+            "return tonumber(p) or 0 end)()")
+
+
 def ministry_queue_len(position_id: int) -> str:
     """Lua *expression* -> how many players are queued for `position_id`.
 

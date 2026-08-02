@@ -31,8 +31,16 @@
 # depends on the queue and on how long its current holder has sat — both readable
 # without any window (tools/ministry.py, or straight from a scheduling recipe):
 #
-#     READ_LUA (DataCenter.OfficialApplyManager:CheckCanApply(10007) and 1 or 0) INTO can
-#     READ_LUA (function() local i=DataCenter.GovernmentManager:GetPositionInfoByPositionId(10007) if not i or not i.appointTime or i.appointTime==0 then return -1 end return (UITimeManager.Instance:GetSocketTime()-i.appointTime)/60000 end)() INTO held
+#     READ_LUA (DataCenter.OfficialApplyManager:CheckCanApply('10007') and 1 or 0) INTO can
+#     READ_LUA (function() local i=DataCenter.GovernmentManager:GetPositionInfoByPositionId('10007') if not i or not i.appointTime or i.appointTime==0 then return -1 end return (UITimeManager.Instance:GetSocketTime()-i.appointTime)/60000 end)() INTO held
+#
+# (Note the QUOTES. Position ids are strings everywhere in the apply manager, and the
+# number form answers a confident, wrong `false` — the trap that cost this recipe its
+# first shipped-but-dead run.)
+#
+# For the scheduled form of this — «keep asking for Minister of the Interior until it is
+# ours» — see apply_ministry_interior.md: same press, plus the gate and the after-the-fact
+# check a timer needs to tell an application that went through from one that did not.
 #
 # Do NOT chain several posts in one run on a server that queues applicants instead of
 # granting them: the gate only closes once a post is actually held, so every line would

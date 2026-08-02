@@ -430,6 +430,7 @@
   "timers.hint": "A ticked errand runs itself once its period has passed; the clock survives a restart — an hour that elapsed with the panel shut fires shortly after it opens. Nothing fires with the game closed; a failed run is not counted and is retried; two errands due at the same moment take their turn rather than going together. The list belongs to the profile: edit it with the buttons below — «⟳» re-reads the file if you edited it outside.",
   "timers.in_span": "in {span}",
   "timers.item.alliance_upkeep": "Alliance: donate, then claim the gifts",
+  "timers.item.apply_ministry_interior": "Apply for Minister of the Interior",
   "timers.item.collect_base_resources": "Collect the base's resources",
   "timers.item.collect_truck_resources": "Collect the base truck's resources",
   "timers.item.collect_visitor_gifts": "Collect a visiting survivor's gifts",

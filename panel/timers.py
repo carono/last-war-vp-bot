@@ -227,6 +227,20 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         enabled=False,
         label_key="timers.item.recruit_survivors",
     ),
+    Timer(
+        name="apply_ministry_interior",
+        scenario=("apply_ministry_interior",),
+        # Half an hour, and the retry is the same half hour on purpose. The recipe ends
+        # as a FAILURE whenever the application did not go through (another post in hand,
+        # the client's pre-flight closed, the server did not seat us), so `last_run` only
+        # moves on a real application — which is exactly the asked-for behaviour: the
+        # clock restarts on success and on nothing else, and a refused attempt is made
+        # again in half an hour rather than sitting out a longer hold.
+        interval_sec=1800,
+        retry_sec=1800,
+        enabled=False,
+        label_key="timers.item.apply_ministry_interior",
+    ),
 )
 
 

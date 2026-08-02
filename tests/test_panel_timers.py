@@ -51,6 +51,7 @@ from panel import timers as timersmod  # noqa: E402
 
 BASE = "collect_base_resources"
 ALLY = "alliance_upkeep"          # donate, then claim the gifts
+MINISTRY = "apply_ministry_interior"   # ask for the Minister of the Interior post
 
 
 def _catalogue():
@@ -348,6 +349,58 @@ def test_new_default_timers_carry_a_retry():
     cat = _catalogue()
     for name in ("collect_truck_resources", "collect_visitor_gifts", "recruit_survivors"):
         assert cat.by_name(name).retry_sec == 300, name
+
+
+def test_the_ministry_errand_is_half_hourly_either_way():
+    """#1176: apply for the Minister of the Interior post every 30 minutes.
+
+    The two periods are deliberately the same 1800 s: the wait after a successful
+    application, and the hold after a refused one. `retry_sec` is what stops a scenario
+    that fails on a standing condition (another post already held) from re-firing every
+    tick, and here the answer to "how soon should we try again" is the same half hour
+    whichever way the last attempt went.
+    """
+    t = _catalogue().by_name(MINISTRY)
+    assert t is not None, "the built-in catalogue has no ministry errand"
+    assert t.scenario == (MINISTRY,), t.scenario
+    assert (t.interval_sec, t.retry_sec) == (1800, 1800), t
+    assert t.enabled is False, "asking for a post is opt-in, like every other errand"
+    # A profile that has never seen the errand is seeded with it, whole — the entry is
+    # only a name and a scenario in the file, and everything else falls back to here.
+    seeded = timersmod.parse_catalogue([{"name": MINISTRY, "scenario": MINISTRY}])
+    assert (seeded.by_name(MINISTRY).interval_sec,
+            seeded.by_name(MINISTRY).retry_sec) == (1800, 1800), seeded.by_name(MINISTRY)
+
+
+def test_only_a_successful_application_restarts_the_ministry_clock():
+    """A refused application keeps its place in the queue — it never counts as a run.
+
+    The recipe FAILs on every ending that did not seat us at the post, so the timer sees
+    a raise: `last_run` stays where it was and the errand is tried again half an hour
+    later, not an hour, and not a day. The failing case is the ordinary one here — while
+    another ministry post is held the server refuses every application — so a clock that
+    reset on it would look like a working timer that never once applied.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    s = _Scheduler(tmp, _cfg(**{MINISTRY: 1800}),
+                   outcome=RuntimeError("another ministry post is held"))
+    now = time.time()
+    assert s.sched.tick_once(now=now) == []
+    assert s.ran == [MINISTRY], s.ran
+    assert s.store.last_run(MINISTRY) == 0.0, "a refused application counted as a run"
+
+    # Just under half an hour later: still nothing, the hold has not run out.
+    assert s.sched.tick_once(now=now + 1799) == []
+    assert s.ran == [MINISTRY], "re-applied inside the half-hour hold: %r" % (s.ran,)
+
+    # Half an hour later it asks again — and a granted application starts the clock.
+    s.outcome = True
+    assert s.sched.tick_once(now=now + 1801) == [MINISTRY], s.ran
+    assert s.store.last_run(MINISTRY) > 0, s.store.records()
+    assert s.store.records()[MINISTRY]["failed_at"] == 0.0, s.store.records()
+
+    # …and having applied, it sits out its own period rather than asking again at once.
+    assert s.sched.tick_once() == [], s.ran
 
 
 def test_a_busy_panel_delays_the_errand_but_never_loses_it():
