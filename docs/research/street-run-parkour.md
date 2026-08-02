@@ -1955,18 +1955,20 @@ the runner's own lane beyond it, a clear lane beside it — asked at four height
 no height at all. What it watches is not which way the planner wants to go, which is the same
 every time, but `az`, the bucket the manoeuvre is scheduled at: only `az == 0` is issued.
 
-### The live run: four attempts, and the first human-height step-down
+### The live run: five attempts, and the first human-height step-down
 
-Four attempts, 2026-08-02, main account, single lives, no revives, no tuning applied (the
+Five attempts, 2026-08-02, main account, single lives, no revives, no tuning applied (the
 learner's `padExtra=4.0` was scored and rejected before every one of them, so this is the
-committed planner and nothing else). Attempts 29 → 25.
+committed planner and nothing else). Attempts 29 → 24.
 
     1341 m   wall — TrapSaw03, walled in with reach=0, three lanes shut
     1070 m   unknown
      288 m   ramp_head_on — chexiangxiepo_4
     1062 m   unknown  <- the one that matters
+     734 m   unknown, and the same shape: a change issued at 732.8 off the left roof,
+             dead at 734.5 at x=33.98, mid-crossing
 
-For scale, v45's single attempt earlier the same day was 976 m. Four attempts against one is
+For scale, v45's single attempt earlier the same day was 976 m. Five attempts against one is
 not a verdict on the change and is not offered as one.
 
 **The fourth attempt is the measurement.** Its frame log has the whole manoeuvre:
@@ -1992,16 +1994,60 @@ ran out at 1052.5; a ramp body in the centre lane, `chexiangxiepo_3` anchored at
 runner stepped into was a ramp's flank for the whole of the crossing. A side entry onto a
 ramp kills — that is what
 `sideOnly` is, and `freeEnter` on the entering lane is supposed to refuse the move on it. It
-did not refuse it, and *that* is the fault to chase next: either the flank was not in the
-block at all, or the change was taken by the roof-to-roof branch (the centre ramp carries a
-roof over exactly that span, and `freeAt(t, 1, ...)` does not consult `side`), which would let
-a runner in mid-air cross into a body it cannot enter.
+did not refuse it — and the reason is not the one it looks like. **It was not the step-down at
+all.**
 
-Read against #1165 the two deaths are the same event at two heights: 4.20 and 2.78, both in
-the first two metres of a sideways step off a roof end, both with the death classifier naming
-either nothing at all or a body the planner ignores by design. The gate is worth keeping —
-the move is now made the way a person makes it — but it does not buy the manoeuvre, and no
-run should be read as having proven it until one survives it.
+The field is frozen in the death record, so the frame can be handed straight back to the
+planner. Asked the same question at a range of heights, v46 answers the same way at every one
+of them:
+
+    py=4.30 -> act=right az=0        -- the step-down gate is SHUT here
+    py=3.60 -> act=right az=0
+    py=2.78 -> act=right az=0        -- what the runner was actually at
+    py=2.10 -> act=right az=0
+
+At 4.30 the step-down flag is false by construction, so the only branch that can produce a lane
+change from up on a roof is **roof-to-roof** — and that is the branch that issued it. Two
+things had to line up for it, and both are worth naming.
+
+*The lane it was leaving was roofed only in the model.* `onRoof` is a threshold on `y` and
+nothing else (`y > cfg.roofY`, 2.0), so a runner in free fall off the end of a roof still reads
+as up there for the whole 13.6 m of the descent. And when it reads as up there, the roof build
+takes the first carriage in its own lane — `autoStart`, whose only test is that the body's FAR
+end is not behind the runner — as the carriage it must be standing on, and fills the roof in
+from bucket 0 to that body's near end. At 1060.2 the first body in the left lane was the ramp
+at **1075 → 1108**, fifteen metres ahead. So the DP was handed fifteen metres of roof over
+open tarmac, which is exactly where the runner was falling.
+
+*The lane it was entering was a ramp.* A ramp's roof span is its whole body, 1055.3 → 1080,
+while the thing itself is a slope whose surface at 1061.8 is about a metre off the ground. The
+runner was 2.3 up and 3 m above the "roof" it was crossing onto. The game charged it as what it
+was: a body entered from the side.
+
+Neither of those is wrong on its own terms — `autoStart` is how a runner keeps its roof when
+the carriage under it has scrolled out of the 50 m look-back, and a ramp really is roof to
+someone already up on it. What is wrong is applying them to a runner in mid-air. The height is
+the only thing that tells the two apart, and the same number already in the planner does it.
+
+So the fix is that reading turned the other way round (**v47**): a crossing along the roofs is
+a move for a runner with a roof under its feet, so while `falling` is true — the start state,
+on a roof by the threshold, below `cfg.stepDownY` — the roof-to-roof branch is refused and the
+step-down is the only lane change on offer. One number splits the two. Walked down the same
+fall frame by frame, that is the whole difference:
+
+    z=1060.2 y=2.92  v46: act=right az=0  (issued -> dead)   v47: az=1
+    z=1060.7 y=2.73  v46: az=0                               v47: az=1
+    z=1061.7 y=2.33                                          v47: az=1
+    z=1062.7 y=1.87  on the road now                         v47: az=30, i.e. past the ramp
+
+Under v47 nothing is issued through the descent; the runner lands in the left lane, which is
+empty from the end of its roof to 1075, and crosses 26 buckets later where the centre lane is
+actually clear.
+
+Read against #1165 the two deaths are the same event at two heights, 4.20 and 2.78, both in
+the first two metres of a sideways move off the end of a roof — and neither of them was the
+manoeuvre the height gate was built for. What both were is the planner acting on `onRoof`
+while the runner was in the air with nothing under it.
 
 ### What the gate costs offline, and why the number is not the argument
 
@@ -2025,11 +2071,18 @@ after this change is a planner without the step-down, which is why seeds 1 and 3
 in `tests/test_street_run_routes.py` as measured floors with their ceilings recorded beside
 them rather than as ceilings the planner is expected to reach.
 
+### v47: the falling runner keeps the step-down and loses the crossing
+
+    per-band, three start lanes    141/144   unchanged
+    twelve drawn routes + run_002  every floor held (2/2)
+    the fatal frame                nothing issued at any point of the fall
+
 Three things follow, in the order they are worth doing:
 
-* **The entering lane, mid-fall.** Why a change into a ramp flank was legal at 1060.2 — the
-  question above. It is the only one of the two live deaths with a body standing where the
-  runner went, so it is the one that can be answered without another attempt.
+* **A ramp is a slope, not a plateau.** Its roof span is its whole body at full height, which
+  is why the crossing above looked legal at all and why a run can plan to be standing 4 m up on
+  ground that is 1 m up. Height along a ramp is a one-line model — near end at 0, far end at
+  4.30 — and it would make both the roof-to-roof test and the mount honest.
 * **The fall as a state.** The judge has no airborne-after-a-roof-end state and the DP has no
   bucket for one, so between them they cannot represent the move at all except at bucket 0 of
   a live frame. Giving the judge the descent (level survives, height decays at g = 42, ground

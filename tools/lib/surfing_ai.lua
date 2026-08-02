@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 46
+AI.version = 47
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -642,13 +642,17 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
     end
   end
   local lev0 = onRoof and 1 or 0
-  -- Is the runner ALREADY on its way down off the end of a roof? Only the start state can be:
-  -- every level-1 state the search reaches was relaxed into over a bucket with roof under it,
-  -- i.e. a plateau at cfg.roofTop, so the height is knowable everywhere else without measuring
-  -- it. That is why the step-down is offered at bucket 0 and nowhere ahead — not a gate the
-  -- planner keeps and the issuing frame drops, but a move it never plans and only ever takes
-  -- when the height says it is there. A route is never laid through one.
-  local stepDown = (lev0 == 1) and (py ~= nil) and (py < cfg.stepDownY)
+  -- Is the runner ALREADY on its way down off the end of a roof? `onRoof` cannot tell: it is a
+  -- threshold on y and nothing more, so it stays true through the whole 13.6 m of the fall and
+  -- the DP is asked to plan as if there were a floor. The height can. And only the START state
+  -- can be in that condition: every level-1 state the search relaxes into was reached over a
+  -- bucket with roof under it, i.e. a plateau at 4.30, so the height is known everywhere ahead
+  -- without measuring it. Hence a flag about bucket 0 alone — it decides which of the two
+  -- roof-level lane changes exists this frame, and neither is ever laid into a route ahead:
+  --   falling      -> the step-down, and nothing else (it lands on the road, so the road is
+  --                   what it is checked against)
+  --   on the plateau -> the crossing along the roofs, and nothing else
+  local falling = (lev0 == 1) and (py ~= nil) and (py < cfg.stepDownY)
   local start = (0 * 3 + lane0) * 2 + lev0
   cost[start] = 0
   fact[start] = 0
@@ -744,19 +748,30 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
           -- runner already falling off the end of a roof (y 2.0..3.2 in all seven recordings),
           -- not by one at plateau height with the roof end a couple of metres either side. The
           -- first live run to try it did the latter — the change went out at y = 4.20, and it
-          -- was dead 4 m later, still 3.5 up and still moving across (#1165). `stepDown` is that
+          -- was dead 4 m later, still 3.5 up and still moving across (#1165). `falling` is that
           -- reading, and it is only ever true at bucket 0: see the note where it is taken.
           for d = -1, 1, 2 do
             local t = l + d
             local ok
             local lvT = lev
             if t < 0 or t > 2 then ok = false
-            elseif lev == 1 and i == 0 and stepDown and not roofB[l][i + SWH] then
+            elseif lev == 1 and i == 0 and falling and not roofB[l][i + SWH] then
               -- the roof under the runner runs out before the handover, so by the time the
               -- entering lane is charged the runner is on the road: this is a ground change
               -- begun up on a carriage, and it lands at ground level
               ok = freeDown(l, i + 1, i + SWH) and freeEnter(t, i + SWH, i + SW)
               lvT = 0
+            elseif lev == 1 and i == 0 and falling then
+              -- ... and the same reading the other way round, which is what killed the first run
+              -- under the gate above (#1166). A crossing ALONG the roofs is made at roof height
+              -- by a runner with a roof under its feet. `onRoof` is only a threshold on y, so a
+              -- runner in free fall off the end of one is still "up there" to everything here —
+              -- and at 1060.2, 8 m past the end of its roof and 2.78 up, the DP planned a
+              -- roof-to-roof change onto the roof span of a RAMP, whose surface at that z is a
+              -- metre off the ground. The game charged it as what it was, a body entered from
+              -- the side, and the run ended 1.6 m later. So a falling runner gets the step-down
+              -- and nothing else: the two branches split on one number, `cfg.stepDownY`.
+              ok = false
             elseif lev == 1 then
               -- The lane being entered has to be roofed for the WHOLE sweep, not just the half
               -- it owns: a runner crossing at roof height needs something under it the whole
