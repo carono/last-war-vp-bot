@@ -92,6 +92,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import debug_log
+from .i18n import Message
 from .profile import _write_json
 
 # Component debug logger (panel/debug_log.py) — the panel wires the rotating file
@@ -480,28 +481,36 @@ def parse_catalogue(data, path: str | None = None,
         data = data.get("timers")
     if not isinstance(data, list):
         return Catalogue(fallback_timers, path,
-                         ["config is not a list of timers — using the defaults"])
+                         [Message("log.timers.not_a_list",
+                                   "config is not a list of timers — using the defaults")])
 
     builtin = {timer.name: timer for timer in DEFAULT_TIMERS}
     builtin.update({timer.name: timer for timer in fallback_timers})
     timers, errors, seen = [], [], set()
     for index, raw in enumerate(data):
         if not isinstance(raw, dict):
-            errors.append(f"entry #{index + 1} is not an object — skipped")
+            errors.append(Message("log.timers.not_an_object",
+                                  f"entry #{index + 1} is not an object — skipped",
+                                  n=index + 1))
             continue
         name = str(raw.get("name") or "").strip()
         if not name:
-            errors.append(f"entry #{index + 1} has no name — skipped")
+            errors.append(Message("log.timers.no_name",
+                                  f"entry #{index + 1} has no name — skipped",
+                                  n=index + 1))
             continue
         if name in seen:
-            errors.append(f"{name}: listed twice — the later entry is ignored")
+            errors.append(Message("log.timers.twice",
+                                  f"{name}: listed twice — the later entry is ignored",
+                                  name=name))
             continue
         base = builtin.get(name)
         scenario = _as_scenario(raw.get("scenario"))
         if not scenario:
             scenario = base.scenario if base else ()
         if not scenario:
-            errors.append(f"{name}: no scenario to run — skipped")
+            errors.append(Message("log.timers.no_scenario",
+                                  f"{name}: no scenario to run — skipped", name=name))
             continue
         args = raw.get("args")
         timers.append(Timer(
@@ -526,7 +535,8 @@ def parse_catalogue(data, path: str | None = None,
         # kinder reading of it. The complaints above say which it was.
         if not errors:
             return Catalogue((), path)
-        errors.append("no usable timers in the config — using the defaults")
+        errors.append(Message("log.timers.none_usable",
+                              "no usable timers in the config — using the defaults"))
         return Catalogue(fallback_timers, path, errors)
     return Catalogue(timers, path, errors)
 

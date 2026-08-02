@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 
+from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
@@ -119,14 +120,18 @@ class Schedule:
         path = self.rt.profiles.timers_json()
         self.timer_catalogue = timersmod.load_profile_catalogue(path)
         for problem in self.timer_catalogue.errors:
-            self.rt.put(f"[timer] {repo_rel(path)}: {problem}")
+            # The problem knows its own locale key (panel/i18n.Message): the tag and
+            # the path are not words, the sentence after them is.
+            self.rt.put(f"[timer] {repo_rel(path)}: "
+                        f"{i18nmod.translated(self.rt.t, problem)}")
 
     def load_triggers(self) -> None:
         """The same for the trigger catalogue, seeded from its own template."""
         path = self.rt.profiles.triggers_json()
         self.trigger_catalogue = triggersmod.load_profile_catalogue(path)
         for problem in self.trigger_catalogue.errors:
-            self.rt.put(f"[trigger] {repo_rel(path)}: {problem}")
+            self.rt.put(f"[trigger] {repo_rel(path)}: "
+                        f"{i18nmod.translated(self.rt.t, problem)}")
 
     def timer_config(self) -> dict:
         """The timers' switches and periods — off the widgets when there are any.

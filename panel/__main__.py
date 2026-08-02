@@ -966,6 +966,16 @@ class Panel(tk.Tk):
         self._rebind_daemon()                 # …and so does the client it drives
         self._sync_monitors()                 # restart captures into the new profile's logs
 
+    def _error_text(self, exc: Exception) -> str:
+        """A refusal in the person's language when it named itself, its own words if not.
+
+        The profile store is UI-agnostic and raises `ValueError`; what it raises carries
+        a locale key (`panel/i18n.Message`), because «profile already exists: main» in a
+        Russian panel is the message not being translated at all. Anything else — an
+        `OSError` from the filesystem, say — is shown as it came.
+        """
+        return i18nmod.translated(self._t, exc)
+
     def _create_profile(self) -> None:
         name = simpledialog.askstring(self._t("profile.new"),
                                       self._t("profile.prompt_name"), parent=self._profile_dialog_parent())
@@ -974,7 +984,8 @@ class Panel(tk.Tk):
         try:
             created = self._profiles.create(name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.new"), str(exc), parent=self._profile_dialog_parent())
+            messagebox.showerror(self._t("profile.new"), self._error_text(exc),
+                                 parent=self._profile_dialog_parent())
             return
         # Seed the new profile with the current settings so it starts from a sane state.
         self._profiles.save(self._collect_settings(), created)
@@ -991,7 +1002,8 @@ class Panel(tk.Tk):
         try:
             newn = self._profiles.rename(cur, name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.rename"), str(exc), parent=self._profile_dialog_parent())
+            messagebox.showerror(self._t("profile.rename"), self._error_text(exc),
+                                 parent=self._profile_dialog_parent())
             return
         self._refresh_profile_combo(select=newn)
         # The directory moved under the schedule's feet: re-point both files, or
@@ -1012,7 +1024,8 @@ class Panel(tk.Tk):
         try:
             now_active = self._profiles.delete(cur)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.delete"), str(exc), parent=self._profile_dialog_parent())
+            messagebox.showerror(self._t("profile.delete"), self._error_text(exc),
+                                 parent=self._profile_dialog_parent())
             return
         self._refresh_profile_combo(select=now_active)
         self._settings = self._profiles.load()

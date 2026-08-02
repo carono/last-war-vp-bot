@@ -385,7 +385,7 @@ class ScenariosTab(PanelTab):
             return
         resolved = self.rt.actions.resolve(name)
         if resolved is None:
-            self.rt.put(f"[action] {name}: not found")
+            self.say("action", "scenarios.not_found", name=name)
             return
         path = str(resolved)
         try:

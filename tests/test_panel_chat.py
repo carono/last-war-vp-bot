@@ -209,7 +209,11 @@ def test_dm_room_paging():
 # --- history is per character, not per profile -----------------------------
 
 def test_chat_db_path_is_per_character():
-    import profile as prof
+    # THROUGH THE PACKAGE. A bare `import profile` reached this module only because
+    # `panel/` happens to be on sys.path — it shadows the standard library's `profile`,
+    # and it loads the file outside its package, so the first relative import inside it
+    # fails with "no known parent package". Every other test already spells it this way.
+    from panel import profile as prof
     with tempfile.TemporaryDirectory() as tmp:
         old = prof.PROFILES_DIR
         prof.PROFILES_DIR = tmp

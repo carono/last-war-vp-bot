@@ -1,10 +1,22 @@
-r"""A language is a FILE — there is no list of languages in the code (#1199).
+r"""The words of the panel: where they live, and that none of them live anywhere else.
 
-The Language menu used to be built from a table in `panel/i18n.py`, so a locale file
-somebody added by hand was loadable and invisible: nothing offered it. Now the menu is
-the locales directory — the code stem from the file name, the label from the file's own
-`language.name` — and that is what these tests pin, by dropping a locale into the real
-directory and asking whether it turned up.
+Two rules, both binding (`CLAUDE.md`, «Not one word of the panel is written in the
+panel»), and this file is what enforces them:
+
+* **Nothing a person reads is a literal.** A label, a button, a menu entry, a dialog —
+  all of them name a locale key and the runtime says it. `test_no_hardcoded_text_…`
+  walks the source of every module under `panel/` and fails on the first translatable
+  string handed to a widget.
+* **A key is in EVERY shipped locale, translated.** English silently covers a locale
+  that is behind, so a half-translated tab looks exactly like a finished one;
+  `test_every_shipped_locale_…` compares the key sets both ways.
+
+And the older rule this file was written for (#1199): a language is a FILE — there is no
+list of languages in the code. The Language menu used to be built from a table in
+`panel/i18n.py`, so a locale file somebody added by hand was loadable and invisible:
+nothing offered it. Now the menu is the locales directory — the code stem from the file
+name, the label from the file's own `language.name` — and that is pinned here too, by
+dropping a locale into the real directory and asking whether it turned up.
 
 Needs no Tk and no display: this is the JSON layer.
 
@@ -15,6 +27,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -25,6 +38,51 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from panel import i18n  # noqa: E402
+
+
+def _shipped() -> dict[str, dict]:
+    """Every locale the repository ships, read from disk: `{lang: table}`."""
+    out = {}
+    for path in sorted(Path(i18n.LOCALES_DIR).glob("*.json")):
+        out[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+    return out
+
+
+#: Every module that can put a word in front of a person.
+def _panel_sources():
+    for path in sorted((_REPO / "panel").rglob("*.py")):
+        if "__pycache__" in path.parts or "profiles" in path.parts:
+            continue
+        yield path
+
+
+#: A locale key: dotted, lower-case, no spaces. Used to tell a key from a sentence.
+_KEYISH = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)+$")
+
+#: Where the first argument (or the named one) is a locale key: `t(key)`, `tr(w, key)`,
+#: `say(tag, key)`. The number is which positional argument holds it.
+_KEY_AT = {"t": 0, "_t": 0, "tr": 1, "_tr": 1, "say": 1, "_say": 1}
+
+
+def _keys_asked_for_in_code() -> set[str]:
+    """Every locale key the panel names as a literal, plus its `*_KEY` class attributes."""
+    found: set[str] = set()
+    for path in _panel_sources():
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+                at = _KEY_AT.get(name)
+                if at is not None and len(node.args) > at:
+                    arg = node.args[at]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        found.add(arg.value)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (isinstance(target, ast.Name) and target.id.endswith("_KEY")
+                            and isinstance(node.value, ast.Constant)
+                            and isinstance(node.value.value, str)):
+                        found.add(node.value.value)
+    return {k for k in found if _KEYISH.match(k)}
 
 
 class _extra_locale:
@@ -51,6 +109,67 @@ class _extra_locale:
         return False
 
 
+def test_every_key_the_code_asks_for_exists_in_every_locale():
+    """The other direction: a key the panel renders but no locale defines.
+
+    `t` falls back to the key itself, so the person reads «tab.mything» off the tab
+    strip. Only the keys spelled as literals can be checked from here — the ones built
+    at run time (`"cmdpost.tab." + key`) are each covered by their own tab's test.
+    """
+    shipped = _shipped()
+    asked = _keys_asked_for_in_code()
+    assert len(asked) > 300, f"the scanner found only {len(asked)} keys — it is broken"
+    for lang, table in sorted(shipped.items()):
+        missing = sorted(k for k in asked if k not in table)
+        assert not missing, f"{lang}.json does not define {missing[:12]}"
+
+
+def test_a_refusal_worded_far_from_the_ui_is_still_translated():
+    """Not every string starts life next to a translator.
+
+    The profile store refuses a duplicate name; the timers catalogue makes no sense of a
+    hand-edited entry. Both modules are deliberately UI-agnostic, so what reached the
+    person used to be whatever English they raised — «profile already exists: main» in a
+    Russian dialog. `Message` carries the locale key alongside the English, and
+    `translated()` is what the dialog and the log call.
+    """
+    from panel import profile as profilemod
+    from panel import timers as timersmod
+
+    ru, en = i18n.I18n("ru").t, i18n.I18n("en").t
+
+    # It IS the English string — every consumer that had a `str` is untouched…
+    msg = i18n.Message("profile.error.exists", "profile already exists: main",
+                       name="main")
+    assert msg == "profile already exists: main"
+    assert "already exists" in msg
+    # …and it says itself in the panel's language when something asks it to.
+    assert i18n.translated(ru, msg) == ru("profile.error.exists", name="main")
+    assert "main" in i18n.translated(ru, msg)
+    assert i18n.translated(ru, msg) != i18n.translated(en, msg)
+
+    # Raised, caught, and shown — the path `Panel._error_text` takes.
+    try:
+        profilemod.ProfileManager().create("")
+    except ValueError as exc:
+        assert i18n.translated(ru, exc) == ru("profile.error.empty_name")
+    else:
+        raise AssertionError("an empty profile name was accepted")
+
+    # A plain exception carries no key and is shown as it came — an OSError from the
+    # filesystem must not turn into a locale key nobody has.
+    assert i18n.translated(ru, OSError("disk on fire")) == "disk on fire"
+    assert i18n.translated(ru, "already words") == "already words"
+
+    # And the catalogue's complaints, which reach the log the same way.
+    bad = timersmod.parse_catalogue([{"name": ""}], "timers.json")
+    assert bad.errors, "a nameless entry must be complained about"
+    for problem in bad.errors:
+        said = i18n.translated(ru, problem)
+        assert said != str(problem), f"{problem!r} reached the log untranslated"
+        assert said == ru(problem.key, **problem.fmt)
+
+
 def test_there_is_no_table_of_languages_in_the_code():
     """The whole point: the panel must not carry a list to keep in step with the
     directory. Not just the old name — any literal `{"en": …, "ru": …}` is the same
@@ -73,15 +192,93 @@ def test_there_is_no_table_of_languages_in_the_code():
                 f"{path.name}:{node.lineno} maps language codes to something"
 
 
-def test_both_shipped_locales_name_themselves():
+def test_every_shipped_locale_names_itself():
     """Every locale carries its own display name, in its own script — that is where the
     menu label comes from now, so a file without it is a menu entry saying «ru»."""
-    for lang in ("en", "ru"):
-        table = json.loads((Path(i18n.LOCALES_DIR) / f"{lang}.json")
-                           .read_text(encoding="utf-8"))
+    shipped = _shipped()
+    assert {"en", "ru", "de"} <= set(shipped), f"a base language is gone: {sorted(shipped)}"
+    for lang, table in shipped.items():
         assert table.get(i18n.LANG_NAME_KEY), f"{lang}.json has no {i18n.LANG_NAME_KEY}"
     assert i18n.lang_name("en") == "English"
     assert i18n.lang_name("ru") == "Русский"
+    assert i18n.lang_name("de") == "Deutsch"
+
+
+def test_every_shipped_locale_translates_every_key():
+    """The rule that costs nothing to break and months to notice.
+
+    A key a locale is missing falls back to English WITHOUT a word anywhere, so a tab
+    added in two languages out of three looks finished. English is the canonical set;
+    the comparison runs both ways, because a key deleted from one file only is the same
+    bug from the other side — and a locale carrying a key nobody uses any more is dead
+    weight nobody will ever diff away.
+    """
+    shipped = _shipped()
+    english = set(shipped["en"])
+    for lang, table in sorted(shipped.items()):
+        if lang == "en":
+            continue
+        missing = sorted(english - set(table))
+        extra = sorted(set(table) - english)
+        assert not missing, (f"{lang}.json does not translate {len(missing)} key(s): "
+                             f"{missing[:8]}{' …' if len(missing) > 8 else ''}")
+        assert not extra, (f"{lang}.json has {len(extra)} key(s) en.json does not: "
+                           f"{extra[:8]}{' …' if len(extra) > 8 else ''}")
+
+
+def test_every_translation_is_a_string_with_the_same_placeholders():
+    """A value must be a string, and it must carry the same `{named}` slots as the
+    English one: `t` swallows a `format` that raises and shows the raw template, so a
+    typo in a placeholder is a line that quietly says «{n} min» to the person."""
+    shipped = _shipped()
+    english = shipped["en"]
+    slots = re.compile(r"\{(\w+)")
+    for lang, table in sorted(shipped.items()):
+        for key, value in sorted(table.items()):
+            assert isinstance(value, str), f"{lang}.json[{key}] is not a string"
+            if lang == "en" or key not in english:
+                continue
+            want, got = set(slots.findall(english[key])), set(slots.findall(value))
+            assert want == got, (f"{lang}.json[{key}] has placeholders {sorted(got)}, "
+                                 f"en.json has {sorted(want)}")
+
+
+def test_no_hardcoded_text_anywhere_in_the_panel():
+    """Nothing a person reads may be written in the code.
+
+    Source-only, over the parsed tree rather than the text, so a docstring explaining
+    the rule is not itself a violation. What counts as «a person reads it»: `text=`,
+    `title=` and `placeholder=` on any call, `label=` on a menu entry, and the
+    positional arguments of a message box — that is every door the panel has ever put a
+    word through. A string with no run of three letters is not a word (`"(%d–%d)"`,
+    «·», «⟳»), and neither is an internal tag: those stay literals on purpose.
+    """
+    words = re.compile(r"[A-Za-zА-Яа-яЁёÄÖÜäöüß]{3,}")
+    menu_add = {"add_command", "add_cascade", "add_checkbutton", "add_radiobutton"}
+    dialogs = {"showinfo", "showerror", "showwarning", "askyesno", "askokcancel",
+               "askquestion", "askstring", "askretrycancel"}
+    found = []
+    for path in _panel_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            called = (node.func.attr if isinstance(node.func, ast.Attribute)
+                      else node.func.id if isinstance(node.func, ast.Name) else "")
+            said = []
+            for kw in node.keywords:
+                if kw.arg in ("text", "title", "placeholder") or (
+                        kw.arg == "label" and called in menu_add):
+                    said.append(kw.value)
+            if called in dialogs:
+                said.extend(node.args)
+            for value in said:
+                if (isinstance(value, ast.Constant) and isinstance(value.value, str)
+                        and words.search(value.value)):
+                    found.append(f"{path.relative_to(_REPO)}:{node.lineno} "
+                                 f"{value.value!r}")
+    assert not found, ("words written in the panel instead of panel/locales/:\n  "
+                       + "\n  ".join(found))
 
 
 def test_a_language_added_by_hand_is_offered_and_usable():

@@ -25,6 +25,11 @@ import json
 import os
 import re
 
+# The ONLY thing this module takes from i18n: a way to name the reason it refused, so
+# the dialog showing it can be in the person's language. No translator is built here —
+# that stays the UI's business (see the module docstring).
+from .i18n import Message
+
 PANEL_DIR = os.path.dirname(os.path.abspath(__file__))
 PROFILES_DIR = os.path.join(PANEL_DIR, "profiles")
 SETTINGS_FILE = os.path.join(PANEL_DIR, "settings.json")
@@ -162,22 +167,25 @@ class ProfileManager:
         """Create an empty profile. Raises ``ValueError`` on a bad/duplicate name."""
         name = sanitize(name)
         if not name:
-            raise ValueError("empty profile name")
+            raise ValueError(Message("profile.error.empty_name", "empty profile name"))
         if self.exists(name):
-            raise ValueError(f"profile already exists: {name}")
+            raise ValueError(Message("profile.error.exists",
+                                     f"profile already exists: {name}", name=name))
         return self._ensure_dir(name)
 
     def rename(self, old: str, new: str) -> str:
         """Rename a profile, following the active pointer if it moved."""
         old, new = sanitize(old), sanitize(new)
         if not self.exists(old):
-            raise ValueError(f"no such profile: {old}")
+            raise ValueError(Message("profile.error.missing",
+                                     f"no such profile: {old}", name=old))
         if not new:
-            raise ValueError("empty profile name")
+            raise ValueError(Message("profile.error.empty_name", "empty profile name"))
         if new == old:
             return old
         if self.exists(new):
-            raise ValueError(f"profile already exists: {new}")
+            raise ValueError(Message("profile.error.exists",
+                                     f"profile already exists: {new}", name=new))
         os.rename(os.path.join(PROFILES_DIR, old), os.path.join(PROFILES_DIR, new))
         if self._active == old:
             self.set_active(new)
@@ -190,9 +198,11 @@ class ProfileManager:
         """
         name = sanitize(name)
         if not self.exists(name):
-            raise ValueError(f"no such profile: {name}")
+            raise ValueError(Message("profile.error.missing",
+                                     f"no such profile: {name}", name=name))
         if len(self.list()) <= 1:
-            raise ValueError("cannot delete the last profile")
+            raise ValueError(Message("profile.error.last_one",
+                                     "cannot delete the last profile"))
         import shutil
         shutil.rmtree(os.path.join(PROFILES_DIR, name), ignore_errors=True)
         if self._active == name:

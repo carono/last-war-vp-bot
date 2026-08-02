@@ -51,6 +51,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import debug_log
+from .i18n import Message
 from .profile import _write_json
 
 # Component debug logger (panel/debug_log.py) — the panel wires the rotating file
@@ -526,32 +527,42 @@ def parse_catalogue(data, path: str | None = None,
         data = data.get("triggers")
     if not isinstance(data, list):
         return TriggerCatalogue(fallback_triggers, path,
-                                ["config is not a list of triggers — using the defaults"])
+                                [Message("log.triggers.not_a_list",
+                                          "config is not a list of triggers — using the defaults")])
 
     builtin = {t.name: t for t in DEFAULT_TRIGGERS}
     builtin.update({t.name: t for t in fallback_triggers})
     triggers, errors, seen = [], [], set()
     for index, raw in enumerate(data):
         if not isinstance(raw, dict):
-            errors.append(f"entry #{index + 1} is not an object — skipped")
+            errors.append(Message("log.triggers.not_an_object",
+                                  f"entry #{index + 1} is not an object — skipped",
+                                  n=index + 1))
             continue
         name = str(raw.get("name") or "").strip()
         if not name:
-            errors.append(f"entry #{index + 1} has no name — skipped")
+            errors.append(Message("log.triggers.no_name",
+                                  f"entry #{index + 1} has no name — skipped",
+                                  n=index + 1))
             continue
         if name in seen:
-            errors.append(f"{name}: listed twice — the later entry is ignored")
+            errors.append(Message("log.triggers.twice",
+                                  f"{name}: listed twice — the later entry is ignored",
+                                  name=name))
             continue
         base = builtin.get(name)
         kind = str(raw.get("kind") or (base.kind if base else KIND_WIRE)).strip()
         if kind not in (KIND_WIRE, KIND_POLL):
-            errors.append(f"{name}: unknown kind '{kind}' — skipped")
+            errors.append(Message("log.triggers.unknown_kind",
+                                  f"{name}: unknown kind '{kind}' — skipped",
+                                  name=name, kind=kind))
             continue
         scenario = _as_scenario(raw.get("scenario"))
         if not scenario:
             scenario = base.scenario if base else ()
         if not scenario:
-            errors.append(f"{name}: no scenario to run — skipped")
+            errors.append(Message("log.triggers.no_scenario",
+                                  f"{name}: no scenario to run — skipped", name=name))
             continue
         # A wire trigger needs a pattern to listen for; a poll trigger needs a check
         # to evaluate. Missing the one its kind requires costs the entry, not the set.
@@ -559,10 +570,13 @@ def parse_catalogue(data, path: str | None = None,
             (base.event_pattern if base else "")
         check = str(raw.get("check") or "").strip() or (base.check if base else "")
         if kind == KIND_WIRE and not pattern:
-            errors.append(f"{name}: no event_pattern to watch for — skipped")
+            errors.append(Message("log.triggers.no_pattern",
+                                  f"{name}: no event_pattern to watch for — skipped",
+                                  name=name))
             continue
         if kind == KIND_POLL and not check:
-            errors.append(f"{name}: no check to poll — skipped")
+            errors.append(Message("log.triggers.no_check",
+                                  f"{name}: no check to poll — skipped", name=name))
             continue
         args = raw.get("args")
         triggers.append(Trigger(
@@ -590,7 +604,8 @@ def parse_catalogue(data, path: str | None = None,
     if not triggers:
         if not errors:
             return TriggerCatalogue((), path)     # "this account watches nothing"
-        errors.append("no usable triggers in the config — using the defaults")
+        errors.append(Message("log.triggers.none_usable",
+                              "no usable triggers in the config — using the defaults"))
         return TriggerCatalogue(fallback_triggers, path, errors)
     return TriggerCatalogue(triggers, path, errors)
 

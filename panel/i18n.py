@@ -82,6 +82,49 @@ def lang_name(lang: str) -> str:
     return name.strip() if isinstance(name, str) and name.strip() else lang
 
 
+class Message(str):
+    """A sentence that knows how to be said in another language.
+
+    Some of what the panel shows is worded far from the UI: the profile store refuses a
+    duplicate name, the timers catalogue makes no sense of a hand-edited entry. Those
+    modules are deliberately UI-agnostic — they have no translator and must not grow
+    one — so the message reaching the person was whatever English the module happened to
+    raise, dropped into a dialog or the log unchanged.
+
+    This is that message and its locale key in one value. It IS the English string —
+    printable, loggable, `in`-testable, formattable — so every consumer that already
+    handled a plain `str` is untouched, and whatever puts it in front of a person calls
+    :func:`translated` to say it in theirs.
+
+        raise ValueError(Message("profile.error.exists",
+                                 f"profile already exists: {name}", name=name))
+    """
+
+    key: str
+    fmt: dict
+
+    def __new__(cls, key: str, english: str, **fmt) -> "Message":
+        self = super().__new__(cls, english)
+        self.key = key
+        self.fmt = fmt
+        return self
+
+
+def translated(t, value) -> str:
+    """``value`` in the UI's language if it named one, in its own words otherwise.
+
+    Takes a :class:`Message`, a plain string, or an exception raised with either —
+    anything else is simply `str()`-ed, so a caller never has to know which it caught.
+    """
+    src = value
+    if isinstance(value, BaseException) and value.args:
+        src = value.args[0]
+    key = getattr(src, "key", None)
+    if not key:
+        return str(value)
+    return t(key, **getattr(src, "fmt", {}))
+
+
 class I18n:
     def __init__(self, lang: str | None = None) -> None:
         self.lang = lang or self._load_pref()

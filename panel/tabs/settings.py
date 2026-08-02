@@ -162,7 +162,8 @@ class SettingsTab(PanelTab):
             try:
                 fill(frame)
             except Exception as exc:            # noqa: BLE001 — a page, not the panel
-                self.rt.put(f"[panel] settings page {title_key}: {exc}")
+                # One line, translated. The raw English one that used to precede it said
+                # the same thing in a language the panel may not be showing.
                 self.say("panel", "log.tab.failed", tab=title_key, error=exc)
 
     # -- settings: the knobs that used to be constants in this file -----------
