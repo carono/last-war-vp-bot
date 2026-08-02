@@ -22,7 +22,7 @@ from __future__ import annotations
 # tools/ and src/ on sys.path, and `python -m panel.tabs.<id>` never runs
 # panel/__main__.py, which is where that bootstrap used to live.
 from . import paths  # noqa: F401  (imported for its side effect)
-from .actions import ActionRunner, Outcome
+from .actions import ACTIONS_DIR, ActionRunner, Outcome, action_titles, list_actions
 from .bus import EventBus
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
@@ -35,6 +35,7 @@ from . import reads
 from .settings import SettingsBinder
 from .tick import Ticker
 
-__all__ = ["paths", "reads", "game_process", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
+__all__ = ["paths", "reads", "game_process", "ACTIONS_DIR",
+           "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "SettingsBinder", "Ticker", "Translator",
            "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

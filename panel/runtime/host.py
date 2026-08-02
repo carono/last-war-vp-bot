@@ -79,6 +79,47 @@ class PanelRuntime:
     def put(self, line: str) -> None:
         self.log.put(line)
 
+    # -- pressing a scenario in the background ------------------------------
+    def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
+                   cancel=None, on_start=None, on_done=None) -> bool:
+        """Run one scenario on a worker thread, under the game claim.
+
+        ``False`` when the claim was refused — something else is driving the game — and
+        then nothing was started and neither callback runs. ``on_start`` fires on the
+        calling thread, ``on_done`` on the TK thread, because the things it undoes (a
+        button's state, a row's marker) are widget state.
+
+        Here rather than on a tab because two callers need exactly this: the Scenarios
+        tab's «Запустить» and the shell relaunching the client. It is the only place
+        the claim, the thread and the log line are spelled out together.
+        """
+        import threading
+
+        if not self.game.claim(tag):
+            self.log.say(tag, "busy")
+            return False
+        if on_start is not None:
+            on_start()
+
+        def work() -> None:
+            try:
+                self.actions.run(name, args, hwnd=0,
+                                 on_event=lambda msg: self.log.put(f"[{tag}] {msg}"),
+                                 profile=None, cancel=cancel)
+            except Exception as exc:                   # noqa: BLE001 — never the panel
+                self.log.put(f"[{tag}] {name}: error: {exc}")
+            finally:
+                self.game.release()
+                if on_done is not None:
+                    try:
+                        self.root.after(0, on_done)
+                    except Exception:                  # noqa: BLE001 — the window is gone
+                        pass
+                self.game.on_settled()
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
     def daemon_port(self) -> int:
         """The daemon this profile drives — a non-default port is another session's."""
         return self.settings.opt_int("daemon_port", low=1, high=65535)

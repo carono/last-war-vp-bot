@@ -40,85 +40,39 @@ SLOW = 'LOG "one"\nWAIT 0.4\nLOG "two"\nWAIT 0.4\nLOG "three"\n'
 
 
 def _tab(tmp: Path):
-    """A Panel stand-in with the Scenarios tab really built, on a temp actions dir."""
+    """The Scenarios tab really built, on a temp actions dir and a cold runtime.
+
+    Both ACTIONS_DIRs (the runtime's catalogue and the engine's resolver) are pointed
+    at the copy, so the repo's own scripts are never written to. The runtime is the
+    shared cold one — the tab is a plugin now, and this is exactly what it is handed
+    when it is launched on its own.
+    """
     import tkinter as tk  # noqa: F401
     from tkinter import ttk
     from panel import runtime as rtmod
     import panel.__main__ as pm
+    from panel.tabs import scenarios as scn
+    ScenariosTab = scn.ScenariosTab
     from lastwar_bot import script_engine as se
 
     (tmp / "slow.md").write_text("# A slow script.\n\n" + SLOW, encoding="utf-8")
     (tmp / "other.md").write_text('# Another one.\n\nLOG "other"\n', encoding="utf-8")
-    pm.ACTIONS_DIR = str(tmp)
+    pm.ACTIONS_DIR = rtmod.actions.ACTIONS_DIR = str(tmp)
     se.ACTIONS_DIR = tmp
     se.DEV_ACTIONS_DIR = tmp / "dev"
 
     root = tk.Tk()          # the panel is a plain tkinter/ttk app
     root.withdraw()
-
-    class _Tab:
-        def __init__(self):
-            # The translator IS the registry now (panel/runtime/i18n.py).
-            self._i18n = rtmod.Translator("ru")
-            self._busy = False
-            import threading
-            self._busy_lock = threading.Lock()
-            self.logs: list = []
-            fake_runtime.attach_bus(self)
-
-        # everything the tab builder and the paths under test touch
-        _t = pm.Panel._t
-        _tr = pm.Panel._tr
-        # Everything the panel says goes through the locale files now, so the tab's
-        # own lines come out of `_say`.
-        _say = pm.Panel._say
-        # The busy flag is two locks now: this one, and the daemon's lease that keeps a
-        # separately-launched tab out of the game (tools/lib/game_lease.py). There is no
-        # daemon here, so the lease half is borrowed as-is — it passes when it cannot
-        # reach one, which is exactly the no-daemon case this stand-in models.
-        _claim_busy = pm.Panel._claim_busy
-        _claim_lease = pm.Panel._claim_lease
-        _release_busy = pm.Panel._release_busy
-        _build_scenarios_tab = pm.Panel._build_scenarios_tab
-        _refresh_actions = pm.Panel._refresh_actions
-        _paint_action_rows = pm.Panel._paint_action_rows
-        _selected_action_name = pm.Panel._selected_action_name
-        _run_selected_action = pm.Panel._run_selected_action
-        _scenario_args = pm.Panel._scenario_args
-        _run_md_action = pm.Panel._run_md_action
-        _set_scenario_running = pm.Panel._set_scenario_running
-        _stop_scenario = pm.Panel._stop_scenario
-        _on_scenario_selected = pm.Panel._on_scenario_selected
-        _load_scenario_into_editor = pm.Panel._load_scenario_into_editor
-        _on_editor_modified = pm.Panel._on_editor_modified
-        _schedule_scenario_save = pm.Panel._schedule_scenario_save
-        _flush_scenario_save = pm.Panel._flush_scenario_save
-        _save_scenario = pm.Panel._save_scenario
-        _on_editor_ctrl_key = pm.Panel._on_editor_ctrl_key
-        _toggle_scenario_loop = pm.Panel._toggle_scenario_loop
-        _stop_scenario_loop = pm.Panel._stop_scenario_loop
-        # The tab grew a «Справочник TAP» button and a parse check on save.
-        _show_button_reference = pm.Panel._show_button_reference
-        # Static on Panel (it needs no state) — so it has to be re-wrapped here, or
-        # the class body would turn it back into a method and eat `text` as `self`.
-        _scenario_problem = staticmethod(pm.Panel._scenario_problem)
-        _show_scenario_problem = pm.Panel._show_scenario_problem
-
-        def _log_put(self, line):
-            self.logs.append(line)
-
-        def after(self, ms, fn=None):
-            return root.after(ms, fn) if fn is not None else None
-
-        def after_cancel(self, job):
-            root.after_cancel(job)
-
-        def _refresh_status(self):
-            pass
-
-    tab = _Tab()
-    tab._build_scenarios_tab(ttk.Frame(root))
-    return root, tab, pm
+    rt = fake_runtime.cold_runtime(root)
+    # The claim is the real one minus the daemon: there is none here, and the lease
+    # half passes when it cannot reach one — which is exactly this case.
+    rt.game = rtmod.GameLink(port=lambda: 47999, python=lambda: "python",
+                             log=rt.log, env=dict, cwd=str(_REPO),
+                             daemon_script="", debug=None)
+    tab = ScenariosTab(rt, ttk.Frame(root))
+    tab.build()
+    tab.logs = rt.log.lines
+    return root, tab, scn
 
 
 def _select(tab, name: str) -> None:
@@ -206,7 +160,7 @@ def test_editor_loads_saves_and_undoes():
         tab._scn_editor.edit_undo()
         assert 'LOG "four"' not in tab._scn_editor.get("1.0", "end")
         tab._on_editor_modified()
-        tab._flush_scenario_save()
+        tab.flush_save()
         assert 'LOG "four"' not in (tmp / "slow.md").read_text(encoding="utf-8")
 
         # Switching files flushes the old one and starts a fresh undo history —
@@ -236,7 +190,7 @@ def test_a_run_locks_the_list_marks_the_row_and_stops():
         return
     tmp = Path(tempfile.mkdtemp())
     try:
-        root, tab, pm = _tab(tmp)
+        root, tab, scn = _tab(tmp)
     except Exception as exc:                            # noqa: BLE001
         print(f"  SKIP no display / panel deps: {exc}")
         return
@@ -250,13 +204,13 @@ def test_a_run_locks_the_list_marks_the_row_and_stops():
         assert str(tab._scn_run_btn.cget("state")) == "disabled"
         assert str(tab._scn_stop_btn.cget("state")) == "normal"
         marked = [tab._scn_list.get(i) for i in range(tab._scn_list.size())
-                  if tab._scn_list.get(i).startswith(pm.RUNNING_MARK)]
+                  if tab._scn_list.get(i).startswith(scn.RUNNING_MARK)]
         assert len(marked) == 1 and "slow" in marked[0], marked
 
         # A second run is refused while the first is in flight.
         before = len(tab.logs)
         tab._run_selected_action()
-        assert any(tab._t("busy") in ln for ln in tab.logs[before:]), tab.logs[before:]
+        assert any(tab.t("busy") in ln for ln in tab.logs[before:]), tab.logs[before:]
 
         # Stop lands between steps: the script had three LOGs and 0.8 s of WAITs,
         # so it must end well before it would have finished on its own.
@@ -269,9 +223,9 @@ def test_a_run_locks_the_list_marks_the_row_and_stops():
         assert str(tab._scn_list.cget("state")) == "normal", "the list stayed locked"
         assert str(tab._scn_run_btn.cget("state")) == "normal"
         assert str(tab._scn_stop_btn.cget("state")) == "disabled"
-        assert not any(tab._scn_list.get(i).startswith(pm.RUNNING_MARK)
+        assert not any(tab._scn_list.get(i).startswith(scn.RUNNING_MARK)
                        for i in range(tab._scn_list.size())), "the marker was left behind"
-        assert tab._busy is False, "the busy flag was left claimed"
+        assert tab.rt.game.busy is False, "the game claim was left held"
 
         # The halt is reported as a halt, not as a failure.
         assert any("HALTED" in ln for ln in tab.logs), tab.logs[-6:]

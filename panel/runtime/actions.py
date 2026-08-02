@@ -15,6 +15,19 @@ why the import here is deferred to the call.
 """
 from __future__ import annotations
 
+import glob
+import os
+
+from .paths import SRC
+
+#: Where the blessed (tested) scripts live; the experimental ones sit in `dev/` beside
+#: them, and the non-recursive glob below deliberately skips that folder unless asked.
+ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
+
+#: Runtime plumbing rather than user-facing scenarios — hidden from the picker even
+#: though the file is there. `watchdog` is ticked by the runner, not run by hand.
+HIDDEN_ACTIONS = frozenset({"watchdog"})
+
 
 class Outcome:
     """How a scenario ended: whether it ran, and what it said if it did not.
@@ -120,3 +133,70 @@ class ActionRunner:
         except Exception as exc:          # noqa: BLE001 — any parse failure is the answer
             return str(exc)
         return None
+
+
+def action_titles(path: str, name: str) -> dict:
+    """The title lines of one action script, by language.
+
+    A script's first `#` line is its English title, which is why the picker read
+    English while the rest of the UI was Russian. A script may now add a language
+    tag to any of its leading comment lines —
+
+        # Claim the alliance gifts — ordinary and premium
+        # ru: Подарки альянса — обычные и премиальные
+
+    — and the picker prefers the one matching the UI. Untagged is the fallback, so
+    every existing script keeps working untouched and translating one is adding a
+    line to it.
+    """
+    out: dict = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                s = raw.strip()
+                if not s:
+                    if out:
+                        break             # the leading comment block is over
+                    continue
+                if not s.startswith("#"):
+                    break
+                body = s.lstrip("#").strip()
+                if not body:
+                    continue
+                tag, sep, rest = body.partition(":")
+                if sep and tag.strip().isalpha() and len(tag.strip()) == 2:
+                    out.setdefault(tag.strip().lower(), rest.strip())
+                else:
+                    out.setdefault("", body)
+    except OSError:
+        pass
+    if not out:
+        out[""] = name
+    return out
+
+
+def list_actions(include_dev: bool = False, lang: str | None = None) -> list[dict]:
+    """Enumerate the action scripts as ``{name, title, dev}``.
+
+    The blessed ones (``actions/*.md``) always; ``actions/dev/*.md`` too when asked
+    for. The dev folder is hidden by default so the picker offers only what works —
+    but hiding it also hid `work_treasure` and `collect_trucks`, and reaching those
+    used to be a code change rather than a checkbox.
+
+    `title` is the script's own title line, in the UI's language when the script
+    offers one (see :func:`action_titles`), falling back to the untagged line and
+    then to the bare file stem.
+    """
+    paths = sorted(glob.glob(os.path.join(ACTIONS_DIR, "*.md")))
+    if include_dev:
+        paths += sorted(glob.glob(os.path.join(ACTIONS_DIR, "dev", "*.md")))
+    out = []
+    for path in paths:
+        name = os.path.splitext(os.path.basename(path))[0]
+        if name in HIDDEN_ACTIONS:
+            continue
+        titles = action_titles(path, name)
+        title = titles.get(lang or "") or titles.get("") or name
+        out.append({"name": name, "title": title,
+                    "dev": os.path.basename(os.path.dirname(path)) == "dev"})
+    return out
