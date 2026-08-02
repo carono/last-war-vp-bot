@@ -17,6 +17,10 @@ git checkout v2
 
 (If the repository is already cloned — `cd` into it and `git checkout v2`.)
 
+A checkout is what this page assumes, and what the update route below needs.
+[`install.bat`](00-installer.md) takes the other road: it works out of an
+unpacked archive, which has no history to pull.
+
 ## Virtual environment and dependencies
 
 From the repository root:
@@ -98,7 +102,9 @@ VISION_PROVIDER=ollama
 ## Keeping it up to date
 
 There is no release channel: the bot **is** this checkout, so updating it means moving
-it forward to `origin`. The panel does that itself — «Главная» has an «Обновление» block
+it forward to `origin`. (An install made from an unpacked archive has no history and
+none of this applies to it — there, updating means unpacking a fresh archive over the
+folder.) The panel does that itself — «Главная» has an «Обновление» block
 showing the version and the commit it is running, and it asks `origin` shortly after the
 window opens and every six hours after that.
 

@@ -2,10 +2,12 @@
 
 These guides target Windows 10/11.
 
-**The short way — [`install.bat`](00-installer.md).** One file installs Git and
-Python 3.12, clones the repository, installs the dependencies and puts the panel
-on the Desktop. Nothing has to be installed first, and running it again repairs
-a half-finished install. Everything below is the same work done by hand.
+**The short way — [`install.bat`](00-installer.md).** Unpack the archive
+wherever you like and run `install.bat` from inside it: that folder is the
+installation, and the installer puts Python 3.12, Git and the dependencies
+around it and the panel on the Desktop. Nothing has to be installed first, and
+running it again repairs a half-finished install. Everything below is the same
+work done by hand.
 
 The manual route, in order (all commands are for PowerShell):
 

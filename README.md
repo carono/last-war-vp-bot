@@ -26,8 +26,11 @@ counts them.
 
 ## Installation
 
-**`install.bat`** takes a bare Windows box to a panel on the Desktop: it brings
-everything the bot needs, sets the dependencies up and makes the shortcuts.
+Download the archive, unpack it wherever you like, and run **`install.bat`**
+from inside the folder that came out of it — that folder is the installation,
+and nothing is copied anywhere else. It takes a bare Windows box to a panel on
+the Desktop: it brings everything the bot needs, sets the dependencies up and
+makes the shortcuts.
 What it does, how to run it and what to do when it stops is one page —
 [`docs/install/00-installer.md`](docs/install/00-installer.md); the manual route
 is [`docs/install/`](docs/install/README.md).

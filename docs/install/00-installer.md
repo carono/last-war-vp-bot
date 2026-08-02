@@ -1,42 +1,52 @@
 # 0. The installer (`install.bat`)
 
-One file takes a bare Windows 10/11 box to a working control panel: it installs
-Git and Python 3.12, clones this repository, installs the Python dependencies
-and puts shortcuts on the Desktop. Nothing has to be there beforehand — no
-Python, no Git, no terminal skills.
+Unpack the archive wherever you like and run `install.bat` from inside the
+folder that came out of it. That folder **is** the installation: nothing is
+cloned, copied or downloaded into a directory of its own. What the installer
+does is put the surroundings in place — Python 3.12, Git, the Python
+dependencies — and drop shortcuts to the panel in that folder onto the Desktop.
+
+Nothing has to be there beforehand: no Python, no Git, no terminal skills.
 
 The manual route is still written down ([Python](01-python.md), [the
 bot](03-bot.md)); this page is what the installer does in its place.
 
 ## Running it
 
-1. Download `install.bat` from the repository root
-   (`https://raw.githubusercontent.com/carono/last-war-vp-bot/v2/install.bat`),
-   or use the copy in a checkout you already have.
-2. Double-click it. It asks for administrator rights once — Windows shows the
-   UAC prompt — and does the rest by itself.
-3. When it finishes, **Last War - panel** is on the Desktop.
+1. Download the archive —
+   `https://github.com/carono/last-war-vp-bot/archive/refs/heads/v2.zip`.
+2. Right-click it and pick **Extract All**. Choose a folder you can write to and
+   intend to keep — Documents, for instance. Do **not** run `install.bat`
+   straight out of the .zip window: that copy lives in a temporary folder
+   Windows deletes afterwards, and the installer refuses to run from there.
+3. Open the unpacked folder and double-click `install.bat`. It asks for
+   administrator rights once — Windows shows the UAC prompt — and does the rest
+   by itself. Windows may also warn that the file came from the internet:
+   **More info → Run anyway**.
+4. When it finishes, **Last War — панель** is on the Desktop.
 
-It is safe to run again. Whatever is already installed is detected and kept, an
-existing checkout is fast-forwarded rather than re-cloned, and the dependencies
-are refreshed. That makes it the repair tool too: a half-finished install is
-fixed by running it a second time.
+It is safe to run again. Whatever is already installed is detected and kept and
+the dependencies are refreshed. That makes it the repair tool too: a
+half-finished install is fixed by running it a second time.
+
+**Moved the folder? Run it again.** The Desktop shortcuts and the editable
+package install both point at the old place until it does.
 
 ```
-install.bat [options]
+install.bat [ключи]
 
-  --dir  PATH      where the repository goes  (default C:\LastWarBot; when run
-                   from inside a checkout, that checkout)
-  --branch NAME    branch to check out        (default v2)
-  --repo URL       repository to clone from
-  --pydir PATH     where Python 3.12 goes     (default C:\Python312)
-  --profile NAME   an extra Desktop shortcut opening the panel on that panel
-                   profile; may be repeated
-  --no-npcap       do not offer to install npcap
-  --no-shortcuts   do not touch the Desktop
-  --yes            never ask anything
-  --help           print the options and exit
+  --pydir ПУТЬ        куда ставить Python 3.12 [по умолчанию C:\Python312]
+  --profile ИМЯ       ещё один ярлык: панель на этом профиле.
+                      Ключ можно повторять — по ярлыку на аккаунт
+  --daemon-shortcut   ярлык демона; обычно не нужен, панель поднимает его сама
+  --no-npcap          не предлагать установку npcap
+  --no-shortcuts      не трогать рабочий стол
+  --yes               ничего не спрашивать
+  --help              показать это и выйти
 ```
+
+There is no option for where the bot goes — it is already there, in the folder
+`install.bat` sits in.
 
 Two accounts, two shortcuts:
 
@@ -48,15 +58,21 @@ install.bat --profile main --profile second
 
 | What | Where | Why there |
 |---|---|---|
+| the bot | the folder you unpacked into | it is already there; the installer never moves or copies it, and every path it works by is relative to `install.bat` |
 | Python 3.12.10 | `C:\Python312` (all users) | the panel's `Settings → General → Python` defaults to exactly this path, so the sniffers and every other child process it spawns find their interpreter with nothing configured |
 | Git for Windows | its own default (`C:\Program Files\Git`) | on `PATH`, so `update.bat` and the tools can call it |
-| the source | `C:\LastWarBot` | short, ASCII, no spaces — the game tooling passes these paths around a lot |
 | dependencies | into that Python, not a venv | the panel and its children must share one interpreter; a venv would leave the children without the packages |
-| shortcuts | the Desktop | `Last War - panel` and `Last War - update` |
+| shortcuts | the Desktop | `Last War — панель`, `Last War — обновление`, and `Last War — демон` with `--daemon-shortcut` |
 
-The tree is created by an administrator, so the installer grants the person it
-is installing for write access to it — the panel keeps its profiles, its logs
-and every capture inside the repository directory.
+The bot's own files — its profiles, its logs, every capture — are written inside
+that same folder. Back it up by copying the folder; move it by moving the folder
+and running `install.bat` again.
+
+Git is set up but never required: the sources arrived in the archive, so nothing
+in the install needs it. It is there for `update.bat` and for the panel's own
+«Обновление» block, both of which work only when the folder is a git checkout
+rather than an unpacked archive. If it cannot be installed the run carries on
+with a warning.
 
 ### Why the shortcuts run as administrator
 
@@ -67,6 +83,23 @@ packages writes into an all-users Python. If you would rather it did not, untick
 
 The panel shortcut starts its console window minimised. That window is not
 decoration: if the panel refuses to open, the error is in it.
+
+### Where it refuses to run
+
+Three checks happen before anything is installed, and before the UAC prompt:
+
+* **the folder is not the bot's** — `panel\`, `requirements.txt` and
+  `pyproject.toml` have to be beside `install.bat`. Copying `install.bat` out on
+  its own and running it does nothing but say so.
+* **the folder is a temporary one** (`…\AppData\Local\Temp\…`, or a `Temp1_…`
+  name) — that is `install.bat` started from inside the .zip preview rather than
+  from an unpacked folder. Everything would appear to work and then be deleted.
+* **the path has a `!` or a `%` in it** — batch files cannot be run from such a
+  path reliably. Rename the folder or unpack somewhere else.
+
+A network path (`\\server\share\…`) is a warning rather than a refusal, but the
+panel will not start from one: `panel.bat`, `update.bat` and `daemon.bat` all
+`cd` into their own folder, which a UNC path refuses. Unpack onto a local disk.
 
 ## npcap
 
@@ -84,12 +117,14 @@ installed along with `requirements.txt`.
 
 * **`panel.bat`** — opens the panel. Arguments pass straight through, so
   `panel.bat --profile second` opens it on another profile.
-* **`update.bat`** — pulls the latest sources and refreshes the dependencies.
-  The pull is fast-forward only: local commits or edits stop it with a message
-  instead of being thrown away. The panel follows `origin` by itself as well
-  ([03-bot.md](03-bot.md#keeping-it-up-to-date)); this is the route that also
-  refreshes the Python packages, and the one that works when the panel will not
-  start.
+* **`update.bat`** — refreshes the dependencies, and pulls the latest sources
+  when the folder is a git checkout. From an unpacked archive there is no
+  history to pull, and it says so instead of failing at git: update the sources
+  by downloading a fresh archive and unpacking it over the folder, replacing the
+  files. Your profiles, logs and captures sit in folders of their own and
+  survive that.
+* **`daemon.bat`** — starts the Lua daemon in a window of its own. The panel
+  starts its own, so this is only for driving the game without the panel.
 
 Where the game client lives is set in the panel itself, on its Settings page
 under Game.
@@ -98,13 +133,16 @@ under Game.
 
 * **The UAC prompt never appears** — right-click `install.bat` and pick *Run as
   administrator*.
+* **Windows says it protected your PC** — SmartScreen, because the archive came
+  from the internet. *More info* → *Run anyway*.
+* **"Это не папка бота"** — `install.bat` was moved out of the unpacked folder,
+  or the archive was unpacked only partly. Unpack it again and run the copy that
+  came with it.
+* **"Запуск идёт из временной папки"** — the .zip was never unpacked. Right-click
+  it, *Extract All*, and run `install.bat` from the folder that appears.
 * **"Checksum mismatch"** — the downloaded installer is not the file the vendor
   published. Nothing is run. Check the connection (a captive portal or a
   proxy substituting the download does this) and try again.
-* **"Clone failed"** — if the repository is private, sign in when Git asks. Or
-  clone it by hand and re-run with `--dir` pointing at the clone.
-* **"Could not fast-forward"** — the checkout has local commits or edits.
-  Commit, stash or discard them; the installer never discards them for you.
 * **Python did not install** — run the downloaded installer by hand; the
   installer prints its path (`%TEMP%\lw-install\python-installer.exe`).
 * **A Python other than 3.12** — only 3.12 is accepted: part of the CV stack
@@ -113,6 +151,10 @@ under Game.
   `LW_PYTHON` environment variable. Nothing has to be told about it afterwards:
   when `C:\Python312` is not there, the panel launches its children with the
   interpreter it is running under itself.
+* **The panel starts but cannot save its profile** — the folder is somewhere the
+  person running the panel may not write to (`C:\Program Files`, another
+  account's Documents). Move the folder somewhere of your own and run
+  `install.bat` again.
 
 ## Bumping the pinned versions
 
