@@ -111,12 +111,17 @@ minister hands out" — the recording shows it is the profession tree, not a pos
   of carriages instead of round it — up the ramp, along the roofs, hopping the gaps between
   them, and stepping off the end into whichever lane carries on — sideways as well as
   straight ahead — which is the way through the places the road is blocked in all three
-  lanes; that part has only been watched in the replay, never yet in a live run. What runs
+  lanes. Stepping off sideways has now been seen once in a live run, and that is where the
+  run ended: it came off a roof into the next lane and did not survive the landing, so this
+  part is still not proven. What runs
   by itself: the whole
   start → run → revive → log loop. Measured live (2026-07-30): **720–1377 m on a single
   life**, against ~132 m for the older reflex version and ~88 m with no control at all;
-  with revives, single attempts ran **1685 and 2700 m**. Left to the person: nothing during a run.
-  Still open: the record 8185 m and the 20000 m target are not reached yet.
+  with revives, single attempts ran **1685 and 2700 m**; one run on 2026-08-02 went **976 m**
+  on a single life. Left to the person: nothing during a run.
+  Still open: the record 8185 m and the 20000 m target are not reached yet, the bot does not
+  yet know about holes in the road — it reads one as a small thing to steer around rather
+  than as ground it cannot land on.
 
 ### Arms Race
 

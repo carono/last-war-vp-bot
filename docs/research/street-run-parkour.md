@@ -1839,3 +1839,87 @@ The per-band score stays in `surfing_battery.py`, where it belongs — it is the
     python3 tools/dev/surfing_offline.py route cat:game-3 1        # one of them by name
     python3 tests/test_street_run_routes.py              # the drawn routes, each against its floor
     SR_TEST_SEEDS=3 python3 tests/test_street_run_routes.py        # ... the first three only
+
+## The first live run of the step-down (#1165)
+
+One attempt, 2026-08-02, main account, planner v45 (the committed #1164 set, installed onto
+a client relaunched minutes earlier). **976 m on a single life, no revives**, attempts
+30 → 29. For scale, the last full allowance on this account — 29 attempts, v41, one
+session — had a median of 558 m and a best of 876; distances are not comparable across
+sessions (event buffs), so the number is not a verdict on v45. What the attempt is good for
+is the manoeuvre it died doing, which no live run had ever tried before.
+
+**It died coming off a roof sideways.** The frame log carries the player's height, and it
+reads the whole thing:
+
+    z=955 lane=left  y=0.00        -- on the road
+    z=957 lane=left  y=1.71        -- up the ramp
+    z=963 lane=left  y=4.30        -- riding the roof
+    z=969 lane=left  y=4.30
+    z=972 lane=left  y=4.20  act=right issued   -- the roof ends at 970.2
+    z=974 lane=centre y=3.93  busy=1            -- mid change, descending
+    z=976 lane=centre y=3.51  busy=1
+    z=976.2  DEAD, anim=death2, x=35.45, speed 30
+
+That is the step-down #1164 added — leave a roof sideways when the roof under you is gone
+by the handover — and this is its first live test. It failed, but *how* it failed is not
+what the change is accused of: the runner was still 3.5 units up and still moving across
+when it died, and **there is nothing in the model at that spot**. The band is `3001`
+(recovered from the run's own frame buffer, slot 660–990), and at band-relative 306–330 it
+lays down a high fence at centre 306, a ramp carriage at left 310, a **pitfall** at
+centre 310, a pickup at right 314 and a bridge arch at centre 330 — i.e. absolute 966, 970,
+970, 974, 990. The pit's measured box is 968.5–971.5 and the runner was past it; the arch's
+collider floor is y0 = 10.79, overhead, which is why the planner ignores arches at all.
+
+So this is another `unknown` in the sense of #1162 — and it arrives **misfiled**.
+`surfing_stats.classify` named the killer `O_env_ditiepaoku_qiaodong_2`, the bridge arch,
+purely because the arch's z-span (973.6–990.1 by the `back` rule) happens to contain the
+death point. It is the one body in the field the live planner deliberately treats as
+harmless. A death filed against a body the planner ignores by design should never be
+believed, and a `bridge` cause in the record is worth re-reading with that in mind.
+
+Two things this does say, both measured:
+
+* **The step-down was issued at full roof height.** #1164 justified the move from seven
+  human step-downs, and noted that every one of them starts at y between 2.0 and 3.2 — a
+  runner already on its way down off the end of a roof. This one started at **y = 4.20**,
+  the flat roof plateau. Whatever the model owes the game here, the entry height is outside
+  the band the evidence for the move came from, and it is the obvious first thing to gate on.
+* **The offline judge does not reproduce it.** `surfing_offline.py route 3001` clears the
+  band 330 of 330 m from all three start lanes. The planner's own reachability said the same
+  live: `reach=300` on every frame from 930 m to the death, all three lanes reaching the full
+  horizon. Nothing on either side of the instrument saw this coming.
+
+A hole in the road, incidentally, is not represented anywhere: `A_Monster_surfing_lpitfall_01`
+matches none of `kindOf`'s names, so it falls through to *solid, not hoppable, pad-sized* —
+a small thing to steer around rather than ground you cannot land on. Judge and death
+classifier have no hole concept either.
+
+### A stranded client and a spent allowance read exactly the same from Lua
+
+Most of this session went on a question that turned out not to be about Street Run at all.
+The client had been up since the previous day and had lost the server: every one of its
+`:10012` sockets was in `CLOSE_WAIT`. From inside Lua nothing says so. Every getter answers,
+with yesterday's numbers — `remainTimes = 0`, `todayPersonalProgress = 773`, a best that is
+still correct — `SendGetAllParkourInfosMessage()` returns `true`, `ReqFightStartCheck(false)`
+returns `true`, no tip fires, and the runner scene simply never loads. `street_run_ai.py`
+prints `attempts=0` and stops, which is exactly what it prints when the day's allowance is
+genuinely spent.
+
+The tell is at the socket level and nowhere else:
+
+    NETSTAT.EXE -ano | grep ":10012"      # every line CLOSE_WAIT -> the client is stranded
+
+A hook on `SFSNetwork.HandleMessage` confirms it from inside: send a request, nothing comes
+back. After relaunching the client and `{"op":"reload"}` to the daemon, the same read gave
+**`remain = 30`, `today = 0`** — the daily reset had happened at `personalResetTime`
+(02:00 UTC) and the stranded client had simply never seen it. Both clients on this machine
+were in that state; the second one held one live socket and was no better off.
+
+So before concluding there are no attempts today, check the sockets. And note that
+`remainTimes` is a **daily** allowance on a round that runs a week: `roundStartTime` and
+`roundEndTime` bracket the week, `personalResetTime` is the daily boundary.
+
+(Screenshots were not available this session at all — GDI `BitBlt` fails for the whole
+desktop, not just the game window, so `street_run_bot.py shot` cannot run. The telemetry
+above is the record of the run.)
