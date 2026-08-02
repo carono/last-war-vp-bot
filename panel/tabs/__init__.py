@@ -95,6 +95,8 @@ TABS: tuple = (
             order=310),
     TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
             order=320),
+    TabSpec("develop",   "panel.tabs.develop",   "DevelopTab",   order=900,
+            default_enabled=False),
 )
 
 BY_ID = {spec.id: spec for spec in TABS}

@@ -97,6 +97,7 @@
   "debug.frame": "Diagnostics (debug log)",
   "debug.send": "Send diagnostics",
 
+  "develop.hint": "Both halves of a recording at once: a passive capture of the wire beside a tracer that wraps the client's own Lua. Switch it on, do the thing in the game ONCE, switch it off — then keep the pair with a description of what was done, or throw it away. A capture nobody labelled is a file nobody can read a week later. The tracer's hooks live in the running client, so Stop is asked politely and the panel puts them back if the child does not.",
   "develop.label.prompt": "Session label (optional).\nGoes into the log file name; spaces become underscores.",
   "develop.label.title": "Session label",
   "develop.run.confirm": "Delete the recorded files of “{label}”? This cannot be undone.",
@@ -111,6 +112,7 @@
   "develop.run.prompt": "What did you do in the game? What was pressed and in what order, which windows opened, how many times, what changed afterwards. The description is stored beside the run files and used as context when the run is analysed.",
   "develop.run.save": "Save",
   "develop.run.title": "Sniffer run",
+  "develop.sniff.frame": "Record a session",
   "develop.sniff.toggle": "Sniffer",
 
   "game.frame": "Game",
@@ -381,6 +383,7 @@
   "sweep.settings_hint": "a {side}×{side} tile box — {jumps} jumps, ~{mins} min a pass",
 
   "tab.chat": "Chat",
+  "tab.develop": "Develop",
   "tab.main": "Main",
   "tab.scenarios": "Scenarios",
   "tab.settings": "Settings",
