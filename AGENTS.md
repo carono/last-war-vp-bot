@@ -134,6 +134,8 @@ screenshots/                           gitignored — runtime captures, debuggin
 | `STOP ["reason"]` | halt the whole action chain; runner stops on next check |
 | `CLOSE_WINDOW` | send WM_CLOSE to the game window |
 | `LAUNCH "path"` | spawn a detached process; `%VAR%` / `$VAR` / `~` are expanded |
+| `QUIT_GAME` | force-close the client this profile drives (the pid its daemon holds), and wait for it to go |
+| `ATTACH_GAME [WITHIN N s]` | re-point the warm Lua daemon at the client running now — the other half of a restart |
 | `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]` | secret tasks read off the **wire**, not the screen; fills `MISSIONS` |
 
 Conditions allowed in `IF` / `WHILE` / `WAIT`:

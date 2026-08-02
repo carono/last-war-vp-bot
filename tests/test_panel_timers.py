@@ -375,6 +375,122 @@ def test_the_ministry_errand_is_half_hourly_either_way():
             seeded.by_name(MINISTRY).retry_sec) == (1800, 1800), seeded.by_name(MINISTRY)
 
 
+def test_the_restart_errand_is_six_hourly_and_off_by_default():
+    """#1205: the client is restarted on a clock, and only if asked to be.
+
+    Six hours is about the client and nothing else — a session left running all day
+    gets slower and less answerable — so the period is not tuned to any in-game cap.
+    The short retry is for a restart that did not come back: worth another go soon,
+    but not every tick, or a client that will not start is killed all night long.
+    """
+    t = _catalogue().by_name("restart_game")
+    assert t is not None, "the built-in catalogue has no restart errand"
+    assert t.scenario == ("restart_game",), t.scenario
+    assert (t.interval_sec, t.retry_sec) == (21600, 600), t
+    assert t.enabled is False, "a restart ends the session — it is the operator's call"
+    # …and the template new profiles are seeded from offers it too.
+    assert timersmod.load_template().by_name("restart_game") is not None, \
+        "panel/timers.json does not ship the restart errand"
+
+
+def _template(tmp: Path, names) -> Path:
+    path = tmp / "template.json"
+    path.write_text(json.dumps([{"name": n, "scenario": n} for n in names]),
+                    encoding="utf-8")
+    return path
+
+
+def _with_template(path: Path):
+    """Point `load_profile_catalogue` at a template of our own, restoring after.
+
+    The built-in list goes with it: what a profile is offered is the template PLUS the
+    built-ins (a template on disk can be a month older than the code), and a test about
+    adoption wants to name that set itself rather than inherit the real one.
+    """
+    class _Swap:
+        def __enter__(self):
+            self.saved = (timersmod.TEMPLATE_FILE, timersmod.DEFAULT_TIMERS)
+            timersmod.TEMPLATE_FILE = str(path)
+            timersmod.DEFAULT_TIMERS = ()
+
+        def __exit__(self, *exc):
+            timersmod.TEMPLATE_FILE, timersmod.DEFAULT_TIMERS = self.saved
+            return False
+    return _Swap()
+
+
+def test_a_built_in_the_local_template_predates_is_still_offered():
+    """The template is a local file; the built-in list is what actually ships.
+
+    An installation updated today has last month's template on disk, so adopting from
+    it alone would keep a new errand from every profile on that machine — which is
+    the whole failure this exists to prevent.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    profile = tmp / "timers.json"
+    profile.write_text(json.dumps([{"name": "old_one", "scenario": 'LOG "hi"'}]),
+                       encoding="utf-8")
+    with _with_template(_template(tmp, ["old_one"])):        # a stale template…
+        timersmod.DEFAULT_TIMERS = (timersmod.Timer(name="shipped_today",
+                                                    scenario=("noop",)),)
+        cat = timersmod.load_profile_catalogue(str(profile))
+    assert cat.names() == ["old_one", "shipped_today"], cat.names()
+
+
+def test_a_new_builtin_errand_reaches_a_profile_that_already_had_a_file():
+    """An ability shipped as a built-in errand must not stop at new accounts.
+
+    The profile's file owns its list, so it is never overwritten — but an errand the
+    template gained AFTER the profile was seeded is in neither the file nor the record
+    of what this profile has been offered, and that is the one case worth adopting.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    profile = tmp / "timers.json"
+    profile.write_text(json.dumps([{"name": "old_one", "scenario": 'LOG "hi"',
+                                    "interval_sec": 900, "enabled": True}]),
+                       encoding="utf-8")
+
+    with _with_template(_template(tmp, ["old_one", "brand_new"])):
+        cat = timersmod.load_profile_catalogue(str(profile))
+    assert cat.names() == ["old_one", "brand_new"], cat.names()
+    # What the operator had is untouched — period, switch and all.
+    assert cat.by_name("old_one").interval_sec == 900
+    assert cat.by_name("old_one").enabled is True
+    # …and the adoption is on disk, not just in memory.
+    on_disk = [e["name"] for e in json.loads(profile.read_text(encoding="utf-8"))]
+    assert on_disk == ["old_one", "brand_new"], on_disk
+
+
+def test_an_adopted_errand_deleted_afterwards_stays_deleted():
+    """Adoption happens once. A row taken off the list must not come back next launch."""
+    tmp = Path(tempfile.mkdtemp())
+    profile = tmp / "timers.json"
+    profile.write_text(json.dumps([{"name": "old_one", "scenario": 'LOG "hi"'}]),
+                       encoding="utf-8")
+
+    with _with_template(_template(tmp, ["old_one", "brand_new"])) as _swap:
+        first = timersmod.load_profile_catalogue(str(profile))
+        assert "brand_new" in first.names(), first.names()
+        # The operator deletes it in the tab, which rewrites the file.
+        timersmod.save_catalogue(first.remove("brand_new"), str(profile))
+        again = timersmod.load_profile_catalogue(str(profile))
+    assert again.names() == ["old_one"], "a deleted errand came back"
+    assert Path(timersmod.seen_path(str(profile))).exists(), \
+        "nothing recorded what this profile has been offered"
+
+
+def test_a_freshly_seeded_profile_is_not_adopted_twice():
+    """A profile with no file at all is the template, and gains nothing on top."""
+    tmp = Path(tempfile.mkdtemp())
+    profile = tmp / "timers.json"
+    with _with_template(_template(tmp, ["one", "two"])):
+        first = timersmod.load_profile_catalogue(str(profile))
+        assert first.names() == ["one", "two"], first.names()
+        timersmod.save_catalogue(first.remove("two"), str(profile))
+        again = timersmod.load_profile_catalogue(str(profile))
+    assert again.names() == ["one"], again.names()
+
+
 def test_only_a_successful_application_restarts_the_ministry_clock():
     """A refused application keeps its place in the queue — it never counts as a run.
 

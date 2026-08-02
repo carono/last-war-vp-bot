@@ -21,6 +21,13 @@ profiles start with) → the profile's own file (what actually runs, and what th
 panel's checkboxes write to). The built-in list is also the last-resort fallback
 if a profile's file is ever unreadable.
 
+An errand that appears LATER — a new ability shipped with an update — is adopted
+into every profile once, switched off, so it does not stay invisible to the
+accounts that already had a file. It comes from the template *and* the built-in
+list, because the template is a local file that an updated installation still has
+last month's copy of. Deleting the errand afterwards keeps it deleted; the how and
+the why are in :func:`adopt_new_errands` and :func:`offered_catalogue`.
+
     [
       {
         "name": "collect_base_resources",       // id: config key and record key
@@ -241,6 +248,24 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         retry_sec=1800,
         enabled=False,
         label_key="timers.item.apply_ministry_interior",
+    ),
+    Timer(
+        name="restart_game",
+        scenario=("restart_game",),
+        # Six hours. Nothing in the game is spent by a restart and nothing is lost —
+        # the point is the client itself, which gets slower and less answerable the
+        # longer one session lasts. Four restarts a day costs four times two minutes
+        # of loading and buys a client that still replies at the end of the day.
+        interval_sec=21600,
+        # Ten minutes after a restart that did not come back. The recipe FAILs when
+        # the base never appeared or the game link would not re-attach, and either
+        # of those is worth another go soon — but not every tick, because a client
+        # that will not start would otherwise be killed and relaunched all night.
+        retry_sec=600,
+        # OFF by default, like every other errand here. This one ends the session it
+        # is run in, so it is the operator's decision and not a default.
+        enabled=False,
+        label_key="timers.item.restart_game",
     ),
 )
 
@@ -568,9 +593,114 @@ def load_template() -> Catalogue:
     return load_catalogue(TEMPLATE_FILE)
 
 
+#: Beside a profile's catalogue: every errand name this profile has ever been offered.
+#: See :func:`adopt_new_errands` for why one file is not enough.
+SEEN_SUFFIX = "_seen.json"
+
+
+def seen_path(catalogue_path: str) -> str:
+    """Where the record of "already offered to this profile" lives."""
+    base, _ext = os.path.splitext(catalogue_path)
+    return base + SEEN_SUFFIX
+
+
+def _read_seen(path: str) -> "set[str] | None":
+    """The names this profile has been offered, or ``None`` if never recorded."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return {str(name) for name in data} if isinstance(data, list) else None
+
+
+def offered_catalogue(template: "Catalogue | None" = None) -> Catalogue:
+    """Everything this version has to offer a profile: the template, plus the built-ins.
+
+    The template is a local file and is not shipped (it is written once, on the first
+    run, and an operator may edit it), so an installation updated today has last
+    month's template on disk. The built-in list below is what actually ships, which
+    makes the union — the template first, since it is the one that was edited on
+    purpose — the honest answer to "what should a profile be offered".
+    """
+    template = load_template() if template is None else template
+    names = set(template.names())
+    return Catalogue(list(template.timers)
+                     + [t for t in DEFAULT_TIMERS if t.name not in names],
+                     template.path, template.errors)
+
+
+def adopt_new_errands(catalogue: Catalogue, offered: Catalogue,
+                      path: str) -> Catalogue:
+    """Add errands this version offers that the profile has never been shown.
+
+    A profile's file is written once, from the template, and is its own from then on
+    — which is right for what it holds, and wrong for what it does not: a NEW ability
+    shipped as a built-in errand would never reach an account that already had a
+    file. "New timer, so open a JSON and copy the entry across" is not a feature.
+
+    Copying the whole template over the file is not the answer either: the file owns
+    the list on purpose (:func:`parse_catalogue`), and a deleted errand must stay
+    deleted. So a second, tiny file remembers every name this profile has ever been
+    OFFERED, and only names in neither are adopted — once. Delete a built-in
+    afterwards and it stays gone, because it is in the record.
+
+    The first run after this existed has no record; the profile's current names are
+    taken as the record then, so an errand that shipped today is adopted and one the
+    operator deleted long ago comes back that one time.
+
+    Adopted entries arrive exactly as they are offered, which for every built-in means
+    switched off: nothing starts pressing because the bot was updated.
+    """
+    record = seen_path(path)
+    stored = _read_seen(record)
+    first_time = stored is None
+    known = set(catalogue.names())
+    seen = set(known) if first_time else set(stored)
+    fresh = [timer for timer in offered.timers
+             if timer.name not in known and timer.name not in seen]
+    if fresh:
+        catalogue = Catalogue(list(catalogue.timers) + fresh,
+                              catalogue.path or path, catalogue.errors)
+        save_catalogue(catalogue, path)
+    wanted = known | seen | set(offered.names())
+    if first_time or wanted != seen:
+        _write_json(record, sorted(wanted))
+    return catalogue
+
+
 def load_profile_catalogue(path: str) -> Catalogue:
-    """The catalogue a profile runs, seeded from the template when it has none."""
-    return load_catalogue(path, seed_from=load_template())
+    """The catalogue a profile runs, seeded from the template when it has none.
+
+    A file that did not exist is written from the template; one that did keeps every
+    word of what is in it, and gains only the errands this version has learnt since
+    (:func:`adopt_new_errands`).
+    """
+    template = load_template()
+    offered = offered_catalogue(template)
+    fresh_profile = not os.path.exists(path)
+    catalogue = load_catalogue(path, seed_from=offered)
+    if fresh_profile:
+        # It IS everything on offer, so all of it counts as offered — otherwise a row
+        # deleted tomorrow would be re-adopted the day after as "new".
+        _write_json(seen_path(path),
+                    sorted(set(offered.names()) | set(catalogue.names())))
+        return catalogue
+    if not _readable(path):
+        # Unreadable: what came back is the FALLBACK, not this profile's list. Deciding
+        # what it is missing from that would write our guess over the operator's file.
+        return catalogue
+    return adopt_new_errands(catalogue, offered, path)
+
+
+def _readable(path: str) -> bool:
+    """Is the file there and still valid JSON? (Cheap: these are a few hundred bytes.)"""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def save_catalogue(catalogue: Catalogue, path: str | None = None) -> None:

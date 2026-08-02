@@ -116,6 +116,21 @@ _STOP_RE = re.compile(r"^STOP(?:\s+\"(.*)\")?\s*$", re.IGNORECASE)
 _FAIL_RE = re.compile(r'^(?:RETURN\s+)?FAIL(?:\s+"(.*)")?\s*$', re.IGNORECASE)
 _CLOSE_WINDOW_RE = re.compile(r"^CLOSE_WINDOW\s*$", re.IGNORECASE)
 _LAUNCH_RE = re.compile(r'^LAUNCH\s+"([^"]+)"\s*$', re.IGNORECASE)
+# The other half of a restart: end the client, and re-point the warm Lua link at the
+# one that comes back. CLOSE_WINDOW asks a window politely and LAUNCH starts a process;
+# neither can end a client that is wedged, and neither knows that the link into the game
+# VM is bound to a process id. See docs/dsl.md "Restarting the client".
+_QUIT_GAME_RE = re.compile(r"^QUIT_GAME\s*$", re.IGNORECASE)
+_ATTACH_GAME_RE = re.compile(
+    r"^ATTACH_GAME(?:\s+WITHIN\s+(\d+(?:\.\d+)?)\s*s?)?\s*$", re.IGNORECASE)
+
+#: How long ATTACH_GAME waits for the daemon to resolve the new client, when the
+#: script does not say. Resolving one is an il2cpp enumeration through a thread
+#: hijack — seconds on a warm machine, and it is retried while the client finishes
+#: settling, so the default is generous rather than tight.
+ATTACH_TIMEOUT_SEC = 120.0
+#: How long a QUIT_GAME waits for the client to actually disappear.
+QUIT_TIMEOUT_SEC = 30.0
 _READ_TEXT_RE = re.compile(
     rf"^READ_TEXT\s+\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"
     rf"\s+INTO\s+profile\.({_IDENT})\s*$",
@@ -329,6 +344,17 @@ class CloseWindowStmt(_Stmt):
 class LaunchStmt(_Stmt):
     """Spawn a process (typically the game launcher). Fire-and-forget."""
     path: str
+
+
+@dataclass(slots=True)
+class QuitGameStmt(_Stmt):
+    """Force-close the client this profile drives, and wait for it to go."""
+
+
+@dataclass(slots=True)
+class AttachGameStmt(_Stmt):
+    """Re-point the warm Lua link at the client that is running now."""
+    timeout: float = ATTACH_TIMEOUT_SEC
 
 
 # ---- Errors ----------------------------------------------------------------
@@ -584,6 +610,14 @@ def _parse_one(lines, i, indent):
     if m:
         return LaunchStmt(text=text, line_no=ln, path=m.group(1)), i + 1
 
+    if _QUIT_GAME_RE.match(text):
+        return QuitGameStmt(text=text, line_no=ln), i + 1
+
+    m = _ATTACH_GAME_RE.match(text)
+    if m:
+        return AttachGameStmt(text=text, line_no=ln,
+                              timeout=float(m.group(1) or ATTACH_TIMEOUT_SEC)), i + 1
+
     raise ScriptParseError(f"line {ln}: unrecognised statement: {text!r}")
 
 
@@ -782,6 +816,10 @@ class Interpreter:
                 self._do_close_window(stmt)
             case LaunchStmt():
                 self._do_launch(stmt)
+            case QuitGameStmt():
+                self._do_quit_game(stmt)
+            case AttachGameStmt():
+                self._do_attach_game(stmt)
             case ReadTextStmt():
                 self._do_read_text(stmt)
             case PressStmt():
@@ -1270,6 +1308,12 @@ class Interpreter:
         Returns None if the expression errors OR the game VM is unreachable (daemon
         down / mid-rehijack after a game restart) — callers decide what that means
         (a scene poll treats it as 'unknown'; a count read stops).
+
+        `SystemExit` is in the catch on purpose: with no daemon the evaluator is a
+        local `LuaEval`, and building one while no client is running raises
+        `SystemExit("LastWar.exe not running")` from the pid probe. During a restart
+        (actions/restart_game.md) that is not a reason to abandon the run — it is
+        precisely the "not up yet" the poll is waiting out.
         """
         chunk = (
             'local ok,v=pcall(function() return %s end) '
@@ -1278,7 +1322,7 @@ class Interpreter:
         )
         try:
             lines = self._run_lua(chunk, marker="RLUA", settle=0.35)
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError, SystemExit):
             return None
         value: str | None = None
         for out in lines:
@@ -1418,6 +1462,115 @@ class Interpreter:
                 f"line {stmt.line_no}: failed to launch {expanded}: {exc}"
             )
         self._log(f"LAUNCH {expanded}")
+
+    # -- restarting the client ------------------------------------------------
+    #
+    # A restart is two things the DSL had no word for. LAUNCH starts a process and
+    # CLOSE_WINDOW asks a window to go away, but neither can end a client that is
+    # sitting behind a modal, and — the part that bites — neither knows that the link
+    # into the game's Lua VM is bound to a PROCESS ID. Left alone, everything after a
+    # restart drives a pid that no longer exists.
+
+    def _detach(self) -> None:
+        """Let go of this run's Lua link, so the next primitive builds a fresh one.
+
+        The evaluator is cached on the Context for the whole action (one connection
+        per run), which is exactly wrong across a restart: with no daemon it is a
+        local `LuaEval` holding handles into the process we just ended, and it would
+        keep failing for the rest of the run instead of re-resolving.
+        """
+        evaluator, self.ctx.evaluator = self.ctx.evaluator, None
+        if evaluator is None:
+            return
+        try:
+            evaluator.close()
+        except Exception:                     # noqa: BLE001 — a dead handle, nothing to do
+            pass
+
+    def _game_port(self) -> int:
+        """The daemon port this run drives — the context's, or the environment's.
+
+        The same rule `_evaluator` follows, and it matters more here than anywhere
+        else: on a two-account box the port is what says WHICH client is being
+        restarted, and a restart aimed at the wrong one ends the other account's
+        session. `getattr` because a context that does not name a port at all is the
+        ordinary case (a script started from a shell) and reads the environment, which
+        is what every caller had before the panel could hold two profiles at once.
+        """
+        self._tools_lib_on_path()
+        import lua_client
+        port = getattr(self.ctx, "game_port", None)
+        return int(port if port is not None else lua_client.PORT)
+
+    def _do_quit_game(self, stmt: QuitGameStmt) -> None:
+        """End the client this profile drives, and wait until it has really gone.
+
+        WHICH client is the whole difficulty, and it is answered in
+        tools/lib/game_client.py: with two accounts on one box there are two clients,
+        each in its own Windows session with its own daemon, and closing "LastWar.exe"
+        by name would end the other account's session as well.
+
+        A client that is already gone is not an error — the recipe's job is to get
+        from "running" to "freshly started", and half of that being done for it is a
+        head start, not a failure.
+        """
+        self._tools_lib_on_path()
+        import game_client
+
+        pid = game_client.target_pid(port=self._game_port())
+        self._detach()                        # nothing may hold the old process
+        if pid is None:
+            self._log("QUIT_GAME -> no client is running")
+            return
+        if not game_client.close(pid, timeout=QUIT_TIMEOUT_SEC):
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: the client (pid {pid}) did not close")
+        self._log(f"QUIT_GAME -> client pid {pid} closed")
+
+    def _do_attach_game(self, stmt: AttachGameStmt) -> None:
+        """Point the warm daemon at the client that is running NOW.
+
+        The daemon caches one resolved `LuaEval` per client process. After a restart
+        that cache names a dead pid; it does repair itself — the first failing call
+        drops it and rebuilds — but that repair happens inside whatever errand runs
+        next, which then pays for it and may read a failure that was only ever the
+        handover. Doing it here makes the handover part of the restart, where it
+        belongs, and gives the recipe something to fail on if the client never came
+        back.
+
+        With no daemon there is nothing warm to re-point: the next game primitive
+        builds a fresh local `LuaEval`, which resolves the live client by itself. So
+        the wait is for the CLIENT, and the reload is best-effort on top of it.
+        """
+        self._tools_lib_on_path()
+        import game_client
+        import lua_client
+
+        self._detach()
+        port = self._game_port()
+        deadline = time.time() + float(stmt.timeout)
+        pid = None
+        while True:
+            pid = game_client.running_pid()
+            if pid is not None:
+                if not lua_client.is_running(port=port):
+                    self._log(f"ATTACH_GAME -> client pid {pid} (no daemon to re-point)")
+                    return
+                try:
+                    lua_client.DaemonClient(port=port, token="").reload()
+                except Exception:             # noqa: BLE001 — not warm yet; try again
+                    pass
+                if game_client.attached_pid(port) == pid:
+                    self._log(f"ATTACH_GAME -> daemon attached to client pid {pid}")
+                    return
+            if time.time() >= deadline:
+                break
+            time.sleep(2.0)
+        raise ScriptRuntimeError(
+            f"line {stmt.line_no}: the game link did not come back within "
+            f"{stmt.timeout:g}s"
+            + (f" (client pid {pid} is up, the daemon would not attach)" if pid
+               else " (no client is running)"))
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.

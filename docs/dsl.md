@@ -283,6 +283,53 @@ runtime detects this and lazily re-finds the window on each WAIT
 iteration, so the same `WAIT screen == ...` form works whether the
 window already exists or is about to appear.
 
+### `QUIT_GAME`
+
+End the game client **this profile drives**, and wait until the process
+has really gone. Unlike `CLOSE_WINDOW` this is a force close: half the
+reason to end a client is that it has stopped answering, and a window
+ignoring `WM_CLOSE` would turn the statement into a long wait for
+nothing.
+
+*Which* client is the part that matters. With two accounts on one
+machine there are two clients, one per Windows session, each with its
+own Lua daemon on its own port — so the target is the process **this
+profile's daemon is attached to**, never "the LastWar.exe" by name
+(`tools/lib/game_client.py` resolves it: the daemon's attachment, then
+`LW_GAME_PID`, then the client in this Windows session). Closing by
+image name would end the other account's session too.
+
+A client that is not running is not an error — the statement's job is to
+leave nothing running, and that is already true.
+
+It also lets go of this run's link into the game VM, so whatever follows
+resolves a fresh one instead of driving a dead process id.
+
+### `ATTACH_GAME [WITHIN N s]`
+
+Point the warm Lua daemon at the client that is running **now**, and
+block until it is attached. The daemon caches one resolved evaluator per
+client process, so after a restart that cache names a pid that no longer
+exists; it repairs itself on the first failing call, but that repair
+would land inside whatever runs next and read as *that* failing. This
+statement does the handover where it belongs, and fails when the client
+never came back.
+
+With no daemon running there is nothing warm to re-point (the next game
+primitive builds its own evaluator, which finds the live client itself),
+so the wait is for the **client**, and re-pointing is best-effort on top
+of it. Default window: 120 s.
+
+```
+QUIT_GAME
+WAIT 3
+CALL launch_game
+ATTACH_GAME WITHIN 120s
+```
+
+That is `actions/restart_game.md` — the whole of "restart the client",
+which the panel plays on a clock.
+
 ### `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]`
 
 Find secret tasks (hero dispatch) by reading the game's own network

@@ -100,6 +100,24 @@ class DaemonClient:
         except OSError:
             return False
 
+    def target_pid(self) -> "int | None":
+        """Which client process this daemon is attached to, or ``None``.
+
+        ``None`` covers both "no daemon there" and "there is one but it is not warm"
+        — from the caller's side those are the same answer: nothing here names a live
+        client. The one caller that needs it is a restart (tools/lib/game_client.py):
+        with two clients on the machine, the process THIS profile's daemon drives is
+        the only honest reading of "the game", and a process name is not.
+        """
+        try:
+            pid = self._rpc({"op": "ping"}).get("pid")
+        except OSError:
+            return None
+        try:
+            return int(pid) or None
+        except (TypeError, ValueError):
+            return None
+
     # -- the game lease: one action at a time, across processes --------------
     def acquire(self, owner: str, ttl: float = 120.0) -> "str | None":
         """Claim the right to drive the game. The token, or ``None`` if someone else holds it.

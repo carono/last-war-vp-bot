@@ -755,6 +755,169 @@ def test_ministry_own_position_reading_is_numeric_and_shared():
         "the cooldown expression drifted from lua_actions"
 
 
+# --- restarting the client (QUIT_GAME / ATTACH_GAME) ------------------------
+
+class FakeClient:
+    """A stand-in for tools/lib/game_client.py: one client, closable, restartable.
+
+    `pid` is what is running; `close()` ends it, and `restart()` puts a NEW pid in its
+    place — which is the whole point of the pair of primitives, since the link into
+    the game VM is bound to a process id and the new one is not the old one.
+    """
+
+    def __init__(self, pid=4242, attached=None) -> None:
+        self.pid = pid
+        self.attached = pid if attached is None else attached
+        self.closed: list[int] = []
+        self.reloads = 0
+
+    # the module surface the interpreter uses
+    def target_pid(self, port=None, game_exe=None):
+        return self.attached or self.pid
+
+    def running_pid(self, game_exe=None):
+        return self.pid
+
+    def attached_pid(self, port=None):
+        return self.attached
+
+    def close(self, pid, timeout=None):
+        self.closed.append(pid)
+        if pid == self.pid:
+            self.pid = None
+        self.attached = None
+        return True
+
+    # what the game does around it
+    def restart(self, pid=5151):
+        self.pid = pid
+
+    def reload(self):
+        self.reloads += 1
+        self.attached = self.pid
+        return {"ok": True, "warm": bool(self.pid)}
+
+
+class _FakeLuaClient:
+    """Only the two things ATTACH_GAME asks of lua_client, wired to a FakeClient."""
+
+    PORT = 47654
+
+    def __init__(self, client, daemon_up=True) -> None:
+        self._client, self._up = client, daemon_up
+
+    def is_running(self, host=None, port=None, timeout=1.0):
+        return self._up
+
+    def DaemonClient(self, host=None, port=None, timeout=90.0, token=None):  # noqa: N802
+        return self._client
+
+
+class _fakes:
+    """Install fake `game_client` / `lua_client` modules for the length of a test."""
+
+    def __init__(self, client, daemon_up=True) -> None:
+        self._client = client
+        self._lua = _FakeLuaClient(client, daemon_up)
+
+    def __enter__(self):
+        self._saved = {name: sys.modules.get(name)
+                       for name in ("game_client", "lua_client")}
+        sys.modules["game_client"] = self._client
+        sys.modules["lua_client"] = self._lua
+        return self._client
+
+    def __exit__(self, *exc):
+        for name, mod in self._saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+        return False
+
+
+def test_parse_quit_and_attach():
+    (q,) = se.parse_text("QUIT_GAME")
+    assert isinstance(q, se.QuitGameStmt)
+    (a,) = se.parse_text("ATTACH_GAME")
+    assert isinstance(a, se.AttachGameStmt) and a.timeout == se.ATTACH_TIMEOUT_SEC
+    (a2,) = se.parse_text("ATTACH_GAME WITHIN 30s")
+    assert a2.timeout == 30.0, a2.timeout
+
+
+def test_quit_closes_the_pid_the_daemon_drives_and_drops_the_link():
+    """Not "the LastWar.exe": the process THIS profile's daemon is attached to.
+
+    Two accounts run two clients, one per Windows session — closing by image name
+    would end the other one as well. And the run's cached evaluator has to go with
+    it, or everything after the restart drives a dead process id.
+    """
+    client = FakeClient(pid=4242)
+    ev = FakeEval()
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=ev)
+    with _fakes(client):
+        se.Interpreter(ctx)._run_block(se.parse_text("QUIT_GAME"))
+    assert client.closed == [4242], client.closed
+    assert ctx.evaluator is None, "the dead process's evaluator was kept"
+
+
+def test_quit_on_a_client_that_is_already_gone_is_not_a_failure():
+    client = FakeClient(pid=None, attached=None)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval())
+    with _fakes(client):
+        assert se.run_text("QUIT_GAME", ctx=ctx) is True
+    assert client.closed == [], "nothing was running, so nothing may be closed"
+
+
+def test_attach_re_points_the_daemon_at_the_new_process():
+    """The pid changes across a restart; the warm daemon must follow it."""
+    client = FakeClient(pid=4242)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval())
+    with _fakes(client):
+        se.Interpreter(ctx)._run_block(se.parse_text("QUIT_GAME"))
+        client.restart(pid=5151)             # the launcher brought a NEW process up
+        se.Interpreter(ctx)._run_block(se.parse_text("ATTACH_GAME WITHIN 5s"))
+    assert client.reloads == 1, client.reloads
+    assert client.attached == 5151, client.attached
+    assert ctx.evaluator is None, "the next primitive must build its own link"
+
+
+def test_attach_fails_when_the_client_never_came_back():
+    """A restart that left nothing running is a failed errand, not a quiet success."""
+    client = FakeClient(pid=None, attached=None)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=None)
+    with _fakes(client):
+        try:
+            se.Interpreter(ctx)._run_block(se.parse_text("ATTACH_GAME WITHIN 1s"))
+        except se.ScriptRuntimeError as exc:
+            assert "no client is running" in str(exc), exc
+        else:
+            raise AssertionError("a missing client must fail the recipe")
+
+
+def test_attach_without_a_daemon_waits_for_the_client_and_stops_there():
+    """With nothing warm to re-point, the next primitive resolves its own link."""
+    client = FakeClient(pid=7777)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval())
+    with _fakes(client, daemon_up=False):
+        se.Interpreter(ctx)._run_block(se.parse_text("ATTACH_GAME WITHIN 5s"))
+    assert client.reloads == 0, "there was no daemon to reload"
+
+
+def test_restart_recipe_closes_relaunches_and_re_attaches():
+    """actions/restart_game.md is the whole ability, in that order."""
+    path = se.resolve_action("restart_game")
+    assert path is not None, "actions/restart_game.md is missing"
+    body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
+    kinds = [type(s).__name__ for s in se.parse_text(body)]
+    assert kinds == ["QuitGameStmt", "WaitStmt", "CallStmt", "AttachGameStmt",
+                     "LogStmt"], kinds
+    called = [s.action_name for s in se.parse_text(body)
+              if type(s).__name__ == "CallStmt"]
+    assert called == ["launch_game"], "the restart must start the game the one way"
+    assert se.resolve_action("launch_game") is not None
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
