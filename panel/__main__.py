@@ -712,9 +712,12 @@ class Panel(tk.Tk):
         lang_menu = tk.Menu(menubar, tearoff=0)
         self._lang_var = getattr(self, "_lang_var", tk.StringVar())
         self._lang_var.set(self._i18n.lang)
+        # The menu IS the locales directory: a file each, named by what the file calls
+        # itself. Adding a language is copying en.json and translating it — there is no
+        # list here to add it to (panel/i18n.py).
         for lang in i18nmod.available_langs():
             lang_menu.add_radiobutton(
-                label=i18nmod.LANG_NAMES.get(lang, lang), value=lang,
+                label=i18nmod.lang_name(lang), value=lang,
                 variable=self._lang_var, command=lambda l=lang: self._set_language(l))
 
         help_menu = tk.Menu(menubar, tearoff=0)

@@ -59,6 +59,28 @@ def test_resolve_defaults_to_the_default_enabled_set():
                    if s.default_enabled], got
 
 
+def test_develop_is_off_until_a_profile_asks_for_it():
+    """«Develop» is the sniffers, and a panel whose owner has never reverse-engineered
+    anything must not carry them (#1199).
+
+    The test above derives what it expects FROM `default_enabled`, so it would pass just
+    as happily if the flag flipped. This one names the tab: off in a fresh profile, off
+    for a profile written before it existed, and on only when the profile says so.
+    """
+    every = [s.id for s in tabsreg.TABS]
+    assert "develop" in tabsreg.BY_ID, "the tab left the registry"
+    assert "develop" not in [s.id for s in tabsreg.resolve()], "on in a fresh profile"
+    # A profile written before this tab existed: `develop` is in neither `enabled` nor
+    # `known`, and the "a tab nobody has been offered appears" rule must not reach it.
+    old = [s.id for s in tabsreg.resolve(enabled=["stats"], known=["stats"])]
+    assert "develop" not in old, old
+    # …and no `known` at all — the pre-`known` profile format — behaves the same.
+    assert "develop" not in [s.id for s in tabsreg.resolve(enabled=["stats"])]
+    # Ticking it in Settings is what puts it there, and that survives the round trip.
+    on = [s.id for s in tabsreg.resolve(enabled=["stats", "develop"], known=every)]
+    assert on == ["stats", "develop"], on
+
+
 def test_switching_a_tab_off_in_the_profile_leaves_it_out():
     """The whole point of the refactor, in one assertion: a tab the profile does not
     name is not resolved — so it is never built, contributes no settings page, and

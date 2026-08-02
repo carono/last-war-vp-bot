@@ -191,6 +191,24 @@ to the bot, not to your tab, and is always offered.
 
 ---
 
+## A language is a file
+
+There is no list of languages anywhere in the code, and none may be added. The Language
+menu IS `panel/locales/`: the code comes from the file name, the label from the
+`language.name` key **inside** that file, written in its own script.
+
+So a person who wants the panel in their own language copies `en.json` to `de.json`,
+translates the values, sets `"language.name": "Deutsch"` — and it is in the menu on the
+next start. A file that forgets `language.name` still appears, labelled with its bare
+code; a key it does not translate falls back to English, so a half-finished locale is
+usable rather than broken.
+
+What this means for a tab author is only what it always meant: put your keys in **both**
+shipped files. `tests/test_panel_i18n.py` pins the rest, including that the table of
+languages has not come back.
+
+---
+
 ## Reaching another tab
 
 Through the runtime, and tolerating absence:
