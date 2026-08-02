@@ -94,10 +94,28 @@ function SIM.once(obs, hole, roof, lane0, speed0, accel, zmax, steps)
   -- level 2: is there a rideable carriage roof over lane `ln` at distance `z`, and can it be
   -- MOUNTED from the road there (a ramp) rather than only ridden along (a plain carriage
   -- chained behind one)?
+  local movingRoof = {}   -- one reusable record, so the per-frame lookup allocates nothing
   local function roofAt(z, ln)
     for i = 1, #roof do
       local r = roof[i]
       if r[1] == ln and z >= r[2] and z <= r[3] then return r end
+    end
+    -- A DRIVING truck is roof too, and its roof is wherever the truck is NOW — which is why it
+    -- cannot be in the `roof` list, laid out once in track coordinates before the run. The
+    -- recordings put a person on top of one 179 times (see surfing_simulate.kind_of), so a
+    -- judge without this kills a runner for standing exactly where a person stood. It is never
+    -- MOUNTABLE: nothing drives up onto a truck, it is boarded from a neighbouring roof.
+    local AI = _G.__SR_AI
+    for i = 1, #live do
+      local o = live[i]
+      if o.speed and o.speed > 0 and laneOf(o.x) == ln then
+        local k = AI.kindOverride[o.mid]
+        if k and k.carriage and z >= o.z - (k.back or 0) and z <= o.z + (k.front or 0) then
+          movingRoof[1] = ln movingRoof[2] = o.z - (k.back or 0)
+          movingRoof[3] = o.z + (k.front or 0) movingRoof[4] = 0
+          return movingRoof
+        end
+      end
     end
     return nil
   end

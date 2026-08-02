@@ -509,6 +509,10 @@ class Track:
         self.holes, self.roofs = holes, roofs
         lane_of = (lambda x: min(range(3), key=lambda i: abs(x - (32 + 4 * i))))
         self.static, self.moving, self.fly = [], [], []
+        # Which movers carry a roof, and the body of it — unpadded, because a clearance is what
+        # you keep off a thing and this is a thing you stand on.
+        self.rideable = {mid: (k.get("back", 0.0), k.get("front", 0.0))
+                         for mid, k in kinds.items() if k.get("carriage") and k.get("speed")}
         for x, z, mid in rows:
             k = kinds[mid]
             if k.get("fly"):
@@ -545,14 +549,28 @@ class Track:
             started.append(rec + (f * self.DT,))
         self.moving = started
 
-    def roof_at(self, z, lane):
+    def roof_at(self, z, lane, frame=None):
         for r in self.roofs:
             if r[0] == lane and r[1] <= z <= r[2]:
                 return r
+        # A driving truck is roof as well, and where its roof IS depends on the clock — so it
+        # cannot live in `self.roofs`, which is laid out in track coordinates once. Never
+        # mountable (field 4 = 0): a truck is boarded from a neighbouring roof, never driven up.
+        # Without this the search calls a stretch impassable that a person rode straight over.
+        if frame is not None:
+            t = frame * self.DT
+            for ol, oz, _b, _f, lanes, jmp, sld, side, speed, mid, t0 in self.moving:
+                body = self.rideable.get(mid)
+                if ol != lane or body is None:
+                    continue
+                back, front = body
+                mz = oz if t < t0 else oz - speed * (t - t0)
+                if mz - back <= z <= mz + front:
+                    return (lane, mz - back, mz + front, 0)
         return None
 
-    def on_roof(self, z, lane):
-        return self.roof_at(z, lane) is not None
+    def on_roof(self, z, lane, frame=None):
+        return self.roof_at(z, lane, frame) is not None
 
     def _hits(self, frame, lane, held, level, was_up, switching, jumping, sliding, flying):
         """Did the avatar die crossing frame `frame`? Mirrors SIM.once's collision block."""
@@ -598,7 +616,7 @@ class Track:
 
     def start(self, lane0: int):
         """The state a run begins in: ``(frame, lane, up on the roofs, flight ends at)``."""
-        return (1, lane0, self.on_roof(0.0, lane0), 0)
+        return (1, lane0, self.on_roof(0.0, lane0, 1), 0)
 
     def step(self, frame, lane, level, act, fly_until=0):
         """Take `act` at a decision frame and run on to the next one.
@@ -630,7 +648,7 @@ class Track:
             # the judge hands the runner over at the midpoint of a change, not at its end
             held = sw_from if sw_t > self.SWITCH * 0.5 else sw_to
             z = self.pz[frame]
-            over = self.roof_at(z, held)
+            over = self.roof_at(z, held, frame)
             was_up = level
             if frame < fly_until:
                 level = False
@@ -646,7 +664,7 @@ class Track:
                 # and without changing lane to do it — a step into a roofed lane off the road
                 # goes into the carriage's flank, which is what `sideOnly` is for
                 level = (prev_held == held and over[3] == 1
-                         and not self.on_roof(prev_z, held))
+                         and not self.on_roof(prev_z, held, frame - 1))
             if took_off:
                 air_roof, took_off = level, False
             if self._hits(frame, lane, held, level, was_up, sw_t > 0, jt > 0, sl_t > 0,

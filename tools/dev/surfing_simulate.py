@@ -139,7 +139,19 @@ def classify(rec: dict, bounds: dict) -> dict:
     jump = "mutong" in asset or "dizhalan" in asset or saw
     slide = "zhalan" in asset
     b = bounds.get(name)
-    if b and "back" in b:
+    # A DRIVING truck's measured length is deliberately not used, and this is the one place the
+    # decision lives. The measurement is not in doubt: the colliders are 23 / 31 / 40 units long
+    # and the recordings agree to the metre — a person rides `move_2` from `pz - z = -31.0` to 0
+    # and `move_3` from -40.0 to 0. It is the model AROUND the number that cannot carry it yet.
+    # Given the honest lengths, every offline measure collapses: the per-band score falls
+    # 141/144 -> 126/144, run_002 from 7390 m to 474, seed 4 from 11881 to 1669, and the
+    # exhaustive search agrees the track has no way through — against a person who runs 12772 m
+    # on it. Something else about a mover is wrong (how it is boarded, or where its body is
+    # lethal, or the parked-then-oncoming motion), and until that is found the shorter
+    # name-derived length is the better approximation of how much lane a truck really denies.
+    # Restoring the measurement is a one-line change here and in surfing_ai.lua's `measure`.
+    mover = (rec.get("move_speed") or 0) > 0
+    if b and "back" in b and not (mover and "truck" in asset):
         back, front = b["back"], b.get("front", 1.0)
         lanes = 3 if b.get("sx", 0) > 6 else 1
     elif "chexiang" in asset or "truck" in asset:
@@ -169,10 +181,15 @@ def classify(rec: dict, bounds: dict) -> dict:
             back = float(os.environ.get("SR_MOVER_BACK") or back)
     else:
         back, front, lanes = 1.0, 1.0, 1
-    if "qiaodong" in asset:
-        # the bridge deck is overhead (collider at y≈10-12) — a ground runner passes UNDER it,
+    if "qiaodong" in asset or "gaojiaqiao" in asset:
+        # the bridge deck is overhead (collider at y≈10-15) — a ground runner passes UNDER it,
         # so it is ignored, not a wall (see surfing_ai.lua). The real hazards beside a bridge
         # are the separate fence / driving-truck pieces, which are their own monsters.
+        # The viaduct (`gaojiaqiao`) is the same and was excluded until the recordings were
+        # counted: a person is inside one on the ground 77 times across the three runs, in all
+        # three lanes, and never dies there. Modelled solid it is 46 m of wall across the whole
+        # road — `surfing_offline.py human run_002` reported it as nine of its ten "model says
+        # WALL where the run went on".
         return {"solid": False, "ignore": True, "jump": False, "slide": False, "back": 0.0,
                 "front": 0.0, "lanes": 1, "sideOnly": False, "carriage": False, "ramp": False,
                 "speed": 0.0}
@@ -183,8 +200,18 @@ def classify(rec: dict, bounds: dict) -> dict:
     # the band class most deaths come from — so the offline judge was blind to the fixes that
     # mattered. Carry them, so the offline planner models ramps exactly as the live one does.
     speed = float(rec.get("move_speed") or 0)
-    carriage = ("chexiang" in asset or "truck" in asset) and speed == 0
-    ramp = carriage and "xiepo" in asset
+    # A DRIVING truck carries a roof too, and is ridden along it exactly like a train carriage.
+    # It was excluded from `carriage` on the assumption that only a parked body can be stood on,
+    # and the recordings refute that in the plainest way there is: across run_001/2/3 a person is
+    # inside a `truck_gold_move_2` body 59 times and a `move_3` 120 times, EVERY one of them at
+    # roof height (y > 2) and none of them on the ground, with no carriage under them to explain
+    # it. Those frames also settle the length the code has been guessing at since #1163: they run
+    # from `pz - z = -31.0` and `-40.0` to 0 — the whole body — which is the collider's own
+    # measured size.z to the metre, and not the 16.5 / 24.7 that `_N x 8.24` assumes.
+    carriage = "chexiang" in asset or "truck" in asset
+    # ... but only a parked one has a ramp to drive up. A truck is boarded from a neighbouring
+    # roof, which is why it is roof without ever being mountable.
+    ramp = carriage and speed == 0 and "xiepo" in asset
     # ramps are ridden head-on and only kill from the side; plain carriages are walls
     side_only = ramp
     return {"solid": True, "jump": jump, "slide": slide, "back": back, "front": front,

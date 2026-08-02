@@ -114,6 +114,15 @@ def classify(rec: dict, bounds: dict) -> dict:
         nm = o["name"]
         if "score_gold" in nm:
             continue
+        # A bridge deck cannot kill: it is 11-15 m up and the runner passes under it, which the
+        # recordings show 77 times over. What it CAN do is take the blame — its body is 34-46 m
+        # long and 19-64 wide, so it covers more of the track than everything else put together
+        # and any death inside one used to be named after it. That is how `bridge` came to be
+        # the second-largest cause in the record, and it is why the viaduct spent a session
+        # being modelled as a wall. Left out of the running, a death near a bridge is reported
+        # as what it is: unexplained.
+        if "qiaodong" in nm or "gaojiaqiao" in nm:
+            continue
         z0, z1, sx = body_of(nm, o["z"], bounds)
         lanes = [0, 1, 2] if sx > 6 else [lane_of.get(int(o["x"]), -1)]
         if "chexiang" in nm.lower():

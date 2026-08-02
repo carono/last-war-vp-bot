@@ -26,7 +26,7 @@
 local AI = _G.__SR_AI
 if not AI then AI = {} _G.__SR_AI = AI end
 
-AI.version = 47
+AI.version = 48
 if AI.enabled == nil then AI.enabled = true end
 -- Reset the config on every (re)install so the DEFAULTS BELOW are authoritative. It used to
 -- persist (`AI.cfg or {}`), which silently pinned a value to whatever was first set in a warm
@@ -228,27 +228,42 @@ local function kindOf(mid)
     if string.find(a, "chexiang", 1, true) or string.find(a, "truck", 1, true) then
       local n = tonumber(string.match(a, "_(%d+)%.prefab$") or "1") or 1
       back, front = cfg.carUnit * n, 0.2
-      -- Length is read from the "_N" in the prefab name. An earlier version inflated a
-      -- MOVING truck to cfg.moverBack (the longest body in the game) on the theory that movers
-      -- were longer than their name — but the player watched it backfire repeatedly: an
-      -- over-long truck marks its lane blocked far behind where it really ends, which walls off
-      -- track that is actually open and traps the runner behind a phantom («переоценивает длину
-      -- грузовиков … левый/центр были свободны»). So a mover keeps its honest name length too.
-      if (t.move_speed or 0) == 0 then
-        carriage = true
-        ramp = (not cfg.rampSolid) and string.find(a, "xiepo", 1, true) ~= nil
-      end
+      -- Length is read from the "_N" in the prefab name, and for the TRAIN carriages that is
+      -- exact — the colliders measure 8.22/16.44/24.86/32.98/41.10, which is 8.24xN. For the
+      -- driving gold trucks it is simply wrong: they measure 23 / 31 / 40, and `_N` is a
+      -- variant index there, not a segment count. Both the collider and the recordings say so —
+      -- see the note in surfing_simulate.kind_of. `AI.extent` overrides this the first time one
+      -- is seen live; the names are the fallback until then.
+      -- A truck is ridden along its roof exactly like a carriage: the recordings have 179
+      -- frames inside a moving truck's body and every one of them at roof height. So it is
+      -- roof to a runner already up there and a wall to one on the road — the same asymmetry
+      -- the train carriages have. What it does NOT have is a ramp: nothing drives up onto a
+      -- truck, it is boarded from a neighbouring roof, so it never mounts.
+      carriage = true
+      ramp = (not cfg.rampSolid) and (t.move_speed or 0) == 0
+             and string.find(a, "xiepo", 1, true) ~= nil
     end
     -- The bridge DECK is overhead — its collider sits at y≈10-12 (measured), so a ground
     -- runner passes UNDER it: it is NOT a lane wall. Modelling it as a full-width slide-bar
     -- was wrong, it walled off lanes that were actually open passages (player: «мост имеет
     -- проходы, левый путь был свободен»). The real hazards at a bridge are the SEPARATE pieces
     -- beside it — a low fence, a driving truck — which are their own monsters in the field.
-    -- So the deck is ignored entirely: neither blocked nor rewarded. ONLY `qiaodong` (the arch
-    -- opening) is this pass-under deck — "qiao" alone also matched `gaojiaqiao` (a viaduct
-    -- support), a genuine SOLID that the bot then ignored and rammed at full speed (a run died
-    -- centre-lane at a gaojiaqiao the model had marked pass-under).
+    -- So the deck is ignored entirely: neither blocked nor rewarded.
+    --
+    -- `gaojiaqiao` — the viaduct — is the same thing, and used to be excluded from this on the
+    -- strength of one death read as "the bot rammed a support it had marked pass-under". The
+    -- recordings say otherwise, and they say it 77 times: across run_001/2/3 a person is inside
+    -- a gaojiaqiao01 body on the ground in the LEFT lane 12 times, the centre 23 and the right
+    -- 12, and comes out the other side every time. What that one death was is what the same
+    -- classifier still does to this one — a viaduct's measured body is 46 m long and 18.8 wide
+    -- (`lanes = 3`), so it swallows the blame for anything that dies anywhere inside it.
+    --
+    -- The cost of getting this wrong is not a missed obstacle, it is a phantom: a 46-metre wall
+    -- across all three lanes, every viaduct on the track. The planner then reads the road as
+    -- shut 40 m out and has nothing to offer — `reach = 0` for the last 20 m of two live runs
+    -- that both ended at 731 with no body anywhere near them.
     local bridge = string.find(a, "qiaodong", 1, true) ~= nil
+        or string.find(a, "gaojiaqiao", 1, true) ~= nil
     -- a saw needs a touch more z-margin than the default small obstacle so the route commits
     -- to a dodge/hop in time as it patrols across the corridor
     if saw then back, front = 2.0, 2.0 end
@@ -337,7 +352,11 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
   for i = 1, #obstacles do
     local o = obstacles[i]
     local k = kindOf(o.mid)
-    if k.carriage then
+    -- A DRIVING truck is roof as well, but it is not part of this chain: everything below
+    -- fixes a span in track coordinates, and a truck's roof is somewhere else by the time the
+    -- runner gets there. Its buckets are filled in with the rest of its projection, in the
+    -- mover branch of the obstacle loop, where the arrival time is already worked out.
+    if k.carriage and (o.speed or 0) == 0 and (k.speed or 0) == 0 then
       local l = laneOfX(o.x)
       local t = cars[l]
       t[#t + 1] = {z0 = o.z - (o.back or k.back), z1 = o.z + (o.front or k.front), ramp = k.ramp}
@@ -460,6 +479,16 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
             rel = rel0 - j
           else
             rel = min(rel0, cfg.moverTrigger) - (j - max(0, park)) * (1 + v / speed)
+          end
+          -- The roof, which is the body itself and NOT the padded one: a clearance is what you
+          -- keep off a thing you must not touch, and this is a thing you stand on. Padding it
+          -- would put a metre and a half of phantom roof off each end of every truck — exactly
+          -- the artefact the static carriages already carry a `roofed` flag to avoid.
+          if k.carriage then
+            local rb, rf = (o.back or k.back), (o.front or k.front)
+            if rel > -rf and rel < rb then
+              for ll = l0, l1 do roofB[ll][j] = true end
+            end
           end
           if rel > -front and rel < backM then
             for ll = l0, l1 do
@@ -974,6 +1003,16 @@ end
 -- kept in AI.bounds (relative to the obstacle's own z), for tools/dev to harvest.
 AI.bounds = AI.bounds or {}
 AI.extent = AI.extent or {}
+-- A prefab is measured ONCE and the reading is kept for the life of the VM, which is what
+-- makes a daemon that has been up all day cheap — and what silently pinned every truck to a
+-- wrong anchor across a whole session of reinstalls. A measurement is only as good as the
+-- code that took it, so the cache belongs to the version that filled it: change the planner
+-- and every extent is read again.
+if AI.measuredBy ~= AI.version then
+  AI.bounds = {}
+  AI.extent = {}
+  AI.measuredBy = AI.version
+end
 AI.sawTrack = AI.sawTrack or {}   -- per-saw last x + heading, to read its lateral drift
 local COL_TYPE = nil
 
@@ -986,10 +1025,27 @@ local function measure(mon)
     local col = go:GetComponentInChildren(COL_TYPE)
     if col == nil then AI.extent[mid] = false return end
     local b = col.bounds
+    -- Which z the extents are measured AGAINST. `dataZ` is where the thing was PLACED, and
+    -- for a parked body that is also where it is — but a driving truck has left its spawn
+    -- mark, and the collider is read where the body is NOW. Measured against dataZ its
+    -- extents come out as how far it has driven: the three gold trucks landed in bounds.json
+    -- as back=23.07/45.85/60.95 with fronts of -0.07/-14.85/-20.95, i.e. the same three
+    -- bodies (23.0, 31.0, 40.0 long) each shifted by its own head start. The planner then
+    -- modelled a truck fifteen metres shorter than it is and swerved into its rear. So a
+    -- mover is anchored where gather() plans against it — its live position.
     local z = mon.dataZ or mon.z or 0
+    if (mon.move_speed or 0) > 0 then pcall(function() z = mon:GetPosition().z end) end
     local back, front = z - (b.center.z - b.size.z / 2), (b.center.z + b.size.z / 2) - z
     local lanes = (b.size.x > 6) and 3 or 1
-    AI.extent[mid] = {back = back, front = front, lanes = lanes}
+    if (mon.move_speed or 0) > 0 then
+      -- Measured, recorded, and deliberately NOT handed to the planner — see the note in
+      -- surfing_simulate.kind_of. The gold trucks really are 23 / 31 / 40 units long, and on
+      -- those lengths every offline measure collapses to a track with no way through, which a
+      -- person runs 12772 m of. The number is right and the model around it is not yet.
+      AI.extent[mid] = false
+    else
+      AI.extent[mid] = {back = back, front = front, lanes = lanes}
+    end
     -- height matters as much as length: the hop tops out at 3.24 (jumpVo 16.5, gravity
     -- -42), so whether a fence can be cleared is a question of sy, not of its name.
     -- dontCollide is the game's own list of what the obstacle ignores.
@@ -997,9 +1053,33 @@ local function measure(mon)
     if type(mon.dontCollide) == "table" then
       for k2, v2 in pairs(mon.dontCollide) do dc = dc .. tostring(k2) .. ":" .. tostring(v2) .. "," end
     end
-    AI.bounds[go.name] = string.format("back=%.2f front=%.2f sx=%.2f dx=%.2f sy=%.2f y0=%.2f dc=%s",
-      back, front, b.size.x, b.center.x - (mon.x or cfg.baseX), b.size.y,
+    -- `sz` is the collider's own length and owes nothing to the anchor: whatever the anchor
+    -- turns out to mean, the body is that long, which is the number a wrong `back` can be
+    -- caught against.
+    AI.bounds[go.name] = string.format(
+      "back=%.2f front=%.2f sz=%.2f sx=%.2f dx=%.2f sy=%.2f y0=%.2f dc=%s",
+      back, front, b.size.z, b.size.x, b.center.x - (mon.x or cfg.baseX), b.size.y,
       b.center.y - b.size.y / 2, dc == "" and "-" or dc)
+    -- Every OTHER collider on the prefab, recorded beside it. One `GetComponentInChildren`
+    -- returns whichever the hierarchy hands back first, and on the bridges that is the deck —
+    -- an 18-64 unit slab at y ≈ 11-15, which a runner passes clean under. Whatever it is that
+    -- kills at a viaduct is therefore a body this measurement has never seen, and it cannot be
+    -- reasoned about from a single reading. So the rest are written out too, numbered, for
+    -- `street_run_ai.py bounds` to harvest.
+    local all = go:GetComponentsInChildren(COL_TYPE)
+    if all ~= nil then
+      for i = 1, (all.Length or 0) do
+        local c2 = all[i - 1]
+        if c2 ~= nil and c2 ~= col then
+          local b2 = c2.bounds
+          AI.bounds[string.format("%s#%d", go.name, i)] = string.format(
+            "back=%.2f front=%.2f sz=%.2f sx=%.2f dx=%.2f sy=%.2f y0=%.2f dc=-",
+            z - (b2.center.z - b2.size.z / 2), (b2.center.z + b2.size.z / 2) - z,
+            b2.size.z, b2.size.x, b2.center.x - (mon.x or cfg.baseX), b2.size.y,
+            b2.center.y - b2.size.y / 2)
+        end
+      end
+    end
   end)
   if not ok then AI.bounds["_error"] = "measure failed" end
 end
