@@ -9,8 +9,11 @@ Which tabs a window actually shows is the PROFILE's business
 
 * an id in the profile that no longer exists in code is skipped, with a log line — a
   profile written by a newer build must not break an older panel;
-* a tab in code the profile has never heard of is appended at its ``ORDER``, enabled if
-  ``DEFAULT_ENABLED`` — a new tab appears without editing every profile by hand;
+* a tab in code the profile has NEVER HEARD OF is appended at its ``ORDER``, enabled if
+  ``DEFAULT_ENABLED`` — a new tab appears without editing every profile by hand. Which
+  is why the profile also keeps ``tabs.known``: without it "switched off" and "did not
+  exist yet" look identical, and every tab an operator unticked would come straight
+  back on the next start;
 * a tab whose import or ``build()`` raises is skipped and reported, and the rest of the
   panel still opens.
 """
@@ -23,12 +26,16 @@ class TabSpec:
     """One registry entry. Holds the import path; loads the class on demand."""
 
     def __init__(self, tab_id: str, module: str, cls_name: str, order: int = 100,
-                 default_enabled: bool = True) -> None:
+                 default_enabled: bool = True, title_key: str | None = None) -> None:
         self.id = tab_id
         self.module = module
         self.cls_name = cls_name
         self.order = order
         self.default_enabled = default_enabled
+        # The notebook needs a label BEFORE the tab is built — and importing a module
+        # just to read one string would undo the laziness the registry exists for. By
+        # convention that label is `tab.<id>`; the contract test pins every class to it.
+        self.title_key = title_key or f"tab.{tab_id}"
         self._cls = None
 
     def load(self):
@@ -91,13 +98,32 @@ TABS: tuple = (
 BY_ID = {spec.id: spec for spec in TABS}
 
 
+def ranker(order: "list | None" = None):
+    """The sort key tabs are placed by: the PROFILE's order first, the declared one next.
+
+    A function rather than a constant because the shell orders its own non-plugin tabs
+    («Главная», the three still to move) into the same sequence — one rule, so the tab
+    bar reads the same whichever half a tab comes from.
+    """
+    ranked = {tab_id: i for i, tab_id in enumerate(order or ())}
+
+    def key(tab_id: str, default_order: int):
+        return (ranked.get(tab_id, len(ranked) + default_order), default_order)
+    return key
+
+
 def resolve(enabled: "list | None" = None, order: "list | None" = None,
-            on_unknown=None) -> list:
+            known: "list | None" = None, on_unknown=None) -> list:
     """The specs to build, in the order to build them.
 
-    ``enabled`` / ``order`` come from the profile's ``tabs`` block; ``None`` for either
-    means "the defaults". ``on_unknown(tab_id)`` is told about an id in the profile that
-    no longer exists in code.
+    ``enabled`` / ``order`` / ``known`` come from the profile's ``tabs`` block; ``None``
+    for any of them means "the defaults". ``on_unknown(tab_id)`` is told about an id in
+    the profile that no longer exists in code.
+
+    ``known`` is every tab this profile has already been offered. A tab that is in it
+    and not in ``enabled`` was switched OFF and stays off; a tab in neither is new and
+    appears. Falling back to ``enabled`` when the profile has no ``known`` list is what
+    keeps a profile written before this existed behaving as it did.
     """
     if enabled is None:
         chosen = [s.id for s in TABS if s.default_enabled]
@@ -108,9 +134,9 @@ def resolve(enabled: "list | None" = None, order: "list | None" = None,
                 chosen.append(tab_id)
             elif on_unknown is not None:
                 on_unknown(tab_id)
-        # A tab the profile has never heard of still appears, at its own order.
-        chosen += [s.id for s in TABS if s.default_enabled and s.id not in chosen]
+        seen = set(known if known is not None else enabled)
+        chosen += [s.id for s in TABS
+                   if s.default_enabled and s.id not in seen and s.id not in chosen]
 
-    ranked = {tab_id: i for i, tab_id in enumerate(order or ())}
-    return sorted((BY_ID[t] for t in chosen),
-                  key=lambda s: (ranked.get(s.id, len(ranked) + s.order), s.order))
+    key = ranker(order)
+    return sorted((BY_ID[t] for t in chosen), key=lambda s: key(s.id, s.order))

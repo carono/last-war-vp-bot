@@ -319,7 +319,11 @@ def test_panel_keeps_the_saved_block_until_the_tab_exists():
 
     assert _NoTabYet()._tabs_block()["config"]["command_post"] == block
     assert _Built()._tabs_block()["config"]["command_post"]["ghost_autoloot"] is False
-    assert _Fresh()._tabs_block() == {"config": {}}
+    fresh = _Fresh()._tabs_block()
+    assert fresh["config"] == {}, fresh
+    # Every save records which tabs this build offered, so an unticked one stays
+    # unticked instead of reappearing as "new" on the next start.
+    assert "rally" in fresh["known"] and "stats" in fresh["known"], fresh
     # …and a hand-written `tabs.enabled` survives a save that has nothing to say about it.
     class _Chosen:
         _settings = {"tabs": {"enabled": ["stats"], "config": {}}}

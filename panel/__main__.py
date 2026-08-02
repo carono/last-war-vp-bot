@@ -1243,6 +1243,10 @@ class Panel(tk.Tk):
         """
         saved = self._settings.get("tabs")
         block = dict(saved) if isinstance(saved, dict) else {}
+        # Every tab this build offers. A tab that is in here and not in `enabled` was
+        # switched off ON PURPOSE; without the record it would be indistinguishable
+        # from one that did not exist yet, and would come back on the next start.
+        block["known"] = [spec.id for spec in tabsreg.TABS]
         config = dict(block.get("config") or {})
         for tab in getattr(self, "_plugin_tabs", {}).values():
             config[tab.ID] = tab.config()
@@ -1351,53 +1355,42 @@ class Panel(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
-        scenarios = ttk.Frame(nb)
         timers_tab = ttk.Frame(nb)
         settings_tab = ttk.Frame(nb)
         chat_tab = ttk.Frame(nb)
-        stats_tab = ttk.Frame(nb)
-        alliance_tab = ttk.Frame(nb)
-        profile_tab = ttk.Frame(nb)
-        inventory_tab = ttk.Frame(nb)
-        heroes_tab = ttk.Frame(nb)
-        accounts_tab = ttk.Frame(nb)
-        secret_tasks_tab = ttk.Frame(nb)
-        command_post_tab = ttk.Frame(nb)
-        rally_tab = ttk.Frame(nb)
-        nb.add(main, text=self._t("tab.main"))
-        nb.add(scenarios, text=self._t("tab.scenarios"))
-        nb.add(timers_tab, text=self._t("tab.timers"))
-        nb.add(settings_tab, text=self._t("tab.settings"))
-        nb.add(chat_tab, text=self._t("tab.chat"))
-        nb.add(stats_tab, text=self._t("tab.stats"))
-        nb.add(alliance_tab, text=self._t("tab.alliance"))
-        nb.add(profile_tab, text=self._t("tab.profile"))
-        nb.add(inventory_tab, text=self._t("tab.inventory"))
-        nb.add(heroes_tab, text=self._t("tab.heroes"))
-        nb.add(accounts_tab, text=self._t("tab.accounts"))
-        nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
-        nb.add(command_post_tab, text=self._t("tab.command_post"))
-        nb.add(rally_tab, text=self._t("tab.rally"))
-        self._hook(key="tab-titles", func=lambda: (
-            nb.tab(main, text=self._t("tab.main")),
-            nb.tab(scenarios, text=self._t("tab.scenarios")),
-            nb.tab(timers_tab, text=self._t("tab.timers")),
-            nb.tab(settings_tab, text=self._t("tab.settings")),
-            nb.tab(chat_tab, text=self._t("tab.chat")),
-            nb.tab(stats_tab, text=self._t("tab.stats")),
-            nb.tab(alliance_tab, text=self._t("tab.alliance")),
-            nb.tab(profile_tab, text=self._t("tab.profile")),
-            nb.tab(inventory_tab, text=self._t("tab.inventory")),
-            nb.tab(heroes_tab, text=self._t("tab.heroes")),
-            nb.tab(accounts_tab, text=self._t("tab.accounts")),
-            nb.tab(secret_tasks_tab,
-                   text=self._t("tab.secret_tasks")),
-            nb.tab(command_post_tab,
-                   text=self._t("tab.command_post")),
-            nb.tab(rally_tab, text=self._t("tab.rally"))))
+        self._main_nb = nb
+
+        # WHICH TABS THIS WINDOW HAS IS THE PROFILE'S BUSINESS (§5). The registry says
+        # what exists and in what order; `tabs.enabled` / `tabs.order` in the profile
+        # override both. A tab that is switched off is not built, not added to the
+        # notebook, contributes no settings page, and — because nothing calls its
+        # `ensure_loaded` — starts none of its captures or watchers.
+        #
+        # The four below are still the shell's own rather than plugins (waves 5 and 6
+        # move three of them; «Главная» never moves — §4.4). They are ordered into the
+        # same sequence by the numbers the registry would have given them, so the tab
+        # bar reads the same whichever half a tab comes from.
+        entries = [("main", main, "tab.main", 0), ("timers", timers_tab, "tab.timers", 30),
+                   ("settings", settings_tab, "tab.settings", 40),
+                   ("chat", chat_tab, "tab.chat", 50)]
+        want_order = self._binder.tab_list("order")
+        specs = tabsreg.resolve(
+            enabled=self._binder.tab_list("enabled"), order=want_order,
+            known=self._binder.tab_list("known"),
+            on_unknown=lambda t: self._say("panel", "log.tab.unknown", tab=t))
+        frames = {spec.id: ttk.Frame(nb) for spec in specs}
+        entries += [(s.id, frames[s.id], s.title_key, s.order) for s in specs]
+        slot = tabsreg.ranker(want_order)
+        entries.sort(key=lambda e: slot(e[0], e[3]))
+        for _id, frame, title_key, _order in entries:
+            nb.add(frame, text=self._t(title_key))
+        # One loop instead of the fourteen-entry lambda this used to be: a tab's title
+        # is its own `TITLE_KEY`, and a tab that is not here has no title to retranslate.
+        self._hook(key="tab-titles", func=lambda: [
+            nb.tab(f, text=self._t(k)) for _i, f, k, _o in entries])
+
         self._build_timers_tab(timers_tab)
         self._build_chat_tab(chat_tab)
-        self._main_nb = nb
         # THE PLUGIN TABS (panel/tabs/). Each is a class the registry names, built from
         # the runtime and nothing else — the same six lines `run_tab` performs when one
         # of them is launched on its own. A tab that fails to import or build is skipped
@@ -1406,18 +1399,8 @@ class Panel(tk.Tk):
         # BEFORE the Settings page, because a tab contributes its own page to it (§6)
         # and the aggregator can only draw the tabs that exist by then.
         self._plugin_tabs: dict = {}
-        plugin_frames = {"alliance": alliance_tab, "profile": profile_tab,
-                         "inventory": inventory_tab, "heroes": heroes_tab,
-                         "accounts": accounts_tab, "stats": stats_tab,
-                         "rally": rally_tab, "secret_tasks": secret_tasks_tab,
-                         "command_post": command_post_tab,
-                         "scenarios": scenarios}
-        for spec in tabsreg.resolve(on_unknown=lambda t: self._say(
-                "panel", "log.tab.unknown", tab=t)):
-            frame = plugin_frames.get(spec.id)
-            if frame is None:
-                continue
-            tab = self._build_plugin_tab(spec, frame)
+        for spec in specs:
+            tab = self._build_plugin_tab(spec, frames[spec.id])
             if tab is not None:
                 self._plugin_tabs[spec.id] = tab
                 self._rt.tabs.add(tab)
@@ -1428,16 +1411,13 @@ class Panel(tk.Tk):
         self._stats_tab = self._plugin_tabs.get("stats")
         if self._stats_tab is not None:      # the tracker owns the live tally
             self._stats_tab.adopt(self._resource_stats)
-        # The account summary strip: built into the «Аккаунты» tab, above the list of
-        # characters it summarises. It used to sit on the Main tab, which left that tab
-        # holding three unrelated subjects at once (#1183). Built BEFORE the tab class
-        # below so the strip packs above that tab's own header.
-        self._build_dashboard(accounts_tab)
-        self._lazy_tabs = {}
-        for tab_id, frame in plugin_frames.items():
-            tab = self._plugin_tabs.get(tab_id)
-            if tab is not None:
-                self._lazy_tabs[str(frame)] = tab
+        # The account summary strip goes into the «Аккаунты» tab, beside the list of
+        # characters it summarises — and only if this profile has that tab at all.
+        if "accounts" in frames:
+            self._build_dashboard(frames["accounts"])
+        # Lazily loaded on first show, by the frame the notebook reports as selected.
+        self._lazy_tabs = {str(frames[tab_id]): tab
+                           for tab_id, tab in self._plugin_tabs.items()}
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
         # The «Сценарии» tab's `TAP` reference drops its choice into the DSL command
         # line, which lives here on «Главная» — so it asks rather than reaching (§7).

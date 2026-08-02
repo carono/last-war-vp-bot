@@ -39,6 +39,11 @@ def test_every_tab_imports():
         cls = spec.load()
         assert cls.ID == spec.id, f"{spec.id}: class says ID={cls.ID!r}"
         assert cls.TITLE_KEY, f"{spec.id}: no TITLE_KEY"
+        # The notebook labels a tab BEFORE building it, from the spec — importing the
+        # module just to read one string would undo the registry's laziness. So the two
+        # have to agree, and this is what keeps them agreeing.
+        assert cls.TITLE_KEY == spec.title_key, (
+            f"{spec.id}: registry says {spec.title_key!r}, class says {cls.TITLE_KEY!r}")
 
 
 def test_the_registry_ids_are_unique_and_ordered():
@@ -52,6 +57,23 @@ def test_resolve_defaults_to_the_default_enabled_set():
     got = [s.id for s in tabsreg.resolve()]
     assert got == [s.id for s in sorted(tabsreg.TABS, key=lambda s: s.order)
                    if s.default_enabled], got
+
+
+def test_switching_a_tab_off_in_the_profile_leaves_it_out():
+    """The whole point of the refactor, in one assertion: a tab the profile does not
+    name is not resolved — so it is never built, contributes no settings page, and
+    starts none of its captures or watchers."""
+    every = [s.id for s in tabsreg.TABS]
+    got = [s.id for s in tabsreg.resolve(enabled=["stats", "heroes"], known=every)]
+    assert got == ["stats", "heroes"] or set(got) == {"stats", "heroes"}, got
+    # …and an EMPTY list is "none of them", not "the defaults" — an operator who wants
+    # a panel with nothing but the log must be able to say so.
+    assert [s.id for s in tabsreg.resolve(enabled=[], known=every)] == []
+    # A tab the profile has never been offered still appears: `known` is what tells
+    # "switched off" from "did not exist when this profile was written".
+    fresh = [s.id for s in tabsreg.resolve(enabled=["stats"], known=["stats", "heroes"])]
+    assert "heroes" not in fresh, fresh
+    assert "rally" in fresh, fresh
 
 
 def test_a_profile_naming_a_tab_that_no_longer_exists_is_survivable():
