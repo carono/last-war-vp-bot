@@ -2112,3 +2112,82 @@ road had genuinely closed and the planner had nothing to offer, which is a diffe
 honest failure than the two before it. The killer is not in the frozen field either (the
 nearest body is an oncoming truck in the centre lane at 1104.7), so it joins the `unknown`
 pile of #1162 — but it is not the roofs.
+
+## The roof that reached two hundred metres (#1170)
+
+Two symptoms came in from the recordings of 2026-08-02, and they turned out to be one thing
+and one wall.
+
+### A carriage the runner was nowhere near was still the floor under its feet
+
+Replaying run_007's own route, the planner dies at 2139 on a `chexiangxiepo_4` at 2142 — a ramp,
+in the right lane, entered from the side. The person the recording is of goes up that same ramp
+at 2109, crosses left onto a driving truck at 2119 and rides the convoy for the next four
+hundred metres. So the model calls a wall the one thing that route is *made of*.
+
+The ramp is innocent. What is wrong is a rule two hundred metres up the road. `planRoute` has
+an `autoStart` clause for the runner's own carriage — "it is up on a roof in this lane, so the
+carriage it is standing on is floor, and the chain carries on from there". The test for which
+carriage that is read only the far end:
+
+    autoStart = canAuto and (roofUntil == nil) and (c.z1 >= pz - 4)
+
+A carriage the runner has not reached yet passes that as easily as the one underfoot, and the
+branch below then fills every bucket from the runner to it with roof:
+
+    if autoStart then
+      for j = 0, min(H, max(0, a)) do roofB[l][j] = true mountB[l][j] = true end
+    end
+
+At 2134.9 the runner is on a truck in the centre lane; the next carriage in that lane is a ramp
+at 2360. `a` is 201. Two hundred and one buckets of phantom roof, which is what makes the
+roof-to-roof step sideways legal — the crossing rule asks for roof under the lane being left for
+the first half of the sweep, and it was looking at the phantom. It stepped right onto the real
+ramp's roof; the truck, which is oncoming, drove out from under it before the handover; and the
+game charged the move as a body entered from the flank, which is exactly what it was.
+
+Adding the near end — `and (c.z0 <= pz + 4)` — is the whole fix. run_007 goes from 2139 m to
+6600, the whole route. run_004, run_006 and run_008 already ran their routes end to end and
+still do; run_005 is unchanged at 3770; the twelve drawn routes and run_002 hold every floor.
+
+### The trucks really are 23 / 31 / 40, and the planner still cannot be told
+
+The other symptom is the length, and this time the recordings settle it without the collider.
+Take every frame in the eight recordings where a person stands at carriage-roof height
+(y 3.9..4.7, so a hop's apex cannot be mistaken for a plateau) and ask whether any body the
+model knows about is under them:
+
+    model                    frames held   trucks unexplained
+    _N x 8.24  (16.5 / 24.7)  581 / 780          94
+    measured   (31 / 40)      669 / 780           4
+
+And the largest shortfall the frames demand — 17.5 for a `move_2`, 16.3 for a `move_3` — is the
+collider's own difference, 31 - 16.5 and 40 - 24.7, to the metre. Two independent measurements,
+the same number.
+
+It still cannot be handed over, and the reason is no longer "something about a mover is wrong".
+On the measured lengths run_002 falls to 474 m, seed 2 to 766, seeds 3 and 4 to 2422, run_005 to
+804 and run_007 to 2457. Every one of those deaths is at a truck **the person crossed on the
+roofs**: run_007 spends 2380..2520 at y = 4.13 weaving centre → right → centre → left → centre
+along the convoy, while the planner sits on the road with `act = 0` and `reach` counting down
+106 m to the body that kills it. A truck is only ever boarded from a neighbouring roof, and the
+DP has no move that chains one MOVING roof to the next. It can ride a truck it is already on and
+it can mount a ramp; the crossings that carry a person the length of a convoy are not moves it
+ever finds. Until they are, a truck modelled short is a truck the planner can go round, and a
+truck modelled true is a wall it stops at.
+
+That is the next piece of work, and it is now a specific one: a lane change at roof level where
+both roofs are moving, timed against the arrival the mover branch already projects.
+
+### One that looked right and measured wrong
+
+A mover's roof is unpadded and its body is not, so there is a bucket at every truck's tail with
+no roof over it and a body in it — a state nothing can be in, and one a runner riding the truck
+to the end has no transition out of (`reach` falls to 1 with open road ahead). The parked
+carriages have carried a `roofed` flag against exactly this since the ride was first modelled,
+and mirroring it for movers is a two-line change.
+
+It is a regression: run_005 3770 → 793, run_007 6600 → 4082. The padding at the tail is also the
+margin between one truck's tail and the next one's nose, and the planner spends every centimetre
+of it. So the contradiction stands, and the answer to it is a step-down that knows what level the
+runner is on, not a thinner body. Recorded here rather than left to be re-derived.

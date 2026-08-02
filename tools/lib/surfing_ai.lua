@@ -231,9 +231,18 @@ local function kindOf(mid)
       -- Length is read from the "_N" in the prefab name, and for the TRAIN carriages that is
       -- exact — the colliders measure 8.22/16.44/24.86/32.98/41.10, which is 8.24xN. For the
       -- driving gold trucks it is simply wrong: they measure 23 / 31 / 40, and `_N` is a
-      -- variant index there, not a segment count. Both the collider and the recordings say so —
-      -- see the note in surfing_simulate.kind_of. `AI.extent` overrides this the first time one
-      -- is seen live; the names are the fallback until then.
+      -- variant index there, not a segment count. Both the collider and the recordings say so,
+      -- and the recordings say it on their own: over the eight of them there are 780 frames of
+      -- a person standing at roof height, and the share of those the model can put a body under
+      -- goes from 581 to 669 on the measured lengths — the trucks alone from 94 unexplained
+      -- frames down to 4. The largest shortfall the recordings demand, 17.5 and 16.3, is the
+      -- collider's own difference (31 - 16.5 and 40 - 24.7) to the metre. It is STILL not the
+      -- number this planner runs on, and what stands in the way is now named rather than
+      -- guessed at — see the note in surfing_simulate.kind_of: a truck is boarded only from a
+      -- neighbouring roof, and the DP cannot chain one moving roof to the next, so on the
+      -- honest lengths it simply stops at the first convoy a person walks the length of.
+      -- `AI.extent` overrides this the first time one is seen live; the names are the fallback
+      -- until then.
       -- A truck is ridden along its roof exactly like a carriage: the recordings have 179
       -- frames inside a moving truck's body and every one of them at roof height. So it is
       -- roof to a runner already up there and a wall to one on the road — the same asymmetry
@@ -373,10 +382,22 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
     -- restricted to the runner's own lane and to the FIRST chain from its position: a carriage
     -- past a big gap is NOT this roof — it is the wall the runner descends into, which must
     -- stay visible (a run rode a roof, came down, and hit exactly such a carriage).
+    --
+    -- And to a carriage the runner is actually STANDING ON. Only the far end was checked
+    -- (`z1 >= pz - 4`), so a carriage two hundred metres up the road passed the test just as
+    -- well as the one underfoot — and the branch below then filled every bucket from here to
+    -- it with roof. That is not a small overreach: a runner riding a truck reads its own lane
+    -- as roofed the whole way to the next ramp, so the roof-to-roof step sideways is legal
+    -- wherever it likes and the step down onto the road is never planned at all. Replaying
+    -- run_007's own route, the planner rode a truck at 2134.9, was told the centre lane had
+    -- roof for 200 m, stepped right onto a ramp on the strength of it — and the truck drove
+    -- out from under it mid-change, so the game charged the move as a body entered from the
+    -- side and killed it at 2142. The person the recording is of rode that same truck on.
     local canAuto = onRoof and (l == lane0)
     for i = 1, #t do
       local c = t[i]
-      local autoStart = canAuto and (roofUntil == nil) and (c.z1 >= pz - 4)
+      local autoStart = canAuto and (roofUntil == nil)
+          and (c.z1 >= pz - 4) and (c.z0 <= pz + 4)
       local cont = roofUntil and (c.z0 - roofUntil <= max(cfg.roofGap, cfg.jumpTime * speed))
       if c.ramp or autoStart or cont then
         -- a seam-hole belongs ONLY between two carriages that actually chain (small gap):
@@ -490,6 +511,15 @@ local function planRoute(pz, lane0, speed, obstacles, flying, onRoof, py)
               for ll = l0, l1 do roofB[ll][j] = true end
             end
           end
+          -- The tail of a mover IS padded, even though it carries a roof and the parked
+          -- carriages drop their padding at the end that is ridden (`roofed`). Mirroring them
+          -- here looks right and is not: it leaves a metre and a half less between one truck's
+          -- tail and the next one's nose, and the planner spends it. Measured, un-padding the
+          -- tail costs run_005 3770 m -> 793 and run_007 6600 -> 4082. What it does buy is real
+          -- — a bucket just past a truck's tail is currently "no roof over it, body in it",
+          -- which is a state nothing can be in and which a runner riding the truck to the end
+          -- has no transition out of — but the price is not worth it, and the answer is a
+          -- level-aware step-down rather than a thinner body.
           if rel > -front and rel < backM then
             for ll = l0, l1 do
               if sideOnly then side[ll][j] = true else solid[ll][j] = true end
@@ -1038,10 +1068,11 @@ local function measure(mon)
     local back, front = z - (b.center.z - b.size.z / 2), (b.center.z + b.size.z / 2) - z
     local lanes = (b.size.x > 6) and 3 or 1
     if (mon.move_speed or 0) > 0 then
-      -- Measured, recorded, and deliberately NOT handed to the planner — see the note in
-      -- surfing_simulate.kind_of. The gold trucks really are 23 / 31 / 40 units long, and on
-      -- those lengths every offline measure collapses to a track with no way through, which a
-      -- person runs 12772 m of. The number is right and the model around it is not yet.
+      -- Measured, recorded, and still NOT handed to the planner — see the note in
+      -- surfing_simulate.kind_of, which now names what is in the way rather than guessing at
+      -- it. The gold trucks really are 23 / 31 / 40 units long, and the recordings ask for
+      -- exactly that; what the planner cannot yet do is ride a convoy of them, so on the true
+      -- lengths it stops at the first one instead of crossing it the way a person does.
       AI.extent[mid] = false
     else
       AI.extent[mid] = {back = back, front = front, lanes = lanes}

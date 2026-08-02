@@ -115,6 +115,13 @@ def load_bounds():
         return {}
 
 
+# The driving gold trucks by the "_N" in their prefab name, as measured — bounds.json `sz`,
+# and the human recordings agree. NOT what the model runs on; see the note in `classify` for
+# what the planner still cannot do with them. Kept here so the figure has one name in the code
+# and the day it can be used is a one-line change.
+TRUCK_BACK = {1: 23.0, 2: 31.0, 3: 40.0}
+
+
 def classify(rec: dict, bounds: dict) -> dict:
     """What kills, what can be hopped, how far the thing reaches along the track and how
     fast it drives — the planner's rule restated over the config, using the measured
@@ -139,16 +146,25 @@ def classify(rec: dict, bounds: dict) -> dict:
     jump = "mutong" in asset or "dizhalan" in asset or saw
     slide = "zhalan" in asset
     b = bounds.get(name)
-    # A DRIVING truck's measured length is deliberately not used, and this is the one place the
-    # decision lives. The measurement is not in doubt: the colliders are 23 / 31 / 40 units long
-    # and the recordings agree to the metre — a person rides `move_2` from `pz - z = -31.0` to 0
-    # and `move_3` from -40.0 to 0. It is the model AROUND the number that cannot carry it yet.
-    # Given the honest lengths, every offline measure collapses: the per-band score falls
-    # 141/144 -> 126/144, run_002 from 7390 m to 474, seed 4 from 11881 to 1669, and the
-    # exhaustive search agrees the track has no way through — against a person who runs 12772 m
-    # on it. Something else about a mover is wrong (how it is boarded, or where its body is
-    # lethal, or the parked-then-oncoming motion), and until that is found the shorter
-    # name-derived length is the better approximation of how much lane a truck really denies.
+    # A DRIVING truck's measured length is still not used, and this is the one place the
+    # decision lives. The measurement is not in doubt, and the recordings now confirm it on
+    # their own terms: over the eight of them there are 780 frames of a person standing at
+    # roof height, and the share the model can put a body under goes from 581 to 669 on the
+    # measured 23 / 31 / 40 — the trucks alone from 94 unexplained frames down to 4. The
+    # largest shortfall the frames demand (17.5 and 16.3) is the collider's own difference
+    # (31 - 16.5, 40 - 24.7) to the metre.
+    #
+    # What blocks it is now named, which it was not before. Handed the honest lengths, the
+    # planner falls apart at the moving convoys: run_002 to 474 m, seed 2 to 766, seed 3 and 4
+    # to 2422, and the recorded routes to 804 (run_005) and 2457 (run_007). Every one of those
+    # deaths is at a truck the PERSON crossed on the roofs — run_007 spends 2380..2520 at
+    # y = 4.13 weaving centre-left-centre-right along the convoy, while the planner sits on the
+    # road with `act = 0` and `reach` counting down 106 m to the body that kills it. A truck is
+    # only ever boarded from a neighbouring roof, and the DP cannot chain one moving roof to the
+    # next: it can ride a truck it is on, and it can mount a ramp, but the crossings that carry
+    # a person the length of a convoy are not moves it ever finds. Until they are, the shorter
+    # name-derived length is the better approximation of how much lane a truck really denies —
+    # and the number that is right is the one in bounds.json, not the one here.
     # Restoring the measurement is a one-line change here and in surfing_ai.lua's `measure`.
     mover = (rec.get("move_speed") or 0) > 0
     if b and "back" in b and not (mover and "truck" in asset):
@@ -161,23 +177,12 @@ def classify(rec: dict, bounds: dict) -> dict:
             n = int(tail)
         back, front, lanes = 8.24 * n, 0.2, 1
         if (rec.get("move_speed") or 0) > 0:
-            # THE most load-bearing unmeasured number in the whole model. Length is read from
-            # the "_N" in the prefab name, which is verified for the train carriages — bounds.json
-            # measured them at 8.22 / 16.44 / 24.86 / 32.98 / 41.10, exactly 8.24xN. But the
-            # driving trucks are `O_Object_high_truck_gold_move_N`, a different asset family
-            # that nothing has ever measured, and elsewhere in this same config `_N` is a
-            # VARIANT index (the bridge pieces qiaodong_1/2/3), not a segment count.
-            #
-            # It decides everything. Exhaustive search on run_002's route reaches 482 m of
-            # 11880 at 24.7, and 5469 m at anything 16.5 or shorter — the "impassable" convoy
-            # is that assumption and nothing else. The recordings refute 41.1 (they put the
-            # person inside a truck they survived, which is also what the player reported live
-            # about the old cfg.moverBack) but cannot separate 33 from 4: nobody ever ran that
-            # close to one in its own lane.
-            #
-            # So the default is left alone rather than tuned to a number that flatters the bot,
-            # and the assumption is named instead of buried. One live run with measure() over a
-            # gold truck settles it; SR_MOVER_BACK re-runs any verdict against a candidate.
+            # `_N` is a VARIANT index on this asset family, not a segment count: the three that
+            # have been measured are TRUCK_BACK below, against the 8.2 / 16.5 / 24.7 the name
+            # implies, and elsewhere in this same config `_N` is a variant too (the bridge
+            # pieces qiaodong_1/2/3). The true figure is deliberately not taken — see the note
+            # above — so what is left here is the assumption, named rather than buried.
+            # SR_MOVER_BACK re-runs any verdict against a candidate.
             back = float(os.environ.get("SR_MOVER_BACK") or back)
     else:
         back, front, lanes = 1.0, 1.0, 1
