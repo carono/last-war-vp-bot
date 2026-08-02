@@ -70,56 +70,49 @@ def _checkpoint(path: Path, tasks, age: int = 0) -> None:
     path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
 
 
-class _Watcher:
-    """A Panel stand-in carrying only what the watcher touches."""
+def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = ""):
+    """The «Автолут ★» standing order, wired to nothing but a checkpoint path.
 
-    def __init__(self, checkpoint: Path, level_from: str = "", level_to: str = ""):
-        from panel.__main__ import Panel
+    It is `panel/tabs/secret_tasks/autoloot.py` now — the watcher moved out of the
+    panel with the tab that owns the range aiming it — so the stand-in is a runtime and
+    a tab rather than a Panel. Everything it touches is here and nothing else is: no Tk
+    root, no daemon by default (these cases exercise the checkpoint source, the way the
+    watcher always did; the VM source has its own test below), and no child ever
+    spawned — `run` records the checkpoint the tick would have robbed from.
+    """
+    from panel import runtime as rtmod
+    from panel.tabs.secret_tasks.autoloot import AutoLoot
 
-        self.logs: list = []
-        self.runs: list = []
-        self._autoloot_proc = None
-        self._autoloot_pause_until = 0.0
-        self._autoloot_warned = False
-        self._autoloot_seen: set = set()
-        self._profiles = types.SimpleNamespace(tasks_json=lambda: str(checkpoint))
-        self._log_put = self.logs.append
-        # The child is never spawned here; record the checkpoint the tick would rob
-        # from, so the assertions read exactly as before the (checkpoint, vm_ready) split.
-        self._autoloot_run = lambda checkpoint, vm_ready: self.runs.append(checkpoint)
-        # No live daemon by default: these cases exercise the checkpoint source, the way
-        # the watcher always did. The VM source is covered by its own test below.
-        self._daemon_up = lambda: False
-        self._client = None
-        self._busy = False
-        # The auto-loot budget is a Settings knob now, read through `_opt_*`. With no
-        # widget and no saved config both fall back to SETTINGS_DEFAULTS, which is the
-        # constant it used to be — so the watcher under test behaves as it always did.
-        # The knobs live in the runtime's binder now; with no widgets attached the
-        # saved dict is the answer, so an empty one means SETTINGS_DEFAULTS — the
-        # constants these numbers used to be.
-        fake_runtime.attach_binder(self)
-        # The «уровень от / до» entries — auto-loot's OWN pair, not the display
-        # filter's — duck-typed: `_autoloot_levels` only reads `.get()`, so the rule
-        # can be exercised without a Tk root window.
-        self._lvl_from_var = types.SimpleNamespace(get=lambda: level_from)
-        self._lvl_to_var = types.SimpleNamespace(get=lambda: level_to)
-        # Everything the panel says goes through the locale files now, so the
-        # watcher's own lines come out of `_say` — bound here, with a real I18n
-        # behind it, so the test asserts on the words the operator actually reads.
-        from panel import runtime as rtmod
-        self._i18n = rtmod.Translator("ru")
-        for name in ("_t", "_say", "_opt", "_opt_int", "_autoloot_limit",
-                     "_autoloot_levels", "_autoloot_targets", "_autoloot_all_targets",
-                     "_autoloot_vm_targets"):
-            setattr(self, name, types.MethodType(getattr(Panel, name), self))
-        # `_log_put` and `_say` are both faces of one sink now, so the stand-in
-        # collects through the sink rather than beside it — attached AFTER `_t` is
-        # bound above, or the bus would echo keys instead of the words the operator
-        # reads, which is exactly what these cases assert on.
-        fake_runtime.attach_bus(self)
-        self._log_put = self.logs.append
-        self.tick = types.MethodType(Panel._autoloot_tick, self)
+    logs: list = []
+    i18n = rtmod.Translator("ru")
+    bus = fake_runtime.RecordingBus(translate=i18n.t, lines=logs)
+    game = types.SimpleNamespace(up=lambda: False, client=None, busy=False)
+    # The knobs live in the binder; with no widgets attached the saved dict is the
+    # answer, so an empty one means SETTINGS_DEFAULTS — the constants these numbers
+    # used to be (the auto-loot budget, the poll period, the spent-pause).
+    import panel.__main__ as pm
+    settings = rtmod.SettingsBinder(profiles=None, defaults=pm.SETTINGS_DEFAULTS)
+    rt = types.SimpleNamespace(
+        profiles=types.SimpleNamespace(tasks_json=lambda: str(checkpoint)),
+        game=game, settings=settings, log=bus, put=bus.put,
+        children=types.SimpleNamespace(python=lambda: "python", spawn_raw=None),
+        tick=types.SimpleNamespace(arm=lambda *a, **k: None))
+    # The «уровень от / до» entries — auto-loot's OWN pair, not the display filter's —
+    # duck-typed: `levels()` only reads `.get()`, so the rule can be exercised with no
+    # Tk root window.
+    tab = types.SimpleNamespace(
+        level_from_var=types.SimpleNamespace(get=lambda: level_from),
+        level_to_var=types.SimpleNamespace(get=lambda: level_to),
+        capture=types.SimpleNamespace(running=False),
+        t=i18n.t, say=bus.say)
+    w = AutoLoot(rt, tab)
+    w.rt, w.tab = rt, tab
+    w.logs, w.runs = logs, []
+    # Everything the panel says goes through the locale files, so the watcher's own
+    # lines come out of `say` — with a real translator behind it, so the assertions are
+    # on the words the operator actually reads.
+    w.run = lambda checkpoint, vm_ready: w.runs.append(checkpoint)
+    return w
 
 
 def test_autoloot_watcher_fires_once_per_target():
@@ -149,7 +142,7 @@ def test_autoloot_watcher_fires_once_per_target():
                      _task(3, 60000701, "6000", 7)])
     w.tick()
     assert w.runs == [str(cp)], w.runs
-    assert w._autoloot_seen == {3}, w._autoloot_seen
+    assert w._seen == {3}, w._seen
     assert any("цель:" in m for m in w.logs), w.logs
     w.tick()
     w.tick()
@@ -159,18 +152,18 @@ def test_autoloot_watcher_fires_once_per_target():
     _checkpoint(cp, [_task(3, 60000701, "6000", 7), _task(9, 60000702, "6000", 7)])
     w.tick()
     assert w.runs == [str(cp)] * 2, w.runs
-    assert w._autoloot_seen == {3, 9}, w._autoloot_seen
+    assert w._seen == {3, 9}, w._seen
 
     # A robbery still running blocks a new one; so does the spent-budget pause.
     _checkpoint(cp, [_task(11, 60000701, "6000", 7)])
-    w._autoloot_proc = object()
+    w._proc = object()
     w.tick()
     assert w.runs == [str(cp)] * 2, "fired while a robbery was still running"
-    w._autoloot_proc = None
-    w._autoloot_pause_until = time.time() + 60
+    w._proc = None
+    w._pause_until = time.time() + 60
     w.tick()
     assert w.runs == [str(cp)] * 2, "fired while the day's robberies were spent"
-    w._autoloot_pause_until = 0.0
+    w._pause_until = 0.0
     w.tick()
     assert w.runs == [str(cp)] * 3, w.runs
 
@@ -200,14 +193,14 @@ def test_autoloot_watcher_waits_for_the_filter_top_level():
     w.tick()
     w.tick()
     assert w.runs == [], "robbed below the filter's top level: %r" % (w.runs,)
-    assert w._autoloot_seen == set(), w._autoloot_seen
+    assert w._seen == set(), w._seen
 
     # A level-7 star comes free -> that one is robbed, and only that one.
     _checkpoint(cp, [_task(1, 60000501, "6000", 5), _task(2, 60000601, "6000", 6),
                      _task(3, 60000701, "6000", 7)])
     w.tick()
     assert w.runs == [str(cp)], w.runs
-    assert w._autoloot_seen == {3}, w._autoloot_seen
+    assert w._seen == {3}, w._seen
 
 
 def _vt_line(uuid: int, cfg_id: int, srv: int = 534, steals: int = 0) -> str:
@@ -242,18 +235,18 @@ def test_autoloot_reads_live_vm():
     tmp = Path(tempfile.mkdtemp())
     cp = tmp / "secret_tasks.json"          # never written: the VM alone drives this
     w = _Watcher(cp)
-    w._daemon_up = lambda: True
+    w.rt.game.up = lambda: True
     # A level-7 star and a plain (family 5000) level-7 in the client's alliance tasks.
     # Only the star is a target.
-    w._client = _FakeClient([_vt_line(3, 60000701), _vt_line(1, 50000704)])
+    w.rt.game.client = _FakeClient([_vt_line(3, 60000701), _vt_line(1, 50000704)])
 
-    picked = w._autoloot_vm_targets()
+    picked = w.vm_targets()
     assert [u for u, _s, _l in picked] == [3], picked
 
     # A full tick fires the child from the VM alone — checkpoint arg is None (no --from-scan).
     w.tick()
     assert w.runs == [None], w.runs
-    assert w._autoloot_seen == {3}, w._autoloot_seen
+    assert w._seen == {3}, w._seen
     # Sent once: the tile stays raidable in the VM but must not be re-fired.
     w.tick()
     assert w.runs == [None], w.runs
@@ -267,13 +260,13 @@ def test_autoloot_unions_vm_and_checkpoint():
     tmp = Path(tempfile.mkdtemp())
     cp = tmp / "secret_tasks.json"
     w = _Watcher(cp)
-    w._daemon_up = lambda: True
+    w.rt.game.up = lambda: True
     # VM holds star #3; the checkpoint (an enemy tile the sweep panned over) holds star #7.
-    w._client = _FakeClient([_vt_line(3, 60000701)])
+    w.rt.game.client = _FakeClient([_vt_line(3, 60000701)])
     _checkpoint(cp, [_task(7, 60000701, "6000", 7)])
     w.tick()
     assert w.runs == [str(cp)], w.runs      # checkpoint present -> it is passed to the child
-    assert w._autoloot_seen == {3, 7}, w._autoloot_seen
+    assert w._seen == {3, 7}, w._seen
 
 
 def _run_standalone() -> int:

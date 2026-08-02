@@ -114,7 +114,6 @@ from . import chat_history as chathistmod
 from . import tabs as tabsreg
 from .tabs import rally as rallytab
 from .tabs.rally import limits as rallygate
-from . import secret_tasks as secrettasksmod
 from . import command_post as commandpostmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -652,14 +651,6 @@ class Panel(tk.Tk):
         self._dbg.info("panel starting — profile %r, version %s",
                        self._profiles.active, APP_VERSION)
         self._coord_seq = 0
-        self._mon_proc = None
-        self._autoloot_proc = None    # one auto-loot run at a time
-        self._autoloot_push_proc = None   # the event-driven share-push listener, when running
-        self._autoloot_push_restart = None  # debounce handle for a range change mid-run
-        self._autoloot_stop = None    # threading.Event of the watcher loop, when running
-        self._autoloot_seen: set = set()   # uuids already sent this session (no re-tries)
-        self._autoloot_pause_until = 0.0   # wall clock the watcher may fire again at
-        self._autoloot_warned = False      # "no checkpoint yet" is said once per run
         self._ghost_proc = None       # one ghost-recon robbery at a time
         self._ghost_stop = None       # threading.Event of its watcher, when running
         # Map sweep: the wrist that keeps the passive scan fed (panel/mapsweep.py).
@@ -1344,28 +1335,11 @@ class Panel(tk.Tk):
             # written: the block they belonged to is gone (#1183). A profile saved by
             # an older panel still carries them — they are simply ignored, and drop
             # out on the next save.
-            "monitor_kind": self._mon_combo.current(),
-            "monitor_interval": self._interval_var.get(),
-            "filter_star": self._star_var.get(),
-            "filter_pending": self._pending_var.get(),
-            "filter_can_loot": self._can_loot_var.get(),
-            # The display filter…
-            "filter_level_from": self._flt_from_var.get(),
-            "filter_level_to": self._flt_to_var.get(),
-            # …and, separately, the level auto-loot actually robs at. One pair used
-            # to be both, which is how a robbery got spent on a level-6 star.
-            "autoloot_level_from": self._lvl_from_var.get(),
-            "autoloot_level_to": self._lvl_to_var.get(),
             # `alliance_autohelp` (the old checkbox) is deliberately not written back:
             # it became the «alliance_help» trigger in the profile's timers.json, and
             # `_migrate_autohelp` flips that on once for a profile that had it set.
-            "secret_monitor": self._mon_var.get(),
-            "autoloot": self._autoloot_var.get(),
             "ghost_autoloot": self._ghost_autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
-            "map_sweep": self._sweep_var.get(),
-            "sweep_centre_x": self._sweep_cx_var.get(),
-            "sweep_centre_y": self._sweep_cy_var.get(),
             # The Scenarios tab used to forget all three on every restart, so a
             # launch always started on the first row with an empty args box.
             "scenario_selected": self._scn_editor_name or "",
@@ -1420,29 +1394,8 @@ class Panel(tk.Tk):
         s = self._settings
         self._loading = True
         try:
-            idx = s.get("monitor_kind", 0)
-            if isinstance(idx, int) and 0 <= idx < len(CAPTURE_OPTIONS):
-                self._mon_combo.current(idx)
-            self._interval_var.set(str(s.get("monitor_interval", "15")))
-            self._star_var.set(bool(s.get("filter_star", False)))
-            self._pending_var.set(bool(s.get("filter_pending", False)))
-            self._can_loot_var.set(bool(s.get("filter_can_loot", False)))
-            self._flt_from_var.set(s.get("filter_level_from", ""))
-            self._flt_to_var.set(s.get("filter_level_to", ""))
-            # A profile saved before the two were split has only the one pair, and
-            # it was aiming the robberies as well as filtering the log — so seed the
-            # auto-loot range from it rather than silently widening the rule.
-            self._lvl_from_var.set(s.get("autoloot_level_from",
-                                         s.get("filter_level_from", "")))
-            self._lvl_to_var.set(s.get("autoloot_level_to",
-                                       s.get("filter_level_to", "")))
-            self._mon_var.set(bool(s.get("secret_monitor", False)))
-            self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._ghost_autoloot_var.set(bool(s.get("ghost_autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
-            self._sweep_var.set(bool(s.get("map_sweep", False)))
-            self._sweep_cx_var.set(s.get("sweep_centre_x", ""))
-            self._sweep_cy_var.set(s.get("sweep_centre_y", ""))
             self._scn_args_var.set(s.get("scenario_args", ""))
             self._scn_interval_var.set(str(s.get("scenario_interval", "60")))
             self._log_filter_var.set(s.get("log_filter") or LOG_FILTER_ALL)
@@ -1465,13 +1418,7 @@ class Panel(tk.Tk):
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
-        for var in (self._star_var,
-                    self._pending_var, self._can_loot_var,
-                    self._flt_from_var, self._flt_to_var,
-                    self._lvl_from_var, self._lvl_to_var,
-                    self._mon_var,
-                    self._autoloot_var, self._ghost_autoloot_var, self._chat_var,
-                    self._sweep_var, self._sweep_cx_var, self._sweep_cy_var,
+        for var in (self._ghost_autoloot_var, self._chat_var,
                     self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var):
             var.trace_add("write", lambda *a: self._save_settings())
@@ -1485,13 +1432,9 @@ class Panel(tk.Tk):
             for var in owner.persist_vars():
                 var.trace_add("write", lambda *a: self._save_settings())
         # …and what a tab changes that is NOT a variable — the «Авторалли» page's
-        # tri-state squad buttons. A button's state lives in a dict, so it says so.
+        # tri-state squad buttons, the capture combo. A widget with no variable of its
+        # own says so instead of being traced.
         self._binder.on_change = self._save_settings
-        # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
-        # boxes are about to do; keep them true as the numbers are typed.
-        for var in (self._lvl_from_var, self._lvl_to_var,
-                    self._sweep_cx_var, self._sweep_cy_var):
-            var.trace_add("write", lambda *a: self._refresh_rule_hints())
         # The Settings page's own knobs. The daemon port is the one that needs more
         # than a save: the panel's client has to be re-pointed at it.
         for key, var in self._opt_vars.items():
@@ -1499,60 +1442,15 @@ class Panel(tk.Tk):
                 var.trace_add("write", lambda *a: self._on_daemon_port_change())
             else:
                 var.trace_add("write", lambda *a: self._save_settings())
-        self._mon_combo.bind("<<ComboboxSelected>>", lambda e: self._save_settings(), add="+")
-        # The interval is a child-process argument, not a live panel-side filter,
-        # so a change only takes effect on the next capture launch. Bounce a
-        # running monitor so a new value applies at once instead of on the next
-        # manual toggle. Saved too (via _save_settings inside _restart_monitor).
-        self._interval_var.trace_add("write", lambda *a: self._on_interval_change())
 
     def _on_daemon_port_change(self) -> None:
         self._save_settings()
         if not self._loading:
             self._rebind_daemon()
 
-    def _refresh_rule_hints(self) -> None:
-        """Re-render the two "this is what the checkbox will do" lines.
-
-        Both standing orders are invisible otherwise, and an invisible rule is how a
-        robbery got spent on a level-6 star: the operator has to be able to read
-        what a checkbox is about to do without opening the source.
-        """
-        lbl = getattr(self, "_autoloot_rule_lbl", None)
-        if lbl is not None:
-            try:
-                lbl.configure(text=self._autoloot_rule_text())
-            except tk.TclError:
-                pass
-        # The poll re-reads the range live every tick, but the event-driven listener is a
-        # subprocess started with a fixed range — so a range typed while auto-loot is on
-        # has to restart it, or it would rob to the OLD «уровень до» (the very "robbed the
-        # wrong level" trap #1099 fixed for the poll). Debounced so typing "1" then "7"
-        # restarts once, not per keystroke — spawning a capture is not free.
-        if getattr(self, "_autoloot_stop", None) is not None:
-            after = getattr(self, "_autoloot_push_restart", None)
-            if after is not None:
-                try:
-                    self.after_cancel(after)
-                except Exception:                # noqa: BLE001
-                    pass
-            self._autoloot_push_restart = self.after(1500, self._restart_autoloot_push)
-        hint = getattr(self, "_sweep_hint", None)
-        if hint is not None:
-            try:
-                hint.configure(text=self._sweep_rule_text())
-            except tk.TclError:
-                pass
-
-    def _on_interval_change(self) -> None:
-        self._save_settings()
-        if not self._loading and self._mon_proc is not None:
-            self._restart_monitor()
-
-    def _restart_monitor(self) -> None:
-        """Bounce the secret capture so a changed --interval/server seed applies."""
-        self._stop_monitor()
-        self._start_monitor()
+    # The two "this is what the checkbox will do" lines, the capture's interval
+    # bounce and the listener's debounced restart all went with the «Secret Tasks» tab
+    # (panel/tabs/secret_tasks/): they describe and re-aim ITS standing orders.
 
     def _save_settings(self) -> None:
         if self._binder.loading:
@@ -1570,16 +1468,7 @@ class Panel(tk.Tk):
         # tab added later cannot be the one somebody forgot to list here.
         for tab in getattr(self, "_plugin_tabs", {}).values():
             tab.on_profile_switch()
-        self._stop_monitor()
-        if self._mon_var.get():
-            self._start_monitor()
-        # Auto-loot reads the *profile's* checkpoint, so a profile switch has to
-        # bounce the watcher too — and clear the uuids it robbed under the old one.
-        self._stop_autoloot()
-        if self._autoloot_var.get():
-            self._start_autoloot()
-        # The ghost-recon order and the map sweep both drive THIS profile's client,
-        # so a switch has to bounce them as well.
+        # The ghost-recon order drives THIS profile's client, so a switch bounces it.
         self._stop_ghost_autoloot()
         if self._ghost_autoloot_var.get():
             self._start_ghost_autoloot()
@@ -1589,9 +1478,6 @@ class Panel(tk.Tk):
         post = getattr(self, "_command_post_tab", None)
         if post is not None:
             post.restart_children()
-        self._stop_sweep()
-        if self._sweep_var.get():
-            self._start_sweep()
         self._stop_chat()
         if self._chat_var.get():
             self._start_chat()
@@ -1687,7 +1573,7 @@ class Panel(tk.Tk):
         plugin_frames = {"alliance": alliance_tab, "profile": profile_tab,
                          "inventory": inventory_tab, "heroes": heroes_tab,
                          "accounts": accounts_tab, "stats": stats_tab,
-                         "rally": rally_tab}
+                         "rally": rally_tab, "secret_tasks": secret_tasks_tab}
         for spec in tabsreg.resolve(on_unknown=lambda t: self._say(
                 "panel", "log.tab.unknown", tab=t)):
             frame = plugin_frames.get(spec.id)
@@ -1704,20 +1590,16 @@ class Panel(tk.Tk):
         self._stats_tab = self._plugin_tabs.get("stats")
         if self._stats_tab is not None:      # the tracker owns the live tally
             self._stats_tab.adopt(self._resource_stats)
-        self._secret_tasks_tab = secrettasksmod.SecretTasksTab(self, secret_tasks_tab)
         # «Секретный командный пункт» — ghost recon, shared missions and treasures. Built
-        # eagerly like the one above (its ghost page owns `_ghost_autoloot_var`, which the
-        # settings load expects to exist); each of its three pages still reads lazily.
+        # eagerly (its ghost page owns `_ghost_autoloot_var`, which the settings load
+        # expects to exist); each of its three pages still reads lazily.
         self._command_post_tab = commandpostmod.CommandPostTab(self, command_post_tab)
         # The account summary strip: built into the «Аккаунты» tab, above the list of
         # characters it summarises. It used to sit on the Main tab, which left that tab
         # holding three unrelated subjects at once (#1183). Built BEFORE the tab class
         # below so the strip packs above that tab's own header.
         self._build_dashboard(accounts_tab)
-        self._lazy_tabs = {
-            str(secret_tasks_tab): self._secret_tasks_tab,
-            str(command_post_tab): self._command_post_tab,
-        }
+        self._lazy_tabs = {str(command_post_tab): self._command_post_tab}
         for tab_id, frame in plugin_frames.items():
             tab = self._plugin_tabs.get(tab_id)
             if tab is not None:
@@ -1803,25 +1685,16 @@ class Panel(tk.Tk):
         # its own centre boxes, two widgets to the left), and the chat's «📍 координаты»
         # now shares whatever coordinate is written in the message box.
 
-        # -- Secret tasks + «Операция Призрак» moved to the «Secret Tasks» tab ----
+        # -- Secret tasks are a plugin tab now (panel/tabs/secret_tasks/) --------
         #
-        # The whole secret-task block — the passive-capture monitor (kind combo,
-        # interval, the panel-side log filters), the «Автообъезд карты» map sweep, the
-        # «Автолут ★» range, AND the «Операция Призрак» watcher — used to sit on this
-        # Main tab. They now live on the «Secret Tasks» tab (panel/secret_tasks.py),
-        # beside the list of starred tiles they feed and gate, so the whole story is on
-        # one screen. Only the *widgets* moved: every var (`_mon_var` / `_mon_combo` /
-        # `_interval_var`, the `_star_var` / `_pending_var` / `_can_loot_var` /
-        # `_flt_*` log filters, the `_sweep_*` map-sweep vars, `_ghost_autoloot_var`)
-        # and every method (`_toggle_monitor`, `_start_monitor`, `_toggle_sweep`,
-        # `_toggle_ghost_autoloot`, …) still live on this app, created by the tab's
-        # `_build_monitor_bar` / `_build_ghost_bar` at construction — so the settings
-        # save/load, the profile-switch restart and the capture plumbing here are
-        # unchanged. The tab is built (line ~1594) before this method's body and before
-        # settings are applied, so the vars exist by the time anything reads them.
+        # The whole block went: the passive capture with its kind, interval and log
+        # filters, the «Автообъезд карты» map sweep, and the «Автолут ★» range. Not just
+        # the widgets this time — the child processes, the watcher loops, the daily
+        # budget and the rule that aims it are the tab's own, and it opens on its own
+        # with `python -m panel.tabs.secret_tasks`.
         #
-        # The capture the monitor runs writes a checkpoint each tick; the tab's list is
-        # fed from that checkpoint (the wire), with a first-open VM snapshot to seed it.
+        # «Операция Призрак» passed through here on its way to the «Секретный командный
+        # пункт» tab, where the rest of that event lives.
 
         # -- «Ралли» is a plugin tab now (panel/tabs/rally/) ----------------------
         #
@@ -2426,14 +2299,8 @@ class Panel(tk.Tk):
         for tab in getattr(self, "_plugin_tabs", {}).values():
             if tab.EAGER:
                 tab.ensure_loaded()
-        if self._mon_var.get():             # secret-task monitor, if the profile had it on
-            self._start_monitor()
-        if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
-            self._start_autoloot()
-        if self._ghost_autoloot_var.get():  # the ghost-recon standing order likewise
+        if self._ghost_autoloot_var.get():  # the ghost-recon standing order, if on
             self._start_ghost_autoloot()
-        if self._sweep_var.get():           # the map sweep, if the profile had it on
-            self._start_sweep()
         if self._chat_var.get():            # chat monitor, if the profile had it on
             self._start_chat()
         # Drawing the history is the heaviest thing the boot does to the widgets, so
@@ -2655,10 +2522,7 @@ class Panel(tk.Tk):
         tab's own Stop.
         """
         self._say("panel", "panic.log")
-        for var, stop in ((self._mon_var, self._stop_monitor),
-                          (self._autoloot_var, self._stop_autoloot),
-                          (self._ghost_autoloot_var, self._stop_ghost_autoloot),
-                          (self._sweep_var, self._stop_sweep),
+        for var, stop in ((self._ghost_autoloot_var, self._stop_ghost_autoloot),
                           (self._chat_var, self._stop_chat)):
             var.set(False)
             stop()
@@ -2680,11 +2544,6 @@ class Panel(tk.Tk):
         """Which server the client is on (panel/runtime/daemon.py owns the read)."""
         return self._game.current_server()
 
-    def _retranslate_capture_combo(self) -> None:
-        idx = self._mon_combo.current()
-        self._mon_combo.configure(values=[self._t(o["key"]) for o in CAPTURE_OPTIONS])
-        self._mon_combo.current(idx if idx >= 0 else 0)
-
     # -- one way to run a child ---------------------------------------------
     def _child(self, tag: str, cmd: list, *, on_line=None, on_exit=None,
                capture_stderr: bool = True) -> "childmonmod.ChildMonitor":
@@ -2692,156 +2551,10 @@ class Panel(tk.Tk):
         return self._children.spawn(tag, cmd, on_line=on_line, on_exit=on_exit,
                                     capture_stderr=capture_stderr)
 
-    # -- secret-task monitoring ---------------------------------------------
-    def _toggle_monitor(self) -> None:
-        if self._mon_var.get():
-            self._start_monitor()
-        else:
-            self._stop_monitor()
-
-    def _start_monitor(self) -> None:
-        if self._mon_proc is not None:
-            return
-        idx = self._mon_combo.current()
-        script = CAPTURE_OPTIONS[idx if idx >= 0 else 0]["script"]
-        # NO --all-tcp. It sets the BPF to a bare "tcp", so on a busy adapter
-        # (this box sees ~280 tcp frames/s) scapy's Python callback can't keep up
-        # and npcap's ring overflows — ~98% of packets, the game's map frames
-        # among them, are dropped before decode. That is exactly why the capture
-        # works when run by hand (auto-detect → "tcp port 17935", filtered in the
-        # kernel, no flood) but found nothing when the panel forced --all-tcp.
-        # Let the capture auto-detect the game's live port; --all-tcp stays a
-        # manual last resort for when detection genuinely fails.
-        cmd = [self._python(), "-u", os.path.join(TOOLS, script)]
-        # Checkpoint what the capture currently sees into the profile, so the
-        # auto-loot button has a machine-readable view of the map instead of the
-        # log lines this panel prints for the human. Rewritten every tick; the
-        # reader drops anything not re-seen in the scan window, so a stale file
-        # cannot send a robbery at a tile that has already been taken.
-        # Only for the secret-task capture: the ghost-recon one writes its own
-        # record shape, and auto-loot must never be handed that by mistake.
-        if script == runtime.SECRET_TASK_CAPTURE:
-            cmd += ["--json", self._profiles.tasks_json()]
-        # Capture tick interval from the panel (falls back to the child's own
-        # default if the field is blank or non-numeric).
-        interval = self._interval_var.get().strip()
-        if interval.isdigit() and int(interval) > 0:
-            cmd += ["--interval", interval]
-        # Seed the on-screen server from the running game via the warm Lua daemon,
-        # so the capture prints "server N" from its first line instead of sitting
-        # on "server unknown yet" until the map is scrolled (the passive capture
-        # only learns the server from a map response, which arrives only while the
-        # map moves). VPN-independent; the capture's own weight-of-traffic election
-        # still overrides this seed the moment real map data disagrees.
-        if self._daemon_up():
-            srv = self._current_server()
-            if srv and str(srv).isdigit():
-                cmd += ["--seed-server", str(srv)]
-                self._say("secret", "log.secret.seed_server", srv=srv)
-        self._say("secret", "log.secret.starting", script=script)
-        mon = self._child("secret", cmd, on_line=self._on_secret_line,
-                          on_exit=self._on_secret_exit)
-        if not mon.start():
-            self._mon_var.set(False)
-            return
-        self._mon_proc = mon
-        # Confirm the child really started (so a silent monitor is never mistaken
-        # for a crash). A passive pcap only yields tiles while the map is scrolling —
-        # so say so, unless «Автообъезд карты» is already doing the scrolling.
-        self._say("secret", "log.secret.started" if self._sweep_stop is not None
-                  else "log.secret.started_move_map", pid=mon.pid)
-
-    def _task_passes(self, ln: str) -> bool:
-        """Panel-side filters for a secret-task finding line. Non-task lines always pass.
-
-        A finding looks like `[*] lvl N  #server X:x Y:y ... [PENDING]`. Filters are read live
-        from the checkboxes/entries, so toggling one affects subsequent lines immediately.
-        A line counts as a finding when it has both a `lvl N` and a parseable coordinate.
-        """
-        m = re.search(r"\blvl\s+(\d+)\b", ln)
-        if not m or not coords.parse(ln):
-            return True  # header / progress / summary line — never filtered
-        lvl = int(m.group(1))
-        # The DISPLAY filter's own entries — not the auto-loot rule's. The two used
-        # to share one pair and a person narrowing the log silently re-aimed the
-        # robberies with it.
-        lo, hi = self._flt_from_var.get().strip(), self._flt_to_var.get().strip()
-        if lo.isdigit() and lvl < int(lo):
-            return False
-        if hi.isdigit() and lvl > int(hi):
-            return False
-        if self._star_var.get() and not re.match(r"\s*\*", ln):
-            return False
-        # PENDING and LOOTABLE are two values of one dimension — raid readiness —
-        # and the capture tags a line with exactly one of them (a tile walks
-        # PENDING -> LOOTABLE, never both at once). So enabling both checkboxes
-        # reads as "either", matching `filter_tasks` in lastwar_proto: ANDing the
-        # two substrings could never match and the panel simply went blank.
-        want_pending, want_loot = self._pending_var.get(), self._can_loot_var.get()
-        if want_pending or want_loot:
-            tags = ("PENDING",) if want_pending and not want_loot else \
-                   ("LOOTABLE",) if want_loot and not want_pending else \
-                   ("PENDING", "LOOTABLE")
-            if not any(t in ln for t in tags):
-                return False
-        return True
-
-    def _on_secret_line(self, line: str) -> bool:
-        """One capture line: log it if the display filter lets it through, record a real
-        finding into the profile's own log, and nudge the «Secret Tasks» tab to merge the
-        freshly-written checkpoint — the wire feed for its list.
-
-        The nudge is independent of the log's display filter: a tile the operator hid from
-        the log is still on the map and still belongs on the tab. So it runs on every
-        finding line, and on the periodic "star(s) still on timer" progress line (no
-        coordinate of its own, but it marks a checkpoint flush). Called on the child's
-        reader thread, so it marshals onto the Tk thread, where the merge is debounced.
-        """
-        is_finding = bool(coords.parse(line))
-        if is_finding or "on timer" in line:
-            self.after(0, self._nudge_secret_tasks_tab)
-        if not self._task_passes(line):
-            return False                # filtered out — handled, do not log
-        if is_finding:                  # a coordinate present -> an actual finding
-            self._append_secret(line)
-        return True
-
-    def _nudge_secret_tasks_tab(self) -> None:
-        """A capture finding crossed the wire: re-merge the checkpoint into the tab.
-
-        Runs on the Tk thread (marshalled from the reader). Debounced — one capture tick
-        prints a burst of findings and a single merge covers them all — and a no-op unless
-        the tab has been opened (an unopened one reads fresh when first shown anyway).
-        """
-        tab = getattr(self, "_secret_tasks_tab", None)
-        if tab is None or not getattr(tab, "_loaded", False):
-            return
-        after = getattr(self, "_secret_tab_nudge_id", None)
-        if after is not None:
-            try:
-                self.after_cancel(after)
-            except Exception:            # noqa: BLE001 — already fired / invalid id
-                pass
-        self._secret_tab_nudge_id = self.after(800, tab.refresh)
-
-    def _on_secret_exit(self) -> None:
-        self._say("secret", "log.secret.ended")
-        self._mon_proc = None
-        self._mon_var.set(False)
-
-    def _append_secret(self, line: str) -> None:
-        """Append a secret-task finding to the active profile's log (best-effort)."""
-        try:
-            with open(self._profiles.secret_log(), "a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"ts": time.time(), "line": line}, ensure_ascii=False) + "\n")
-        except OSError:
-            pass
-
-    def _stop_monitor(self) -> None:
-        mon, self._mon_proc = self._mon_proc, None
-        if mon is not None:
-            self._say("secret", "log.secret.stopped")
-            mon.stop()
+    # -- the secret-task capture went with its tab (panel/tabs/secret_tasks/) -
+    #
+    # The child, the panel-side line filter, the findings log and the nudge that
+    # re-merges the checkpoint are all beside the list they feed now.
 
     # -- rally monitoring, the alert and the join all moved to the «Ралли» tab
     # (panel/tabs/rally/): the capture child, the de-duplicated alert, the
@@ -2988,275 +2701,12 @@ class Panel(tk.Tk):
     # robbery runs as a child process (like the monitors) because it walks the Lua
     # daemon several times and must not sit on the Tk thread.
     # See docs/research/secret-task-steal.md.
-    def _toggle_autoloot(self) -> None:
-        if self._autoloot_var.get():
-            self._start_autoloot()
-        else:
-            self._stop_autoloot()
-
-    def _start_autoloot(self) -> None:
-        if self._autoloot_stop is not None:      # already watching
-            return
-        self._autoloot_stop = threading.Event()
-        self._autoloot_seen.clear()
-        self._autoloot_pause_until = 0.0
-        self._autoloot_warned = False
-        self._say("autoloot", "log.autoloot.on", rule=self._autoloot_rule_text())
-        if self._mon_proc is None:
-            self._say("autoloot", "log.autoloot.no_monitor")
-        # Two paths, on purpose. The event-driven listener robs a *shared* secret task
-        # the instant its push crosses the wire (< 1 s), which is the case a human used
-        # to win; the poll below is the slower safety net that still catches enemy tiles
-        # the sweep panned over and tasks already present before the listener started.
-        self._start_autoloot_push()
-        threading.Thread(target=self._autoloot_loop, args=(self._autoloot_stop,),
-                         daemon=True).start()
-
-    def _stop_autoloot(self) -> None:
-        stop, self._autoloot_stop = self._autoloot_stop, None
-        if stop is not None:
-            stop.set()
-            self._say("autoloot", "log.autoloot.off")
-        self._stop_autoloot_push()
-
-    def _start_autoloot_push(self) -> None:
-        """Spawn the event-driven listener: rob a shared secret task on its push (#1124).
-
-        It sniffs the game stream itself (no dependence on the «Мониторинг» capture) and
-        acts through this profile's daemon, so it gets the same level range the poll's
-        child does — otherwise it would rob outside «уровень от / до».
-        """
-        if self._autoloot_push_proc is not None:
-            return
-        cmd = [self._python(), "-u", os.path.join(TOOLS, "secret_share_autoloot.py"),
-               "--star-max", "--limit", str(self._autoloot_limit())]
-        lo, hi = self._autoloot_levels()
-        if lo is not None:
-            cmd += ["--level-min", str(lo)]
-        if hi is not None:
-            cmd += ["--level-max", str(hi)]
-        proc = self._spawn_sniffer(cmd, "autoloot")
-        if proc is None:
-            return
-        self._autoloot_push_proc = proc
-        threading.Thread(target=self._autoloot_push_reader, args=(proc,),
-                         daemon=True).start()
-
-    def _stop_autoloot_push(self) -> None:
-        proc, self._autoloot_push_proc = self._autoloot_push_proc, None
-        if proc is not None:
-            try:
-                proc.terminate()
-            except Exception:                    # noqa: BLE001 — already gone is fine
-                pass
-
-    def _restart_autoloot_push(self) -> None:
-        """Re-spawn the listener so a changed «уровень от / до» takes effect (debounced)."""
-        self._autoloot_push_restart = None
-        if self._autoloot_stop is None:          # auto-loot was unticked meanwhile
-            return
-        self._stop_autoloot_push()
-        self._start_autoloot_push()
-
-    def _autoloot_push_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                ln = raw.rstrip()
-                if ln:
-                    self._log_put(f"[autoloot] {ln}")
-        except Exception:
-            pass
-        if self._autoloot_push_proc is proc:
-            self._autoloot_push_proc = None
-
-    def _autoloot_loop(self, stop: threading.Event) -> None:
-        """Poll the capture checkpoint until the checkbox is cleared.
-
-        A whole tick is wrapped in try/except: the watcher is a background loop the
-        operator cannot see, so one unreadable checkpoint (caught half-written by the
-        capture, say) must cost a log line and not the auto-loot for the session. The
-        same complaint is printed once and not on every poll after it — a checkpoint
-        that stays broken would otherwise fill the log a dozen times a minute.
-        """
-        last_err = ""
-        while True:
-            try:
-                self._autoloot_tick()
-                last_err = ""
-            except Exception as exc:      # noqa: BLE001 — never let one tick kill the loop
-                err = f"{type(exc).__name__}: {exc}"
-                if err != last_err:
-                    last_err = err
-                    self._say("autoloot", "log.autoloot.poll_error", error=err)
-            if stop.wait(self._opt_float("autoloot_poll", low=1.0, high=600.0)):
-                return
-
-    def _autoloot_tick(self) -> None:
-        """One look at the sources: fire when the rule has a target we have not sent yet.
-
-        The primary source is the live game VM (`ActDispatchTaskDataManager.allianceTask`,
-        read through the warm daemon): a member's shared secret task is in it the moment
-        the push lands, so a raidable star is knowable in the second it appears rather
-        than whenever the map sweep next pans over it — which is what let a human beat the
-        bot to the tile (task #1124). The capture checkpoint is kept as a *second* source,
-        so enemy tiles the sweep panned over are still robbed when the monitor is on; when
-        it is off, the VM alone carries the feature.
-        """
-        if self._autoloot_proc is not None:          # a robbery is still running
-            return
-        if time.time() < self._autoloot_pause_until:  # the day's budget is spent
-            return
-        checkpoint = self._profiles.tasks_json()
-        have_scan = os.path.exists(checkpoint)
-        vm_ready = self._daemon_up() and not self._busy
-        if not vm_ready and not have_scan:
-            # No live VM to read and no checkpoint to fall back on — there is simply no
-            # source yet. Say so once, not on every poll.
-            if not self._autoloot_warned:
-                self._autoloot_warned = True
-                self._say("autoloot", "log.autoloot.no_scan")
-            return
-        self._autoloot_warned = False
-        targets = self._autoloot_all_targets(checkpoint if have_scan else None, vm_ready)
-        # Already-sent uuids are skipped: a source keeps showing a tile the server
-        # refused (or that we robbed but whose loot count has not come back yet), and
-        # re-firing at it would burn the day's budget on a target that cannot pay. A
-        # fresh session forgets them again.
-        fresh = [t for t in targets if t[0] not in self._autoloot_seen]
-        if not fresh:
-            return
-        for _uuid, _srv, label in fresh:
-            self._say("autoloot", "log.autoloot.target", label=label)
-        # Mark *every* target of the rule, not just the fresh ones: the child re-reads
-        # the same sources and will attempt the whole list, so the panel must not treat
-        # the rest as new the next time round.
-        self._autoloot_seen.update(uuid for uuid, _srv, _label in targets)
-        self._autoloot_run(checkpoint if have_scan else None, vm_ready)
-
-    def _autoloot_all_targets(self, checkpoint, vm_ready: bool) -> list:
-        """Union of the VM's raidable alliance tasks and the checkpoint's, VM first.
-
-        A target that appears in both sources under the same `(uuid, server)` is kept
-        once — the VM copy, the fresher of the two. A source raising propagates up to
-        `_autoloot_loop`, which logs it once and tries again next poll; that is fine
-        because a robbery needs the daemon anyway, so a dead VM is a tick with nothing to
-        rob rather than a target quietly dropped.
-        """
-        seen: set = set()
-        out: list = []
-
-        def _merge(rows):
-            for uuid, srv, label in rows:
-                if (uuid, srv) in seen:
-                    continue
-                seen.add((uuid, srv))
-                out.append((uuid, srv, label))
-
-        if vm_ready:
-            _merge(self._autoloot_vm_targets())
-        if checkpoint is not None:
-            _merge(self._autoloot_targets(checkpoint))
-        return out
-
-    def _autoloot_vm_targets(self) -> list:
-        """Star-max raidable alliance tasks read live from the VM, as (uuid, server, label).
-
-        The same rule `_autoloot_targets` applies to a checkpoint, applied to the tasks
-        the game already holds — no capture, no map panning. `self._client` is the warm
-        daemon, which `steal_secret_task.targets_from_vm` drives exactly like the
-        `get_evaluator()` handle a standalone run uses.
-        """
-        import steal_secret_task     # lazy: keeps panel start-up free of it
-        lo, hi = self._autoloot_levels()
-        return steal_secret_task.targets_from_vm(self._client, limit=self._autoloot_limit(),
-                                                 star_max=True, level_min=lo,
-                                                 level_max=hi, say=lambda _m: None)
-
-    def _autoloot_targets(self, checkpoint: str) -> list:
-        """Star-max targets in the checkpoint right now, as (uuid, server, label).
-
-        Pure file work — `targets_from_scan` parses the checkpoint and applies the
-        freshness/raidability rules; it does not touch the game or the daemon, so it
-        is safe to call from the watcher thread on every poll.
-        """
-        import steal_secret_task     # lazy: keeps panel start-up free of it
-        lo, hi = self._autoloot_levels()
-        return steal_secret_task.targets_from_scan(checkpoint, limit=self._autoloot_limit(),
-                                                   star_max=True, level_min=lo,
-                                                   level_max=hi, say=lambda _m: None)
-
-    def _autoloot_levels(self) -> tuple:
-        """The «уровень от / до» range as (min, max) ints, either end None if unset.
-
-        Read live on every poll, like the display filters in `_task_passes`, so
-        narrowing the range takes effect on the next tick instead of at the next
-        tick of the checkbox. Anything that is not a number reads as "no bound" —
-        a half-typed entry must not silently widen the gate to everything.
-        """
-        def bound(var) -> "int | None":
-            raw = var.get().strip()
-            return int(raw) if raw.isdigit() else None
-        return bound(self._lvl_from_var), bound(self._lvl_to_var)
-
-    def _autoloot_rule_text(self) -> str:
-        """The standing order in one phrase — what it will rob, in the log's words.
-
-        The rule is invisible otherwise, and an invisible rule is how a robbery
-        got spent on a level-6 star: the operator must be able to read what the
-        checkbox is about to do without opening the source.
-        """
-        lo, hi = self._autoloot_levels()
-        if hi is not None:
-            return self._t("secret.autoloot.rule_top", lvl=hi,
-                           lo=lo if lo is not None else "—")
-        return self._t("secret.autoloot.rule_found",
-                       lo=lo if lo is not None else "—")
-
-    def _autoloot_run(self, checkpoint, vm_ready: bool) -> None:
-        cmd = [self._python(), "-u", os.path.join(TOOLS, "steal_secret_task.py"),
-               "--star-max", "--limit", str(self._autoloot_limit())]
-        # The child re-reads the same sources and re-applies the rule, so it has to be
-        # told which ones the tick used: the live VM (fast path) and/or the capture
-        # checkpoint (enemy tiles the sweep saw). Passing neither would leave it with
-        # nothing to rob.
-        if vm_ready:
-            cmd.append("--from-vm")
-        if checkpoint is not None:
-            cmd += ["--from-scan", checkpoint]
-        # The child re-applies the rule, so the range has to travel with it: without
-        # these the watcher would agree to a target inside the range and the child
-        # would then rob outside it.
-        lo, hi = self._autoloot_levels()
-        if lo is not None:
-            cmd += ["--level-min", str(lo)]
-        if hi is not None:
-            cmd += ["--level-max", str(hi)]
-        self._log_put(f"[autoloot] {self._autoloot_rule_text()} …")
-        proc = self._spawn_sniffer(cmd, "autoloot")
-        if proc is None:
-            return
-        self._autoloot_proc = proc
-        threading.Thread(target=self._autoloot_reader, args=(proc,), daemon=True).start()
-
-    def _autoloot_reader(self, proc) -> None:
-        spent = False
-        try:
-            for raw in proc.stdout:
-                ln = raw.rstrip()
-                if not ln:
-                    continue
-                self._log_put(f"[autoloot] {ln}")
-                # The child says so in words when there is nothing left to spend.
-                if "robberies are spent" in ln or "robberies left today: 0" in ln:
-                    spent = True
-        except Exception:
-            pass
-        if spent:
-            pause = self._opt_int("autoloot_pause_min", low=1, high=1440) * 60
-            self._autoloot_pause_until = time.time() + pause
-            self._say("autoloot", "log.autoloot.spent", mins=int(pause // 60))
-        if self._autoloot_proc is proc:
-            self._autoloot_proc = None
+    # -- «Автолут ★» went with its tab (panel/tabs/secret_tasks/autoloot.py) -
+    #
+    # The watcher, the event-driven listener, the rule they both obey and the day's
+    # budget are the tab's own. It is the one piece of this panel where a bug does not
+    # fail loudly — it quietly spends a robbery on the wrong level (#1099) — so it
+    # lives beside the range that aims it.
 
     # -- Develop menu: raw sniffers -----------------------------------------
     def _spawn_sniffer(self, cmd: list, tag: str) -> "subprocess.Popen | None":
@@ -3783,107 +3233,10 @@ class Panel(tk.Tk):
     # never overlaps a timer errand or a recipe — it simply loses that waypoint's
     # turn and takes the next one when the errand is done. That is the right way
     # round: the errand is the work, the sweep is the wrist.
-    def _toggle_sweep(self) -> None:
-        if self._sweep_var.get():
-            self._start_sweep()
-        else:
-            self._stop_sweep()
-
-    def _sweep_centre(self) -> "tuple[int, int] | None":
-        """The box's centre, or ``None`` when it has not been given one."""
-        cx, cy = self._sweep_cx_var.get().strip(), self._sweep_cy_var.get().strip()
-        if not (cx.lstrip("-").isdigit() and cy.lstrip("-").isdigit()):
-            return None
-        return int(cx), int(cy)
-
-    # «Отсюда» — which copied the jump block's X/Y into the two boxes above — went
-    # with that block (#1183). The centre is typed into `_sweep_cx_var` /
-    # `_sweep_cy_var` directly, and those two are still saved to the profile.
-
-    def _sweep_rule_text(self) -> str:
-        """What the checkbox is about to do, in one phrase — box, jumps, minutes."""
-        centre = self._sweep_centre()
-        if centre is None:
-            return self._t("sweep.no_centre")
-        radius, step, dwell, _rest = self._sweep_box()
-        jumps, seconds = mapsweepmod.describe(centre[0], centre[1], radius, step, dwell)
-        return self._t("sweep.rule", side=radius * 2 + 1, jumps=jumps,
-                       mins=max(1, int(seconds // 60)))
-
-    def _start_sweep(self) -> None:
-        if self._sweep_stop is not None:         # already sweeping
-            return
-        if self._sweep_centre() is None:
-            self._sweep_var.set(False)
-            self._say("sweep", "sweep.no_centre")
-            return
-        self._sweep_stop = threading.Event()
-        self._sweep_at = 0
-        self._sweep_pass = 0
-        self._log_put("[sweep] " + self._sweep_rule_text())
-        if self._mon_proc is None:
-            # The sweep produces traffic; without the capture nobody reads it.
-            self._say("sweep", "sweep.no_monitor")
-        threading.Thread(target=self._sweep_loop, args=(self._sweep_stop,),
-                         daemon=True).start()
-
-    def _stop_sweep(self) -> None:
-        stop, self._sweep_stop = self._sweep_stop, None
-        if stop is not None:
-            stop.set()
-            self._say("sweep", "sweep.off")
-
-    def _sweep_loop(self, stop: threading.Event) -> None:
-        """Walk the box, pass after pass, until the checkbox is cleared.
-
-        The waypoint list is rebuilt at the start of each pass rather than held: the
-        centre and the box are live fields, so retyping them takes effect on the next
-        pass instead of needing the checkbox toggled.
-
-        One tick is wrapped like the auto-loot watcher's: this is a background loop
-        nobody is watching, so a single failed jump must cost a log line and not the
-        sweep for the session.
-        """
-        last_err = ""
-        dwell = mapsweepmod.DEFAULT_DWELL
-        while not stop.is_set():
-            try:
-                centre = self._sweep_centre()
-                if centre is None:
-                    self._say("sweep", "sweep.no_centre")
-                    return
-                radius, step, dwell, rest = self._sweep_box()
-                points = mapsweepmod.waypoints(centre[0], centre[1], radius, step)
-                if self._sweep_at >= len(points):
-                    # A pass is done. Rest before the next one: the map does not
-                    # change fast enough to be worth walking it back to back, and a
-                    # gap is what lets an errand or a person use the client.
-                    self._sweep_pass += 1
-                    self._sweep_at = 0
-                    self._say("sweep", "sweep.pass_done", n=self._sweep_pass,
-                              mins=int(rest // 60))
-                    if stop.wait(rest):
-                        return
-                    continue
-                x, y = points[self._sweep_at]
-                # Quiet: dozens of waypoints a pass, and one «переход / готово» pair
-                # each would bury the findings the sweep exists to produce.
-                #
-                # Advance ONLY on a jump that really started. A refusal means an
-                # errand or a button press holds the flag, and losing the waypoint
-                # would leave a hole in the pass — exactly the band of tiles the
-                # sweep exists to cover. It waits out the dwell and tries the same
-                # one again.
-                if self._jump(x, y, None, quiet=True):
-                    self._sweep_at += 1
-                last_err = ""
-            except Exception as exc:      # noqa: BLE001 — one tick, not the loop
-                err = f"{type(exc).__name__}: {exc}"
-                if err != last_err:
-                    last_err = err
-                    self._say("sweep", "log.sweep.error", error=err)
-            if stop.wait(dwell):
-                return
+    # -- «Автообъезд карты» went with its tab (panel/tabs/secret_tasks/sweep.py)
+    #
+    # The camera walk that keeps the passive capture fed: the box, the waypoints and
+    # the pass-and-rest loop. panel/mapsweep.py is still the geometry.
 
     # -- «Операция Призрак»: the same standing order, no capture needed -------
     #
@@ -4080,8 +3433,6 @@ class Panel(tk.Tk):
         # the window goes, or the last thing typed is the thing that is lost.
         self._flush_scenario_save()
         self._save_settings()   # geometry and the sash, as the operator left them
-        self._stop_monitor()
-        self._stop_autoloot()
         self._stop_ghost_autoloot()
         # The «Секретный командный пункт» tab holds one child of its own — the
         # shared-mission listener — which must go with the window, not outlive it.
@@ -4092,7 +3443,6 @@ class Panel(tk.Tk):
         # subscription, anything else a tab is holding.
         for tab in getattr(self, "_plugin_tabs", {}).values():
             tab.shutdown()
-        self._stop_sweep()
         self._stop_dashboard()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
@@ -5435,8 +4785,8 @@ class Panel(tk.Tk):
         anyway — and the tab's own refresh coalesces a burst (it skips while busy) and
         only ADDS rows, so nothing on screen is lost.
         """
-        tab = getattr(self, "_secret_tasks_tab", None)
-        if tab is not None and getattr(tab, "_loaded", False):
+        tab = self._rt.tabs.get("secret_tasks")
+        if tab is not None and tab.loaded:
             tab.refresh()
 
     def _on_main_tab_changed(self, _event=None) -> None:

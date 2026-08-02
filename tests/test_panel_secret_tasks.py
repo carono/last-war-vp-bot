@@ -9,9 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import panel.triggers as trg              # noqa: E402
-import panel.__main__ as pm               # noqa: E402
-import panel.secret_tasks as st           # noqa: E402
+import panel.triggers as trg                        # noqa: E402
+import panel.__main__ as pm                         # noqa: E402
+from panel.tabs.secret_tasks import tab as st       # noqa: E402
 
 
 def test_trigger_is_registered_on_the_share_push():
@@ -25,23 +25,28 @@ def test_trigger_is_registered_on_the_share_push():
 def test_refresh_only_when_the_tab_was_opened():
     class FakeTab:
         def __init__(self):
-            self._loaded = False
+            self.loaded = False
             self.calls = 0
 
         def refresh(self):
             self.calls += 1
 
+    import types
+
     class Stub:
         _refresh_secret_tasks_tab = pm.Panel._refresh_secret_tasks_tab
 
+    tab = FakeTab()
     s = Stub()
-    s._secret_tasks_tab = FakeTab()
+    # The tab is reached through the runtime's registry — and may not be in this
+    # window at all, which is why `get` is allowed to answer None.
+    s._rt = types.SimpleNamespace(tabs=types.SimpleNamespace(get=lambda _id: tab))
     s._refresh_secret_tasks_tab()                  # unopened -> no read
-    assert s._secret_tasks_tab.calls == 0
-    s._secret_tasks_tab._loaded = True
+    assert tab.calls == 0
+    tab.loaded = True
     s._refresh_secret_tasks_tab()                  # opened -> repaint
-    assert s._secret_tasks_tab.calls == 1
-    del s._secret_tasks_tab                        # missing tab -> no crash
+    assert tab.calls == 1
+    s._rt.tabs.get = lambda _id: None              # tab not in this window -> no crash
     s._refresh_secret_tasks_tab()
 
 
@@ -103,29 +108,31 @@ class _Var:
         self._v = value
 
 
-class _FakeApp:
-    """The slice of the panel the tab's timer / poll logic touches — no Tk root."""
+class _FakeAutoLoot:
+    """The one thing the timer / poll paths ask the standing order: its range."""
 
-    def __init__(self, lo="", hi="", autoloot=False):
-        self._i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
-        self._lvl_from_var = _Var(lo)
-        self._lvl_to_var = _Var(hi)
-        self._autoloot_var = _Var(autoloot)
+    def __init__(self, tab):
+        self.tab = tab
 
-    def _t(self, key, **kw):
-        return self._i18n.t(key, **kw)
-
-    def _autoloot_levels(self):
+    def levels(self):
         def bound(var):
             raw = var.get().strip()
             return int(raw) if raw.isdigit() else None
-        return bound(self._lvl_from_var), bound(self._lvl_to_var)
+        return bound(self.tab.level_from_var), bound(self.tab.level_to_var)
 
 
-def _make_tab(app, rows):
-    """A tab with its build skipped, wired just enough to run the timer / poll paths."""
+def _make_tab(rows, lo="", hi="", autoloot=False):
+    """A tab with its build skipped, wired just enough to run the timer / poll paths.
+
+    No Tk root: the countdown, the poll reconciliation and the #1099 rob rule are all
+    plain decisions over the row dicts, and that is the point of testing them here.
+    """
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
     tab = object.__new__(st.SecretTasksTab)
-    tab.app = app
+    tab.t = i18n.t
+    tab.level_from_var, tab.level_to_var = _Var(lo), _Var(hi)
+    tab.autoloot_var = _Var(autoloot)
+    tab.autoloot = _FakeAutoLoot(tab)
     tab._rows = rows
     tab._collected = set()
     tab._auto_attempted = set()
@@ -151,7 +158,7 @@ def test_countdown_targets_completion_and_flips_ready():
         "2": _row(2, 7, -5_000, 600_000),     # already raidable
         "3": _row(3, 7, -100_000, -1_000),    # expired
     }
-    tab = _make_tab(_FakeApp(), rows)
+    tab = _make_tab(rows)
     expired, changed = tab._refresh_timers()
     assert expired == ["3"]                    # the past-expiry tile is removed
     assert changed is True                     # row 2 crossed into ready this pass
@@ -163,14 +170,14 @@ def test_poll_drops_the_gone_and_keeps_the_present():
     """A ready tile missing from a good read is off the map; a failed read removes none."""
     rows = {"2": _row(2, 7, -5_000, 600_000)}
     rows["2"]["ready"] = True
-    tab = _make_tab(_FakeApp(), rows)
+    tab = _make_tab(rows)
 
     tab._poll_apply(["2"], {})                 # good read, tile absent -> gone
     assert "2" not in tab._rows
 
     rows = {"2": _row(2, 7, -5_000, 600_000)}
     rows["2"]["ready"] = True
-    tab = _make_tab(_FakeApp(), rows)
+    tab = _make_tab(rows)
     tab._poll_apply(["2"], None)               # failed read proves nothing
     assert "2" in tab._rows
 
@@ -189,8 +196,7 @@ def test_auto_loot_robs_only_the_top_level_in_range():
     rows = {"6": _row(6, 6, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
     for r in rows.values():
         r["ready"] = True
-    app = _FakeApp(lo="1", hi="7", autoloot=True)
-    tab = _make_tab(app, rows)
+    tab = _make_tab(rows, lo="1", hi="7", autoloot=True)
     robbed = []
     tab._collect = lambda row: robbed.append(int(row["level"]))
     tab._poll_apply(list(rows), {"6": _LiveTask(6), "7": _LiveTask(7)})
@@ -205,12 +211,12 @@ def test_auto_loot_skips_out_of_range_and_when_unticked():
         r["ready"] = True
     live = {"6": _LiveTask(6), "7": _LiveTask(7)}
 
-    off = _make_tab(_FakeApp(lo="1", hi="7", autoloot=False), rows)
+    off = _make_tab(rows, lo="1", hi="7", autoloot=False)
     off._collect = lambda row: (_ for _ in ()).throw(AssertionError("robbed with box off"))
     off._poll_apply(list(rows), live)           # box off -> no steal
 
-    out = _make_tab(_FakeApp(lo="1", hi="5", autoloot=True),
-                    {k: dict(v, ready=True) for k, v in rows.items()})
+    out = _make_tab({k: dict(v, ready=True) for k, v in rows.items()},
+                    lo="1", hi="5", autoloot=True)
     robbed = []
     out._collect = lambda row: robbed.append(int(row["level"]))
     out._poll_apply(list(rows), live)           # both above the range

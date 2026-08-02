@@ -164,14 +164,17 @@ def test_the_two_locales_carry_the_same_command_post_keys():
     assert tables["en"] == tables["ru"], tables["en"] ^ tables["ru"]
 
 
-def test_the_ghost_checkbox_moved_off_the_secret_tasks_tab():
-    """Its widget lives here now; its var and its method still live on the app.
+def test_the_ghost_checkbox_lives_here_and_nowhere_else():
+    """Its widget is drawn here; its var and its method still live on the app.
 
-    The move is the point: `_ghost_autoloot_var` is created by whichever tab draws the
-    box, and the settings load expects exactly one of them to have done it.
+    The ownership is the point: `_ghost_autoloot_var` is created by whichever tab draws
+    the box, and the settings load expects exactly one of them to have done it. The
+    «Secret Tasks» tab it moved off is a package of its own now, so the check is that
+    nothing there mentions it either.
     """
-    secret = (ROOT / "panel" / "secret_tasks.py").read_text(encoding="utf-8")
-    assert "_ghost_autoloot_var" not in secret
+    secret = ROOT / "panel" / "tabs" / "secret_tasks"
+    for path in sorted(secret.glob("*.py")):
+        assert "_ghost_autoloot_var" not in path.read_text(encoding="utf-8"), path.name
     assert "app._ghost_autoloot_var = tk.BooleanVar" in SOURCE
     assert "app._toggle_ghost_autoloot" in SOURCE
 
