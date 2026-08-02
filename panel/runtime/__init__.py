@@ -37,8 +37,9 @@ from .schedule import Schedule
 from . import settings
 from .settings import DEFAULTS, SettingsBinder
 from .tick import Ticker
+from . import updates
 
 __all__ = ["paths", "reads", "diag", "game_process", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "Translator",
-           "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]
+           "updates", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

@@ -179,6 +179,30 @@ BOOT_MAX_WAIT_SEC = 75.0
 # of one that has to be reproduced.
 HEALTH_SNAPSHOT_MS = 300_000
 
+# -- is this checkout still the current one? --------------------------------
+# The bot ships as a git checkout, so «обновиться» is a fast-forward of the repo the
+# panel is imported from (panel/runtime/updates.py decides what that means). The panel
+# looks once on the way up and then on this period, because it is meant to stay open
+# for days and an update that landed this morning is worth knowing about tonight.
+# Six hours: a fetch of one branch is cheap, but it IS network, and nothing about this
+# repo moves fast enough to justify asking more often.
+UPDATE_POLL_MS = 6 * 60 * 60 * 1000
+# How long the first check waits after the window opens. The boot already spends its
+# seconds on the daemon and the monitors; an SSH handshake on top of that would be one
+# more thing between the operator and a usable panel.
+UPDATE_FIRST_DELAY_MS = 20_000
+# What each conclusion looks like. Amber is "there is something for you to do", red is
+# "the check itself did not work"; everything else stays the neutral grey of a status
+# line nobody needs to read. A state not named here is grey by default.
+UPDATE_COLOURS = {
+    runtime.updates.CURRENT: "#3c3",
+    runtime.updates.BEHIND: "#e8c069",
+    runtime.updates.AHEAD: "#888",
+    runtime.updates.DIVERGED: "#e8c069",
+    runtime.updates.OFFLINE: "#c33",
+    runtime.updates.ERROR: "#c33",
+}
+
 # -- liveness ---------------------------------------------------------------
 # How often the status row re-reads the game and the daemon. A process-list scan
 # costs a few milliseconds off the Tk thread, so looking often is free — and
@@ -492,6 +516,10 @@ class Panel(tk.Tk):
         threading.Thread(target=self._startup_boot, daemon=True).start()
         self._await_boot()
         self._start_health_watch()
+        # …and ask origin whether this checkout is still the current one — after a
+        # pause, because the first thing a freshly opened panel owes the operator is a
+        # window, not an SSH handshake with github.
+        self._arm("updates", UPDATE_FIRST_DELAY_MS, self._poll_updates)
         # Fade the splash and reveal the fully-built window.
         if self._splash is not None:
             try:
@@ -1244,6 +1272,8 @@ class Panel(tk.Tk):
         self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
                  "game.watchdog").pack(side="right")
 
+        self._build_update_block(main)
+
         # -- «Навигация» is gone (#1183) ----------------------------------------
         #
         # Both of its rows went with the block: the «Сцена» switch (🏠 Домой / 🌍 Мир),
@@ -1986,6 +2016,255 @@ class Panel(tk.Tk):
         self._watchdog_last = time.time()
         self._say("game", "log.game.watchdog_relaunch")
         self._rt.play_async("launch_game")
+
+    # -- «Обновление»: is this checkout still the current one? ---------------
+    #
+    # There is no release channel: the bot IS the git checkout it runs from, and updating
+    # it used to mean remembering to open a terminal and type `git pull` — which is why a
+    # box could sit weeks behind `origin` with nobody noticing. The block below is the
+    # whole feature's face: which commit this is, whether `origin` has moved, and one
+    # button when (and only when) a fast-forward is safe.
+    #
+    # Everything it decides lives in panel/runtime/updates.py — this half draws the
+    # answer and keeps the two buttons in step with it. The three states an operator
+    # actually has to act on are spelled out rather than reduced to a red dot: a dirty
+    # tree, a diverged branch and no route to `origin` all look like "не обновляется"
+    # from the outside and want three different things done about them.
+    def _build_update_block(self, parent) -> None:
+        upd = self._tr(ttk.LabelFrame(parent, padding=8), "update.frame")
+        upd.pack(fill="x", padx=8, pady=(0, 6))
+        self._update_state = None          # the last UpdateState, for a retranslation
+        self._update_busy = False          # a check or a pull is in flight
+        self._update_ready = False         # a pull succeeded: the panel is stale code
+
+        self._update_version_var = tk.StringVar(value=self._t("update.version",
+                                                              version=APP_VERSION))
+        ttk.Label(upd, textvariable=self._update_version_var,
+                  font=ui_font(weight="bold")).pack(side="left")
+        self._update_status_var = tk.StringVar(value=self._t("update.st.idle"))
+        self._update_status_lbl = ttk.Label(upd, textvariable=self._update_status_var,
+                                            foreground="#888")
+        self._update_status_lbl.pack(side="left", padx=8)
+
+        # Right to left, so the pair that appears and disappears sits at the edge and
+        # «Проверить» does not move under the cursor when it does.
+        self._update_check_btn = self._tr(
+            ttk.Button(upd, command=lambda: self._check_updates(manual=True)),
+            "update.check")
+        self._update_check_btn.pack(side="right")
+        # Both start hidden: nothing has been checked yet, so neither has anything to
+        # offer. `pack`/`pack_forget` rather than `state=disabled` — a button that is
+        # never pressable is noise, and the label already says why.
+        self._update_restart_btn = self._tr(
+            ttk.Button(upd, command=self._restart_panel), "update.restart")
+        self._update_pull_btn = self._tr(
+            ttk.Button(upd, command=self._do_update), "update.pull")
+        # A language switch has to re-render both dynamic labels; `tr` only knows the
+        # static ones, and the state they are formatted from is not a locale key.
+        self._hook(self._paint_update, key="update-block")
+
+    def _check_updates(self, manual: bool = False) -> None:
+        """Ask `origin` whether this checkout has fallen behind. Off the Tk thread.
+
+        `manual` is the ↻ press: it says so in the log even when the answer is "всё
+        актуально", which the periodic check keeps to itself.
+        """
+        if self._update_busy:
+            return          # a fetch is already out; the ↻ press has nothing to add
+        self._update_busy = True
+        self._update_status_var.set(self._t("update.st.checking"))
+        self._update_status_lbl.configure(foreground="#888")
+
+        def work() -> None:
+            try:
+                state = runtime.updates.check()
+            except Exception as exc:       # noqa: BLE001 — a broken probe is a label,
+                state = runtime.updates.UpdateState(   # not a dead panel
+                    runtime.updates.ERROR, detail=str(exc))
+            finally:
+                self._update_busy = False
+            self.after(0, lambda: self._show_update_state(state, manual))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _poll_updates(self) -> None:
+        """The periodic check, re-arming itself (see UPDATE_POLL_MS)."""
+        self._check_updates()
+        self._arm("updates", UPDATE_POLL_MS, self._poll_updates)
+
+    def _show_update_state(self, state, manual: bool = False) -> None:
+        """A fresh reading landed: repaint the block and log what is worth logging."""
+        prev = self._update_state
+        self._update_state = state
+        self._paint_update()
+        upd = runtime.updates
+        # A conclusion is logged when it CHANGES, plus always on a manual press. The
+        # periodic check would otherwise write the same line four times a day.
+        if not manual and prev is not None and prev.state == state.state:
+            return
+        if state.state == upd.BEHIND:
+            self._say("panel", "log.update.behind", branch=state.branch,
+                      behind=state.behind, remote=state.remote)
+        elif state.state == upd.CURRENT and manual:
+            self._say("panel", "log.update.current", local=state.local)
+        elif state.state == upd.OFFLINE:
+            self._say("panel", "log.update.offline", detail=state.detail)
+        elif state.state == upd.ERROR:
+            self._say("panel", "log.update.error", detail=state.detail)
+        elif state.state == upd.DIVERGED:
+            self._say("panel", "log.update.diverged", branch=state.branch,
+                      ahead=state.ahead, behind=state.behind)
+        elif manual:
+            self._say("panel", "log.update.state", state=state.state)
+
+    def _paint_update(self) -> None:
+        """Draw the block from `self._update_state` — also the language-switch hook."""
+        state = self._update_state
+        if getattr(self, "_update_version_var", None) is None:
+            return
+        upd = runtime.updates
+        # Whatever the LAST READING said, never a fresh one: this runs on the Tk thread
+        # — off a language switch as well as off a check — and `head()` is a subprocess.
+        # Until the first check lands the label is just the version, which is true.
+        local = state.local if state is not None else ""
+        branch = state.branch if state is not None else ""
+        if local and branch:
+            self._update_version_var.set(self._t("update.version.branch",
+                                                 version=APP_VERSION,
+                                                 branch=branch, local=local))
+        elif local:
+            self._update_version_var.set(self._t("update.version.commit",
+                                                 version=APP_VERSION, local=local))
+        else:
+            self._update_version_var.set(self._t("update.version",
+                                                 version=APP_VERSION))
+
+        if self._update_ready:
+            # A pull has already landed. Nothing else the block could say matters until
+            # the panel is running the code that is now on disk.
+            self._update_status_var.set(self._t("update.st.updated", local=local))
+            self._update_status_lbl.configure(foreground="#3c3")
+            self._update_pull_btn.pack_forget()
+            self._update_restart_btn.pack(side="right", padx=(0, 6))
+            return
+        self._update_restart_btn.pack_forget()
+        if state is None:
+            self._update_status_var.set(self._t("update.st.idle"))
+            self._update_status_lbl.configure(foreground="#888")
+            self._update_pull_btn.pack_forget()
+            return
+
+        # Behind AND dirty is the one combination that needs two facts in one line: the
+        # update exists, and it is the operator's own uncommitted work that is holding
+        # it — not a failure of anything the panel does.
+        key = ("update.st.behind_dirty" if state.state == upd.BEHIND and state.dirty
+               else f"update.st.{state.state}")
+        self._update_status_var.set(self._t(
+            key, branch=state.branch, local=state.local, remote=state.remote,
+            behind=state.behind, ahead=state.ahead, detail=state.detail))
+        self._update_status_lbl.configure(
+            foreground=UPDATE_COLOURS.get(state.state, "#888"))
+        if state.can_pull:
+            self._update_pull_btn.pack(side="right", padx=(0, 6))
+        else:
+            self._update_pull_btn.pack_forget()
+
+    def _do_update(self) -> None:
+        """«Обновить» — confirm, fast-forward, and report. The pull is off the Tk thread."""
+        state = self._update_state
+        if self._update_busy or state is None or not state.can_pull:
+            return
+        if not messagebox.askyesno(
+                self._t("update.confirm.title"),
+                self._t("update.confirm.body", branch=state.branch,
+                        behind=state.behind, remote=state.remote), parent=self):
+            return
+        self._update_busy = True
+        self._update_status_var.set(self._t("update.st.pulling"))
+        self._update_status_lbl.configure(foreground="#888")
+        self._update_pull_btn.pack_forget()
+        self._say("panel", "log.update.pulling", branch=state.branch,
+                  remote=state.remote)
+        before = state.local
+
+        def work() -> None:
+            try:
+                res = runtime.updates.pull()
+            except Exception as exc:       # noqa: BLE001
+                res = runtime.updates.PullResult(runtime.updates.FAIL_ERROR,
+                                                 detail=str(exc))
+            finally:
+                self._update_busy = False
+            self.after(0, lambda: self._show_pull_result(res, before))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_pull_result(self, res, before: str) -> None:
+        """What the pull did — in the log, in the block, and (on success) in a dialog."""
+        upd = runtime.updates
+        self._update_state = res.state
+        if res.ok:
+            # The files on disk are no longer the code in this interpreter. Say so
+            # loudly: a panel left running on the old modules is exactly the state
+            # where "я же обновил" and "не работает" meet.
+            self._update_ready = True
+            self._paint_update()
+            local = res.state.local if res.state is not None else ""
+            self._say("panel", "log.update.done", before=before, local=local)
+            messagebox.showinfo(self._t("update.done.title"),
+                                self._t("update.done.body", before=before, local=local),
+                                parent=self)
+            return
+
+        self._paint_update()
+        if res.reason == upd.FAIL_DIRTY:
+            self._say("panel", "log.update.fail_dirty")
+            messagebox.showwarning(self._t("update.fail.title"),
+                                   self._t("update.fail.dirty"), parent=self)
+        elif res.reason == upd.FAIL_DIVERGED:
+            self._say("panel", "log.update.fail_diverged")
+            messagebox.showwarning(self._t("update.fail.title"),
+                                   self._t("update.fail.diverged"), parent=self)
+        elif res.reason == upd.FAIL_OVERWRITE:
+            files = ", ".join(res.files[:8]) or res.detail
+            self._say("panel", "log.update.fail_overwrite", files=files)
+            messagebox.showwarning(self._t("update.fail.title"),
+                                   self._t("update.fail.overwrite", files=files),
+                                   parent=self)
+        elif res.reason == upd.FAIL_OFFLINE:
+            self._say("panel", "log.update.fail_offline", detail=res.detail)
+            messagebox.showwarning(self._t("update.fail.title"),
+                                   self._t("update.fail.offline", detail=res.detail),
+                                   parent=self)
+        elif res.reason == upd.FAIL_NOTHING:
+            self._say("panel", "log.update.current", local=res.state.local
+                      if res.state is not None else "")
+        else:
+            self._say("panel", "log.update.fail_error", detail=res.detail)
+            messagebox.showerror(self._t("update.fail.title"),
+                                 self._t("update.fail.error", detail=res.detail),
+                                 parent=self)
+
+    def _restart_panel(self) -> None:
+        """Close this panel properly and start a fresh one on the updated code.
+
+        In this order, and it matters: `_on_close` is what writes the profile out and
+        stops the tabs' children, and a replacement started before that would read a
+        settings file the old window has not finished with. The daemon is deliberately
+        NOT touched — it is a separate process holding a warm Lua VM, and the new panel
+        picks up the same one.
+        """
+        if not messagebox.askyesno(self._t("update.restart.title"),
+                                   self._t("update.restart.body"), parent=self):
+            return
+        self._say("panel", "log.update.restarting")
+        try:
+            self._on_close()
+        except Exception:                  # noqa: BLE001 — a tab that fails to shut
+            self._dbg.error("restart shutdown failed", exc_info=True)   # down must not
+        try:                                                    # strand the operator
+            runtime.updates.relaunch()
+        except Exception as exc:           # noqa: BLE001
+            self._dbg.error("relaunch failed: %s", exc)
+            print(f"relaunch failed: {exc}", file=sys.stderr)
 
     # -- one control that stops everything ----------------------------------
     def _panic(self) -> None:

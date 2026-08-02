@@ -1,5 +1,9 @@
 # 3. Install the bot
 
+> All of this is what [`install.bat`](00-installer.md) does by itself. Follow
+> this page when you want the pieces separately — a virtual environment of your
+> own, a checkout somewhere specific, an interpreter you already manage.
+
 This step assumes [Python 3.12](01-python.md) is installed. **Ollama is not required at this stage** — the bot starts in dev mode with a stub provider that returns canned answers. A real provider (Ollama / cloud) is wired in later by editing `.env`.
 
 ## Get the source
@@ -89,6 +93,34 @@ For example, cloud LLM (better planning) plus local Ollama vision:
 ```ini
 LLM_PROVIDER=openai_compat
 VISION_PROVIDER=ollama
+```
+
+## Keeping it up to date
+
+There is no release channel: the bot **is** this checkout, so updating it means moving
+it forward to `origin`. The panel does that itself — «Главная» has an «Обновление» block
+showing the version and the commit it is running, and it asks `origin` shortly after the
+window opens and every six hours after that.
+
+When `origin` has moved ahead, an «Обновить» button appears. It is a fast-forward and
+nothing else: it never makes a merge commit and never leaves a conflict behind, so it
+only appears when it is safe. In every other case the block says why instead:
+
+| What it says | What to do |
+|---|---|
+| uncommitted changes in the working copy | commit or discard them, then check again |
+| the branch has diverged from `origin` | merge by hand — one pull cannot do it |
+| an update would overwrite local files | move or commit the files it names |
+| no route to `origin` | check the network / the git credentials |
+
+After an update the panel is still running the code it started with, so it offers
+«Перезапустить панель» — the game and the Lua daemon keep running across it.
+
+By hand, the same thing is:
+
+```powershell
+cd $HOME\last-war-vp-bot
+git pull --ff-only
 ```
 
 ## Common problems
