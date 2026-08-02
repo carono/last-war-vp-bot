@@ -15,8 +15,12 @@ Survival Game*. The game has an official PC client (DirectX); the bot
 captures its window, identifies the current screen, clicks on things,
 OCRs the things it needs to know, runs on a tick loop with a watchdog.
 
-It replaces a legacy Lua / UOPilot project (`master` branch, kept as
-read-only reference). The current branch is `v2`.
+It replaces a legacy Lua / UOPilot project, which is now history rather
+than a branch: commit `b5ce084` is the last tip that carried its tree, and
+it stays there as read-only reference. **Work happens on `master`.** The
+rewrite grew up on `v2`; that branch has been merged into `master` and both
+now point at the same commit, so `v2` survives only for checkouts that
+still track it.
 
 User profile / context (from project memory):
 - The user plays on their own home server.

@@ -12,10 +12,12 @@ This step assumes [Python 3.12](01-python.md) is installed. **Ollama is not requ
 cd $HOME
 git clone https://github.com/carono/last-war-vp-bot.git
 cd last-war-vp-bot
-git checkout v2
 ```
 
-(If the repository is already cloned — `cd` into it and `git checkout v2`.)
+`master` is what a clone lands on and the branch the bot is developed on —
+there is nothing to check out afterwards. (An older clone sitting on `v2`
+needs no rescue either: the two branches point at the same commit. `git
+switch master` when convenient.)
 
 A checkout is what this page assumes, and what the update route below needs.
 [`install.bat`](00-installer.md) takes the other road: it works out of an
