@@ -16,8 +16,12 @@ Three things are worth pinning here, and all three are quiet when broken.
 Touches no scheduler: `register` is never called, only the XML it would hand over. The
 profiles live in a temporary directory, so a real profile is neither read nor written.
 
+Needs no display, but it does need tkinter: the module lives in `panel/runtime/`, and
+importing that package brings the whole runtime — the settings binder included — with
+it. So it says SKIP under the WSL python3, like the rest of the panel's tests.
+
     C:\Python312\python.exe tests\test_panel_autostart.py
-    python3 tests/test_panel_autostart.py
+    python3 tests/test_panel_autostart.py        # SKIP without tkinter
 """
 from __future__ import annotations
 
@@ -34,7 +38,12 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from panel import autostart as autostartmod        # noqa: E402
+try:                                        # the WSL python3 has no tkinter
+    from panel.runtime import autostart as autostartmod
+except ModuleNotFoundError as exc:          # noqa: BLE001
+    if exc.name != "tkinter":
+        raise
+    autostartmod = None
 from panel import profile as profilemod            # noqa: E402
 
 NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
@@ -148,6 +157,70 @@ def test_the_check_reports_without_launching_anything():
         assert autostartmod.check(profiles.active, launch=False)["state"] == "running"
 
 
+def test_a_panel_process_is_told_from_a_tab_and_from_the_check_itself():
+    """What counts as «a panel is already on this profile».
+
+    The module argument has to be exactly `panel`: `-m panel.runtime.autostart` is this
+    very check (it runs hourly and would find itself), and `-m panel.tabs.rally` is one
+    tab in a window of its own, which writes no `config.json` and is not a panel.
+    """
+    at = autostartmod._panel_profile
+    assert at(["pythonw.exe", "-m", "panel", "--profile", "main"]) == "main"
+    assert at(["python.exe", "-m", "panel"]) == ""            # whatever is active
+    assert at(["pythonw.exe", "-m", "panel.runtime.autostart", "--profile", "main"]) is None
+    assert at(["python.exe", "-m", "panel.tabs.rally"]) is None
+    assert at(["python.exe", "somescript.py"]) is None
+    assert at([]) is None
+
+
+def test_no_second_panel_on_a_profile_that_already_has_one():
+    """The guard that does not depend on a file: two panels write one config.json.
+
+    A beat can be missing for reasons that are not «the panel is gone» — the file
+    deleted by hand, a profile directory restored from a backup, a panel built before
+    the beat existed. In every one of those a launch would be the damaging answer, so
+    the process scan has the last word and the check leaves the panel alone.
+    """
+    with _profiles_in_tmp() as profiles:
+        name = profiles.active
+        launched = []
+        real_pids, real_open = autostartmod.panel_pids, autostartmod.open_panel
+        autostartmod.panel_pids = lambda p, n=None: [4242]
+        autostartmod.open_panel = lambda p, n: launched.append(n)
+        try:
+            record = autostartmod.check(name)          # no beat at all, panel running
+        finally:
+            autostartmod.panel_pids, autostartmod.open_panel = real_pids, real_open
+        assert launched == [], "it opened a second panel on a live profile"
+        assert record["state"] == "running" and record["seen"] == "process"
+        assert record["pid"] == 4242
+
+
+def test_a_wedged_panel_is_closed_before_a_new_one_is_opened():
+    """The one case that DOES act on top of something — and only after closing it."""
+    with _profiles_in_tmp() as profiles:
+        name = profiles.active
+        autostartmod.beat(profiles)
+        _age(profiles, autostartmod.STALE_SEC + 60)
+        if autostartmod.probe(profiles).state != "hung":
+            return                                     # no psutil: never a kill
+        stopped, launched = [], []
+        real_stop, real_open, real_pids = (autostartmod.stop, autostartmod.open_panel,
+                                           autostartmod.panel_pids)
+        autostartmod.stop = lambda pid: stopped.append(pid)
+        autostartmod.open_panel = lambda p, n: launched.append(n)
+        autostartmod.panel_pids = lambda p, n=None: [4242]   # a second one, somehow
+        try:
+            record = autostartmod.check(name)
+        finally:
+            (autostartmod.stop, autostartmod.open_panel,
+             autostartmod.panel_pids) = real_stop, real_open, real_pids
+        assert stopped == [os.getpid(), 4242], stopped
+        assert launched == [name]
+        assert record["state"] == "failed"             # the stand-in never beats
+        assert record["seen"] == "hung"
+
+
 def test_the_task_names_this_install_and_looks_once_an_hour():
     xml = autostartmod.task_xml("main", python=r"C:\Python312\pythonw.exe",
                                 repo=r"C:\LastWar", account="PC\\player",
@@ -157,9 +230,9 @@ def test_the_task_names_this_install_and_looks_once_an_hour():
     exec_node = root.find(".//t:Actions/t:Exec", NS)
     assert exec_node.find("t:Command", NS).text == r"C:\Python312\pythonw.exe"
     assert exec_node.find("t:WorkingDirectory", NS).text == r"C:\LastWar"
-    # `-m panel.autostart` with the profile quoted: a name with a space in it must not
+    # `-m panel.runtime.autostart` with the profile quoted: a name with a space in it must not
     # arrive as two arguments and check a profile nobody has.
-    assert exec_node.find("t:Arguments", NS).text == '-m panel.autostart --profile "main"'
+    assert exec_node.find("t:Arguments", NS).text == '-m panel.runtime.autostart --profile "main"'
 
     every = root.find(".//t:TimeTrigger/t:Repetition/t:Interval", NS)
     assert every.text == "PT1H", "the check is hourly — that is the whole feature"
@@ -198,6 +271,24 @@ def test_one_task_per_profile_all_in_one_folder():
     assert autostartmod.task_name("///") == r"Last War Bot\panel-default"
 
 
+def test_a_cyrillic_profile_in_a_path_with_spaces_survives_the_xml():
+    """Both are ordinary here: the install is wherever it was unpacked (#1196), and a
+    profile is named by the person. The definition is written UTF-16 for exactly this."""
+    xml = autostartmod.task_xml("Основной", python=r"C:\Python312\pythonw.exe",
+                                repo=r"P:\projects abandoned\карono\last-war-vp-bot",
+                                account="PC\\Игрок", run_level="LeastPrivilege")
+    root = ET.fromstring(xml)
+    assert autostartmod.task_name("Основной") == "Last War Bot\\panel-Основной"
+    assert (root.find(".//t:Actions/t:Exec/t:Arguments", NS).text
+            == '-m panel.runtime.autostart --profile "Основной"')
+    assert (root.find(".//t:Actions/t:Exec/t:WorkingDirectory", NS).text
+            == r"P:\projects abandoned\карono\last-war-vp-bot")
+    assert root.find(".//t:Principals/t:Principal/t:UserId", NS).text == "PC\\Игрок"
+    # And it is handed to schtasks as UTF-16, which is the only encoding it reads.
+    assert xml.startswith('<?xml version="1.0" encoding="UTF-16"?>')
+    assert xml.encode("utf-16").startswith(b"\xff\xfe")
+
+
 def test_the_status_is_asked_of_windows_not_of_the_profile():
     """Off this OS there is no scheduler, so nothing is registered and nothing pretends."""
     with _profiles_in_tmp() as profiles:
@@ -227,6 +318,9 @@ def test_the_panel_is_opened_with_the_windowed_interpreter_when_there_is_one():
 
 
 def _main() -> int:
+    if autostartmod is None:
+        print("  SKIP no tkinter — panel.runtime cannot be imported here")
+        return 0
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

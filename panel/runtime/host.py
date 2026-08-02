@@ -171,7 +171,7 @@ class PanelRuntime:
     def start_heartbeat(self) -> None:
         """Say once a minute that this panel is alive — from the Tk queue, deliberately.
 
-        The scheduled hourly check (panel/autostart.py) reads that file to decide whether
+        The scheduled hourly check (panel/runtime/autostart.py) reads that file to decide whether
         to open the panel. Armed on `tick`, so what it proves is not «the process exists»
         but «the event loop is still turning»: a window that has been white and
         unresponsive for an hour stops writing it, which is exactly the case a plain
@@ -180,7 +180,7 @@ class PanelRuntime:
         Only the SHELL starts it. A standalone tab is not the panel, and a beat from one
         would tell the check that a panel is running when none is.
         """
-        from .. import autostart as autostartmod
+        from . import autostart as autostartmod
 
         self._heartbeat = True
 
@@ -198,7 +198,7 @@ class PanelRuntime:
         """
         if not getattr(self, "_heartbeat", False):
             return
-        from .. import autostart as autostartmod
+        from . import autostart as autostartmod
 
         self._heartbeat = False
         self.tick.disarm("heartbeat")

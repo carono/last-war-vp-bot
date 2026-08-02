@@ -29,7 +29,7 @@ Settings page shows: the scheduler's own «last run» column says a task ran, no
 made of what it found.
 
 WHAT GETS REGISTERED. One task per profile, ``Last War Bot\panel-<profile>``, whose
-action is *this* installation's interpreter running ``-m panel.autostart --profile
+action is *this* installation's interpreter running ``-m panel.runtime.autostart --profile
 <name>`` with the repository as its working directory. Nothing is guessed and nothing is
 hard-coded: the paths come from :data:`REPO` and `sys.executable`, so a panel that was
 copied elsewhere registers the copy, and a second install registers itself.
@@ -42,11 +42,12 @@ plain one. That is also what keeps registration free of a UAC prompt in the seco
 — asking Windows for a task that runs elevated is what needs administrator rights, and
 the Settings page says so when Windows refuses.
 
-Deliberately import-light: no tkinter, no `panel.runtime` (importing that package pulls
-Tk in). The hourly run is a headless `pythonw.exe` and must stay one.
+It builds no widget and opens no window — the Settings page draws the answer, this
+decides what the answer is (`panel/runtime/updates.py` is the same shape). The hourly
+run is a headless `pythonw.exe` and must stay one.
 
-    C:\Python312\python.exe -m panel.autostart --status
-    C:\Python312\python.exe -m panel.autostart --profile main
+    C:\Python312\python.exe -m panel.runtime.autostart --status
+    C:\Python312\python.exe -m panel.runtime.autostart --profile main
 """
 from __future__ import annotations
 
@@ -59,19 +60,15 @@ import time
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
-from . import profile as profilemod
-from .i18n import Message
-
-# panel/autostart.py -> panel -> the repo. Spelled out rather than taken from
-# `panel.runtime.paths`, because importing that package brings tkinter with it and this
-# module is what runs headless once an hour.
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from .. import profile as profilemod
+from ..i18n import Message
+from .paths import REPO
 
 WINDOWS = os.name == "nt"
 
 # Creation flags (Windows). NO_WINDOW keeps `schtasks` from flashing a console over the
 # panel; DETACHED + NEW_GROUP is how the panel outlives the check that started it —
-# the scheduler ends its task the moment `pythonw -m panel.autostart` returns.
+# the scheduler ends its task the moment `pythonw -m panel.runtime.autostart` returns.
 NO_WINDOW = 0x08000000          # CREATE_NO_WINDOW
 DETACHED = 0x00000008           # DETACHED_PROCESS
 NEW_GROUP = 0x00000200          # CREATE_NEW_PROCESS_GROUP
@@ -200,6 +197,63 @@ def probe(profiles, name: str | None = None) -> Liveness:
     return Liveness("hung" if alive else "stopped", pid, age)
 
 
+def _panel_profile(cmdline: list) -> "str | None":
+    """The profile a command line opens the panel on — ``None`` if it is not a panel.
+
+    Matched on the module argument being exactly ``panel``, so this file's own hourly run
+    (``-m panel.runtime.autostart``) and a tab opened on its own (``-m panel.tabs.rally``)
+    are not mistaken for the panel itself. A panel started without ``--profile`` is on
+    whatever the saved pointer said, which is what the empty answer means.
+    """
+    parts = [str(a) for a in (cmdline or [])]
+    try:
+        module = parts[parts.index("-m") + 1]
+    except (ValueError, IndexError):
+        return None
+    if module != "panel":
+        return None
+    try:
+        return profilemod.sanitize(parts[parts.index("--profile") + 1])
+    except (ValueError, IndexError):
+        return ""                             # the active profile, whatever it is
+
+
+def panel_pids(profiles, name: str | None = None) -> list:
+    """Every OTHER live process holding a panel window on this profile.
+
+    The second guard, and the one that does not depend on a file. Two panels on one
+    profile write one `config.json` over each other, so the check must never open a
+    second — and a heartbeat can be missing for reasons that have nothing to do with the
+    panel being gone (the file deleted by hand, a profile directory restored from a
+    backup, a panel built before the beat existed).
+
+    Best-effort by nature: reading another process' command line is refused when it is
+    more privileged than this one (the panel is normally elevated, the check need not
+    be), and a process that cannot be read is simply not counted. That is why this backs
+    the heartbeat up rather than replacing it.
+    """
+    profile = profilemod.sanitize(name or "") or profiles.active
+    try:
+        import psutil
+    except Exception:                         # noqa: BLE001 — nothing to scan with
+        return []
+    mine, found = os.getpid(), []
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            if proc.info["pid"] == mine:
+                continue
+            if not (proc.info["name"] or "").lower().startswith("python"):
+                continue
+            on = _panel_profile(proc.info["cmdline"])
+            if on is None:
+                continue
+            if on == profile or (on == "" and profiles.active == profile):
+                found.append(proc.info["pid"])
+    except Exception:                         # noqa: BLE001 — a guard, never the crash
+        return found
+    return found
+
+
 def stop(pid: int) -> bool:
     """End a wedged panel. Politely first, then not."""
     try:
@@ -293,6 +347,13 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
     Returns the record it wrote to the profile's ``autostart.json`` — ``state`` is one
     of ``running`` / ``started`` / ``restarted`` / ``failed``, which is what the
     Settings page reads back.
+
+    NEVER two panels on one profile. They share a `config.json` and would write it over
+    each other, so the launch is gated twice: on the heartbeat, and — when that says
+    nothing is there — on a scan for a panel process on this profile anyway. Only a
+    verdict of «hung» opens one on top of something, and only after closing it: a beat
+    that started and then stopped is proof of a wedge, where a beat that never existed
+    is just as likely to be a deleted file.
     """
     profiles = profilemod.ProfileManager()
     name = profilemod.sanitize(profile) if profile else profiles.active
@@ -300,15 +361,24 @@ def check(profile: str | None = None, *, launch: bool = True) -> dict:
     record = {"ts": time.time(), "profile": name, "seen": live.state,
               "pid": live.pid, "age": round(live.age or 0)}
 
+    others = [] if (live.running or not launch) else panel_pids(profiles, name)
+
     if live.running:
         record["state"] = "running"
     elif not launch:
         record["state"] = live.state
+    elif others and live.state != "hung":
+        # A panel is there; it is simply not saying so. Leaving it alone is the whole
+        # point — a second one on this profile costs the profile itself.
+        _log(profiles, name, f"no beat, but panel {others} is running — left alone")
+        record.update(state="running", seen="process", pid=others[0])
     else:
-        if live.state == "hung" and live.pid:
-            _log(profiles, name, f"panel {live.pid} has not beaten for "
+        doomed = [live.pid] if (live.state == "hung" and live.pid) else []
+        doomed += [pid for pid in others if pid not in doomed]
+        for pid in doomed:
+            _log(profiles, name, f"panel {pid} has not beaten for "
                                  f"{int(live.age or 0)}s — stopping it")
-            stop(live.pid)
+            stop(pid)
         started = open_panel(profiles, name)
         ok = started is not None and _await_beat(profiles, name)
         record["state"] = ("restarted" if live.state == "hung" else "started") if ok \
@@ -456,7 +526,7 @@ def task_xml(profile: str, *, python: str | None = None, repo: str | None = None
         principal_user=user,
         level=run_level or ("HighestAvailable" if elevated() else "LeastPrivilege"),
         exe=escape(python or panel_python()),
-        args=escape(f'-m panel.autostart --profile "{profile}"'),
+        args=escape(f'-m panel.runtime.autostart --profile "{profile}"'),
         cwd=escape(repo or REPO),
     )
 
@@ -579,7 +649,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="panel.autostart",
+        prog="panel.runtime.autostart",
         description="Check that the Last War panel is running, and open it if not.")
     parser.add_argument("--profile", metavar="NAME", default=None,
                         help="which profile to watch (default: the active one)")

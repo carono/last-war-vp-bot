@@ -22,6 +22,13 @@ from __future__ import annotations
 # tools/ and src/ on sys.path, and `python -m panel.tabs.<id>` never runs
 # panel/__main__.py, which is where that bootstrap used to live.
 from . import paths  # noqa: F401  (imported for its side effect)
+# `autostart` is deliberately NOT re-exported here. It is the one module in this package
+# with a `__main__` of its own — the scheduler runs `-m panel.runtime.autostart` once an
+# hour — and a submodule that the package imports on the way in is then loaded TWICE in
+# that process: once under its own name, once as `__main__`. Python says so out loud
+# ("found in sys.modules … prior to execution … unpredictable behaviour"), and two
+# copies of a module holding a heartbeat file is not a thing to be casual about. Reach
+# for it as `from .runtime import autostart`, which imports it exactly once.
 from .actions import ACTIONS_DIR, ActionRunner, Outcome, action_titles, list_actions
 from .bus import EventBus
 from .children import ChildFactory

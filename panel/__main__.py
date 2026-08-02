@@ -97,7 +97,7 @@ from . import __version__ as APP_VERSION
 from . import widgets
 from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
-from . import autostart as autostartmod
+from .runtime import autostart as autostartmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -416,7 +416,7 @@ class Panel(tk.Tk):
         self._game.on_settled = lambda: self.after(400, self._refresh_status)
         self._actions = self._rt.actions
         # «I am still here», once a minute, from this window's own event queue — the
-        # hourly scheduled check reads it (panel/autostart.py). Started HERE rather than
+        # hourly scheduled check reads it (panel/runtime/autostart.py). Started HERE rather than
         # in `_startup`: bringing the systems up takes tens of seconds, and a check that
         # landed in the middle of that would find no beat and open a second panel.
         self._rt.start_heartbeat()
@@ -1031,7 +1031,7 @@ class Panel(tk.Tk):
         self._schedule.on_profile_switch()
         # …and so did the profile the hourly autostart names. A task left pointing at
         # the old name would open the panel on a profile that no longer exists — which
-        # `--profile` obligingly re-creates, empty (panel/autostart.py).
+        # `--profile` obligingly re-creates, empty (panel/runtime/autostart.py).
         autostartmod.rename(cur, newn)
         self._say("profile", "log.profile.renamed", old=cur, new=newn)
 

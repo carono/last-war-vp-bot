@@ -73,7 +73,7 @@ RESOURCE_STATS_STATE = "resource_stats.json"
 # The accumulating SQLite history of ranking-board snapshots (tools/lib/leaderboard_store.py),
 # filled by the «leaderboard_collect» trigger.
 LEADERBOARD_DB = "leaderboard_history.db"
-# The three files the autostart uses (panel/autostart.py). ALIVE_FILE is the heartbeat
+# The three files the autostart uses (panel/runtime/autostart.py). ALIVE_FILE is the heartbeat
 # the open panel rewrites once a minute from its Tk event loop — the hourly scheduled
 # check reads it to tell a live panel from a wedged one. AUTOSTART_STATE is what that
 # check made of it last time (which is what the Settings page shows, since the
@@ -318,7 +318,7 @@ class ProfileManager:
         return os.path.join(self.dir(name), DEBUG_LOG)
 
     def heartbeat(self, name: str | None = None) -> str:
-        """Where the open panel says it is still answering (panel/autostart.py)."""
+        """Where the open panel says it is still answering (panel/runtime/autostart.py)."""
         return os.path.join(self.dir(name), ALIVE_FILE)
 
     def autostart_state(self, name: str | None = None) -> str:

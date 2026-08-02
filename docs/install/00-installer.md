@@ -189,8 +189,8 @@ Two things worth knowing:
 The same thing from a terminal, for when it needs looking at:
 
 ```
-C:\Python312\python.exe -m panel.autostart --status
-C:\Python312\python.exe -m panel.autostart --profile main       # look now
+C:\Python312\python.exe -m panel.runtime.autostart --status
+C:\Python312\python.exe -m panel.runtime.autostart --profile main       # look now
 ```
 
 ## When it goes wrong

@@ -21,7 +21,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .. import autostart as autostartmod
+from ..runtime import autostart as autostartmod
 from .. import i18n as i18nmod
 from .. import mapsweep as mapsweepmod
 from .. import runtime
@@ -225,7 +225,7 @@ class SettingsTab(PanelTab):
     # -- «Автозапуск»: the hourly task that opens the panel when it is not there --
     #
     # The tick is NOT a profile knob, and that is deliberate. What it shows is what the
-    # Windows scheduler holds (panel/autostart.py `registered`), so a task somebody
+    # Windows scheduler holds (panel/runtime/autostart.py `registered`), so a task somebody
     # removed by hand in taskschd.msc, or one this profile never had on this machine,
     # reads as off — where a saved boolean would confidently say «on» about a task that
     # is not there. Ticking it registers; unticking removes; both then re-read.
