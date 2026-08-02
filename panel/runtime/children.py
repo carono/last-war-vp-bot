@@ -22,8 +22,12 @@ THE ENVIRONMENT IS THE INTERESTING PART. Two variables travel with every child:
 from __future__ import annotations
 
 import os
+import subprocess
 
 from .. import childmon as childmonmod
+
+# Windows: no console window for a child the panel is reading through a pipe.
+NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 
 
 class ChildFactory:
@@ -50,3 +54,21 @@ class ChildFactory:
             cmd, tag, log=self._log.put, cwd=self._cwd, on_line=on_line,
             on_exit=on_exit, schedule=self._schedule, env=self.env(),
             capture_stderr=capture_stderr)
+
+    def spawn_raw(self, cmd: list, tag: str) -> "subprocess.Popen | None":
+        """A bare `Popen` whose stdout+stderr the caller reads itself. ``None`` if it
+        would not start.
+
+        For the children whose output is streamed by a reader thread rather than by a
+        ChildMonitor: the robberies, the raw sniffers, the chat reader. utf-8 is forced
+        because a piped stdout would otherwise fall back to the ANSI code page and
+        mangle its glyphs under our utf-8 decode.
+        """
+        try:
+            return subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", bufsize=1, cwd=self._cwd,
+                env=self.env(), creationflags=NO_WINDOW)
+        except Exception as exc:                  # noqa: BLE001 — it is a child, not us
+            self._log.say(tag, "log.launch_failed", error=exc)
+            return None

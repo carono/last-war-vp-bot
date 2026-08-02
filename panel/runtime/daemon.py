@@ -31,7 +31,12 @@ import subprocess
 import threading
 import time
 
+import coords
+import lua_actions
 import lua_client
+
+#: The server a jump falls back to when the game cannot say which one it is on.
+DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 
 # How long the daemon holds this process's claim without hearing from it. Every chunk an
 # action runs renews it, so this only ever fires for a holder that died mid-action — and
@@ -53,7 +58,7 @@ class GameLink:
     """The warm daemon for one profile, plus the one-action-at-a-time claim."""
 
     def __init__(self, port, python, log, env, cwd: str, daemon_script: str,
-                 on_state=None, debug=None) -> None:
+                 on_state=None, debug=None, on_settled=None) -> None:
         self._port = port                 # callable: this profile's daemon port
         self._python = python             # callable: the interpreter to start it with
         self._log = log                   # the LogBus
@@ -61,6 +66,9 @@ class GameLink:
         self._cwd = cwd
         self._script = daemon_script
         self._on_state = on_state or (lambda state, ok: None)
+        #: "an action has just let go of the game" — the shell re-reads its status strip
+        #: there. A tab launched on its own has no strip and leaves it a no-op.
+        self.on_settled = on_settled or (lambda: None)
         self._dbg = debug
         self._busy = False
         self._busy_lock = threading.Lock()
@@ -193,6 +201,64 @@ class GameLink:
     @property
     def busy(self) -> bool:
         return self._busy
+
+    # -- the two reads every caller of the game needs ------------------------
+    def current_server(self) -> str:
+        """Which server the client is on right now, or the home one if it will not say.
+
+        Here rather than in the shell because a jump needs it and a tab may be the only
+        window there is (docs/research/panel-tabs-refactor.md §4.2).
+        """
+        try:
+            for line in self.client.run(lua_actions.current_server(),
+                                        marker="ACT", settle=0.5):
+                if "curserver=" in line:
+                    return line.split("curserver=")[1].split()[0]
+        except Exception as exc:                      # noqa: BLE001
+            self._log.say("server", "log.server.read_failed", error=exc)
+        return DEFAULT_SERVER
+
+    def jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
+        """Jump the camera to a tile, on a worker thread. Serialised with every action.
+
+        The claim is the ordinary one, so a coordinate clicked in the log and a timer
+        coming due in the same instant cannot both walk into the game VM.
+
+        ``quiet`` is for the map sweep, which jumps dozens of times a pass: its own
+        progress line is enough, and a «занят» every few seconds while an errand runs
+        would be worse still.
+
+        Returns whether the jump was STARTED — ``False`` means the claim was taken by
+        something else. The sweep uses that to keep its place instead of losing the
+        waypoint it was refused on.
+        """
+        if not self.claim():
+            if not quiet:
+                self._log.say("panel", "busy")
+            return False
+
+        def work() -> None:
+            try:
+                if not self.up() and not self.ensure():
+                    self._log.say("coord", "log.no_daemon")
+                    return
+                target = int(server) if server is not None else int(self.current_server())
+                if not quiet:
+                    self._log.say("coord", "log.coord.jumping",
+                                  where=coords.fmt(x, y, target))
+                for line in self.client.run(lua_actions.jump_to_coord(x, y, target),
+                                            marker="ACT", settle=1.6):
+                    self._log.put(f"[coord] {line}")
+                if not quiet:
+                    self._log.say("coord", "log.done")
+            except Exception as exc:                  # noqa: BLE001
+                self._log.say("coord", "log.error", error=exc)
+            finally:
+                self.release()
+                self.on_settled()
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
 
     # -- diagnostics --------------------------------------------------------
     def _note(self, msg, *args) -> None:
