@@ -53,6 +53,13 @@ which screen, which order — lives in scripts. Push toward that whenever
 natural. The user has explicitly endorsed this rule and will eventually
 have an LLM author scripts from natural-language scenarios.
 
+The same rule governs the control panel, which grew after this section
+was written: **the panel is a player of scenarios, not a bot.** A button
+runs `script_engine.run_action(<name>, …)`; no game logic, no Lua, no
+gates and no step sequences live under `panel/`. The binding wording,
+including what to do with the panel code that predates the rule, is in
+[`CLAUDE.md`](CLAUDE.md) — read it before touching either layer.
+
 ---
 
 ## 3. File map

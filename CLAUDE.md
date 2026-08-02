@@ -2,6 +2,65 @@
 
 @docs/skills/sniff-quick.md
 
+## Everything is a scenario — the panel only plays them
+
+**This rule is binding on every agent working in this repository — dispatcher,
+worker, or one-off session. No exceptions, and "there was already a button doing
+it this way" is not one.**
+
+Every ability of the bot lives in exactly one place: a scenario under
+`src/lastwar_bot/actions/*.md`, written in the DSL (`docs/dsl.md`). The panel is a
+**player**, not a bot: it lists scenarios, starts them, and shows what came back.
+It decides *when* to press and *how the result is drawn* — never *what the press
+is*.
+
+### Where a change belongs
+
+1. **A new ability → a new `actions/*.md` scenario.** Compose it out of the
+   primitives that already exist (`TAP`, `LUA`, `READ_LUA`, `GAME`, `JUMP`,
+   `FIND`, `CLICK`, `WAIT`, `CALL`, …). One file, one ability, with the title line
+   and its `# ru:` translation.
+2. **A new panel button or tab → it runs a scenario by name** through
+   `script_engine.run_action(name, …)`, passes its parameters as `ARGS`, and
+   renders what the run logged. Code under `panel/` may hold widgets, layout,
+   i18n, schedules, settings, persistence and presentation — nothing else.
+3. **Python only when a primitive is missing.** If the DSL cannot express the
+   step, add the primitive first — a named button in `tools/lib/game_buttons.py`,
+   a chunk in `tools/lib/lua_actions.py`, a keyword in `script_engine.py` —
+   document it in `docs/dsl.md`, and only then write the scenario that uses it.
+   A primitive presses one thing or reads one value; it never knows the order of
+   a flow, its gates, or the day's routine.
+
+### What must never appear under `panel/`
+
+- Lua for the game VM assembled, embedded or branched on in panel code;
+- a sequence of game steps (open X → press Y → wait → read Z);
+- the gates of an ability (quota left, is-it-open-today, cooldowns,
+  "collect first, then heal");
+- retries or waits tied to a game reply.
+
+A panel change that needs any of these means the ability is not finished yet:
+write it as a scenario and let the button call it.
+
+### The code that predates this rule
+
+Parts of the panel still call the Lua chunks directly — `panel/dashboard.py`
+(the readings), `panel/command_post.py`, `panel/secret_tasks.py`,
+`panel/mapsweep.py`, and a handful of places in `panel/__main__.py`. They are
+debt, not precedent. Do not rewrite them all at once, but when a task takes you
+into one of those paths, move the game logic out into a scenario and leave the
+panel calling it. **Never add a new one.**
+
+### Definition of done
+
+A task that delivers an ability is not done — and must not be marked done in the
+tracker — until:
+
+- the ability is one runnable scenario in `src/lastwar_bot/actions/`;
+- everything the panel does with it goes through `run_action`;
+- any primitive added along the way is documented in `docs/dsl.md`;
+- and, once the user has confirmed it live, both farming files say so (below).
+
 ## Feature list upkeep
 
 **This rule is binding on every agent working in this repository — dispatcher,

@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 28 of 101
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 28 of 102
 
-🟩 28 done · 🟨 29 partly · 🟥 44 not automated
+🟩 28 done · 🟨 30 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -56,6 +56,7 @@ not on the schedule is still something a human starts.
 ### Ministry
 
 - ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask
+- 🟡 Asking for Minister of the Interior on a schedule — one switch in the panel and every half hour the bot asks for the post by itself, with nobody watching. Only a post actually granted counts as done; an application the game turns down is asked again half an hour later instead of being written off as a run, so the panel's log tells a schedule that is working from one that has never once got in. While you hold another ministry post nothing is sent at all — the game refuses a second application, and asking anyway would only earn you a message on screen. Switched off until you turn it on; the refusals are proven live, a granted application on the schedule has not been seen yet
 - ❌ Notification about an appointment
 - ❌ Applying during the alliance duel
 
