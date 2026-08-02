@@ -37,8 +37,8 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .widgets import NumericEntry, ScrollableFrame, font as ui_font
-from .tabs_extra import tk_stringvar
+from .widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
+                      font as ui_font)
 
 #: Marker every chunk in tools/lib/lua_actions.py logs under.
 MARKER = "ACT"

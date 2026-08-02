@@ -80,6 +80,7 @@ TABS: tuple = (
     TabSpec("heroes",    "panel.tabs.heroes",    "HeroesTab",    order=230),
     TabSpec("accounts",  "panel.tabs.accounts",  "AccountsTab",  order=240),
     TabSpec("stats",     "panel.tabs.stats",     "StatsTab",     order=250),
+    TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
 )
 
 BY_ID = {spec.id: spec for spec in TABS}

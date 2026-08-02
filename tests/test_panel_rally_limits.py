@@ -5,7 +5,9 @@ its daily cap, and where the count of joins is kept and rolled over at midnight.
 things must not go wrong: a `0` cap means unlimited (not "join zero"), and the count
 is a per-DAY budget that resets on a new day rather than a total that grows forever.
 Both are pinned here, plus the file round-trips (a hand-edited cap is honoured, junk
-is dropped, a new built-in type is folded into an old profile's file).
+is dropped, a new built-in type is folded into an old profile's file) — and the GATE
+that spends them, `panel/tabs/rally/limits.py`, which the schedule asks before it lets
+the «rally_auto_join» trigger run.
 
 No Tk, no game, and the day is an argument — so this runs anywhere::
 
@@ -23,6 +25,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from panel import rally_limits as rl  # noqa: E402
+from panel.tabs.rally import limits as gate  # noqa: E402
 
 DAY1 = "2026-07-30"
 DAY2 = "2026-07-31"
@@ -104,6 +107,78 @@ def test_counts_file_round_trips_and_rolls_on_load():
     assert same_day.count_for("monster") == 4
     next_day = rl.load_counts(path, today=DAY2)             # stale file → rolled empty
     assert next_day.date == DAY2 and next_day.count_for("monster") == 0
+
+
+# -- the gate the schedule asks (panel/tabs/rally/limits.py) ----------------
+class _Profiles:
+    def __init__(self, tmp: Path):
+        self._tmp = tmp
+
+    def rally_limits_json(self, name=None):
+        return str(self._tmp / "rally_limits.json")
+
+    def rally_counts_json(self, name=None):
+        return str(self._tmp / "rally_counts.json")
+
+
+class _Game:
+    """A game link answering the one read the gate makes — or refusing to."""
+
+    def __init__(self, types_out):
+        self._types = types_out
+
+    def up(self):
+        return self._types is not None
+
+    def evaluator(self):
+        types = self._types
+
+        class _Ev:
+            @staticmethod
+            def run(chunk, marker=None, settle=None):
+                assert marker == "RTYPE", marker
+                return ["RTYPE=%s" % t for t in types] + ["RTYPE end"]
+        return _Ev()
+
+
+class _Rt:
+    """Just enough runtime for the gate: a profile's two files, and a game to read."""
+
+    def __init__(self, tmp: Path, types_out, limits=None):
+        self.profiles = _Profiles(tmp)
+        self.game = _Game(types_out)
+        self.said: list = []
+        if limits is not None:
+            rl.save_limits(limits, self.profiles.rally_limits_json())
+
+    def say(self, tag, key, **fmt):
+        self.said.append(key)
+
+
+def test_the_gate_lets_a_join_through_when_nothing_can_be_read():
+    """A failed read must not block the join — this is a budget, not a lock."""
+    with tempfile.TemporaryDirectory() as td:
+        assert gate.join_gate(_Rt(Path(td), None)) is None       # no daemon
+        assert gate.join_gate(_Rt(Path(td), [])) is None         # no rally out
+
+
+def test_the_gate_returns_the_types_still_under_their_cap():
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster", "monster"],
+                 limits=rl.RallyLimits({"monster": 5}))
+        assert gate.join_gate(rt) == ["monster", "monster"]
+        assert rt.said == []
+
+
+def test_the_gate_refuses_the_whole_join_once_every_type_is_capped():
+    with tempfile.TemporaryDirectory() as td:
+        rt = _Rt(Path(td), ["monster"], limits=rl.RallyLimits({"monster": 1}))
+        gate.record_joins(rt, ["monster"])                       # today's one is spent
+        assert gate.join_gate(rt) == []
+        assert rt.said == ["triggers.log.rally_capped"], rt.said
+        # …and the count landed in the profile's own file, not merely in memory.
+        counts = rl.load_counts(rt.profiles.rally_counts_json())
+        assert counts.count_for("monster") == 1
 
 
 def _run_standalone() -> int:

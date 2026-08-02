@@ -47,9 +47,9 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .widgets import NumericEntry, ScrollableFrame, font as ui_font, numeric_spinbox
+from .widgets import (NumericEntry, ScrollableFrame, numeric_spinbox,
+                      tk_stringvar, font as ui_font)
 from . import runtime
-from .tabs_extra import tk_stringvar
 
 # The star glyph in front of a row and the icons for the two row states: a tile still
 # counting down to raidability, and one that is ready to loot now.

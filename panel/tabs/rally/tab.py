@@ -1,0 +1,620 @@
+"""The «Ралли» tab itself: raise a rally, and hear about the ones others raised.
+
+One subject, two halves, and until now they lived in two files: the create form was a
+class taking the app, the monitor was four widgets and six handlers on `Panel` itself
+(docs/research/panel-tabs-refactor.md §10, wave 2). Both are here, built from the
+runtime and nothing else — which is what lets the whole thing be opened on its own:
+
+    C:\\Python312\\python.exe -m panel.tabs.rally --profile main
+
+**Raising one.** The player picks what to rally — a «Роковая Элита» or an ordinary
+world monster — sets the level (1–200 for both, as high as a season goes: typed into
+the box, or one press on the button of a level actually rallied at), ticks the squads
+that should each raise a rally, and a repeat count; «Запустить» then loops «find a
+target of that kind and level → raise the rally with the next squad», N times over, and
+«Стоп» interrupts it. The daily per-type cap (panel/rally_limits.py) is honoured — a run
+stops when the «monster» budget for today is spent.
+
+The game work is `actions/create_rally.md` — the scenario is the ability and this tab
+only plays it (CLAUDE.md), so what a repeat that came to nothing says is the
+SCENARIO's own words: it names six distinct failures and the tab quotes the one it
+gave rather than re-diagnosing the game itself.
+
+**Hearing about one.** The monitor is a child process reading `push.alliance.march.*`
+off the wire; a march carrying a `team=` is a rally, and the first line about each
+banner can ring a bell and — if the operator asks for it — join with the squads
+«Настройки → Авторалли» allows.
+
+That settings page is contributed by this tab (:meth:`settings_page`), so it travels
+with rally and is not there when rally is switched off.
+"""
+from __future__ import annotations
+
+import os
+import threading
+from tkinter import ttk
+
+from ...runtime import log as logmod
+from ...runtime.paths import TOOLS, repo_rel
+from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
+                        font as ui_font)
+from ..base import PanelTab
+from . import limits as rallylimits
+from .autorally import AutoRallyPage
+
+# ---------------------------------------------------------------------------
+# The two things a rally can be raised on: a «Роковая Элита» (searched under the
+# «лупа»'s Boss tab) and an ordinary world monster (its Monster tab).
+RALLY_KIND_ELITE, RALLY_KIND_MONSTER = "boss", "monster"
+RALLY_KINDS = (RALLY_KIND_ELITE, RALLY_KIND_MONSTER)
+# The level either of them may be searched at. One range for both kinds: a season puts
+# levels far above the old elite ceiling on the map, and the game answers with whatever
+# it has, so the tab offers the whole span and lets an empty answer say "not there".
+# Same range as actions/create_rally.md and tools/rally_create.py SEARCH_LEVEL_RANGE.
+RALLY_LEVEL_MIN, RALLY_LEVEL_MAX = 1, 200
+# The levels a rally is actually raised on, each a button of its own beside the level
+# box. Two hundred levels on a slider meant a drag and a squint to land on one of them,
+# and the four that matter are always the same four.
+RALLY_QUICK_LEVELS = (30, 35, 60, 120)
+RALLY_SQUADS = (1, 2, 3, 4)
+# A «Роковая Элита» rally is an ordinary-monster rally, so it counts against the
+# "monster" daily cap in panel/rally_limits.py (DEFAULT_RALLY_LIMITS).
+RALLY_ELITE_TYPE = "monster"
+# Seconds to pause between two sends so the previous banner settles before the next
+# find; interruptible by Stop.
+RALLY_BETWEEN_S = 6.0
+
+
+def _kind_key(base: str, kind: str) -> str:
+    """The locale key of a status line for the rallied kind.
+
+    Elite and monster do not share a wording in Russian (gender and case differ, so a
+    substituted noun would read wrong), so the lines that name the target have a
+    separate key per kind: `rally_tab.searching` / `rally_tab.searching_monster`.
+    """
+    return "rally_tab." + base + ("" if kind == RALLY_KIND_ELITE else "_" + kind)
+
+
+class _Stopped(Exception):
+    """Raised inside the run loop when Stop was pressed — unwinds to the finally."""
+
+
+class RallyTab(PanelTab):
+    """Raising a rally, and the monitor that notices somebody else's."""
+
+    ID = "rally"
+    TITLE_KEY = "tab.rally"
+    ORDER = 300
+    PREFERRED_SIZE = "760x620"
+    # The monitor has to be listening before the rally goes out, not from whenever
+    # somebody happens to open the tab.
+    EAGER = True
+    LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "log.rally")
+    NEEDS = frozenset({"daemon", "children", "actions"})
+    SETTINGS_PAGE_KEY = "settings.tab.autorally"
+    # The flat keys this tab's settings used to be spelled with, so a profile that
+    # predates the per-tab block keeps every value it had (§5 rule 1).
+    LEGACY_KEYS = {"form": "rally_tab", "autorally": "autorally",
+                   "monitor": "rally_monitor", "alert": "rally_alert",
+                   "autojoin": "rally_autojoin"}
+
+    def __init__(self, rt, parent) -> None:
+        super().__init__(rt, parent)
+        import tkinter as tk
+
+        master = rt.root
+        self._run_stop = None       # threading.Event while a run is in flight, else None
+        self._done = 0              # rallies raised in the current/last run (the status)
+        self._proc = None           # the monitor child, while it is running
+        # teamUuids already alerted on this session. A rally emits create AND refresh
+        # events, and an alert per event would ring four times for one стяг.
+        self._seen: set = set()
+        self._kind_var = tk.StringVar(master=master, value=RALLY_KIND_ELITE)
+        # The box and the quick-pick buttons share this one variable: each button is a
+        # radio whose value is its level, so pressing it writes the number into the box,
+        # and a level typed by hand lights the matching button back up. `_level()` is the
+        # one place that turns whatever it holds into a level.
+        self._level_var = tk.StringVar(master=master, value=str(RALLY_LEVEL_MIN))
+        self._repeats_var = tk.StringVar(master=master, value="1")
+        self._squad_vars: dict = {s: tk.BooleanVar(master=master, value=False)
+                                  for s in RALLY_SQUADS}
+        self._status_var = tk_stringvar(master)
+        self._monitor_var = tk.BooleanVar(master=master, value=True)
+        self._alert_var = tk.BooleanVar(master=master, value=True)
+        self._autojoin_var = tk.BooleanVar(master=master, value=False)
+        self._hint = None
+        self._quick_buttons: dict = {}
+        # The «Авторалли» settings page. Built here rather than in `settings_page`
+        # because its squad list is read by the monitor's auto-join, and a standalone
+        # rally window has no Settings tab to draw it on.
+        self.autorally = AutoRallyPage(rt)
+
+    # -- UI -----------------------------------------------------------------
+    def build(self) -> None:
+        # Everything on this tab is fixed-height and stacked; on a short window the
+        # monitor block used to be the one that fell off the bottom edge.
+        scroll = ScrollableFrame(self.parent)
+        scroll.pack(fill="both", expand=True)
+        body = scroll
+
+        bar = ttk.Frame(body)
+        bar.pack(fill="x", padx=10, pady=(10, 4))
+        self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
+                "tab.rally").pack(side="left")
+
+        self._build_form(body)
+        self._build_monitor(body)
+
+        self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
+                "rally_tab.hint").pack(anchor="w", padx=10, pady=(0, 10))
+
+    def _build_form(self, parent) -> None:
+        """«Создать ралли»: what to rally, at what level, with which squads, how often."""
+        form = ttk.LabelFrame(parent, padding=8)
+        self.tr(form, "rally_tab.frame")
+        form.pack(fill="x", padx=10, pady=(0, 8))
+
+        krow = ttk.Frame(form)
+        krow.pack(fill="x")
+        self.tr(ttk.Label(krow), "rally_tab.kind").pack(side="left", padx=(0, 6))
+        for kind in RALLY_KINDS:
+            self.tr(ttk.Radiobutton(krow, value=kind, variable=self._kind_var),
+                    "rally_tab.kind_" + kind).pack(side="left", padx=(0, 10))
+
+        lrow = ttk.Frame(form)
+        lrow.pack(fill="x", pady=(6, 0))
+        self.tr(ttk.Label(lrow), "rally_tab.level").pack(side="left", padx=(0, 6))
+        # A digits-only box for any level in the range, and a button per level a rally is
+        # actually raised on — one press, no dragging. The buttons are radios over the same
+        # variable, so the pressed one is always the level the box holds (and none looks
+        # pressed while the box holds some other level, which is the truth).
+        level_entry = ttk.Entry(lrow, width=5, textvariable=self._level_var,
+                                font=ui_font(weight="bold"))
+        install_numeric_field(level_entry)
+        # Leaving the box writes back the level the run would actually use, so a typed
+        # «999» never sits there while the search goes out on 200 — the reading and the
+        # number on screen are the same thing or the tab is lying about what it will do.
+        level_entry.bind("<FocusOut>", self._normalise_level, add="+")
+        level_entry.bind("<Return>", self._normalise_level, add="+")
+        level_entry.pack(side="left")
+        ttk.Label(lrow, text="(%d–%d)" % (RALLY_LEVEL_MIN, RALLY_LEVEL_MAX),
+                  foreground="#888").pack(side="left", padx=(6, 0))
+        self.tr(ttk.Label(lrow), "rally_tab.level_quick").pack(side="left", padx=(14, 4))
+        for quick in RALLY_QUICK_LEVELS:
+            btn = ttk.Radiobutton(lrow, text=str(quick), value=str(quick), width=4,
+                                  variable=self._level_var, style="Toolbutton")
+            btn.pack(side="left", padx=2)
+            self._quick_buttons[quick] = btn
+
+        srow = ttk.Frame(form)
+        srow.pack(fill="x", pady=(6, 0))
+        self.tr(ttk.Label(srow), "rally_tab.squads").pack(side="left", padx=(0, 6))
+        for squad in RALLY_SQUADS:
+            ttk.Checkbutton(srow, text=str(squad),
+                            variable=self._squad_vars[squad]).pack(side="left", padx=4)
+
+        rrow = ttk.Frame(form)
+        rrow.pack(fill="x", pady=(6, 0))
+        self.tr(ttk.Label(rrow), "rally_tab.repeats").pack(side="left", padx=(0, 6))
+        entry = ttk.Entry(rrow, width=6, textvariable=self._repeats_var)
+        install_numeric_field(entry)
+        entry.pack(side="left")
+
+        brow = ttk.Frame(form)
+        brow.pack(fill="x", pady=(8, 0))
+        self._launch_btn = self.tr(ttk.Button(brow, command=self._launch),
+                                   "rally_tab.launch")
+        self._launch_btn.pack(side="left")
+        self._stop_btn = self.tr(ttk.Button(brow, command=self._stop_run),
+                                 "rally_tab.stop")
+        self._stop_btn.pack(side="left", padx=(6, 0))
+        self._set_running(False)
+
+        ttk.Label(form, textvariable=self._status_var, foreground="#888").pack(
+            anchor="w", pady=(8, 0))
+
+    def _build_monitor(self, parent) -> None:
+        """The push-driven rally watcher: listen, alert, join.
+
+        Beside the form that raises one, because it is the same subject seen from the
+        other end (#1183) — and the switches are this tab's own now, not the shell's.
+        """
+        rally = self.tr(ttk.LabelFrame(parent, padding=8), "rally.frame")
+        rally.pack(fill="x", padx=10, pady=(0, 6))
+        top = ttk.Frame(rally)
+        top.pack(fill="x")
+        self.tr(ttk.Checkbutton(top, variable=self._monitor_var,
+                                command=self._toggle_monitor),
+                "rally.monitor").pack(side="left")
+        # A rally is worth minutes and the alert used to be one log line that scrolled
+        # past. Now it is a line the log paints as news, a bell, and — if the operator
+        # asks for it — the join itself.
+        self.tr(ttk.Checkbutton(top, variable=self._alert_var),
+                "rally.alert").pack(side="left", padx=(12, 0))
+        self.tr(ttk.Checkbutton(top, variable=self._autojoin_var),
+                "rally.autojoin").pack(side="left", padx=(12, 0))
+        self.tr(ttk.Button(top, command=self.join_now),
+                "rally.join_now").pack(side="right")
+        # Hint shows the active profile's rally log; refreshed on language/profile change.
+        self._hint = ttk.Label(rally, foreground="#888", wraplength=620, justify="left")
+        self._hint.pack(anchor="w", pady=(4, 0))
+        self._refresh_hint()
+        self.rt.i18n.hook(self._refresh_hint, key="rally-log-path")
+
+    def settings_page(self, parent) -> None:
+        """«Настройки → Авторалли» — contributed by this tab, so it goes when rally does."""
+        self.autorally.build(parent)
+
+    def _refresh_hint(self) -> None:
+        """Say which file this profile's monitor writes to (path, in the log's language)."""
+        if self._hint is None:
+            return
+        import tkinter as tk
+
+        try:
+            # repo_rel, not os.path.relpath: a profile directory on another drive makes
+            # the bare call RAISE, and a display helper must never break the UI.
+            self._hint.configure(
+                text=self.t("rally.hint", path=repo_rel(self.rt.profiles.rally_log())))
+        except tk.TclError:
+            pass
+
+    # -- lifecycle -----------------------------------------------------------
+    def ensure_loaded(self) -> None:
+        """Start the monitor if this profile had it on. There is no lazy data read here.
+
+        Idempotent: the shell calls it once at boot (a capture must run whether or not
+        anybody opens the tab) and again the first time the tab is shown.
+        """
+        if self._monitor_var.get():
+            self._start_monitor()
+
+    def on_profile_switch(self) -> None:
+        """Bounce the capture onto the new profile, and re-read its caps.
+
+        Restarting is deliberate: a running capture keeps writing to the OLD profile's
+        log, so a switch has to redirect it.
+        """
+        self._stop_monitor()
+        self._refresh_hint()
+        self.autorally.reload_limits()
+        if self._monitor_var.get():
+            self._start_monitor()
+
+    def on_language_change(self) -> None:
+        self._refresh_hint()
+
+    def panic(self) -> None:
+        """«Стоп всё»: the capture off, and a run in flight asked to stop."""
+        self._monitor_var.set(False)
+        self._stop_monitor()
+        self._stop_run()
+
+    def shutdown(self) -> None:
+        self._stop_run()
+        self._stop_monitor()
+
+    # -- reading the controls ----------------------------------------------
+    def _kind(self) -> str:
+        """What is being rallied: `boss` (Fatal Elite) or `monster` (ordinary monster)."""
+        kind = self._kind_var.get()
+        return kind if kind in RALLY_KINDS else RALLY_KIND_ELITE
+
+    def _level(self) -> int:
+        """The level in the box as a whole number, inside the range whatever it holds.
+
+        An empty box, junk, or a profile saved when the level was a slider float ("35.0")
+        all read as a level here rather than as an error — the box is the only thing the
+        run is aimed with, so it always answers with one.
+        """
+        try:
+            level = round(float(self._level_var.get()))
+        except Exception:                          # noqa: BLE001 — TclError on junk too
+            return RALLY_LEVEL_MIN
+        return max(RALLY_LEVEL_MIN, min(RALLY_LEVEL_MAX, level))
+
+    def _normalise_level(self, _event=None) -> None:
+        """Put the level the run would use back into the box (on leaving it / on Enter)."""
+        level = str(self._level())
+        if self._level_var.get() != level:
+            self._level_var.set(level)
+
+    def _repeats(self) -> int:
+        try:
+            return max(1, int(self._repeats_var.get()))
+        except (TypeError, ValueError):
+            return 1
+
+    def _selected_squads(self) -> list:
+        return [s for s in RALLY_SQUADS if self._squad_vars[s].get()]
+
+    def join_squads(self) -> list:
+        """The squads «Авторалли» allows a join to spend (the page's own list)."""
+        return self.autorally.join_squads()
+
+    # -- remembering the choices -------------------------------------------
+    def config(self) -> dict:
+        """The tab as it is stored in the profile.
+
+        The form is read through the same readers the run is aimed with, so what is
+        saved is exactly what «Запустить» would have used.
+        """
+        return {
+            "form": {
+                "kind": self._kind(),
+                "level": self._level(),
+                "squads": self._selected_squads(),
+                "repeats": self._repeats(),
+            },
+            "autorally": self.autorally.config(),
+            "monitor": bool(self._monitor_var.get()),
+            "alert": bool(self._alert_var.get()),
+            "autojoin": bool(self._autojoin_var.get()),
+        }
+
+    def apply_config(self, raw) -> None:
+        """Restore the tab from a profile's block; anything odd falls back to the default
+        rather than being trusted (a hand-edited config cannot aim a run)."""
+        raw = raw if isinstance(raw, dict) else {}
+        form = raw.get("form")
+        form = form if isinstance(form, dict) else {}
+        kind = form.get("kind")
+        self._kind_var.set(kind if kind in RALLY_KINDS else RALLY_KIND_ELITE)
+        level = form.get("level")
+        if not isinstance(level, (int, float)) or isinstance(level, bool):
+            level = RALLY_LEVEL_MIN
+        level = max(RALLY_LEVEL_MIN, min(RALLY_LEVEL_MAX, int(level)))
+        self._level_var.set(str(level))
+        squads = form.get("squads")
+        squads = squads if isinstance(squads, list) else []
+        for squad, var in self._squad_vars.items():
+            var.set(squad in squads)
+        repeats = form.get("repeats")
+        if not isinstance(repeats, int) or isinstance(repeats, bool) or repeats < 1:
+            repeats = 1
+        self._repeats_var.set(str(repeats))
+
+        self.autorally.apply_config(raw.get("autorally"))
+        # The monitor is on unless the profile says otherwise: a capture nobody asked
+        # to switch off is what makes the alert work on the day it matters.
+        self._monitor_var.set(bool(raw.get("monitor", True)))
+        self._alert_var.set(bool(raw.get("alert", True)))
+        self._autojoin_var.set(bool(raw.get("autojoin", False)))
+
+    def persist_vars(self) -> list:
+        """Every control a change of has to be written to the profile (the container
+        traces these; the tab itself never saves, so a profile switch can set them
+        quietly)."""
+        return [self._kind_var, self._level_var, self._repeats_var,
+                self._monitor_var, self._alert_var, self._autojoin_var,
+                *self._squad_vars.values(), *self.autorally.persist_vars()]
+
+    # -- start / stop --------------------------------------------------------
+    def _launch(self) -> None:
+        if self._run_stop is not None:             # a run is already in flight
+            return
+        squads = self._selected_squads()
+        if not squads:
+            self._status("rally_tab.no_squads")
+            return
+        self._run_stop = threading.Event()
+        self._done = 0
+        self._set_running(True)
+        threading.Thread(
+            target=self._run_loop,
+            args=(self._run_stop, self._kind(), self._level(), squads, self._repeats()),
+            daemon=True).start()
+
+    def _stop_run(self) -> None:
+        if self._run_stop is not None:
+            self._run_stop.set()
+
+    def _set_running(self, running: bool) -> None:
+        """Enable Stop and disable Launch while a run is in flight (Tk thread)."""
+        try:
+            self._launch_btn.configure(state="disabled" if running else "normal")
+            self._stop_btn.configure(state="normal" if running else "disabled")
+        except Exception:                          # noqa: BLE001 — widget may be gone
+            pass
+
+    # -- the loop ------------------------------------------------------------
+    def _run_loop(self, stop, kind, level, squads, repeats) -> None:
+        """find a `kind` of `level` → raise a rally with each squad, `repeats` times over.
+
+        One send at a time under the runtime's game claim; the daily «monster» cap gates
+        it and Stop unwinds it. Runs off the Tk thread; all UI through `after`.
+        """
+        total = repeats * len(squads)
+        try:
+            limits, counts = rallylimits.read(self.rt)
+            for rep in range(1, repeats + 1):
+                for squad in squads:
+                    if stop.is_set():
+                        raise _Stopped
+                    if not counts.allowed(RALLY_ELITE_TYPE, limits):
+                        self._status("rally_tab.capped",
+                                     cap=limits.limit_for(RALLY_ELITE_TYPE))
+                        raise _Stopped
+                    self._status(_kind_key("searching", kind),
+                                 level=level, rep=rep, total=repeats)
+                    out = self._one_send(stop, kind, level, squad)
+                    if out is None:                # Stop pressed while waiting for busy
+                        raise _Stopped
+                    if out.ok:
+                        counts = rallylimits.record(self.rt, counts, RALLY_ELITE_TYPE)
+                        self._done += 1
+                        self._log(_kind_key("raised", kind), squad=squad, level=level)
+                        self._status("rally_tab.progress",
+                                     done=self._done, total=total, squad=squad)
+                    elif out.reason:
+                        # The scenario's own sentence. It names six different ways a
+                        # rally comes to nothing, and it is the authority on which one
+                        # this was — the tab repeats it rather than guessing again.
+                        self._status("rally_tab.refused", reason=out.reason)
+                    else:
+                        # No reason at all means the scenario BROKE rather than decided.
+                        self._status("rally_tab.error_short")
+                    if stop.wait(RALLY_BETWEEN_S):
+                        raise _Stopped
+            self._status("rally_tab.finished", done=self._done)
+        except _Stopped:
+            self._status("rally_tab.stopped", done=self._done)
+        except Exception as exc:                   # noqa: BLE001 — never crash the panel
+            self._log("rally_tab.error", error=exc)
+            self._status("rally_tab.error_short")
+        finally:
+            self._run_stop = None
+            self._after(lambda: self._set_running(False))
+
+    def _one_send(self, stop, kind, level, squad):
+        """One rally, played as the scenario. ``None`` if Stop won the wait for the game.
+
+        Waits (interruptibly) for the game claim rather than skipping the iteration, so
+        a timer coming due does not cost a repeat.
+        """
+        while not self.rt.game.claim("panel/rally"):
+            self._status("rally_tab.busy")
+            if stop.wait(2.0):
+                return None
+        try:
+            return self.rt.actions.play(
+                "create_rally",
+                {"squad": squad, "level": level, "target": kind},
+                on_event=lambda msg: self.rt.put(f"[rally] {msg}"), cancel=stop)
+        finally:
+            self.rt.game.release()
+
+    # -- the monitor child ---------------------------------------------------
+    def _toggle_monitor(self) -> None:
+        if self._monitor_var.get():
+            self._start_monitor()
+        else:
+            self._stop_monitor()
+
+    def _start_monitor(self) -> None:
+        if self._proc is not None:
+            return
+        out = self.rt.profiles.rally_log()         # per-profile log
+        try:
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+        except Exception:                          # noqa: BLE001 — the child says so too
+            pass
+        self.say("rally", "log.rally.started", path=repo_rel(out))
+        # no --all-tcp: auto-detect the narrow game port, as the other captures do.
+        mon = self.rt.children.spawn(
+            "rally",
+            [self.rt.children.python(), "-u", os.path.join(TOOLS, "rally_monitor.py"),
+             "--out", out],
+            on_line=self._on_line, on_exit=self._on_exit)
+        if not mon.start():
+            self._monitor_var.set(False)
+            return
+        self._proc = mon
+
+    def _on_exit(self) -> None:
+        self.say("rally", "log.rally.ended")
+        self._proc = None
+        self._monitor_var.set(False)
+
+    def _stop_monitor(self) -> None:
+        mon, self._proc = self._proc, None
+        if mon is not None:
+            self.say("rally", "log.rally.stopped")
+            mon.stop()
+
+    # -- the rally alert: a rally is worth minutes ---------------------------
+    #
+    # The monitor's line used to scroll past in a log six producers write to, and that
+    # was the whole of it: the «Авторалли» page said which squads may go and NOTHING
+    # read it. Now a rally can (a) be announced loudly, (b) be joined with one press,
+    # and (c) be joined by itself.
+    #
+    # `team=<uuid>` in the monitor's own output is what makes a march a rally — a solo
+    # march is tagged `solo` (tools/rally_monitor.py). The uuid is also the
+    # de-duplicator: a rally emits create AND refresh events.
+    def _on_line(self, line: str) -> bool:
+        # The monitor's own line first, then the alert about it — the other way round
+        # reads as an alert with no event under it.
+        if line:
+            self.rt.put(f"[rally] {line}")
+        clean = logmod.strip_ansi(line)
+        if "team=" not in clean:
+            return False                  # a solo march, or a progress line
+        team = clean.split("team=")[1].split()[0].strip()
+        if not team or team in self._seen:
+            return False
+        self._seen.add(team)
+        if self._alert_var.get():
+            self.say("rally", "rally.alert.fired", team=team)
+            self._bell()
+        if self._autojoin_var.get():
+            self._after(self.join_now)
+        return False                      # already logged above
+
+    def join_now(self) -> None:
+        """Join the rallies that are out, with the squads the settings page allows.
+
+        This is what makes the «Авторалли» page real: its squad list IS the recipe's
+        `squads` argument. With no squad ticked the join would be a silent no-op that
+        looked like it had worked, so it refuses and says which page to visit.
+        """
+        squads = self.join_squads()
+        if not squads:
+            self.say("rally", "rally.no_squads")
+            return
+        self.say("rally", "rally.joining",
+                 squads=", ".join(str(s) for s in squads))
+        threading.Thread(target=self._join_work, args=(squads,), daemon=True).start()
+
+    def _join_work(self, squads) -> None:
+        """The join itself, off the Tk thread and under the game claim."""
+        if not self.rt.game.claim("panel/rally-join"):
+            self.say("rally", "busy")
+            return
+        try:
+            self.rt.actions.run("join_rally", {"squads": squads})
+        except Exception as exc:                   # noqa: BLE001 — never crash the panel
+            self.say("rally", "rally_tab.error", error=exc)
+        finally:
+            self.rt.game.release()
+
+    # -- talking to the panel (always from a worker thread) ------------------
+    def _after(self, func) -> None:
+        """Run ``func`` on the Tk thread; a window that has gone simply drops it."""
+        import tkinter as tk
+
+        try:
+            self.rt.root.after(0, func)
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def _bell(self) -> None:
+        import tkinter as tk
+
+        try:
+            self.rt.root.bell()
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def _status(self, key: str, **fmt) -> None:
+        text = self.t(key, **fmt)
+        self._after(lambda: self._status_var.set(text))
+
+    def _log(self, key: str, **fmt) -> None:
+        self._after(lambda: self.say("rally", key, **fmt))
+
+
+def join_squads(rt) -> list:
+    """The squads an auto-join may spend, whether or not the tab is in this window.
+
+    The «rally_auto_join» trigger fires on the schedule, and the schedule runs in a
+    profile that may not show the «Ралли» tab at all — so the live page answers when it
+    is there and the saved profile block answers when it is not (§5).
+    """
+    tab = rt.tabs.get(RallyTab.ID) if rt.tabs is not None else None
+    if tab is not None:
+        return tab.join_squads()
+    block = rt.settings.tab_config(RallyTab.ID, RallyTab.LEGACY_KEYS)
+    saved = block.get("autorally")
+    raw = (saved or {}).get("squads") if isinstance(saved, dict) else None
+    return [int(s) for s in raw] if isinstance(raw, list) else []

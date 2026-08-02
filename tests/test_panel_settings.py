@@ -1,10 +1,14 @@
 r"""The Settings page — its sub-tabs, and the auto-rally one that drives a recipe.
 
-The page is a Notebook driven by `SETTINGS_TABS`: every entry has a builder now
-(«Общие» and «Игра» hold the knobs that used to be constants in the panel's own
-source, and their values are read back through `_opt_*`). What is worth pinning down
-is the auto-rally tab, because two of its rules are easy to break and quiet when
-broken:
+The page is an AGGREGATOR: the shell's own sub-tabs come from `SETTINGS_TABS` («Общие»
+and «Игра», holding the knobs that used to be constants in the panel's own source, read
+back through `_opt_*`), and then every plugin tab that declares a `SETTINGS_PAGE_KEY`
+contributes one of its own (docs/research/panel-tabs-refactor.md §6).
+
+«Авторалли» is the first of those: it belongs to the «Ралли» tab
+(panel/tabs/rally/autorally.py) and travels with it, so a profile without rally has no
+auto-rally settings either. It is still tested here, because a settings page is what it
+is — and two of its rules are easy to break and quiet when broken:
 
   * the drill squads are TRI-state (out / in / leading) and exactly one squad can
     lead — a click must never quietly take the banner off the squad that has it,
@@ -28,12 +32,23 @@ _REPO = Path(__file__).resolve().parent.parent
 for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-
-def _page():
-    """A Panel stand-in with the Settings page really built."""
-    import tkinter as tk
+try:                                        # the WSL python3 has no tkinter
     from tkinter import ttk
+except Exception:                           # noqa: BLE001
+    ttk = None
+
+
+def _page(plugin_tabs: dict | None = None):
+    """A Panel stand-in with the Settings page really built.
+
+    ``plugin_tabs`` are the tabs this window has; the aggregator asks each of them for
+    a page, so passing one is how the contributed half is tested (§6).
+    """
+    import logging
+    import tkinter as tk
+    import fake_runtime
     from panel import runtime as rtmod
     import panel.__main__ as pm
 
@@ -46,17 +61,15 @@ def _page():
             self.saves = 0
             # The Settings page's knobs live in one dict of Tk variables created
             # before any tab is built (see Panel.__init__), and «Общие» / «Игра»
-            # bind their rows to it. Without them the two tabs cannot be built,
-            # and the page under test is the page with all three tabs filled.
+            # bind their rows to it. Without them neither tab can be built, and the
+            # page under test is the page with both of them filled.
             self._settings: dict = {}
+            self._plugin_tabs: dict = dict(plugin_tabs or {})
             self._opt_vars: dict = {}
-            for key, default in pm.SETTINGS_DEFAULTS.items():
-                self._opt_vars[key] = (tk.BooleanVar(value=bool(default))
-                                       if isinstance(default, bool)
-                                       else tk.StringVar(value=str(default)))
 
         _t = pm.Panel._t
         _tr = pm.Panel._tr
+        _hook = pm.Panel._hook
         _opt = pm.Panel._opt
         _opt_int = pm.Panel._opt_int
         _opt_float = pm.Panel._opt_float
@@ -67,19 +80,22 @@ def _page():
         _build_debug_log_settings = pm.Panel._build_debug_log_settings
         _build_game_settings = pm.Panel._build_game_settings
         _refresh_sweep_settings_hint = pm.Panel._refresh_sweep_settings_hint
-        _build_autorally_settings = pm.Panel._build_autorally_settings
-        _cycle_drill_squad = pm.Panel._cycle_drill_squad
-        _paint_drill_squads = pm.Panel._paint_drill_squads
-        _cycle_create_squad = pm.Panel._cycle_create_squad
-        _paint_create_squads = pm.Panel._paint_create_squads
-        _create_elite_level = pm.Panel._create_elite_level
-        _autorally_config = pm.Panel._autorally_config
-        _apply_autorally_config = pm.Panel._apply_autorally_config
 
         def _save_settings(self):
             self.saves += 1
 
+        def _say(self, *a, **k):
+            pass
+
+        def _send_debug_archive(self):
+            """The «Отправить диагностику» button's command — never pressed here."""
+
     page = _Page()
+    page._dbg = logging.getLogger("test-settings")
+    # The knobs come from the binder, exactly as the panel's do: one variable per
+    # default, created before any tab is built.
+    binder = fake_runtime.attach_binder(page)
+    page._opt_vars = binder.create_vars(root, pm._settings_var)
     page._build_settings_tab(ttk.Frame(root))
     return root, page, pm
 
@@ -107,9 +123,10 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
                      if isinstance(w, ttk.Notebook)]
         assert notebooks, "the settings page has no notebook"
         tabs = notebooks[0].tabs()
+        # This stand-in has no plugin tabs, so the page is the shell's own two.
         assert len(tabs) == len(pm.SETTINGS_TABS), tabs
         labels = [notebooks[0].tab(t, "text") for t in tabs]
-        assert labels[0] == page._t("settings.tab.autorally"), labels
+        assert labels[0] == page._t("settings.tab.general"), labels
 
         # Every tab in the registry has a builder now, so none of them is the
         # placeholder — «Общие» and «Игра» hold the knobs that used to be constants
@@ -126,6 +143,54 @@ def test_settings_page_lists_its_tabs_and_stubs_the_empty_ones():
         root.destroy()
 
 
+def test_a_tab_contributes_its_own_settings_page():
+    """«Авторалли» is drawn by the rally tab, so it is there when rally is, and not
+    when it is not (docs/research/panel-tabs-refactor.md §6)."""
+    if ttk is None:
+        _skip()
+        return
+
+    class _Contributor:
+        ID = "rally"
+        SETTINGS_PAGE_KEY = "settings.tab.autorally"
+
+        def __init__(self):
+            self.drawn = []
+
+        def settings_page(self, parent):
+            self.drawn.append(parent)
+
+    tab = _Contributor()
+    try:
+        root, page, pm = _page({"rally": tab})
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        nb = [w for w in root.winfo_children()[0].winfo_children()
+              if isinstance(w, ttk.Notebook)][0]
+        labels = [nb.tab(t, "text") for t in nb.tabs()]
+        assert len(labels) == len(pm.SETTINGS_TABS) + 1, labels
+        assert labels[-1] == page._t("settings.tab.autorally"), labels
+        assert tab.drawn, "the tab was never asked to draw its page"
+    finally:
+        root.destroy()
+
+    # …and a window without that tab has no auto-rally page at all.
+    try:
+        root, page, pm = _page()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        nb = [w for w in root.winfo_children()[0].winfo_children()
+              if isinstance(w, ttk.Notebook)][0]
+        labels = [nb.tab(t, "text") for t in nb.tabs()]
+        assert page._t("settings.tab.autorally") not in labels, labels
+    finally:
+        root.destroy()
+
+
 def test_drill_squads_cycle_and_only_one_carries_the_banner():
     try:
         import tkinter  # noqa: F401
@@ -133,42 +198,42 @@ def test_drill_squads_cycle_and_only_one_carries_the_banner():
         _skip()
         return
     try:
-        root, page, pm = _page()
+        root, page, ar = _autorally_page()
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
     try:
-        off, on, flag = pm.DRILL_OFF, pm.DRILL_ON, pm.DRILL_FLAG
+        off, on, flag = ar.DRILL_OFF, ar.DRILL_ON, ar.DRILL_FLAG
         assert set(page._drill_state.values()) == {off}, page._drill_state
 
         # out -> in -> leading -> out
-        page._cycle_drill_squad(1)
+        page.cycle_drill_squad(1)
         assert page._drill_state[1] == on
-        page._cycle_drill_squad(1)
+        page.cycle_drill_squad(1)
         assert page._drill_state[1] == flag
         assert page._drill_buttons[1].cget("text").endswith("🚩")
-        page._cycle_drill_squad(1)
+        page.cycle_drill_squad(1)
         assert page._drill_state[1] == off
         assert page.saves == 3, "each click must persist"
 
         # With the banner taken, another squad's cycle skips it: out -> in -> out.
-        page._cycle_drill_squad(2)
-        page._cycle_drill_squad(2)                      # 2 leads
+        page.cycle_drill_squad(2)
+        page.cycle_drill_squad(2)                      # 2 leads
         assert page._drill_state[2] == flag
-        page._cycle_drill_squad(3)
+        page.cycle_drill_squad(3)
         assert page._drill_state[3] == on
-        page._cycle_drill_squad(3)
+        page.cycle_drill_squad(3)
         assert page._drill_state[3] == off, "a click stole the banner from squad 2"
         assert page._drill_state[2] == flag, "squad 2 lost the banner to a click elsewhere"
 
         # Setting it explicitly does move it — and leaves the old holder in, not out.
-        page._drill_state[3] = pm.DRILL_ON
-        page._cycle_drill_squad(2)                      # 2: flag -> out, banner free
+        page._drill_state[3] = ar.DRILL_ON
+        page.cycle_drill_squad(2)                      # 2: flag -> out, banner free
         assert page._drill_state[2] == off
-        page._cycle_drill_squad(3)                      # 3: in -> leading
+        page.cycle_drill_squad(3)                      # 3: in -> leading
         assert page._drill_state[3] == flag
-        page._cycle_drill_squad(1)
-        page._cycle_drill_squad(1)                      # 1 wants it, 3 has it
+        page.cycle_drill_squad(1)
+        page.cycle_drill_squad(1)                      # 1 wants it, 3 has it
         assert page._drill_state[1] == off and page._drill_state[3] == flag
     finally:
         root.destroy()
@@ -181,86 +246,72 @@ def test_the_page_round_trips_through_the_profile_config():
         _skip()
         return
     try:
-        root, page, pm = _page()
+        root, page, ar = _autorally_page()
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
     try:
         # A fresh page saves "nothing chosen" rather than something surprising.
-        blank = page._autorally_config()
+        blank = page.config()
         assert blank["squads"] == [] and blank["drill"]["squads"] == []
         assert blank["drill"]["flagship"] is None, blank
 
-        page._rally_squad_vars[1].set(True)
-        page._rally_squad_vars[3].set(True)
+        page._squad_vars[1].set(True)
+        page._squad_vars[3].set(True)
         page._drill_on_var.set(True)
         page._drill_banner_var.set(True)
-        page._cycle_drill_squad(2)                      # 2 joins
-        page._cycle_drill_squad(4)
-        page._cycle_drill_squad(4)                      # 4 leads
-        saved = page._autorally_config()
+        page.cycle_drill_squad(2)                      # 2 joins
+        page.cycle_drill_squad(4)
+        page.cycle_drill_squad(4)                      # 4 leads
+        saved = page.config()
         assert saved["squads"] == [1, 3], saved
         assert saved["drill"] == {"enabled": True, "create_banner": True,
                                   "squads": [2, 4], "flagship": 4}, saved
 
         # Loading it back reproduces the page exactly.
-        page._apply_autorally_config(saved)
-        assert page._autorally_config() == saved
-        assert page._drill_state[4] == pm.DRILL_FLAG
+        page.apply_config(saved)
+        assert page.config() == saved
+        assert page._drill_state[4] == ar.DRILL_FLAG
         assert page._drill_buttons[2].cget("text").endswith("✓")
 
         # A hand-edited config cannot smuggle in two banners or a leader that is
         # not even in the squad list.
-        page._apply_autorally_config({"squads": [2], "drill": {"squads": [1, 2],
+        page.apply_config({"squads": [2], "drill": {"squads": [1, 2],
                                                                "flagship": 3}})
-        assert page._autorally_config()["drill"]["flagship"] is None
-        assert list(page._drill_state.values()).count(pm.DRILL_FLAG) == 0
+        assert page.config()["drill"]["flagship"] is None
+        assert list(page._drill_state.values()).count(ar.DRILL_FLAG) == 0
 
         # Junk in the file is "nothing chosen", not a crash.
-        page._apply_autorally_config({"squads": "1,2", "drill": "yes"})
-        assert page._autorally_config()["squads"] == []
-        page._apply_autorally_config(None)
-        assert page._autorally_config()["drill"]["squads"] == []
+        page.apply_config({"squads": "1,2", "drill": "yes"})
+        assert page.config()["squads"] == []
+        page.apply_config(None)
+        assert page.config()["drill"]["squads"] == []
     finally:
         root.destroy()
 
 
-def _autorally_page():
-    """A stand-in with ONLY the Auto-rally settings built.
+def _autorally_page(build: bool = True):
+    """The «Авторалли» page on a cold runtime, and a counter of what it persists.
 
-    Built on its own rather than through `_page()`, so this stays a test of the
-    rally-creation section alone and does not ride on every other Settings tab.
+    It is the rally tab's page (panel/tabs/rally/autorally.py), so it is built the way
+    the tab builds it: state in the constructor, widgets in `build`. Nothing here
+    touches the game — the page has no reason to.
     """
     import tkinter as tk
     from tkinter import ttk
-    from panel import runtime as rtmod
-    import panel.__main__ as pm
+    import fake_runtime
+    from panel.tabs.rally import autorally as ar
 
     root = tk.Tk()          # a plain tkinter/ttk app
     root.withdraw()
-
-    class _Page:
-        def __init__(self):
-            self._i18n = rtmod.Translator("ru")
-            self.saves = 0
-
-        _t = pm.Panel._t
-        _tr = pm.Panel._tr
-        _build_autorally_settings = pm.Panel._build_autorally_settings
-        _cycle_drill_squad = pm.Panel._cycle_drill_squad
-        _paint_drill_squads = pm.Panel._paint_drill_squads
-        _cycle_create_squad = pm.Panel._cycle_create_squad
-        _paint_create_squads = pm.Panel._paint_create_squads
-        _create_elite_level = pm.Panel._create_elite_level
-        _autorally_config = pm.Panel._autorally_config
-        _apply_autorally_config = pm.Panel._apply_autorally_config
-
-        def _save_settings(self):
-            self.saves += 1
-
-    page = _Page()
-    page._build_autorally_settings(ttk.Frame(root))
-    return root, page, pm
+    rt = fake_runtime.cold_runtime(root)
+    page = ar.AutoRallyPage(rt)
+    page.saves = 0
+    # A tri-state button is not a Tk variable, so it says so instead of being traced.
+    rt.settings.on_change = lambda: setattr(page, "saves", page.saves + 1)
+    if build:
+        page.build(ttk.Frame(root))
+    return root, page, ar
 
 
 def test_create_rally_squad_is_a_single_banner_and_a_bounded_level():
@@ -270,47 +321,47 @@ def test_create_rally_squad_is_a_single_banner_and_a_bounded_level():
         _skip()
         return
     try:
-        root, page, pm = _autorally_page()
+        root, page, ar = _autorally_page()
     except Exception as exc:                            # noqa: BLE001
         _skip(exc)
         return
     try:
         # Blank at the start, level at the floor.
         assert page._create_flagship is None
-        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+        assert page.create_elite_level() == ar.RALLY_ELITE_MIN
 
         # blank -> 🚩, and each click persists.
-        page._cycle_create_squad(2)
+        page.cycle_create_squad(2)
         assert page._create_flagship == 2 and page.saves == 1
         assert page._create_buttons[2].cget("text").endswith("🚩")
 
         # Only one banner: picking another moves it, it is never in two places.
-        page._cycle_create_squad(3)
+        page.cycle_create_squad(3)
         assert page._create_flagship == 3
         assert not page._create_buttons[2].cget("text").endswith("🚩")
 
         # Clicking the holder clears it.
-        page._cycle_create_squad(3)
+        page.cycle_create_squad(3)
         assert page._create_flagship is None
 
         # The level is clamped, not obeyed blindly.
-        page._create_elite_var.set(str(pm.RALLY_ELITE_MAX + 5))
-        assert page._create_elite_level() == pm.RALLY_ELITE_MAX
+        page._create_elite_var.set(str(ar.RALLY_ELITE_MAX + 5))
+        assert page.create_elite_level() == ar.RALLY_ELITE_MAX
         page._create_elite_var.set("0")
-        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+        assert page.create_elite_level() == ar.RALLY_ELITE_MIN
         page._create_elite_var.set("not a level")
-        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+        assert page.create_elite_level() == ar.RALLY_ELITE_MIN
 
         # It round-trips through the profile block, and junk falls back to safe.
         page._create_elite_var.set("17")
-        page._cycle_create_squad(4)
-        assert page._autorally_config()["create"] == {"flagship": 4, "elite_level": 17}
-        page._apply_autorally_config({"create": {"flagship": 1, "elite_level": 22}})
-        assert page._create_flagship == 1 and page._create_elite_level() == 22
+        page.cycle_create_squad(4)
+        assert page.config()["create"] == {"flagship": 4, "elite_level": 17}
+        page.apply_config({"create": {"flagship": 1, "elite_level": 22}})
+        assert page._create_flagship == 1 and page.create_elite_level() == 22
         assert page._create_buttons[1].cget("text").endswith("🚩")
-        page._apply_autorally_config({"create": {"flagship": 99, "elite_level": "x"}})
+        page.apply_config({"create": {"flagship": 99, "elite_level": "x"}})
         assert page._create_flagship is None
-        assert page._create_elite_level() == pm.RALLY_ELITE_MIN
+        assert page.create_elite_level() == ar.RALLY_ELITE_MIN
     finally:
         root.destroy()
 

@@ -96,6 +96,15 @@ def test_every_tab_builds_cold_and_survives_the_lifecycle():
                 f"{spec.id}: build() touched the game ({rt.game.asked}) — a standalone "
                 f"tab has to open with no daemon at all")
 
+            # The page it contributes to Settings is built the same way and under the
+            # same rule: it is drawn while the panel boots, long before a daemon.
+            if cls.SETTINGS_PAGE_KEY:
+                page = ttk.Frame(root)
+                tab.settings_page(page)
+                assert rt.game.asked == [], (
+                    f"{spec.id}: settings_page() touched the game ({rt.game.asked})")
+                page.destroy()
+
             # The lifecycle, in the order the shell and the harness both use it.
             tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
             assert isinstance(tab.config(), dict), spec.id

@@ -109,11 +109,11 @@ from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
 from . import triggers as triggersmod
-from . import rally_limits as rallylimitsmod
 from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
-from . import tabs_extra as tabsextra
 from . import tabs as tabsreg
+from .tabs import rally as rallytab
+from .tabs.rally import limits as rallygate
 from . import secret_tasks as secrettasksmod
 from . import command_post as commandpostmod
 
@@ -350,12 +350,15 @@ TRACE_GRACEFUL_SEC = 1.5
 # blessed (tested) actions live here; experimental ones sit in actions/dev/, which the
 # non-recursive glob below deliberately skips, so the picker offers only what works.
 ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
-# The Settings page: one entry per sub-tab, in the order they appear. `builder` is
-# the Panel method that fills the tab; None means "not written yet" and gets the
-# placeholder. ADDING A TAB IS ADDING A LINE HERE plus its two locale strings —
-# nothing else knows the list.
+# The Settings page: one entry per sub-tab THE SHELL owns, in the order they appear.
+# `builder` is the Panel method that fills the tab; None means "not written yet" and
+# gets the placeholder.
+#
+# It is no longer the whole page. A tab contributes its own page by declaring
+# `SETTINGS_PAGE_KEY` and implementing `settings_page` (docs/research/
+# panel-tabs-refactor.md §6), and those are appended after these — «Авторалли» is the
+# rally tab's now, so switching rally off takes its settings with it.
 SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
-    ("autorally", "_build_autorally_settings"),
     ("general", "_build_general_settings"),
     ("game", "_build_game_settings"),
 )
@@ -427,16 +430,9 @@ TR_REGISTRY_SWEEP = runtime.i18n.REGISTRY_SWEEP
 # instead of finding it wedged until somebody restarts the daemon.
 LEASE_TTL_SEC = 120
 
-# The squads the panel offers for a rally. The game's own squad slots are read
-# live where they matter (the formation whose `index` is the slot, see
-# tools/lib/lua_actions.py); this is only how many the page draws.
-RALLY_SQUADS = (1, 2, 3, 4)
-# The elite-monster level a created rally may target.
-RALLY_ELITE_MIN, RALLY_ELITE_MAX = 1, 35
-
-# The three states of a drill squad, in the order a click walks them.
-DRILL_OFF, DRILL_ON, DRILL_FLAG = "", "on", "flag"
-DRILL_MARKS = {DRILL_OFF: " ", DRILL_ON: "✓", DRILL_FLAG: "🚩"}
+# The rally squads, the elite level a created rally targets and the drill's three
+# states went with the «Ралли» tab (panel/tabs/rally/) — the page that draws them is
+# the one the tab contributes to Settings.
 
 # How long the scenario editor waits after the last keystroke before writing the
 # file. Long enough that a burst of typing is one write, short enough that a run
@@ -453,18 +449,9 @@ DEV_MARK = "⚙ "
 _HIDDEN_ACTIONS = frozenset({"watchdog"})
 
 
-def _repo_rel(path: str) -> str:
-    """A path as it reads in the log: relative to the repo, forward slashes.
-
-    Falls back to the path itself for anything outside the repo (or on another
-    drive, where relpath raises) — a display helper must never be the thing that
-    breaks a dialog.
-    """
-    try:
-        rel = os.path.relpath(path, REPO)
-    except ValueError:
-        return path
-    return path if rel.startswith("..") else rel.replace(os.sep, "/")
+# A path as it reads in the log — relative to the repo, forward slashes. The runtime
+# owns it now (panel/runtime/paths.py): a tab launched on its own shows a path too.
+_repo_rel = runtime.paths.repo_rel
 
 
 def _action_titles(path: str, name: str) -> dict:
@@ -663,10 +650,6 @@ class Panel(tk.Tk):
                        self._profiles.active, APP_VERSION)
         self._coord_seq = 0
         self._mon_proc = None
-        self._rally_proc = None
-        # teamUuids already alerted on this session. A rally emits create AND
-        # refresh events, so without this one стяг would ring four times.
-        self._rally_seen: set = set()
         self._autoloot_proc = None    # one auto-loot run at a time
         self._autoloot_push_proc = None   # the event-driven share-push listener, when running
         self._autoloot_push_restart = None  # debounce handle for a range change mid-run
@@ -1370,12 +1353,9 @@ class Panel(tk.Tk):
             # to be both, which is how a robbery got spent on a level-6 star.
             "autoloot_level_from": self._lvl_from_var.get(),
             "autoloot_level_to": self._lvl_to_var.get(),
-            "rally_monitor": self._rally_var.get(),
             # `alliance_autohelp` (the old checkbox) is deliberately not written back:
             # it became the «alliance_help» trigger in the profile's timers.json, and
             # `_migrate_autohelp` flips that on once for a profile that had it set.
-            "rally_autojoin": self._rally_autojoin_var.get(),
-            "rally_alert": self._rally_alert_var.get(),
             "secret_monitor": self._mon_var.get(),
             "autoloot": self._autoloot_var.get(),
             "ghost_autoloot": self._ghost_autoloot_var.get(),
@@ -1391,11 +1371,6 @@ class Panel(tk.Tk):
             "log_filter": self._log_filter_var.get(),
             "window_geometry": self._current_geometry(),
             "log_sash": self._current_sash(),
-            # Settings page -> «Авторалли»: which squads may be sent, and the
-            # alliance-drill variant with its single banner-carrier.
-            "autorally": self._autorally_config(),
-            # The «Ралли» tab's own four choices (target kind, level, squads, repeats).
-            "rally_tab": self._rally_tab_config(),
             # The «Командный пункт» tab: the shared-mission robbery rule and the
             # treasure page's digging squad, a block per page.
             "command_post": self._command_post_config(),
@@ -1409,7 +1384,33 @@ class Panel(tk.Tk):
             var = self._opt_vars.get(key)
             if var is not None:
                 out[key] = var.get()
+        # …and the plugin tabs' own blocks, plus the flat keys they used to be spelled
+        # with, so a profile this panel touches still opens in an older one (§5 rule 2).
+        out["tabs"] = self._tabs_block()
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            block = out["tabs"]["config"].get(tab.ID) or {}
+            for new_key, old_key in type(tab).LEGACY_KEYS.items():
+                if new_key in block:
+                    out[old_key] = block[new_key]
         return out
+
+    def _tabs_block(self) -> dict:
+        """The profile's `tabs` block: which tabs, in what order, and their settings.
+
+        `enabled` / `order` are carried through untouched — nothing edits them yet, and
+        a save must not be what wipes a hand-written list. A tab that is not in this
+        window (switched off, or it failed to build) keeps the block that is on disk:
+        settings are collected on every save, including saves that happen before the
+        tabs exist, and one of those must not overwrite the choices about to be
+        restored.
+        """
+        saved = self._settings.get("tabs")
+        block = dict(saved) if isinstance(saved, dict) else {}
+        config = dict(block.get("config") or {})
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            config[tab.ID] = tab.config()
+        block["config"] = config
+        return block
 
     def _apply_settings_to_ui(self) -> None:
         """Push self._settings into the widgets without triggering auto-save."""
@@ -1432,9 +1433,6 @@ class Panel(tk.Tk):
                                          s.get("filter_level_from", "")))
             self._lvl_to_var.set(s.get("autoloot_level_to",
                                        s.get("filter_level_to", "")))
-            self._rally_var.set(bool(s.get("rally_monitor", True)))
-            self._rally_autojoin_var.set(bool(s.get("rally_autojoin", False)))
-            self._rally_alert_var.set(bool(s.get("rally_alert", True)))
             self._mon_var.set(bool(s.get("secret_monitor", False)))
             self._autoloot_var.set(bool(s.get("autoloot", False)))
             self._ghost_autoloot_var.set(bool(s.get("ghost_autoloot", False)))
@@ -1449,17 +1447,16 @@ class Panel(tk.Tk):
                 var = self._opt_vars.get(key)
                 if var is not None:
                     var.set(s.get(key, default))
-            self._apply_autorally_config(s.get("autorally"))
-            tab = getattr(self, "_rally_tab", None)
-            if tab is not None:
-                tab.apply_config(s.get("rally_tab"))
             post = getattr(self, "_command_post_tab", None)
             if post is not None:
                 post.apply_config(s.get("command_post"))
-            self._reload_rally_limits_ui()
+            # Each plugin tab restores its own block — the new `tabs.config.<id>` if the
+            # profile has one, else the flat keys it used to be spelled with.
+            for tab in getattr(self, "_plugin_tabs", {}).values():
+                tab.apply_config(
+                    self._binder.tab_config(tab.ID, type(tab).LEGACY_KEYS))
         finally:
             self._loading = False
-        self._update_path_hints()
         self._select_saved_scenario(s.get("scenario_selected"))
         self._refresh_rule_hints()
 
@@ -1469,25 +1466,24 @@ class Panel(tk.Tk):
                     self._pending_var, self._can_loot_var,
                     self._flt_from_var, self._flt_to_var,
                     self._lvl_from_var, self._lvl_to_var,
-                    self._rally_var, self._mon_var,
+                    self._mon_var,
                     self._autoloot_var, self._ghost_autoloot_var, self._chat_var,
-                    self._rally_autojoin_var, self._rally_alert_var,
                     self._sweep_var, self._sweep_cx_var, self._sweep_cy_var,
                     self._scn_args_var, self._scn_interval_var,
-                    self._log_filter_var,
-                    self._drill_on_var, self._drill_banner_var,
-                    self._create_elite_var,
-                    *self._rally_squad_vars.values()):
+                    self._log_filter_var):
             var.trace_add("write", lambda *a: self._save_settings())
-        # The two tabs that keep their own settings (panel/tabs_extra.py RallyTab,
-        # panel/command_post.py CommandPostTab). Traced from here like every other bound
-        # setting, so the tabs stay free of the profile machinery.
-        for owner in (getattr(self, "_rally_tab", None),
+        # The tabs that keep their own settings: every plugin tab, plus
+        # panel/command_post.py's CommandPostTab until it becomes one. Traced from here
+        # like every other bound setting, so a tab stays free of the profile machinery.
+        for owner in (*getattr(self, "_plugin_tabs", {}).values(),
                       getattr(self, "_command_post_tab", None)):
             if owner is None:
                 continue
             for var in owner.persist_vars():
                 var.trace_add("write", lambda *a: self._save_settings())
+        # …and what a tab changes that is NOT a variable — the «Авторалли» page's
+        # tri-state squad buttons. A button's state lives in a dict, so it says so.
+        self._binder.on_change = self._save_settings
         # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
         # boxes are about to do; keep them true as the numbers are typed.
         for var in (self._lvl_from_var, self._lvl_to_var,
@@ -1566,9 +1562,11 @@ class Panel(tk.Tk):
         Restarting is deliberate: a running capture keeps writing to the *old* profile's
         log, so on a profile switch we bounce it to redirect output to the new directory.
         """
-        self._stop_rally()
-        if self._rally_var.get():
-            self._start_rally()
+        # Every plugin tab re-points itself: the rally monitor bounces onto the new
+        # profile's log, the stats table re-reads that account's tally. One loop, so a
+        # tab added later cannot be the one somebody forgot to list here.
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            tab.on_profile_switch()
         self._stop_monitor()
         if self._mon_var.get():
             self._start_monitor()
@@ -1613,17 +1611,9 @@ class Panel(tk.Tk):
         if hasattr(self, "_stats_grid"):
             self._refresh_stats_table()
 
-    def _update_path_hints(self) -> None:
-        """Refresh labels that show the active profile's log path (rally hint)."""
-        if hasattr(self, "_rally_hint"):
-            try:
-                # _repo_rel, not os.path.relpath: a profile directory on
-                # another drive makes the bare call RAISE, and a display helper
-                # must never be the thing that breaks the UI.
-                rel = _repo_rel(self._profiles.rally_log())
-                self._rally_hint.configure(text=self._t("rally.hint", path=rel))
-            except tk.TclError:
-                pass
+    # `_update_path_hints` went with the rally monitor: the one label showing a
+    # profile's log path is that tab's own now, and it refreshes itself on a language
+    # switch and on `on_profile_switch`.
 
     # -- UI -----------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -1681,17 +1671,20 @@ class Panel(tk.Tk):
             nb.tab(rally_tab, text=self._t("tab.rally"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
-        self._build_settings_tab(settings_tab)
         self._build_chat_tab(chat_tab)
         self._main_nb = nb
         # THE PLUGIN TABS (panel/tabs/). Each is a class the registry names, built from
         # the runtime and nothing else — the same six lines `run_tab` performs when one
         # of them is launched on its own. A tab that fails to import or build is skipped
         # with a line in the log; it used to take the whole boot down with it.
+        #
+        # BEFORE the Settings page, because a tab contributes its own page to it (§6)
+        # and the aggregator can only draw the tabs that exist by then.
         self._plugin_tabs: dict = {}
         plugin_frames = {"alliance": alliance_tab, "profile": profile_tab,
                          "inventory": inventory_tab, "heroes": heroes_tab,
-                         "accounts": accounts_tab, "stats": stats_tab}
+                         "accounts": accounts_tab, "stats": stats_tab,
+                         "rally": rally_tab}
         for spec in tabsreg.resolve(on_unknown=lambda t: self._say(
                 "panel", "log.tab.unknown", tab=t)):
             frame = plugin_frames.get(spec.id)
@@ -1700,6 +1693,10 @@ class Panel(tk.Tk):
             tab = self._build_plugin_tab(spec, frame)
             if tab is not None:
                 self._plugin_tabs[spec.id] = tab
+                self._rt.tabs.add(tab)
+        # The Settings page is an aggregator now: the shell's own sub-tabs, then one per
+        # tab that brought a page along («Авторалли» comes with rally).
+        self._build_settings_tab(settings_tab)
         self._inventory_tab = self._plugin_tabs.get("inventory")
         self._stats_tab = self._plugin_tabs.get("stats")
         if self._stats_tab is not None:      # the tracker owns the live tally
@@ -1722,12 +1719,6 @@ class Panel(tk.Tk):
             tab = self._plugin_tabs.get(tab_id)
             if tab is not None:
                 self._lazy_tabs[str(frame)] = tab
-        # The «Ралли» tab drives the game (raise a rally on an elite, loop N times); it
-        # has no data to lazy-load, so it is built eagerly and not in _lazy_tabs.
-        self._rally_tab = tabsextra.RallyTab(self, rally_tab)
-        # …and the rally monitor goes into the slot that tab leaves for it, under the
-        # «создать ралли» form (#1183).
-        self._build_rally_monitor(self._rally_tab.monitor_host)
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
         top = ttk.Frame(main, padding=8)
@@ -1829,15 +1820,14 @@ class Panel(tk.Tk):
         # The capture the monitor runs writes a checkpoint each tick; the tab's list is
         # fed from that checkpoint (the wire), with a first-open VM snapshot to seed it.
 
-        # -- «Ралли» moved to the «Ралли» tab ------------------------------------
+        # -- «Ралли» is a plugin tab now (panel/tabs/rally/) ----------------------
         #
-        # The monitor's own block (the switch, «Оповещать», «Присоединяться сам», the
-        # «Присоединиться» button and the log-path hint) is built by
-        # `_build_rally_monitor` into the slot the «Ралли» tab leaves for it, beside the
-        # form that raises one. Only the widgets moved: `_rally_var` /
-        # `_rally_alert_var` / `_rally_autojoin_var` / `_rally_hint` are still this
-        # app's, so the settings save/load, the autosave traces and the monitor
-        # plumbing are unchanged.
+        # Both halves went: the form that raises a rally AND the monitor block (the
+        # switch, «Оповещать», «Присоединяться сам», the «Присоединиться» button and the
+        # log-path hint). The switches, the capture child, the alert, the daily caps and
+        # the «Авторалли» settings page are all that tab's own — this shell neither
+        # holds a `rally_*` variable nor knows how a rally is raised, and the tab opens
+        # on its own with `python -m panel.tabs.rally`.
 
         # Alliance auto-help used to live here as its own checkbox. It is a wire-
         # driven standing order — answer «Помочь всем» the instant a request lands —
@@ -1923,40 +1913,6 @@ class Panel(tk.Tk):
             self._dbg.error("tab %r failed to build", spec.id, exc_info=True)
             self._say("panel", "log.tab.failed", tab=spec.id, error=exc)
             return None
-
-    # -- the rally monitor (shown on the «Ралли» tab) ------------------------
-    def _build_rally_monitor(self, parent: ttk.Frame) -> None:
-        """The push-driven rally watcher: listen, alert, join.
-
-        Built here rather than in panel/tabs_extra.py because every variable and
-        every handler these four widgets touch (`_toggle_rally`, `_join_rally_now`,
-        the persisted `rally_*` settings) belongs to the app; the tab only says
-        where they go.
-        """
-        rally = self._tr(ttk.LabelFrame(parent, padding=8), "rally.frame")
-        rally.pack(fill="x", padx=8, pady=(0, 6))
-        rally_top = ttk.Frame(rally)
-        rally_top.pack(fill="x")
-        self._rally_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
-                                 command=self._toggle_rally),
-                 "rally.monitor").pack(side="left")
-        # A rally is worth minutes and the alert used to be one log line that
-        # scrolled past. Now it is a line the log paints as news, a bell, and — if
-        # the operator asks for it — the join itself.
-        self._rally_alert_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
-                 "rally.alert").pack(side="left", padx=(12, 0))
-        self._rally_autojoin_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
-                 "rally.autojoin").pack(side="left", padx=(12, 0))
-        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
-                 "rally.join_now").pack(side="right")
-        # Hint shows the active profile's rally log; refreshed on language/profile change.
-        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
-                                     justify="left")
-        self._rally_hint.pack(anchor="w", pady=(4, 0))
-        self._hook(self._update_path_hints)
 
     # -- the account dashboard ----------------------------------------------
     #
@@ -2460,8 +2416,13 @@ class Panel(tk.Tk):
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
         self._boot_at("splash.monitors", 0.68)
-        if self._rally_var.get():           # rally monitor is on by default
-            self._start_rally()
+        # A tab that declares itself EAGER is loaded here rather than on first show:
+        # the rally monitor is a capture whose whole point is being up before the rally
+        # goes out, and nobody has opened a tab yet. Idempotent, so the first show
+        # calling it again costs nothing.
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            if tab.EAGER:
+                tab.ensure_loaded()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
             self._start_monitor()
         if self._autoloot_var.get():        # standing auto-loot order, if the profile had it on
@@ -2695,10 +2656,13 @@ class Panel(tk.Tk):
                           (self._autoloot_var, self._stop_autoloot),
                           (self._ghost_autoloot_var, self._stop_ghost_autoloot),
                           (self._sweep_var, self._stop_sweep),
-                          (self._rally_var, self._stop_rally),
                           (self._chat_var, self._stop_chat)):
             var.set(False)
             stop()
+        # …and each plugin tab stops whatever it holds — one loop, so a tab added
+        # later cannot be the one «Стоп всё» quietly does not reach.
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            tab.panic()
         self._stop_scenario_loop()
         self._stop_scenario()
         self._triggers.stop()
@@ -2881,96 +2845,9 @@ class Panel(tk.Tk):
             self._say("secret", "log.secret.stopped")
             mon.stop()
 
-    # -- rally monitoring ---------------------------------------------------
-    def _toggle_rally(self) -> None:
-        if self._rally_var.get():
-            self._start_rally()
-        else:
-            self._stop_rally()
-
-    def _start_rally(self) -> None:
-        if self._rally_proc is not None:
-            return
-        out = self._profiles.rally_log()   # per-profile log
-        rel = _repo_rel(out)
-        try:
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-        except Exception:
-            pass
-        self._say("rally", "log.rally.started", path=rel)
-        # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
-        mon = self._child("rally",
-                          [self._python(), "-u", os.path.join(TOOLS, "rally_monitor.py"),
-                           "--out", out],
-                          on_line=self._on_rally_line, on_exit=self._on_rally_exit)
-        if not mon.start():
-            self._rally_var.set(False)
-            return
-        self._rally_proc = mon
-
-    def _on_rally_exit(self) -> None:
-        self._say("rally", "log.rally.ended")
-        self._rally_proc = None
-        self._rally_var.set(False)
-
-    def _stop_rally(self) -> None:
-        mon, self._rally_proc = self._rally_proc, None
-        if mon is not None:
-            self._say("rally", "log.rally.stopped")
-            mon.stop()
-
-    # -- the rally alert: a rally is worth minutes ---------------------------
-    #
-    # The monitor's line used to scroll past in a log six producers write to, and
-    # that was the whole of it: the Settings → «Авторалли» page said which squads
-    # may go and NOTHING read it. Now a rally can (a) be announced loudly, (b) be
-    # joined with one press, and (c) be joined by itself.
-    #
-    # `team=<uuid>` in the monitor's own output is what makes a march a rally — a
-    # solo march is tagged `solo` (tools/rally_monitor.py). The uuid is also the
-    # de-duplicator: a rally emits create AND refresh events, and an alert per event
-    # would ring four times for one стяг.
-    def _on_rally_line(self, line: str) -> bool:
-        # The monitor's own line first, then the alert about it — the other way round
-        # reads as an alert with no event under it.
-        if line:
-            self._log_put(f"[rally] {line}")
-        clean = _ANSI.sub("", line)
-        if "team=" not in clean:
-            return False                  # a solo march, or a progress line
-        team = clean.split("team=")[1].split()[0].strip()
-        if not team or team in self._rally_seen:
-            return False
-        self._rally_seen.add(team)
-        if self._rally_alert_var.get():
-            self._say("rally", "rally.alert.fired", team=team)
-            try:
-                self.bell()               # not just a line in a scrolling log
-            except tk.TclError:
-                pass
-        if self._rally_autojoin_var.get():
-            self.after(0, self._join_rally_now)
-        return False                      # already logged above
-
-    def _autorally_squads(self) -> list:
-        """The squads the «Авторалли» page allows, as `join_rally` wants them."""
-        raw = self._autorally_config().get("squads")
-        return [int(s) for s in raw] if isinstance(raw, list) else []
-
-    def _join_rally_now(self) -> None:
-        """Join the rallies that are out, with the squads the settings page allows.
-
-        This is what makes the «Авторалли» page real: its squad list IS the recipe's
-        `squads` argument. With no squad ticked the join would be a silent no-op that
-        looked like it had worked, so it refuses and says which page to visit.
-        """
-        squads = self._autorally_squads()
-        if not squads:
-            self._say("rally", "rally.no_squads")
-            return
-        self._say("rally", "rally.joining",
-                  squads=", ".join(str(s) for s in squads))
-        self._run_md_action("join_rally", {"squads": squads})
+    # -- rally monitoring, the alert and the join all moved to the «Ралли» tab
+    # (panel/tabs/rally/): the capture child, the de-duplicated alert, the
+    # «Присоединиться» press and the squads «Авторалли» allows are its own now.
 
     # -- triggers: run an errand when a wire event lands ---------------------
     #
@@ -4263,9 +4140,12 @@ class Panel(tk.Tk):
         post = getattr(self, "_command_post_tab", None)
         if post is not None:
             post.shutdown()
+        # Every plugin tab goes with the window: the rally monitor's child, a bus
+        # subscription, anything else a tab is holding.
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            tab.shutdown()
         self._stop_sweep()
         self._stop_dashboard()
-        self._stop_rally()
         self._stop_sniff()      # stops both the traffic sniffer and the tracer
         self._stop_chat()
         if self._chat_store is not None:
@@ -5509,7 +5389,7 @@ class Panel(tk.Tk):
             # = the types could not be read — let the join proceed, uncounted.
             join_types = None
             if getattr(timer, "name", "") == "rally_auto_join":
-                join_types = self._rally_join_gate()
+                join_types = rallygate.join_gate(self._rt)
                 if join_types is not None and not join_types:
                     return True                  # all types at their daily cap — no-op
             ctx = self._actions.context(
@@ -5533,7 +5413,7 @@ class Panel(tk.Tk):
             # The join ran clean — count what we let through, one per rally that was
             # out and under its cap (best-effort: join_rally joins all it can).
             if join_types:
-                self._record_rally_joins(join_types)
+                rallygate.record_joins(self._rt, join_types)
             return True
         finally:
             self._release_busy()
@@ -5551,79 +5431,16 @@ class Panel(tk.Tk):
         """
         args = dict(getattr(errand, "args", {}) or {})
         if getattr(errand, "name", "") == "rally_auto_join":
-            squads = self._autorally_squads()
+            squads = rallytab.join_squads(self._rt)
             if not squads:
                 self._say("trigger", "triggers.log.no_squads")
             args["squads"] = squads
         return args
 
-    # -- rally auto-join daily caps (panel/rally_limits.py) ------------------
-    def _rally_types_out(self) -> list:
-        """Best-effort monster-type key per rally currently out, read off the game.
-
-        The push carries no type, so the rallies are read from the VM
-        (WorldMarchDataManager) and each is classified by its target. Classification is
-        BEST-EFFORT: the reliable headless signals for zombie-invasion vs alliance-drill
-        vs a plain monster are not yet confirmed live, so every rally currently counts
-        under the fallback type ('monster'). The Lua has the one spot to refine when a
-        signal is known. Returns ``[]`` when the game / daemon cannot answer — the
-        caller then lets the join proceed uncounted rather than blocking it.
-        """
-        if not self._daemon_up():
-            return []
-        chunk = (
-            'local wm=DataCenter.WorldMarchDataManager local col=wm and wm:GetAllMarches() '
-            'if not col then CS.UnityEngine.Debug.LogError("RTYPE end") return end '
-            'local e=col:GetEnumerator() '
-            'local function g(mo,k) local ok,v=pcall(function() return mo[k] end) '
-            'if ok then return v end return nil end '
-            'while e:MoveNext() do local mo=e.Current.Value if mo==nil then mo=e.Current end '
-            'local team=g(mo,"teamUuid") local ts=tostring(team) '
-            'if team~=nil and ts~="0" and ts~="nil" then local isL=false '
-            'pcall(function() isL=(tostring(g(mo,"uuid"))==tostring(team-1)) end) '
-            # One line per rally LEADER. `kind` is where a confirmed zombie/drill signal
-            # would classify; until then every rally is the fallback monster type.
-            'if isL then local kind="%s" '
-            'CS.UnityEngine.Debug.LogError("RTYPE="..kind) end end end '
-            'CS.UnityEngine.Debug.LogError("RTYPE end")' % rallylimitsmod.UNKNOWN_TYPE
-        )
-        try:
-            ev = lua_client.get_evaluator(port=self._daemon_port())
-            lines = ev.run(chunk, marker="RTYPE", settle=0.8)
-        except Exception:                        # noqa: BLE001 — a bad read is not a cap
-            return []
-        out = []
-        for ln in lines or []:
-            if "RTYPE=" in ln:
-                key = ln.split("RTYPE=", 1)[1].split()[0].strip()
-                if key and key != "end":
-                    out.append(key)
-        return out
-
-    def _rally_join_gate(self):
-        """The rally types out that are still under their daily cap.
-
-        ``None`` when the types could not be read (the join then proceeds uncounted);
-        ``[]`` when every type out is at its cap (the caller skips the join); otherwise
-        the eligible types, which are counted after a clean join.
-        """
-        types = self._rally_types_out()
-        if not types:
-            return None
-        limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
-        counts = rallylimitsmod.load_counts(self._profiles.rally_counts_json())
-        eligible = [t for t in types if counts.allowed(t, limits)]
-        if not eligible:
-            self._say("trigger", "triggers.log.rally_capped")
-        return eligible
-
-    def _record_rally_joins(self, types) -> None:
-        """Count one join per eligible rally type, persisted for today."""
-        path = self._profiles.rally_counts_json()
-        counts = rallylimitsmod.load_counts(path)
-        for t in types:
-            counts = counts.record(t)
-        rallylimitsmod.save_counts(counts, path)
+    # The rally auto-join's daily caps went with the tab: the VM read that says
+    # which rallies are out, the gate against panel/rally_limits.py and the count
+    # after a clean join are panel/tabs/rally/limits.py. Deliberately Tk-free —
+    # the schedule has to gate a join in a profile that does not show the tab.
 
     # -- resource tracker (panel/resource_stats.py) -------------------------
     def _read_resource_balance(self) -> dict:
@@ -5802,28 +5619,39 @@ class Panel(tk.Tk):
     # -- settings page (sub-tabs; SETTINGS_TABS is the whole list) -----------
 
     def _build_settings_tab(self, parent: ttk.Frame) -> None:
-        """The Settings page: a Notebook whose tabs come from SETTINGS_TABS.
+        """The Settings page: an aggregator, not a page.
 
-        A tab with no builder yet shows the placeholder, so the page is complete
-        from the first day and filling one in is writing its builder — nothing
-        here or in the tab bar has to change.
+        The shell's own sub-tabs come from SETTINGS_TABS (a builder of None shows the
+        placeholder), and then every plugin tab that declares a `SETTINGS_PAGE_KEY`
+        contributes one of its own — so «Авторалли» is drawn by the rally tab, travels
+        with it, and is simply not there when rally is switched off
+        (docs/research/panel-tabs-refactor.md §6).
         """
         sub_nb = ttk.Notebook(parent)
         sub_nb.pack(fill="both", expand=True, padx=4, pady=4)
 
-        for key, builder in SETTINGS_TABS:
+        pages = [(f"settings.tab.{key}", getattr(self, builder) if builder else None)
+                 for key, builder in SETTINGS_TABS]
+        for tab in getattr(self, "_plugin_tabs", {}).values():
+            if tab.SETTINGS_PAGE_KEY:
+                pages.append((tab.SETTINGS_PAGE_KEY, tab.settings_page))
+
+        for title_key, fill in pages:
             frame = ttk.Frame(sub_nb, padding=8)
-            sub_nb.add(frame, text=self._t(f"settings.tab.{key}"))
+            sub_nb.add(frame, text=self._t(title_key))
             self._hook(
-                lambda nb=sub_nb, f=frame, k=key: nb.tab(f, text=self._t(f"settings.tab.{k}")),
-                key=f"settings-tab-{key}",
+                lambda nb=sub_nb, f=frame, k=title_key: nb.tab(f, text=self._t(k)),
+                key=f"settings-tab-{title_key}",
             )
-            fill = getattr(self, builder) if builder else None
             if fill is None:
                 self._tr(ttk.Label(frame, foreground="#888"),
                          "settings.placeholder").pack(anchor="w")
-            else:
+                continue
+            try:
                 fill(frame)
+            except Exception as exc:            # noqa: BLE001 — a page, not the panel
+                self._dbg.error("settings page %r failed", title_key, exc_info=True)
+                self._say("panel", "log.tab.failed", tab=title_key, error=exc)
 
     # -- settings: the knobs that used to be constants in this file -----------
     #
@@ -5935,259 +5763,12 @@ class Panel(tk.Tk):
         except tk.TclError:
             pass
 
-    # -- settings: auto-rally -----------------------------------------------
-
-    def _build_autorally_settings(self, parent: ttk.Frame) -> None:
-        """Which squads may be sent to a rally, and the alliance-drill variant.
-
-        Two independent things share the page because they are the same decision
-        asked twice. An ordinary rally only needs "which squads may go" — four
-        plain checkboxes, saved as the list `[1, 3]`. The drill also needs to know
-        WHO raises the banner, so each squad there has three states instead of two
-        (out / in / in and leading) and only one of them can be the leader.
-
-        Everything is written to the active profile the moment it changes, and the
-        `squads` list IS what the rally recipe is handed: «Присоединиться» on the main
-        tab, and the auto-join that fires on the alert, both pass it as
-        `actions/join_rally.md`'s `squads` argument (`_join_rally_now`). With no squad
-        ticked the join refuses rather than being a no-op that looks like a success.
-        """
-        rally = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.frame")
-        rally.pack(fill="x")
-        self._tr(ttk.Label(rally), "autorally.squads").pack(side="left", padx=(0, 6))
-        self._rally_squad_vars: dict[int, tk.BooleanVar] = {}
-        for squad in RALLY_SQUADS:
-            var = tk.BooleanVar(value=False)
-            self._rally_squad_vars[squad] = var
-            ttk.Checkbutton(rally, text=str(squad), variable=var).pack(side="left", padx=4)
-        self._tr(ttk.Label(parent, foreground="#888", wraplength=620, justify="left"),
-                 "autorally.hint").pack(anchor="w", pady=(4, 0))
-
-        drill = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.drill.frame")
-        drill.pack(fill="x", pady=(10, 0))
-        self._drill_on_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(drill, variable=self._drill_on_var),
-                 "autorally.drill.enabled").pack(anchor="w")
-        self._drill_banner_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(drill, variable=self._drill_banner_var),
-                 "autorally.drill.banner").pack(anchor="w", pady=(2, 6))
-
-        row = ttk.Frame(drill)
-        row.pack(fill="x")
-        self._tr(ttk.Label(row), "autorally.drill.squads").pack(side="left", padx=(0, 6))
-        # Tri-state, so a checkbox will not do: each squad is a button whose text
-        # is its state, and a click walks the states round.
-        self._drill_state: dict[int, str] = {s: DRILL_OFF for s in RALLY_SQUADS}
-        self._drill_buttons: dict[int, ttk.Button] = {}
-        for squad in RALLY_SQUADS:
-            btn = ttk.Button(row, width=5,
-                             command=lambda s=squad: self._cycle_drill_squad(s))
-            btn.pack(side="left", padx=3)
-            self._drill_buttons[squad] = btn
-        self._tr(ttk.Label(drill, foreground="#888", wraplength=620, justify="left"),
-                 "autorally.drill.hint").pack(anchor="w", pady=(6, 0))
-        self._paint_drill_squads()
-
-        # -- creating a rally ----------------------------------------------------
-        #
-        # Two decisions: which single squad raises the banner (creates the rally),
-        # and what elite level the rally is against. The creator is a banner, so at
-        # most one squad carries it — the squad buttons toggle blank <-> 🚩 and
-        # picking one clears any other, the same one-banner rule the drill enforces.
-        create = self._tr(ttk.LabelFrame(parent, padding=8), "autorally.create.frame")
-        create.pack(fill="x", pady=(10, 0))
-        crow = ttk.Frame(create)
-        crow.pack(fill="x")
-        self._tr(ttk.Label(crow), "autorally.create.squads").pack(side="left", padx=(0, 6))
-        self._create_flagship: int | None = None
-        self._create_buttons: dict[int, ttk.Button] = {}
-        for squad in RALLY_SQUADS:
-            btn = ttk.Button(crow, width=5,
-                            command=lambda s=squad: self._cycle_create_squad(s))
-            btn.pack(side="left", padx=3)
-            self._create_buttons[squad] = btn
-
-        erow = ttk.Frame(create)
-        erow.pack(fill="x", pady=(6, 0))
-        self._tr(ttk.Label(erow), "autorally.create.elite").pack(side="left", padx=(0, 6))
-        self._create_elite_var = tk.StringVar(value=str(RALLY_ELITE_MIN))
-        numeric_spinbox(erow, from_=RALLY_ELITE_MIN, to=RALLY_ELITE_MAX, width=5,
-                    textvariable=self._create_elite_var).pack(side="left")
-        self._tr(ttk.Label(create, foreground="#888", wraplength=620, justify="left"),
-                 "autorally.create.hint").pack(anchor="w", pady=(6, 0))
-        self._paint_create_squads()
-
-        # -- daily caps per monster type (panel/rally_limits.py) -----------------
-        #
-        # A cap on how many rallies of each type the auto-join spends in a day: a
-        # squad sent is a squad that cannot go elsewhere for the march. One editable
-        # number per monster type, 0 = no cap. The list of types is the caps file's
-        # own keys (seeded from the built-ins), so adding a type is a data change, not
-        # a code one. The count itself resets daily (panel/rally_limits.py).
-        limits_frame = self._tr(ttk.LabelFrame(parent, padding=8), "rally_limit.frame")
-        limits_frame.pack(fill="x", pady=(10, 0))
-        self._rally_limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
-        self._rally_limit_vars: dict = {}
-        lgrid = ttk.Frame(limits_frame)
-        lgrid.pack(fill="x")
-        for r, key in enumerate(self._rally_limits.types()):
-            self._tr(ttk.Label(lgrid), f"rally_limit.type.{key}").grid(
-                row=r, column=0, sticky="w", padx=(0, 10), pady=2)
-            var = tk.StringVar(value=str(self._rally_limits.limit_for(key)))
-            self._rally_limit_vars[key] = var
-            numeric_spinbox(lgrid, from_=0, to=999, width=6,
-                            textvariable=var).grid(row=r, column=1, sticky="w")
-            var.trace_add("write", lambda *a: self._save_rally_limits())
-        self._tr(ttk.Label(limits_frame, foreground="#888", wraplength=620,
-                          justify="left"), "rally_limit.hint").pack(anchor="w", pady=(6, 0))
-
-    def _save_rally_limits(self) -> None:
-        """Persist the edited per-type caps to the profile's rally_limits.json."""
-        if getattr(self, "_loading", False) or not getattr(self, "_rally_limit_vars", None):
-            return
-        limits = self._rally_limits
-        for key, var in self._rally_limit_vars.items():
-            limits = limits.with_limit(key, var.get())
-        self._rally_limits = limits
-        rallylimitsmod.save_limits(limits, self._profiles.rally_limits_json())
-
-    def _reload_rally_limits_ui(self) -> None:
-        """Re-read the active profile's caps into the fields (on a profile switch).
-
-        The caps live in their own per-profile file, not in the settings blob, so a
-        switch has to re-read them; done inside the `_loading` guard so setting the
-        fields does not write them straight back.
-        """
-        if not getattr(self, "_rally_limit_vars", None):
-            return
-        self._rally_limits = rallylimitsmod.load_limits(self._profiles.rally_limits_json())
-        for key, var in self._rally_limit_vars.items():
-            var.set(str(self._rally_limits.limit_for(key)))
-
-    def _cycle_create_squad(self, squad: int) -> None:
-        """Toggle the banner between blank and this squad — only one may carry it."""
-        self._create_flagship = None if self._create_flagship == squad else squad
-        self._paint_create_squads()
-        self._save_settings()
-
-    def _paint_create_squads(self) -> None:
-        """Redraw the creator buttons: the flagship shows 🚩, the rest blank."""
-        for squad, btn in getattr(self, "_create_buttons", {}).items():
-            mark = "🚩" if self._create_flagship == squad else " "
-            try:
-                btn.configure(text=f"{squad} {mark}")
-            except tk.TclError:
-                pass
-
-    def _create_elite_level(self) -> int:
-        """The chosen elite level, clamped to the allowed range (bad input -> min)."""
-        try:
-            level = int(self._create_elite_var.get())
-        except (TypeError, ValueError):
-            return RALLY_ELITE_MIN
-        return max(RALLY_ELITE_MIN, min(RALLY_ELITE_MAX, level))
-
-    def _cycle_drill_squad(self, squad: int) -> None:
-        """Walk one squad's state: out -> in -> leading -> out.
-
-        `leading` is skipped when another squad already holds the banner, so a
-        click can never quietly take it away from the squad the operator chose;
-        clearing that one first is how it moves.
-        """
-        state = self._drill_state.get(squad, DRILL_OFF)
-        if state == DRILL_OFF:
-            self._drill_state[squad] = DRILL_ON
-        elif state == DRILL_ON:
-            taken = any(s != squad and st == DRILL_FLAG
-                        for s, st in self._drill_state.items())
-            self._drill_state[squad] = DRILL_OFF if taken else DRILL_FLAG
-        else:
-            self._drill_state[squad] = DRILL_OFF
-        if self._drill_state[squad] == DRILL_FLAG:
-            # One banner: whatever else claimed it stays in, just not leading.
-            for other in self._drill_state:
-                if other != squad and self._drill_state[other] == DRILL_FLAG:
-                    self._drill_state[other] = DRILL_ON
-        self._paint_drill_squads()
-        self._save_settings()
-
-    def _paint_drill_squads(self) -> None:
-        """Redraw the four buttons from `_drill_state`."""
-        for squad, btn in getattr(self, "_drill_buttons", {}).items():
-            mark = DRILL_MARKS[self._drill_state.get(squad, DRILL_OFF)]
-            try:
-                btn.configure(text=f"{squad} {mark}")
-            except tk.TclError:
-                pass
-
-    def _autorally_config(self) -> dict:
-        """The page as it is stored: squad lists, not a widget per squad.
-
-        `[1, 3]` says what it means to a reader of the config file, and survives
-        the page offering a different number of squads later. The drill's leader
-        is a separate field rather than a fourth list, because there is only ever
-        one of it — and it is always also in `squads`.
-        """
-        drill_squads = [s for s in RALLY_SQUADS
-                        if self._drill_state.get(s, DRILL_OFF) != DRILL_OFF]
-        flagship = next((s for s in RALLY_SQUADS
-                         if self._drill_state.get(s) == DRILL_FLAG), None)
-        return {
-            "squads": [s for s in RALLY_SQUADS if self._rally_squad_vars[s].get()],
-            "drill": {
-                "enabled": bool(self._drill_on_var.get()),
-                "create_banner": bool(self._drill_banner_var.get()),
-                "squads": drill_squads,
-                "flagship": flagship,
-            },
-            "create": {
-                "flagship": self._create_flagship,
-                "elite_level": self._create_elite_level(),
-            },
-        }
-
-    def _apply_autorally_config(self, raw) -> None:
-        """Restore the page from a profile's saved block (anything odd -> off)."""
-        raw = raw if isinstance(raw, dict) else {}
-        squads = raw.get("squads")
-        squads = squads if isinstance(squads, list) else []
-        for squad, var in self._rally_squad_vars.items():
-            var.set(squad in squads)
-
-        drill = raw.get("drill")
-        drill = drill if isinstance(drill, dict) else {}
-        self._drill_on_var.set(bool(drill.get("enabled", False)))
-        self._drill_banner_var.set(bool(drill.get("create_banner", False)))
-        chosen = drill.get("squads")
-        chosen = chosen if isinstance(chosen, list) else []
-        flagship = drill.get("flagship")
-        self._drill_state = {
-            s: (DRILL_ON if s in chosen else DRILL_OFF) for s in RALLY_SQUADS
-        }
-        # The leader is only honoured if it is in the list at all, and only once —
-        # a hand-edited config cannot end up with two banners.
-        if flagship in self._drill_state and flagship in chosen:
-            self._drill_state[flagship] = DRILL_FLAG
-        self._paint_drill_squads()
-
-        create = raw.get("create")
-        create = create if isinstance(create, dict) else {}
-        creator = create.get("flagship")
-        self._create_flagship = creator if creator in RALLY_SQUADS else None
-        level = create.get("elite_level")
-        if not isinstance(level, int) or not RALLY_ELITE_MIN <= level <= RALLY_ELITE_MAX:
-            level = RALLY_ELITE_MIN
-        self._create_elite_var.set(str(level))
-        self._paint_create_squads()
-
-    def _rally_tab_config(self) -> dict:
-        """The «Ралли» tab's block for the profile (panel/tabs_extra.py RallyTab).
-
-        A snapshot taken before the tab exists must not erase the saved block — the
-        settings are collected on every save, and one taken during startup would
-        otherwise write a default over the choices about to be restored.
-        """
-        return self._tab_config("_rally_tab", "rally_tab")
+    # -- «Авторалли» is the rally tab's own settings page now ----------------
+    #
+    # The join list, the alliance drill with its single banner-carrier, the
+    # create-a-rally squad and level, and the daily caps per monster type all went
+    # to panel/tabs/rally/autorally.py — contributed to this page by the tab that
+    # uses them (§6), so switching rally off takes its settings with it.
 
     def _command_post_config(self) -> dict:
         """The «Командный пункт» tab's block (panel/command_post.py CommandPostTab)."""

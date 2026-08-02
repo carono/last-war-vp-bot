@@ -92,7 +92,11 @@ def test_errand_args_injects_live_join_squads():
         print("  SKIP panel deps (tkinter) not importable")
         return
     import types
-    stub = types.SimpleNamespace(_autorally_squads=lambda: [2, 3],
+    # The squads come from the «Ралли» tab when this window has one, and from the
+    # profile's saved block when it does not (panel/tabs/rally/ join_squads).
+    tabs = types.SimpleNamespace(get=lambda _id: types.SimpleNamespace(
+        join_squads=lambda: [2, 3]))
+    stub = types.SimpleNamespace(_rt=types.SimpleNamespace(tabs=tabs),
                                  _say=lambda *a, **k: None)
     # a plain errand passes its own args through unchanged…
     plain = triggersmod.Trigger(name="x", scenario=("y",), args={"a": 1})
