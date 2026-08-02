@@ -537,7 +537,7 @@ exist and the panel bypasses them:
 
 | Tab | What it does today | What it should do | Scenario |
 |---|---|---|---|
-| Rally | `RallyTab._one_send` calls `rally_create.create_on_level(ev, …)` directly | **not a one-line swap** — see the note below | `create_rally.md` exists |
+| Rally | ~~`RallyTab._one_send` calls `rally_create.create_on_level(ev, …)` directly~~ | **done, wave 2** — `rt.actions.play("create_rally", …)`, and the tab quotes the `Outcome`'s reason | `create_rally.md` exists |
 | Secret tasks | `_autoloot_run` spawns `tools/steal_secret_task.py` as a child | `rt.actions.run("steal_secret_task", …)` | `steal_secret_task.md` **exists** |
 | Command post | `_ghost_run` spawns `tools/ghost_recon_steal.py` as a child | `rt.actions.run("steal_ghost_recon", …)` | `steal_ghost_recon.md` **exists** |
 | Secret tasks | the auto-loot gate (range, budget, "is it raidable") is ≈290 lines of Python in `_autoloot_*` | the gate belongs in the scenario; the tab keeps the switch and the range | needs `ARGS` on the existing file |
@@ -557,6 +557,14 @@ exist and the panel bypasses them:
 > carrying the scenario's own words, so the tab quotes the authority instead of
 > re-diagnosing the game. A parse or runtime error leaves the reason empty, which is
 > how a caller tells "the scenario decided" from "the scenario broke".
+>
+> **What the swap cost in the feature list.** «Запустить» was ✅ in `docs/farming.md`,
+> proven live on a level-35 elite through `tools/rally_create.py`. The presses behind
+> the recipe are the same ones, but the ORDER around them is the recipe's now rather
+> than the tool's, and that order has never put a banner up. So the item went back to
+> 🟡 with the reason spelled out, and it returns to ✅ on the first live rally. A swap
+> that changes which code drives the game is not a pure move, whatever the diff looks
+> like.
 
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
 game logic may be added under `panel/`. Where a wave lifts a block that merely *spawns
@@ -694,13 +702,33 @@ Alliance, Profile, Inventory, Heroes, Accounts (dashboard strip included) and St
 `python -m panel.tabs --list` prints six ids; the shell is visually identical; an old
 `config.json` opens with every value intact.
 
-**Wave 2 — Rally.** `panel/tabs/rally/`: the create form, the monitor
-(`_build_rally_monitor`, `_start/_stop_rally`, `_on_rally_line`, the alert,
-`_join_rally_now`), the daily caps (`rally_limits.py` + `_rally_join_gate`,
-`_record_rally_joins`), the «Авторалли» settings page — the first user of
-`settings_page` — and the one-line swap to `rt.actions.run("create_rally", …)` (§8).
-*Accept:* standalone rally raises a rally and joins one; the caps still gate; the
-settings page appears in the shell and disappears when rally is off.
+**Wave 2 — Rally. DONE.** `panel/tabs/rally/`: `tab.py` (the create form, the run loop,
+the monitor with its alert and its join), `autorally.py` (the settings page — the first
+user of `settings_page`), `limits.py` (the daily caps, **Tk-free**, because the schedule
+gates the auto-join in profiles that do not show the tab), `__main__.py`. The swap to
+`rt.actions.play("create_rally", …)` landed with it (§8).
+
+Four things the plan did not say, found by doing it:
+
+* **The package's `__init__` imports the tab lazily** (PEP 562 `__getattr__`).
+  `from panel.tabs.rally import limits` must not drag tkinter in behind it, or the
+  budget could only be spent by a window.
+* **`tabs.config` needed a writer, not just a reader.** `_collect_settings` returns a
+  fresh dict that REPLACES the profile, so the block had to be assembled there — a tab
+  that is not in this window keeps the block on disk, and the flat legacy keys are
+  written beside it (§5 rule 2). `SettingsBinder.set_tab_config(…, legacy=…)` does both
+  halves for the standalone harness too.
+* **`rt.settings.changed()`**, because a tri-state button's state is not a Tk variable
+  and cannot be traced. The shell points it at `_save_settings`; `run_tab` points it at
+  "write this one tab's block".
+* **`PanelTab.EAGER`.** `ensure_loaded` is "the lazy read on first show", but the rally
+  monitor has to be listening from boot. A flag on the contract beats an `if tab.ID ==
+  "rally"` in the shell — and wave 3's capture is the same story.
+
+*Accept:* the shell opens with rally as a plugin tab; `python -m panel.tabs.rally
+--profile <name>` opens it alone; the caps still gate; the «Авторалли» page appears in
+the shell and is absent when rally is not built. **Still owed: one live rally**, which
+is why the farming item is 🟡 (§8).
 
 **Wave 3 — Secret tasks + Command post.** The §9.1/§9.3 machinery, moved whole: capture
 child, auto-loot watcher, map sweep, ghost order, and the Tk vars that gate them.
