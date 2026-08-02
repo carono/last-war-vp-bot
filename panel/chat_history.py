@@ -100,13 +100,21 @@ class ChatHistoryStore:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_identity "
             "ON messages(room, uid, ts, text)")
         self._conn.commit()
+        # Running total, so the panel can show "N messages" on every one-second
+        # refresh without a COUNT(*) over the whole table each time. Filled on the
+        # first read and kept up to date by the inserts below.
+        self._total: int | None = None
 
     # -- writing ------------------------------------------------------------
-    def _insert(self, record: dict) -> None:
-        """Queue one record for insert (idempotent); the caller commits."""
+    def _insert(self, record: dict) -> int:
+        """Queue one record for insert (idempotent); the caller commits.
+
+        Returns how many rows it actually added — 0 when the identity index has
+        already seen this message — which is what keeps :meth:`total` honest.
+        """
         room = str(record.get("room_id") or "")
         chat_type = record.get("chat_type") or classify_room(room)
-        self._conn.execute(
+        cur = self._conn.execute(
             "INSERT OR IGNORE INTO messages(ts, uid, name, text, room, chat_type, raw_json) "
             "VALUES(?, ?, ?, ?, ?, ?, ?)",
             (float(record.get("ts") or 0.0),
@@ -116,6 +124,10 @@ class ChatHistoryStore:
              room, chat_type,
              json.dumps(record, ensure_ascii=False)),
         )
+        added = int(cur.rowcount or 0)
+        if added and self._total is not None:
+            self._total += added
+        return added
 
     def append(self, record: dict) -> None:
         """Insert one captured record (idempotent on its natural identity)."""
@@ -263,6 +275,17 @@ class ChatHistoryStore:
                 "SELECT COUNT(*) FROM messages WHERE chat_type=?", (chat_type,)
             ).fetchone()
         return int(row[0]) if row else 0
+
+    def total(self) -> int:
+        """How many messages the store holds — counted once, then kept in step.
+
+        The panel asks for this once a second to label the chat tab. As a plain
+        :meth:`count` that was a full scan of a table that only ever grows, on the
+        Tk thread, so the label got more expensive the longer the history got.
+        """
+        if self._total is None:
+            self._total = self.count()
+        return self._total
 
     def close(self) -> None:
         try:

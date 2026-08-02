@@ -54,8 +54,11 @@ class ScrollableFrame(ttk.Frame):
         self._win = self._canvas.create_window((0, 0), window=self, anchor="nw")
         self.bind("<Configure>", self._on_interior)
         self._canvas.bind("<Configure>", self._on_canvas)
-        self._canvas.bind("<Enter>", self._bind_wheel)
-        self._canvas.bind("<Leave>", self._unbind_wheel)
+        # The wheel: see `_install_wheel_router`. Entering the area makes this frame
+        # the one the router scrolls; leaving it hands the wheel back.
+        self._canvas.bind("<Enter>", self._enter)
+        self._canvas.bind("<Leave>", self._leave)
+        _install_wheel_router(self._canvas)
 
     # -- geometry: the caller manages the *group*, i.e. the outer frame ---------
     def pack(self, **kw):
@@ -82,15 +85,14 @@ class ScrollableFrame(ttk.Frame):
     def _on_canvas(self, event):
         self._canvas.itemconfigure(self._win, width=event.width)
 
-    def _bind_wheel(self, _event=None):
-        self._canvas.bind_all("<MouseWheel>", self._on_wheel)
-        self._canvas.bind_all("<Button-4>", self._on_wheel)
-        self._canvas.bind_all("<Button-5>", self._on_wheel)
+    def _enter(self, _event=None):
+        global _wheel_target
+        _wheel_target = self
 
-    def _unbind_wheel(self, _event=None):
-        self._canvas.unbind_all("<MouseWheel>")
-        self._canvas.unbind_all("<Button-4>")
-        self._canvas.unbind_all("<Button-5>")
+    def _leave(self, _event=None):
+        global _wheel_target
+        if _wheel_target is self:
+            _wheel_target = None
 
     def _on_wheel(self, event):
         if getattr(event, "num", None) == 4:
@@ -100,6 +102,57 @@ class ScrollableFrame(ttk.Frame):
         else:
             delta = -1 if event.delta > 0 else 1
         self._canvas.yview_scroll(delta, "units")
+
+
+# -- the wheel, routed instead of re-bound ------------------------------------
+#
+# A scroll has to reach the area under the pointer wherever inside it the pointer
+# sits — over a child row, a label, a button — so the binding has to be an
+# application-wide one. It used to be *taken and given back*: `bind_all` on every
+# <Enter>, `unbind_all` on every <Leave>. Each `bind_all` registers a fresh Tcl
+# command, and `unbind_all` clears the binding script without freeing the command
+# behind it, so every pass of the mouse across a scrollable page — the Command
+# Post, the Inventory, the Profile — left three orphaned callbacks behind, for as
+# long as the panel stayed open.
+#
+# Now the binding is installed once per interpreter and never taken down; what
+# <Enter>/<Leave> change is only which frame it forwards to.
+_wheel_target: "ScrollableFrame | None" = None
+# Whether an interpreter already carries the binding is remembered IN that
+# interpreter (a Tcl variable), not in a Python set: a set keyed by object id would
+# go stale the moment an interpreter is torn down and a new one reuses the address,
+# which is exactly what a test that builds a root per case does.
+_ROUTER_FLAG = "::lw_wheel_router"
+
+
+def _route_wheel(event) -> None:
+    global _wheel_target
+    frame = _wheel_target
+    if frame is None:
+        return
+    try:
+        if not frame._canvas.winfo_exists():
+            _wheel_target = None        # its page went away without a <Leave>
+            return
+        frame._on_wheel(event)
+    except tk.TclError:
+        _wheel_target = None
+
+
+def _install_wheel_router(widget) -> None:
+    """Bind the wheel on this widget's interpreter, once."""
+    try:
+        if str(widget.tk.call("info", "exists", _ROUTER_FLAG)) == "1":
+            return
+        widget.tk.call("set", _ROUTER_FLAG, 1)
+    except tk.TclError:               # no interpreter to ask: bind and hope
+        pass
+    # Registered on the ROOT window, whose Tcl commands outlive every page: a
+    # binding whose callback was registered on a widget that is later destroyed
+    # would fire into a deleted command.
+    root = widget._root()
+    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        root.bind_all(seq, _route_wheel, add="+")
 
 
 # ---------------------------------------------------------------------------

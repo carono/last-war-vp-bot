@@ -88,6 +88,7 @@ import tempfile
 import threading
 import time
 import traceback
+import weakref
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -211,6 +212,22 @@ LOG_SEVERITY_WORDS: tuple[tuple[str, tuple], ...] = (
                 "включён", "присоединяюсь",
                 "ok", "ready", "READY", "done", "saved", "running", "on")),
 )
+
+# -- the boot ---------------------------------------------------------------
+# How long the splash may hold the window back while the systems come up. Longer
+# than a healthy boot needs and longer than `_ensure_daemon`'s own wait, so the
+# ceiling is only ever reached when something is genuinely stuck; past it the panel
+# opens and says so, because a half-started system is still a usable panel and a
+# window that never appears is not.
+BOOT_MAX_WAIT_SEC = 75.0
+
+# -- the health snapshot ----------------------------------------------------
+# The panel is meant to stay open for days, so the things that could grow without
+# bound are counted into the debug log on this period: pending `after` callbacks,
+# live threads, the retranslation registry, the tag tables of the text widgets. A
+# slow-down reported a week from now is then a question the log can answer instead
+# of one that has to be reproduced.
+HEALTH_SNAPSHOT_MS = 300_000
 
 # -- liveness ---------------------------------------------------------------
 # How often the status row re-reads the game and the daemon. A process-list scan
@@ -415,6 +432,18 @@ CHAT_TABS: tuple[str, ...] = ("world", "alliance", "national", "dm", "other", "s
 # is dropped from the front but stays in the store, reachable again by scrolling up.
 CHAT_PAGE = 100
 CHAT_MSGS_MAX = 2000
+# Inline pictures — one Tk image per distinct (file, size): every sender's avatar
+# and every photo posted. Kept as an LRU of this many, because they are live Tk
+# objects and world chat walks past a new sender every few seconds; what falls out
+# is history far above the viewport, which redraws its picture if it is scrolled
+# back to.
+CHAT_IMG_CACHE_MAX = 1500
+
+# How many entries the retranslation registry may hold before it is swept for
+# widgets that have been destroyed (see `Panel._tr`). Comfortably above the number
+# of translated widgets a fully built panel has, so a panel nobody repaints never
+# pays for the sweep at all.
+TR_REGISTRY_SWEEP = 1000
 
 # The squads the panel offers for a rally. The game's own squad slots are read
 # live where they matter (the formation whose `index` is the slot, see
@@ -593,7 +622,10 @@ class Panel(tk.Tk):
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
         self._i18n = i18nmod.I18n()
-        self._tr_widgets: list = []   # (widget, option, key, fmt) — retranslated in place
+        # (weakref-to-widget, option, key, fmt) — retranslated in place. Weak, and
+        # swept, because most of these are rows a page redraws (see `_tr`).
+        self._tr_widgets: list = []
+        self._tr_watermark = TR_REGISTRY_SWEEP
         self._tr_hooks: list = []     # callables run on every language change
         # The capture-monitor kinds, exposed on the instance so the «Secret Tasks» tab
         # (panel/secret_tasks.py) can build its combo without importing this module —
@@ -672,6 +704,7 @@ class Panel(tk.Tk):
         self._game_gone = 0
         self._game_was_up = False
         self._watchdog_last = 0.0
+        self._status_busy = False     # one status reading in flight at a time
         # Account dashboard: the last readings and the poller's stop flag.
         self._dash_values: dict = {}
         self._dash_stop = None
@@ -728,12 +761,15 @@ class Panel(tk.Tk):
         self._chat_entry = None        # the message-send Entry (for emoji insertion)
         self._emoji_win = None         # the open emoji/sticker picker, if any
         # Cache of inline sprite images keyed by (path, height) -- also keeps the
-        # PhotoImage refs alive (tk.Text does not hold a Python reference).
+        # PhotoImage refs alive (tk.Text does not hold a Python reference). Bounded
+        # at CHAT_IMG_CACHE_MAX: a night of chat walks past thousands of distinct
+        # avatars and photos, and every one of them is a live Tk image until it is
+        # dropped (see `_chat_image`).
         self._chat_img_cache: dict = {}
-        # Cache of inline sprite images keyed by (path, height) -- also keeps the
-        # PhotoImage refs alive (tk.Text does not hold a Python reference).
-        self._chat_img_cache: dict = {}
-        self._photo_seq = 0            # unique-tag counter for clickable photos
+        self._photo_seq = 0            # how many photos have been drawn (diagnostics)
+        # Tk image name -> (uid, pic_ver, path) for the click that opens a chat photo
+        # full-size. Keyed by the image, so it is bounded by the cache above.
+        self._photo_meta: dict = {}
         # Scheduled actions (panel/timers.py). The store is per profile, so it is
         # re-pointed on a switch; the scheduler itself is created here and only
         # started once the UI exists (_startup), because a fired timer logs.
@@ -798,7 +834,7 @@ class Panel(tk.Tk):
         self._profile_var = tk.StringVar(value=self._profiles.active)
         self._profile_combo = None
         self._profile_win = None
-        self._splash_step("splash.ui", 0.6)
+        self._splash_step("splash.ui", 0.45)
         self._build_menu()
         self._build_ui()
         self._apply_settings_to_ui()  # restore this profile's saved values
@@ -809,11 +845,21 @@ class Panel(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._pump_log()
         self._open_panel_log()
-        self._splash_step("splash.daemon", 0.85)
+        self._splash_step("splash.daemon", 0.6)
         self._refresh_status()
         self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
-        self._splash_step("splash.systems", 1.0)
-        threading.Thread(target=self._startup, daemon=True).start()
+        # Bringing the systems up is the slow half of the boot — the monitors, the
+        # schedule, the trigger listeners, the chat history, the daemon, the account
+        # strip. It runs on its own thread (it waits on processes and on the game),
+        # but the splash STAYS UP until it is done: everything it registers —
+        # `after` chains, Tk callbacks, the first painting of the chat views — used
+        # to land in the window's lap after the splash had already gone, which is
+        # why a freshly opened panel sat there unresponsive and half-drawn.
+        self._boot_step: "queue.Queue[tuple]" = queue.Queue()
+        self._boot_done = threading.Event()
+        threading.Thread(target=self._startup_boot, daemon=True).start()
+        self._await_boot()
+        self._start_health_watch()
         # Fade the splash and reveal the fully-built window.
         if self._splash is not None:
             try:
@@ -823,11 +869,72 @@ class Panel(tk.Tk):
             self._splash = None
         self._reveal_window()
 
+    def _startup_boot(self) -> None:
+        """`_startup` with the splash told where it has got to, and an end signal."""
+        try:
+            self._startup()
+        except Exception:            # noqa: BLE001 — a failed system is a log line,
+            self._dbg.error("startup failed", exc_info=True)   # not a dead panel
+        finally:
+            self._boot_done.set()
+
+    def _boot_at(self, key: str, progress: float) -> None:
+        """Report a boot phase from the startup thread (drained by `_await_boot`)."""
+        try:
+            self._boot_step.put_nowait((key, progress))
+        except Exception:            # noqa: BLE001 — progress is never load-bearing
+            pass
+
+    def _await_boot(self) -> None:
+        """Hold the splash — pumping Tk — until the systems are up.
+
+        There is no mainloop yet, so this loop IS the event loop for the length of
+        the boot: `update()` runs the `after(0, …)` calls the startup thread posts
+        (which is where the chat history is drawn and the daemon indicator is set),
+        while the bar follows the phases it reports.
+
+        BOOT_MAX_WAIT_SEC is the ceiling. A daemon that never comes up already costs
+        half a minute of waiting inside `_ensure_daemon`, and no start-up step is
+        worth holding the whole window hostage — past the ceiling the panel opens
+        anyway and whatever is still coming up says so in the log.
+        """
+        deadline = time.time() + BOOT_MAX_WAIT_SEC
+        while not self._boot_done.is_set():
+            drained = False
+            try:
+                while True:
+                    key, progress = self._boot_step.get_nowait()
+                    self._splash_step(key, progress)      # this pumps Tk itself
+                    drained = True
+            except queue.Empty:
+                pass
+            if time.time() > deadline:
+                self._say("panel", "log.boot.slow")
+                self._dbg.warning("boot still unfinished after %ss — opening anyway",
+                                  BOOT_MAX_WAIT_SEC)
+                return
+            if not drained:
+                try:
+                    self.update()
+                except tk.TclError:      # the window went away under us
+                    return
+                time.sleep(0.02)
+        # Drain whatever the last phase reported before the splash is torn down.
+        try:
+            while True:
+                key, progress = self._boot_step.get_nowait()
+                self._splash_step(key, progress)
+        except queue.Empty:
+            pass
+
     def _reveal_window(self) -> None:
         """Show the main window once the boot splash is gone."""
         self.deiconify()
         try:
             self.lift()
+            # Draw it NOW rather than on the mainloop's first pass: everything is
+            # built and wired by this point, so there is nothing left to wait for.
+            self.update_idletasks()
         except Exception:            # noqa: BLE001
             pass
 
@@ -966,10 +1073,34 @@ class Panel(tk.Tk):
         return self._i18n.t(key, **fmt)
 
     def _tr(self, widget, key: str, option: str = "text", **fmt):
-        """Set ``widget[option]`` from a locale key and remember it for retranslation."""
+        """Set ``widget[option]`` from a locale key and remember it for retranslation.
+
+        The registry holds a WEAK reference. Half the panel's translated widgets are
+        rows a page repaints — the ghost list every nine seconds, the inventory on
+        every keystroke in its search box — and each repaint destroys the previous
+        row and builds a new one. A strong reference here meant every widget the
+        panel had ever drawn stayed alive in this list for the rest of the session:
+        an unbounded list of dead Tk objects, and a language switch walking all of
+        them. A destroyed widget drops out of its parent's `children` map, so a weak
+        reference goes dead exactly when the widget does.
+        """
         widget.configure(**{option: self._t(key, **fmt)})
-        self._tr_widgets.append((widget, option, key, fmt))
+        self._tr_widgets.append((weakref.ref(widget), option, key, fmt))
+        # getattr: `_tr` is also borrowed by the settings pages, which carry the
+        # registry but not the bookkeeping around it.
+        if len(self._tr_widgets) > getattr(self, "_tr_watermark", TR_REGISTRY_SWEEP):
+            self._sweep_tr_widgets()
         return widget
+
+    def _sweep_tr_widgets(self) -> None:
+        """Drop the entries whose widget has been destroyed.
+
+        The next sweep is due at twice what survived this one (never below
+        TR_REGISTRY_SWEEP), so the cost stays amortised — a fixed threshold would
+        re-walk the whole list on every registration once the live set passed it.
+        """
+        self._tr_widgets[:] = [e for e in self._tr_widgets if e[0]() is not None]
+        self._tr_watermark = max(TR_REGISTRY_SWEEP, len(self._tr_widgets) * 2)
 
     def _set_language(self, lang: str) -> None:
         if self._i18n.set_lang(lang):
@@ -978,7 +1109,11 @@ class Panel(tk.Tk):
 
     def _apply_language(self) -> None:
         self.title(self._t("app.title"))
-        for widget, option, key, fmt in self._tr_widgets:
+        self._sweep_tr_widgets()
+        for ref, option, key, fmt in self._tr_widgets:
+            widget = ref()
+            if widget is None:
+                continue
             try:
                 widget.configure(**{option: self._t(key, **fmt)})
             except tk.TclError:
@@ -1831,6 +1966,7 @@ class Panel(tk.Tk):
                                               background="#111", foreground="#ddd")
         self._log.pack(fill="both", expand=True)
         self._log.tag_config("coordlink", foreground="#5cf", underline=True)
+        self._bind_coord_links(self._log)
         for tag, colour in LOG_COLOURS.items():
             self._log.tag_config(tag, foreground=colour)
         self._install_log_copy(self._log)
@@ -2174,6 +2310,7 @@ class Panel(tk.Tk):
         self._log_put(f"[{tag}] " + self._t(key, **fmt))
 
     def _pump_log(self) -> None:
+        drawn = False
         try:
             while True:
                 line = self._log_q.get_nowait()
@@ -2185,10 +2322,19 @@ class Panel(tk.Tk):
                     # has more history than the widget ever showed.
                     del self._log_kept[:len(self._log_kept) - self._log_cap()]
                 if self._log_shown(line):
-                    self._insert_line(stamp, line)
+                    # One scroll for the whole drain, below — a tracer streaming a
+                    # thousand lines a second must not make Tk chase the tail a
+                    # thousand times in the same tick.
+                    self._insert_line(stamp, line, scroll=False)
+                    drawn = True
                 self._append_log(line)
         except queue.Empty:
             pass
+        if drawn:
+            try:
+                self._log.see("end")
+            except tk.TclError:
+                pass
         self.after(120, self._pump_log)
 
     # -- the on-disk mirror -------------------------------------------------
@@ -2274,50 +2420,108 @@ class Panel(tk.Tk):
             return True
         return self._log_tag(line) == chosen
 
-    def _insert_line(self, stamp: str, text: str) -> None:
+    def _insert_line(self, stamp: str, text: str, scroll: bool = True) -> None:
         """Insert one stamped log line: clock, severity colour, clickable coordinates.
 
         The clock is the thing that was missed every single session — "когда
         собралась база?" used to mean opening panel.log, because the widget carried
         no time at all while the file did.
+
+        ``scroll=False`` skips the follow-the-tail scroll — a caller writing a whole
+        batch (a drained queue, a filter redraw) scrolls once at the end instead of
+        once per line, which is the difference between a tracer's burst arriving in
+        a blink and the panel visibly stuttering through it.
         """
         clean = _ANSI.sub("", text)
         level = self._log_severity(clean)
         body_tags = (f"sev_{level}",) if level else ()
         self._log.insert("end", stamp + " ", ("stamp",))
         pos = 0
-        for (s, e, x, y, srv) in coords.parse(clean):
+        for (s, e, _x, _y, _srv) in coords.parse(clean):
             if s > pos:
                 self._log.insert("end", clean[pos:s], body_tags)
-            self._insert_coord_link(self._log, clean[s:e], x, y, srv)
+            self._insert_coord_link(self._log, clean[s:e])
             pos = e
         if pos < len(clean):
             self._log.insert("end", clean[pos:], body_tags)
         self._log.insert("end", "\n", body_tags)
         self._log_lines += 1
         self._trim_log()
-        self._log.see("end")
+        if scroll:
+            self._log.see("end")
 
-    def _insert_coord_link(self, widget, text: str, x: int, y: int, srv) -> None:
-        """Write ``text`` into ``widget`` as a coordinate that jumps when clicked.
-
-        Shared by the log and the chat renderer — chat is where coordinates actually
-        arrive (a rally target, a treasure, a base to hit), and it used to insert
-        them as dead text while the log made them links.
-        """
-        tag = f"c{self._coord_seq}"
-        self._coord_seq += 1
-        widget.insert("end", text, ("coordlink", tag))
+    # -- clickable coordinates: ONE binding per widget, not one per link -------
+    #
+    # A coordinate used to be written with a tag of its own (`c0`, `c1`, …) carrying
+    # three fresh callbacks that closed over its x/y/server. Nothing ever took them
+    # off again: `_trim_log` drops the TEXT, and a chat rebuild clears the view, but
+    # a Tk tag and its bindings outlive the characters they were laid over. A panel
+    # left running for a night therefore accumulated a tag, three Tcl commands and
+    # three Python closures per coordinate it had ever printed — the "нарастающие
+    # Tk-колбэки" behind the slow-down.
+    #
+    # The link needs no state of its own: the tagged text IS the coordinate, and
+    # `coords.parse` reads it back. So the shared `coordlink` tag is bound once per
+    # widget and the click resolves what was clicked from the range under the mouse.
+    def _bind_coord_links(self, widget) -> None:
+        """Install the coordinate-link handlers on a Text widget, once."""
         # The cursor to put back on Leave is whatever the widget normally shows —
         # "" in the log, "arrow" in a chat view — not a hardcoded one.
         try:
             rest = widget.cget("cursor")
         except tk.TclError:
             rest = ""
-        widget.tag_bind(tag, "<Button-1>",
-                        lambda ev, x=x, y=y, srv=srv: self._on_coord_click(x, y, srv))
-        widget.tag_bind(tag, "<Enter>", lambda ev, w=widget: w.configure(cursor="hand2"))
-        widget.tag_bind(tag, "<Leave>", lambda ev, w=widget, c=rest: w.configure(cursor=c))
+        widget.tag_bind("coordlink", "<Button-1>",
+                        lambda ev, w=widget: self._on_coord_link_click(w, ev))
+        widget.tag_bind("coordlink", "<Enter>",
+                        lambda ev, w=widget: w.configure(cursor="hand2"))
+        widget.tag_bind("coordlink", "<Leave>",
+                        lambda ev, w=widget, c=rest: w.configure(cursor=c))
+
+    def _insert_coord_link(self, widget, text: str) -> None:
+        """Write ``text`` into ``widget`` as a coordinate that jumps when clicked.
+
+        Shared by the log and the chat renderer — chat is where coordinates actually
+        arrive (a rally target, a treasure, a base to hit), and it used to insert
+        them as dead text while the log made them links.
+        """
+        self._coord_seq += 1          # how many links this session (health snapshot)
+        widget.insert("end", text, ("coordlink",))
+
+    def _on_coord_link_click(self, widget, event) -> None:
+        """Jump to the coordinate under the pointer, read back off the widget."""
+        try:
+            here = widget.index(f"@{event.x},{event.y}")
+            span = widget.tag_prevrange("coordlink", f"{here} +1c")
+            text = widget.get(*span) if span else ""
+        except tk.TclError:
+            return
+        hits = coords.parse(text)
+        if not hits:
+            return
+        _s, _e, x, y, srv = hits[0]
+        self._on_coord_click(x, y, srv)
+
+    def _bind_photo_links(self, widget) -> None:
+        """Install the chat-photo handlers on a Text widget, once — see above."""
+        widget.tag_bind("photolink", "<Button-1>",
+                        lambda ev, w=widget: self._on_photo_link_click(w, ev))
+        widget.tag_bind("photolink", "<Enter>",
+                        lambda ev, w=widget: w.configure(cursor="hand2"))
+        widget.tag_bind("photolink", "<Leave>",
+                        lambda ev, w=widget: w.configure(cursor="arrow"))
+
+    def _on_photo_link_click(self, widget, event) -> None:
+        """Open the photo under the pointer full-size — which one is read off the
+        embedded image, not off a tag that had to be kept alive to remember it."""
+        try:
+            here = widget.index(f"@{event.x},{event.y}")
+            found = widget.dump(here, f"{here} +1c", image=True)
+        except tk.TclError:
+            return
+        meta = self._photo_meta.get(found[0][1]) if found else None
+        if meta is not None:
+            self._open_photo(*meta)
 
     def _trim_log(self) -> None:
         """Keep the widget bounded — drop the oldest block when it overflows.
@@ -2349,7 +2553,11 @@ class Panel(tk.Tk):
         self._log_lines = 0
         shown = [(s, ln) for s, ln in self._log_kept if self._log_shown(ln)]
         for stamp, line in shown[-self._log_cap():]:
-            self._insert_line(stamp, line)
+            self._insert_line(stamp, line, scroll=False)
+        try:
+            self._log.see("end")
+        except tk.TclError:
+            pass
 
     def _clear_log(self) -> None:
         """Empty the widget (and the history behind it). panel.log is untouched."""
@@ -2362,6 +2570,7 @@ class Panel(tk.Tk):
 
     # -- daemon lifecycle ---------------------------------------------------
     def _startup(self) -> None:
+        self._boot_at("splash.monitors", 0.68)
         if self._rally_var.get():           # rally monitor is on by default
             self._start_rally()
         if self._mon_var.get():             # secret-task monitor, if the profile had it on
@@ -2374,21 +2583,103 @@ class Panel(tk.Tk):
             self._start_sweep()
         if self._chat_var.get():            # chat monitor, if the profile had it on
             self._start_chat()
-        self.after(0, self._load_chat_history)
+        # Drawing the history is the heaviest thing the boot does to the widgets, so
+        # it is WAITED for, not fired and forgotten: it used to be posted here and
+        # rendered whenever the mainloop got round to it, which was after the splash
+        # had gone and the window was supposedly ready.
+        self._boot_at("splash.chat", 0.76)
+        self._on_tk(self._load_chat_history)
         # The schedule runs whenever the panel is open: the thread is started
         # unconditionally and a tick with every row unticked costs one dict
         # comparison, which keeps switching a timer on a matter of the checkbox
         # alone (no start/stop plumbing to get out of step with it).
+        self._boot_at("splash.schedule", 0.82)
         self._timers.start()
         # A profile that had the old «Авто-помощь» checkbox on becomes the
         # «alliance_help» trigger switched on, once; then the watcher brings up a
         # listener for every enabled trigger, exactly as `sync` does on a toggle.
         self._migrate_autohelp()
         self._triggers.start()
+        self._boot_at("splash.daemon", 0.90)
         self._ensure_daemon()
+        self._boot_at("splash.server", 0.96)
         self._load_current_server()
         # The strip needs a warm daemon and a live game, so it starts last.
         self._start_dashboard()
+        self._boot_at("splash.systems", 1.0)
+
+    # -- is the panel still healthy after three days? ------------------------
+    def _start_health_watch(self) -> None:
+        """Arm the periodic health snapshot (see HEALTH_SNAPSHOT_MS)."""
+        self._health_prev: dict = {}
+        self.after(HEALTH_SNAPSHOT_MS, self._health_snapshot)
+
+    def _health_snapshot(self) -> None:
+        """Write what could be growing into the debug log, and re-arm.
+
+        Everything here is a count of something the panel accumulates while it is
+        open. `after` is the one that matters most: a self-rearming chain started
+        twice doubles every tick from then on, and it is invisible from the outside
+        — the panel just gets slower. The rest are the caches and registries whose
+        bounds this file promises.
+        """
+        try:
+            pending = len(self.tk.call("after", "info"))
+        except tk.TclError:
+            pending = -1
+        now = {
+            "after": pending,
+            "threads": threading.active_count(),
+            "tr": len(self._tr_widgets),
+            "log_tags": self._tag_count(getattr(self, "_log", None)),
+            "chat_tags": sum(self._tag_count(v) for v in self._chat_trees.values()),
+            "log_lines": self._log_lines,
+            "log_kept": len(self._log_kept),
+            "chat_msgs": sum(len(v) for v in self._chat_msgs.values()),
+            "images": len(self._chat_img_cache),
+            "links": self._coord_seq,
+            "photos": self._photo_seq,
+        }
+        # INFO on the first snapshot and whenever something moved; the steady state
+        # is not worth a line every five minutes.
+        line = " ".join(f"{k}={v}" for k, v in now.items())
+        if now != self._health_prev:
+            self._dbg.info("health %s", line)
+            self._health_prev = now
+        else:
+            self._dbg.debug("health %s", line)
+        self.after(HEALTH_SNAPSHOT_MS, self._health_snapshot)
+
+    @staticmethod
+    def _tag_count(widget) -> int:
+        """How many tags a Text widget carries (0 for anything else)."""
+        if widget is None:
+            return 0
+        try:
+            return len(widget.tag_names())
+        except (tk.TclError, AttributeError):
+            return 0
+
+    def _on_tk(self, func, timeout: float = 20.0) -> None:
+        """Run ``func`` on the Tk thread from a worker and wait for it to finish.
+
+        Only safe while somebody is pumping Tk — during the boot that is
+        `_await_boot`, afterwards the mainloop — so the wait is bounded and a
+        timeout simply means the call is still queued, not that it was lost.
+        """
+        done = threading.Event()
+
+        def call() -> None:
+            try:
+                func()
+            finally:
+                done.set()
+
+        try:
+            self.after(0, call)
+        except (tk.TclError, RuntimeError):
+            return
+        done.wait(timeout)
 
     def _ensure_daemon(self) -> bool:
         dbg = dbgmod.get_logger("daemon")
@@ -2464,9 +2755,22 @@ class Panel(tk.Tk):
         self.after(STATUS_POLL_MS, self._poll_status)
 
     def _refresh_status(self) -> None:
+        # One reading at a time. The poll fires every eight seconds and the reading
+        # is a process-list scan plus a socket probe of the daemon: both are quick
+        # while things are well, and both can hang for far longer than eight seconds
+        # when they are not (a wedged daemon holds the connect until it times out).
+        # Without this, an unhealthy daemon quietly grew a thread per poll for as
+        # long as it stayed unhealthy.
+        if self._status_busy:
+            return
+        self._status_busy = True
+
         def work() -> None:
-            ok, s = game_status(self._game_exe())
-            warm = self._daemon_up()
+            try:
+                ok, s = game_status(self._game_exe())
+                warm = self._daemon_up()
+            finally:
+                self._status_busy = False
             self.after(0, lambda: (
                 self._status_var.set(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
@@ -6613,6 +6917,11 @@ class Panel(tk.Tk):
         # Same look the log gives a coordinate, so a clickable one reads as clickable
         # here too (bright blue, on the dark textbox).
         txt.tag_configure("coordlink", foreground="#5cf", underline=True)
+        # Both link kinds are bound ONCE per view, for the same reason the header
+        # below is: a handler laid down per rendered item stacks up for as long as
+        # the panel is open (see `_bind_coord_links`).
+        self._bind_coord_links(txt)
+        self._bind_photo_links(txt)
         # The "↑ older messages" affordance drawn atop a partially-loaded tab.
         txt.tag_configure("loadmore", foreground="#5c9dff", underline=True,
                           justify="center")
@@ -6635,10 +6944,19 @@ class Panel(tk.Tk):
         return txt
 
     def _chat_image(self, path: str, height: int):
-        """Load (and cache) an inline sprite scaled to ``height`` px, or None."""
+        """Load (and cache) an inline sprite scaled to ``height`` px, or None.
+
+        The cache is an LRU bounded at CHAT_IMG_CACHE_MAX. It used to be unbounded,
+        and it holds a live Tk image per distinct (file, size) — one per sender's
+        avatar and one per photo — so a night in world chat quietly turned into
+        thousands of them. What falls out is what has not been drawn for longest,
+        i.e. history far above the viewport; the newest page always keeps its
+        pictures.
+        """
         key = (path, height)
         img = self._chat_img_cache.get(key)
         if img is not None:
+            self._chat_img_cache[key] = self._chat_img_cache.pop(key)   # touch (LRU)
             return img
         try:
             if _PIL_OK:
@@ -6653,7 +6971,22 @@ class Panel(tk.Tk):
         except Exception:       # noqa: BLE001
             return None
         self._chat_img_cache[key] = img
+        self._trim_chat_images()
         return img
+
+    def _trim_chat_images(self) -> None:
+        """Drop the least recently drawn images once the cache is over its cap.
+
+        The placeholder avatar is never evicted — it is the fallback every sender
+        without a cached picture shares, so dropping it only means drawing it again.
+        """
+        cache = self._chat_img_cache
+        while len(cache) > CHAT_IMG_CACHE_MAX:
+            key = next(iter(cache))
+            if key[0] == "__avatar_placeholder__":
+                cache[key] = cache.pop(key)      # keep it: move to the young end
+                continue
+            self._photo_meta.pop(str(cache.pop(key)), None)
 
     _AVATAR_PX = 20
 
@@ -6710,10 +7043,10 @@ class Panel(tk.Tk):
         log made them clickable.
         """
         pos = 0
-        for (s, e, x, y, srv) in coords.parse(text):
+        for (s, e, _x, _y, _srv) in coords.parse(text):
             if s > pos:
                 view.insert("end", text[pos:s])
-            self._insert_coord_link(view, text[s:e], x, y, srv)
+            self._insert_coord_link(view, text[s:e])
             pos = e
         if pos < len(text):
             view.insert("end", text[pos:])
@@ -6753,18 +7086,16 @@ class Panel(tk.Tk):
                     img = self._chat_image(path, 110)
                     if img is not None:
                         # Tag the image so a click opens it full-size (like the game).
-                        tag = f"photo{self._photo_seq}"
+                        # ONE shared tag, bound once per view (`_bind_photo_links`):
+                        # a tag per photo left three callbacks behind on every chat
+                        # rebuild, and the DM tab rebuilds its whole window whenever
+                        # a message arrives. What was clicked is resolved from the
+                        # image itself, which is cached and therefore bounded.
                         self._photo_seq += 1
                         pos = view.index("end -1c")
                         view.image_create(pos, image=img)
-                        view.tag_add(tag, pos, f"{pos} +1c")
-                        pv = m.group(1)
-                        view.tag_bind(tag, "<Button-1>",
-                                      lambda e, u=uid, p=pv, f=path: self._open_photo(u, p, f))
-                        view.tag_bind(tag, "<Enter>",
-                                      lambda e, v=view: v.configure(cursor="hand2"))
-                        view.tag_bind(tag, "<Leave>",
-                                      lambda e, v=view: v.configure(cursor="arrow"))
+                        view.tag_add("photolink", pos, f"{pos} +1c")
+                        self._photo_meta[str(img)] = (uid, m.group(1), path)
                         continue
                 view.insert("end", self._t("chat.photo") if m else val, ("token",))
             elif kind == "image":
@@ -6887,7 +7218,9 @@ class Panel(tk.Tk):
                 self._update_chat_target()
 
         # The count reflects the whole stored history, not just the loaded window.
-        total = (self._chat_store.count() if self._chat_store is not None
+        # `total()` is the running tally, not a fresh COUNT(*): this line runs once
+        # a second for as long as the panel is open.
+        total = (self._chat_store.total() if self._chat_store is not None
                  else sum(len(v) for v in self._chat_msgs.values()))
         self._chat_count_var.set(self._t("chat.count", n=total))
         self.after(1000, self._pump_chat)
