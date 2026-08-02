@@ -642,9 +642,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
         print("  SKIP tkinter not importable — run under the Windows Python")
         return
     try:
-        from panel import __main__ as mainmod
-        from panel.__main__ import Panel
-        from panel import runtime as rtmod
+        from panel.tabs.timers import TimersTab
         root = tk.Tk()
     except Exception as exc:                           # noqa: BLE001
         print(f"  SKIP no display / panel deps: {exc}")
@@ -663,73 +661,38 @@ def test_timers_tab_builds_from_the_config_and_binds():
     ]), encoding="utf-8")
     cat = timersmod.load_catalogue(str(cfg_path))
 
-    class _Tab:
-        """A Panel stand-in carrying only what the tab builder touches."""
+    class _Tab(TimersTab):
+        """The real tab, on a cold runtime whose schedule is just the catalogue.
+
+        Nothing here needs a scheduler thread — the rows read a catalogue, a store and
+        a queue — so the stand-in supplies exactly those three and no more.
+        """
 
         def __init__(self):
-            self._i18n = rtmod.Translator("ru")
-            self._settings: dict = {}
-            self._loading = False
-            self._timer_vars: dict = {}
-            self._timer_rows: dict = {}
-            self._timer_selected = None
-            # The catalogue and the switches live in the runtime's Schedule now; the
-            # rows reach them through the panel's properties, so the stand-in carries
-            # just enough of one for those to work.
-            self._schedule = types.SimpleNamespace(
+            rt = fake_runtime.cold_runtime(root)
+            rt.schedule = types.SimpleNamespace(
                 timer_catalogue=cat,
-                timer_config=lambda: self._schedule.timer_catalogue.normalize_config(
+                store=_store(tmp),
+                # The rows read the queue to mark an errand that is waiting its turn.
+                timers=types.SimpleNamespace(pending=lambda: set()),
+                timer_config=lambda: rt.schedule.timer_catalogue.normalize_config(
                     self._timer_widget_config()
-                    or self._schedule.timer_catalogue.default_config()))
-            self._timer_store = _store(tmp)
-            self._profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
+                    or rt.schedule.timer_catalogue.default_config()))
+            rt.profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
+            super().__init__(rt, ttk.Frame(root))
+            self.logs = rt.log.lines
             self.afters: list = []
-            self.logs: list = []
-            fake_runtime.attach_bus(self)
-            # The rows read the scheduler's queue to mark a waiting errand, so the
-            # stand-in needs something that answers `pending()`.
-            self._timers = types.SimpleNamespace(pending=lambda: set())
-            # The timer refresh also repaints the (separate) trigger list at the end;
-            # an empty one makes that an early return, so this scheduled-only case
-            # needs no trigger catalogue or watcher.
-            self._trigger_rows: dict = {}
-            # Repeating callbacks live in the runtime's Ticker now; the panel's
-            # `_arm` is a face for it, and this stand-in supplies the `after`.
-            self._tick = rtmod.Ticker(self)
             self.cancelled: list = []
+            # The repaint re-arms itself once a second; record the delay instead of
+            # actually waiting it out.
+            rt.tick.arm = lambda _n, ms, _f: self.afters.append(ms)
+            # The trigger list is repainted at the end of the timer refresh; an empty
+            # one makes that an early return, so this scheduled-only case needs no
+            # trigger catalogue and no watcher.
+            self._trigger_rows = {}
 
-        _t = Panel._t
-        _tr = Panel._tr
-        _say = Panel._say
-        _fill_timer_grid = Panel._fill_timer_grid
-        _refresh_trigger_rows = Panel._refresh_trigger_rows
-        _bind_timer_autosave = Panel._bind_timer_autosave
-        _save_timers = Panel._save_timers
-        _write_timer = Panel._write_timer
-        _timer_config = Panel._timer_config
-        _timer_widget_config = Panel._timer_widget_config
-        _timer_catalogue = Panel.__dict__["_timer_catalogue"]
-        _fmt_span = Panel._fmt_span
-        _refresh_timer_rows = Panel._refresh_timer_rows
-        _paint_timer_outcome = Panel._paint_timer_outcome
-        _select_timer = Panel._select_timer
-        _paint_timer_selection = Panel._paint_timer_selection
-        _selected_timer = Panel._selected_timer
-        _timer_duplicate = Panel._timer_duplicate
-        # The repaint re-arms itself through the panel's loop registry, so the
-        # stub carries it too (see Panel._arm).
-        _arm = Panel._arm
-        _disarm = Panel._disarm
-
-        def _log_put(self, line):
-            self.logs.append(line)
-
-        def after(self, _ms, _fn=None):                # the 1 s re-arm, not run here
-            self.afters.append(_ms)
-            return f"after#{len(self.afters)}"
-
-        def after_cancel(self, job):
-            self.cancelled.append(job)
+        def _timer_config(self):
+            return self.rt.schedule.timer_config()
 
     tab = _Tab()
     try:
@@ -754,43 +717,43 @@ def test_timers_tab_builds_from_the_config_and_binds():
         # period away.
         tab._refresh_timer_rows()
         row = tab._timer_rows[BASE]
-        assert row["next"].cget("text") == tab._t("timers.due_now")
-        assert tab._timer_rows["inline_one"]["next"].cget("text") == tab._t("timers.off")
+        assert row["next"].cget("text") == tab.t("timers.due_now")
+        assert tab._timer_rows["inline_one"]["next"].cget("text") == tab.t("timers.off")
         # Nothing has been tried yet, and the status column says so rather than
         # looking like a success.
-        assert row["outcome"].cget("text") == tab._t("timers.outcome.never")
+        assert row["outcome"].cget("text") == tab.t("timers.outcome.never")
 
         # A failed attempt shows up as a failure, and the countdown switches to the
         # retry hold instead of claiming the errand is due now.
-        tab._timer_store.mark_failed(BASE)
+        tab.rt.schedule.store.mark_failed(BASE)
         tab._refresh_timer_rows()
-        assert row["outcome"].cget("text") == tab._t(
-            "timers.outcome.failed", ago=tab._t("timers.span.now")), \
+        assert row["outcome"].cget("text") == tab.t(
+            "timers.outcome.failed", ago=tab.t("timers.span.now")), \
             row["outcome"].cget("text")
         # str(): a ttk widget hands `cget` back a Tcl object, which is never == a str.
         assert str(row["outcome"].cget("foreground")) == "#c0392b", \
             row["outcome"].cget("foreground")
-        assert row["next"].cget("text") != tab._t("timers.due_now"), \
+        assert row["next"].cget("text") != tab.t("timers.due_now"), \
             "the row claimed the errand was due while the retry hold was running"
 
-        tab._timer_store.mark_run(BASE)
+        tab.rt.schedule.store.mark_run(BASE)
         tab._refresh_timer_rows()
         # 900 s away, give or take the second this test takes to get here — the
         # column rounds down to whole minutes, so both readings are correct.
-        expected = {tab._t("timers.in_span", span=tab._t("timers.span.min", n=n))
+        expected = {tab.t("timers.in_span", span=tab.t("timers.span.min", n=n))
                     for n in (14, 15)}
         assert row["next"].cget("text") in expected, row["next"].cget("text")
         # …and the success replaced the failure on the row, reason and colour with it.
-        assert row["outcome"].cget("text") == tab._t(
-            "timers.outcome.ok", ago=tab._t("timers.span.now")), row["outcome"].cget("text")
+        assert row["outcome"].cget("text") == tab.t(
+            "timers.outcome.ok", ago=tab.t("timers.span.now")), row["outcome"].cget("text")
         assert str(row["outcome"].cget("foreground")) == "#2e7d32"
 
         # A queued errand is shown as queued rather than as "due now" — the
         # scheduler's own queue used to be invisible.
-        tab._timers = types.SimpleNamespace(pending=lambda: {BASE})
+        tab.rt.schedule.timers = types.SimpleNamespace(pending=lambda: {BASE})
         tab._refresh_timer_rows()
-        assert row["next"].cget("text") == tab._t("timers.queued"), row["next"].cget("text")
-        tab._timers = types.SimpleNamespace(pending=lambda: set())
+        assert row["next"].cget("text") == tab.t("timers.queued"), row["next"].cget("text")
+        tab.rt.schedule.timers = types.SimpleNamespace(pending=lambda: set())
 
         # The tab EDITS the list now, not just the switches. A copy gets a free name,
         # starts switched off, carries the original's steps and args, and lands in the

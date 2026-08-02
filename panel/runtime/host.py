@@ -59,12 +59,31 @@ class PanelRuntime:
             daemon_script=LUA_DAEMON, on_state=daemon_state,
             debug=dbgmod.get_logger("daemon"))
         self.actions = ActionRunner(log=self.log)
-        self.schedule = None            # brought up only when a tab's NEEDS asks
+        self._schedule = None           # built on first ask (see the property below)
         # Which tabs this window actually built. Empty until somebody fills it, never
         # None — a tab reaching for another one asks `rt.tabs.get(id)` and gets `None`
         # for "not in this window", in the shell and standalone alike.
         from ..tabs import TabRegistry
         self.tabs = TabRegistry()
+
+    @property
+    def schedule(self):
+        """The errands on a clock and the ones the wire sets off — built on first ask.
+
+        Built, not STARTED: constructing it reads the profile's two catalogues and
+        nothing else, so a tab that merely wants to draw the rows costs nothing. Only
+        `start()` puts a scheduler thread and a listener per trigger behind it, and only
+        the shell calls that — a standalone «Ралли» window must not quietly begin
+        running the whole account's errands (§4.3).
+        """
+        if self._schedule is None:
+            from .schedule import Schedule
+            self._schedule = Schedule(self)
+        return self._schedule
+
+    @schedule.setter
+    def schedule(self, value) -> None:
+        self._schedule = value
 
     # -- the shorthands every tab uses constantly ---------------------------
     def t(self, key: str, **fmt) -> str:
