@@ -14,7 +14,6 @@ contract test enforces it by building every tab against a cold runtime.
 from __future__ import annotations
 
 import argparse
-import sys
 
 
 class TimerSpec:
@@ -62,6 +61,11 @@ class PanelTab:
     ORDER: int = 100
     DEFAULT_ENABLED: bool = True
     PREFERRED_SIZE: str = "760x600"
+    #: Load at boot rather than the first time the tab is shown. For the tabs whose
+    #: `ensure_loaded` starts something that has to be RUNNING (a capture listening for
+    #: an event that will not wait for somebody to click the tab), not for the ones
+    #: whose it is a read to draw.
+    EAGER: bool = False
 
     # -- what it owns -------------------------------------------------------
     LOCALE_NS: tuple = ()
@@ -166,8 +170,25 @@ def run_tab(cls, argv=None) -> int:
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
     tab = cls(rt, frame)
+    rt.tabs.add(tab)
     tab.build()
-    tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
+    rt.settings.loading = True          # an apply is not a change; do not save it back
+    try:
+        tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
+    finally:
+        rt.settings.loading = False
+
+    # A choice made in a standalone window belongs to the profile just as much as one
+    # made in the shell — this is a tab of the panel, not a preview of it. Only THIS
+    # tab's block is written (plus its legacy flat keys), so a window holding one tab
+    # can never overwrite what the others are set to.
+    def _persist() -> None:
+        rt.settings.set_tab_config(cls.ID, tab.config(), cls.LEGACY_KEYS)
+        rt.settings.save()
+
+    rt.settings.on_change = _persist
+    for var in tab.persist_vars():
+        var.trace_add("write", lambda *_a: rt.settings.changed())
 
     def _close() -> None:
         try:

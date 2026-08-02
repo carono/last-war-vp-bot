@@ -41,6 +41,37 @@ class TabSpec:
         return f"<TabSpec {self.id} order={self.order}>"
 
 
+class TabRegistry:
+    """The tabs a window actually built, by id — what ``rt.tabs`` is.
+
+    A TAB MAY BE ABSENT: switched off in the profile, or skipped because it failed to
+    build. So everything reaching across tabs goes through :meth:`get` and tolerates
+    ``None`` (docs/research/panel-tabs-refactor.md §2). The panel already did this by
+    accident (`getattr(self, "_secret_tasks_tab", None)`); here it is the contract.
+    """
+
+    def __init__(self) -> None:
+        self._live: dict = {}
+
+    def add(self, tab) -> None:
+        self._live[tab.ID] = tab
+
+    def get(self, tab_id: str):
+        """The live tab, or ``None`` if this window does not have it."""
+        return self._live.get(tab_id)
+
+    @property
+    def live(self) -> list:
+        """Every built tab, in the order they were added — what the lifecycle loops walk."""
+        return list(self._live.values())
+
+    def __contains__(self, tab_id: str) -> bool:
+        return tab_id in self._live
+
+    def __len__(self) -> int:
+        return len(self._live)
+
+
 # Order numbers are spaced so a tab can be slotted between two without renumbering.
 TABS: tuple = (
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200),

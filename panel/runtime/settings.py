@@ -34,6 +34,11 @@ class SettingsBinder:
         self._values: dict = {}
         self.vars: dict = {}         # knob key -> Tk variable, once widgets exist
         self.loading = False         # suppresses auto-save while an apply is running
+        # "Something bound changed — write the profile out." Set by whoever owns the
+        # whole snapshot: the shell's `_save_settings`, or the standalone harness's
+        # one-tab equivalent. A tab NEVER saves by itself; it says a choice moved and
+        # the container decides what a profile looks like.
+        self.on_change = None
 
     # -- the saved dict -----------------------------------------------------
     def load(self) -> dict:
@@ -56,6 +61,17 @@ class SettingsBinder:
         if raw is not None:
             self._values = raw
         self._profiles.save(self._values)
+
+    def changed(self) -> None:
+        """A bound control moved. Ask the container to persist — unless it is applying.
+
+        This is what a tab's tri-state button calls: a Tk variable can be traced, a
+        button whose state lives in a dict cannot, and both have to reach the profile
+        the same way.
+        """
+        if self.loading or self.on_change is None:
+            return
+        self.on_change()
 
     # -- the knobs ----------------------------------------------------------
     def register(self, defaults: dict) -> None:
@@ -144,9 +160,18 @@ class SettingsBinder:
                 out[new_key] = self._values[old_key]
         return out
 
-    def set_tab_config(self, tab_id: str, block: dict) -> None:
+    def set_tab_config(self, tab_id: str, block: dict, legacy: dict | None = None) -> None:
+        """Write one tab's block — and, for one release, the flat keys it used to be.
+
+        The dual write of §5 rule 2: a profile touched by the new panel still opens in
+        the old one, which is what makes the migration reversible one tab at a time.
+        It goes away in its own commit, not in a wave.
+        """
         tabs = self._values.setdefault("tabs", {})
         tabs.setdefault("config", {})[tab_id] = block
+        for new_key, old_key in (legacy or {}).items():
+            if new_key in block:
+                self._values[old_key] = block[new_key]
 
     def tab_list(self, key: str) -> "list | None":
         """``tabs.enabled`` / ``tabs.order``, or ``None`` when the profile has neither."""

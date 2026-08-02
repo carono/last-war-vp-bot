@@ -74,13 +74,19 @@ class ActionRunner:
                                              variables=args or {}, **kw))
 
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
-             on_event=None, **kw) -> Outcome:
+             on_event=None, cancel=None, **kw) -> Outcome:
         """Play the named scenario and report HOW it ended, not just whether.
 
         Use this wherever the answer to "why not?" is worth showing. `run()` stays for
         the callers that only branch on success.
+
+        ``cancel`` is named rather than left to ``kw`` because it has to reach the
+        CONTEXT: `run_action` only reads its own `cancel` when it is building one, and
+        this method always builds it. A Stop that quietly did nothing would be worse
+        than no Stop at all.
         """
-        ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {})
+        ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {},
+                           cancel=cancel)
         ok = self.run(name, args, hwnd=hwnd, ctx=ctx, **kw)
         reason = str(getattr(ctx, "fail_reason", "") or "").strip()
         return Outcome(ok, reason, ctx)

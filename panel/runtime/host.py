@@ -60,7 +60,11 @@ class PanelRuntime:
             debug=dbgmod.get_logger("daemon"))
         self.actions = ActionRunner(log=self.log)
         self.schedule = None            # brought up only when a tab's NEEDS asks
-        self.tabs = None                # the registry, set by whoever builds the tabs
+        # Which tabs this window actually built. Empty until somebody fills it, never
+        # None — a tab reaching for another one asks `rt.tabs.get(id)` and gets `None`
+        # for "not in this window", in the shell and standalone alike.
+        from ..tabs import TabRegistry
+        self.tabs = TabRegistry()
 
     # -- the shorthands every tab uses constantly ---------------------------
     def t(self, key: str, **fmt) -> str:

@@ -12,6 +12,16 @@ import tkinter.font as tkfont
 from tkinter import ttk
 
 
+def tk_stringvar(master):
+    """An empty ``StringVar`` owned by ``master`` — a status line's variable.
+
+    Owned explicitly: a variable created with no master belongs to whichever root Tk
+    happened to be made first, which in a panel that opens a dialog is not the window
+    the label is in.
+    """
+    return tk.StringVar(master=master, value="")
+
+
 def font(size=None, weight=None, slant=None):
     """A font *tuple* derived from ``TkDefaultFont`` — usable as ``font=`` on any
     widget. Only the attributes given are overridden; the rest stay the default."""

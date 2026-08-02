@@ -37,4 +37,18 @@ def ensure() -> None:
             sys.path.insert(0, path)
 
 
+def repo_rel(path: str) -> str:
+    """A path as it reads in the log: relative to the repo, forward slashes.
+
+    Falls back to the path itself for anything outside the repo (or on another drive,
+    where relpath raises) — a display helper must never be the thing that breaks a
+    dialog. Was `Panel._repo_rel`; a tab shows a path too (the rally monitor's log).
+    """
+    try:
+        rel = os.path.relpath(path, REPO)
+    except ValueError:
+        return path
+    return path if rel.startswith("..") else rel.replace(os.sep, "/")
+
+
 ensure()
