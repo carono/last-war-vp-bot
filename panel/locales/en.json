@@ -693,5 +693,20 @@
   "log.update.fail_overwrite": "update cancelled: local files are in the way — {files}",
   "log.update.fail_offline": "update failed: no route to origin ({detail})",
   "log.update.fail_error": "update failed: {detail}",
-  "log.update.restarting": "restarting the panel on the updated code…"
+  "log.update.restarting": "restarting the panel on the updated code…",
+
+  "tab.vs_duel": "VS Duel",
+  "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive.",
+  "vsduel.later": "The actions of this day come later.",
+  "vsduel.day.mon": "Monday",
+  "vsduel.day.tue": "Tuesday",
+  "vsduel.day.wed": "Wednesday",
+  "vsduel.day.thu": "Thursday",
+  "vsduel.day.fri": "Friday",
+  "vsduel.day.sat": "Saturday",
+  "vsduel.mon.drone_parts": "Open drone components",
+  "vsduel.mon.hero_level": "Level the hero up",
+  "vsduel.mon.hero_exp_m": "at most, million XP",
+  "vsduel.mon.drone_level": "Upgrade the drone",
+  "vsduel.mon.drone_gears": "at most, gears"
 }

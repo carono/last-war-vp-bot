@@ -693,5 +693,20 @@
   "log.update.fail_overwrite": "обновление отменено: мешают локальные файлы — {files}",
   "log.update.fail_offline": "обновление не удалось: нет связи с origin ({detail})",
   "log.update.fail_error": "обновление не удалось: {detail}",
-  "log.update.restarting": "перезапускаю панель на обновлённом коде…"
+  "log.update.restarting": "перезапускаю панель на обновлённом коде…",
+
+  "tab.vs_duel": "Дуэль VS",
+  "vsduel.hint": "Дуэль каждый день начисляет очки за свой набор действий. Отметьте, что делать в этот день, и ограничьте трату. Пока ничего не выполняется само — выбор сохраняется до появления самих действий.",
+  "vsduel.later": "Действия этого дня добавим позже.",
+  "vsduel.day.mon": "Понедельник",
+  "vsduel.day.tue": "Вторник",
+  "vsduel.day.wed": "Среда",
+  "vsduel.day.thu": "Четверг",
+  "vsduel.day.fri": "Пятница",
+  "vsduel.day.sat": "Суббота",
+  "vsduel.mon.drone_parts": "Открывать компоненты дрона",
+  "vsduel.mon.hero_level": "Повышать уровень героя",
+  "vsduel.mon.hero_exp_m": "не больше, млн опыта",
+  "vsduel.mon.drone_level": "Повышать дрон",
+  "vsduel.mon.drone_gears": "не больше, шестерёнок"
 }

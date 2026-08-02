@@ -96,6 +96,7 @@ TABS: tuple = (
             order=310),
     TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
             order=320),
+    TabSpec("vs_duel",   "panel.tabs.vs_duel",   "VsDuelTab",    order=330),
     TabSpec("develop",   "panel.tabs.develop",   "DevelopTab",   order=900,
             default_enabled=False),
 )
