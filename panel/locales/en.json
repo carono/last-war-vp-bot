@@ -21,6 +21,7 @@
   "autorally.squads": "Squads:",
 
   "busy": "busy — wait for the current action to finish",
+  "busy.elsewhere": "the game is busy — {owner} has been driving it for {sec}s",
 
   "capture.ghost_op": "Operation Ghost",
   "capture.secret_tasks": "Secret tasks",

@@ -68,7 +68,12 @@ def _tab(tmp: Path):
         # Everything the panel says goes through the locale files now, so the tab's
         # own lines come out of `_say`.
         _say = pm.Panel._say
+        # The busy flag is two locks now: this one, and the daemon's lease that keeps a
+        # separately-launched tab out of the game (tools/lib/game_lease.py). There is no
+        # daemon here, so the lease half is borrowed as-is — it passes when it cannot
+        # reach one, which is exactly the no-daemon case this stand-in models.
         _claim_busy = pm.Panel._claim_busy
+        _claim_lease = pm.Panel._claim_lease
         _release_busy = pm.Panel._release_busy
         _build_scenarios_tab = pm.Panel._build_scenarios_tab
         _refresh_actions = pm.Panel._refresh_actions

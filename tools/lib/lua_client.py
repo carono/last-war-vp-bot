@@ -36,12 +36,38 @@ HOST = os.environ.get("LW_DAEMON_HOST") or "127.0.0.1"
 DEFAULT_PORT = 47654
 PORT = int(os.environ.get("LW_DAEMON_PORT") or DEFAULT_PORT)
 
+# The game lease this process runs under lives in the environment, so that ONE fact —
+# "this process is allowed to drive the game" — reaches everything without being threaded
+# through every call: the evaluators built later in this process (a recipe asks
+# `get_evaluator()` for its own), and every child spawned from it (the panel copies the
+# environment). Read per client rather than snapshotted at import, because a panel claims
+# the lease long after this module was imported.
+LEASE_ENV_VAR = "LW_GAME_LEASE"
+
+
+def current_lease() -> str:
+    """The token this process holds or inherited, or ``""``."""
+    return os.environ.get(LEASE_ENV_VAR) or ""
+
+
+class LeaseLost(RuntimeError):
+    """A `run` was refused because the caller's lease is no longer the live one.
+
+    Distinct from a plain daemon error: nothing is wrong with the chunk or the game —
+    this process simply stopped being the one allowed to drive it, and the right
+    response is to stop, not to retry.
+    """
+
 
 class DaemonClient:
     """Talks to lua_daemon over a per-call TCP connection. Same interface as LuaEval."""
 
-    def __init__(self, host: str = HOST, port: int = PORT, timeout: float = 90.0):
+    def __init__(self, host: str = HOST, port: int = PORT, timeout: float = 90.0,
+                 token: "str | None" = None):
         self.host, self.port, self.timeout = host, port, timeout
+        # None means "whatever this process is running under"; "" means explicitly
+        # unleased (a read that must never queue behind, or be refused by, a lease).
+        self.token = current_lease() if token is None else token
 
     def _rpc(self, req: dict) -> dict:
         s = socket.create_connection((self.host, self.port), timeout=self.timeout)
@@ -58,8 +84,13 @@ class DaemonClient:
             s.close()
 
     def run(self, chunk: str, marker=None, settle: float = 1.2):
-        r = self._rpc({"op": "run", "chunk": chunk, "marker": marker, "settle": settle})
+        req = {"op": "run", "chunk": chunk, "marker": marker, "settle": settle}
+        if self.token:
+            req["token"] = self.token      # …which also renews the lease
+        r = self._rpc(req)
         if not r.get("ok"):
+            if r.get("lease_lost"):
+                raise LeaseLost(r.get("error", "lease lost"))
             raise RuntimeError(r.get("error", "daemon error"))
         return r.get("lines", [])
 
@@ -68,6 +99,41 @@ class DaemonClient:
             return bool(self._rpc({"op": "ping"}).get("ok"))
         except OSError:
             return False
+
+    # -- the game lease: one action at a time, across processes --------------
+    def acquire(self, owner: str, ttl: float = 120.0) -> "str | None":
+        """Claim the right to drive the game. The token, or ``None`` if someone else holds it.
+
+        Re-claiming with a token this client already carries returns that same token, so
+        a nested claim inside one owner is not a deadlock.
+        """
+        req = {"op": "acquire", "owner": owner, "ttl": ttl}
+        if self.token:
+            req["token"] = self.token
+        r = self._rpc(req)
+        if not r.get("ok"):
+            return None
+        self.token = r.get("token") or ""
+        return self.token
+
+    def renew(self) -> bool:
+        if not self.token:
+            return False
+        return bool(self._rpc({"op": "renew", "token": self.token}).get("ok"))
+
+    def release(self) -> bool:
+        if not self.token:
+            return True
+        try:
+            return bool(self._rpc({"op": "release", "token": self.token}).get("ok"))
+        finally:
+            self.token = ""
+
+    def lease_state(self) -> dict:
+        try:
+            return self._rpc({"op": "ping"}).get("lease") or {}
+        except OSError:
+            return {}
 
     def reload(self):
         return self._rpc({"op": "reload"})

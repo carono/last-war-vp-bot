@@ -21,6 +21,7 @@
   "autorally.squads": "Отряды:",
 
   "busy": "занят — дождись завершения текущего действия",
+  "busy.elsewhere": "игра занята — {owner} ведёт её уже {sec} с",
 
   "capture.ghost_op": "Операция Призрак",
   "capture.secret_tasks": "Секретные задания",

@@ -10,10 +10,36 @@ Protocol — newline-delimited JSON on 127.0.0.1:47654 (see tools/lua_client.py)
     {"op":"ping"}     -> {"ok":true,"warm":<bool>}
     {"op":"reload"}   -> rebuild the LuaEval (after a game restart) -> {"ok":true}
     {"op":"shutdown"} -> {"ok":true} then exit
+    {"op":"acquire","owner":"panel/rally","ttl":120} -> {"ok":true,"token":"…"}
+                                                     |  {"ok":false,"busy":"…","held_sec":8.2}
+    {"op":"renew","token":"…"}    -> {"ok":true}
+    {"op":"release","token":"…"}  -> {"ok":true}
 
 Calls are serialized by a lock (the game hijack is not reentrant). A failing invoke — e.g.
 the game restarted and the cached per-pid addresses are stale — triggers one automatic
-rebuild-and-retry. Run under the Windows Python:
+rebuild-and-retry.
+
+THE LEASE (acquire/renew/release) is a coarser thing than that per-call lock: an *action*
+is many chunks over seconds, and two of them must not interleave in the game. The panel
+used to hold that as a process-wide flag, which stopped being enough the moment a single
+tab could be launched as its own process (docs/research/panel-tabs-refactor.md §7) — two
+windows, two flags, one game. Four properties, each load-bearing:
+
+  * A lease excludes other LEASES, never a plain `run`. The read-only tabs and the account
+    poll drive the VM without claiming anything and always have; making them wait behind a
+    recipe would freeze the dashboard for the length of every action.
+  * A lease EXPIRES. `ttl` seconds without a renew and it is dropped, so a client that
+    died mid-action cannot wedge the game until someone restarts this daemon. Every `run`
+    carrying the token renews it, so a working action never expires under itself.
+  * A `run` carrying a token that is NOT the live lease is REFUSED. That is the case where
+    an action's lease expired and somebody else took it: the right answer is to stop, not
+    to interleave with whoever holds it now.
+  * Re-acquiring with a token that is already yours returns it unchanged, so a nested
+    claim inside one owner cannot deadlock against itself. Children inherit the token
+    through LW_GAME_LEASE, which is what keeps auto-loot from deadlocking against the
+    tool it spawns.
+
+Run under the Windows Python:
 
     C:\Python312\python.exe tools\lua_daemon.py
     C:\Python312\python.exe tools\lua_daemon.py --port 47655   # second client, own session
@@ -34,16 +60,23 @@ import threading
 # Absolute, not "tools/lib": resolve regardless of the launcher's cwd.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import lua_client  # HOST/PORT only — lightweight
-from lua_eval import LuaEval
+from game_lease import DEFAULT_TTL as DEFAULT_LEASE_TTL, Lease
 
 
 class Daemon:
     def __init__(self):
         self._lock = threading.Lock()
         self._ev = None
+        self.lease = Lease(on_expire=lambda owner, held: print(
+            f"[daemon] lease of {owner!r} expired after {held:.0f}s — dropped",
+            flush=True))
 
-    def _ensure(self) -> LuaEval:
+    def _ensure(self):
+        # LuaEval is imported here, not at module scope: it drags the il2cpp stack in,
+        # which keeps this module out of reach of anything that only wants to speak the
+        # protocol (the lease test, a tool checking whether a daemon is up).
         if self._ev is None:
+            from lua_eval import LuaEval
             self._ev = LuaEval()
         return self._ev
 
@@ -96,11 +129,27 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
             try:
                 if op == "ping":
                     resp = {"ok": True, "warm": daemon.is_warm(),
-                            "pid": daemon.target_pid()}
+                            "pid": daemon.target_pid(),
+                            "lease": daemon.lease.state()}
                 elif op == "run":
-                    lines = daemon.run(req.get("chunk", ""), req.get("marker"),
-                                       float(req.get("settle", 1.2)))
-                    resp = {"ok": True, "lines": lines}
+                    # The lease gate runs BEFORE the evaluator: a caller whose lease
+                    # went away must be told so, not quietly executed beside its
+                    # successor.
+                    refused = daemon.lease.check_run(req.get("token"))
+                    if refused:
+                        resp = {"ok": False, "error": refused, "lease_lost": True}
+                    else:
+                        lines = daemon.run(req.get("chunk", ""), req.get("marker"),
+                                           float(req.get("settle", 1.2)))
+                        resp = {"ok": True, "lines": lines}
+                elif op == "acquire":
+                    resp = daemon.lease.acquire(req.get("owner", "?"),
+                                                req.get("ttl", DEFAULT_LEASE_TTL),
+                                                req.get("token"))
+                elif op == "renew":
+                    resp = daemon.lease.renew(req.get("token"))
+                elif op == "release":
+                    resp = daemon.lease.release(req.get("token"))
                 elif op == "reload":
                     daemon.reload(); resp = {"ok": True, "warm": daemon.is_warm()}
                 elif op == "shutdown":

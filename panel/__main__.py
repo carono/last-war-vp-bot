@@ -445,6 +445,12 @@ CHAT_IMG_CACHE_MAX = 1500
 # pays for the sweep at all.
 TR_REGISTRY_SWEEP = 1000
 
+# How long the daemon holds this panel's claim on the game without hearing from it
+# (tools/lib/game_lease.py). Every chunk the action runs renews it, so this only ever
+# fires for a panel that died mid-action — and then the next window may take the game
+# instead of finding it wedged until somebody restarts the daemon.
+LEASE_TTL_SEC = 120
+
 # The squads the panel offers for a rally. The game's own squad slots are read
 # live where they matter (the formation whose `index` is the slot, see
 # tools/lib/lua_actions.py); this is only how many the page draws.
@@ -1055,6 +1061,11 @@ class Panel(tk.Tk):
         `LW_DAEMON_PORT` travels with it, so a profile pointed at the second client's
         daemon (see SETTINGS_DEFAULTS) drives that client from its captures and
         robberies too — not just from the panel's own presses.
+
+        So does `LW_GAME_LEASE` — it rides along in `os.environ` for exactly as long as
+        this panel holds the game (`_claim_lease` sets it, `_release_busy` pops it).
+        Auto-loot claims the lease and *then* spawns the tool that does the robbing, so
+        without the token the child would sit waiting for a lease its own parent holds.
         """
         return dict(os.environ, PYTHONIOENCODING="utf-8",
                     LW_DAEMON_PORT=str(self._daemon_port()))
@@ -4093,20 +4104,68 @@ class Panel(tk.Tk):
 
     # -- generic action -----------------------------------------------------
     # -- one game action at a time ------------------------------------------
-    def _claim_busy(self) -> bool:
-        """Take the "a game action is running" flag, or say it is already taken.
+    def _claim_busy(self, owner: str = "panel") -> bool:
+        """Take the right to drive the game, or say it is already taken.
 
-        Check-and-set under the lock: the panel's own buttons run on the Tk
-        thread, but the timer scheduler runs on its own, and two threads that
-        read the flag before either sets it would both proceed.
+        TWO locks, because there are two ways to lose the race:
+
+        * the flag below, check-and-set under `_busy_lock` — the panel's own buttons
+          run on the Tk thread while the timer scheduler runs on its own, and two
+          threads that read the flag before either sets it would both proceed;
+        * the DAEMON's lease (tools/lib/game_lease.py) — a tab launched as its own
+          process is a second panel with a second flag against one game, so the
+          holder has to be recorded in the thing both of them share.
+
+        The daemon's answer is authoritative; the local flag is released again if the
+        lease refuses, so a failed claim leaves nothing held. No daemon reachable means
+        nothing can be driving the game anyway, so the flag alone is enough there.
         """
         with self._busy_lock:
             if self._busy:
                 return False
             self._busy = True
+        if not self._claim_lease(owner):
+            with self._busy_lock:
+                self._busy = False
+            return False
+        return True
+
+    def _claim_lease(self, owner: str) -> bool:
+        """Claim the daemon's lease. True also when there is no daemon to claim it from."""
+        client = getattr(self, "_client", None)
+        if client is None or not hasattr(client, "acquire"):
             return True
+        try:
+            token = client.acquire(owner, ttl=LEASE_TTL_SEC)
+        except OSError:               # no daemon — nothing else can be driving the game
+            return True
+        if token:
+            # Publish it to this process's environment, which is how it reaches the two
+            # places that do NOT go through `self._client`: an evaluator a recipe builds
+            # for itself (`lua_client.get_evaluator()` reads it per client), and every
+            # child spawned while we hold it (`_child_env` copies the environment).
+            # Without this a long action never renews and loses the game mid-way.
+            os.environ[lua_client.LEASE_ENV_VAR] = token
+            return True
+        try:
+            held = client.lease_state()
+        except OSError:               # noqa: BLE001 — a diagnostic, never the decision
+            held = {}
+        self._say("panel", "busy.elsewhere",
+                  owner=held.get("owner", "?"), sec=int(held.get("held_sec", 0)))
+        return False
 
     def _release_busy(self) -> None:
+        # Clear the environment FIRST: a child spawned between the release and the pop
+        # would carry a token the daemon has already given away, and every run it made
+        # would be refused as a lost lease.
+        os.environ.pop(lua_client.LEASE_ENV_VAR, None)
+        client = getattr(self, "_client", None)
+        if client is not None and hasattr(client, "release"):
+            try:
+                client.release()
+            except OSError:
+                pass
         with self._busy_lock:
             self._busy = False
 
