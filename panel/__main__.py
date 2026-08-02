@@ -1281,6 +1281,12 @@ class Panel(tk.Tk):
         self._status_var = tk.StringVar(value=self._t("status.checking"))
         self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
+        # The probe words its own answer (`panel/runtime/game_process.py` returns a
+        # `Message`: the sentence and its locale key in one value), so the strip can be
+        # re-said on a language change instead of sitting in the old one until the next
+        # poll — and the poll is eight seconds away.
+        self._status_msg = None
+        self._hook(self._retranslate_status, "top-status")
         self._tr(ttk.Label(top), "top.daemon").pack(side="left", padx=(12, 0))
         self._daemon_var = tk.StringVar(value=self._t("daemon.pending"))
         self._daemon_lbl = ttk.Label(top, textvariable=self._daemon_var, foreground="#888")
@@ -2038,12 +2044,21 @@ class Panel(tk.Tk):
             finally:
                 self._status_busy = False
             self.after(0, lambda: (
-                self._status_var.set(s),
+                self._set_status_msg(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
                 self._dbg_status(ok, warm),
                 self._watchdog_check(ok)))
         threading.Thread(target=work, daemon=True).start()
+
+    def _set_status_msg(self, msg) -> None:
+        """Show the probe's answer, in the panel's language, and keep it for a re-say."""
+        self._status_msg = msg
+        self._status_var.set(i18nmod.translated(self._t, msg))
+
+    def _retranslate_status(self) -> None:
+        if getattr(self, "_status_msg", None) is not None:
+            self._status_var.set(i18nmod.translated(self._t, self._status_msg))
 
     def _watchdog_check(self, running: bool) -> None:
         """Notice the client dying, and put it back if asked to.

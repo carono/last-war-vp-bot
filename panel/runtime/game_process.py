@@ -12,14 +12,29 @@ panel driving the second one over `daemon_port` would report the FIRST one's cli
 "running" and never notice its own being gone. So a profile may name the session its
 client lives in — the login of the user logged on to it — and every probe below then
 counts only the clients inside that session.
+
+**Every answer names itself.** What comes back is shown in the status strip, so it is a
+:class:`panel.i18n.Message`: the English sentence and its locale key in one value. This
+module has no translator and must not grow one (the very same reason `panel/profile.py`
+gives), and «no session for casper» in a Russian panel is the message not being
+translated at all.
 """
 from __future__ import annotations
+
+from ..i18n import Message
 
 #: The default client executable. A profile may name another one — a second client in
 #: its own Windows session, or an install somewhere else — so every caller passes it.
 GAME_EXE = "LastWar.exe"
 
 _NON_GAME_PORTS = frozenset({80, 443})
+
+#: The two session states worth a word of their own. A *disconnected* session is a fully
+#: working one — that is how the second client is meant to be left (docs/research/
+#: multi-instance-rdp.md §3.3) — so it must not read as a fault; anything else is rare
+#: enough to be shown as its raw code rather than translated into eight more keys.
+WTS_ACTIVE = 0
+WTS_DISCONNECTED = 4
 
 
 # -- which Windows session ---------------------------------------------------
@@ -39,27 +54,47 @@ def profile_user(settings) -> str | None:
         return None
 
 
-def session_of(user: str) -> int | None:
-    """The Windows session ``user`` is logged on to, or ``None``.
+def sessions() -> "list | None":
+    """Every Windows session with its login and state, or ``None`` if it cannot be asked.
 
-    ``None`` covers both "nobody by that name is logged on" and "this machine cannot
-    be asked" (no pywin32, not Windows). Neither is the same as "the game is not
-    running", which is why the callers say so in their own words rather than folding
-    it into a plain "not found".
+    ``None`` is not "no sessions": it is "this machine has no answer" — pywin32 missing,
+    or not Windows at all. The two are told apart because they want opposite things said
+    to the person, and folding them together is how a panel ends up looking in the wrong
+    session in silence.
     """
     try:
         import win32ts
+        found = []
         for sess in win32ts.WTSEnumerateSessions():
             sid = sess["SessionId"]
             try:
                 who = win32ts.WTSQuerySessionInformation(0, sid, win32ts.WTSUserName)
             except Exception:            # noqa: BLE001 — access denied on a foreign one
-                continue
-            if (who or "").strip().lower() == user.strip().lower():
-                return int(sid)
+                who = ""
+            found.append({"id": int(sid), "user": (who or "").strip(),
+                          "state": int(sess.get("State", -1))})
+        return found
     except Exception:                    # noqa: BLE001
         return None
+
+
+def session_info(user: str) -> "dict | None":
+    """The session ``user`` is logged on to — ``{id, user, state}`` — or ``None``."""
+    for sess in sessions() or ():
+        if sess["user"].lower() == user.strip().lower():
+            return sess
     return None
+
+
+def session_of(user: str) -> int | None:
+    """The id of the Windows session ``user`` is logged on to, or ``None``.
+
+    ``None`` covers both "nobody by that name is logged on" and "this machine cannot
+    be asked". Neither is the same as "the game is not running", which is why the
+    callers say so in their own words rather than folding it into a plain "not found".
+    """
+    found = session_info(user)
+    return None if found is None else found["id"]
 
 
 def _pids_by_name(game_exe: str) -> list[int]:
@@ -141,32 +176,47 @@ def status(game_exe: str = GAME_EXE, user: str | None = None) -> tuple[bool, str
     (tools/rdp_instance.py). The defaults keep every existing caller — and the
     tests — unchanged: no user named means "whichever client is on this machine".
 
+    The label is a :class:`Message` — the English sentence with its locale key — so the
+    strip showing it says it in the panel's language.
+
     Returns ``(running, label)``.
     """
     try:
         import psutil  # noqa: F401 — every route below needs it
     except Exception:
-        return False, "psutil missing"
+        return False, Message("game.st.no_psutil", "psutil missing")
 
     try:
         found = pids(game_exe, user)
-    except LookupError as exc:
+    except LookupError:
         # Not "no game": nobody is logged on to that session, so there is nowhere to
         # look. Saying it plainly is what stops the watchdog from starting a client
         # here instead (see `_watchdog_check`).
-        return False, str(exc)
+        return False, Message("game.st.no_session",
+                              f"nobody is logged on as {user}", user=user)
     except Exception as exc:
-        return False, f"probe error: {exc}"
+        return False, Message("game.st.probe_error", f"probe error: {exc}", error=exc)
 
     if not found:
-        return False, f"game not found ({user})" if user else "game not found"
+        if user:
+            return False, Message("game.st.session_not_found",
+                                  f"no client in {user}'s session", user=user)
+        return False, Message("game.st.not_found", "game not found")
 
     pid = found[0]
-    where = f" in {user}'s session" if user else ""
     conn = _endpoint(found)
+    if user and conn:
+        return True, Message("game.st.session_running_at",
+                             f"running in {user}'s session (pid {pid}) -> {conn}",
+                             user=user, pid=pid, conn=conn)
+    if user:
+        return True, Message("game.st.session_running",
+                             f"running in {user}'s session (pid {pid})",
+                             user=user, pid=pid)
     if conn:
-        return True, f"running (pid {pid}){where} -> {conn}"
-    return True, f"running (pid {pid}){where}"
+        return True, Message("game.st.running_at", f"running (pid {pid}) -> {conn}",
+                             pid=pid, conn=conn)
+    return True, Message("game.st.running", f"running (pid {pid})", pid=pid)
 
 
 def profile_status(settings) -> tuple[bool, str]:
@@ -177,3 +227,72 @@ def profile_status(settings) -> tuple[bool, str]:
     the session.
     """
     return status(settings.opt_str("game_exe"), user=profile_user(settings))
+
+
+# -- «Проверить»: the answer in full, before anything depends on it -----------
+
+def port_clash(settings) -> bool:
+    """Does this profile look into another session while talking to THIS desktop?
+
+    The cheap half of :func:`check` — three knobs and no Windows call — because it is
+    re-read on every keystroke in the port box. A profile in that state reads one
+    client's process list and presses buttons in another, which looks like the game
+    ignoring the panel rather than like a setting.
+    """
+    import lua_client                     # noqa: PLC0415 — the default port lives there
+    if not profile_user(settings):
+        return False
+    try:
+        return settings.opt_int("daemon_port", low=1, high=65535) == lua_client.DEFAULT_PORT
+    except Exception:                    # noqa: BLE001 — a half-typed port
+        return False
+
+
+def check(settings) -> dict:
+    """Everything the session settings can be wrong about, in one reading.
+
+    The status strip says whether the client is there; this says *why not*, and it is
+    the difference between a profile that works and one that quietly farms nothing.
+    Four things can be wrong, and they want four different acts from the person:
+
+    * the box is ticked and no login typed — nothing to look for;
+    * nobody is logged on as that login — the session is not up (`--bring-up`);
+    * the session is up and holds no client — start the client inside it;
+    * the session and the client are both there, but the profile's daemon port is the
+      default one, which is THIS desktop's daemon. That profile would then read one
+      client's process list and press buttons in another — the single most confusing
+      state the pair of settings can be in, and invisible without saying so.
+
+    Returns ``{"kind": …}`` and the numbers behind it; the words are the caller's, so
+    this stays free of the UI's language (`panel/tabs/settings.py` maps kind → key).
+    """
+    user = profile_user(settings)
+    if not user:
+        # Ticked with nothing typed is not the same as not ticked: one is a setting
+        # half made, the other is a deliberate "this desktop".
+        ticked = False
+        try:
+            ticked = bool(settings.opt_bool("rdp_session"))
+        except Exception:                # noqa: BLE001
+            pass
+        return {"kind": "no_login" if ticked else "off"}
+
+    exe = settings.opt_str("game_exe")
+    port = settings.opt_int("daemon_port", low=1, high=65535)
+    clash = port_clash(settings)
+
+    if sessions() is None:
+        return {"kind": "unsupported", "user": user}
+    found = session_info(user)
+    if found is None:
+        return {"kind": "no_session", "user": user}
+
+    out = {"user": user, "session": found["id"], "state": found["state"],
+           "exe": exe, "port": port, "clash": clash}
+    try:
+        here = _pids_in_session(exe, found["id"])
+    except Exception as exc:             # noqa: BLE001 — a verdict, not a crash
+        return {**out, "kind": "probe_error", "error": exc}
+    if not here:
+        return {**out, "kind": "no_client"}
+    return {**out, "kind": "ok", "pid": here[0]}

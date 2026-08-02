@@ -187,6 +187,18 @@ So the profile also names the session, on **Настройки → Игра → 
 | «Игра запущена в другой сессии Windows» | this profile's client is not the one on this desktop |
 | «Логин сессии» | the Windows user logged on to that session (`casper`) |
 
+…and **«Проверить»** beside them answers, in one line, which of the four states the
+profile is actually in: the box unticked (this desktop), ticked with no login, nobody
+logged on as that login (the session is not up — `--bring-up`), the session up and
+holding no client (start it inside that session), or the whole of it in place with the
+pid. A *disconnected* session is reported as disconnected and normal, because that is
+how the second instance is meant to be left (§3.3).
+
+The port is the other half of the same answer, so the page says when the two disagree:
+a profile looking into `casper`'s session while its daemon port is still :47654 reads
+one client's process list and presses the buttons of another. That warning sits under
+the two rows and appears the moment either knob makes it true.
+
 `panel/runtime/game_process.py` reads the pair (`profile_user`) and then counts only the
 clients inside that session. Two details are load-bearing:
 
@@ -194,9 +206,11 @@ clients inside that session. Two details are load-bearing:
   `ProcessIdToSessionId` — the latter needs query rights on the process, so another
   user's client comes back as "session 0", which reads as a service (`rdp_instance.py`
   learned this the same way, §3.4);
-* "nobody is logged on to that session" is reported as `no session for casper`, never as
-  `game not found`. Folding the two together is exactly what would have the watchdog
-  relaunch a client that is alive.
+* "nobody is logged on to that session" is reported as its own sentence — «пользователь
+  casper не залогинен» — never as `game not found`. Folding the two together is exactly
+  what would have the watchdog relaunch a client that is alive. Every answer the probe
+  gives is a `panel.i18n.Message` (the sentence and its locale key in one value), so the
+  status strip says it in the panel's language and re-says it when the language changes.
 
 Naming a session also **takes the launch buttons away**: «Запустить игру», «Перезапустить»
 and the watchdog all refuse with one log line, because the launcher would start a client

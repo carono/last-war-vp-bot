@@ -42,7 +42,7 @@ class _Settings:
 
     def __init__(self, **values) -> None:
         self.values = {"game_exe": "LastWar.exe", "rdp_session": False,
-                       "rdp_user": "", **values}
+                       "rdp_user": "", "daemon_port": 47655, **values}
 
     def opt_bool(self, key):
         return bool(self.values.get(key))
@@ -50,25 +50,42 @@ class _Settings:
     def opt_str(self, key):
         return str(self.values.get(key) or "")
 
+    def opt_int(self, key, low=None, high=None):
+        return int(self.values.get(key) or 0)
+
 
 class _Machine:
-    """The Windows half, stubbed: who is logged on where, and what runs there."""
+    """The Windows half, stubbed: who is logged on where, and what runs there.
 
-    def __init__(self, sessions: dict, processes: dict) -> None:
-        self.sessions = {k.lower(): v for k, v in sessions.items()}   # login -> session
+    ``sessions`` is ``{login: id}`` or ``{login: (id, state)}``; ``None`` is the machine
+    that cannot be asked at all (no pywin32), which is a different answer from "no such
+    session" and has to stay that way. Only the two calls that reach Windows are
+    replaced — the resolution on top of them is the real code.
+    """
+
+    def __init__(self, sessions, processes: dict, exe: str = "LastWar.exe") -> None:
+        self.rows = None if sessions is None else [
+            {"id": (v[0] if isinstance(v, tuple) else v), "user": k,
+             "state": (v[1] if isinstance(v, tuple) else gp.WTS_ACTIVE)}
+            for k, v in sessions.items()]
         self.processes = processes                                    # session -> pids
+        self.exe = exe            # what those pids are called; anything else is absent
+
+    def _named(self, exe):
+        return exe.lower() == self.exe.lower()
 
     def __enter__(self):
-        self._saved = (gp.session_of, gp._pids_in_session, gp._pids_by_name, gp._endpoint)
-        gp.session_of = lambda user: self.sessions.get(user.strip().lower())
-        gp._pids_in_session = lambda exe, session: list(self.processes.get(session, ()))
-        gp._pids_by_name = lambda exe: [pid for pids in self.processes.values()
-                                        for pid in pids]
+        self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name, gp._endpoint)
+        gp.sessions = lambda: self.rows
+        gp._pids_in_session = lambda exe, session: (
+            list(self.processes.get(session, ())) if self._named(exe) else [])
+        gp._pids_by_name = lambda exe: ([pid for pids in self.processes.values()
+                                         for pid in pids] if self._named(exe) else [])
         gp._endpoint = lambda found: None      # foreign sockets come back without a pid
         return self
 
     def __exit__(self, *exc):
-        (gp.session_of, gp._pids_in_session, gp._pids_by_name, gp._endpoint) = self._saved
+        (gp.sessions, gp._pids_in_session, gp._pids_by_name, gp._endpoint) = self._saved
         return False
 
 
@@ -102,33 +119,181 @@ def test_nobody_logged_on_there_is_said_in_so_many_words():
     assert running is False, label
     # NOT "game not found": the answer is "there is nowhere to look", and the watchdog
     # relaunching on the strength of it would start a client on the wrong desktop.
-    assert "no session for casper" == label, label
-    assert "not found" not in label, label
+    assert label.key == "game.st.no_session", label.key
+    assert label.fmt == {"user": "casper"}, label.fmt
 
 
 def test_the_client_on_this_desktop_is_not_the_other_profiles():
     with _Machine(sessions={"spame": 1, "casper": 4}, processes={1: [111]}):
         running, label = gp.status("LastWar.exe", user="casper")
     assert running is False, label
-    assert "game not found" in label and "casper" in label, label
+    assert label.key == "game.st.session_not_found", label.key
 
 
 def test_a_client_in_the_named_session_is_found_there():
     with _Machine(sessions={"spame": 1, "casper": 4}, processes={1: [111], 4: [222]}):
         running, label = gp.status("LastWar.exe", user="casper")
     assert running is True, label
-    assert "222" in label and "casper" in label, label
+    assert label.key == "game.st.session_running", label.key
+    assert label.fmt == {"user": "casper", "pid": 222}, label.fmt
 
 
 def test_without_a_session_nothing_changes():
     with _Machine(sessions={"spame": 1}, processes={1: [111]}):
         running, label = gp.status("LastWar.exe")
-    assert running is True and "111" in label, label
-    assert "session" not in label, label
+    assert running is True and label.fmt == {"pid": 111}, label
+    assert label.key == "game.st.running", label.key
 
     with _Machine(sessions={}, processes={}):
         running, label = gp.status("LastWar.exe")
-    assert running is False and label == "game not found", label
+    assert running is False and label.key == "game.st.not_found", label.key
+
+
+# -- every answer is one the panel can say in the person's language ----------
+
+def test_the_strip_never_shows_a_sentence_the_locales_do_not_have():
+    import json
+    from pathlib import Path
+
+    seen = []
+    with _Machine(sessions={"spame": 1, "casper": (4, gp.WTS_DISCONNECTED)},
+                  processes={1: [111], 4: [222]}):
+        seen.append(gp.status("LastWar.exe")[1])
+        seen.append(gp.status("LastWar.exe", user="casper")[1])
+        seen.append(gp.status("Nothing.exe")[1])
+        seen.append(gp.status("Nothing.exe", user="casper")[1])
+        seen.append(gp.status("LastWar.exe", user="nobody")[1])
+    keys = [m.key for m in seen]
+    assert len(set(keys)) == 5, keys
+    root = Path(__file__).resolve().parents[1] / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        locale = json.loads(path.read_text(encoding="utf-8"))
+        missing = [k for k in keys if k not in locale]
+        assert not missing, f"{path.name}: {missing}"
+        for msg in seen:                      # …and it takes the values it is given
+            locale[msg.key].format(**msg.fmt)
+
+
+# -- «Проверить»: what is wrong, not merely that something is ----------------
+
+def test_the_check_tells_the_four_ways_it_can_be_wrong_apart():
+    live = {"spame": 1, "casper": (4, gp.WTS_DISCONNECTED)}
+
+    def kind(settings, sessions=live, processes=None):
+        with _Machine(sessions=sessions, processes=processes or {1: [111], 4: [222]}):
+            return gp.check(settings)
+
+    # Not ticked at all — this desktop, and nothing to complain about.
+    assert kind(_Settings())["kind"] == "off"
+    # Ticked with an empty box: a setting half made, NOT the same as not ticked.
+    assert kind(_Settings(rdp_session=True))["kind"] == "no_login"
+    # Nobody by that name is logged on: the session is not up yet.
+    assert kind(_Settings(rdp_session=True, rdp_user="ghost"))["kind"] == "no_session"
+    # The session is up and empty: the client itself has to be started in it.
+    empty = kind(_Settings(rdp_session=True, rdp_user="casper"), processes={1: [111]})
+    assert empty["kind"] == "no_client" and empty["session"] == 4, empty
+    # …and the whole of it in place.
+    ok = kind(_Settings(rdp_session=True, rdp_user="casper"))
+    assert ok["kind"] == "ok" and ok["pid"] == 222, ok
+    assert ok["state"] == gp.WTS_DISCONNECTED, ok      # normal, and shown as such
+    # A machine that cannot be asked is its own answer, not "no such session".
+    assert kind(_Settings(rdp_session=True, rdp_user="casper"),
+                sessions=None)["kind"] == "unsupported"
+
+
+def test_the_port_and_the_session_are_read_as_one_answer():
+    import lua_client
+
+    other = _Settings(rdp_session=True, rdp_user="casper", daemon_port=47655)
+    same = _Settings(rdp_session=True, rdp_user="casper",
+                     daemon_port=lua_client.DEFAULT_PORT)
+    here = _Settings(daemon_port=lua_client.DEFAULT_PORT)
+
+    assert gp.port_clash(other) is False
+    # Looking into another session while talking to THIS desktop's daemon: reads one
+    # client, presses the buttons of another. Nothing else in the panel would say so.
+    assert gp.port_clash(same) is True
+    # …and a profile that never left this desktop is not in that state at all.
+    assert gp.port_clash(here) is False
+
+    with _Machine(sessions={"casper": 4}, processes={4: [222]}):
+        assert gp.check(same)["clash"] is True
+        assert gp.check(other)["clash"] is False
+
+
+def test_the_check_verdicts_all_have_something_to_say_in_every_locale():
+    import json
+    from pathlib import Path
+
+    kinds = ("off", "no_login", "no_session", "no_client", "ok", "unsupported",
+             "probe_error")
+    root = Path(__file__).resolve().parents[1] / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        locale = json.loads(path.read_text(encoding="utf-8"))
+        for extra in ("session.check", "session.clash", "session.state.active",
+                      "session.state.disconnected", "session.state.other"):
+            assert extra in locale, f"{path.name}: {extra}"
+        for kind in kinds:
+            assert f"session.check.{kind}" in locale, f"{path.name}: {kind}"
+
+
+# -- and the page says it in words, not in verdict codes ---------------------
+
+def test_the_page_answers_in_sentences_and_greys_the_login_box():
+    """Press «Проверить» on the real page and read what a person would read.
+
+    The verdict is a `kind`; what must reach the person is the sentence for it. This is
+    the seam where a kind nobody wrote a key for would show up as `session.check.ok`
+    typed out literally on the page — the one failure the locale test above cannot see.
+
+    Needs Tk and a display; says SKIP without one.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no tkinter: {exc}")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import fake_runtime
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no display: {exc}")
+        return
+    try:
+        root.withdraw()
+        rt = fake_runtime.cold_runtime(root)
+        rt.settings.save = lambda raw=None: None
+        page = SettingsTab(rt, ttk.Frame(root))
+        page._build_session_settings(page.parent)
+
+        saved = gp.check
+        try:
+            for kind in ("off", "no_login", "no_session", "no_client", "ok",
+                         "unsupported", "probe_error"):
+                gp.check = lambda s, k=kind: {
+                    "kind": k, "user": "casper", "session": 4,
+                    "state": gp.WTS_DISCONNECTED, "exe": "LastWar.exe", "pid": 222,
+                    "port": 47655, "clash": False, "error": "boom"}
+                page._check_session()
+                said = page._session_verdict.cget("text")
+                assert said and not said.startswith("session."), (kind, said)
+                assert "{" not in said, (kind, said)      # every slot was filled
+        finally:
+            gp.check = saved
+
+        # The login box follows the tick, both ways.
+        rt.settings.vars["rdp_session"].set(False)
+        assert str(page._session_user_entry.cget("state")) == "disabled"
+        rt.settings.vars["rdp_session"].set(True)
+        assert str(page._session_user_entry.cget("state")) == "normal"
+    finally:
+        try:
+            root.destroy()
+        except Exception:                   # noqa: BLE001
+            pass
 
 
 # -- the one call a caller wants --------------------------------------------

@@ -389,21 +389,83 @@ class SettingsTab(PanelTab):
         frame.columnconfigure(2, weight=1)
         self._opt_row(frame, 0, "rdp_session")
         self._session_user_entry = self._opt_row(frame, 1, "rdp_user", width=20)
+
+        # «Проверить»: the settings answer for themselves, here, rather than being
+        # discovered at three in the morning as a profile that farmed nothing. The
+        # reading itself is the runtime's (`game_process.check`); this half only puts
+        # words to the verdict it comes back with.
+        self._session_check_btn = self.tr(
+            ttk.Button(frame, command=self._check_session), "session.check")
+        self._session_check_btn.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        self._session_verdict = ttk.Label(frame, foreground="#888", wraplength=520,
+                                          justify="left")
+        self._session_verdict.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        # The port and the session are two halves of one answer, so the contradiction
+        # between them is shown without waiting to be asked for.
+        self._session_clash = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
+                                        justify="left")
+        self._session_clash.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
         # The login is meaningless while the tick is off, and a box that still takes
-        # typing says otherwise. Follow the checkbox, now and on every change.
-        var = self.rt.settings.vars["rdp_session"]
-        var.trace_add("write", lambda *a: self._refresh_session_user_state())
+        # typing says otherwise. Follow the checkbox — and the port — on every change.
+        for key in ("rdp_session", "daemon_port"):
+            self.rt.settings.vars[key].trace_add(
+                "write", lambda *a: self._refresh_session_user_state())
         self._refresh_session_user_state()
 
     def _refresh_session_user_state(self) -> None:
+        """Keep the login box and the port warning in step with the tick."""
+        on = self.rt.settings.opt_bool("rdp_session")
         entry = getattr(self, "_session_user_entry", None)
-        if entry is None:
-            return
         try:
-            entry.configure(state="normal" if self.rt.settings.opt_bool("rdp_session")
-                            else "disabled")
+            if entry is not None:
+                entry.configure(state="normal" if on else "disabled")
+            clash = getattr(self, "_session_clash", None)
+            if clash is not None:
+                gp = runtime.game_process
+                # The cheap half of the check: three knobs, no Windows call, because
+                # this runs on every keystroke in the port box.
+                clash.configure(
+                    text=self.t("session.clash",
+                                port=self.rt.settings.opt_int("daemon_port", low=1,
+                                                              high=65535),
+                                user=gp.profile_user(self.rt.settings) or "")
+                    if gp.port_clash(self.rt.settings) else "")
         except tk.TclError:
             pass
+
+    #: What `game_process.check` can come back with, and how sure each verdict is.
+    #: Green is "this profile will find its client"; anything else is a step the
+    #: person still has to take, said in the words of the step rather than a code.
+    _VERDICT_COLOURS = {"ok": "#3c3", "off": "#888", "no_client": "#e0a84f"}
+
+    def _check_session(self) -> None:
+        """Say what the session settings currently amount to, in one line."""
+        try:
+            verdict = runtime.game_process.check(self.rt.settings)
+        except Exception as exc:                # noqa: BLE001 — a line, not the page
+            verdict = {"kind": "probe_error", "error": exc}
+        kind = verdict.get("kind", "probe_error")
+        fmt = dict(verdict)
+        fmt.pop("kind", None)
+        if "state" in fmt:
+            fmt["state"] = self._session_state_word(fmt["state"])
+        try:
+            self._session_verdict.configure(
+                text=self.t(f"session.check.{kind}", **fmt),
+                foreground=self._VERDICT_COLOURS.get(kind, "#c33"))
+        except tk.TclError:
+            pass
+        self._refresh_session_user_state()
+
+    def _session_state_word(self, state) -> str:
+        """«активна» / «отключена» / the raw code for the states nobody has to know."""
+        gp = runtime.game_process
+        if state == gp.WTS_ACTIVE:
+            return self.t("session.state.active")
+        if state == gp.WTS_DISCONNECTED:
+            return self.t("session.state.disconnected")
+        return self.t("session.state.other", code=state)
 
     def _refresh_sweep_settings_hint(self) -> None:
         hint = getattr(self, "_sweep_settings_hint", None)
