@@ -658,6 +658,20 @@ class Panel(tk.Tk):
     def _game_exe(self) -> str:
         return self._opt_str("game_exe")
 
+    def _game_user(self) -> str | None:
+        """The login of the Windows session this profile's client lives in, if another.
+
+        ``None`` means the ordinary case: the client on this desktop. Anything else is
+        a second account in its own session (tools/rdp_instance.py) — the panel talks to
+        it over its own daemon port, but starting and stopping it is not the panel's to
+        do from here (see `_launch_game`).
+        """
+        return runtime.game_process.profile_user(self._binder)
+
+    def _game_status(self) -> tuple:
+        """`(running, label)` for THIS profile's client — its executable, its session."""
+        return runtime.game_process.profile_status(self._binder)
+
     def _launcher(self) -> str:
         return self._opt_str("launcher")
 
@@ -1507,7 +1521,7 @@ class Panel(tk.Tk):
             return
         if not self._daemon_up():
             return
-        running, _text = game_status(self._game_exe())
+        running, _text = self._game_status()
         if not running:
             return
         lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
@@ -2002,7 +2016,7 @@ class Panel(tk.Tk):
 
         def work() -> None:
             try:
-                ok, s = game_status(self._game_exe())
+                ok, s = self._game_status()
                 warm = self._daemon_up()
             finally:
                 self._status_busy = False
@@ -2041,6 +2055,10 @@ class Panel(tk.Tk):
         if self._game_was_up:
             self._say("game", "log.game.gone")
         if not self._opt_bool("watchdog"):
+            return
+        # A client of another session cannot be put back from here — the recipe would
+        # start one on THIS desktop, which is a third client nobody asked for.
+        if self._elsewhere():
             return
         since = time.time() - self._watchdog_last
         if since < WATCHDOG_COOLDOWN_SEC:
@@ -2428,14 +2446,33 @@ class Panel(tk.Tk):
         threading.Thread(target=work, daemon=True).start()
 
     # -- game lifecycle -----------------------------------------------------
+    def _elsewhere(self) -> bool:
+        """Does this profile's client live in another Windows session? Say so if it does.
+
+        Starting and stopping it from here would act on the WRONG desktop in both
+        directions: the launcher would put a third client on this one, and a taskkill by
+        name would fell the client of whoever is farming here. The session's own client
+        is brought up and taken down from its own session (tools/rdp_instance.py); the
+        panel drives what is already there, over the daemon port.
+        """
+        user = self._game_user()
+        if not user:
+            return False
+        self._say("game", "log.game.other_session", user=user)
+        return True
+
     def _launch_game(self) -> None:
         # Launch through the same DSL recipe the bot uses: actions/launch_game.md
         # (LAUNCH the launcher, then WAIT for the base screen). One source of truth
         # for "start the game", shared by the panel and any scripted run.
+        if self._elsewhere():
+            return
         self._say("game", "log.game.launching")
         self._rt.play_async("launch_game")
 
     def _restart_game(self) -> None:
+        if self._elsewhere():
+            return
         exe = self._game_exe()
 
         def work() -> None:

@@ -178,7 +178,7 @@ class Schedule:
         daemon is not checked here — the runner starts it on demand, exactly as a
         button press does.
         """
-        running, _text = game_process.status(self.rt.settings.opt_str("game_exe"))
+        running, _text = game_process.profile_status(self.rt.settings)
         return None if running else "timers.log.skip_game"
 
     # -- running one errand --------------------------------------------------

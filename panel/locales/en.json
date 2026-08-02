@@ -168,6 +168,7 @@
   "log.game.kill_failed": "the process could not be killed: {error}",
   "log.game.killing": "killing {exe}…",
   "log.game.launching": "starting the game through the launch_game recipe…",
+  "log.game.other_session": "this profile's client lives in {user}'s Windows session — it is started and stopped there; the panel only drives it, over its own daemon port",
   "log.game.watchdog_hold": "watchdog: the last relaunch was {mins} min ago — waiting",
   "log.game.watchdog_relaunch": "watchdog: starting the game again",
   "log.ghost.error": "the poll failed: {error}",
@@ -251,6 +252,10 @@
   "opt.launcher.hint": "Path to the game launcher.",
   "opt.log_max_lines": "Lines kept in the log",
   "opt.log_max_lines.hint": "How much the log widget keeps. panel.log is never trimmed.",
+  "opt.rdp_session": "The game runs in another Windows session",
+  "opt.rdp_session.hint": "Tick this for a second account: its client lives in a Windows session of its own (its own desktop), not on this one. The panel then looks for THAT client, and stops starting or restarting it from here — that would act on this desktop instead.",
+  "opt.rdp_user": "Session login",
+  "opt.rdp_user.hint": "The Windows user logged on to that session: the client is looked for among that user's processes. Empty means the same as unticked — the client on this desktop.",
   "opt.sniff_ready_timeout": "Sniffer readiness wait, s",
   "opt.sniff_ready_timeout.hint": "How long to wait for both halves of a recording to report.",
   "opt.sweep_dwell": "Pause between jumps, s",
@@ -370,6 +375,8 @@
   "senddiag.send": "Send",
   "senddiag.title": "Send diagnostics",
   "senddiag.warning": "No personal information is sent. The log contains only technical data about how the panel runs.",
+
+  "session.frame": "Windows session",
 
   "settings.placeholder": "Coming soon",
   "settings.tab.autorally": "Auto Rally",

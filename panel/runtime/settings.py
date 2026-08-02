@@ -83,6 +83,16 @@ DEFAULTS: dict = {
     "launcher": os.path.join(GAME_DIR, "LastWarLauncher.exe"),
     "game_exe": "LastWar.exe",
     "watchdog": False,
+    # …and `daemon_port`'s other half. The port says WHAT to talk to; these two say
+    # WHERE the client is, which is a different question and the one the process probe
+    # asks: a second account lives in its own Windows session (tools/rdp_instance.py),
+    # and by executable name alone the panel would find the console session's client
+    # and call it this profile's — reporting "running" over a client of its own that
+    # died hours ago, and letting the watchdog start a third one here.
+    # `rdp_user` is the login of the user logged on to that session; it means nothing
+    # while `rdp_session` is off (panel/runtime/game_process.py reads the pair).
+    "rdp_session": False,
+    "rdp_user": "",
     "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
     "sweep_step": mapsweepmod.DEFAULT_STEP,
     "sweep_dwell": mapsweepmod.DEFAULT_DWELL,

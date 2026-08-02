@@ -52,7 +52,7 @@ class SettingsTab(PanelTab):
     TITLE_KEY = "tab.settings"
     ORDER = 40
     PREFERRED_SIZE = "820x640"
-    LOCALE_NS = ("settings", "opt", "debug")
+    LOCALE_NS = ("settings", "opt", "debug", "session")
     NEEDS = frozenset()
 
     # -- «Вкладки»: which of them this profile shows --------------------------
@@ -173,25 +173,31 @@ class SettingsTab(PanelTab):
     # below is one entry in runtime.DEFAULTS bound to its `_opt_vars` variable, so
     # a new knob is a line there plus a row here plus two locale strings.
     def _opt_row(self, parent: ttk.Frame, row: int, key: str, *,
-                 width: int = 12, spin: "tuple | None" = None) -> None:
-        """One labelled field on a Settings tab, bound to ``_opt_vars[key]``."""
+                 width: int = 12, spin: "tuple | None" = None):
+        """One labelled field on a Settings tab, bound to ``_opt_vars[key]``.
+
+        Returns the control itself, for the rare knob that another one governs (the
+        RDP login is meaningless while its checkbox is off).
+        """
         self.tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="w",
                                                        padx=(0, 8), pady=3)
         var = self.rt.settings.vars[key]
         if isinstance(var, tk.BooleanVar):
-            ttk.Checkbutton(parent, variable=var).grid(row=row, column=1, sticky="w")
+            widget = ttk.Checkbutton(parent, variable=var)
+            widget.grid(row=row, column=1, sticky="w")
         elif spin is not None:
             # A float knob (poll seconds, dwell, timeout) needs the decimal point;
             # an integer one stays digit-only.
             decimal = isinstance(runtime.DEFAULTS.get(key), float)
-            numeric_spinbox(parent, from_=spin[0], to=spin[1], width=width,
-                        decimal=decimal, textvariable=var).grid(
-                            row=row, column=1, sticky="w")
+            widget = numeric_spinbox(parent, from_=spin[0], to=spin[1], width=width,
+                                     decimal=decimal, textvariable=var)
+            widget.grid(row=row, column=1, sticky="w")
         else:
-            ttk.Entry(parent, textvariable=var, width=width).grid(row=row, column=1,
-                                                                  sticky="we")
+            widget = ttk.Entry(parent, textvariable=var, width=width)
+            widget.grid(row=row, column=1, sticky="we")
         self.tr(ttk.Label(parent, foreground="#888", wraplength=340, justify="left"),
                  f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
+        return widget
 
     def _build_general_settings(self, parent: ttk.Frame) -> None:
         """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
@@ -240,6 +246,7 @@ class SettingsTab(PanelTab):
         )):
             self._opt_row(grid, row, key, **kwargs)
 
+        self._build_session_settings(parent)
         sweep = self.tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
         sweep.pack(fill="x", pady=(12, 0))
         sweep.columnconfigure(2, weight=1)
@@ -261,6 +268,38 @@ class SettingsTab(PanelTab):
             self.rt.settings.vars[key].trace_add(
                 "write", lambda *a: self._refresh_sweep_settings_hint())
         self._refresh_sweep_settings_hint()
+
+    def _build_session_settings(self, parent: ttk.Frame) -> None:
+        """«Windows-сессия»: is this profile's client the one on this desktop?
+
+        The second account does not live here. It runs in its own Windows session, owned
+        by that session's own user (tools/rdp_instance.py), and the panel drives it over
+        the daemon port on the «Общие» page. The port is only half the answer: everything
+        that goes looking for the *process* — the status strip, the watchdog, the tabs
+        that will not spend an errand on a client that is gone — finds a client by
+        executable name, and both clients have the same name. Naming the session's login
+        here is what tells them apart.
+        """
+        frame = self.tr(ttk.LabelFrame(parent, padding=8), "session.frame")
+        frame.pack(fill="x", pady=(12, 0))
+        frame.columnconfigure(2, weight=1)
+        self._opt_row(frame, 0, "rdp_session")
+        self._session_user_entry = self._opt_row(frame, 1, "rdp_user", width=20)
+        # The login is meaningless while the tick is off, and a box that still takes
+        # typing says otherwise. Follow the checkbox, now and on every change.
+        var = self.rt.settings.vars["rdp_session"]
+        var.trace_add("write", lambda *a: self._refresh_session_user_state())
+        self._refresh_session_user_state()
+
+    def _refresh_session_user_state(self) -> None:
+        entry = getattr(self, "_session_user_entry", None)
+        if entry is None:
+            return
+        try:
+            entry.configure(state="normal" if self.rt.settings.opt_bool("rdp_session")
+                            else "disabled")
+        except tk.TclError:
+            pass
 
     def _refresh_sweep_settings_hint(self) -> None:
         hint = getattr(self, "_sweep_settings_hint", None)

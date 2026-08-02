@@ -168,6 +168,7 @@
   "log.game.kill_failed": "der Prozess ließ sich nicht beenden: {error}",
   "log.game.killing": "beende {exe}…",
   "log.game.launching": "starte das Spiel über das Rezept launch_game…",
+  "log.game.other_session": "der Client dieses Profils lebt in der Windows-Sitzung von {user} — dort wird er gestartet und beendet; das Panel steuert ihn nur, über seinen eigenen Daemon-Port",
   "log.game.watchdog_hold": "Wächter: der letzte Neustart war vor {mins} min — warte",
   "log.game.watchdog_relaunch": "Wächter: starte das Spiel erneut",
   "log.ghost.error": "die Abfrage ist fehlgeschlagen: {error}",
@@ -251,6 +252,10 @@
   "opt.launcher.hint": "Pfad zum Starter des Spiels.",
   "opt.log_max_lines": "Im Protokoll behaltene Zeilen",
   "opt.log_max_lines.hint": "Wie viel das Protokollfeld behält. panel.log wird nie gekürzt.",
+  "opt.rdp_session": "Das Spiel läuft in einer anderen Windows-Sitzung",
+  "opt.rdp_session.hint": "Für einen zweiten Account ankreuzen: dessen Client lebt in einer eigenen Windows-Sitzung (mit eigenem Desktop), nicht auf diesem. Das Panel sucht dann GENAU diesen Client und startet ihn nicht mehr von hier aus — das träfe diesen Desktop.",
+  "opt.rdp_user": "Anmeldename der Sitzung",
+  "opt.rdp_user.hint": "Der Windows-Benutzer, der an jener Sitzung angemeldet ist: Der Client wird unter dessen Prozessen gesucht. Leer bedeutet dasselbe wie ohne Häkchen — der Client auf diesem Desktop.",
   "opt.sniff_ready_timeout": "Warten auf die Bereitschaft des Sniffers, s",
   "opt.sniff_ready_timeout.hint": "Wie lange darauf gewartet wird, dass beide Hälften einer Aufzeichnung sich melden.",
   "opt.sweep_dwell": "Pause zwischen den Sprüngen, s",
@@ -370,6 +375,8 @@
   "senddiag.send": "Senden",
   "senddiag.title": "Diagnose senden",
   "senddiag.warning": "Es werden keine persönlichen Daten gesendet. Das Protokoll enthält nur technische Angaben darüber, wie das Pult läuft.",
+
+  "session.frame": "Windows-Sitzung",
 
   "settings.placeholder": "Kommt bald",
   "settings.tab.autorally": "Automatische Versammlung",

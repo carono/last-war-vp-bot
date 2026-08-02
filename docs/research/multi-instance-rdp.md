@@ -170,6 +170,39 @@ two have not crossed:
 [rdp] daemon :47655 {'ok': True, 'warm': True, 'pid': 29352}
 ```
 
+### 4.1 The panel needs the session too, not only the port (#1204)
+
+A profile drives the second client by naming its port (**Настройки → Общие → «Порт
+lua-демона»**), and that is the whole of the *talking*. It is not the whole of the *looking*:
+the status strip, the watchdog and the tabs that will not spend an errand on a dead
+client all ask the process list, and there they ask by executable name — which both
+clients share. A panel driving :47655 would therefore report the console session's client
+as its own: "running (pid …)" over a second client that died hours ago, and a watchdog
+relaunch that puts a **third** client on this desktop.
+
+So the profile also names the session, on **Настройки → Игра → «Сессия Windows»**:
+
+| Knob | Meaning |
+|---|---|
+| «Игра запущена в другой сессии Windows» | this profile's client is not the one on this desktop |
+| «Логин сессии» | the Windows user logged on to that session (`casper`) |
+
+`panel/runtime/game_process.py` reads the pair (`profile_user`) and then counts only the
+clients inside that session. Two details are load-bearing:
+
+* the session's processes come from `WTSEnumerateProcesses`, **not**
+  `ProcessIdToSessionId` — the latter needs query rights on the process, so another
+  user's client comes back as "session 0", which reads as a service (`rdp_instance.py`
+  learned this the same way, §3.4);
+* "nobody is logged on to that session" is reported as `no session for casper`, never as
+  `game not found`. Folding the two together is exactly what would have the watchdog
+  relaunch a client that is alive.
+
+Naming a session also **takes the launch buttons away**: «Запустить игру», «Перезапустить»
+and the watchdog all refuse with one log line, because the launcher would start a client
+on this desktop and `taskkill /IM LastWar.exe` would fell the client of whoever is farming
+here. That session's client is brought up and taken down from its own session (§5).
+
 ## 5. Using it
 
 Bringing the second instance up by hand — log in as that account (RDP or fast user

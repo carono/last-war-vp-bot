@@ -96,7 +96,7 @@ class GhostOrder:
             return POLL
         if self.rt.game.busy or not self.rt.game.up():
             return POLL
-        running, _text = game_process.status(self.rt.settings.opt_str("game_exe"))
+        running, _text = game_process.profile_status(self.rt.settings)
         if not running:
             return POLL
         chunk = ('CS.UnityEngine.Debug.LogError("GHOST open=" .. tostring(%s) '
