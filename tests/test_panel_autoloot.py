@@ -95,8 +95,10 @@ class _Watcher:
         # The auto-loot budget is a Settings knob now, read through `_opt_*`. With no
         # widget and no saved config both fall back to SETTINGS_DEFAULTS, which is the
         # constant it used to be — so the watcher under test behaves as it always did.
-        self._settings: dict = {}
-        self._opt_vars: dict = {}
+        # The knobs live in the runtime's binder now; with no widgets attached the
+        # saved dict is the answer, so an empty one means SETTINGS_DEFAULTS — the
+        # constants these numbers used to be.
+        fake_runtime.attach_binder(self)
         # The «уровень от / до» entries — auto-loot's OWN pair, not the display
         # filter's — duck-typed: `_autoloot_levels` only reads `.get()`, so the rule
         # can be exercised without a Tk root window.

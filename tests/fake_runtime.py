@@ -40,6 +40,23 @@ class RecordingBus(rtmod.LogBus):
         self.lines.append(line)
 
 
+def attach_binder(app, settings: dict | None = None, defaults: dict | None = None):
+    """Give ``app`` a settings binder holding ``settings``, and return it.
+
+    With no widgets attached the saved dict IS the answer, which is what a stand-in
+    wants: the knobs read exactly what the profile says, bounds and defaults included.
+    ``defaults`` falls back to the panel's own SETTINGS_DEFAULTS, so a stand-in that
+    never opened the Settings page behaves as an untouched profile does.
+    """
+    if defaults is None:
+        import panel.__main__ as pm
+        defaults = pm.SETTINGS_DEFAULTS
+    binder = rtmod.SettingsBinder(profiles=None, defaults=defaults)
+    binder.values = dict(settings or {})
+    app._binder = binder
+    return binder
+
+
 def attach_bus(app, lines: list | None = None) -> RecordingBus:
     """Give ``app`` a recording bus wired to its own `_t`, and return it.
 

@@ -368,6 +368,12 @@ SETTINGS_TABS: tuple[tuple[str, str | None], ...] = (
 # that names 47655 drives THAT client — the panel's own DaemonClient and every child
 # it launches (which read LW_DAEMON_PORT from the environment). That is what turns
 # "two profiles" into "two accounts farmed at once".
+def _settings_var(master, default):
+    """One Tk variable per Settings knob — a checkbox for a bool, a box for the rest."""
+    return (tk.BooleanVar(master=master, value=bool(default)) if isinstance(default, bool)
+            else tk.StringVar(master=master, value=str(default)))
+
+
 SETTINGS_DEFAULTS: dict = {
     "win_python": DEFAULT_WIN_PYTHON,
     "daemon_port": lua_client.DEFAULT_PORT,
@@ -608,8 +614,12 @@ class Panel(tk.Tk):
         # it on the fly if it does not exist yet.
         if active_profile:
             self._profiles.set_active(active_profile)
-        self._settings = self._profiles.load()
-        self._loading = True          # suppresses auto-save while we apply settings
+        # The profile's values, its widget variables and the typed readers with their
+        # bounds (panel/runtime/settings.py). `_settings` / `_loading` / `_opt_vars`
+        # below stay as this file's names for the same three things.
+        self._binder = runtime.SettingsBinder(self._profiles, SETTINGS_DEFAULTS)
+        self._binder.load()
+        self._binder.loading = True   # suppresses auto-save while we apply settings
         saved_lang = self._settings.get("language")
         if saved_lang:                # profile is the source of truth for language
             self._i18n.set_lang(saved_lang)
@@ -788,11 +798,7 @@ class Panel(tk.Tk):
         # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
         # built — the Settings tabs bind widgets to them and the main tab's watchdog
         # checkbox shares the very same variable, so the two can never disagree.
-        self._opt_vars: dict = {}
-        for key, default in SETTINGS_DEFAULTS.items():
-            self._opt_vars[key] = (tk.BooleanVar(value=bool(default))
-                                   if isinstance(default, bool)
-                                   else tk.StringVar(value=str(default)))
+        self._binder.create_vars(self, _settings_var)
         # The daemon this profile drives. A profile naming a non-default port drives
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
@@ -939,61 +945,44 @@ class Panel(tk.Tk):
     # (live, so an edit applies without a restart), the profile's saved config, and
     # SETTINGS_DEFAULTS — which is the old constant. That order is what lets the
     # panel read a setting during __init__, before the page that edits it exists.
+    # panel/runtime/settings.py answers all four; these stay as this file's names.
     def _opt(self, key: str):
-        """The raw current value of a Settings knob.
-
-        A `BooleanVar` whose entry holds something that is not a boolean raises out
-        of `.get()`, which is a half-typed field rather than a broken panel — fall
-        through to the saved value and then to the default.
-        """
-        var = getattr(self, "_opt_vars", {}).get(key)
-        if var is not None:
-            try:
-                return var.get()
-            except tk.TclError:
-                pass
-        if key in self._settings:
-            return self._settings[key]
-        return SETTINGS_DEFAULTS.get(key)
+        return self._binder.opt(key)
 
     def _opt_int(self, key: str, low: int | None = None, high: int | None = None) -> int:
-        """A knob as an int, clamped. Anything unreadable falls back to the default.
-
-        A half-typed entry must never be obeyed: an empty «лимит краж» box read as 0
-        would silently stop the auto-loot, and a stray letter in the daemon port
-        would point the panel at nothing.
-        """
-        default = int(SETTINGS_DEFAULTS.get(key) or 0)
-        try:
-            value = int(float(str(self._opt(key)).strip()))
-        except (TypeError, ValueError):
-            value = default
-        if low is not None:
-            value = max(low, value)
-        if high is not None:
-            value = min(high, value)
-        return value
+        return self._binder.opt_int(key, low, high)
 
     def _opt_float(self, key: str, low: float | None = None,
                    high: float | None = None) -> float:
-        default = float(SETTINGS_DEFAULTS.get(key) or 0.0)
-        try:
-            value = float(str(self._opt(key)).strip().replace(",", "."))
-        except (TypeError, ValueError):
-            value = default
-        if low is not None:
-            value = max(low, value)
-        if high is not None:
-            value = min(high, value)
-        return value
+        return self._binder.opt_float(key, low, high)
 
     def _opt_str(self, key: str) -> str:
-        raw = self._opt(key)
-        text = str(raw).strip() if raw is not None else ""
-        return text or str(SETTINGS_DEFAULTS.get(key) or "")
+        return self._binder.opt_str(key)
 
     def _opt_bool(self, key: str) -> bool:
-        return bool(self._opt(key))
+        return self._binder.opt_bool(key)
+
+    # `_settings`, `_opt_vars` and `_loading` are the binder's, under the names the
+    # rest of this file (and the tests that borrow its methods) already use.
+    @property
+    def _settings(self) -> dict:
+        return self._binder.values
+
+    @_settings.setter
+    def _settings(self, raw: dict) -> None:
+        self._binder.values = raw
+
+    @property
+    def _opt_vars(self) -> dict:
+        return self._binder.vars
+
+    @property
+    def _loading(self) -> bool:
+        return self._binder.loading
+
+    @_loading.setter
+    def _loading(self, flag: bool) -> None:
+        self._binder.loading = bool(flag)
 
     # Named readers for the knobs used in more than one place, so the bounds live
     # once and a caller reads a phrase instead of a key and two magic numbers.
@@ -1582,10 +1571,9 @@ class Panel(tk.Tk):
         self._start_monitor()
 
     def _save_settings(self) -> None:
-        if getattr(self, "_loading", False):
+        if self._binder.loading:
             return
-        self._settings = self._collect_settings()
-        self._profiles.save(self._settings)
+        self._binder.save(self._collect_settings())
 
     def _sync_monitors(self) -> None:
         """Start/stop (restart) the rally, secret and chat captures to match the checkboxes.
