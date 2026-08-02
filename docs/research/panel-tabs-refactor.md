@@ -537,12 +537,22 @@ exist and the panel bypasses them:
 
 | Tab | What it does today | What it should do | Scenario |
 |---|---|---|---|
-| Rally | `RallyTab._one_send` calls `rally_create.create_on_level(ev, …)` directly | `rt.actions.run("create_rally", {"squad":…, "level":…, "target":…})` | `create_rally.md` **exists** |
+| Rally | `RallyTab._one_send` calls `rally_create.create_on_level(ev, …)` directly | **not a one-line swap** — see the note below | `create_rally.md` exists |
 | Secret tasks | `_autoloot_run` spawns `tools/steal_secret_task.py` as a child | `rt.actions.run("steal_secret_task", …)` | `steal_secret_task.md` **exists** |
 | Command post | `_ghost_run` spawns `tools/ghost_recon_steal.py` as a child | `rt.actions.run("steal_ghost_recon", …)` | `steal_ghost_recon.md` **exists** |
 | Secret tasks | the auto-loot gate (range, budget, "is it raidable") is ≈290 lines of Python in `_autoloot_*` | the gate belongs in the scenario; the tab keeps the switch and the range | needs `ARGS` on the existing file |
 | Command post | ghost `IsOpenDay` / 5-per-day gate in `_ghost_tick` | same | same |
 | Dashboard, Alliance/Profile/Inventory/Heroes | read the VM through hand-written Lua chunks in Python | `READ_LUA` scenarios | not written |
+
+> **Correction, found in wave 2.** The rally row above was over-claimed. The other two
+> only *spawn the tool the scenario already wraps*, so swapping them for
+> `rt.actions.run(...)` costs nothing. Rally does not: `create_on_level` returns a
+> result the tab reads four ways (`no_elite` / `no_formation` / `no_panel` /
+> `no_squad`), each reported differently to the operator, and `run_action` answers with
+> a bool. Swapping it as-is would trade four diagnoses for "it did not work", which is a
+> behaviour regression wearing a refactor's clothes. Doing it properly means the
+> scenario reporting its own reason back — a task of its own, filed separately, not
+> smuggled into a wave that is moving code.
 
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
 game logic may be added under `panel/`. Where a wave lifts a block that merely *spawns
