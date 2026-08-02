@@ -6,12 +6,17 @@ Automation for the PC client of *Last War — Survival Game*. Everything is driv
 from a **control panel**: each ability is a named scenario you pick and press, and
 the ones you put on the schedule run themselves.
 
-Most abilities never look at the screen. Rather than hunting for a button and
+The abilities do not look at the screen. Rather than hunting for a button and
 clicking it, they ask the game itself to do the thing — through the game's own
 scripting VM and the protocol it speaks to the server. That is why they survive
 interface updates, work while the game window sits in the background, and never
-mis-click. The handful of abilities with no such route still read the screen the
-old way (feature and template matching plus OCR) and need the window in front.
+mis-click.
+
+> ⚠️ **Before you use any of this.** Automation is **against the rules of the
+> game's servers**, and an account caught running it can be blocked or lost.
+> This project is published to be read and tinkered with; if you run it, you run
+> it **at your own risk** and carry whatever follows. It comes with no warranty
+> and no support — see [`LICENSE`](LICENSE).
 
 **What the bot can do today, ability by ability:
 [`docs/farming.md`](docs/farming.md)** — на русском
@@ -111,10 +116,8 @@ are farmed on two schedules and both survive a restart.
   itself.
 - **What is read off the wire is read passively.** The monitors watch the game's
   own traffic; nothing is injected into the connection.
-- The CV/OCR layer (window capture, SIFT and template matching, RapidOCR) and the
-  model providers (Ollama or any OpenAI-compatible API) are still there and used
-  where a screen has to be recognised — but nothing plans a session from a
-  natural-language goal. The bot runs the scenarios it is given.
+- **Nothing plans a session.** The bot runs the scenarios it is given, on the
+  schedule it is given. There is no goal-to-plan layer.
 
 ## Documentation
 
@@ -137,3 +140,15 @@ Two rules govern everything, and [`CLAUDE.md`](CLAUDE.md) states them in full:
 tab is a plugin** in `panel/tabs/`. A new ability is finished when it is one
 runnable scenario, the panel only plays it, any new primitive is documented in
 [`docs/dsl.md`](docs/dsl.md), and both farming files say what it does.
+
+## License
+
+MIT — [`LICENSE`](LICENSE). Which means, in the words of the licence itself, the
+software is provided **"as is", without warranty of any kind**, and the author is
+liable for nothing that comes of it.
+
+Spelled out for this particular program: running it breaks the rules of the
+game's servers, and the consequences — a blocked account, lost progress, lost
+purchases — are yours alone. Nobody here promises the bot works, promises it will
+keep working after the next game update, or owes you anything if it does the
+wrong thing in your game. Read the code before you run it.

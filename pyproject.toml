@@ -1,7 +1,7 @@
 [project]
 name = "lastwar-bot"
 version = "0.1.0"
-description = "Last War PC automation bot with pluggable local/cloud AI vision"
+description = "Last War PC automation bot driven through the game's own scripting VM"
 requires-python = ">=3.12"
 readme = "README.md"
 authors = [{ name = "Carono" }]
