@@ -196,3 +196,5 @@ world-clone reader (see [`env-read-lua-clones`](../../tools/lib/lua_actions.py))
 - [`world-monsters.md`](world-monsters.md) — Finding 17, the proven launch primitive.
 - [`world-tiles.md`](world-tiles.md) — `COLLECT` marches, `WorldToTileIndex`.
 - [`rally-join.md`](rally-join.md) — `SendCreateMarchMessage` for rallies (type 6).
+- [`rally-create.md`](rally-create.md) — raising one instead of joining it (type 7, and why the
+  send has to go through the game's own squad screen).

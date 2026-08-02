@@ -680,14 +680,15 @@ class RallyTab:
     (panel/rally_limits.py) is honoured — a run stops when the «monster» budget for today
     is spent.
 
-    The game work is tools/rally_create.py (search + create); this tab is the loop, the
-    controls and the bookkeeping around it. It runs on a background thread, takes the
-    panel's shared game-busy flag for each send so it never races the timers or a jump,
-    and touches Tk only through ``app.after``.
+    The game work is tools/rally_create.py (find the target, press «Стягивание», pick the
+    squad, launch); this tab is the loop, the controls and the bookkeeping around it. It
+    runs on a background thread, takes the panel's shared game-busy flag for each send so
+    it never races the timers or a jump, and touches Tk only through ``app.after``.
 
-    ⚠ The create step is UNPROVEN (the «Стягивание» create wire was never sniffed —
-    tools/rally_create.py). The tab is fully usable; whether a banner actually goes out
-    must be confirmed in the live game.
+    A rally only counts as raised when the game shows a new one of ours afterwards, so the
+    status line distinguishes the ways a repeat can come to nothing: no target of that
+    level on the map, the squad missing, the «Стягивание» press not bringing up the squad
+    screen, the screen refusing the squad, or the launch leaving no banner behind.
     """
 
     def __init__(self, app, parent):
@@ -864,6 +865,10 @@ class RallyTab:
                         self._status(_kind_key("no_elite", kind), level=level)
                     elif res.get("reason") == "no_formation":
                         self._status("rally_tab.no_formation", squad=squad)
+                    elif res.get("reason") == "no_panel":
+                        self._status("rally_tab.no_panel")
+                    elif res.get("reason") == "no_squad":
+                        self._status("rally_tab.no_squad", squad=squad)
                     else:
                         self._status("rally_tab.not_armed", squad=squad)
                     if stop.wait(RALLY_BETWEEN_S):

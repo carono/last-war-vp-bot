@@ -74,7 +74,10 @@ c:CloseSelf()                                            -- never DestroyAllWind
 ```
 
 `canAttack == 0` → rally-only «Роковая Элита» (raise «Стягивание»); `canAttack == 1` → a
-soloable monster (not a rally elite — treat the level as "no rally elite found").
+soloable monster (not a rally elite — treat the level as "no rally elite found"). The popup's own
+button says the same thing more directly — `c:GetPointBtnEnumName(w.View.btnList[1])` reads
+`RallyBoss` on a rally target and `AttackMonster` on a soloable one — and that is what the tool
+branches on ([`rally-create.md`](rally-create.md)).
 
 ## Open ends
 
@@ -96,9 +99,10 @@ soloable monster (not a rally elite — treat the level as "no rally elite found
   both tabs (kept as a per-kind mapping so one can be tightened alone if a live capture ever
   shows a tab refusing what was asked), and clamps anything outside it instead of sending it. A
   level the server has nothing for simply comes back empty, the same as any other miss.
-- **The CREATE wire is still UNPROVEN** (docs/research/rally-join.md, world-monsters.md
-  Finding 17). Searching brings up the elite; raising the actual «Стягивание» banner
-  (`MarchUtil.SendCreateMarchMessage` with `RALLY_CREATE_TARGET`) has no live capture yet.
+- **The CREATE is solved** — see [`rally-create.md`](rally-create.md). Searching brings up the
+  elite with its popup open; the banner goes up by pressing that popup's `RallyBoss` button
+  (`MarchUtil.OnClickStartMarch(MarchTargetType.RALLY_FOR_BOSS, pointId, uuid)`), picking the
+  squad on the screen it opens and launching there. Confirmed live on a level-35 elite.
 
 Tool: `tools/rally_create.py` (`spawn_elite` drives the search; `create_on_level` searches then
 raises). `python tools/rally_create.py --find --level N [--type monster|boss]` reports what the

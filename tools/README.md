@@ -18,8 +18,9 @@ The directory is split by role. **Run every script from the repo root** (paths l
 `tools/rally_join.py` and the `tools/lib` import path are resolved relative to the CWD).
 
 - **`tools/`** — human-verified production entrypoints, the ones confirmed working live:
-  `rally_join.py` (rally listen/join/decline + squad select), `rally_monitor.py` (live
-  rally capture), `alliance_help_monitor.py` (live auto-help — answers
+  `rally_join.py` (rally listen/join/decline + squad select), `rally_create.py` (raise a
+  rally on a searched monster — press «Стягивание», pick the squad, launch),
+  `rally_monitor.py` (live rally capture), `alliance_help_monitor.py` (live auto-help — answers
   `push.al.help.new` with `al.help.all` the second it lands; the panel's
   «Авто-помощь союзникам» checkbox runs it, and a live session has not confirmed it
   end to end yet), `lua_trace.py` (live Lua tracer), `lua_daemon.py` (the warm Lua

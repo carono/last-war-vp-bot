@@ -229,7 +229,8 @@ With explicit sign-off, a monster attack was launched end-to-end. Key distinctio
 - **Rally monsters** (event elites «Роковая Элита», the Zombie Boss) show an **orange rally
   flag** and a **«Стягивание»** (rally) button — that starts an *alliance rally* (needs the
   gather/members flow); a lone press did not produce a personal march
-  (`WorldMarchDataManager:IsHaveMarchInWorld()` stayed `false`).
+  (`WorldMarchDataManager:IsHaveMarchInWorld()` stayed `false`) — it opens the squad screen, and
+  the launch on *that* is what raises the banner ([`rally-create.md`](rally-create.md)).
 - **Solo monsters** show a **red crossed-swords «Атаковать»** button and a **«Марш»** (march)
   button in the dispatch UI — a direct solo attack. The lvl-19 **«Обжора»** (rec. power only
   **1.08M**, stamina 10) was soloable: tapping it → red-swords → dispatch UI (my heroes Lv.175,
@@ -322,7 +323,9 @@ instead of the intended golden zombie — see the discriminator below.
 - `canAttack == 1` → **soloable** (red crossed-swords «Атаковать»/«Марш»).
 - `canAttack == 0` → **rally-only** (orange flag «Стягивание») — e.g. «Роковая Элита» returned
   `canAttack = 0`. **Launching a rally is an alliance-wide outward action → needs explicit
-  user sign-off; do not press it.** Solo «Марш» is the pre-authorised path.
+  user sign-off; do not press it** unless raising one is the task at hand. How it is raised
+  (and called off again) is [`rally-create.md`](rally-create.md); solo «Марш» is the
+  pre-authorised path.
 
 ### Remaining step for a full no-click SOLO march
 
