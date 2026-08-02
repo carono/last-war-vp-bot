@@ -16,6 +16,32 @@ why the import here is deferred to the call.
 from __future__ import annotations
 
 
+class Outcome:
+    """How a scenario ended: whether it ran, and what it said if it did not.
+
+    A scenario names its own failure — `create_rally.md` alone distinguishes six
+    (no target of that level, a solo target, an unknown squad, no squad screen, the
+    screen refusing the squad, everything pressed and no banner). A caller that only
+    sees a bool trades all of that for "it did not work", so `play()` hands back the
+    reason the scenario itself gave.
+
+    The text is the scenario's own, and it is shown verbatim — which is what the panel
+    already does with every timer's FAIL reason. The scenario is the authority on why
+    it stopped; the panel's job is to repeat it, not to re-diagnose it.
+    """
+
+    __slots__ = ("ok", "reason", "ctx")
+
+    def __init__(self, ok: bool, reason: str = "", ctx=None) -> None:
+        self.ok, self.reason, self.ctx = bool(ok), reason or "", ctx
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def __repr__(self) -> str:
+        return f"<Outcome ok={self.ok} reason={self.reason!r}>"
+
+
 class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
@@ -46,6 +72,18 @@ class ActionRunner:
             kw.setdefault("on_event", on_event or self._log.put)
         return bool(script_engine.run_action(name, hwnd=hwnd,
                                              variables=args or {}, **kw))
+
+    def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
+             on_event=None, **kw) -> Outcome:
+        """Play the named scenario and report HOW it ended, not just whether.
+
+        Use this wherever the answer to "why not?" is worth showing. `run()` stays for
+        the callers that only branch on success.
+        """
+        ctx = self.context(on_event=on_event, hwnd=hwnd, variables=args or {})
+        ok = self.run(name, args, hwnd=hwnd, ctx=ctx, **kw)
+        reason = str(getattr(ctx, "fail_reason", "") or "").strip()
+        return Outcome(ok, reason, ctx)
 
     def run_text(self, text: str, *, ctx=None, label: str = "cmd",
                  on_event=None) -> bool:

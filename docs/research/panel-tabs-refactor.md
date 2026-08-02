@@ -544,15 +544,19 @@ exist and the panel bypasses them:
 | Command post | ghost `IsOpenDay` / 5-per-day gate in `_ghost_tick` | same | same |
 | Dashboard, Alliance/Profile/Inventory/Heroes | read the VM through hand-written Lua chunks in Python | `READ_LUA` scenarios | not written |
 
-> **Correction, found in wave 2.** The rally row above was over-claimed. The other two
-> only *spawn the tool the scenario already wraps*, so swapping them for
+> **Correction, found in wave 2, and its fix.** The rally row above was over-claimed.
+> The other two only *spawn the tool the scenario already wraps*, so swapping them for
 > `rt.actions.run(...)` costs nothing. Rally does not: `create_on_level` returns a
 > result the tab reads four ways (`no_elite` / `no_formation` / `no_panel` /
-> `no_squad`), each reported differently to the operator, and `run_action` answers with
-> a bool. Swapping it as-is would trade four diagnoses for "it did not work", which is a
-> behaviour regression wearing a refactor's clothes. Doing it properly means the
-> scenario reporting its own reason back — a task of its own, filed separately, not
-> smuggled into a wave that is moving code.
+> `no_squad`), each reported differently, and `run_action` answers with a bool.
+>
+> The fix turned out to need no DSL change at all. `create_rally.md` ALREADY names six
+> distinct failures with `FAIL "…"`, and `FAIL` already sets `ctx.fail_reason` — the
+> panel just had no way to read it back, and the schedule has been showing that same
+> text verbatim for every timer all along. `ActionRunner.play()` returns an `Outcome`
+> carrying the scenario's own words, so the tab quotes the authority instead of
+> re-diagnosing the game. A parse or runtime error leaves the reason empty, which is
+> how a caller tells "the scenario decided" from "the scenario broke".
 
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
 game logic may be added under `panel/`. Where a wave lifts a block that merely *spawns
