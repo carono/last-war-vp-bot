@@ -2152,10 +2152,16 @@ still do; run_005 is unchanged at 3770; the twelve drawn routes and run_002 hold
 
 ### The trucks really are 23 / 31 / 40, and the planner still cannot be told
 
-The other symptom is the length, and this time the recordings settle it without the collider.
-Take every frame in the eight recordings where a person stands at carriage-roof height
-(y 3.9..4.7, so a hop's apex cannot be mistaken for a plateau) and ask whether any body the
-model knows about is under them:
+The other symptom is the length. The model reads it off the `_N` in the prefab name at
+`carUnit * N`, which for `move_1/2/3` is **8.2 / 16.5 / 24.7**; the colliders measure
+**23 / 31 / 40** (`bounds.json`, field `sz`). On this asset family `_N` is a variant index and
+not a count of segments — which is also true of the bridge pieces `qiaodong_1/2/3` elsewhere in
+the same config, and is NOT true of the train carriages, where `8.24 x N` is exact to the
+centimetre (8.22 / 16.44 / 24.86 / 32.98 / 41.10).
+
+This time the recordings settle it without the collider. Take every frame in the eight
+recordings where a person stands at carriage-roof height (y 3.9..4.7, so a hop's apex cannot be
+mistaken for a plateau) and ask whether any body the model knows about is under them:
 
     model                    frames held   trucks unexplained
     _N x 8.24  (16.5 / 24.7)  581 / 780          94
@@ -2166,18 +2172,27 @@ collider's own difference, 31 - 16.5 and 40 - 24.7, to the metre. Two independen
 the same number.
 
 It still cannot be handed over, and the reason is no longer "something about a mover is wrong".
-On the measured lengths run_002 falls to 474 m, seed 2 to 766, seeds 3 and 4 to 2422, run_005 to
-804 and run_007 to 2457. Every one of those deaths is at a truck **the person crossed on the
-roofs**: run_007 spends 2380..2520 at y = 4.13 weaving centre → right → centre → left → centre
-along the convoy, while the planner sits on the road with `act = 0` and `reach` counting down
-106 m to the body that kills it. A truck is only ever boarded from a neighbouring roof, and the
-DP has no move that chains one MOVING roof to the next. It can ride a truck it is already on and
-it can mount a ramp; the crossings that carry a person the length of a convoy are not moves it
-ever finds. Until they are, a truck modelled short is a truck the planner can go round, and a
-truck modelled true is a wall it stops at.
+Three ways of giving the trucks their true size were run, not argued:
 
-That is the next piece of work, and it is now a specific one: a lane change at roof level where
-both roofs are moving, timed against the arrival the mover branch already projects.
+    truck length in the model            run_002   run_005   run_007   floors
+    _N x 8.24, body and roof (shipped)     7390      3770      6600     hold
+    measured, body and roof                 474       804      2457     fall
+    measured in the ROOF only, body short   721       793      4082     fall
+
+The middle row is the honest model and it is the worst of the three. The bottom row was the
+obvious hedge — the recordings only ever prove where a person STOOD, so give the roof its true
+length and leave the body alone — and it is worse than shipping the short number, because a roof
+that outreaches its own body is a roof the planner rides onto and the judge does not have. On
+the measured lengths the drawn routes go with them: seed 2 to 766 of a 9039 floor, seeds 3 and 4
+to 2422.
+
+Every one of those deaths is at a truck **the person crossed on the roofs**: run_007 spends
+2380..2520 at y = 4.13 weaving centre → right → centre → left → centre along the convoy, while
+the planner sits on the road with `act = 0` and `reach` counting down 106 m to the body that
+kills it. Until the planner can do that, a truck modelled short is a truck it can go round, and
+a truck modelled true is a wall it stops at. The number is right; the model has nowhere to put
+it. It is kept in `bounds.json`, in `surfing_simulate.TRUCK_BACK` and in the comment beside each
+of the two switch points (`kind_of` here, `measure()` in surfing_ai.lua), each one line.
 
 ### One that looked right and measured wrong
 
@@ -2242,3 +2257,84 @@ running out of truck under a runner riding one: the trace has `roof = false` and
 from 3700 to the end. It never got up. The seven to twenty-one metres of missing body are real,
 but they are in the RECORDINGS — the 94 roof-height frames the model cannot put a body under —
 and not in that death.
+
+## The move the planner does not have: roof to roof between two DRIVING trucks (#1170)
+
+This is the one thing standing between the trucks and their measured length, so it is worth
+writing down as a piece of work rather than as a remark at the end of another section.
+
+### What the move is
+
+A convoy of oncoming gold trucks closes the road outright — three abreast leaves nothing to
+thread. The way through is over the top, and the recordings show it plainly. run_007, lane and
+height frame by frame:
+
+    z=2109  lane 2, y 0.00 -> 4.30   drives up a chexiangxiepo_4 (body 2109..2142)
+    z=2119  lane 1, y 4.29           steps across onto a truck_gold_move_3 beside it
+    z=2129  lane 1, y 4.13           riding it
+    z=2380..2520  lane 1 -> 2 -> 1 -> 0 -> 1, y 4.13 throughout
+
+Only the FIRST of those is a move the planner has. A ramp is mounted head-on, and from a ramp
+roof the planner can already step onto a neighbouring roof — that is how it now runs run_007 end
+to end. Every one after it is roof-to-roof where **both** roofs are moving, and that is the move
+it never makes.
+
+### Why the DP does not make it
+
+Not because it is illegal. Measured at the decision frame — on the ramp roof at z=2122.3, with
+the trucks at their measured lengths — both lanes carry roof across the whole sweep and
+`freeAt` passes on either side. The DP is offered the crossing and declines it, because the
+crossing does not extend `reach`: at `cfg.horizon` 500 it already reads 339, meaning it knows
+its best line ends at 2455 and no route it can see — over the roofs or on the road — gets past
+that. What it asks for instead, every frame from 2116 to 2141, is `left` at `az` 55, 52, 50 ...
+30: a move pinned to a fixed z ≈ 2171, which is thirty metres past the end of the roof and
+therefore a plain ground lane change.
+
+So the question is why the chain does not extend, and the geometry of a MOVING roof is the
+suspect. A parked roof occupies a fixed span of buckets. A moving one retreats through the
+bucket index as the runner advances, at `1 + v / speed` per bucket — 1.53 at v = 20 against a
+runner doing 37.7. A 40-unit body is therefore about 26 buckets of roof and not 40, and it is
+26 buckets that keep sliding backwards under the plan. Against that, the roof-level crossing
+demands (`planRoute`, the `lev == 1` branch):
+
+    freeAt(l, 1, i + 1, i + SWH)   -- the lane being left, half the sweep
+    freeAt(t, 1, i,     i + SW)    -- the lane being ENTERED, the WHOLE sweep, from bucket i
+
+`SW` is `ceil(switchTime * speed)` — 7 buckets at 37.7 — so the entering lane must be roofed for
+seven consecutive buckets during which its roof has itself slid back about eleven metres. The
+window in which a crossing between two moving roofs is legal is a good deal narrower than either
+roof length suggests, and it closes from both ends at once.
+
+### What has to be established first
+
+Two candidates, and they need separating before any code is written, because they call for
+opposite fixes:
+
+1. **the chain is not there** — in that field, at that speed, no sequence of projected roof
+   buckets spans the convoy, and the person crossed on frames the projection does not
+   reproduce (which would make the projection, or `moverTrigger`, the thing to fix);
+2. **the chain is there and the DP does not find it** — the buckets line up but some
+   condition above rejects the sequence, most likely the whole-sweep demand on the entering
+   lane, or the roof-level `run on` at the seam between two moving roofs.
+
+The experiment that separates them is a roof-level exhaustive search over the projected field.
+`surfing_offline.py feasible` is most of it already — it walks the route under the judge's own
+rules, levels included, from every start lane — and what is wanted is the same walk with the
+ground storey shut off, reporting the furthest bucket reachable purely over roofs. If that
+clears the convoy, the chain exists and the fault is in the DP's conditions; if it does not, the
+fault is upstream in the projection and no change to `planRoute` will help.
+
+Do that before touching `planRoute`. Two changes in this session looked correct from the
+geometry and measured worse (un-padding a mover's tail, and widening the horizon), and both
+would have been shipped on reasoning alone.
+
+### What NOT to try again
+
+* **A longer horizon.** `cfg.horizon` at 300, 500 and 700 — with the judge's obstacle window
+  widened to match, since it caps the planner at `pz + 320` — moves run_005 and run_007 by not
+  one metre, on the shipped lengths and on the measured ones alike. The planner is not blind;
+  see the `az 55, 52, 50 ...` trace above, where it can see the end of its own line and still
+  has nothing better to offer.
+* **Un-padding the mover's tail.** Recorded above: run_005 3770 → 793, run_007 6600 → 4082.
+* **The measured length in the roof alone.** The middle option in the table above, and worse
+  than shipping the short number.
