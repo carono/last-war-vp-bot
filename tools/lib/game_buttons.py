@@ -480,6 +480,54 @@ BUTTONS: dict[str, Button] = {
         # Three squads is the whole army; the cap is only a backstop.
         max_taps=5,
     ),
+    # --- alliance rally: RAISE one («Стягивание») -----------------------------
+    # The create side, four presses in the order the game itself walks them:
+    #
+    #     rally_search_window -> rally_search -> rally_banner -> rally_squad -> rally_launch
+    #
+    # Each press needs the window the previous one opened to be there, so the polls
+    # between them live in the recipe (actions/create_rally.md), not in the Lua —
+    # a chunk that waited for the server would freeze the client.
+    #
+    # WHAT is rallied (squad, level, elite-or-monster) is parked in
+    # `DataCenter.__lw_rally_create` first, because `TAP` carries no arguments; the
+    # recipe that reads the scenario's arguments and parks them is
+    # actions/create_rally.md. Engine side: lua_actions + docs/research/rally-create.md.
+    "rally_arm": Button(
+        # Not a press in the game — the run's setup step, and it comes first because
+        # both of its readings have to be taken before any window is opened: the
+        # squad's formation (a slot that does not exist must stop the recipe, not
+        # leave a target popup open on the map) and the rally count the raise is
+        # measured against.
+        lua=_lua_actions.rally_create_arm(),
+        wait=0.2, label="arm the rally run (squad + starting count)",
+    ),
+    "rally_search_window": Button(
+        lua=_lua_actions.rally_search_open(),
+        wait=1.6, label="the map search («лупа»)",
+    ),
+    "rally_search": Button(
+        # Type the parked level into the parked tab and press the magnifier. The
+        # server answers by flying the camera to a target and opening its popup, so
+        # the pause here is just the send — the recipe polls for the popup.
+        lua=_lua_actions.rally_search_fire(),
+        wait=1.8, label="search for a target of that level",
+    ),
+    "rally_banner": Button(
+        lua=_lua_actions.rally_banner_press(),
+        wait=1.8, label="«Стягивание» on the target",
+    ),
+    "rally_squad": Button(
+        lua=_lua_actions.rally_squad_pick(),
+        wait=1.0, label="pick the squad on the rally screen",
+    ),
+    "rally_launch": Button(
+        # The launch runs the game's own pre-checks and sends; the screen closes
+        # itself. The banner only shows up as an own march once the server answers,
+        # which the recipe waits for by re-reading the rally count.
+        lua=_lua_actions.rally_launch(),
+        wait=2.0, label="launch the rally",
+    ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the
     # group itself, so nothing has to be picked or parked beforehand. Headless — no

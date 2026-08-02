@@ -2159,6 +2159,241 @@ def join_next_rally() -> str:
 
 
 # --------------------------------------------------------------------------
+# Alliance rally: RAISE one («Стягивание»)
+# --------------------------------------------------------------------------
+# The CREATE side — the other half of the join above. `tools/rally_create.py`
+# drives it from Python and `docs/research/rally-create.md` is the write-up; these
+# are the same four presses as pressable buttons, so a recipe (and therefore the
+# Scenarios tab and a timer) can raise a banner.
+#
+# It is a FLOW, not a single send, and each press needs the window the previous one
+# opened to actually be there:
+#
+#     «лупа» (UISearch) -> the target's popup (UIWorldPoint)
+#         -> the squad screen (UIFormationSelectListV2 / …New) -> launch
+#
+# So the presses stay four separate buttons with the polls between them written in
+# the recipe (`WHILE` + `WAIT` + `READ_LUA`), never a Lua loop waiting on the server
+# inside one chunk — that is the client freeze docs/dsl.md warns about.
+#
+# WHAT to rally is parked first, the same trick the join side uses for its squads:
+# `TAP` carries no arguments, so `actions/create_rally.md` writes the run's target
+# into `DataCenter.__lw_rally_create` and every press below reads it back.
+#
+#     DataCenter.__lw_rally_create = {
+#         squad     = 1,          -- the slot the player sees (1/2/3/4)
+#         level     = 35,         -- 1..200, clamped by the search press
+#         kind      = "boss",     -- "boss" = Роковая Элита, "monster" = field monster
+#         formation = <uuid>,     -- the squad's formation, resolved when parked
+#     }
+#
+# `formation` is resolved at park time, BEFORE anything is opened, so a squad that
+# does not exist stops the recipe instead of leaving a monster popup hanging open on
+# the map (the same order rally_create.create_on_level keeps).
+
+# The parked run, and the «лупа» tab its kind maps to. The tab numbers are the
+# UISearchType enum read live: 5 = Boss (the Fatal Elite, `find.monster.boss`),
+# 1 = Monster (ordinary field monsters, `find.monster`) — docs/research/rally-elite-search.md.
+_RALLY_CREATE_PARAMS = "local p = DataCenter.__lw_rally_create or {} "
+_RALLY_SEARCH_TAB = "local st = 5 if tostring(p.kind) == 'monster' then st = 1 end "
+
+# The two windows the squad screen can be, depending on the `formation_v2_switch` config.
+_FORMATION_WIN = (
+    "local function _isformation(w) return w ~= nil and "
+    "(w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end "
+)
+
+
+def rally_create_arm() -> str:
+    """Finish the parked run: resolve the squad's formation and note the rally count.
+
+    The recipe parks the three plain values it was given (`squad`, `level`, `kind`);
+    this fills in the two the game has to be asked for, BEFORE anything is opened:
+
+    * `formation` — the uuid of the squad slot the player sees. Formations live in
+      `ArmyFormationDataManager.ArmyFormationList` keyed by uuid, each carrying an
+      `index` = that slot number, and the formation uuid is the first argument of the
+      send the launch button eventually makes. A slot with no formation leaves this
+      nil, which is the recipe's cue to stop before a target popup is left hanging
+      open on the map.
+    * `before` — how many rallies of ours are already out, so the raise can be
+      *measured* afterwards rather than assumed from a press that returned cleanly.
+    """
+    return (
+        "local p = DataCenter.__lw_rally_create or {} "
+        "local afd = DataCenter.ArmyFormationDataManager "
+        "for _, v in pairs(afd.ArmyFormationList) do "
+        "local ok, idx = pcall(function() return v.index end) "
+        "if ok and tostring(idx) == tostring(p.squad) then "
+        "pcall(function() p.formation = v.uuid end) end end "
+        "p.before = %s "
+        "DataCenter.__lw_rally_create = p "
+        'CS.UnityEngine.Debug.LogError("ACT rally_arm squad="..tostring(p.squad)'
+        '.." level="..tostring(p.level).." kind="..tostring(p.kind)'
+        '.." formation="..tostring(p.formation).." rallies="..tostring(p.before))'
+        % own_rally_count()
+    )
+
+
+def rally_armed() -> str:
+    """Lua *expression* -> 1 when the parked run has a squad the game knows."""
+    return ("(((DataCenter.__lw_rally_create or {}).formation ~= nil) and 1 or 0)")
+
+
+def rally_raised() -> str:
+    """Lua *expression* -> rallies of ours gained since `rally_create_arm()` ran.
+
+    1 once the banner is standing. Reading the DIFFERENCE rather than the count is
+    what makes this work with rallies already out — a player leading one elsewhere
+    starts from a non-zero count.
+    """
+    return "(%s - ((DataCenter.__lw_rally_create or {}).before or 0))" % own_rally_count()
+
+
+def rally_search_open() -> str:
+    """Open the world-map search («лупа») — the window the level is typed into."""
+    return "UIManager.Instance:OpenWindow(UIWindowNames.UISearch)"
+
+
+def rally_search_fire() -> str:
+    """Set the parked level on the parked tab and press the magnifier.
+
+    `OnSearchClick(type, subType)` reads the level back through
+    `GetCurNumBySearchType` and fires the server request; subType 0 is the default
+    sub-tab (a nil one trips the game's own recorder). The answer is not waited for
+    here — the server flies the camera in and opens the target's popup by itself
+    (`OnSearchEnd` -> `GoToUtil.MoveToWorldMarchAndOpen`), which the recipe polls for.
+
+    The level is clamped to 1..200, the range both tabs accept; a level the server
+    has nothing for simply comes back empty, like any other miss.
+    """
+    return (
+        _RALLY_CREATE_PARAMS + _RALLY_SEARCH_TAB +
+        "local lvl = tonumber(p.level) or 1 "
+        "if lvl < 1 then lvl = 1 end if lvl > 200 then lvl = 200 end "
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UISearch' then "
+        "error('the search window is not open (top is '..tostring(w and w.Name)..')') end "
+        "w.Ctrl:SetCurNumBySearchType(st, lvl, 0) "
+        "w.Ctrl:OnSearchClick(st, 0) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_search level="..lvl.." type="..st)'
+    )
+
+
+def rally_target_state() -> str:
+    """Lua *expression* -> what the search brought up: 1 ralliable, -1 not, 0 nothing yet.
+
+    The reliable test is the popup's own action button, not `canAttack`: a rally
+    target carries exactly one and it names itself `RallyBoss`, while a soloable
+    monster names itself `AttackMonster` and nothing turns that into a rally.
+
+    `0` also covers "the window is up but its monster data has not landed yet" — the
+    data arrives a beat after the window — so the recipe polls this until it moves.
+    """
+    return (
+        "(function() local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UIWorldPoint' then return 0 end "
+        "local c = w.Ctrl local lvl = nil "
+        "pcall(function() lvl = c:GetMonsterData(c.uuid).level end) "
+        "if lvl == nil then return 0 end "
+        "local b = '?' pcall(function() b = tostring(c:GetPointBtnEnumName(w.View.btnList[1])) end) "
+        "if b == 'RallyBoss' then return 1 end return -1 end)()"
+    )
+
+
+def rally_banner_press() -> str:
+    """Press «Стягивание» on the open target popup.
+
+    Exactly the two arguments the button's own handler passes —
+    `OnClickStartMarch(RALLY_FOR_BOSS, pointId, uuid)` — and the game fills the rest
+    (server, wait time, auto-return) in on the squad screen it opens. THE POPUP MUST
+    STILL BE ON TOP: closing it first is what made the target "hide" with nothing
+    pressed.
+    """
+    return (
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UIWorldPoint' then "
+        "error('the target popup is not open (top is '..tostring(w and w.Name)..')') end "
+        "MarchUtil.OnClickStartMarch(MarchTargetType.RALLY_FOR_BOSS, w.Ctrl.pointId, w.Ctrl.uuid) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_banner point="..tostring(w.Ctrl.pointId)'
+        '.." uuid="..tostring(w.Ctrl.uuid))'
+    )
+
+
+def rally_panel_ready() -> str:
+    """Lua *expression* -> 1 once the squad screen the rally press opens is on top."""
+    return ("(function() " + _FORMATION_WIN +
+            "if _isformation(UIManager.Instance:GetStackTopWindow()) then return 1 end "
+            "return 0 end)()")
+
+
+def rally_squad_pick() -> str:
+    """Pick the parked squad on the open squad screen.
+
+    `View:OnSelectClick` is the tap (it repaints the cells and the cost),
+    `Ctrl:SetSelectFormationUuid` is what the tap ultimately records; both are done
+    so the screen and the send agree. Nothing is sent here — the launch is a press of
+    its own, and the recipe only makes it once the pick has been read back.
+    """
+    return (
+        _FORMATION_WIN + _RALLY_CREATE_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "if p.formation == nil then error('no squad parked for this run') end "
+        "pcall(function() w.View:OnSelectClick(p.formation) end) "
+        "w.Ctrl:SetSelectFormationUuid(p.formation) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_squad sel="..tostring(w.Ctrl.selectFormationUuid))'
+    )
+
+
+def rally_squad_picked() -> str:
+    """Lua *expression* -> 1 when the open squad screen really holds the parked squad."""
+    return (
+        "(function() " + _FORMATION_WIN + _RALLY_CREATE_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then return 0 end "
+        "if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) "
+        "then return 1 end return 0 end)()"
+    )
+
+
+def rally_launch() -> str:
+    """Press the squad screen's launch button.
+
+    `Ctrl:OnCheckTime(formationUuid, destroyTimeIndex)` is what its View calls: the
+    game's own pre-checks (rally cap, wait-time and transport warnings) and then
+    `OnCreateClick` -> `SendCreateMarchMessage`. The screen closes itself on success.
+    """
+    return (
+        _FORMATION_WIN + _RALLY_CREATE_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "w.Ctrl:OnCheckTime(p.formation, nil) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_launch formation="..tostring(p.formation))'
+    )
+
+
+def own_rally_count() -> str:
+    """Lua *expression* -> how many of the player's own marches are part of a rally.
+
+    A raised banner adds one. That increase is the only thing that proves a rally
+    went out: a plain march count moves for unrelated reasons, and
+    `IsHaveMarchInWorld()` is already true whenever anything at all is out.
+    """
+    return (
+        "(function() local wm = DataCenter.WorldMarchDataManager "
+        "local om = wm:GetOwnerMarches() local n = 0 "
+        "if om then local e = om:GetEnumerator() while e:MoveNext() do "
+        "local mo = e.Current.Value if mo == nil then mo = e.Current end "
+        "local ok, t = pcall(function() return mo.teamUuid end) "
+        "if ok and t ~= nil and tostring(t) ~= '0' and tostring(t) ~= 'nil' then n = n + 1 end "
+        "end end return n end)()"
+    )
+
+
+# --------------------------------------------------------------------------
 # The resource truck standing on the base ("Сбор ресурсов с грузовика")
 # --------------------------------------------------------------------------
 # Recording `20260730_130004_Сбор_ресурсов_с_грузовика` — the player tapped the

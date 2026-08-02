@@ -152,3 +152,31 @@ Tool: [`tools/rally_create.py`](../../tools/rally_create.py) — `find_target()`
 the popup open), `raise_rally()` (press → wait → pick → launch → confirm), `create_on_level()`
 (both, per squad). `python tools/rally_create.py --find --level N [--type monster|boss]` reports
 what the search returns and which button it carries, without pressing anything.
+
+## As a recipe
+
+The same four presses are also in the DSL, so the flow can be run from the panel's Scenarios tab
+or hung on a timer: [`actions/create_rally.md`](../../src/lastwar_bot/actions/create_rally.md),
+with `squad`, `level` and `target` (`boss` / `monster`) as its arguments —
+`{"squad": 2, "level": 60}`. One run raises one banner with one squad; looping is the caller's
+(the panel's «Ралли» tab still does its own).
+
+Split the same way everything else in the DSL is: the presses are buttons in
+`tools/lib/game_buttons.py` (`rally_arm`, `rally_search_window`, `rally_search`, `rally_banner`,
+`rally_squad`, `rally_launch`), their Lua is in `tools/lib/lua_actions.py`, and the polls between
+them are `WHILE` + `WAIT` + `READ_LUA` in the recipe — never a Lua loop waiting on the server
+inside one chunk, which would freeze the client.
+
+Because `TAP` carries no arguments, the run's target is parked first, the same trick the join
+side uses for its squads:
+
+```lua
+DataCenter.__lw_rally_create = {squad = 2, level = 60, kind = "boss"}
+```
+
+and `rally_arm` fills in the two things only the game can answer — the squad's `formation` uuid
+(nil ⇒ the recipe stops before anything is opened, so no target popup is left hanging on the
+map) and `before`, the rally count the raise is measured against. Each of the five ways this can
+end without a banner is a `FAIL` naming its step, so a timer keeps its place instead of counting
+a run that raised nothing. Driven against a fake evaluator in
+[`tests/test_rally_create.py`](../../tests/test_rally_create.py).
