@@ -13,17 +13,23 @@ panel keeps its familiar `_t` / `_tr` / `_arm` method names as one-line delegati
 the runtime while the tabs move out one at a time, and they go away in the last wave.
 
 What is here now: the translator, the ticker, the event bus, the capture list, the log
-sink and the child factory. The game link, the action runner and the settings binder
-follow in this same wave; the schedule with the Timers tab.
+sink, the child factory, the game link and the action runner. The settings binder
+follows in this same wave; the schedule with the Timers tab.
 """
 from __future__ import annotations
 
+# FIRST: the bare-name imports below (lua_client, script_engine) need the repo's
+# tools/ and src/ on sys.path, and `python -m panel.tabs.<id>` never runs
+# panel/__main__.py, which is where that bootstrap used to live.
+from . import paths  # noqa: F401  (imported for its side effect)
+from .actions import ActionRunner
 from .bus import EventBus
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
+from .daemon import GameLink
 from .i18n import Translator
 from .log import LogBus
 from .tick import Ticker
 
-__all__ = ["EventBus", "ChildFactory", "LogBus", "Translator", "Ticker",
-           "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]
+__all__ = ["paths", "ActionRunner", "ChildFactory", "EventBus", "GameLink", "LogBus",
+           "Ticker", "Translator", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE"]

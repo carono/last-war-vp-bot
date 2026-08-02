@@ -648,11 +648,6 @@ class Panel(tk.Tk):
         self._install_exception_logging()
         self._dbg.info("panel starting — profile %r, version %s",
                        self._profiles.active, APP_VERSION)
-        self._busy = False
-        # Guards the flag above: buttons claim it on the Tk thread, the timer
-        # scheduler from its own, so a plain read-then-set would let two recipes
-        # into the game VM at once (see _claim_busy).
-        self._busy_lock = threading.Lock()
         self._coord_seq = 0
         self._mon_proc = None
         self._rally_proc = None
@@ -801,13 +796,24 @@ class Panel(tk.Tk):
         # The daemon this profile drives. A profile naming a non-default port drives
         # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
         # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
-        self._client = lua_client.DaemonClient(port=self._daemon_port())
         # How every child process is launched (panel/runtime/children.py): the
         # interpreter, the environment — the daemon port and the game lease — and
         # where its output goes.
         self._children = runtime.ChildFactory(
             log=self._logbus, cwd=REPO, python=self._python,
             port=self._daemon_port, schedule=self.after)
+        # The link to the game (panel/runtime/daemon.py): which daemon this profile
+        # drives, whether it is up, and the one-action-at-a-time claim — the local
+        # flag AND the daemon's lease, so a separately-launched tab cannot drive the
+        # same client at the same time.
+        self._game = runtime.GameLink(
+            port=self._daemon_port, python=self._python, log=self._logbus,
+            env=self._children.env, cwd=REPO,
+            daemon_script=os.path.join(TOOLS, "lua_daemon.py"),
+            on_state=self._daemon_state, debug=dbgmod.get_logger("daemon"))
+        # Playing an actions/*.md scenario — the one door the panel presses through
+        # (panel/runtime/actions.py).
+        self._actions = runtime.ActionRunner(log=self._logbus)
         # Profile picker lives in a modal (menu → «Профиль»), not on the main page.
         # The var is always live; the combo exists only while that modal is open.
         self._profile_var = tk.StringVar(value=self._profiles.active)
@@ -1030,16 +1036,23 @@ class Panel(tk.Tk):
 
     def _daemon_up(self) -> bool:
         """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
-        return lua_client.is_running(port=self._daemon_port())
+        return self._game.up()
+
+    @property
+    def _client(self):
+        """This profile's daemon client (panel/runtime/daemon.py owns it)."""
+        return self._game.client
+
+    @property
+    def _busy(self) -> bool:
+        """Is a game action running right now? (The link holds the flag.)"""
+        return self._game.busy
 
     def _rebind_daemon(self) -> None:
         """Point the panel's own client at the profile's daemon port."""
-        port = self._daemon_port()
-        if getattr(self._client, "port", None) == port:
-            return
-        self._client = lua_client.DaemonClient(port=port)
-        self._say("daemon", "log.daemon.port", port=port)
-        self._refresh_status()
+        if self._game.rebind():
+            self._say("daemon", "log.daemon.port", port=self._game.port())
+            self._refresh_status()
 
     # -- i18n (panel/runtime/i18n.py holds it; these stay as the panel's names) ----
     def _t(self, key: str, **fmt) -> str:
@@ -2562,62 +2575,25 @@ class Panel(tk.Tk):
         self._tick.on_tk(func, timeout)
 
     def _ensure_daemon(self) -> bool:
-        dbg = dbgmod.get_logger("daemon")
-        port = self._daemon_port()
-        if self._daemon_up():
-            dbg.info("already warm on port %s", port)
-            self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
-            return True
-        self._say("daemon", "log.daemon.starting")
-        dbg.info("starting on port %s", port)
-        self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
-        try:
-            subprocess.Popen(
-                [self._python(), os.path.join(TOOLS, "lua_daemon.py")],
-                cwd=REPO, creationflags=NO_WINDOW | DETACHED,
-                env=self._child_env(),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
-        except Exception as exc:
-            self._say("daemon", "log.daemon.launch_failed", error=exc)
-            dbg.error("launch failed", exc_info=True)
-            self.after(0, lambda: self._set_daemon(self._t("daemon.error"), False))
-            return False
-        for _ in range(60):
-            if self._daemon_up():
-                self._say("daemon", "log.daemon.ready")
-                dbg.info("ready on port %s", port)
-                self.after(0, lambda: self._set_daemon(self._t("daemon.warm"), True))
-                return True
-            time.sleep(0.5)
-        self._say("daemon", "log.daemon.timeout")
-        dbg.warning("did not come up on port %s within timeout", port)
-        self.after(0, lambda: self._set_daemon(self._t("daemon.none"), False))
-        return False
+        """Make sure this profile's daemon is up (panel/runtime/daemon.py). Blocks."""
+        return self._game.ensure()
 
     def _restart_daemon(self) -> None:
-        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back.
+        """The ⭮ beside the daemon indicator: shut the daemon down and bring it back."""
+        threading.Thread(target=self._game.restart, daemon=True).start()
 
-        There was no way out of a wedged `lua_daemon` from inside the panel — every
-        button was dead and the only route was killing the process from a shell. The
-        shutdown is asked for politely (the daemon answers the op and exits); a
-        daemon too wedged to answer that is reported and the start below still runs,
-        because a fresh one binding the port is the outcome either way.
+    def _daemon_state(self, state: str, ok) -> None:
+        """Paint the daemon indicator from the link, whichever thread reports it.
+
+        The link says what happened in one word; the words the operator reads are this
+        window's business, and so is getting onto the Tk thread to write them.
         """
-        def work() -> None:
-            self._say("daemon", "log.daemon.restarting")
-            self.after(0, lambda: self._set_daemon(self._t("daemon.starting"), None))
-            try:
-                self._client.shutdown()
-            except Exception as exc:      # noqa: BLE001
-                self._say("daemon", "log.daemon.shutdown_failed", error=exc)
-            # Give the port time to come free before the new one tries to bind it.
-            for _ in range(20):
-                if not self._daemon_up():
-                    break
-                time.sleep(0.25)
-            self._client = lua_client.DaemonClient(port=self._daemon_port())
-            self._ensure_daemon()
-        threading.Thread(target=work, daemon=True).start()
+        key = {"warm": "daemon.warm", "starting": "daemon.starting",
+               "error": "daemon.error"}.get(state, "daemon.none")
+        try:
+            self.after(0, lambda: self._set_daemon(self._t(key), ok))
+        except (tk.TclError, RuntimeError):      # the window is going away
+            pass
 
     def _set_daemon(self, text: str, ok) -> None:
         color = "#3c3" if ok else ("#888" if ok is None else "#c33")
@@ -3909,67 +3885,14 @@ class Panel(tk.Tk):
     def _claim_busy(self, owner: str = "panel") -> bool:
         """Take the right to drive the game, or say it is already taken.
 
-        TWO locks, because there are two ways to lose the race:
-
-        * the flag below, check-and-set under `_busy_lock` — the panel's own buttons
-          run on the Tk thread while the timer scheduler runs on its own, and two
-          threads that read the flag before either sets it would both proceed;
-        * the DAEMON's lease (tools/lib/game_lease.py) — a tab launched as its own
-          process is a second panel with a second flag against one game, so the
-          holder has to be recorded in the thing both of them share.
-
-        The daemon's answer is authoritative; the local flag is released again if the
-        lease refuses, so a failed claim leaves nothing held. No daemon reachable means
-        nothing can be driving the game anyway, so the flag alone is enough there.
+        Two locks — this process's flag and the daemon's lease, so a tab launched on
+        its own cannot drive the same client at the same time. See
+        panel/runtime/daemon.py for why the daemon's answer is the authoritative one.
         """
-        with self._busy_lock:
-            if self._busy:
-                return False
-            self._busy = True
-        if not self._claim_lease(owner):
-            with self._busy_lock:
-                self._busy = False
-            return False
-        return True
-
-    def _claim_lease(self, owner: str) -> bool:
-        """Claim the daemon's lease. True also when there is no daemon to claim it from."""
-        client = getattr(self, "_client", None)
-        if client is None or not hasattr(client, "acquire"):
-            return True
-        try:
-            token = client.acquire(owner, ttl=LEASE_TTL_SEC)
-        except OSError:               # no daemon — nothing else can be driving the game
-            return True
-        if token:
-            # Publish it to this process's environment, which is how it reaches the two
-            # places that do NOT go through `self._client`: an evaluator a recipe builds
-            # for itself (`lua_client.get_evaluator()` reads it per client), and every
-            # child spawned while we hold it (`_child_env` copies the environment).
-            # Without this a long action never renews and loses the game mid-way.
-            os.environ[lua_client.LEASE_ENV_VAR] = token
-            return True
-        try:
-            held = client.lease_state()
-        except OSError:               # noqa: BLE001 — a diagnostic, never the decision
-            held = {}
-        self._say("panel", "busy.elsewhere",
-                  owner=held.get("owner", "?"), sec=int(held.get("held_sec", 0)))
-        return False
+        return self._game.claim(owner)
 
     def _release_busy(self) -> None:
-        # Clear the environment FIRST: a child spawned between the release and the pop
-        # would carry a token the daemon has already given away, and every run it made
-        # would be refused as a lost lease.
-        os.environ.pop(lua_client.LEASE_ENV_VAR, None)
-        client = getattr(self, "_client", None)
-        if client is not None and hasattr(client, "release"):
-            try:
-                client.release()
-            except OSError:
-                pass
-        with self._busy_lock:
-            self._busy = False
+        self._game.release()
 
     def _act(self, chunk: str, tag: str, label: str, settle: float = 1.2) -> None:
         if not self._claim_busy():
@@ -4255,10 +4178,9 @@ class Panel(tk.Tk):
                 if not self._daemon_up() and not self._ensure_daemon():
                     self._say("cmd", "log.no_daemon")
                     return
-                from lastwar_bot import script_engine
-                ctx = script_engine.new_context(
+                ctx = self._actions.context(
                     hwnd=0, on_event=lambda msg: self._log_put(f"[cmd] {msg}"))
-                ok = script_engine.run_text(text, ctx=ctx, label="cmd")
+                ok = self._actions.run_text(text, ctx=ctx, label="cmd")
                 self._say("cmd", "cmd.ok" if ok else "cmd.failed")
             except Exception as exc:                       # noqa: BLE001
                 self._say("cmd", "log.error", error=exc)
@@ -4754,13 +4676,12 @@ class Panel(tk.Tk):
 
         def work() -> None:
             try:
-                from lastwar_bot import script_engine
                 # hwnd=0 → resolved lazily only if the action uses vision primitives.
                 # profile=None → READ_TEXT actions raise clearly if run without one.
-                script_engine.run_action(
-                    name, hwnd=0,
+                self._actions.run(
+                    name, args, hwnd=0,
                     on_event=lambda msg: self._log_put(f"[action] {msg}"),
-                    profile=None, variables=args, cancel=cancel,
+                    profile=None, cancel=cancel,
                 )
             except Exception as exc:                       # noqa: BLE001
                 self._log_put(f"[action] {name}: error: {exc}")
@@ -4816,8 +4737,7 @@ class Panel(tk.Tk):
         """Read a script into the editor and start its undo history fresh."""
         if name is None:
             return
-        from lastwar_bot import script_engine
-        resolved = script_engine.resolve_action(name)
+        resolved = self._actions.resolve(name)
         if resolved is None:
             self._log_put(f"[action] {name}: not found")
             return
@@ -4918,13 +4838,7 @@ class Panel(tk.Tk):
         substituted, exactly as a run would — otherwise a `{squads}` placeholder
         would read as a syntax error in a file that runs perfectly.
         """
-        try:
-            from lastwar_bot import script_engine
-            source, _defaults = script_engine.prepare_source(text, None)
-            script_engine.parse_text(source)
-        except Exception as exc:      # noqa: BLE001 — any parse complaint, verbatim
-            return str(exc)
-        return None
+        return runtime.ActionRunner.problem(text)
 
     def _show_scenario_problem(self, problem: "str | None") -> None:
         lbl = getattr(self, "_scn_problem_lbl", None)
@@ -5592,17 +5506,16 @@ class Panel(tk.Tk):
                 join_types = self._rally_join_gate()
                 if join_types is not None and not join_types:
                     return True                  # all types at their daily cap — no-op
-            from lastwar_bot import script_engine
-            ctx = script_engine.new_context(
+            ctx = self._actions.context(
                 hwnd=0,
                 on_event=lambda msg: self._log_put(f"[timer] {timer.name}: {msg}"),
                 variables=self._errand_args(timer),
             )
             for step in timer.scenario:
-                if script_engine.resolve_action(step) is not None:
-                    ok = script_engine.run_action(step, hwnd=0, ctx=ctx)
+                if self._actions.resolve(step) is not None:
+                    ok = self._actions.run(step, hwnd=0, ctx=ctx)
                 else:
-                    ok = script_engine.run_text(step, ctx=ctx,
+                    ok = self._actions.run_text(step, ctx=ctx,
                                                 label=step.splitlines()[0])
                 if not ok:
                     # The scenario's own FAIL reason when it left one. It is what the
