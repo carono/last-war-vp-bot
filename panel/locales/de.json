@@ -720,6 +720,7 @@
   "vsduel.mon.drone_parts": "Drohnenbauteile öffnen",
   "vsduel.mon.hero_level": "Den Helden aufstufen",
   "vsduel.mon.hero_exp_m": "höchstens, Millionen EP",
+  "vsduel.mon.hero_exp_boxes": "Erfahrungskisten öffnen, wenn sie gebraucht werden",
   "vsduel.mon.drone_level": "Die Drohne verbessern",
   "vsduel.mon.drone_gears": "höchstens, Zahnräder"
 }
