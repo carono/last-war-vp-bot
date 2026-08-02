@@ -113,6 +113,7 @@ from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
 from . import tabs_extra as tabsextra
 from . import secret_tasks as secrettasksmod
+from . import command_post as commandpostmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -1501,6 +1502,12 @@ class Panel(tk.Tk):
         self._stop_ghost_autoloot()
         if self._ghost_autoloot_var.get():
             self._start_ghost_autoloot()
+        # Same for the command post's shared-mission listener: it captures for THIS
+        # profile's client and robs through its daemon, so it is bounced and brought
+        # back under the new one if its box is still ticked.
+        post = getattr(self, "_command_post_tab", None)
+        if post is not None:
+            post.restart_children()
         self._stop_sweep()
         if self._sweep_var.get():
             self._start_sweep()
@@ -1559,6 +1566,7 @@ class Panel(tk.Tk):
         heroes_tab = ttk.Frame(nb)
         accounts_tab = ttk.Frame(nb)
         secret_tasks_tab = ttk.Frame(nb)
+        command_post_tab = ttk.Frame(nb)
         rally_tab = ttk.Frame(nb)
         nb.add(main, text=self._t("tab.main"))
         nb.add(scenarios, text=self._t("tab.scenarios"))
@@ -1572,6 +1580,7 @@ class Panel(tk.Tk):
         nb.add(heroes_tab, text=self._t("tab.heroes"))
         nb.add(accounts_tab, text=self._t("tab.accounts"))
         nb.add(secret_tasks_tab, text=self._t("tab.secret_tasks"))
+        nb.add(command_post_tab, text=self._t("tab.command_post"))
         nb.add(rally_tab, text=self._t("tab.rally"))
         self._tr_hooks.append(lambda: (nb.tab(main, text=self._t("tab.main")),
                                        nb.tab(scenarios, text=self._t("tab.scenarios")),
@@ -1586,6 +1595,8 @@ class Panel(tk.Tk):
                                        nb.tab(accounts_tab, text=self._t("tab.accounts")),
                                        nb.tab(secret_tasks_tab,
                                               text=self._t("tab.secret_tasks")),
+                                       nb.tab(command_post_tab,
+                                              text=self._t("tab.command_post")),
                                        nb.tab(rally_tab, text=self._t("tab.rally"))))
         self._build_scenarios_tab(scenarios)
         self._build_timers_tab(timers_tab)
@@ -1597,6 +1608,10 @@ class Panel(tk.Tk):
         self._main_nb = nb
         self._inventory_tab = tabsextra.InventoryTab(self, inventory_tab)
         self._secret_tasks_tab = secrettasksmod.SecretTasksTab(self, secret_tasks_tab)
+        # «Секретный командный пункт» — ghost recon, shared missions and treasures. Built
+        # eagerly like the one above (its ghost page owns `_ghost_autoloot_var`, which the
+        # settings load expects to exist); each of its three pages still reads lazily.
+        self._command_post_tab = commandpostmod.CommandPostTab(self, command_post_tab)
         self._lazy_tabs = {
             str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
             str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
@@ -1604,6 +1619,7 @@ class Panel(tk.Tk):
             str(heroes_tab): tabsextra.HeroesTab(self, heroes_tab),
             str(accounts_tab): tabsextra.AccountsTab(self, accounts_tab),
             str(secret_tasks_tab): self._secret_tasks_tab,
+            str(command_post_tab): self._command_post_tab,
         }
         # The «Ралли» tab drives the game (raise a rally on an elite, loop N times); it
         # has no data to lazy-load, so it is built eagerly and not in _lazy_tabs.
@@ -4128,6 +4144,11 @@ class Panel(tk.Tk):
         self._stop_monitor()
         self._stop_autoloot()
         self._stop_ghost_autoloot()
+        # The «Секретный командный пункт» tab holds one child of its own — the
+        # shared-mission listener — which must go with the window, not outlive it.
+        post = getattr(self, "_command_post_tab", None)
+        if post is not None:
+            post.shutdown()
         self._stop_sweep()
         self._stop_dashboard()
         self._stop_rally()

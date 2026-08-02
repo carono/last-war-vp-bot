@@ -28,13 +28,14 @@ forgets it, which is fine: the first-open VM snapshot re-seeds it and the wire r
 «Обновить» re-merges the current checkpoint. While the «secret_task_share» trigger is
 switched on, an alliancemate sharing a task re-merges too.
 
-The passive-capture monitor block (kind, interval, log filters, «Автообъезд карты»), the
-«уровень от / до» range with «Автолут ★», and the «Операция Призрак» block all live on
-this tab now — they used to sit on the Main tab. Only the *widgets* moved here: their vars
-and every method (the monitor start/stop, the sweep, the ghost watcher) stay on the app,
-so the settings save/load and the profile-switch restart are untouched. The «уровень от /
-до» range doubles as the list's display filter — a starred tile shows only while its level
-is inside it.
+The passive-capture monitor block (kind, interval, log filters, «Автообъезд карты») and
+the «уровень от / до» range with «Автолут ★» live on this tab now — they used to sit on
+the Main tab. Only the *widgets* moved here: their vars and every method (the monitor
+start/stop, the sweep) stay on the app, so the settings save/load and the profile-switch
+restart are untouched. The «уровень от / до» range doubles as the list's display filter —
+a starred tile shows only while its level is inside it. The «Операция Призрак» block
+passed through here too and now sits on the «Секретный командный пункт» tab
+(panel/command_post.py), beside the rest of that event.
 
 Kept Tk-thin: the two game round trips (scan, steal) and the share run on background
 threads and degrade gracefully — no daemon, no game, or a manager not loaded yet leaves
@@ -223,12 +224,13 @@ class SecretTasksTab:
         ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
-        # The passive-capture monitor block (its findings fill the list below), then the
-        # «уровень от / до» range with «Автолут ★», then the «Операция Призрак» block —
-        # all moved here off the Main tab. Only the widgets live here (see each builder).
+        # The passive-capture monitor block (its findings fill the list below) and the
+        # «уровень от / до» range with «Автолут ★» — both moved here off the Main tab.
+        # Only the widgets live here (see each builder). The «Операция Призрак» block
+        # went on to the «Секретный командный пункт» tab (panel/command_post.py), where
+        # the rest of that event lives.
         self._build_monitor_bar()
         self._build_filter_bar()
-        self._build_ghost_bar()
 
         self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "secrettasks.hint").pack(
@@ -311,24 +313,6 @@ class SecretTasksTab:
         app._sweep_hint = ttk.Label(sweep, foreground="#888", wraplength=380,
                                     justify="left")
         app._sweep_hint.pack(side="left", padx=(10, 0))
-
-    def _build_ghost_bar(self) -> None:
-        """The «Операция Призрак» watcher block, moved here off the Main tab.
-
-        Its own five-a-day standing order, needing no capture and no map panning — the
-        client already knows every squad, so the watcher polls the game's verdict. Kept
-        as-is: this tab does NOT feed its list from ghost recon, it only hosts the box.
-        Widget only; `_ghost_autoloot_var` and `_toggle_ghost_autoloot` stay on the app.
-        """
-        app = self.app
-        ghost = app._tr(ttk.LabelFrame(self.parent, padding=8), "ghost.frame")
-        ghost.pack(fill="x", padx=10, pady=(0, 4))
-        app._ghost_autoloot_var = tk.BooleanVar(master=app, value=False)
-        app._tr(ttk.Checkbutton(ghost, variable=app._ghost_autoloot_var,
-                                command=app._toggle_ghost_autoloot),
-                "ghost.autoloot").pack(side="left")
-        app._tr(ttk.Label(ghost, foreground="#888", wraplength=520, justify="left"),
-                "ghost.hint").pack(side="left", padx=10)
 
     def _build_filter_bar(self) -> None:
         """The level range and auto-loot checkbox — the block that used to sit on Main.

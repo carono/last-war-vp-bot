@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 27 of 100
+🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **27%** — 27 of 101
 
-🟩 27 done · 🟨 28 partly · 🟥 45 not automated
+🟩 27 done · 🟨 30 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -83,7 +83,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Being told a rally has gone out, and joining it without hunting for it — the moment one appears the panel says so and rings, once per rally rather than once per event; one button joins with the squads ticked on the settings page, and a switch makes it join by itself as the alert lands. Which squads may go is finally the setting it always looked like — it used to be saved and read by nothing. Not yet seen against a live rally
 - 🟡 Starting a rally on a Fatal Elite or an ordinary monster — its own «Ралли» tab: pick what to rally (a Fatal Elite or a world monster), drag the level slider — 1 to 200 for both, since a season puts monsters far above the everyday range on the map, with the level it sits on spelled out beside it — tick the squads that should each raise a rally, say how many times over, and «Запустить» runs «ask the game's own map search to bring up a target of that kind and level → raise the banner with the next squad», one squad to one rally, for as many repeats as asked. It uses the in-game magnifier the way a player does — the elite tab or the monster tab, a targeted search for the chosen level — rather than scanning whatever monsters happen to be on screen. It narrates each step, «Стоп» interrupts it, and it stops on its own when the day's «monster» cap (the auto-rally page) is spent. Driving the search is the working part; whether a target of the asked level actually comes back, and whether the banner then goes out, is not confirmed in a live game yet, so the tab warns as much
 - ❌ Treasure notifications
-- ❌ Digging the treasure, collecting the treasure gift
+- 🟡 Digging the treasure, collecting the treasure gift — the panel asks the server whether a chest is out, lists what came back with its place on the map, sends a chosen squad to join the dig, and takes the reward once the chest is dug. The asking is confirmed against a live client — it correctly answers «nothing to dig» — but no radar event has put a chest on the map since, so neither the dig nor the take has ever been carried through
 
 ### Radar assignments
 
@@ -177,6 +177,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Auto-loot as a standing order — the panel's auto-loot is a checkbox, not a press: while it is ticked the panel watches the scan itself and robs the moment a star of the best level becomes raidable, so a target is no longer lost in the gap between the finding printing and a person noticing it. It sends a given task once, runs one robbery at a time, pauses for half an hour when the day's five are spent, and robs only at the level its own level row asks for — «от 1 до 7» takes level-7 stars and leaves a level-6 one alone, because the five daily attempts are the scarce thing and one spent on a 6 is one a 7 cannot have until the reset. That level row is its own now, separate from the level filter on the findings list: narrowing what is printed no longer quietly re-aims the robberies. The rule it applies is the proven one above; the automatic trigger itself has not yet run a live session
 - 🟡 Panning the map by itself, so the scan has something to read — a checkbox walks the camera over a square of tiles around a point you choose, one hop at a time, and rests between passes; it says up front how many hops the square costs and how long a lap takes. That was the last manual thing left in the auto-loot: the scan only sees what the map shows while it is moving, and until now the moving was somebody's wrist. Nothing appears on screen while it works, and it stands aside whenever the bot is busy with anything else. Not yet run through a live session
 - 🟡 Ghost-recon robbery as a standing order — the same checkbox idea, and it needs no map scan at all: the game already knows which squads are out, so while it is ticked the bot looks once a minute, robs everything the game says can be robbed, and stops at the five-a-day cap. Six days a week the event is closed and it does nothing but check in hourly. The robbery it makes is the one above, still unproven on a live squad
+- 🟡 One screen for the whole Secret Command Post — a «Командный пункт» tab with a page for each of the three things behind it: the Ghost Operation squads (each shown with the game's own verdict on it, a «Ограбить» button only on the ones it calls robbable, and the five-a-day standing order living here now), the raids alliancemates share (nothing to poll — the page listens, a share appears the moment it is announced, and with one more tick it robs whatever matches the level rule as it lands), and the map treasures (ask whether there is one, list it, dig it, take it). It is a place to see and press, not a new ability: every press behind it is one of the ones above, so what is proven stays proven and what is not — the ghost robbery, the treasure dig and take — is not
 - ❌ Refreshing missions to UR — by tickets, diamonds or MEGA
 - ❌ Sending own secret missions out
 - ❌ Collecting own or alliance missions
@@ -276,7 +277,7 @@ The routine as it is actually played, against what the bot covers.
 | 20 rally joins per monster type | 🟡 joining works and a rally now announces itself and can be joined on the spot; counting and choosing do not |
 | Attack marked players, scouting before and after | 🟡 attacking and scouting work, picking targets does not |
 | Send squads to gather resources | 🟡 |
-| Dig and collect treasures | ❌ |
+| Dig and collect treasures | 🟡 finding, digging and taking are built and on a panel page; no chest has been out to try them on |
 | Fireworks | ❌ |
 | Alliance gifts | ✅ · on a schedule 🟡 |
 | Golden eggs and lucky gifts in chat | ❌ |

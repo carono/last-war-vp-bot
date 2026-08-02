@@ -1,0 +1,916 @@
+"""The «Секретный командный пункт» tab — the three raids the in-game panel offers.
+
+The Secret Command Post is one screen in the game with three things behind it, and
+until now each of them was reachable from a different corner of this panel (or from a
+command line only). This tab puts them side by side, one inner page each:
+
+1. **«Операция Призрак»** (`ghost.recon.*`) — the weekly co-op event. The client already
+   knows every squad that is out, so the page asks the game for the list, shows each
+   squad with the game's own verdict on it («можно ограбить» / «ещё рано» / …), and robs
+   the ones it says may be robbed. The five-a-day standing order (the checkbox that used
+   to sit on the «Секретки» tab) lives here too.
+2. **«Секретный мобильный отряд»** (`alliance.share.mission.*`) — the raids an
+   alliancemate shares. There is nothing to poll: a share is a push, so the page listens
+   to the wire and a shared mission appears the moment the broadcast crosses it. It can
+   watch only, or rob what matches the rule as it lands.
+3. **«Скрытые сокровища»** (`detect.event.claim.treasure`) — the chests an alliance's
+   detect event drops on the map. The page asks the server for the treasure list, parks
+   what came back, and offers each target the two presses it can need: dig it (march) or,
+   once it is dug, take it.
+
+What is proven and what is not differs per page, and each says so in its own hint: the
+ghost robbery has never had a live squad to fire at (the event runs one day a week), the
+shared-mission listener is the panel's own auto-loot path, and no live detect event has
+put a treasure on the map yet — so the treasure page's dig/claim are built and compile
+in the live VM but have never completed a round trip. See docs/research/ghost-recon-steal.md,
+docs/research/secret-task-steal.md and docs/research/world-treasures.md.
+
+Kept Tk-thin the way the other data tabs are: every game round trip runs on a background
+thread and degrades gracefully — no daemon, no game, or a manager that is not loaded yet
+leaves a page empty and never crashes the panel.
+"""
+from __future__ import annotations
+
+import os
+import re
+import threading
+import tkinter as tk
+from tkinter import ttk
+
+from .widgets import NumericEntry, ScrollableFrame, font as ui_font
+from .tabs_extra import tk_stringvar
+
+#: Marker every chunk in tools/lib/lua_actions.py logs under.
+MARKER = "ACT"
+
+# Where the child tools live. Resolved here rather than imported from
+# ``panel/__main__.py``: importing that module from a submodule re-executes the whole
+# panel (``python -m panel`` runs it as ``__main__``), so a constant is copied instead.
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS = os.path.join(REPO, "tools")
+
+# ANSI colour codes a child's output carries — stripped before a line is parsed.
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+# Row colours: the green a target that can be acted on right now is drawn in, the amber
+# of one that is merely waiting, and the panel's usual muted grey.
+READY_COLOR = "#4fe08a"
+WAIT_COLOR = "#e0a84f"
+DIM = "#888"
+
+STAR_GLYPH = "⭐"
+GHOST_GLYPH = "🪖"
+SHARE_GLYPH = "📣"
+TREASURE_GLYPH = "💰"
+
+# `GhostreconPointStealType` → the locale key that spells it out. Same four values as
+# lua_actions.GHOST_STEAL_NAMES, translated instead of logged.
+GHOST_STATE_KEYS = {
+    1: "cmdpost.ghost.state.preview",
+    2: "cmdpost.ghost.state.can",
+    3: "cmdpost.ghost.state.no_steal",
+    4: "cmdpost.ghost.state.not_shown",
+}
+
+# The tail of a `secret_share_autoloot.py` line, whichever verdict it carries:
+#   «… * lvl 7  #946  cfg 60000701  uuid 1394584906709054020»
+# The tool prints the same label for a match and for a mission left alone, so one
+# pattern reads both and the «SHARE MATCH» prefix is what tells them apart.
+SHARE_LINE = re.compile(
+    r"lvl\s+(?P<lvl>\d+|\?)\s+#(?P<srv>\d+)\s+cfg\s+(?P<cfg>\S+)\s+uuid\s+(?P<uuid>\d+)")
+
+# How long to wait before re-reading the ghost list after a robbery was handed to the
+# standalone tool — it spawns a child that walks the VM a few times.
+GHOST_RERE_MS = 9000
+
+# Squads a treasure dig may be sent with, and the one preselected.
+TREASURE_SQUADS = (1, 2, 3)
+
+
+def _int(value, default: int = 0) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _short(uuid) -> str:
+    """The last 8 digits of a uuid — its tail is what tells two targets apart."""
+    s = str(uuid)
+    return "…" + s[-8:] if len(s) > 8 else s
+
+
+def _fields(line: str, needle: str) -> dict:
+    """`{key: value}` of the `k=v` tokens that follow `needle` on a marker line."""
+    _head, sep, tail = line.partition(needle)
+    if not sep:
+        return {}
+    out = {}
+    for token in tail.split():
+        key, sep2, value = token.partition("=")
+        if sep2:
+            out[key] = value
+    return out
+
+
+def _evaluator(app):
+    """This profile's warm-daemon evaluator (raises if there is no daemon)."""
+    import lua_client                 # tools/lib is on sys.path once the panel started
+    return lua_client.get_evaluator(port=app._daemon_port())
+
+
+class _Pane:
+    """One inner page: a header with a «Обновить» button, a status line and a list.
+
+    Subclasses fill :meth:`build` (UI), :meth:`fetch` (background — returns whatever the
+    page needs, or raises) and :meth:`render` (Tk thread, paints it). The load is lazy:
+    the tab calls :meth:`ensure_loaded` the first time the page is shown, so a panel that
+    never opens this tab never touches the game.
+    """
+
+    #: Locale keys for the page's title and its explanatory line under the header.
+    TITLE_KEY = ""
+    HINT_KEY = ""
+    #: The `[tag]` this page's lines are logged under.
+    LOG_TAG = "panel"
+
+    def __init__(self, app, parent) -> None:
+        self.app = app
+        self.parent = parent
+        self._loaded = False
+        self._busy = False
+        self._status_var = tk_stringvar(app)
+        self._info_var = tk_stringvar(app)
+        self.build()
+
+    # -- lifecycle ----------------------------------------------------------
+    def ensure_loaded(self) -> None:
+        if not self._loaded:
+            self._loaded = True
+            self.refresh()
+
+    def refresh(self) -> None:
+        """Re-read the page off the game, on a background thread. Coalesces."""
+        if self._busy:
+            return
+        self._busy = True
+        self._status("cmdpost.loading")
+        threading.Thread(target=self._work, daemon=True).start()
+
+    def _work(self) -> None:
+        try:
+            data = self.fetch()
+        except Exception:              # noqa: BLE001 — a failed read is an empty page
+            data = None
+        self.app.after(0, lambda: self._finish(data))
+
+    def _finish(self, data) -> None:
+        self._busy = False
+        if data is None:
+            self._status("cmdpost.no_game")
+            return
+        try:
+            self.render(data)
+        except Exception:              # noqa: BLE001 — never let a paint kill the panel
+            self._status("cmdpost.no_game")
+
+    # -- the shapes every page shares ---------------------------------------
+    def _header(self):
+        """Title + «Обновить» + status line; returns the frame the body goes in."""
+        bar = ttk.Frame(self.parent)
+        bar.pack(fill="x", padx=10, pady=(10, 4))
+        self.app._tr(ttk.Label(bar, font=ui_font(size=14, weight="bold")),
+                     self.TITLE_KEY).pack(side="left")
+        self.app._tr(ttk.Button(bar, width=12, command=self.refresh),
+                     "tabx.refresh").pack(side="right")
+        ttk.Label(bar, textvariable=self._status_var, foreground=DIM).pack(
+            side="right", padx=8)
+        if self.HINT_KEY:
+            self.app._tr(ttk.Label(self.parent, foreground=DIM, wraplength=760,
+                                   justify="left"), self.HINT_KEY).pack(
+                anchor="w", padx=10, pady=(0, 6))
+        body = ttk.Frame(self.parent)
+        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        return body
+
+    def _list(self, parent):
+        """The scrolling list every page paints its targets into."""
+        scroll = ScrollableFrame(parent)
+        scroll.pack(fill="both", expand=True)
+        return scroll
+
+    def _clear_list(self) -> None:
+        for child in self._scroll.winfo_children():
+            child.destroy()
+
+    def _empty(self, key: str) -> None:
+        self.app._tr(ttk.Label(self._scroll, foreground=DIM), key).pack(
+            anchor="w", pady=6)
+
+    # -- talking to the panel (safe from any thread) ------------------------
+    def _status(self, key: str, **fmt) -> None:
+        text = self.app._t(key, **fmt) if key else ""
+        self.app.after(0, lambda: self._status_var.set(text))
+
+    def _info(self, key: str, **fmt) -> None:
+        text = self.app._t(key, **fmt) if key else ""
+        self.app.after(0, lambda: self._info_var.set(text))
+
+    def _log(self, key: str, **fmt) -> None:
+        self.app.after(0, lambda: self.app._say(self.LOG_TAG, key, **fmt))
+
+    # -- subclass hooks -----------------------------------------------------
+    def build(self) -> None:            # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def fetch(self):                    # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def render(self, data) -> None:     # pragma: no cover - overridden
+        raise NotImplementedError
+
+
+# ---------------------------------------------------------------------------
+class GhostReconPane(_Pane):
+    """«Операция Призрак» — the weekly co-op event's squads, and robbing them.
+
+    No map scan and no capture: `ghost.recon.get.task.list` hands the client every squad
+    that is out, so «Обновить» asks for that list, prints each squad with the game's own
+    `GhostreconPointStealType` verdict, and lights the «Ограбить» button only on the ones
+    the game itself calls robbable. Six days a week the event is shut, the list is empty
+    and every press is held — which the header says in as many words rather than looking
+    broken.
+
+    The robbery is one message (`ghost.recon.steal {uuid, ownerServer}`), gated in the VM
+    on the open day and on the five-a-day budget, so a doomed press never reaches the
+    wire. It has never been fired at a live squad — see the module docstring.
+    """
+
+    TITLE_KEY = "cmdpost.ghost.title"
+    HINT_KEY = "cmdpost.ghost.hint"
+    LOG_TAG = "ghost"
+
+    def build(self) -> None:
+        body = self._header()
+        self._build_autoloot_bar(body)
+        ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
+            anchor="w", pady=(6, 4))
+        act = ttk.Frame(body)
+        act.pack(fill="x", pady=(0, 6))
+        self._all_btn = self.app._tr(ttk.Button(act, width=18, command=self._steal_all),
+                                     "cmdpost.ghost.steal_all")
+        self._all_btn.pack(side="left")
+        self._scroll = self._list(body)
+
+    def _build_autoloot_bar(self, parent) -> None:
+        """The «Операция Призрак» standing order — moved here off the «Секретки» tab.
+
+        Only the *widget* lives here: `_ghost_autoloot_var` and `_toggle_ghost_autoloot`
+        stay on the app, exactly as they did on the old tab, so the settings save/load
+        and the profile-switch restart keep reading them where they always did.
+        """
+        app = self.app
+        box = app._tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
+        box.pack(fill="x")
+        app._ghost_autoloot_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(box, variable=app._ghost_autoloot_var,
+                                command=app._toggle_ghost_autoloot),
+                "ghost.autoloot").pack(side="left")
+        app._tr(ttk.Label(box, foreground=DIM, wraplength=520, justify="left"),
+                "ghost.hint").pack(side="left", padx=10)
+
+    # -- reading the game ---------------------------------------------------
+    def fetch(self):
+        """`(status, targets)` — the event's state and every squad with its verdict.
+
+        Closed day: the list is asked for anyway, because the honest answer to "why is
+        this empty" is the status line, not a guess. `robbable` asks the game per squad,
+        so this page never second-guesses the client's own rules.
+        """
+        import ghost_recon_steal as grs
+        ev = _evaluator(self.app)
+        status = grs.read_status(ev)
+        targets = grs.read_targets(ev) if status.get("open") else []
+        can = set()
+        if targets:
+            can = {t.get("uuid") for t in grs.robbable(ev, targets)}
+        for t in targets:
+            t["can"] = t.get("uuid") in can
+        targets.sort(key=lambda t: (not t.get("can"), -t.get("done", 0)))
+        return status, targets
+
+    def render(self, data) -> None:
+        status, targets = data
+        self._status("")
+        self._info("cmdpost.ghost.info",
+                   state=self.app._t("cmdpost.ghost.open" if status.get("open")
+                                     else "cmdpost.ghost.closed"),
+                   left=status.get("left", 0), queued=status.get("queued", 0))
+        self._clear_list()
+        if not targets:
+            self._empty("cmdpost.ghost.empty" if status.get("open")
+                        else "cmdpost.ghost.closed_empty")
+            return
+        for target in targets:
+            self._row(target).pack(fill="x", pady=1)
+
+    def _row(self, target):
+        import coords as coords_fmt
+        import lastwar_proto as proto
+        family, level = proto.ghost_recon_level(target.get("cfg"))
+        can = bool(target.get("can"))
+        frame = ttk.Frame(self._scroll)
+        ttk.Label(frame, text=STAR_GLYPH if family == proto.GHOST_STAR_FAMILY
+                  else GHOST_GLYPH, font=ui_font(size=14)).pack(side="left", padx=(0, 6))
+        lvl = ttk.Label(frame, width=10, font=ui_font(weight="bold"),
+                        text=self.app._t("cmdpost.level", n=level or 0))
+        lvl.configure(foreground=READY_COLOR if can else WAIT_COLOR)
+        lvl.pack(side="left", padx=(0, 8))
+        ttk.Label(frame, width=22, text=coords_fmt.fmt(
+            target.get("x", 0), target.get("y", 0), target.get("srv", 0))).pack(
+            side="left", padx=(0, 8))
+        ttk.Label(frame, width=18, foreground=DIM, text=self.app._t(
+            GHOST_STATE_KEYS.get(target.get("state"),
+                                 "cmdpost.ghost.state.not_shown"))).pack(
+            side="left", padx=(0, 8))
+        ttk.Label(frame, width=12, foreground=DIM, text=self.app._t(
+            "cmdpost.ghost.looted", n=target.get("looted", 0))).pack(
+            side="left", padx=(0, 8))
+        ttk.Label(frame, text=_short(target.get("uuid")), foreground=DIM).pack(
+            side="left", padx=(0, 8))
+        if target.get("mine"):
+            self.app._tr(ttk.Label(frame, foreground=DIM), "cmdpost.ghost.own").pack(
+                side="right", padx=(4, 0))
+        elif can:
+            self.app._tr(ttk.Button(frame, width=12,
+                                    command=lambda t=target: self._steal(t)),
+                         "cmdpost.steal").pack(side="right", padx=(4, 0))
+        self.app._tr(ttk.Button(frame, width=10,
+                                command=lambda t=target: self._jump(t)),
+                     "cmdpost.jump").pack(side="right")
+        return frame
+
+    # -- actions ------------------------------------------------------------
+    def _jump(self, target) -> None:
+        x, y = _int(target.get("x")), _int(target.get("y"))
+        if x or y:
+            self.app._jump(x, y, _int(target.get("srv")) or None)
+
+    def _steal(self, target) -> None:
+        """Rob one squad, off the Tk thread; the VM gate decides whether it sends."""
+        uuid, server = _int(target.get("uuid")), _int(target.get("srv"))
+        if not uuid:
+            return
+
+        def work():
+            ok = False
+            try:
+                import game_buttons
+                import lua_actions
+                ev = _evaluator(self.app)
+                lines = ev.run(lua_actions.ghost_recon_steal(uuid, server),
+                               marker=MARKER, settle=1.6)
+                ok = any("ghost_steal_sent" in ln for ln in (lines or []))
+                if ok:
+                    button = game_buttons.get("dismiss_ghost_recon_reward")
+                    if button is not None:
+                        ev.run(button.lua, marker=MARKER, settle=button.wait)
+            except Exception:          # noqa: BLE001 — a failed send is a log line
+                ok = False
+            self._log("cmdpost.ghost.log_sent" if ok else "cmdpost.ghost.log_held",
+                      uuid=_short(uuid))
+            self.app.after(0, self.refresh)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _steal_all(self) -> None:
+        """Hand the whole robbable set to the standalone tool (the same one the standing
+        order spawns), then re-read the list once it has had time to walk the VM."""
+        self.app._ghost_run(self.app._autoloot_limit())
+        self.app.after(GHOST_RERE_MS, self.refresh)
+
+
+# ---------------------------------------------------------------------------
+class SharedMissionsPane(_Pane):
+    """«Секретный мобильный отряд» — the raids an alliancemate shares, as they land.
+
+    A shared mission is not a tile anyone can pan over: it is a push
+    (`push.alliance.share.mission.add`) the server sends the alliance when a member
+    presses «поделиться» on a raidable secret task. So there is nothing to poll, and this
+    page is a listener: tick «Слушать эфир» and every share appears here the moment it
+    crosses the wire, with its level, its star and the server the tile sits on.
+
+    Two modes, one checkbox apart. Watching only (the default) decodes and lists; «грабить
+    сразу» hands the same rule the panel's auto-loot uses to the listener, which robs a
+    matching mission in under a second — the case a person used to win by reading the
+    broadcast faster than a poll could. Either way the day's five robberies are the scarce
+    thing, so the level range gates what is worth one.
+    """
+
+    TITLE_KEY = "cmdpost.shared.title"
+    HINT_KEY = "cmdpost.shared.hint"
+    LOG_TAG = "autoloot"
+
+    def __init__(self, app, parent) -> None:
+        # uuid (str) -> the decoded mission and its row, so a repeated push does not
+        # double a line and a robbery can find its target again.
+        self._rows: dict[str, dict] = {}
+        self._child = None
+        super().__init__(app, parent)
+
+    def build(self) -> None:
+        body = self._header()
+        self._build_listener_bar(body)
+        ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
+            anchor="w", pady=(6, 4))
+        self._scroll = self._list(body)
+        self._paint()
+
+    def _build_listener_bar(self, parent) -> None:
+        app = self.app
+        box = app._tr(ttk.LabelFrame(parent, padding=8), "cmdpost.shared.frame")
+        box.pack(fill="x")
+        row1 = ttk.Frame(box)
+        row1.pack(fill="x")
+        self._listen_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row1, variable=self._listen_var,
+                                command=self._toggle_listen),
+                "cmdpost.shared.listen").pack(side="left")
+        self._rob_var = tk.BooleanVar(master=app, value=False)
+        app._tr(ttk.Checkbutton(row1, variable=self._rob_var,
+                                command=self._on_rule_change),
+                "cmdpost.shared.rob").pack(side="left", padx=(12, 0))
+        self._star_var = tk.BooleanVar(master=app, value=True)
+        app._tr(ttk.Checkbutton(row1, variable=self._star_var,
+                                command=self._on_rule_change),
+                "cmdpost.shared.stars_only").pack(side="left", padx=(12, 0))
+
+        row2 = ttk.Frame(box)
+        row2.pack(fill="x", pady=(6, 0))
+        app._tr(ttk.Label(row2), "cmdpost.shared.level_from").pack(side="left")
+        self._from_var = tk_stringvar(app)
+        NumericEntry(row2, textvariable=self._from_var, width=4).pack(
+            side="left", padx=(4, 0))
+        app._tr(ttk.Label(row2), "cmdpost.shared.level_to").pack(side="left", padx=(8, 0))
+        self._to_var = tk_stringvar(app)
+        NumericEntry(row2, textvariable=self._to_var, width=4).pack(
+            side="left", padx=(4, 0))
+        app._tr(ttk.Button(row2, width=14, command=self._clear),
+                "cmdpost.shared.clear").pack(side="right")
+
+    # -- the listener -------------------------------------------------------
+    def _toggle_listen(self) -> None:
+        if self._listen_var.get():
+            self._start_listener()
+        else:
+            self._stop_listener()
+
+    def _start_listener(self) -> None:
+        """Spawn `tools/secret_share_autoloot.py` and read its lines into the list.
+
+        Watching only is the tool's own `--dry-run`: it decodes and decides but never
+        sends, so the page can sit on all evening without touching the daily budget.
+        """
+        if self._child is not None:
+            return
+        cmd = [self.app._python(), "-u",
+               os.path.join(TOOLS, "secret_share_autoloot.py"),
+               "--limit", str(self.app._autoloot_limit())]
+        if not self._rob_var.get():
+            cmd.append("--dry-run")
+        if self._star_var.get():
+            cmd.append("--star-max")
+        lo, hi = self._levels()
+        if lo is not None:
+            cmd += ["--level-min", str(lo)]
+        if hi is not None:
+            cmd += ["--level-max", str(hi)]
+        child = self.app._child("autoloot", cmd, on_line=self._on_line,
+                                on_exit=self._on_child_exit)
+        if not child.start():
+            self._listen_var.set(False)
+            return
+        self._child = child
+        self._log("cmdpost.shared.log_on")
+
+    def _stop_listener(self) -> None:
+        child, self._child = self._child, None
+        if child is not None:
+            child.stop()
+            self._log("cmdpost.shared.log_off")
+
+    def _on_child_exit(self) -> None:
+        """The listener died on its own — untick the box rather than lie about it."""
+        self._child = None
+        try:
+            self._listen_var.set(False)
+        except Exception:              # noqa: BLE001 — panel already gone
+            pass
+
+    def _on_rule_change(self) -> None:
+        """A rule box was toggled: restart the listener so the change takes effect."""
+        if self._child is None:
+            return
+        self._stop_listener()
+        self._start_listener()
+
+    def _on_line(self, line: str) -> None:
+        """One line of the listener's output → a row, when it names a mission.
+
+        Returns ``None`` so the line still reaches the log: the tool narrates what it
+        decided (matched / left alone / robbed / budget spent) and that narration is
+        worth reading beside the list.
+        """
+        clean = ANSI.sub("", line)
+        match = SHARE_LINE.search(clean)
+        if match is None:
+            return None
+        mission = {
+            "uuid": match.group("uuid"),
+            "server": _int(match.group("srv")),
+            "cfg": match.group("cfg"),
+            "level": _int(match.group("lvl"), 0),
+            "star": "*" in clean.split("lvl", 1)[0],
+            "matched": "SHARE MATCH" in clean,
+            "robbed": "robbed" in clean,
+        }
+        self.app.after(0, lambda: self._add(mission))
+        return None
+
+    def _add(self, mission: dict) -> None:
+        key = mission["uuid"]
+        row = self._rows.get(key)
+        if row is None:
+            self._rows[key] = mission
+        else:
+            # A later line about the same mission only ever adds to what is known
+            # (matched → robbed); it never downgrades a verdict already seen.
+            row["matched"] = row.get("matched") or mission["matched"]
+            row["robbed"] = row.get("robbed") or mission["robbed"]
+        self._paint()
+
+    # -- reading the game ---------------------------------------------------
+    def fetch(self):
+        """The day's remaining secret-task robberies — the budget a share would spend."""
+        import lua_actions
+        ev = _evaluator(self.app)
+        chunk = ('CS.UnityEngine.Debug.LogError("ACT left="..tostring(%s))'
+                 % lua_actions.secret_task_steals_left())
+        for line in ev.run(chunk, marker=MARKER, settle=0.9) or ():
+            if "left=" in line:
+                return _int(line.split("left=", 1)[1].split()[0])
+        return 0
+
+    def render(self, left) -> None:
+        self._status("")
+        self._info("cmdpost.shared.info", left=left, n=len(self._rows))
+        self._paint()
+
+    def _paint(self) -> None:
+        self._clear_list()
+        if not self._rows:
+            self._empty("cmdpost.shared.empty")
+            return
+        rows = sorted(self._rows.values(),
+                      key=lambda m: (not m.get("matched"), -(m.get("level") or 0)))
+        for mission in rows:
+            self._row(mission).pack(fill="x", pady=1)
+
+    def _row(self, mission: dict):
+        import coords as coords_fmt
+        frame = ttk.Frame(self._scroll)
+        ttk.Label(frame, text=STAR_GLYPH if mission.get("star") else SHARE_GLYPH,
+                  font=ui_font(size=14)).pack(side="left", padx=(0, 6))
+        lvl = ttk.Label(frame, width=10, font=ui_font(weight="bold"),
+                        text=self.app._t("cmdpost.level", n=mission.get("level") or 0))
+        lvl.configure(foreground=READY_COLOR if mission.get("matched") else WAIT_COLOR)
+        lvl.pack(side="left", padx=(0, 8))
+        ttk.Label(frame, width=12, text=coords_fmt.fmt(0, 0, mission.get("server"))
+                  .split()[0]).pack(side="left", padx=(0, 8))
+        ttk.Label(frame, width=12, foreground=DIM,
+                  text=str(mission.get("cfg") or "")).pack(side="left", padx=(0, 8))
+        ttk.Label(frame, text=_short(mission.get("uuid")), foreground=DIM).pack(
+            side="left", padx=(0, 8))
+        if mission.get("robbed"):
+            self.app._tr(ttk.Label(frame, foreground=READY_COLOR),
+                         "cmdpost.shared.robbed").pack(side="right", padx=(4, 0))
+        else:
+            self.app._tr(ttk.Button(frame, width=12,
+                                    command=lambda m=mission: self._steal(m)),
+                         "cmdpost.steal").pack(side="right", padx=(4, 0))
+        return frame
+
+    # -- actions ------------------------------------------------------------
+    def _levels(self):
+        """The «уровень от / до» pair as ints, either end ``None`` when left blank."""
+        def bound(var):
+            raw = var.get().strip()
+            return int(raw) if raw.isdigit() else None
+        return bound(self._from_var), bound(self._to_var)
+
+    def _steal(self, mission: dict) -> None:
+        """Rob one shared mission by hand — `hero.dispatch.steal {uuid, targetServer}`.
+
+        The same send the «Секретки» tab makes, because a shared mission IS a secret
+        task: the push carries the tile's uuid and the server it sits on, so no
+        coordinate-to-uuid resolve is needed.
+        """
+        uuid, server = _int(mission.get("uuid")), _int(mission.get("server"))
+        if not uuid:
+            return
+
+        def work():
+            ok = False
+            try:
+                import lua_actions
+                ev = _evaluator(self.app)
+                lines = ev.run(lua_actions.secret_task_steal(uuid, server),
+                               marker=MARKER, settle=1.4)
+                ok = any("steal_sent" in ln for ln in (lines or []))
+            except Exception:          # noqa: BLE001
+                ok = False
+            self._log("cmdpost.shared.log_sent" if ok else "cmdpost.shared.log_held",
+                      uuid=_short(uuid))
+            if ok:
+                mission["robbed"] = True
+            self.app.after(0, self._paint)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clear(self) -> None:
+        self._rows.clear()
+        self._paint()
+
+    def shutdown(self) -> None:
+        self._stop_listener()
+
+    def restart(self) -> None:
+        """Bounce the listener onto the profile the panel just switched to."""
+        if self._child is None:
+            return
+        self._stop_listener()
+        self._start_listener()
+
+
+# ---------------------------------------------------------------------------
+class TreasuresPane(_Pane):
+    """«Скрытые сокровища» — the detect-event chests on the world map.
+
+    Nothing polls for a treasure by itself: the client only knows about one after a
+    treasure-list reply has arrived, and an empty list means «nobody asked» just as often
+    as «there is none». So «Обновить» does what the finder tool does — asks the server
+    for each activity the account tracks, reads the manager back, and parks whatever came
+    with it — and the header says which of those two empties it is looking at.
+
+    Each parked target gets the press it needs: «Копать» sends the chosen squad to the
+    tile while it is still being dug, «Забрать» claims it once it is. Both are built and
+    compile in the live VM, but no detect event has put a treasure on the map since they
+    were written, so neither has completed a round trip — the hint says so.
+    """
+
+    TITLE_KEY = "cmdpost.treasure.title"
+    HINT_KEY = "cmdpost.treasure.hint"
+    LOG_TAG = "action"
+
+    def build(self) -> None:
+        body = self._header()
+        box = self.app._tr(ttk.LabelFrame(body, padding=8), "cmdpost.treasure.frame")
+        box.pack(fill="x")
+        self.app._tr(ttk.Label(box), "cmdpost.treasure.squad").pack(side="left")
+        self._squad_var = tk.IntVar(master=self.app, value=TREASURE_SQUADS[0])
+        for squad in TREASURE_SQUADS:
+            ttk.Radiobutton(box, text=str(squad), value=squad,
+                            variable=self._squad_var).pack(side="left", padx=4)
+        ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
+            anchor="w", pady=(6, 4))
+        self._scroll = self._list(body)
+
+    # -- reading the game ---------------------------------------------------
+    def fetch(self):
+        """Ask, read back, park, and return `(treasures_num, daily, targets)`.
+
+        The ids to ask for are the ones the client tracks a daily count for; a client
+        that has just started tracks none, and asking for nothing would be never looking
+        at all — so the finder's known ids stand in, exactly as `tools/find_treasures.py`
+        does it.
+        """
+        import time
+        import find_treasures
+        import lua_actions
+        import tool_config
+        ev = _evaluator(self.app)
+        num, daily = self._read_state(ev)
+        ids = sorted(daily) or list(find_treasures.KNOWN_ACTIVITY_IDS)
+        ev.run(lua_actions.treasure_refresh_request(ids), marker=MARKER, settle=1.5)
+        time.sleep(2.5)
+        num, daily = self._read_state(ev)
+        home = _int(tool_config.default_server())
+        ev.run(lua_actions.park_treasures(home), marker=MARKER, settle=1.5)
+        targets = []
+        for line in ev.run(lua_actions.treasure_queue_dump(),
+                           marker=MARKER, settle=1.2) or ():
+            if " TQ " not in line:
+                continue
+            fields = _fields(line, " TQ ")
+            targets.append({
+                "i": _int(fields.get("i")), "pid": fields.get("pid"),
+                "uuid": fields.get("uuid"), "server": _int(fields.get("srv")),
+                "dug": fields.get("dug") == "1",
+                "x": _int(fields.get("x")), "y": _int(fields.get("y")),
+                "cross": bool(home) and _int(fields.get("srv")) != home,
+            })
+        return num, daily, targets
+
+    @staticmethod
+    def _read_state(ev):
+        """`(treasures_num, {activityId: taken_today})` off the treasure manager."""
+        import lua_actions
+        num, daily = 0, {}
+        for line in ev.run(lua_actions.treasure_state(),
+                           marker=MARKER, settle=1.5) or ():
+            if "treasures_num=" in line:
+                num = _int(line.split("treasures_num=", 1)[1].split()[0])
+            elif "treasure_daily " in line:
+                key, _sep, value = line.split("treasure_daily ", 1)[1].partition("=")
+                if key.strip().isdigit():
+                    daily[int(key.strip())] = _int(value.split()[0] if value else 0)
+        return num, daily
+
+    def render(self, data) -> None:
+        num, daily, targets = data
+        self._status("")
+        self._info("cmdpost.treasure.info", n=num,
+                   daily=", ".join("%d: %d" % kv for kv in sorted(daily.items()))
+                   or self.app._t("cmdpost.treasure.no_daily"))
+        self._clear_list()
+        if not targets:
+            self._empty("cmdpost.treasure.empty")
+            return
+        for target in targets:
+            self._row(target).pack(fill="x", pady=1)
+
+    def _row(self, target):
+        import coords as coords_fmt
+        frame = ttk.Frame(self._scroll)
+        ttk.Label(frame, text=TREASURE_GLYPH, font=ui_font(size=14)).pack(
+            side="left", padx=(0, 6))
+        ttk.Label(frame, width=22, text=coords_fmt.fmt(
+            target["x"], target["y"], target["server"])).pack(side="left", padx=(0, 8))
+        state = ttk.Label(frame, width=16, font=ui_font(weight="bold"),
+                          text=self.app._t("cmdpost.treasure.dug" if target["dug"]
+                                           else "cmdpost.treasure.digging"))
+        state.configure(foreground=READY_COLOR if target["dug"] else WAIT_COLOR)
+        state.pack(side="left", padx=(0, 8))
+        ttk.Label(frame, text=_short(target["uuid"]), foreground=DIM).pack(
+            side="left", padx=(0, 8))
+        if target["dug"]:
+            self.app._tr(ttk.Button(frame, width=12,
+                                    command=lambda t=target: self._claim(t)),
+                         "cmdpost.treasure.claim").pack(side="right", padx=(4, 0))
+        else:
+            self.app._tr(ttk.Button(frame, width=12,
+                                    command=lambda t=target: self._dig(t)),
+                         "cmdpost.treasure.dig").pack(side="right", padx=(4, 0))
+        self.app._tr(ttk.Button(frame, width=10,
+                                command=lambda t=target: self._jump(t)),
+                     "cmdpost.jump").pack(side="right")
+        return frame
+
+    # -- actions ------------------------------------------------------------
+    def _jump(self, target) -> None:
+        if target["x"] or target["y"]:
+            self.app._jump(target["x"], target["y"], target["server"] or None)
+
+    def _dig(self, target) -> None:
+        """March the chosen squad onto the tile — the dig half of the treasure.
+
+        A march rides a *formation*, and a cold one silently no-ops, so the squad slot
+        is resolved to its formation uuid the way every other march in the repo does
+        (`rally_join.formation_by_squad`, falling back to any warm formation).
+        """
+        squad = self._squad_var.get()
+
+        def work():
+            ok, armed = False, True
+            try:
+                import lua_actions
+                import rally_join
+                ev = _evaluator(self.app)
+                formation = (rally_join.formation_by_squad(ev.run, squad)
+                             or rally_join.pick_formation(ev.run))
+                if not formation:
+                    armed = False       # no warm squad: say which one, not "failed"
+                else:
+                    lines = ev.run(lua_actions.dig_treasure_march(
+                        target["pid"], target["uuid"], target["server"], formation,
+                        cross=target["cross"]), marker=MARKER, settle=1.6)
+                    ok = any("dig_treasure_armed" in ln for ln in (lines or []))
+            except Exception:          # noqa: BLE001
+                ok = False
+            if not armed:
+                self._log("cmdpost.treasure.log_no_squad", squad=squad)
+            else:
+                self._log("cmdpost.treasure.log_dig" if ok
+                          else "cmdpost.treasure.log_failed",
+                          uuid=_short(target["uuid"]))
+            self.app.after(0, self.refresh)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _claim(self, target) -> None:
+        """Take an already-dug treasure — `detect.event.claim.treasure {uuid, server}`."""
+        def work():
+            ok = False
+            try:
+                import lua_actions
+                ev = _evaluator(self.app)
+                lines = ev.run(lua_actions.claim_treasure(target["uuid"],
+                                                          target["server"]),
+                               marker=MARKER, settle=1.5)
+                ok = any("claim_treasure_sent" in ln for ln in (lines or []))
+            except Exception:          # noqa: BLE001
+                ok = False
+            self._log("cmdpost.treasure.log_claim" if ok
+                      else "cmdpost.treasure.log_failed", uuid=_short(target["uuid"]))
+            self.app.after(0, self.refresh)
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+class CommandPostTab:
+    """The tab itself: a notebook of the three pages above.
+
+    Each page loads lazily — the first time it is *shown*, not when the tab is built —
+    so opening the tab costs one page's read and the two the operator never looks at
+    cost nothing. The tab is constructed eagerly by the panel because the ghost page
+    owns the «Операция Призрак» checkbox, whose var the settings load expects to exist.
+    """
+
+    def __init__(self, app, parent) -> None:
+        self.app = app
+        self.parent = parent
+        # Until the panel has actually shown this tab, a page change is Tk's own doing
+        # (adding the first inner tab selects it) and must not start a game read — a
+        # panel nobody opened this tab on would poll the client at start-up.
+        self._shown = False
+        nb = ttk.Notebook(parent)
+        nb.pack(fill="both", expand=True)
+        self._nb = nb
+        self._pages = {}
+        for key, cls in (("ghost", GhostReconPane),
+                         ("shared", SharedMissionsPane),
+                         ("treasure", TreasuresPane)):
+            frame = ttk.Frame(nb)
+            nb.add(frame, text=app._t("cmdpost.tab." + key))
+            self._pages[str(frame)] = cls(app, frame)
+        app._tr_hooks.append(self._retranslate)
+        nb.bind("<<NotebookTabChanged>>", self._on_page_changed)
+
+    # -- lifecycle ----------------------------------------------------------
+    def ensure_loaded(self) -> None:
+        """The panel showed this tab: load whichever page is on top."""
+        self._shown = True
+        page = self._current()
+        if page is not None:
+            page.ensure_loaded()
+
+    def _on_page_changed(self, _event=None) -> None:
+        """An inner page was selected — load it, once the tab has really been opened."""
+        if not self._shown:
+            return
+        page = self._current()
+        if page is not None:
+            page.ensure_loaded()
+
+    def _current(self):
+        try:
+            return self._pages.get(str(self._nb.select()))
+        except Exception:              # noqa: BLE001 — no page selected yet
+            return None
+
+    def _retranslate(self) -> None:
+        """Repaint the inner tab labels when the language changes."""
+        for index, key in enumerate(("ghost", "shared", "treasure")):
+            try:
+                self._nb.tab(index, text=self.app._t("cmdpost.tab." + key))
+            except Exception:          # pragma: no cover - the notebook may be gone
+                pass
+
+    def shutdown(self) -> None:
+        """Stop anything a page left running (the shared-mission listener)."""
+        for page in self._pages.values():
+            stop = getattr(page, "shutdown", None)
+            if stop is not None:
+                stop()
+
+    def restart_children(self) -> None:
+        """The profile switched: re-point a running listener at the new client.
+
+        A listener captures for one client and robs through one daemon, so it cannot
+        simply carry over. Only a page whose box is still ticked comes back up.
+        """
+        for page in self._pages.values():
+            restart = getattr(page, "restart", None)
+            if restart is not None:
+                restart()

@@ -1597,6 +1597,44 @@ def claim_head_treasure() -> str:
     )
 
 
+def treasure_queue_dump() -> str:
+    """Reader chunk: one `ACT TQ …` line per parked treasure, with its map position.
+
+    `park_treasures` already logs what it parked, but only as it parks — a caller that
+    wants to SHOW the queue (the panel's «Скрытые сокровища» list) needs to be able to
+    re-read it, and needs the tile position a `pid` stands for. Fields: `i` the queue
+    slot (1-based, what `dig_head_treasure`/`claim_head_treasure` spend in order), `pid`,
+    `uuid`, `srv`, `dug` (already dug → claim, else dig) and `x`/`y` off
+    `SceneUtils.IndexToTilePos`, the same conversion every other tile read uses.
+
+    Emits nothing but the lines — reading the queue never changes it.
+    """
+    return (
+        "local q=DataCenter.__lw_treasure_queue or {} "
+        'CS.UnityEngine.Debug.LogError("ACT treasure_queue "..tostring(#q)) '
+        "for i,t in ipairs(q) do "
+        "local x,y=0,0 pcall(function() local tp=SceneUtils.IndexToTilePos(t.pid) "
+        "x,y=tp.x,tp.y end) "
+        'CS.UnityEngine.Debug.LogError("ACT TQ i="..tostring(i).." pid="..tostring(t.pid)'
+        '.." uuid="..tostring(t.uuid).." srv="..tostring(t.server)'
+        '.." dug="..tostring(t.dug and 1 or 0).." x="..tostring(x).." y="..tostring(y)) end'
+    )
+
+
+def treasure_formation_set(formation) -> str:
+    """Park the squad `dig_head_treasure` should march with (`__lw_treasure_formation`).
+
+    A queue entry may carry its own `formation`; this is the shared fallback, set once
+    so a dig started from a list (the panel) does not have to rewrite every entry.
+
+    `formation` goes in as a bare Lua literal, like every other uuid in this module —
+    they are 19-digit numbers and Lua 5.3 integers hold them exactly.
+    """
+    return ("DataCenter.__lw_treasure_formation=%s "
+            'CS.UnityEngine.Debug.LogError("ACT treasure_formation="..tostring('
+            "DataCenter.__lw_treasure_formation))" % int(formation))
+
+
 # --- The finder: is there a treasure right now? -----------------------------
 # `DataCenter.ActDetectTreasureDataManager` is a pure reply cache, verified live via
 # `string.dump` (task #1116): `GetArrData` only reads `self.dataDict[activityId]`, and
