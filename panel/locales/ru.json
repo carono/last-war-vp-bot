@@ -225,13 +225,6 @@
   "menu.language": "Язык",
   "menu.profile": "Профиль",
 
-  "nav.frame": "Навигация",
-  "nav.home": "🏠  Домой",
-  "nav.home.log": "перехожу на базу",
-  "nav.scene": "Сцена",
-  "nav.scene_hint": "SceneUtils.ChangeToCity / ChangeToWorld",
-  "nav.world": "🌍  Мир",
-  "nav.world.log": "перехожу на карту мира",
 
   "opt.autoloot_limit": "Целей за один заход",
   "opt.autoloot_limit.hint": "Больше дневной нормы смысла не имеет.",

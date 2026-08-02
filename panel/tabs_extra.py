@@ -793,6 +793,15 @@ class RallyTab:
 
         ttk.Label(form, textvariable=self._status_var, foreground="#888").pack(
             anchor="w", pady=(8, 0))
+
+        # The rally monitor — «слушай push.alliance.march.* и присоединяйся» — is the
+        # other half of the same subject, so it belongs on this tab rather than on the
+        # Main one it used to crowd (#1183). Its widgets are still built in
+        # panel/__main__.py (`_build_rally_monitor`), because every variable and every
+        # handler they touch lives on the app; this frame is only where they go.
+        self.monitor_host = ttk.Frame(self.parent)
+        self.monitor_host.pack(fill="x", padx=2, pady=(0, 4))
+
         self.app._tr(ttk.Label(self.parent, foreground="#888", wraplength=640,
                               justify="left"), "rally_tab.hint").pack(
             anchor="w", padx=10, pady=(0, 10))

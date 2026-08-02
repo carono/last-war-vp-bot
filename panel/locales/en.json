@@ -225,13 +225,6 @@
   "menu.language": "Language",
   "menu.profile": "Profile",
 
-  "nav.frame": "Navigation",
-  "nav.home": "🏠  Home",
-  "nav.home.log": "going to the base",
-  "nav.scene": "Scene",
-  "nav.scene_hint": "SceneUtils.ChangeToCity / ChangeToWorld",
-  "nav.world": "🌍  World",
-  "nav.world.log": "going to the world map",
 
   "opt.autoloot_limit": "Targets per run",
   "opt.autoloot_limit.hint": "More than the daily budget makes no difference.",

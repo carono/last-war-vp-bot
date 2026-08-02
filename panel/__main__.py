@@ -1788,6 +1788,11 @@ class Panel(tk.Tk):
         # eagerly like the one above (its ghost page owns `_ghost_autoloot_var`, which the
         # settings load expects to exist); each of its three pages still reads lazily.
         self._command_post_tab = commandpostmod.CommandPostTab(self, command_post_tab)
+        # The account summary strip: built into the «Аккаунты» tab, above the list of
+        # characters it summarises. It used to sit on the Main tab, which left that tab
+        # holding three unrelated subjects at once (#1183). Built BEFORE the tab class
+        # below so the strip packs above that tab's own header.
+        self._build_dashboard(accounts_tab)
         self._lazy_tabs = {
             str(alliance_tab): tabsextra.AllianceTab(self, alliance_tab),
             str(profile_tab): tabsextra.ProfileTab(self, profile_tab),
@@ -1800,6 +1805,9 @@ class Panel(tk.Tk):
         # The «Ралли» tab drives the game (raise a rally on an elite, loop N times); it
         # has no data to lazy-load, so it is built eagerly and not in _lazy_tabs.
         self._rally_tab = tabsextra.RallyTab(self, rally_tab)
+        # …and the rally monitor goes into the slot that tab leaves for it, under the
+        # «создать ралли» form (#1183).
+        self._build_rally_monitor(self._rally_tab.monitor_host)
         nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
 
         top = ttk.Frame(main, padding=8)
@@ -1823,8 +1831,8 @@ class Panel(tk.Tk):
         self._tr(ttk.Button(top, command=self._panic),
                  "panic.stop_all").pack(side="right", padx=(0, 6))
 
-        # -- the account dashboard: every daily budget on one strip -------------
-        self._build_dashboard(main)
+        # The account summary strip that used to hang here now opens the «Аккаунты»
+        # tab (built above, beside the character list it belongs with).
 
         # Everything above the log is fixed-height and the log used to get whatever
         # was left — a few lines at the 640×500 minimum. A sash makes that the
@@ -1863,24 +1871,13 @@ class Panel(tk.Tk):
         self._tr(ttk.Checkbutton(game, variable=self._opt_vars["watchdog"]),
                  "game.watchdog").pack(side="right")
 
-        nav = self._tr(ttk.LabelFrame(main, padding=8), "nav.frame")
-        nav.pack(fill="x", padx=8, pady=(0, 6))
-
-        scene = self._tr(ttk.LabelFrame(nav, padding=6), "nav.scene")
-        scene.pack(fill="x", pady=(0, 6))
-        # The label `_act` logs is looked up when the button is PRESSED, not when it
-        # is built, so switching the language re-labels the log line too.
-        self._tr(ttk.Button(scene, command=lambda: self._act(
-                     lua_actions.scene_city(), "scene", self._t("nav.home.log"))),
-                 "nav.home").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(ttk.Button(scene, command=lambda: self._act(
-                     lua_actions.scene_world(), "scene", self._t("nav.world.log"))),
-                 "nav.world").pack(side="left", padx=4, ipadx=8, ipady=6)
-        self._tr(ttk.Label(scene, foreground="#888"),
-                 "nav.scene_hint").pack(side="left", padx=10)
-
-        coord = self._tr(ttk.LabelFrame(nav, padding=6), "coord.frame")
-        coord.pack(fill="x")
+        # The «Навигация» wrapper and its «Сцена» row (🏠 Домой / 🌍 Мир) are gone
+        # (#1183): switching scene is what `SCENE` in a scenario does, and the two
+        # buttons cost the Main tab a block of its own. The jump by coordinates stays
+        # — it is typed into, and the map sweep's «Отсюда» and the chat's «поделиться
+        # координатами» read the very fields below.
+        coord = self._tr(ttk.LabelFrame(main, padding=6), "coord.frame")
+        coord.pack(fill="x", padx=8, pady=(0, 6))
         self._x_var = tk.StringVar()
         self._y_var = tk.StringVar()
         self._srv_var = tk.StringVar(value=DEFAULT_SERVER)
@@ -1925,30 +1922,15 @@ class Panel(tk.Tk):
         # The capture the monitor runs writes a checkpoint each tick; the tab's list is
         # fed from that checkpoint (the wire), with a first-open VM snapshot to seed it.
 
-        rally = self._tr(ttk.LabelFrame(main, padding=8), "rally.frame")
-        rally.pack(fill="x", padx=8, pady=(0, 6))
-        rally_top = ttk.Frame(rally)
-        rally_top.pack(fill="x")
-        self._rally_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
-                                 command=self._toggle_rally),
-                 "rally.monitor").pack(side="left")
-        # A rally is worth minutes and the alert used to be one log line that
-        # scrolled past. Now it is a line the log paints as news, a bell, and — if
-        # the operator asks for it — the join itself.
-        self._rally_alert_var = tk.BooleanVar(value=True)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
-                 "rally.alert").pack(side="left", padx=(12, 0))
-        self._rally_autojoin_var = tk.BooleanVar(value=False)
-        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
-                 "rally.autojoin").pack(side="left", padx=(12, 0))
-        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
-                 "rally.join_now").pack(side="right")
-        # Hint shows the active profile's rally log; refreshed on language/profile change.
-        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
-                                     justify="left")
-        self._rally_hint.pack(anchor="w", pady=(4, 0))
-        self._hook(self._update_path_hints)
+        # -- «Ралли» moved to the «Ралли» tab ------------------------------------
+        #
+        # The monitor's own block (the switch, «Оповещать», «Присоединяться сам», the
+        # «Присоединиться» button and the log-path hint) is built by
+        # `_build_rally_monitor` into the slot the «Ралли» tab leaves for it, beside the
+        # form that raises one. Only the widgets moved: `_rally_var` /
+        # `_rally_alert_var` / `_rally_autojoin_var` / `_rally_hint` are still this
+        # app's, so the settings save/load, the autosave traces and the monitor
+        # plumbing are unchanged.
 
         # Alliance auto-help used to live here as its own checkbox. It is a wire-
         # driven standing order — answer «Помочь всем» the instant a request lands —
@@ -2016,6 +1998,40 @@ class Panel(tk.Tk):
                  "cmd.run").pack(side="left")
         self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
                  "cmd.reference").pack(side="left", padx=(4, 0))
+
+    # -- the rally monitor (shown on the «Ралли» tab) ------------------------
+    def _build_rally_monitor(self, parent: ttk.Frame) -> None:
+        """The push-driven rally watcher: listen, alert, join.
+
+        Built here rather than in panel/tabs_extra.py because every variable and
+        every handler these four widgets touch (`_toggle_rally`, `_join_rally_now`,
+        the persisted `rally_*` settings) belongs to the app; the tab only says
+        where they go.
+        """
+        rally = self._tr(ttk.LabelFrame(parent, padding=8), "rally.frame")
+        rally.pack(fill="x", padx=8, pady=(0, 6))
+        rally_top = ttk.Frame(rally)
+        rally_top.pack(fill="x")
+        self._rally_var = tk.BooleanVar(value=True)
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_var,
+                                 command=self._toggle_rally),
+                 "rally.monitor").pack(side="left")
+        # A rally is worth minutes and the alert used to be one log line that
+        # scrolled past. Now it is a line the log paints as news, a bell, and — if
+        # the operator asks for it — the join itself.
+        self._rally_alert_var = tk.BooleanVar(value=True)
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_alert_var),
+                 "rally.alert").pack(side="left", padx=(12, 0))
+        self._rally_autojoin_var = tk.BooleanVar(value=False)
+        self._tr(ttk.Checkbutton(rally_top, variable=self._rally_autojoin_var),
+                 "rally.autojoin").pack(side="left", padx=(12, 0))
+        self._tr(ttk.Button(rally_top, command=self._join_rally_now),
+                 "rally.join_now").pack(side="right")
+        # Hint shows the active profile's rally log; refreshed on language/profile change.
+        self._rally_hint = ttk.Label(rally, foreground="#888", wraplength=620,
+                                     justify="left")
+        self._rally_hint.pack(anchor="w", pady=(4, 0))
+        self._hook(self._update_path_hints)
 
     # -- the account dashboard ----------------------------------------------
     #
