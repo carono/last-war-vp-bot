@@ -18,9 +18,10 @@ OCRs the things it needs to know, runs on a tick loop with a watchdog.
 It replaces a legacy Lua / UOPilot project, which is now history rather
 than a branch: commit `b5ce084` is the last tip that carried its tree, and
 it stays there as read-only reference. **Work happens on `master`.** The
-rewrite grew up on `v2`; that branch has been merged into `master` and both
-now point at the same commit, so `v2` survives only for checkouts that
-still track it.
+rewrite grew up on `v2`; that branch has been merged into `master` and left
+at the merge point for the checkouts that still track it. Nothing is
+committed to it any more, and it will fall behind — do not push there and do
+not branch off it.
 
 User profile / context (from project memory):
 - The user plays on their own home server.
