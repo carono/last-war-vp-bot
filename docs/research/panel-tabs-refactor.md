@@ -72,8 +72,8 @@ panel/
   runtime/
     __init__.py        PanelRuntime — assembled by the shell OR by a standalone tab
     i18n.py            Translator: t(), tr() weak registry, hook(), set_lang()
-    log.py             LogBus (thread-safe sink, tags, severity, panel.log mirror)
-                       + LogView (the widget; the bus does not need it)
+    log.py             LogBus — the sink: tags, severity, panel.log + debug.log
+                       mirrors, stdout. The widget is the shell's (§4.4).
     settings.py        SettingsBinder: profile-scoped values, autosave, per-tab blocks
     daemon.py          GameLink: evaluator, port, ensure/restart, the one-action lock
     actions.py         ActionRunner: run_action / run_text / resolve / parse
@@ -229,7 +229,7 @@ second implementation that rots, it is the same six lines minus the notebook.
 |---|---|
 | `_i18n`, `_t`, `_tr`, `_hook`, `_tr_widgets`, `_sweep_tr_widgets`, `_apply_language`, `_set_language` | `runtime/i18n.py::Translator` |
 | `_log_q`, `_log_put`, `_say`, `_pump_log`, `_append_log`, `_open/_close_panel_log`, `_log_tag`, `_log_severity`, `_log_cap`, `_trim_log` | `runtime/log.py::LogBus` (no Tk) |
-| `_log`, `_insert_line`, `_redraw_log`, `_clear_log`, `_install_log_copy`, coord/photo links | `runtime/log.py::LogView` |
+| `_log`, `_insert_line`, `_redraw_log`, `_clear_log`, `_install_log_copy`, coord/photo links | **shell** — the «Главная» tab's `LogView` (§4.4) |
 | `_profiles`, `_settings`, `_opt_vars`, `_opt*`, `_collect_settings`, `_apply_settings_to_ui`, `_install_autosave`, `_loading`, `_save_settings` | `runtime/settings.py::SettingsBinder` |
 | `_client`, `_daemon_port`, `_daemon_up`, `_ensure_daemon`, `_restart_daemon`, `_rebind_daemon`, `_current_server`, `_act`, `_claim_busy`, `_release_busy`, `_jump` | `runtime/daemon.py::GameLink` |
 | the six `from lastwar_bot import script_engine` sites (`_run_command`, `_run_md_action`, `_load_scenario_into_editor`, `_scenario_problem`, `_run_timer_action`) | `runtime/actions.py::ActionRunner` |
@@ -287,26 +287,52 @@ shell uses, in this order:
 3. `Translator` with the profile's language (`--lang` overrides);
 4. `debug_log` pointed at the profile's `debug.log`, exception hooks installed;
 5. `LogBus` opened on the profile's `panel.log` — a standalone run's lines land in the
-   same file the shell writes, tagged the same way;
+   same file the shell writes, tagged the same way, **with no view attached** (§4.4);
 6. `Ticker` bound to the standalone root;
 7. `GameLink` created **cold** — no daemon is started until something asks;
-8. `ChildFactory` with `LW_DAEMON_PORT` in the child environment, so a capture started
-   from a standalone tab drives the client the profile names;
+8. `ChildFactory` with `LW_DAEMON_PORT` and `LW_GAME_LEASE` in the child environment,
+   so a capture started from a standalone tab drives the client the profile names and
+   shares its hold on the game (§7);
 9. `Schedule` **only if** the tab's `NEEDS` contains `"schedule"` — a standalone rally
    tab must not start the whole account's errands;
 10. `EventBus`, and a `TabRegistry` holding exactly one tab.
 
-Everything a tab can reach is therefore identical between the two modes except the
-notebook and the shell chrome. The only genuine difference is §7's game lock.
+Everything a tab can reach is therefore identical between the two modes. There is no
+longer a "standalone is weaker here" clause: the game lock is the daemon's (§7), so
+two windows cannot both drive the game whichever way they were started.
 
-### 4.4 The standalone CLI
+### 4.4 The log is the shell's, not the runtime's face
+
+**Decided: a standalone tab has no log pane.** It shows its own content and nothing
+else; the log widget, the producer filter, the DSL command line and the account
+strip belong to the container's «Главная» tab, which is not a plugin and does not
+move.
+
+What the runtime keeps is the **sink**, not the view. `rt.say(...)` and
+`rt.log.put(...)` work identically in both modes — a tab never needs to know which
+one it is in — but where the line comes out differs:
+
+| | shell | standalone |
+|---|---|---|
+| the `LogView` widget on «Главная» | ✅ | — |
+| the profile's `panel.log` | ✅ | ✅ |
+| the profile's `debug.log` | ✅ | ✅ |
+| stdout of the launching console | — | ✅ |
+
+So a standalone tab is still readable while it runs (the console it was started
+from) and still leaves the same record behind (the profile's two files) — it just
+does not carry a copy of the shell's chrome around with it.
+
+`LogBus` therefore stays in `panel/runtime/log.py` and `LogView` moves to the shell.
+The `--no-log` CLI flag is dropped: there was never anything to hide.
+
+### 4.5 The standalone CLI
 
 ```
 python -m panel.tabs.rally [options]
 
   --profile NAME     which profile's settings and logs to use (default: the active one)
   --lang en|ru       override the profile's language
-  --no-log           hide the log pane under the tab
   --geometry WxH     window size (default: the tab's PREFERRED_SIZE)
   --daemon-port N    override the profile's daemon port for this run
   --read-only        build the tab but refuse every press that drives the game
@@ -321,7 +347,7 @@ if __name__ == "__main__":
 ```
 
 `run_tab` builds the runtime, creates a `tk.Tk` root titled `<tab> — <profile>`, puts
-a `LogView` in the lower pane unless `--no-log`, runs §3.3's sequence, wires
+the tab alone in it (no log pane — §4.4), runs §3.3's sequence, wires
 `WM_DELETE_WINDOW` → `tab.shutdown()` → `rt.shutdown()`, and enters `mainloop()`.
 `python -m panel.tabs --list` prints the registry (id, title, order, default-enabled,
 `NEEDS`) so the CLI is discoverable.
@@ -425,13 +451,53 @@ wave 7's acceptance criteria:
 | `_on_close` — 33 lines | `for tab in rt.tabs.live: tab.shutdown()` then `rt.shutdown()` |
 | `_apply_language` + the 14-entry `tab-titles` hook | `Translator.retranslate()` + one loop |
 
-**The game lock cannot be given away.** `_claim_busy` / `_release_busy` is a
-*process-wide* mutex keeping two recipes out of the game VM at once. Two standalone
-tabs side by side are two processes and two locks against one daemon — they **can**
-drive the game simultaneously. `run_tab` must say so on start
-(`log.warn("standalone: the one-action-at-a-time lock is per process")`), and this plan
-does not pretend otherwise. Moving the lock into the daemon is a separate task, not a
-prerequisite.
+### The game lock moves into the daemon — in scope, not deferred
+
+`_claim_busy` / `_release_busy` is a *process-wide* mutex keeping two recipes out of
+the game VM at once. The moment tabs can be launched separately that is not enough:
+two windows are two processes, two locks, one game. **Decided: the lock becomes the
+daemon's, as part of this refactor.** A warning in the log is not a lock.
+
+The daemon already serialises individual `run` calls with a `threading.Lock` — but an
+*action* is many chunks over seconds, and that is the thing that must not interleave.
+So the daemon grows a **lease**, three ops beside the existing ones:
+
+```
+{"op":"acquire","owner":"panel/rally","ttl":120}  -> {"ok":true,"token":"…"}
+                                                  |  {"ok":false,"busy":"panel/timers",
+                                                  |   "held_sec":8.2}
+{"op":"renew","token":"…"}                        -> {"ok":true}
+{"op":"release","token":"…"}                      -> {"ok":true}
+{"op":"run","chunk":…,"token":"…"}                -> renews the lease as a side effect
+```
+
+Five rules, each earning its place:
+
+1. **A lease excludes other leases, never plain `run`s.** Today the read-only tabs and
+   the account poll call `ev.run()` without claiming anything, and they interleave with
+   a running action at chunk granularity. Blocking them behind a lease would freeze the
+   dashboard for the length of every recipe and would be a behaviour change smuggled
+   into a refactor. Per-call serialisation stays exactly as it is.
+2. **A lease expires.** `ttl` seconds without a renew and the daemon drops it, so a
+   client that crashed mid-action cannot wedge the game until someone restarts the
+   daemon. Every `run` carrying the token renews it, so a working action never expires.
+3. **Children inherit it.** The token travels to child processes in `LW_GAME_LEASE`
+   beside `LW_DAEMON_PORT`; `lua_client` picks it up and attaches it to every `run`.
+   Without this, auto-loot — which holds the lease and then spawns the tool that does
+   the robbing — would deadlock against itself.
+4. **Re-acquiring with a token you already hold is a no-op that returns it.** Same
+   reason: nested claims inside one owner must not self-deadlock.
+5. **No daemon, no lease — and no game either.** If the daemon is unreachable
+   `GameLink.claim()` falls back to the in-process lock alone. Nothing can be driving
+   the game in that state anyway, so the fallback is honest rather than a hole.
+
+`GameLink.claim()` takes both: the in-process lock (two Tk threads in one panel) and
+the daemon lease (two processes). `release()` drops both. The panel's existing
+`_claim_busy` becomes a one-line delegation, so every current caller is covered
+without being touched.
+
+This lands in wave 0 as its own commit, with its own test — the daemon and the client
+are plain sockets and JSON, so it is testable without Tk and without the game.
 
 ### Cross-tab talk
 
@@ -591,7 +657,7 @@ mostly moves.
 
 | # | Wave | Moves | Size | Risk |
 |---|---|---|---|---|
-| 0 | Runtime package, no UI change | §4.1 table | ≈1 500 out of `__main__.py`, +10 files | low, widest diff |
+| 0 | Runtime package + the daemon lease | §4.1 table; `lua_daemon.py`/`lua_client.py` | ≈1 500 out of `__main__.py`, +10 files, +150 in the daemon | low, widest diff |
 | 1 | `PanelTab` + registry + `run_tab` + 6 read-only tabs | `tabs_extra.py` (minus rally) + stats + dashboard strip | ≈700 | low |
 | 2 | Rally | form + monitor + caps + «Авторалли» page | ≈460 | medium |
 | 3 | Secret tasks + Command post | capture, auto-loot, sweep, ghost | ≈650 | **high** |
@@ -648,8 +714,8 @@ the Develop-menu sniffers become `panel/tabs/develop.py` with `default_enabled=F
 child and opens no store.
 
 **Wave 7 — Cleanup.** Delete the delegating shims. Replace `_sync_monitors`, `_panic`,
-`_on_close` and the tab-title hook with §7's four loops. Add the «Вкладки» page. Decide
-§12. `panel/__main__.py` should land under ~900 lines.
+`_on_close` and the tab-title hook with §7's four loops. Add the «Вкладки» page.
+`panel/__main__.py` should land under ~900 lines — the shell plus «Главная».
 *Accept:* `grep -n "self\._t(" panel/__main__.py` returns shell chrome only; the four
 loops exist; `tests/test_panel_leaks.py` is green.
 
@@ -672,39 +738,37 @@ The fakes already exist; they get promoted.
 * **A profile-compatibility test** — a frozen pre-migration `config.json` fixture loads
   and yields the same effective values per tab. **Written in wave 0, before any tab
   moves** (§9.2).
-* **A locale-ownership test** — §13.
+* **A locale-ownership test** — §12.
+* **A daemon-lease test** — two clients against one daemon: the second `acquire` is
+  refused while the first holds it, a lease expires without renewal, a `run` carrying
+  the token renews it, and a plain `run` is never blocked by someone else's lease (§7).
+  Plain sockets and JSON, so it needs neither Tk nor the game.
 * `tests/*.py` here are self-running scripts under Windows Python (no pytest in this
   environment); the new ones follow that shape.
 
 ---
 
-## 12. Open question for the operator
+## 12. Decisions taken, so they can be argued with
 
-**Does the log stay inside a tab, or move out of the notebook?**
+The first three were put to the operator as open questions and answered; they are
+settled and the rest of this document is written to them.
 
-Since #1183 the Main tab is the game strip plus the log. Once every other subject has
-moved out, "Main" *is* the shell — and the natural shape is a permanently visible log
-pane under the notebook with the game strip above it. Arguably better (the log is what
-every tab writes to; it is never the thing you want hidden), but it is a visible UX
-change, not a refactor.
-
-**Recommendation:** keep Main as a tab through waves 1–6 so nothing about the layout
-moves while the plumbing does, and decide this once in wave 7, on its own, with the
-window in front of you.
-
----
-
-## 13. Decisions taken, so they can be argued with
-
-* **The locale files are not split.** `panel/locales/en.json` is 601 keys, flat, mirrored
-  by `ru.json`. Splitting per tab is rejected for now: the EN/RU mirroring discipline is
-  easier to hold over two files than twenty-eight, a standalone tab loading 36 KB of JSON
-  costs nothing measurable, and key renames are what §5 rule 3 forbids mid-migration.
-  Instead each tab **declares** its prefixes (`LOCALE_NS`), and a test walks each tab
-  module for `t("…")` literals and fails when it reads a key outside its own namespaces
-  plus a shared `common.*` list. Splitting stays mechanically available later, once every
-  namespace has exactly one owner.
-* **The game lock stays per process** (§7). Daemon-side locking is a separate task.
+* **The locale files are not split.** `panel/locales/en.json` is 601 keys, flat,
+  mirrored by `ru.json`. Splitting per tab is rejected: the EN/RU mirroring discipline
+  is easier to hold over two files than twenty-eight, a standalone tab loading 36 KB of
+  JSON costs nothing measurable, and key renames are what §5 rule 3 forbids
+  mid-migration. Instead each tab **declares** its prefixes (`LOCALE_NS`), and a test
+  walks each tab module for `t("…")` literals and fails when it reads a key outside its
+  own namespaces plus a shared `common.*` list. Splitting stays mechanically available
+  later, once every namespace has exactly one owner.
+* **The game lock becomes the daemon's, inside this refactor** (§7). Two standalone
+  windows must not be able to drive the game at once, and a warning in the log is not a
+  lock. Lands in wave 0 with its own test.
+* **The log belongs to the shell, not to a standalone tab** (§4.4). «Главная» stays a
+  container tab holding the log, the producer filter, the DSL line and the account
+  strip; it is not a plugin and does not move. A standalone tab shows its own content
+  only — the runtime still carries the *sink*, so `rt.say(...)` works identically and
+  the lines land in the profile's `panel.log`, `debug.log` and the launching console.
 * **No third-party tab loading.** A `panel/tabs_local/` scan for user-written tabs is an
   evening's work on top of the registry, but it would mean promising `PanelRuntime`
   stability that the migration itself still needs to break.
