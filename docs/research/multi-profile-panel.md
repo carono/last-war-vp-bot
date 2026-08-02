@@ -118,19 +118,16 @@ not on screen keeps farming. Only the drawing follows the notebook.
 
 `panel/__main__.py` is 2 900 lines of methods written against `self._rt`, `self._log`,
 `self._game`, `self._dash_values`… Rewriting every one of them is neither safe nor
-necessary. Instead:
+necessary — the names already say "this profile's". Instead:
 
-* `panel/runtime/session.py` holds `ProfileSession` — the runtime plus every per-profile
-  attribute the shell keeps today;
-* `Panel` declares `SESSION_ATTRS`, the explicit, tested list of attribute names that
-  belong to a session rather than to the window, and routes reads and writes of exactly
-  those names to the session currently on screen;
-* the lifecycle methods that must run for *every* session (boot, status poll, panic,
-  close) are called through `workspace.each()` instead of once.
+* `panel/runtime/session.py` holds `ProfileSession` — the runtime, the lifecycle, and a
+  `state` dict for whatever the shell keeps per profile;
+* `SessionScoped` (same module) routes a DECLARED set of attribute names to the session
+  whose page is showing; `Panel` declares that set;
+* the lifecycle calls that must reach *every* session go through `workspace.each()`.
 
-The routing is deliberately narrow and named: a test builds two sessions and asserts that
-setting one of those attributes on one session leaves the other's untouched, and a second
-test asserts that no *other* attribute of the shell is per-profile.
+Both are written and tested (`tests/test_panel_workspace.py`). What remains is the
+wiring, itemised in §7.
 
 ## 4. What "not in each other's way" actually requires
 
@@ -156,16 +153,104 @@ it.
 
 ## 5. Waves
 
-| # | What lands | Files |
+| # | What lands | State |
 |---|---|---|
-| 1 | Runtime isolation: the five globals above, plus tests that two runtimes in one process do not touch each other | `runtime/daemon.py`, `runtime/children.py`, `runtime/host.py`, `script_engine.py`, `lua_client.py`, `debug_log.py`, `i18n.py`, `profile.py` |
-| 2 | `ProfileSession` + `Workspace`, the outer notebook, the shell's attribute routing | new `runtime/session.py`, `runtime/workspace.py`, `__main__.py` |
-| 3 | Parallel operation: per-port claims, the foreground token, per-session schedule start/stop, per-session watchdog | `runtime/daemon.py`, `runtime/schedule.py`, `script_engine.py` |
-| 4 | Opening and closing a profile from the UI, what is remembered, every string in all five locales | `__main__.py`, `panel/settings.json`, `panel/locales/*.json` |
+| 1 | Runtime isolation: the five globals above, and tests that two runtimes in one process do not touch each other | **done** — `c7e65db` |
+| 2a | `ProfileSession`, `Workspace`, `SessionScoped`, `open_profiles` in the panel-wide file | **done** — `1d0da8d` |
+| 2b | The shell holds the workspace: a page per session, the outer notebook, the boot per session | §7 |
+| 3 | Parallel operation: per-port claims, the foreground token, per-session watchdog | §4 |
+| 4 | Opening and closing a profile from the UI, and every string in every locale | §7.4 |
 
-Each wave is a commit that leaves the panel working with one profile — wave 1 in
-particular changes no behaviour a single-profile user can see, except that a profile on a
-non-default port finally presses its scenarios into its own client.
+Each wave is a commit that leaves the panel working with one profile. Waves 1 and 2a
+change nothing a single-profile operator can see, except that a profile on a non-default
+port finally presses its scenarios into its own client.
+
+## 7. Wave 2b, itemised
+
+The design questions are settled; what is below is the work. It is written out because
+the shell is edited by several tasks at once and this must be picked up mid-flight
+without re-deriving any of it.
+
+### 7.1 `Panel` becomes session-scoped
+
+`class Panel(runtime.SessionScoped, tk.Tk)` with `SESSION_ATTRS` naming exactly the
+per-profile attributes. The classification, from the 65 `self._x =` assignments in the
+file:
+
+**Per-profile — declare these.** The runtime and its pieces (`_rt`, `_profiles`,
+`_binder`, `_i18n`, `_logbus`, `_tick`, `_children`, `_game`, `_actions`, `_schedule`,
+`_timers`, `_triggers`, `_timer_store`); the technical loggers (`_dbg`, `_dbg_ui`,
+`_dbg_status_prev`); the log pane (`_log`, `_log_lines`, `_log_kept`, `_log_menu`,
+`_log_filter_var`); the tab area (`_main_nb`, `_main_split`, `_main_controls`,
+`_lazy_tabs`, `_plugin_tabs`, `_shown_tab`); the two strips (`_status_var`,
+`_status_lbl`, `_status_msg`, `_status_busy`, `_daemon_var`, `_daemon_lbl`); the account
+summary (`_dash_values`, `_dash_stop`, `_dash_err`, `_dash_view`); the map sweep
+(`_sweep_stop`, `_sweep_at`, `_sweep_pass`); the liveness counters (`_game_gone`,
+`_game_was_up`, `_watchdog_last`); the command line (`_cmd_var`, `_cmd_at`).
+
+**The window's — leave these alone.** The splash and boot (`_splash`, `_boot_step`,
+`_boot_done`); the profile modal (`_profile_var`, `_profile_combo`, `_profile_win`); the
+diagnostics dialog (`_senddiag_win`); the language menu variable (`_lang_var`); geometry
+and painting (`_resize_job`, `_resize_size`, `_paint_hwnd`, `_paint_off`); the update
+block (every `_update_*` — one checkout, one answer); `_health_prev`.
+
+**Neither — they are properties already** and must NOT be declared: `_settings`,
+`_loading`, `_opt_vars`, `_game_status`, `_daemon_up`, `_client`, `_busy`, and the rest
+of the read-only shorthands. `SessionScoped` refuses to route a name that is a
+descriptor, so a mistake here is inert — but do not make it.
+
+### 7.2 Binding background work to its session
+
+This is the part that is easy to get wrong. Routing answers "the session whose page is
+showing", which is right for a button and wrong for a timer that fires while the
+operator is looking at another profile.
+
+**Bind at the SCHEDULING site, not at the use site.** Three helpers on `Panel`:
+
+```python
+@contextmanager
+def _on(self, session):        # swap the showing session for the duration
+def _bound(self, func):        # func, wrapped to re-enter the session it was made in
+def _later(self, ms, func):    # self.after, bound
+```
+
+and then, mechanically, in `panel/__main__.py`: `_arm()` binds what it arms (one change,
+covers every timer loop — the log pump, the status poll, the health snapshot, the update
+poll); each of the ten `threading.Thread(target=…)` targets is wrapped in `_bound`; each
+of the ten `self.after(…)` calls whose callback touches a declared name becomes
+`_later`. All twenty-six sites are listed by `grep -n 'self\.after(\|threading\.Thread(\|self\._arm('`.
+
+`_on` is safe to swap because every Tk callback runs on one thread. A worker thread must
+NOT touch a declared name directly — it computes and hops back with `_later`. One place
+does today: `_dash_loop` calls `_dash_tick` off the Tk thread. Give the loop its session
+explicitly.
+
+**The plugin tabs need none of this.** A tab holds its own `rt` and never reads a shell
+attribute, so a tab of a hidden profile is already correct. That is the tabs-are-plugins
+rule paying for itself.
+
+### 7.3 The window
+
+* One outer `ttk.Notebook`, always present. With a single session its tab strip is
+  hidden by a style whose `Tab` layout is empty, so a one-profile panel looks exactly
+  as it does now.
+* `__init__` splits in two: the window's own half (title, geometry, splash, menu,
+  exception logging, updates, resize damper) and `_open_session_page(session)` — which
+  is everything else, run once per session with `_on(session)` held.
+* `_startup_boot`, `_refresh_status`, `_panic` and `_on_close` fan out with
+  `workspace.each()`.
+* `_switch_profile` keeps working for a window with one page (it re-points that
+  session); with several, switching means bringing another page to the front.
+
+### 7.4 Opening and closing, and the strings
+
+The profile modal grows «Открыть ещё профиль» and «Закрыть профиль», and the outer
+notebook's context menu offers the same two. `Workspace.open` / `.close` already do the
+work and already remember it.
+
+New locale keys go into **every** file in `panel/locales/` in the same commit — read the
+directory for the list; it has doubled twice while this task was open. At the time of
+writing: `de en es fr id it pl pt ru tr vi`.
 
 ## 6. Notes for whoever picks this up
 
