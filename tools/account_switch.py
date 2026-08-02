@@ -26,21 +26,22 @@ and abandoned characters linger for good. On the live client it held **six** row
 for **two** characters, which is exactly the bug this tool was written to stop
 (#1190). It is read only by ``--cache``, to show what the game keeps.
 
-Switching — KNOWN BROKEN, do not trust it
------------------------------------------
-:func:`switch_account` calls the login screen's account-list cell handler:
+Switching
+---------
+:func:`switch_account` is the game's own character-screen route, run headless: the
+«войти» press of the ``UIRoleLogin`` window (``UIRoleLoginView:OnClickLogin``)
+writes the picked character's ``ip``/``port``/``zone``/``loginKey``/``gameUid`` over
+the saved credentials and drops the session, and the client reconnects as that
+character. All five fields come out of the same ``accountArr`` this tool reads, so
+nothing has to be typed and no window is opened. The Lua is
+``lua_actions.account_switch_press()``; the ability itself is the scenario
+``actions/switch_account.md``, which is what the panel plays.
 
-    require("...UIAccountListCell").OnBtnSelectClick({data = <AccountInfo>})
-
-It reports ``sent`` and it does send — but a capture of that send (#1190) shows the
-message it builds is ``az.account.login`` with an **empty** ``userName``, because
-the handler expects ``AccountManager:SetParam`` to have been filled by the screen
-first. The server answers ``120618 email format error`` and nothing switches.
-
-The game's own route is different: the character list's cell (``UIRolesCell``)
-opens ``UIRoleLogin`` for the picked role, which logs in with that role's
-``loginKey`` — the field the server hands out in ``accountArr``. Wiring that up is
-its own task; until then the «Switch» button reports a send that the server drops.
+The earlier route reproduced the LOGIN screen's cell handler
+(``UIAccountListCell.OnBtnSelectClick``) and is gone: it builds its message out of
+``AccountManager.param``, a table only that screen fills, so from inside a session
+it sent ``az.account.login`` with an empty ``userName`` and the server answered
+``120618 email format error`` (#1190). It reported ``sent`` and switched nothing.
 
 Usage (run under the Windows Python so it can reach the daemon)
 --------------------------------------------------------------
@@ -59,54 +60,15 @@ import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
+import lua_actions  # noqa: E402
 import lua_client  # noqa: E402
 
 MARKER = "ACT"
 
-# The account-list cell module — its OnBtnSelectClick is the in-game "switch to this
-# account" handler. Loaded on demand with require() so this works even when the
-# account window has never been opened this session.
-_CELL_MODULE = "UI.UIAccount2.UIAccountList.Component.UIAccountListCell"
-
-# Ask the server for the characters. Headless: no window is opened, and the request
-# carries no credentials — the game builds it from the device id.
-_ASK_LUA = r"""
-local function L(s) CS.UnityEngine.Debug.LogError("ACT "..tostring(s)) end
-local ok, err = pcall(function() SFSNetwork.SendMessage(MsgDefines.AccountLoginNew) end)
-L("ASK "..(ok and "sent" or ("error:"..tostring(err))))
-"""
-
-# Read what came back. `rolesList` is filled by the push handler, so this is polled
-# until it lands rather than read once.
-_ROLES_LUA = r"""
-local function hex(s) return (tostring(s):gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
-local function L(s) CS.UnityEngine.Debug.LogError("ACT "..s) end
-pcall(function()
-  -- Which character is in play. `WorldFavoDataManager.curServerId` is empty on a
-  -- freshly logged-in client, so the player's own record is asked first.
-  local cur = 0
-  pcall(function() cur = LuaEntry.Player.serverId end)
-  if not cur or cur == 0 then
-    pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end)
-  end
-  L("cur="..tostring(cur))
-  local roles = DataCenter.AccountManager.rolesList
-  if type(roles) ~= "table" then return end
-  for _, v in pairs(roles) do
-    -- The screen puts an `isEmpty` placeholder first (its "add a character" slot);
-    -- it is not a character and carries none of the fields below.
-    if type(v) == "table" and not v.isEmpty then
-      L("R serverid="..tostring(v.id)
-        .." gameUid="..tostring(v.gameUid)
-        .." level="..tostring(v.gameUserLevel or 0)
-        .." power="..tostring(v.power or 0)
-        .." nick="..hex(tostring(v.gameUserName or ""))
-        .." zone="..hex(tostring(v.zone or ""))
-        .." alliance="..hex(tostring(v.alAbbr or "")))
-    end
-  end
-end)
-"""
+# Ask the server for the characters, and read back what it said. Both chunks live in
+# `lua_actions` — the panel's tab and the recipe press the same ones.
+_ASK_LUA = lua_actions.account_roles_request()
+_ROLES_LUA = lua_actions.account_roles_dump()
 
 # The login cache — NOT the character list (see the module docstring). Kept for
 # `--cache`, which is how the six-rows-for-two-characters bug was demonstrated.
@@ -168,7 +130,8 @@ def _parse_rows(lines) -> tuple[list[dict], int]:
             if not sep:
                 continue
             rec[key] = (_hexdec(value)
-                        if key in ("nick", "zone", "env", "alliance") else value)
+                        if key in ("nick", "zone", "env", "alliance", "uuid", "pic")
+                        else value)
         row = {
             "serverid": _num(rec.get("serverid")),
             "gameUid": rec.get("gameUid", "0"),
@@ -177,9 +140,11 @@ def _parse_rows(lines) -> tuple[list[dict], int]:
             "zone": rec.get("zone", ""),
         }
         for key, name in (("power", "power"), ("alliance", "alliance"),
+                          ("uuid", "uuid"), ("pic", "pic"), ("picVer", "picVer"),
                           ("env", "env"), ("seq", "seq")):
             if key in rec:
-                row[name] = _num(rec[key]) if key in ("power", "seq") else rec[key]
+                row[name] = (_num(rec[key]) if key in ("power", "seq", "picVer")
+                             else rec[key])
         rows.append(row)
     return rows, cur
 
@@ -226,44 +191,39 @@ def read_login_cache(ev) -> list[dict]:
     return _sorted(rows, cur)
 
 
-def _switch_lua(serverid: int) -> str:
-    """Lua that reconnects the client to the character on ``serverid``.
-
-    Finds the matching ``AccountInfo`` and runs the account-list cell's own select
-    handler on it. Refuses when that server is already the current one (the game
-    itself blocks re-selecting the active account). Logs ``ACT SW <state>``.
-    """
-    return (
-        'local function L(s) CS.UnityEngine.Debug.LogError("ACT SW "..tostring(s)) end '
-        'local sid = %d '
-        'local cur = 0 pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end) '
-        'if tonumber(cur) == sid then L("already-current") return end '
-        'local infos = DataCenter.AccountListManager:GetAccountInfos() '
-        'local target '
-        'if type(infos) == "table" then for _, v in pairs(infos) do '
-        'if tonumber(v.serverid) == sid then target = v break end end end '
-        'if target == nil then L("no-such-account") return end '
-        'local ok, Cell = pcall(require, "%s") '
-        'if not ok or type(Cell) ~= "table" or type(Cell.OnBtnSelectClick) ~= "function" then '
-        'L("no-handler") return end '
-        'local ok2, err = pcall(Cell.OnBtnSelectClick, {data = target, isCurrentAccount = false}) '
-        'L(ok2 and "sent" or ("error:"..tostring(err)))'
-        % (int(serverid), _CELL_MODULE)
-    )
+def _read_num(ev, expr: str, tag: str) -> int:
+    """Evaluate a Lua expression that returns a number, through the log marker."""
+    lua = ('CS.UnityEngine.Debug.LogError("ACT %s="..tostring(%s))' % (tag, expr))
+    for ln in ev.run(lua, MARKER, 1.0):
+        body = ln[4:] if ln.startswith("ACT ") else ln
+        if body.startswith(tag + "="):
+            return _num(body[len(tag) + 1:].strip())
+    return 0
 
 
-def switch_account(ev, serverid: int) -> str:
+def switch_account(ev, serverid: int, timeout: float = 6.0) -> str:
     """Switch the live client to the character on ``serverid``.
 
-    Returns the outcome state logged by the game: ``sent`` (the reconnect message
-    went out), ``already-current``, ``no-such-account``, ``no-handler``,
-    ``error:<msg>`` or ``""`` when nothing came back.
+    Loads the character list first if the session has never asked for it, refuses
+    when that server holds no character of this account or already holds the one in
+    play, and otherwise fires the character screen's own login press (see the module
+    docstring). Returns the outcome: ``sent`` (the client is reconnecting),
+    ``already-current``, ``no-such-account`` or ``no-characters``.
+
+    The panel does not call this — it plays ``actions/switch_account.md``, which is
+    the same three steps written as a recipe. This is the command-line twin.
     """
-    for ln in ev.run(_switch_lua(int(serverid)), MARKER, 1.5):
-        body = ln[4:] if ln.startswith("ACT ") else ln
-        if body.startswith("SW "):
-            return body[3:].strip()
-    return ""
+    serverid = int(serverid)
+    if not read_accounts(ev, timeout=timeout):
+        return "no-characters"
+    ev.run(lua_actions.account_switch_arm(serverid), MARKER, 0.3)
+    state = _read_num(ev, lua_actions.account_switch_target(), "target")
+    if state == 0:
+        return "no-such-account"
+    if state < 0:
+        return "already-current"
+    ev.run(lua_actions.account_switch_press(), MARKER, 1.5)
+    return "sent"
 
 
 def main() -> int:
@@ -294,9 +254,10 @@ def main() -> int:
         return 0
     for r in rows:
         mark = "* " if r["is_current"] else "  "
+        power = f"{r['power']:,}" if r.get("power") else "—"
         tail = f"  [{r['alliance']}]" if r.get("alliance") else ""
         print(f"{mark}srv {r['serverid']:<6} lvl {r['level']:<3} "
-              f"{r['zone']:<10} {r['nickname']}{tail}")
+              f"{r['zone']:<10} {power:>14}  {r['nickname']}{tail}")
     return 0
 
 

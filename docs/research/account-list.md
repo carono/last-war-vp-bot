@@ -96,9 +96,11 @@ and its «deleted character» test (HQ 0) would have missed a character that was
 played and then deleted. `--cache` still prints the cache, to show what the client
 keeps.
 
-## 4. Switching is a separate, unfinished thing
+## 4. Switching — the character screen's route, and the login screen's dead end
 
-`switch_account` reproduces the *login screen's* cell handler
+### 4.1 What did not work
+
+The first `switch_account` reproduced the *login screen's* cell handler
 (`UIAccountListCell.OnBtnSelectClick`). The capture shows what that actually puts
 on the wire from inside a session:
 
@@ -109,12 +111,95 @@ on the wire from inside a session:
 
 The handler builds its message out of `AccountManager.param`, which the login
 screen fills and nothing else does — so from inside the game it sends an empty user
-name and the server rejects it. The tool reports `sent` because the send happened;
-the switch does not.
+name and the server rejects it. The tool reported `sent` because the send happened;
+the switch did not. That handler is gone from the tool.
 
-The game's own route is `UIRolesCell:OnBtnClick` → `UIWindowNames.UIRoleLogin` for
-the picked role, using the `loginKey`/`uuid` the server put in `accountArr`. That
-is the shape a working switch has to take.
+### 4.2 What the game does instead
+
+Tapping a character runs `UIRolesCell:OnBtnClick`, whose whole body (read out of the
+live VM with `string.dump`, task #1192) is a two-way branch: the `isEmpty`
+placeholder opens `UIChooseServer` — its «add a character» slot — and a real
+character opens
+
+```lua
+UIManager:GetInstance():OpenWindow(UIWindowNames.UIRoleLogin, self.param)
+```
+
+`self.param` is the `rolesList` entry, i.e. the server's own `accountArr` record.
+That window shows the character and one button, and the button is
+`UIRoleLoginView:OnClickLogin`:
+
+```lua
+CS.AccountCredentialManager.ClearAll()
+CS.AccountCredentialManager.SetServerNetInfo(param.ip, param.port, param.zone)
+CS.AccountCredentialManager.SetLoginKey(param.loginKey)
+CS.AccountCredentialManager.SetUID(param.gameUid)
+CS.AccountCredentialManager.Save()
+CS.AIHelp.AIHelpProxy.Logout()
+EventManager:GetInstance():Broadcast(EventId.SwitchAccount)   -- 99006
+SFSNetwork.SendMessage(MsgDefines.UserCleanPost)              -- "user.clean.post"
+```
+
+So a switch is: **write the picked character's credentials over the saved ones, then
+tell the server the session is done with.** Nothing is typed and nothing is asked of
+the server first — every field is already in the record from §1. The `SwitchAccount`
+broadcast is only the client's own cleanup (the chat cache is what listens to it).
+
+Two details that cost a probe each:
+
+* `AccountCredentialManager` is a **C# static** (`CS.AccountCredentialManager`), so
+  those are `.`-calls with no `self`.
+* `param.ip` is a **pipe-separated list of hosts**
+  (`lastwar-game-cf.…|lastwar-game-us-aws-ali.…|…`) and `param.port` is a *string*.
+  `SetServerNetInfo` takes the port either way; both forms were tried live against
+  the current character's own values, which changes nothing.
+
+### 4.3 The relog is in the reply, not in the press
+
+That sequence run verbatim **does nothing**. The first live attempt saved the
+credentials, sent `user.clean.post`, and then sat on the old character for 80 seconds
+while the recipe polled — no error, every call returning cleanly.
+
+What is missing is the other half of the handshake. `MsgDefines.UserCleanPost` has a
+reply class, and its handler is one line:
+
+```lua
+-- Net.Msgs.Account.UserCleanPostMessage:HandleMessage
+CS.SwitchAccountCheckGameVersionTools.ReloadGameByCheckLauncherVersion()
+```
+
+*That* is the relog. Sent by hand from inside a live session, the reply never comes:
+`HandleMessage` was wrapped with a logger and watched across three sends over 14
+seconds and never fired once, while `LuaEntry.Player.serverId` stayed put. So the
+press has to make the call itself, straight after the send — and with it the switch
+works first time.
+
+The reload is **in-process**: the game keeps its pid, so the Lua daemon lives through
+it and nothing has to be reattached. It does reset the Lua VM, though — a global
+parked in `DataCenter` before the press (and any hook installed for a probe) is gone
+on the other side, so nothing may be carried across the relog.
+
+Timing, measured: `LuaEntry.Player.serverId` reads the new server about five seconds
+after the press (briefly `-1` or `0` mid-reload), and the base is drawn a few seconds
+after that.
+
+### 4.4 How it is wired up
+
+The ability is `actions/switch_account.md`, and playing it is all the panel's
+«Сменить» button does. The Lua is `lua_actions.account_switch_press()` behind the
+`switch_account` button; which character is parked in `DataCenter.__lw_switch_account`
+first, because `TAP` carries no arguments.
+
+The recipe gates the press on the two ways it would be a silent no-op, each with its
+own refusal: `account_switch_target()` reads `0` when this account has no character on
+that server and `-1` when that character is the one already in play. It also asks for
+the list first if the session never has (`rolesList` is empty until something sends
+`account.login.new`), and afterwards polls `LuaEntry.Player.serverId` until the client
+comes back on the new server and then waits for its base — a switch that stalls
+mid-relog is a failure, not a false "done".
+
+Proven live on 2026-08-02: 935 → 509 and back, twice, both directions starting from a
+session that had never asked for the character list.
 
 ## 5. Capture notes (worth keeping)
 

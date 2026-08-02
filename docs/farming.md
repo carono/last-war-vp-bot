@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥🟥  **26%** — 27 of 104
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 29 of 104
 
-🟩 27 done · 🟨 32 partly · 🟥 45 not automated
+🟩 29 done · 🟨 31 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -199,8 +199,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 A summary of the account on one line — how many robberies are left today of each kind, how many donations are banked, how many alliancemates are waiting for help, how many wounded are lying in the hospital, how many survivors are at the gate, how many profession skills are ready, how many rallies can still be joined. Read straight out of the game every half a minute with no window opened, and quiet about everything that has nothing waiting, so what is on it is what needs doing. Not yet watched through a whole day
 - 🟡 Building your own list of errands — the schedule is edited in the panel now: add an errand, give it its steps (any of the abilities above, or a command written out by hand), its period and its arguments, copy one, delete one. Two errands due at the same moment still take their turn rather than pressing at once, a failed one is retried whole, and the clock survives a restart. This is what "play the whole session" needs; nothing ships a ready-made routine yet
 - 🟡 Firing any single named press by hand — a one-line command box under the log speaks the same vocabulary a saved errand does, with a list of every press beside it. Nothing new happens in the game; what changed is that all thirty-odd of them are reachable without writing a file first
-- 🟡 Seeing the characters on this account — a panel tab lists them with the server each one is on, its zone, base level, name and alliance, and highlights the one being played. The list is the account's own: it is asked of the game's servers, the same way the in-game «Characters» screen asks, and it arrives without that screen being opened, so what the tab shows is what the game shows — two characters where the tab used to draw six. Proven against a live session
-- ❌ Switching to another character from the panel — the «Switch» button beside each row does not work: the client accepts the press and the server turns the changeover down. The list beside it is right; the changeover has to go the way the game's own character screen goes, and that is not built yet
+- ✅ Seeing the characters on this account — a panel tab lists them with the server each one is on, its zone, base level, name, power and alliance tag, and marks the one being played. The list is the account's own: it is asked of the game's servers, the same way the in-game «Characters» screen asks, and it arrives without that screen being opened, so what the tab shows is what the game shows — two characters where the tab used to draw six. Proven against a live session
+- ✅ Switching to another character from the panel — the «Switch» button beside a row moves the client onto that character: the game logs out and comes back on the other base about ten seconds later, exactly as tapping the character in the game does. Nothing has to be typed and no screen is opened. It refuses out loud instead of doing nothing when there is no character on that server, or when it is the one already being played, and it only reports success once the new character's base is up. Proven live in both directions
 - 🟡 Driving two accounts at once — which client a profile talks to is a setting now, so the profile switch moves everything: the presses, the captures and the robberies. Bringing the second client up is still a step outside the panel, and no live session has been played this way
 - ❌ Pausing while the person at the keyboard is using the mouse. The screen-driven abilities need the game in front, so a person and the bot cannot share the computer during those
 - ✅ Separate profiles per account — own settings, filters, logs and schedule — and an interface in Russian or English

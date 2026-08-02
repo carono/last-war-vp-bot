@@ -29,11 +29,11 @@ def _hex(s: str) -> str:
     return s.encode("utf-8").hex()
 
 
-def _role(serverid, uid, level, nick, power=0, alliance=""):
+def _role(serverid, uid, level, nick, power=0, alliance="", picver=0, uuid=""):
     """One `rolesList` entry, as the roles reader prints it."""
     return (f"ACT R serverid={serverid} gameUid={uid} level={level} power={power} "
-            f"nick={_hex(nick)} zone={_hex(f'APS{serverid}')} "
-            f"alliance={_hex(alliance)}")
+            f"picVer={picver} nick={_hex(nick)} zone={_hex(f'APS{serverid}')} "
+            f"alliance={_hex(alliance)} uuid={_hex(uuid)}")
 
 
 def _cached(seq, serverid, uid, level, nick, env="Online"):
@@ -57,7 +57,8 @@ class _FakeEval:
 # What the server answered on 2026-08-02: two characters, and nothing else.
 _ROLES = [
     "ACT cur=935",
-    _role(935, "1522777203000972", 35, "Carono", 241514404, "TLou"),
+    _role(935, "1522777203000972", 35, "Carono", 241514404, "TLou",
+          273, "7bc1a2f6-1449-4cbd-81f0-e76716446155_n3d1728050557170"),
     _role(509, "2146058428000509", 21, "Игрок 3464d509", 4185296, "RBs"),
 ]
 
@@ -100,6 +101,8 @@ def test_every_field_the_tab_draws_survives_the_read():
     assert by_server[935]["gameUid"] == "1522777203000972"
     assert by_server[935]["power"] == 241514404
     assert by_server[935]["alliance"] == "TLou"
+    assert by_server[935]["picVer"] == 273
+    assert by_server[935]["uuid"].endswith("_n3d1728050557170")
     assert by_server[509]["nickname"] == "Игрок 3464d509"
 
 
@@ -148,6 +151,47 @@ def test_the_cache_reader_flags_the_character_in_play():
 
 def test_no_game_reads_as_no_characters():
     assert account_switch.read_login_cache(_FakeEval([])) == []
+
+
+# --------------------------------------------------------------------------
+# switch_account — the character screen's own login press, gated
+# --------------------------------------------------------------------------
+# The press writes the picked character's credentials over the saved ones and drops
+# the session, so the two ways it would be a no-op are refused BEFORE it fires: no
+# character on that server, and the character already in play. `target` is the Lua
+# reading that tells them apart (1 / 0 / -1).
+
+def _target(value):
+    return [f"ACT target={value}"]
+
+
+def test_a_switch_with_no_character_list_never_presses():
+    """The server said nothing — refuse rather than press blind."""
+    ev = _FakeEval([], ["ACT ASK sent"])
+    assert account_switch.switch_account(ev, 509, timeout=1.0) == "no-characters"
+    assert not any("AccountCredentialManager" in c for c in ev.ran)
+
+
+def test_a_switch_to_a_server_without_a_character_is_refused():
+    ev = _FakeEval(_ROLES, [], _target(0))
+    assert account_switch.switch_account(ev, 4242) == "no-such-account"
+    assert not any("AccountCredentialManager" in c for c in ev.ran)
+
+
+def test_a_switch_to_the_character_in_play_is_refused():
+    ev = _FakeEval(_ROLES, [], _target(-1))
+    assert account_switch.switch_account(ev, 935) == "already-current"
+    assert not any("AccountCredentialManager" in c for c in ev.ran)
+
+
+def test_a_switch_to_another_character_parks_it_and_presses():
+    ev = _FakeEval(_ROLES, [], _target(1), ["ACT account_switch sent server=509"])
+    assert account_switch.switch_account(ev, 509) == "sent"
+    assert "DataCenter.__lw_switch_account = 509" in ev.ran[1]
+    # The press is the character screen's login, not the login screen's cell handler
+    # that #1190 caught sending an empty user name.
+    assert "AccountCredentialManager" in ev.ran[-1]
+    assert "OnBtnSelectClick" not in ev.ran[-1]
 
 
 def _run_standalone() -> int:

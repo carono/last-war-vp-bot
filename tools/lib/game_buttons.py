@@ -557,6 +557,25 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.decorations_window(),
         wait=1.5, label="Decorations",
     ),
+    # --- the account's characters, and switching to one of them --------------
+    # `list_characters` is the game's «Персонажи» screen doing its one send, without
+    # the screen: the reply is asynchronous, so the pause after it is what the recipe
+    # reads across, and it re-reads rather than trusting a single wait.
+    "list_characters": Button(
+        lua=_lua_actions.account_roles_request(),
+        wait=2.0, label="ask for this account's characters",
+    ),
+    # The «войти» press of the character screen's login window, run headless: it saves
+    # the picked character's credentials and drops the session, and the client
+    # reconnects as that character. Which character is parked in a variable first
+    # (`LUA DataCenter.__lw_switch_account = <server>`), because TAP takes no
+    # arguments. One press — never repeat it: the second would fire mid-reconnect.
+    "switch_account": Button(
+        lua=_lua_actions.account_switch_press(),
+        # The client tears the session down inside this pause; the recipe then polls
+        # for the new character rather than assuming this was long enough.
+        wait=3.0, label="switch to another character",
+    ),
     # --- general navigation --------------------------------------------------
     "close": Button(
         # Close the top window by state (pop one off the UI stack). Repeat with xN.

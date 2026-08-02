@@ -2664,3 +2664,187 @@ def decorations_window() -> str:
     """Open the base's decoration window — the manual path, for looking at it."""
     return ("pcall(function() UIManager.Instance:OpenWindow(UIWindowNames.UIDecorationMain) end) "
             'CS.UnityEngine.Debug.LogError("ACT decorations_window opened")')
+
+
+# --------------------------------------------------------------------------
+# The account's characters, and switching the client to one of them
+# --------------------------------------------------------------------------
+# The list is what the server answers to `account.login.new` — one entry per
+# character, parsed into `DataCenter.AccountManager.rolesList`. Where it comes
+# from, and why the client's login cache is NOT it, is docs/research/account-list.md.
+#
+# Switching used to reproduce the LOGIN SCREEN's cell handler
+# (`UIAccountListCell.OnBtnSelectClick`), which builds its message out of
+# `AccountManager.param` — a table only that screen fills. From inside a session it
+# therefore sent `az.account.login` with an empty `userName` and the server answered
+# `120618 email format error` (captured, #1190). It reported "sent" and switched
+# nothing.
+#
+# The game's own route is the CHARACTER screen's cell: `UIRolesCell:OnBtnClick`
+# opens `UIWindowNames.UIRoleLogin` for the picked role, and that window's
+# «войти» press is `UIRoleLoginView:OnClickLogin`, whose whole body (read out of the
+# live VM with `string.dump`) is:
+#
+#     CS.AccountCredentialManager.ClearAll()
+#     CS.AccountCredentialManager.SetServerNetInfo(param.ip, param.port, param.zone)
+#     CS.AccountCredentialManager.SetLoginKey(param.loginKey)
+#     CS.AccountCredentialManager.SetUID(param.gameUid)
+#     CS.AccountCredentialManager.Save()
+#     CS.AIHelp.AIHelpProxy.Logout()
+#     EventManager:GetInstance():Broadcast(EventId.SwitchAccount)
+#     SFSNetwork.SendMessage(MsgDefines.UserCleanPost)
+#
+# — i.e. write the picked character's credentials over the saved ones, then tell the
+# server the session is done with. Every field it needs (`ip`, `port`, `zone`,
+# `loginKey`, `gameUid`) is in the role record the server sent; nothing is invented
+# and no window has to be opened. `ip` is a pipe-separated list of hosts and `port` a
+# string — both are passed on exactly as the game passes them.
+#
+# That is NOT the whole press, and the missing half cost a live run that did nothing:
+# the relog is done by the REPLY to `user.clean.post`. Its handler
+# (`Net.Msgs.Account.UserCleanPostMessage:HandleMessage`) is one call —
+# `CS.SwitchAccountCheckGameVersionTools.ReloadGameByCheckLauncherVersion()` — and
+# that is what actually drops the session and logs back in with what was just saved.
+# Sent from inside a session by hand, that reply never came: the handler was hooked
+# and watched for 14 s across three sends and never fired, while the client sat on the
+# old character. So the press makes the same call itself, right after the send.
+#
+# Proven live (#1192, 2026-08-02): 935 -> 509 and back, in-process — the game keeps
+# its pid, so the Lua daemon survives the relog and the panel needs no reattach. The
+# client comes back on the new character's base about ten seconds later.
+
+#: Where the recipe parks the server id to switch to (`TAP` carries no arguments).
+_SWITCH_VAR = "DataCenter.__lw_switch_account"
+
+#: Walk `rolesList` and hand each real character to `fn`. The screen prepends an
+#: `isEmpty` placeholder (its "add a character" slot) which is not a character.
+_ROLES_SCAN = (
+    "local function scan(fn) "
+    "local roles = DataCenter.AccountManager.rolesList "
+    "if type(roles) ~= 'table' then return end "
+    "for _, v in pairs(roles) do "
+    "if type(v) == 'table' and not v.isEmpty then fn(v) end end end "
+)
+
+
+def account_roles_request() -> str:
+    """Ask the server for this account's characters — headless, opens no window.
+
+    `account.login.new` carries only the device id, and the reply lands
+    asynchronously as `push.account.login.new`, which fills
+    `DataCenter.AccountManager.rolesList`. Poll :func:`account_roles_count` after it
+    rather than expecting the list to be there when this returns.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "SFSNetwork.SendMessage(MsgDefines.AccountLoginNew) "
+        'CS.UnityEngine.Debug.LogError("ACT account_roles_request sent") '
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT account_roles_request skip: "..tostring(err)) end'
+    )
+
+
+def account_roles_count() -> str:
+    """Expression: how many characters the server has named so far (0 before it answers)."""
+    return ("(function() local n = 0 %s scan(function() n = n + 1 end) return n end)()"
+            % _ROLES_SCAN)
+
+
+def account_switch_target() -> str:
+    """Expression: can the parked server id be switched to right now?
+
+    ``1`` the character is there and is not the one in play, ``0`` no character of
+    this account is on that server, ``-1`` that character is already in play. The
+    recipe turns each into its own refusal, so "nothing happened" is never the answer.
+    """
+    return (
+        "(function() local sid = tostring(%s or 0) local hit = 0 %s "
+        "scan(function(v) if tostring(v.id) == sid then hit = 1 end end) "
+        "if hit == 0 then return 0 end "
+        "local cur = 0 pcall(function() cur = LuaEntry.Player.serverId end) "
+        "if tostring(cur) == sid then return -1 end return 1 end)()"
+        % (_SWITCH_VAR, _ROLES_SCAN)
+    )
+
+
+def account_switch_press() -> str:
+    """Switch the live client to the character parked in ``__lw_switch_account``.
+
+    The «войти» press of the game's own `UIRoleLogin` window plus the relog its reply
+    would have triggered, run without opening anything (see the block comment above).
+    Saves that character's credentials over the current ones, tells the server the
+    session is done, and reloads the client — which comes back on the new character
+    about ten seconds later, in the same process.
+
+    Fire-and-forget: the reconnect cannot be observed from inside the same chunk, so
+    the recipe checks afterwards that `LuaEntry.Player.serverId` moved.
+    """
+    return (
+        "local ok,err = pcall(function() "
+        "local sid = tostring(%s or 0) local role %s "
+        "scan(function(v) if tostring(v.id) == sid then role = v end end) "
+        "if role == nil then "
+        'CS.UnityEngine.Debug.LogError("ACT account_switch skip: no character on "..sid) return end '
+        "local A = CS.AccountCredentialManager "
+        "A.ClearAll() "
+        "A.SetServerNetInfo(role.ip, role.port, role.zone) "
+        "A.SetLoginKey(role.loginKey) "
+        "A.SetUID(role.gameUid) "
+        "A.Save() "
+        "pcall(function() CS.AIHelp.AIHelpProxy.Logout() end) "
+        "EventManager:GetInstance():Broadcast(EventId.SwitchAccount) "
+        "SFSNetwork.SendMessage(MsgDefines.UserCleanPost) "
+        'CS.UnityEngine.Debug.LogError("ACT account_switch sent server="..sid) '
+        # The relog itself — what the reply to `user.clean.post` does in the game, and
+        # what nothing does when the message is sent by hand. Last, so a client that
+        # goes down mid-call has already saved the credentials it will come back with.
+        "CS.SwitchAccountCheckGameVersionTools.ReloadGameByCheckLauncherVersion() "
+        "end) "
+        'if not ok then CS.UnityEngine.Debug.LogError("ACT account_switch skip: "..tostring(err)) end'
+        % (_SWITCH_VAR, _ROLES_SCAN)
+    )
+
+
+def account_switch_arm(serverid) -> str:
+    """Park the server id the next :func:`account_switch_press` should switch to."""
+    return "%s = %d" % (_SWITCH_VAR, int(serverid))
+
+
+def account_current_server() -> str:
+    """Expression: the server of the character in play (0 while the client is reconnecting).
+
+    `WorldFavoDataManager.curServerId` is empty on a freshly logged-in client, so the
+    player's own record is asked first and that is only the fallback.
+    """
+    return ("(function() local cur = 0 "
+            "pcall(function() cur = LuaEntry.Player.serverId end) "
+            "if not cur or tonumber(cur) == nil or tonumber(cur) == 0 then "
+            "pcall(function() cur = DataCenter.WorldFavoDataManager.curServerId end) end "
+            "return tonumber(cur) or 0 end)()")
+
+
+def account_roles_dump() -> str:
+    """Log one `ACT R …` line per character, with everything the server said about it.
+
+    Text fields are hex-encoded because the log line is read back through a marker
+    that is not binary-safe and nicknames are not ASCII. `tools/account_switch.py`
+    parses these lines; the panel's «Аккаунты» tab draws them.
+    """
+    return (
+        "local function hex(s) return (tostring(s):gsub('.', function(c) "
+        "return string.format('%%02x', c:byte()) end)) end "
+        "local function L(s) CS.UnityEngine.Debug.LogError('ACT '..s) end "
+        "pcall(function() "
+        "L('cur='..tostring(%s)) %s "
+        "scan(function(v) L('R serverid='..tostring(v.id)"
+        "..' gameUid='..tostring(v.gameUid)"
+        "..' level='..tostring(v.gameUserLevel or 0)"
+        "..' power='..tostring(v.power or 0)"
+        "..' picVer='..tostring(v.picVer or 0)"
+        "..' nick='..hex(tostring(v.gameUserName or ''))"
+        "..' zone='..hex(tostring(v.zone or ''))"
+        "..' alliance='..hex(tostring(v.alAbbr or ''))"
+        "..' uuid='..hex(tostring(v.uuid or ''))"
+        "..' pic='..hex(tostring(v.pic or ''))) end) end)"
+        % (account_current_server(), _ROLES_SCAN)
+    )
