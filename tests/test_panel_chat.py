@@ -283,7 +283,9 @@ def _stand_in(pm, store):
     from panel import i18n as i18nmod
 
     P = types.SimpleNamespace()
-    P._i18n = i18nmod.I18n("en")
+    i18n = i18nmod.I18n("en")
+    # The tab reads its words through the runtime now, not off the panel.
+    P.rt = types.SimpleNamespace(t=i18n.t)
     P._chat_store = store
     P._chat_msgs = {"world": []}
     P._chat_has_more = {"world": False}
@@ -291,19 +293,19 @@ def _stand_in(pm, store):
     P._chat_img_cache = {}
     P._photo_seq = 0
     P._chat_trees = {"world": _FakeText()}
-    for name in ("_t", "_render_msg_line", "_insert_chat_text", "_update_chat_tree",
+    for name in ("t", "_render_msg_line", "_insert_chat_text", "_update_chat_tree",
                  "_rebuild_chat_view", "_chat_load_older", "_chat_type_of_view",
                  "_chat_avatar", "_chat_avatar_placeholder"):
-        setattr(P, name, pm.Panel.__dict__[name].__get__(P))
-    P._chat_clear_view = pm.Panel._chat_clear_view
-    P._chat_view_at_bottom = pm.Panel._chat_view_at_bottom
-    P._AVATAR_PX = pm.Panel._AVATAR_PX
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
+    P._chat_clear_view = pm.ChatTab._chat_clear_view
+    P._chat_view_at_bottom = pm.ChatTab._chat_view_at_bottom
+    P._AVATAR_PX = pm.ChatTab._AVATAR_PX
     return P
 
 
 def test_lazy_window_pages_from_store():
     try:
-        import panel.__main__ as pm
+        from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_lazy_window_pages_from_store: {exc}")
         return
@@ -363,7 +365,9 @@ def _dm_stand_in(pm, store):
     from panel import i18n as i18nmod
 
     P = types.SimpleNamespace()
-    P._i18n = i18nmod.I18n("en")
+    i18n = i18nmod.I18n("en")
+    # The tab reads its words through the runtime now, not off the panel.
+    P.rt = types.SimpleNamespace(t=i18n.t)
     P._chat_store = store
     P._chat_uid = "1000"
     P._chat_msgs = {"dm": []}
@@ -379,21 +383,21 @@ def _dm_stand_in(pm, store):
     P._dm_header_var = _FakeVar()
     P._chat_room_var = _FakeVar()
     P._active_chat_type = lambda: "dm"
-    P._AVATAR_PX = pm.Panel._AVATAR_PX
-    for name in ("_t", "_render_msg_line", "_insert_chat_text", "_rebuild_chat_view",
+    P._AVATAR_PX = pm.ChatTab._AVATAR_PX
+    for name in ("t", "_render_msg_line", "_insert_chat_text", "_rebuild_chat_view",
                  "_chat_load_older", "_chat_type_of_view", "_chat_avatar",
                  "_chat_avatar_placeholder", "_open_dm", "_refresh_dm_contacts",
                  "_render_contact_row", "_update_chat_target", "_chat_room"):
-        setattr(P, name, pm.Panel.__dict__[name].__get__(P))
-    P._chat_clear_view = pm.Panel._chat_clear_view
-    P._chat_view_at_bottom = pm.Panel._chat_view_at_bottom
-    P._dm_contact_time = pm.Panel._dm_contact_time
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
+    P._chat_clear_view = pm.ChatTab._chat_clear_view
+    P._chat_view_at_bottom = pm.ChatTab._chat_view_at_bottom
+    P._dm_contact_time = pm.ChatTab._dm_contact_time
     return P
 
 
 def test_dm_open_contact_filters_and_pages():
     try:
-        import panel.__main__ as pm
+        from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_dm_open_contact_filters_and_pages: {exc}")
         return
@@ -438,13 +442,14 @@ class _FakeEntry:
 
 def test_emoji_picker_inserts_token_and_sticker_sends():
     try:
-        import panel.__main__ as pm
+        from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_emoji_picker_inserts_token_and_sticker_sends: {exc}")
         return
 
     P = types.SimpleNamespace()
-    P._i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("en")
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("en")
+    P.rt = types.SimpleNamespace(t=i18n.t)
     P._chat_img_cache = {}
     P._chat_entry = _FakeEntry()
     P._chat_msg_var = _FakeVar()
@@ -454,8 +459,8 @@ def test_emoji_picker_inserts_token_and_sticker_sends():
     # Stub the image loader so _fill_picker's grid logic is tested independent of PIL
     # and of the filesystem (the Windows python cannot open the WSL /mnt sprite paths).
     P._chat_image = lambda path, px: "IMG"
-    for name in ("_t", "_pick_emoji", "_pick_sticker", "_fill_picker"):
-        setattr(P, name, pm.Panel.__dict__[name].__get__(P))
+    for name in ("t", "_pick_emoji", "_pick_sticker", "_fill_picker"):
+        setattr(P, name, getattr(pm.ChatTab, name).__get__(P))
 
     # An emoji drops a {e:<id>} token into the message box (chat_send resolves it).
     P._pick_emoji({"id": "101"})
@@ -483,7 +488,7 @@ def test_coords_button_shares_what_is_written_in_the_box():
     or the next «Отправить» would post the pin's text alongside the pin.
     """
     try:
-        import panel.__main__ as pm
+        from panel.tabs import chat as pm
     except Exception as exc:      # noqa: BLE001 -- no tkinter/PIL/Tk here
         print(f"  SKIP test_coords_button_shares_what_is_written_in_the_box: {exc}")
         return
@@ -493,8 +498,8 @@ def test_coords_button_shares_what_is_written_in_the_box():
         P._chat_msg_var = _FakeVar(text)
         P.sent, P.said = [], []
         P._chat_send = lambda args, what: P.sent.append((args, what))
-        P._say = lambda tag, key, **kw: P.said.append(key)
-        P._chat_send_coords = pm.Panel.__dict__["_chat_send_coords"].__get__(P)
+        P.say = lambda tag, key, **kw: P.said.append(key)
+        P._chat_send_coords = pm.ChatTab._chat_send_coords.__get__(P)
         P._chat_send_coords()
         return P
 

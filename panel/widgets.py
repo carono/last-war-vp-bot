@@ -12,6 +12,76 @@ import tkinter.font as tkfont
 from tkinter import ttk
 
 
+# ---------------------------------------------------------------------------
+# clickable coordinates
+# ---------------------------------------------------------------------------
+#
+# A coordinate printed anywhere in the panel is a place you can go, so it is drawn as
+# a link. Two widgets carry them — the log and the chat views — which is why this is
+# here rather than on either of them.
+#
+# ONE TAG PER WIDGET, BOUND ONCE. The first version tagged every coordinate uniquely
+# and gave each its own three callbacks closing over its x/y/server. Nothing ever took
+# them off: trimming the log drops the TEXT, and a chat rebuild clears the view, but a
+# Tk tag and its bindings outlive the characters they were laid over. A panel left
+# running overnight accumulated a tag, three Tcl commands and three Python closures per
+# coordinate it had ever printed. The link needs no state of its own — the tagged text
+# IS the coordinate, and `coords.parse` reads it back — so the shared tag is bound once
+# per widget and a click resolves what was clicked from the range under the pointer.
+COORD_TAG = "coordlink"
+COORD_COLOR = "#5cf"
+
+#: How many links have been drawn this session. Diagnostics only (the health snapshot
+#: watches it), and the reason it is a module counter is that nobody owns the widgets.
+_coord_links = 0
+
+
+def coord_link_count() -> int:
+    return _coord_links
+
+
+def bind_coord_links(widget, on_jump):
+    """Make ``widget``'s coordinate links clickable. ``on_jump(x, y, server)``.
+
+    Call once per widget, after tagging it with :data:`COORD_TAG`. Returns the click
+    handler it bound, so a test can aim one without a real pointer.
+    """
+    import coords                    # tools/lib, on sys.path once panel.runtime is in
+
+    # The cursor to put back on Leave is whatever the widget normally shows — "" in the
+    # log, "arrow" in a chat view — not a hardcoded one.
+    try:
+        rest = widget.cget("cursor")
+    except tk.TclError:
+        rest = ""
+
+    def click(event, w=widget) -> None:
+        try:
+            here = w.index(f"@{event.x},{event.y}")
+            span = w.tag_prevrange(COORD_TAG, f"{here} +1c")
+            text = w.get(*span) if span else ""
+        except tk.TclError:
+            return
+        hits = coords.parse(text)
+        if hits:
+            _s, _e, x, y, srv = hits[0]
+            on_jump(x, y, srv)
+
+    widget.tag_bind(COORD_TAG, "<Button-1>", click)
+    widget.tag_bind(COORD_TAG, "<Enter>",
+                    lambda ev, w=widget: w.configure(cursor="hand2"))
+    widget.tag_bind(COORD_TAG, "<Leave>",
+                    lambda ev, w=widget, c=rest: w.configure(cursor=c))
+    return click
+
+
+def insert_coord_link(widget, text: str) -> None:
+    """Write ``text`` into ``widget`` as a coordinate that jumps when clicked."""
+    global _coord_links
+    _coord_links += 1
+    widget.insert("end", text, (COORD_TAG,))
+
+
 def tk_stringvar(master):
     """An empty ``StringVar`` owned by ``master`` — a status line's variable.
 

@@ -56,17 +56,22 @@ def _tk():
 # Coordinate links: one binding per widget, not one per coordinate.
 # ---------------------------------------------------------------------------
 class _LinkHost:
-    """The three `Panel` methods a clickable coordinate needs, on a bare object."""
+    """A clickable coordinate needs no host at all now — the mechanics are shared
+    (panel/widgets.py), because the log and the chat views both carry them."""
 
     def __init__(self):
-        import panel.__main__ as pm
-        self._coord_seq = 0
+        from panel import widgets
         self.clicked = []
-        self._bind_coord_links = pm.Panel._bind_coord_links.__get__(self)
-        self._insert_coord_link = pm.Panel._insert_coord_link.__get__(self)
-        self._on_coord_link_click = pm.Panel._on_coord_link_click.__get__(self)
+        self._click = None
 
-    def _on_coord_click(self, x, y, server):
+        def bind(w):
+            # The handler is handed back so a test can aim a click without a pointer.
+            self._click = widgets.bind_coord_links(w, self._jump)
+
+        self._bind_coord_links = bind
+        self._insert_coord_link = widgets.insert_coord_link
+
+    def _jump(self, x, y, server):
         self.clicked.append((x, y, server))
 
 
@@ -106,8 +111,7 @@ def test_coordinate_links_add_no_tags_and_still_jump():
             _skip("coordinate click")
             return
         x, y, w, h = box
-        host._on_coord_link_click(text, type("E", (), {"x": x + w // 2,
-                                                       "y": y + h // 2})())
+        host._click(type("E", (), {"x": x + w // 2, "y": y + h // 2})())
         assert host.clicked == [(100, 200, None)], host.clicked
     finally:
         root.destroy()
@@ -118,15 +122,15 @@ def test_coordinate_links_add_no_tags_and_still_jump():
 # ---------------------------------------------------------------------------
 class _ImageHost:
     def __init__(self, cap):
-        import panel.__main__ as pm
-        pm.CHAT_IMG_CACHE_MAX = cap
+        from panel.tabs import chat as chatmod
+        chatmod.CHAT_IMG_CACHE_MAX = cap
         self._chat_img_cache = {}
         self._photo_meta = {}
-        self._trim_chat_images = pm.Panel._trim_chat_images.__get__(self)
+        self._trim_chat_images = chatmod.ChatTab._trim_chat_images.__get__(self)
 
 
 def test_chat_image_cache_evicts_oldest_and_keeps_the_placeholder():
-    import panel.__main__ as pm
+    from panel.tabs import chat as pm
     was = pm.CHAT_IMG_CACHE_MAX
     try:
         host = _ImageHost(4)

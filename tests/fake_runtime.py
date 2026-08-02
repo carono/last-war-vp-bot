@@ -106,6 +106,11 @@ class ColdGameLink:
     def rebind(self) -> bool:
         return False
 
+    def jump(self, x, y, server, quiet: bool = False) -> bool:
+        """Walking the camera is a game action like any other — refused, and recorded."""
+        self.asked.append("jump")
+        return False
+
 
 def cold_runtime(root, profile: str | None = None, settings: dict | None = None):
     """A PanelRuntime with the game replaced by :class:`ColdGameLink`.
