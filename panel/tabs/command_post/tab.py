@@ -37,17 +37,14 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from .widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
-                      font as ui_font)
+from ...runtime.paths import TOOLS
+from ...widgets import (NumericEntry, ScrollableFrame, tk_stringvar,
+                        font as ui_font)
+from ..base import PanelTab
+from .ghost import GhostOrder
 
 #: Marker every chunk in tools/lib/lua_actions.py logs under.
 MARKER = "ACT"
-
-# Where the child tools live. Resolved here rather than imported from
-# ``panel/__main__.py``: importing that module from a submodule re-executes the whole
-# panel (``python -m panel`` runs it as ``__main__``), so a constant is copied instead.
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOLS = os.path.join(REPO, "tools")
 
 # ANSI colour codes a child's output carries — stripped before a line is parsed.
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -137,12 +134,6 @@ def _fields(line: str, needle: str) -> dict:
     return out
 
 
-def _evaluator(app):
-    """This profile's warm-daemon evaluator (raises if there is no daemon)."""
-    import lua_client                 # tools/lib is on sys.path once the panel started
-    return lua_client.get_evaluator(port=app._daemon_port())
-
-
 class _Pane:
     """One inner page: a header with a «Обновить» button, a status line and a list.
 
@@ -158,17 +149,29 @@ class _Pane:
     #: The `[tag]` this page's lines are logged under.
     LOG_TAG = "panel"
 
-    def __init__(self, app, parent) -> None:
-        self.app = app
+    def __init__(self, rt, tab, parent) -> None:
+        self.rt = rt
+        self.tab = tab                 # the page above, for the things a page shares
         self.parent = parent
         self._loaded = False
         self._busy = False
         # The map-scan child, while one is listening (pages that offer a scan).
         self._scan_child = None
         self._scan_btn = None
-        self._status_var = tk_stringvar(app)
-        self._info_var = tk_stringvar(app)
+        self._status_var = tk_stringvar(self.rt.root)
+        self._info_var = tk_stringvar(self.rt.root)
         self.build()
+
+    def after(self, func) -> None:
+        """Run ``func`` on the Tk thread; a window that has gone simply drops it."""
+        try:
+            self.rt.root.after(0, func)
+        except (tk.TclError, RuntimeError):
+            pass
+
+    def evaluator(self):
+        """This profile's warm-daemon evaluator (raises if there is no daemon)."""
+        return self.rt.game.evaluator()
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -189,7 +192,7 @@ class _Pane:
             data = self.fetch()
         except Exception:              # noqa: BLE001 — a failed read is an empty page
             data = None
-        self.app.after(0, lambda: self._finish(data))
+        self.after(lambda: self._finish(data))
 
     def _finish(self, data) -> None:
         self._busy = False
@@ -206,14 +209,14 @@ class _Pane:
         """Title + «Обновить» + status line; returns the frame the body goes in."""
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
-        self.app._tr(ttk.Label(bar, font=ui_font(size=14, weight="bold")),
+        self.rt.tr(ttk.Label(bar, font=ui_font(size=14, weight="bold")),
                      self.TITLE_KEY).pack(side="left")
-        self.app._tr(ttk.Button(bar, width=12, command=self.refresh),
+        self.rt.tr(ttk.Button(bar, width=12, command=self.refresh),
                      "tabx.refresh").pack(side="right")
         ttk.Label(bar, textvariable=self._status_var, foreground=DIM).pack(
             side="right", padx=8)
         if self.HINT_KEY:
-            self.app._tr(ttk.Label(self.parent, foreground=DIM, wraplength=760,
+            self.rt.tr(ttk.Label(self.parent, foreground=DIM, wraplength=760,
                                    justify="left"), self.HINT_KEY).pack(
                 anchor="w", padx=10, pady=(0, 6))
         body = ttk.Frame(self.parent)
@@ -231,7 +234,7 @@ class _Pane:
             child.destroy()
 
     def _empty(self, key: str) -> None:
-        self.app._tr(ttk.Label(self._scroll, foreground=DIM), key).pack(
+        self.rt.tr(ttk.Label(self._scroll, foreground=DIM), key).pack(
             anchor="w", pady=6)
 
     # -- the map scan -------------------------------------------------------
@@ -250,11 +253,11 @@ class _Pane:
             self._scan_start(script, checkpoint, extra)
 
     def _scan_start(self, script: str, checkpoint: str, extra=()) -> None:
-        cmd = [self.app._python(), "-u", os.path.join(TOOLS, script),
+        cmd = [self.rt.children.python(), "-u", os.path.join(TOOLS, script),
                "--json", checkpoint,
                "--seconds", str(SCAN_SECONDS),
                "--interval", str(SCAN_INTERVAL), *extra]
-        child = self.app._child(self.LOG_TAG, cmd, on_exit=self._scan_ended)
+        child = self.rt.children.spawn(self.LOG_TAG, cmd, on_exit=self._scan_ended)
         if not child.start():
             return
         self._scan_child = child
@@ -277,7 +280,7 @@ class _Pane:
     def _scan_label(self, key: str) -> None:
         if self._scan_btn is not None:
             try:
-                self._scan_btn.configure(text=self.app._t(key))
+                self._scan_btn.configure(text=self.rt.t(key))
             except Exception:          # noqa: BLE001 — the widget may be gone
                 pass
 
@@ -291,15 +294,15 @@ class _Pane:
 
     # -- talking to the panel (safe from any thread) ------------------------
     def _status(self, key: str, **fmt) -> None:
-        text = self.app._t(key, **fmt) if key else ""
-        self.app.after(0, lambda: self._status_var.set(text))
+        text = self.rt.t(key, **fmt) if key else ""
+        self.after(lambda: self._status_var.set(text))
 
     def _info(self, key: str, **fmt) -> None:
-        text = self.app._t(key, **fmt) if key else ""
-        self.app.after(0, lambda: self._info_var.set(text))
+        text = self.rt.t(key, **fmt) if key else ""
+        self.after(lambda: self._info_var.set(text))
 
     def _log(self, key: str, **fmt) -> None:
-        self.app.after(0, lambda: self.app._say(self.LOG_TAG, key, **fmt))
+        self.after(lambda: self.rt.say(self.LOG_TAG, key, **fmt))
 
     # -- subclass hooks -----------------------------------------------------
     def build(self) -> None:            # pragma: no cover - overridden
@@ -332,6 +335,17 @@ class GhostReconPane(_Pane):
     HINT_KEY = "cmdpost.ghost.hint"
     LOG_TAG = "ghost"
 
+    def __init__(self, rt, tab, parent) -> None:
+        # Created before `build`, which draws the box bound to it — and read by the
+        # profile load, which happens whether or not the page has ever been shown.
+        self.autoloot_var = tk.BooleanVar(master=rt.root, value=False)
+        self.order = GhostOrder(rt, self)
+        super().__init__(rt, tab, parent)
+
+    def shutdown(self) -> None:
+        super().shutdown()
+        self.order.stop()
+
     def build(self) -> None:
         body = self._header()
         self._build_autoloot_bar(body)
@@ -339,10 +353,10 @@ class GhostReconPane(_Pane):
             anchor="w", pady=(6, 4))
         act = ttk.Frame(body)
         act.pack(fill="x", pady=(0, 6))
-        self._all_btn = self.app._tr(ttk.Button(act, width=18, command=self._steal_all),
+        self._all_btn = self.rt.tr(ttk.Button(act, width=18, command=self._steal_all),
                                      "cmdpost.ghost.steal_all")
         self._all_btn.pack(side="left")
-        self._scan_btn = self.app._tr(ttk.Button(act, width=16, command=self._scan),
+        self._scan_btn = self.rt.tr(ttk.Button(act, width=16, command=self._scan),
                                       "cmdpost.scan")
         self._scan_btn.pack(side="left", padx=(6, 0))
         self._scroll = self._list(body)
@@ -356,24 +370,22 @@ class GhostReconPane(_Pane):
         robbery is actually aimed at. So a scan ADDS to the list rather than replacing
         it, and a row says which it came from.
         """
-        self._scan_toggle(GHOST_SCAN_SCRIPT, self.app._profiles.ghost_json())
+        self._scan_toggle(GHOST_SCAN_SCRIPT, self.rt.profiles.ghost_json())
 
     def _build_autoloot_bar(self, parent) -> None:
-        """The «Операция Призрак» standing order — moved here off the «Секретки» tab.
+        """The «Операция Призрак» standing order: five robberies a day, unattended.
 
-        Only the *widget* lives here: `_ghost_autoloot_var` and `_toggle_ghost_autoloot`
-        stay on the app, exactly as they did on the old tab, so the settings save/load
-        and the profile-switch restart keep reading them where they always did.
+        The box, the variable behind it and the watcher it starts are all this page's
+        (:mod:`panel.tabs.command_post.ghost`). They used to be split three ways — the
+        widget on the «Секретки» tab, the var on the app, the loop in the panel.
         """
-        app = self.app
-        box = app._tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
+        box = self.rt.tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
         box.pack(fill="x")
-        app._ghost_autoloot_var = tk.BooleanVar(master=app, value=False)
-        app._tr(ttk.Checkbutton(box, variable=app._ghost_autoloot_var,
-                                command=app._toggle_ghost_autoloot),
-                "ghost.autoloot").pack(side="left")
-        app._tr(ttk.Label(box, foreground=DIM, wraplength=520, justify="left"),
-                "ghost.hint").pack(side="left", padx=10)
+        self.rt.tr(ttk.Checkbutton(box, variable=self.autoloot_var,
+                                   command=self.order.toggle),
+                   "ghost.autoloot").pack(side="left")
+        self.rt.tr(ttk.Label(box, foreground=DIM, wraplength=520, justify="left"),
+                   "ghost.hint").pack(side="left", padx=10)
 
     # -- reading the game ---------------------------------------------------
     def fetch(self):
@@ -384,7 +396,7 @@ class GhostReconPane(_Pane):
         so this page never second-guesses the client's own rules.
         """
         import ghost_recon_steal as grs
-        ev = _evaluator(self.app)
+        ev = self.evaluator()
         status = grs.read_status(ev)
         targets = grs.read_targets(ev) if status.get("open") else []
         can = set()
@@ -411,7 +423,7 @@ class GhostReconPane(_Pane):
         """
         import lastwar_proto as proto
         try:
-            missions = proto.load_fresh_ghost_recon(self.app._profiles.ghost_json())
+            missions = proto.load_fresh_ghost_recon(self.rt.profiles.ghost_json())
         except Exception:              # noqa: BLE001 — no file, or a half-written one
             return []
         out = []
@@ -437,7 +449,7 @@ class GhostReconPane(_Pane):
         status, targets = data
         self._status("")
         self._info("cmdpost.ghost.info",
-                   state=self.app._t("cmdpost.ghost.open" if status.get("open")
+                   state=self.rt.t("cmdpost.ghost.open" if status.get("open")
                                      else "cmdpost.ghost.closed"),
                    left=status.get("left", 0), queued=status.get("queued", 0))
         self._clear_list()
@@ -457,28 +469,28 @@ class GhostReconPane(_Pane):
         ttk.Label(frame, text=STAR_GLYPH if family == proto.GHOST_STAR_FAMILY
                   else GHOST_GLYPH, font=ui_font(size=14)).pack(side="left", padx=(0, 6))
         lvl = ttk.Label(frame, width=10, font=ui_font(weight="bold"),
-                        text=self.app._t("cmdpost.level", n=level or 0))
+                        text=self.rt.t("cmdpost.level", n=level or 0))
         lvl.configure(foreground=READY_COLOR if can else WAIT_COLOR)
         lvl.pack(side="left", padx=(0, 8))
         ttk.Label(frame, width=22, text=coords_fmt.fmt(
             target.get("x", 0), target.get("y", 0), target.get("srv", 0))).pack(
             side="left", padx=(0, 8))
         ttk.Label(frame, width=18, foreground=DIM,
-                  text=self.app._t(self._state_key(target))).pack(
+                  text=self.rt.t(self._state_key(target))).pack(
             side="left", padx=(0, 8))
-        ttk.Label(frame, width=12, foreground=DIM, text=self.app._t(
+        ttk.Label(frame, width=12, foreground=DIM, text=self.rt.t(
             "cmdpost.ghost.looted", n=target.get("looted", 0))).pack(
             side="left", padx=(0, 8))
         ttk.Label(frame, text=_short(target.get("uuid")), foreground=DIM).pack(
             side="left", padx=(0, 8))
         if target.get("mine"):
-            self.app._tr(ttk.Label(frame, foreground=DIM), "cmdpost.ghost.own").pack(
+            self.rt.tr(ttk.Label(frame, foreground=DIM), "cmdpost.ghost.own").pack(
                 side="right", padx=(4, 0))
         elif can:
-            self.app._tr(ttk.Button(frame, width=12,
+            self.rt.tr(ttk.Button(frame, width=12,
                                     command=lambda t=target: self._steal(t)),
                          "cmdpost.steal").pack(side="right", padx=(4, 0))
-        self.app._tr(ttk.Button(frame, width=10,
+        self.rt.tr(ttk.Button(frame, width=10,
                                 command=lambda t=target: self._jump(t)),
                      "cmdpost.jump").pack(side="right")
         return frame
@@ -503,7 +515,7 @@ class GhostReconPane(_Pane):
     def _jump(self, target) -> None:
         x, y = _int(target.get("x")), _int(target.get("y"))
         if x or y:
-            self.app._jump(x, y, _int(target.get("srv")) or None)
+            self.rt.game.jump(x, y, _int(target.get("srv")) or None)
 
     def _steal(self, target) -> None:
         """Rob one squad, off the Tk thread; the VM gate decides whether it sends."""
@@ -516,7 +528,7 @@ class GhostReconPane(_Pane):
             try:
                 import game_buttons
                 import lua_actions
-                ev = _evaluator(self.app)
+                ev = self.evaluator()
                 lines = ev.run(lua_actions.ghost_recon_steal(uuid, server),
                                marker=MARKER, settle=1.6)
                 ok = any("ghost_steal_sent" in ln for ln in (lines or []))
@@ -528,17 +540,17 @@ class GhostReconPane(_Pane):
                 ok = False
             self._log("cmdpost.ghost.log_sent" if ok else "cmdpost.ghost.log_held",
                       uuid=_short(uuid))
-            self.app.after(0, self.refresh)
+            self.after(self.refresh)
 
         threading.Thread(target=work, daemon=True).start()
 
     def _steal_all(self) -> None:
         """Hand the whole robbable set to the standalone tool (the same one the standing
         order spawns), then re-read the list once it has had time to walk the VM."""
-        self.app._ghost_run(self.app._autoloot_limit())
+        self.order.rob(self.order.limit())
         # Named: pressing «ограбить всё» twice must leave ONE re-read pending,
         # not one per press (see Panel._arm).
-        self.app._arm("cmdpost_ghost_reread", GHOST_RERE_MS, self.refresh)
+        self.rt.tick.arm("cmdpost_ghost_reread", GHOST_RERE_MS, self.refresh)
 
 
 # ---------------------------------------------------------------------------
@@ -562,12 +574,12 @@ class SharedMissionsPane(_Pane):
     HINT_KEY = "cmdpost.shared.hint"
     LOG_TAG = "autoloot"
 
-    def __init__(self, app, parent) -> None:
+    def __init__(self, rt, tab, parent) -> None:
         # uuid (str) -> the decoded mission and its row, so a repeated push does not
         # double a line and a robbery can find its target again.
         self._rows: dict[str, dict] = {}
         self._child = None
-        super().__init__(app, parent)
+        super().__init__(rt, tab, parent)
 
     def build(self) -> None:
         body = self._header()
@@ -578,35 +590,34 @@ class SharedMissionsPane(_Pane):
         self._paint()
 
     def _build_listener_bar(self, parent) -> None:
-        app = self.app
-        box = app._tr(ttk.LabelFrame(parent, padding=8), "cmdpost.shared.frame")
+        box = self.rt.tr(ttk.LabelFrame(parent, padding=8), "cmdpost.shared.frame")
         box.pack(fill="x")
         row1 = ttk.Frame(box)
         row1.pack(fill="x")
-        self._listen_var = tk.BooleanVar(master=app, value=False)
-        app._tr(ttk.Checkbutton(row1, variable=self._listen_var,
+        self._listen_var = tk.BooleanVar(master=self.rt.root, value=False)
+        self.rt.tr(ttk.Checkbutton(row1, variable=self._listen_var,
                                 command=self._toggle_listen),
                 "cmdpost.shared.listen").pack(side="left")
-        self._rob_var = tk.BooleanVar(master=app, value=False)
-        app._tr(ttk.Checkbutton(row1, variable=self._rob_var,
+        self._rob_var = tk.BooleanVar(master=self.rt.root, value=False)
+        self.rt.tr(ttk.Checkbutton(row1, variable=self._rob_var,
                                 command=self._on_rule_change),
                 "cmdpost.shared.rob").pack(side="left", padx=(12, 0))
-        self._star_var = tk.BooleanVar(master=app, value=True)
-        app._tr(ttk.Checkbutton(row1, variable=self._star_var,
+        self._star_var = tk.BooleanVar(master=self.rt.root, value=True)
+        self.rt.tr(ttk.Checkbutton(row1, variable=self._star_var,
                                 command=self._on_rule_change),
                 "cmdpost.shared.stars_only").pack(side="left", padx=(12, 0))
 
         row2 = ttk.Frame(box)
         row2.pack(fill="x", pady=(6, 0))
-        app._tr(ttk.Label(row2), "cmdpost.shared.level_from").pack(side="left")
-        self._from_var = tk_stringvar(app)
+        self.rt.tr(ttk.Label(row2), "cmdpost.shared.level_from").pack(side="left")
+        self._from_var = tk_stringvar(self.rt.root)
         NumericEntry(row2, textvariable=self._from_var, width=4).pack(
             side="left", padx=(4, 0))
-        app._tr(ttk.Label(row2), "cmdpost.shared.level_to").pack(side="left", padx=(8, 0))
-        self._to_var = tk_stringvar(app)
+        self.rt.tr(ttk.Label(row2), "cmdpost.shared.level_to").pack(side="left", padx=(8, 0))
+        self._to_var = tk_stringvar(self.rt.root)
         NumericEntry(row2, textvariable=self._to_var, width=4).pack(
             side="left", padx=(4, 0))
-        app._tr(ttk.Button(row2, width=14, command=self._clear),
+        self.rt.tr(ttk.Button(row2, width=14, command=self._clear),
                 "cmdpost.shared.clear").pack(side="right")
 
     # -- the listener -------------------------------------------------------
@@ -624,9 +635,9 @@ class SharedMissionsPane(_Pane):
         """
         if self._child is not None:
             return
-        cmd = [self.app._python(), "-u",
+        cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "secret_share_autoloot.py"),
-               "--limit", str(self.app._autoloot_limit())]
+               "--limit", str(self.rt.settings.opt_int("autoloot_limit", low=1, high=50))]
         if not self._rob_var.get():
             cmd.append("--dry-run")
         if self._star_var.get():
@@ -636,7 +647,7 @@ class SharedMissionsPane(_Pane):
             cmd += ["--level-min", str(lo)]
         if hi is not None:
             cmd += ["--level-max", str(hi)]
-        child = self.app._child("autoloot", cmd, on_line=self._on_line,
+        child = self.rt.children.spawn("autoloot", cmd, on_line=self._on_line,
                                 on_exit=self._on_child_exit)
         if not child.start():
             self._listen_var.set(False)
@@ -685,7 +696,7 @@ class SharedMissionsPane(_Pane):
             "matched": "SHARE MATCH" in clean,
             "robbed": "robbed" in clean,
         }
-        self.app.after(0, lambda: self._add(mission))
+        self.after(lambda: self._add(mission))
         return None
 
     def _add(self, mission: dict) -> None:
@@ -704,7 +715,7 @@ class SharedMissionsPane(_Pane):
     def fetch(self):
         """The day's remaining secret-task robberies — the budget a share would spend."""
         import lua_actions
-        ev = _evaluator(self.app)
+        ev = self.evaluator()
         chunk = ('CS.UnityEngine.Debug.LogError("ACT left="..tostring(%s))'
                  % lua_actions.secret_task_steals_left())
         for line in ev.run(chunk, marker=MARKER, settle=0.9) or ():
@@ -733,7 +744,7 @@ class SharedMissionsPane(_Pane):
         ttk.Label(frame, text=STAR_GLYPH if mission.get("star") else SHARE_GLYPH,
                   font=ui_font(size=14)).pack(side="left", padx=(0, 6))
         lvl = ttk.Label(frame, width=10, font=ui_font(weight="bold"),
-                        text=self.app._t("cmdpost.level", n=mission.get("level") or 0))
+                        text=self.rt.t("cmdpost.level", n=mission.get("level") or 0))
         lvl.configure(foreground=READY_COLOR if mission.get("matched") else WAIT_COLOR)
         lvl.pack(side="left", padx=(0, 8))
         ttk.Label(frame, width=12, text=coords_fmt.fmt(0, 0, mission.get("server"))
@@ -743,10 +754,10 @@ class SharedMissionsPane(_Pane):
         ttk.Label(frame, text=_short(mission.get("uuid")), foreground=DIM).pack(
             side="left", padx=(0, 8))
         if mission.get("robbed"):
-            self.app._tr(ttk.Label(frame, foreground=READY_COLOR),
+            self.rt.tr(ttk.Label(frame, foreground=READY_COLOR),
                          "cmdpost.shared.robbed").pack(side="right", padx=(4, 0))
         else:
-            self.app._tr(ttk.Button(frame, width=12,
+            self.rt.tr(ttk.Button(frame, width=12,
                                     command=lambda m=mission: self._steal(m)),
                          "cmdpost.steal").pack(side="right", padx=(4, 0))
         return frame
@@ -802,7 +813,7 @@ class SharedMissionsPane(_Pane):
             ok = False
             try:
                 import lua_actions
-                ev = _evaluator(self.app)
+                ev = self.evaluator()
                 lines = ev.run(lua_actions.secret_task_steal(uuid, server),
                                marker=MARKER, settle=1.4)
                 ok = any("steal_sent" in ln for ln in (lines or []))
@@ -812,7 +823,7 @@ class SharedMissionsPane(_Pane):
                       uuid=_short(uuid))
             if ok:
                 mission["robbed"] = True
-            self.app.after(0, self._paint)
+            self.after(self._paint)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -855,14 +866,14 @@ class TreasuresPane(_Pane):
 
     def build(self) -> None:
         body = self._header()
-        box = self.app._tr(ttk.LabelFrame(body, padding=8), "cmdpost.treasure.frame")
+        box = self.rt.tr(ttk.LabelFrame(body, padding=8), "cmdpost.treasure.frame")
         box.pack(fill="x")
-        self.app._tr(ttk.Label(box), "cmdpost.treasure.squad").pack(side="left")
-        self._squad_var = tk.IntVar(master=self.app, value=TREASURE_SQUADS[0])
+        self.rt.tr(ttk.Label(box), "cmdpost.treasure.squad").pack(side="left")
+        self._squad_var = tk.IntVar(master=self.rt.root, value=TREASURE_SQUADS[0])
         for squad in TREASURE_SQUADS:
             ttk.Radiobutton(box, text=str(squad), value=squad,
                             variable=self._squad_var).pack(side="left", padx=4)
-        self._scan_btn = self.app._tr(ttk.Button(box, width=16, command=self._scan),
+        self._scan_btn = self.rt.tr(ttk.Button(box, width=16, command=self._scan),
                                       "cmdpost.scan")
         self._scan_btn.pack(side="right")
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
@@ -891,7 +902,7 @@ class TreasuresPane(_Pane):
         someone finishes the dig — which is the moment the row has to flip from
         «копают» to «раскопано». Both sources feed the same list.
         """
-        self._scan_toggle(TREASURE_SCAN_SCRIPT, self.app._profiles.treasures_json())
+        self._scan_toggle(TREASURE_SCAN_SCRIPT, self.rt.profiles.treasures_json())
 
     # -- reading the game ---------------------------------------------------
     def fetch(self):
@@ -906,7 +917,7 @@ class TreasuresPane(_Pane):
         import find_treasures
         import lua_actions
         import tool_config
-        ev = _evaluator(self.app)
+        ev = self.evaluator()
         num, daily = self._read_state(ev)
         ids = sorted(daily) or list(find_treasures.KNOWN_ACTIVITY_IDS)
         ev.run(lua_actions.treasure_refresh_request(ids), marker=MARKER, settle=1.5)
@@ -942,7 +953,7 @@ class TreasuresPane(_Pane):
         """
         import lastwar_proto as proto
         try:
-            found = proto.load_fresh_treasures(self.app._profiles.treasures_json())
+            found = proto.load_fresh_treasures(self.rt.profiles.treasures_json())
         except Exception:              # noqa: BLE001 — no file, or a half-written one
             return []
         out = []
@@ -977,7 +988,7 @@ class TreasuresPane(_Pane):
         self._status("")
         self._info("cmdpost.treasure.info", n=num,
                    daily=", ".join("%d: %d" % kv for kv in sorted(daily.items()))
-                   or self.app._t("cmdpost.treasure.no_daily"))
+                   or self.rt.t("cmdpost.treasure.no_daily"))
         self._clear_list()
         if not targets:
             self._empty("cmdpost.treasure.empty")
@@ -993,21 +1004,21 @@ class TreasuresPane(_Pane):
         ttk.Label(frame, width=22, text=coords_fmt.fmt(
             target["x"], target["y"], target["server"])).pack(side="left", padx=(0, 8))
         state = ttk.Label(frame, width=16, font=ui_font(weight="bold"),
-                          text=self.app._t("cmdpost.treasure.dug" if target["dug"]
+                          text=self.rt.t("cmdpost.treasure.dug" if target["dug"]
                                            else "cmdpost.treasure.digging"))
         state.configure(foreground=READY_COLOR if target["dug"] else WAIT_COLOR)
         state.pack(side="left", padx=(0, 8))
         ttk.Label(frame, text=_short(target["uuid"]), foreground=DIM).pack(
             side="left", padx=(0, 8))
         if target["dug"]:
-            self.app._tr(ttk.Button(frame, width=12,
+            self.rt.tr(ttk.Button(frame, width=12,
                                     command=lambda t=target: self._claim(t)),
                          "cmdpost.treasure.claim").pack(side="right", padx=(4, 0))
         else:
-            self.app._tr(ttk.Button(frame, width=12,
+            self.rt.tr(ttk.Button(frame, width=12,
                                     command=lambda t=target: self._dig(t)),
                          "cmdpost.treasure.dig").pack(side="right", padx=(4, 0))
-        self.app._tr(ttk.Button(frame, width=10,
+        self.rt.tr(ttk.Button(frame, width=10,
                                 command=lambda t=target: self._jump(t)),
                      "cmdpost.jump").pack(side="right")
         return frame
@@ -1015,7 +1026,7 @@ class TreasuresPane(_Pane):
     # -- actions ------------------------------------------------------------
     def _jump(self, target) -> None:
         if target["x"] or target["y"]:
-            self.app._jump(target["x"], target["y"], target["server"] or None)
+            self.rt.game.jump(target["x"], target["y"], target["server"] or None)
 
     def _dig(self, target) -> None:
         """March the chosen squad onto the tile — the dig half of the treasure.
@@ -1031,7 +1042,7 @@ class TreasuresPane(_Pane):
             try:
                 import lua_actions
                 import rally_join
-                ev = _evaluator(self.app)
+                ev = self.evaluator()
                 formation = (rally_join.formation_by_squad(ev.run, squad)
                              or rally_join.pick_formation(ev.run))
                 if not formation:
@@ -1049,7 +1060,7 @@ class TreasuresPane(_Pane):
                 self._log("cmdpost.treasure.log_dig" if ok
                           else "cmdpost.treasure.log_failed",
                           uuid=_short(target["uuid"]))
-            self.app.after(0, self.refresh)
+            self.after(self.refresh)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1059,7 +1070,7 @@ class TreasuresPane(_Pane):
             ok = False
             try:
                 import lua_actions
-                ev = _evaluator(self.app)
+                ev = self.evaluator()
                 lines = ev.run(lua_actions.claim_treasure(target["uuid"],
                                                           target["server"]),
                                marker=MARKER, settle=1.5)
@@ -1068,29 +1079,39 @@ class TreasuresPane(_Pane):
                 ok = False
             self._log("cmdpost.treasure.log_claim" if ok
                       else "cmdpost.treasure.log_failed", uuid=_short(target["uuid"]))
-            self.app.after(0, self.refresh)
+            self.after(self.refresh)
 
         threading.Thread(target=work, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
-class CommandPostTab:
+class CommandPostTab(PanelTab):
     """The tab itself: a notebook of the three pages above.
 
     Each page loads lazily — the first time it is *shown*, not when the tab is built —
     so opening the tab costs one page's read and the two the operator never looks at
-    cost nothing. The tab is constructed eagerly by the panel because the ghost page
-    owns the «Операция Призрак» checkbox, whose var the settings load expects to exist.
+    cost nothing. The tab is EAGER all the same: the ghost page carries a standing
+    order, and a standing order has to be running whether or not anybody looks at it.
     """
 
-    def __init__(self, app, parent) -> None:
-        self.app = app
-        self.parent = parent
+    ID = "command_post"
+    TITLE_KEY = "tab.command_post"
+    ORDER = 320
+    PREFERRED_SIZE = "900x700"
+    LOCALE_NS = ("cmdpost", "ghost")
+    NEEDS = frozenset({"daemon", "children"})
+    EAGER = True
+    # `ghost_autoloot` was a flat key of the panel's, because the checkbox's var was;
+    # the rest of the tab was already one nested block. Neither is renamed here — §5
+    # rule 3 forbids it in the wave that moves them.
+    LEGACY_KEYS = {"pages": "command_post", "ghost_autoloot": "ghost_autoloot"}
+
+    def build(self) -> None:
         # Until the panel has actually shown this tab, a page change is Tk's own doing
         # (adding the first inner tab selects it) and must not start a game read — a
         # panel nobody opened this tab on would poll the client at start-up.
         self._shown = False
-        nb = ttk.Notebook(parent)
+        nb = ttk.Notebook(self.parent)
         nb.pack(fill="both", expand=True)
         self._nb = nb
         self._pages = {}
@@ -1101,20 +1122,31 @@ class CommandPostTab:
                          ("shared", SharedMissionsPane),
                          ("treasure", TreasuresPane)):
             frame = ttk.Frame(nb)
-            nb.add(frame, text=app._t("cmdpost.tab." + key))
-            page = cls(app, frame)
+            nb.add(frame, text=self.rt.t("cmdpost.tab." + key))
+            page = cls(self.rt, self, frame)
             self._pages[str(frame)] = page
             self._by_key[key] = page
-        app._hook(self._retranslate)
+        self.rt.i18n.hook(self._retranslate, key="cmdpost-tab-labels")
         nb.bind("<<NotebookTabChanged>>", self._on_page_changed)
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """The panel showed this tab: load whichever page is on top."""
+        """Start the standing order this profile asked for, and load the page on top.
+
+        Called at boot (EAGER) and again the first time the tab is shown; both are
+        idempotent. The ghost watcher must not wait for a click — the event runs one day
+        a week and the five robberies are the whole of it.
+        """
+        self.ghost.order.ensure_started()
         self._shown = True
         page = self._current()
         if page is not None:
             page.ensure_loaded()
+
+    @property
+    def ghost(self):
+        """The «Операция Призрак» page — the one carrying the standing order."""
+        return self._by_key["ghost"]
 
     def _on_page_changed(self, _event=None) -> None:
         """An inner page was selected — load it, once the tab has really been opened."""
@@ -1134,41 +1166,63 @@ class CommandPostTab:
         """Repaint the inner tab labels when the language changes."""
         for index, key in enumerate(("ghost", "shared", "treasure")):
             try:
-                self._nb.tab(index, text=self.app._t("cmdpost.tab." + key))
+                self._nb.tab(index, text=self.rt.t("cmdpost.tab." + key))
             except Exception:          # pragma: no cover - the notebook may be gone
                 pass
 
     def shutdown(self) -> None:
-        """Stop anything a page left running (the shared-mission listener)."""
+        """Stop anything a page left running (the listener, the scans, the order)."""
         for page in self._pages.values():
             stop = getattr(page, "shutdown", None)
             if stop is not None:
                 stop()
+        self.rt.tick.disarm("cmdpost_ghost_reread")
+
+    def panic(self) -> None:
+        """«Стоп всё»: every child and every watcher this tab holds, boxes unticked."""
+        self.ghost.autoloot_var.set(False)
+        listen = getattr(self._by_key["shared"], "_listen_var", None)
+        if listen is not None:
+            listen.set(False)
+        self.shutdown()
+
+    def on_profile_switch(self) -> None:
+        """A listener captures for one client and robs through one daemon, so it cannot
+        carry over. Only a page whose box is still ticked comes back up."""
+        self.restart_children()
+
+    def on_language_change(self) -> None:
+        self._retranslate()
 
     # -- what is remembered between sessions --------------------------------
     def config(self) -> dict:
-        """Every page's own settings, under the page's name — the tab's profile block.
+        """Every page's own settings, plus the standing order's switch.
 
-        The ghost page's standing order is not here: its checkbox var lives on the panel
-        («ghost_autoloot») and is saved with the rest of them.
+        `pages` is the block the profile already had under «command_post»; the ghost
+        switch was a flat key beside it («ghost_autoloot») because its variable used to
+        live on the panel. Both keep their spelling.
         """
-        out = {}
+        pages = {}
         for key, page in self._by_key.items():
             read = getattr(page, "config", None)
             if read is not None:
-                out[key] = read()
-        return out
+                pages[key] = read()
+        return {"pages": pages,
+                "ghost_autoloot": bool(self.ghost.autoloot_var.get())}
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
+        pages = raw.get("pages")
+        pages = pages if isinstance(pages, dict) else {}
         for key, page in self._by_key.items():
             apply = getattr(page, "apply_config", None)
             if apply is not None:
-                apply(raw.get(key))
+                apply(pages.get(key))
+        self.ghost.autoloot_var.set(bool(raw.get("ghost_autoloot", False)))
 
     def persist_vars(self) -> list:
         """Every control on the tab a change of has to be written to the profile."""
-        out = []
+        out = [self.ghost.autoloot_var]
         for page in self._by_key.values():
             read = getattr(page, "persist_vars", None)
             if read is not None:

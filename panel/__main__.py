@@ -114,7 +114,6 @@ from . import chat_history as chathistmod
 from . import tabs as tabsreg
 from .tabs import rally as rallytab
 from .tabs.rally import limits as rallygate
-from . import command_post as commandpostmod
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(REPO, "tools")
@@ -520,70 +519,11 @@ def list_actions(include_dev: bool = False, lang: str | None = None) -> list[dic
     return out
 
 
-_NON_GAME_PORTS = frozenset({80, 443})
-
-
-def _server_connection(game_exe: str = GAME_EXE) -> str | None:
-    """The game-server TCP endpoint, if a connection is currently ESTABLISHED.
-
-    Purely supplementary detail. Its absence (VPN off, mid-reconnect, or the OS
-    withholding foreign-owned sockets) must NOT be read as "game not running" —
-    that is decided by :func:`game_status` from the process list alone.
-
-    The remote port is not stable across builds (:17935 historically, :10012 on
-    the current client), so the check is port-agnostic: find lastwar.exe's PIDs,
-    then return the first ESTABLISHED remote address that is not a web port.
-    """
-    try:
-        import psutil
-        pids = {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
-                if (p.info["name"] or "").lower() == game_exe.lower()}
-        if not pids:
-            return None
-        for c in psutil.net_connections(kind="tcp"):
-            if (c.pid in pids and c.raddr and c.status == "ESTABLISHED"
-                    and c.raddr.port not in _NON_GAME_PORTS):
-                return f"{c.raddr.ip}:{c.raddr.port}"
-    except Exception:
-        return None
-    return None
-
-
-def game_status(game_exe: str = GAME_EXE) -> tuple[bool, str]:
-    """Whether the game is running, detected by process name only.
-
-    Detection is deliberately independent of network state: the game is "found"
-    whenever its process exists, regardless of VPN presence or whether a TCP
-    connection to the game server is currently established. The connection state,
-    when available, is appended as supplementary detail.
-
-    ``game_exe`` is a parameter because the executable is a profile setting (a
-    second client in its own Windows session, an install somewhere else); the
-    default keeps every existing caller — and the tests — unchanged.
-
-    Returns ``(running, label)``.
-    """
-    try:
-        import psutil
-    except Exception:
-        return False, "psutil missing"
-
-    pid = None
-    try:
-        for proc in psutil.process_iter(["name"]):
-            if (proc.info["name"] or "").lower() == game_exe.lower():
-                pid = proc.pid
-                break
-    except Exception as exc:
-        return False, f"probe error: {exc}"
-
-    if pid is None:
-        return False, "game not found"
-
-    conn = _server_connection(game_exe)
-    if conn:
-        return True, f"running (pid {pid}) -> {conn}"
-    return True, f"running (pid {pid})"
+# Whether the client is running, and what it is connected to — the runtime owns the
+# probe now (panel/runtime/game_process.py), because a tab launched on its own has to
+# be able to ask too. Re-exported under the old names: this file's callers, and the
+# tests that borrow them, do not care where the psutil call lives.
+game_status = runtime.game_process.status
 
 
 class Panel(tk.Tk):
@@ -651,8 +591,6 @@ class Panel(tk.Tk):
         self._dbg.info("panel starting — profile %r, version %s",
                        self._profiles.active, APP_VERSION)
         self._coord_seq = 0
-        self._ghost_proc = None       # one ghost-recon robbery at a time
-        self._ghost_stop = None       # threading.Event of its watcher, when running
         # Map sweep: the wrist that keeps the passive scan fed (panel/mapsweep.py).
         self._sweep_stop = None       # threading.Event of the sweep loop, when running
         self._sweep_at = 0            # index into the current pass's waypoints
@@ -1338,7 +1276,6 @@ class Panel(tk.Tk):
             # `alliance_autohelp` (the old checkbox) is deliberately not written back:
             # it became the «alliance_help» trigger in the profile's timers.json, and
             # `_migrate_autohelp` flips that on once for a profile that had it set.
-            "ghost_autoloot": self._ghost_autoloot_var.get(),
             "chat_monitor": self._chat_var.get(),
             # The Scenarios tab used to forget all three on every restart, so a
             # launch always started on the first row with an empty args box.
@@ -1350,7 +1287,6 @@ class Panel(tk.Tk):
             "log_sash": self._current_sash(),
             # The «Командный пункт» tab: the shared-mission robbery rule and the
             # treasure page's digging squad, a block per page.
-            "command_post": self._command_post_config(),
             # The schedule is NOT here: a timer's switch and period live in the
             # profile's own timers.json beside its scenario, and when each last
             # ran in timers_last_run.json (see panel/timers.py).
@@ -1394,7 +1330,6 @@ class Panel(tk.Tk):
         s = self._settings
         self._loading = True
         try:
-            self._ghost_autoloot_var.set(bool(s.get("ghost_autoloot", False)))
             self._chat_var.set(bool(s.get("chat_monitor", False)))
             self._scn_args_var.set(s.get("scenario_args", ""))
             self._scn_interval_var.set(str(s.get("scenario_interval", "60")))
@@ -1403,9 +1338,6 @@ class Panel(tk.Tk):
                 var = self._opt_vars.get(key)
                 if var is not None:
                     var.set(s.get(key, default))
-            post = getattr(self, "_command_post_tab", None)
-            if post is not None:
-                post.apply_config(s.get("command_post"))
             # Each plugin tab restores its own block — the new `tabs.config.<id>` if the
             # profile has one, else the flat keys it used to be spelled with.
             for tab in getattr(self, "_plugin_tabs", {}).values():
@@ -1418,17 +1350,13 @@ class Panel(tk.Tk):
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
-        for var in (self._ghost_autoloot_var, self._chat_var,
+        for var in (self._chat_var,
                     self._scn_args_var, self._scn_interval_var,
                     self._log_filter_var):
             var.trace_add("write", lambda *a: self._save_settings())
-        # The tabs that keep their own settings: every plugin tab, plus
-        # panel/command_post.py's CommandPostTab until it becomes one. Traced from here
-        # like every other bound setting, so a tab stays free of the profile machinery.
-        for owner in (*getattr(self, "_plugin_tabs", {}).values(),
-                      getattr(self, "_command_post_tab", None)):
-            if owner is None:
-                continue
+        # Every plugin tab's own settings, traced from here like any other bound
+        # setting, so a tab stays free of the profile machinery.
+        for owner in getattr(self, "_plugin_tabs", {}).values():
             for var in owner.persist_vars():
                 var.trace_add("write", lambda *a: self._save_settings())
         # …and what a tab changes that is NOT a variable — the «Авторалли» page's
@@ -1468,16 +1396,6 @@ class Panel(tk.Tk):
         # tab added later cannot be the one somebody forgot to list here.
         for tab in getattr(self, "_plugin_tabs", {}).values():
             tab.on_profile_switch()
-        # The ghost-recon order drives THIS profile's client, so a switch bounces it.
-        self._stop_ghost_autoloot()
-        if self._ghost_autoloot_var.get():
-            self._start_ghost_autoloot()
-        # Same for the command post's shared-mission listener: it captures for THIS
-        # profile's client and robs through its daemon, so it is bounced and brought
-        # back under the new one if its box is still ticked.
-        post = getattr(self, "_command_post_tab", None)
-        if post is not None:
-            post.restart_children()
         self._stop_chat()
         if self._chat_var.get():
             self._start_chat()
@@ -1573,7 +1491,8 @@ class Panel(tk.Tk):
         plugin_frames = {"alliance": alliance_tab, "profile": profile_tab,
                          "inventory": inventory_tab, "heroes": heroes_tab,
                          "accounts": accounts_tab, "stats": stats_tab,
-                         "rally": rally_tab, "secret_tasks": secret_tasks_tab}
+                         "rally": rally_tab, "secret_tasks": secret_tasks_tab,
+                         "command_post": command_post_tab}
         for spec in tabsreg.resolve(on_unknown=lambda t: self._say(
                 "panel", "log.tab.unknown", tab=t)):
             frame = plugin_frames.get(spec.id)
@@ -1590,16 +1509,12 @@ class Panel(tk.Tk):
         self._stats_tab = self._plugin_tabs.get("stats")
         if self._stats_tab is not None:      # the tracker owns the live tally
             self._stats_tab.adopt(self._resource_stats)
-        # «Секретный командный пункт» — ghost recon, shared missions and treasures. Built
-        # eagerly (its ghost page owns `_ghost_autoloot_var`, which the settings load
-        # expects to exist); each of its three pages still reads lazily.
-        self._command_post_tab = commandpostmod.CommandPostTab(self, command_post_tab)
         # The account summary strip: built into the «Аккаунты» tab, above the list of
         # characters it summarises. It used to sit on the Main tab, which left that tab
         # holding three unrelated subjects at once (#1183). Built BEFORE the tab class
         # below so the strip packs above that tab's own header.
         self._build_dashboard(accounts_tab)
-        self._lazy_tabs = {str(command_post_tab): self._command_post_tab}
+        self._lazy_tabs = {}
         for tab_id, frame in plugin_frames.items():
             tab = self._plugin_tabs.get(tab_id)
             if tab is not None:
@@ -2299,8 +2214,6 @@ class Panel(tk.Tk):
         for tab in getattr(self, "_plugin_tabs", {}).values():
             if tab.EAGER:
                 tab.ensure_loaded()
-        if self._ghost_autoloot_var.get():  # the ghost-recon standing order, if on
-            self._start_ghost_autoloot()
         if self._chat_var.get():            # chat monitor, if the profile had it on
             self._start_chat()
         # Drawing the history is the heaviest thing the boot does to the widgets, so
@@ -2522,8 +2435,7 @@ class Panel(tk.Tk):
         tab's own Stop.
         """
         self._say("panel", "panic.log")
-        for var, stop in ((self._ghost_autoloot_var, self._stop_ghost_autoloot),
-                          (self._chat_var, self._stop_chat)):
+        for var, stop in ((self._chat_var, self._stop_chat),):
             var.set(False)
             stop()
         # …and each plugin tab stops whatever it holds — one loop, so a tab added
@@ -3238,103 +3150,11 @@ class Panel(tk.Tk):
     # The camera walk that keeps the passive capture fed: the box, the waypoints and
     # the pass-and-rest loop. panel/mapsweep.py is still the geometry.
 
-    # -- «Операция Призрак»: the same standing order, no capture needed -------
+    # -- «Операция Призрак» went with the «Секретный командный пункт» tab -----
     #
-    # Secret tasks needed a pcap because their tiles only arrive while the map moves.
-    # Ghost recon does not: the client keeps the whole squad list
-    # (`ghost.recon.get.task.list`) and its own verdict on each, so the watcher polls
-    # the game rather than a checkpoint. tools/ghost_recon_steal.py --all does the
-    # deciding and the robbing, exactly as steal_secret_task.py does for the other.
-    def _toggle_ghost_autoloot(self) -> None:
-        if self._ghost_autoloot_var.get():
-            self._start_ghost_autoloot()
-        else:
-            self._stop_ghost_autoloot()
-
-    def _start_ghost_autoloot(self) -> None:
-        if self._ghost_stop is not None:
-            return
-        self._ghost_stop = threading.Event()
-        self._say("ghost", "ghost.on")
-        threading.Thread(target=self._ghost_loop, args=(self._ghost_stop,),
-                         daemon=True).start()
-
-    def _stop_ghost_autoloot(self) -> None:
-        stop, self._ghost_stop = self._ghost_stop, None
-        if stop is not None:
-            stop.set()
-            self._say("ghost", "ghost.off")
-
-    def _ghost_loop(self, stop: threading.Event) -> None:
-        """Poll the event's budget; rob when it is open and something is robbable."""
-        last_err = ""
-        while not stop.is_set():
-            wait = GHOST_POLL
-            try:
-                wait = self._ghost_tick()
-                last_err = ""
-            except Exception as exc:      # noqa: BLE001
-                err = f"{type(exc).__name__}: {exc}"
-                if err != last_err:
-                    last_err = err
-                    self._say("ghost", "log.ghost.error", error=err)
-            if stop.wait(wait):
-                return
-
-    def _ghost_tick(self) -> float:
-        """One look. Returns how long to wait before the next one.
-
-        Six days a week the event is shut, `IsOpenDay()` says so in one cheap read,
-        and the answer is "look again in an hour" — a minute-by-minute poll of a
-        closed event is a log nobody wants and a round trip nobody needs.
-        """
-        if self._ghost_proc is not None:      # a robbery is still running
-            return GHOST_POLL
-        if self._busy or not self._daemon_up():
-            return GHOST_POLL
-        running, _text = game_status(self._game_exe())
-        if not running:
-            return GHOST_POLL
-        chunk = ('CS.UnityEngine.Debug.LogError("GHOST open=" .. tostring(%s) '
-                 '.. " left=" .. tostring(%s))'
-                 % (lua_actions.ghost_recon_is_open(),
-                    lua_actions.ghost_recon_steals_left()))
-        text = " ".join(self._client.run(chunk, marker="GHOST", settle=0.6))
-        if "open=1" not in text:
-            return GHOST_CLOSED_PAUSE
-        left = 0
-        if "left=" in text:
-            try:
-                left = int(float(text.split("left=")[1].split()[0]))
-            except (ValueError, IndexError):
-                left = 0
-        if left <= 0:
-            # Open, but today's five are spent. The reset is at the server's day
-            # boundary, so the same pause the secret-task watcher uses fits.
-            return self._opt_int("autoloot_pause_min", low=1, high=1440) * 60.0
-        self._ghost_run(left)
-        return GHOST_POLL
-
-    def _ghost_run(self, left: int) -> None:
-        cmd = [self._python(), "-u", os.path.join(TOOLS, "ghost_recon_steal.py"),
-               "--all", "--limit", str(min(left, self._autoloot_limit()))]
-        self._say("ghost", "ghost.robbing", n=left)
-        proc = self._spawn_sniffer(cmd, "ghost")
-        if proc is None:
-            return
-        self._ghost_proc = proc
-        threading.Thread(target=self._ghost_reader, args=(proc,), daemon=True).start()
-
-    def _ghost_reader(self, proc) -> None:
-        try:
-            for raw in proc.stdout:
-                ln = raw.rstrip()
-                if ln:
-                    self._log_put(f"[ghost] {ln}")
-        except Exception:
-            pass
-        if self._ghost_proc is proc:
-            self._ghost_proc = None
+    # The watcher, the open-day read that gates it and the child that robs are
+    # panel/tabs/command_post/ghost.py — beside the page that lists the squads and the
+    # box that switches the order on.
 
     # -- one DSL line, typed --------------------------------------------------
     def _run_command(self) -> None:
@@ -3433,12 +3253,6 @@ class Panel(tk.Tk):
         # the window goes, or the last thing typed is the thing that is lost.
         self._flush_scenario_save()
         self._save_settings()   # geometry and the sash, as the operator left them
-        self._stop_ghost_autoloot()
-        # The «Секретный командный пункт» tab holds one child of its own — the
-        # shared-mission listener — which must go with the window, not outlive it.
-        post = getattr(self, "_command_post_tab", None)
-        if post is not None:
-            post.shutdown()
         # Every plugin tab goes with the window: the rally monitor's child, a bus
         # subscription, anything else a tab is holding.
         for tab in getattr(self, "_plugin_tabs", {}).values():
@@ -5068,18 +4882,9 @@ class Panel(tk.Tk):
     # to panel/tabs/rally/autorally.py — contributed to this page by the tab that
     # uses them (§6), so switching rally off takes its settings with it.
 
-    def _command_post_config(self) -> dict:
-        """The «Командный пункт» tab's block (panel/command_post.py CommandPostTab)."""
-        return self._tab_config("_command_post_tab", "command_post")
-
-    def _tab_config(self, attr: str, key: str) -> dict:
-        """A tab's own settings block, or the saved one while the tab does not exist."""
-        tab = getattr(self, attr, None)
-        if tab is None:
-            saved = getattr(self, "_settings", None) or {}
-            block = saved.get(key)
-            return block if isinstance(block, dict) else {}
-        return tab.config()
+    # `_command_post_config` / `_tab_config` are gone: a tab that is not in this
+    # window keeps the block on disk, and `_tabs_block` does that for every plugin tab
+    # at once rather than one hand-written method per tab.
 
     # -- chat tab -----------------------------------------------------------
 

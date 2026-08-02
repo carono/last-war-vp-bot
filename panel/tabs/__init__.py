@@ -83,6 +83,8 @@ TABS: tuple = (
     TabSpec("rally",     "panel.tabs.rally",     "RallyTab",     order=300),
     TabSpec("secret_tasks", "panel.tabs.secret_tasks", "SecretTasksTab",
             order=310),
+    TabSpec("command_post", "panel.tabs.command_post", "CommandPostTab",
+            order=320),
 )
 
 BY_ID = {spec.id: spec for spec in TABS}

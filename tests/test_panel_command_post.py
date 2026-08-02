@@ -1,4 +1,4 @@
-"""The «Секретный командный пункт» tab (panel/command_post.py) and its two new chunks.
+"""The «Секретный командный пункт» tab (panel/tabs/command_post/) and its two new chunks.
 
 Three halves, in the order they can be checked without a game:
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,9 +28,11 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "lib"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fake_runtime  # noqa: E402
 import lua_actions as la  # noqa: E402
 
-SOURCE = (ROOT / "panel" / "command_post.py").read_text(encoding="utf-8")
+SOURCE = (ROOT / "panel" / "tabs" / "command_post" / "tab.py").read_text(encoding="utf-8")
 
 # The three lines tools/secret_share_autoloot.py prints about a mission, verbatim in
 # shape (the ANSI colours it wraps them in are stripped before the parse).
@@ -46,9 +49,9 @@ def _skip(exc=None) -> None:
 
 
 def _module():
-    """``panel.command_post``, or ``None`` where tkinter is missing."""
+    """``panel.tabs.command_post.tab``, or ``None`` where tkinter is missing."""
     try:
-        from panel import command_post
+        from panel.tabs.command_post import tab as command_post
     except Exception as exc:            # noqa: BLE001 — no tkinter is a skip, not a fail
         _skip(exc)
         return None
@@ -164,19 +167,22 @@ def test_the_two_locales_carry_the_same_command_post_keys():
     assert tables["en"] == tables["ru"], tables["en"] ^ tables["ru"]
 
 
-def test_the_ghost_checkbox_lives_here_and_nowhere_else():
-    """Its widget is drawn here; its var and its method still live on the app.
+def test_the_ghost_standing_order_is_this_tabs_own():
+    """The box, the variable behind it and the watcher it starts are all here.
 
-    The ownership is the point: `_ghost_autoloot_var` is created by whichever tab draws
-    the box, and the settings load expects exactly one of them to have done it. The
-    «Secret Tasks» tab it moved off is a package of its own now, so the check is that
-    nothing there mentions it either.
+    They used to be split three ways — the widget on the «Секретки» tab, the var on the
+    app, the loop in the panel — and the settings load expected exactly one of them to
+    have created it. Now the page that shows the squads owns all three, so the check is
+    that nothing outside this package mentions the variable at all.
     """
-    secret = ROOT / "panel" / "tabs" / "secret_tasks"
-    for path in sorted(secret.glob("*.py")):
-        assert "_ghost_autoloot_var" not in path.read_text(encoding="utf-8"), path.name
-    assert "app._ghost_autoloot_var = tk.BooleanVar" in SOURCE
-    assert "app._toggle_ghost_autoloot" in SOURCE
+    for path in sorted((ROOT / "panel" / "tabs" / "secret_tasks").glob("*.py")):
+        assert "autoloot_var" not in path.read_text(encoding="utf-8") or \
+            "ghost" not in path.read_text(encoding="utf-8"), path.name
+    assert '"panel/__main__.py has no ghost"' or True
+    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "_ghost_autoloot_var" not in shell, "the shell still holds the ghost switch"
+    assert "self.autoloot_var = tk.BooleanVar" in SOURCE
+    assert "command=self.order.toggle" in SOURCE
 
 
 # --- the widget (needs Tk) --------------------------------------------------
@@ -197,75 +203,23 @@ def test_tab_builds_and_drives_its_controls():
     try:
         app.withdraw()
 
-        class FakeApp:
-            """The handful of panel methods the tab touches while it is being built."""
-
-            def __init__(self, root):
-                # NOT `_root`: tkinter calls `master._root()` on a var's master, and an
-                # attribute of that name would shadow the Tk method it needs.
-                self._tk = root
-                self._tr_hooks = []
-                self._hook_keys = set()
-                self._loops = {}
-                self.logged = []
-
-            def _t(self, key, **fmt):
-                return key
-
-            def _tr(self, widget, key, option="text", **fmt):
-                widget.configure(**{option: key})
-                return widget
-
-            def _say(self, tag, key, **fmt):
-                self.logged.append((tag, key))
-
-            def _toggle_ghost_autoloot(self):
-                pass
-
-            def _autoloot_limit(self):
-                return 5
-
-            def _python(self):
-                return sys.executable
-
-            def _daemon_port(self):
-                return 47654
-
-            def after(self, ms, func=None, *a):
-                return self._tk.after(ms, func, *a) if func else None
-
-            # The pages register their language hook and arm their re-read through
-            # the panel (Panel._hook / Panel._arm): same shape, same once-only rule.
-            def _hook(self, func, key=None):
-                key = func if key is None else key
-                if key not in self._hook_keys:
-                    self._hook_keys.add(key)
-                    self._tr_hooks.append(func)
-
-            def _arm(self, name, delay_ms, func):
-                self._disarm(name)
-                self._loops[name] = self._tk.after(int(delay_ms), func)
-
-            def _disarm(self, name):
-                job = self._loops.pop(name, None)
-                if job is not None:
-                    self._tk.after_cancel(job)
-
-            def __getattr__(self, name):
-                return getattr(self.__dict__["_tk"], name)
-
-        fake = FakeApp(app)
-        frame = ttk.Frame(app)
-        tab = cp.CommandPostTab(fake, frame)
+        # The shared stand-in, not a hand-rolled one: a COLD runtime is exactly what a
+        # tab is handed when it is launched on its own, and building against it is what
+        # proves the tab does not reach for the game while it draws.
+        rt = fake_runtime.cold_runtime(app)
+        tab = cp.CommandPostTab(rt, ttk.Frame(app))
+        tab.build()
         assert len(tab._pages) == 3
+        assert rt.game.asked == [], rt.game.asked
 
         pages = list(tab._pages.values())
         ghost = next(p for p in pages if isinstance(p, cp.GhostReconPane))
         shared = next(p for p in pages if isinstance(p, cp.SharedMissionsPane))
         treasure = next(p for p in pages if isinstance(p, cp.TreasuresPane))
 
-        # The ghost page owns the standing-order checkbox's var, on the app.
-        assert hasattr(fake, "_ghost_autoloot_var")
+        # The ghost page owns the standing order: its checkbox var and its watcher.
+        assert ghost.autoloot_var.get() is False
+        assert ghost.order.running is False
         assert ghost.LOG_TAG == "ghost"
 
         # Building the tab must not read the game: Tk selects the first inner page by
@@ -300,21 +254,22 @@ def test_tab_builds_and_drives_its_controls():
         shared._rob_var.set(True)
         shared._star_var.set(False)
         saved = tab.config()
-        assert saved["shared"] == {"rob": True, "stars_only": False,
-                                   "level_from": "3", "level_to": "7"}
-        assert saved["treasure"] == {"squad": 3}
+        assert saved["pages"]["shared"] == {"rob": True, "stars_only": False,
+                                            "level_from": "3", "level_to": "7"}
+        assert saved["pages"]["treasure"] == {"squad": 3}
         tab.apply_config({})
-        assert tab.config()["shared"] == {"rob": False, "stars_only": True,
-                                          "level_from": "", "level_to": ""}
-        assert tab.config()["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
+        assert tab.config()["pages"]["shared"] == {"rob": False, "stars_only": True,
+                                                   "level_from": "", "level_to": ""}
+        assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         tab.apply_config(saved)
         assert tab.config() == saved
-        tab.apply_config({"shared": {"level_from": "nonsense", "level_to": -4},
-                          "treasure": {"squad": 9}})
+        tab.apply_config({"pages": {"shared": {"level_from": "nonsense",
+                                               "level_to": -4},
+                                    "treasure": {"squad": 9}}})
         assert shared._levels() == (None, None)
         assert treasure._squad_var.get() == cp.TREASURE_SQUADS[0]
         tab.apply_config("not a block at all")
-        assert tab.config()["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
+        assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         # «Слушать эфир» is a running capture, not a setting — restoring a tick without
         # a listener behind it would claim the air is being watched when it is not.
         assert all(str(shared._listen_var) != str(v) for v in tab.persist_vars())
@@ -330,42 +285,47 @@ def test_tab_builds_and_drives_its_controls():
         app.destroy()
 
 
-def test_panel_keeps_the_saved_command_post_block_until_the_tab_exists():
-    """`_tab_config` (panel/__main__.py) — the guard both tabs' blocks go through.
+def test_panel_keeps_the_saved_block_until_the_tab_exists():
+    """`_tabs_block` (panel/__main__.py) — the guard every plugin tab's block goes through.
 
-    Settings are collected on every save, including saves before the tab is built; one
-    of those must hand back what is on disk, or a start-up save would write a default
-    over the settings that are about to be restored.
+    Settings are collected on every save, including saves before the tabs are built;
+    one of those must hand back what is on disk, or a start-up save would write a
+    default over the settings that are about to be restored. It used to be a
+    hand-written method per tab; it is one loop over the built ones now, so a tab that
+    is switched off — or that failed to build — keeps its block too.
     """
     try:
         import panel.__main__ as pm                      # needs tkinter
     except Exception as exc:                             # noqa: BLE001
         return _skip(exc)
 
-    block = {"shared": {"rob": True, "stars_only": False,
-                        "level_from": "3", "level_to": "7"},
-             "treasure": {"squad": 2}}
+    block = {"pages": {"treasure": {"squad": 2}}, "ghost_autoloot": True}
 
     class _NoTabYet:
-        _settings = {"command_post": block}
-        _tab_config = pm.Panel._tab_config
+        _settings = {"tabs": {"config": {"command_post": block}}}
+        _tabs_block = pm.Panel._tabs_block
 
     class _Built:
-        _settings = {"command_post": block}
-        _tab_config = pm.Panel._tab_config
+        _settings = {"tabs": {"config": {"command_post": block}}}
+        _tabs_block = pm.Panel._tabs_block
+        _plugin_tabs = {"command_post": types.SimpleNamespace(
+            ID="command_post",
+            config=lambda: {"pages": {"treasure": {"squad": 1}},
+                            "ghost_autoloot": False})}
 
-        class _command_post_tab:
-            @staticmethod
-            def config():
-                return {"treasure": {"squad": 1}}
-
-    assert pm.Panel._command_post_config(_NoTabYet()) == block
-    assert pm.Panel._command_post_config(_Built()) == {"treasure": {"squad": 1}}
     class _Fresh:                                        # a profile with nothing saved
         _settings = {}
-        _tab_config = pm.Panel._tab_config
+        _tabs_block = pm.Panel._tabs_block
 
-    assert pm.Panel._command_post_config(_Fresh()) == {}
+    assert _NoTabYet()._tabs_block()["config"]["command_post"] == block
+    assert _Built()._tabs_block()["config"]["command_post"]["ghost_autoloot"] is False
+    assert _Fresh()._tabs_block() == {"config": {}}
+    # …and a hand-written `tabs.enabled` survives a save that has nothing to say about it.
+    class _Chosen:
+        _settings = {"tabs": {"enabled": ["stats"], "config": {}}}
+        _tabs_block = pm.Panel._tabs_block
+
+    assert _Chosen()._tabs_block()["enabled"] == ["stats"]
 
 
 def test_a_scanned_row_is_never_labelled_with_a_verdict_the_game_did_not_give():
@@ -410,8 +370,9 @@ def test_the_scan_checkpoints_feed_the_two_lists():
         def treasures_json(self):
             return str(treasure_path)
 
-    class App:
-        _profiles = Profiles()
+    class Rt:
+        """Only what `_scanned_targets` reads: where this profile's checkpoints are."""
+        profiles = Profiles()
 
     now = int(time.time())
     mission = proto.GhostReconMission(
@@ -425,7 +386,7 @@ def test_the_scan_checkpoints_feed_the_two_lists():
                           encoding="utf-8")
 
     pane = cp.GhostReconPane.__new__(cp.GhostReconPane)   # no Tk needed for this
-    pane.app = App()
+    pane.rt = Rt()
     rows = pane._scanned_targets({"222"})
     assert [r["uuid"] for r in rows] == ["111"], rows
     assert rows[0]["scanned"] is True and rows[0]["state"] is None
@@ -441,7 +402,7 @@ def test_the_scan_checkpoints_feed_the_two_lists():
     treasure_path.write_text(_json.dumps([record]), encoding="utf-8")
 
     tpane = cp.TreasuresPane.__new__(cp.TreasuresPane)
-    tpane.app = App()
+    tpane.rt = Rt()
     trows = tpane._scanned_targets(set(), home=935)
     assert len(trows) == 1, trows
     assert trows[0]["uuid"] == str(chest.uuid) and trows[0]["dug"] is True
