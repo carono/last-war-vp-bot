@@ -882,17 +882,20 @@ def test_attach_re_points_the_daemon_at_the_new_process():
     assert ctx.evaluator is None, "the next primitive must build its own link"
 
 
-def test_attach_fails_when_the_client_never_came_back():
-    """A restart that left nothing running is a failed errand, not a quiet success."""
+def test_attach_fails_in_words_when_the_client_never_came_back():
+    """A restart that left nothing running is a failed errand — and it says why.
+
+    A deliberate FAIL, not a blow-up: the reason has to reach the timer's row (the
+    panel shows `ctx.fail_reason` verbatim), and a runtime error is deliberately not
+    dressed as one (tests/test_panel_action_outcome.py). It is also the difference
+    between "retry this later" and "this script is broken".
+    """
     client = FakeClient(pid=None, attached=None)
     ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=None)
     with _fakes(client):
-        try:
-            se.Interpreter(ctx)._run_block(se.parse_text("ATTACH_GAME WITHIN 1s"))
-        except se.ScriptRuntimeError as exc:
-            assert "no client is running" in str(exc), exc
-        else:
-            raise AssertionError("a missing client must fail the recipe")
+        assert se.run_text("ATTACH_GAME WITHIN 1s", ctx=ctx) is False
+    assert ctx.failed, "a missing client must fail the recipe"
+    assert "no client is running" in ctx.fail_reason, ctx.fail_reason
 
 
 def test_attach_without_a_daemon_waits_for_the_client_and_stops_there():
@@ -911,11 +914,17 @@ def test_restart_recipe_closes_relaunches_and_re_attaches():
     body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
     kinds = [type(s).__name__ for s in se.parse_text(body)]
     assert kinds == ["QuitGameStmt", "WaitStmt", "CallStmt", "AttachGameStmt",
-                     "LogStmt"], kinds
+                     "IfStmt", "LogStmt"], kinds
     called = [s.action_name for s in se.parse_text(body)
               if type(s).__name__ == "CallStmt"]
     assert called == ["launch_game"], "the restart must start the game the one way"
     assert se.resolve_action("launch_game") is not None
+    # Done means BOTH halves: the link answers (ATTACH_GAME) and the base is in play,
+    # read AFTER the re-attach — the client restarts itself once into a new process,
+    # so a scene read taken any earlier is a reading of the wrong one.
+    guard = se.parse_text(body)[4]
+    assert guard.condition == "scene != city", guard.condition
+    assert type(guard.then_block[0]).__name__ == "FailStmt", guard.then_block
 
 
 def _main() -> int:

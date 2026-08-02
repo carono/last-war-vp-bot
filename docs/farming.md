@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **28%** — 29 of 105
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 30 of 105
 
-🟩 29 done · 🟨 32 partly · 🟥 44 not automated
+🟩 30 done · 🟨 31 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -195,7 +195,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Launching the game and waiting until the base is actually ready to be used
 - 🟡 Noticing the game has gone and putting it back — the panel now checks the client every few seconds instead of only when asked, says so the moment it disappears, and (if asked to) starts it again on its own, no oftener than once every five minutes. Before this the panel could sit for an hour claiming the game was running while every scheduled errand quietly failed. Not yet seen through a real crash
-- 🟡 Restarting the client on a clock — every six hours the game is closed and started again, and nothing else runs until the base is back up. A session left running all day gets slower and answers less, and this is the cure; nothing in the game is spent by it. It waits its turn rather than cutting in: whatever the bot is doing at that moment finishes first, and nothing is pressed while the client is coming up. Switched off until it is asked for. The client this account plays is the one closed, so a second account's session is left alone. Not yet watched through a full cycle
+- ✅ Restarting the client on a clock — every six hours the game is closed and started again, and nothing else runs until the base is back up. A session left running all day gets slower and answers less, and this is the cure; nothing in the game is spent by it. It waits its turn rather than cutting in: whatever the bot is doing at that moment finishes first, and nothing is pressed while the client is coming up. It only counts as done once the base is in play again and the panel can drive it — a client that came back to a loading screen is tried again later instead of being written off as a restart that worked. Switched off until it is asked for. The client this account plays is the one closed, so a second account's session is left alone. Proven live: closed, relaunched and back at the base in 45 seconds, with everything that talks to the game following it into its new process by itself
 - 🟡 Reacting to the "logged in from another device" screen — the reaction is written, but nothing watches for it yet
 - 🟡 A summary of the account on one line — how many robberies are left today of each kind, how many donations are banked, how many alliancemates are waiting for help, how many wounded are lying in the hospital, how many survivors are at the gate, how many profession skills are ready, how many rallies can still be joined. Read straight out of the game every half a minute with no window opened, and quiet about everything that has nothing waiting, so what is on it is what needs doing. Not yet watched through a whole day
 - 🟡 Building your own list of errands — the schedule is edited in the panel now: add an errand, give it its steps (any of the abilities above, or a command written out by hand), its period and its arguments, copy one, delete one. Two errands due at the same moment still take their turn rather than pressing at once, a failed one is retried whole, and the clock survives a restart. This is what "play the whole session" needs; nothing ships a ready-made routine yet

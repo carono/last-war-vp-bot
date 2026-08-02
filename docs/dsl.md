@@ -320,6 +320,17 @@ primitive builds its own evaluator, which finds the live client itself),
 so the wait is for the **client**, and re-pointing is best-effort on top
 of it. Default window: 120 s.
 
+Both statements end the run as a deliberate `FAIL` with words — "no
+client is running", "the daemon would not attach to it" — rather than as
+a blow-up, because a client that has not come back is a thing to try
+again later, and the timer row shows the reason verbatim.
+
+A daemon started pinned to one client (`lua_daemon.py --pid …`, or
+`LW_GAME_PID`) follows that client into its new process rather than
+refusing to attach to a pid that no longer exists — but only within its
+own Windows session, so a restart on one account never re-points it at
+the other's game.
+
 ```
 QUIT_GAME
 WAIT 3

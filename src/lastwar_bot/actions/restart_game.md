@@ -38,4 +38,12 @@ CALL launch_game
 
 ATTACH_GAME WITHIN 120s
 
+# Done means BOTH halves, and this is the second one. The base was last seen through
+# the link the launch happened to be holding; the client restarts itself once after
+# the first login, so the reading that counts is the one taken through the link that
+# is attached NOW. A scenario that ends here having read anything else would report a
+# working session while the panel talks to a process that is on its way out.
+IF scene != city
+    FAIL "the client is up and the game link answers, but the base is not in play"
+
 LOG "Client restarted — back at the home base."

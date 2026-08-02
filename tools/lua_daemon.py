@@ -76,9 +76,51 @@ class Daemon:
         # which keeps this module out of reach of anything that only wants to speak the
         # protocol (the lease test, a tool checking whether a daemon is up).
         if self._ev is None:
+            self._repin()
             from lua_eval import LuaEval
             self._ev = LuaEval()
         return self._ev
+
+    @staticmethod
+    def _repin() -> None:
+        """Follow the pinned client across a restart, without ever crossing sessions.
+
+        ``--pid`` / ``LW_GAME_PID`` say WHICH client this daemon serves. That pin is a
+        process id, and a restarted client is a NEW process id — after which
+        `find_game_pid` refuses outright ("LW_GAME_PID=… is not running") and this
+        daemon can never attach to anything again. A daemon pinned by hand was
+        therefore a daemon that could not survive actions/restart_game.md at all.
+
+        Dropping the pin outright would be worse than the disease: with two accounts
+        on one box, `find_game_pid` falls back to "any client" and would attach this
+        daemon to the OTHER session's game. So the pin is re-aimed rather than
+        removed — at the client of this daemon's own Windows session, which is the
+        same client one process later — and when there is no such client, or more
+        than one, the stale pin is left exactly where it is. Failing loudly beats
+        driving somebody else's account.
+        """
+        pinned = os.environ.get("LW_GAME_PID")
+        if not pinned:
+            return
+        try:
+            import psutil
+            if psutil.pid_exists(int(pinned)):
+                return                                # still there — nothing to do
+            import il2cpp_probe as probe
+            mine = probe._session_of(os.getpid())
+            same = [p.pid for p in psutil.process_iter(["name"])
+                    if (p.info["name"] or "").lower() == "lastwar.exe"
+                    and probe._session_of(p.pid) == mine]
+        except BaseException as exc:                  # noqa: BLE001 — a best effort
+            print(f"[daemon] could not re-aim the pinned pid: {exc}", flush=True)
+            return
+        if len(same) != 1:
+            print(f"[daemon] pinned pid {pinned} is gone and this session has "
+                  f"{len(same)} clients — leaving the pin alone", flush=True)
+            return
+        os.environ["LW_GAME_PID"] = str(same[0])
+        print(f"[daemon] pinned pid {pinned} is gone — following this session's "
+              f"client to pid {same[0]}", flush=True)
 
     def _drop(self):
         if self._ev is not None:

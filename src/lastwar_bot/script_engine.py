@@ -1527,17 +1527,16 @@ class Interpreter:
     def _game_port(self) -> int:
         """The daemon port this run drives — the context's, or the environment's.
 
-        The same rule `_evaluator` follows, and it matters more here than anywhere
-        else: on a two-account box the port is what says WHICH client is being
-        restarted, and a restart aimed at the wrong one ends the other account's
-        session. `getattr` because a context that does not name a port at all is the
-        ordinary case (a script started from a shell) and reads the environment, which
-        is what every caller had before the panel could hold two profiles at once.
+        The same rule `_evaluator` follows (`Context.game_port`), and it matters more
+        here than anywhere else: on a two-account box the port is what says WHICH
+        client is being restarted, and a restart aimed at the wrong one ends the other
+        account's session. A context that names no port — every script started from a
+        shell — reads the environment, exactly as the rest of the engine does.
         """
         self._tools_lib_on_path()
         import lua_client
-        port = getattr(self.ctx, "game_port", None)
-        return int(port if port is not None else lua_client.PORT)
+        return int(self.ctx.game_port if self.ctx.game_port is not None
+                   else lua_client.PORT)
 
     def _do_quit_game(self, stmt: QuitGameStmt) -> None:
         """End the client this profile drives, and wait until it has really gone.
