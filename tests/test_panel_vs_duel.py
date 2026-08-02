@@ -42,17 +42,17 @@ def _skip(exc=None) -> None:
 
 
 def _actions(items):
-    """The actions of a day — a group also holds the day's own picks."""
-    from panel.tabs.vs_duel import _Choice
+    """The actions of a day — a day also holds picks of its own, and groups."""
+    from panel.tabs.vs_duel import _Choice, walk_items
 
-    return [i for i in items if not isinstance(i, _Choice)]
+    return [i for i in walk_items(items) if not isinstance(i, _Choice)]
 
 
 def _picks(items):
     """The picks the DAY makes, with no box above them (Saturday's shield)."""
-    from panel.tabs.vs_duel import _Choice
+    from panel.tabs.vs_duel import _Choice, walk_items
 
-    return [i for i in items if isinstance(i, _Choice)]
+    return [i for i in walk_items(items) if isinstance(i, _Choice)]
 
 
 def _tab():
@@ -105,8 +105,31 @@ def test_each_day_holds_the_actions_it_scores():
         "unit_upgrade"]
     assert [a.key for a in _actions(days["sat"])] == ["shield_buy", "mine_points"]
     for day, items in vs_duel.DAYS:
-        keys = [i.key for i in items]
+        keys = [i.key for i in vs_duel.walk_items(items)]
         assert len(keys) == len(set(keys)), f"{day} lists something twice: {keys}"
+
+
+def test_wednesdays_two_routines_are_two_groups():
+    """The research that runs at any hour and the loop inside the minister's window are
+    not one list of boxes: «speed it up» and «start one and hurry it» only stop reading
+    as the same box because a frame with its own line separates them."""
+    from panel.tabs import vs_duel
+
+    wed = dict(vs_duel.DAYS)["wed"]
+    groups = [i for i in wed if isinstance(i, vs_duel._Group)]
+    assert [g.label for g in groups] == ["vsduel.wed.running", "vsduel.wed.ministry"]
+    # Each says WHEN it applies — the five-minute window is the whole point of the
+    # second one, and it is on screen rather than in a commit message.
+    assert all(g.hint for g in groups), "a group with no line saying when it applies"
+
+    always, window = groups
+    assert [a.key for a in always.items] == ["research_speedup", "research_collect"]
+    assert [a.key for a in window.items] == ["research_start"]
+    # The category belongs to the loop in the window, not to the day's ordinary work.
+    assert window.items[0].choice is not None
+    assert all(a.choice is None for a in always.items)
+    # Opening the drone components is neither routine — it stays the day's own box.
+    assert [i.key for i in wed if not isinstance(i, vs_duel._Group)] == ["drone_parts"]
 
 
 def test_the_ceilings_and_the_details_hang_off_the_right_actions():
@@ -122,7 +145,7 @@ def test_the_ceilings_and_the_details_hang_off_the_right_actions():
             for d, items in vs_duel.DAYS for a in _actions(items)}
     assert {k: v for k, v in subs.items() if v} == {
         "mon.hero_level": ["exp_boxes"], "tue.build_start": ["ministry"],
-        "wed.research_start": ["ministry"], "thu.hero_level": ["exp_boxes"]}
+        "thu.hero_level": ["exp_boxes"]}
     # Only starting a research is aimed at something, and «any» is what it starts on.
     choices = {f"{d}.{a.key}": a.choice for d, items in vs_duel.DAYS
                for a in _actions(items) if a.choice is not None}
@@ -171,6 +194,11 @@ def test_every_label_is_translated_in_every_shipped_locale():
     keys = {"tab.vs_duel", "vsduel.hint"}
     for day, items in vs_duel.DAYS:
         keys.add(f"vsduel.day.{day}")
+        for item in items:
+            if isinstance(item, vs_duel._Group):
+                keys.add(item.label)
+                if item.hint:
+                    keys.add(item.hint)
         for pick in _picks(items):
             keys.add(pick.label)
             keys.update(label for _v, label in pick.options)
@@ -267,7 +295,7 @@ def test_the_experience_boxes_belong_to_levelling_the_hero():
 
 
 def test_a_ministry_box_belongs_to_the_action_that_starts_the_work():
-    """The same shape on Tuesday and Wednesday: it is HOW the work is started."""
+    """Tuesday's ministry is a detail of starting a construction: it is HOW it starts."""
     try:
         root, tab = _tab()
     except Exception as exc:                            # noqa: BLE001
@@ -278,10 +306,27 @@ def test_a_ministry_box_belongs_to_the_action_that_starts_the_work():
         assert tab.plan("tue") == {}, "the ministry planned itself with no construction"
         tab._flags["tue.build_start"].set(True)
         assert tab.plan("tue") == {"build_start": {"limit": None, "ministry": True}}
+    finally:
+        root.destroy()
 
+
+def test_wednesday_plans_flat_across_its_two_groups():
+    """A group is a frame and a scope, not a namespace: an action keeps its own key
+    wherever it is drawn, so the wiring reads one dict per day."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab._flags["wed.research_speedup"].set(True)
         tab._flags["wed.research_start"].set(True)
-        assert tab.plan("wed") == {"research_start": {
-            "limit": None, "ministry": False, "category": "any"}}
+        assert tab.plan("wed") == {
+            "research_speedup": {"limit": None},
+            "research_start": {"limit": None, "category": "any"}}
+        # Either routine can be wanted without the other.
+        tab._flags["wed.research_start"].set(False)
+        assert list(tab.plan("wed")) == ["research_speedup"]
     finally:
         root.destroy()
 

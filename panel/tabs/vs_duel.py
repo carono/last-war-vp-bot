@@ -18,6 +18,13 @@ Four shapes make up every group, and nothing else:
   Saturday's shield is one: the same points come either from two twelve-hour shields or
   from one that lasts a day, so the question is not whether but which.
 
+A day may also hold a **group**: a named frame around some of its actions, for a day
+whose points come from two different routines. Wednesday is the one — the research that
+can be hurried and collected at any hour, and the loop that only runs inside the science
+minister's five-minute buff — and the frame plus its one line about when it applies is
+what keeps «speed the research up» and «start one and hurry it» from reading as the same
+box written twice.
+
 A detail and a ceiling go grey with their action, because a choice about something
 nobody is doing is not a choice. A day's own pick never greys out — one of its options
 is always chosen.
@@ -99,6 +106,37 @@ class _Action:
         self.subs, self.choice = subs, choice
 
 
+class _Group:
+    """A named block INSIDE a day: a routine of its own, under its own conditions.
+
+    Wednesday is why it exists. Its research is two different routines, not one list of
+    boxes: what runs at any hour of the day (speed the running research up, collect what
+    is finished), and what only runs inside the science minister's buff — five minutes
+    in which a research is started, hurried and collected, over and over until the window
+    shuts. Same words in both would read as a duplicate; a frame around each, with a line
+    saying when it applies, is what makes them two.
+
+    The block is presentation and scope, not a namespace: the actions inside it keep
+    their own keys, so the profile and :meth:`VsDuelTab.plan` stay flat.
+    """
+
+    def __init__(self, label: str, items: tuple, hint: str = "") -> None:
+        self.label, self.items, self.hint = label, items, hint
+
+
+def walk_items(items):
+    """Every item of a day in the order it is drawn, with the groups opened out.
+
+    One place that knows a group holds items, so building, saving and planning cannot
+    disagree about what a day contains.
+    """
+    for item in items:
+        if isinstance(item, _Group):
+            yield from walk_items(item.items)
+        else:
+            yield item
+
+
 # --- the actions that score on more than one day, written once ---------------
 
 def _hero_level() -> _Action:
@@ -159,11 +197,16 @@ DAYS: tuple = (
     )),
     ("wed", (
         _drone_parts(),
-        _Action("research_speedup", "vsduel.research_speedup"),
-        _Action("research_collect", "vsduel.research_collect"),
-        _Action("research_start", "vsduel.research_start",
-                subs=(_Sub("ministry", "vsduel.research_ministry"),),
-                choice=_research_category()),
+        # Two routines, not one list: see _Group. The first is the day's ordinary
+        # research work; the second only happens while the minister's buff is up.
+        _Group("vsduel.wed.running", (
+            _Action("research_speedup", "vsduel.research_speedup"),
+            _Action("research_collect", "vsduel.research_collect"),
+        ), hint="vsduel.wed.running.hint"),
+        _Group("vsduel.wed.ministry", (
+            _Action("research_start", "vsduel.research_start",
+                    choice=_research_category()),
+        ), hint="vsduel.wed.ministry.hint"),
     )),
     ("thu", (
         _hero_level(),
@@ -226,7 +269,7 @@ class VsDuelTab(PanelTab):
         #: has to re-fill, since a combobox's list is not a widget option `tr` can set.
         self._combos: dict = {}
         for day, items in DAYS:
-            for item in items:
+            for item in walk_items(items):
                 if isinstance(item, _Choice):           # the day's own pick
                     name = f"{day}.{item.key}"
                     self._choices[name] = tk.StringVar(master=master,
@@ -266,13 +309,25 @@ class VsDuelTab(PanelTab):
         for day, items in DAYS:
             box = self.tr(ttk.LabelFrame(scroll, padding=8), f"vsduel.day.{day}")
             box.pack(fill="x", padx=(0, 4), pady=(0, 8))
-            for item in items:
-                if isinstance(item, _Choice):
-                    self._build_day_choice(box, day, item)
-                else:
-                    self._build_action(box, day, item)
+            self._build_items(box, day, items)
         self._retranslate_choices()
         self._sync_dependents()
+
+    def _build_items(self, box, day: str, items) -> None:
+        """Draw a day's items into ``box`` — a group becomes a frame of its own."""
+        for item in items:
+            if isinstance(item, _Group):
+                inner = self.tr(ttk.LabelFrame(box, padding=8), item.label)
+                inner.pack(fill="x", pady=(2, 6))
+                if item.hint:
+                    self.tr(ttk.Label(inner, foreground="#888", wraplength=560,
+                                      justify="left"), item.hint).pack(
+                        anchor="w", pady=(0, 4))
+                self._build_items(inner, day, item.items)
+            elif isinstance(item, _Choice):
+                self._build_day_choice(box, day, item)
+            else:
+                self._build_action(box, day, item)
 
     def _build_day_choice(self, box, day: str, choice: _Choice) -> None:
         """A decision the DAY makes, with no box above it — drawn as radio buttons.
@@ -375,12 +430,17 @@ class VsDuelTab(PanelTab):
         A decision the day itself makes — Saturday's shield — is always there, under its
         own key as ``{"pick": <value>}``: one of its options is always chosen, so there
         is nothing for its absence to mean.
+
+        FLAT across a day's groups: an action keeps its own key wherever it is drawn, so
+        Wednesday answers with `research_speedup` and `research_start` side by side. The
+        frame around the second one says WHEN it runs to the person; the scenario that
+        runs it knows the same thing without being told twice.
         """
         out: dict = {}
         for name, items in DAYS:
             if name != day:
                 continue
-            for item in items:
+            for item in walk_items(items):
                 if isinstance(item, _Choice):
                     out[item.key] = {"pick": self._choices[f"{day}.{item.key}"].get()}
                     continue
