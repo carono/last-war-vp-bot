@@ -125,6 +125,36 @@ so a fourth file added tomorrow is a fourth file to fill in.
 Only strings nobody reads as words may be literals: numeric formats (`"(%d–%d)"`),
 separators, Tk option values, internal tags. **If it can be translated, it is a key.**
 
+### What that looks like
+
+```python
+# ❌ panel/tabs/mything.py — the tab speaks for itself, in one language, for ever
+ttk.Button(self.parent, text="Обновить", command=self.refresh).pack()
+ttk.Label(self.parent, text="Ничего не прочитано").pack()
+messagebox.showerror("Ошибка", f"не удалось прочитать: {exc}")
+self.rt.put("[mything] обновлено")
+```
+
+```python
+# ✅ the tab names a key; the runtime says it, in whatever language is on
+self.tr(ttk.Button(self.parent, command=self.refresh), "mything.refresh").pack()
+self.tr(ttk.Label(self.parent), "mything.empty").pack()
+messagebox.showerror(self.t("mything.error.title"), self.t("mything.error", error=exc))
+self.say("mything", "mything.refreshed")
+```
+
+```jsonc
+// ✅ …and the key lands in ALL THREE in the same commit, translated
+// panel/locales/en.json   "mything.refresh": "Refresh",
+// panel/locales/ru.json   "mything.refresh": "Обновить",
+// panel/locales/de.json   "mything.refresh": "Auffrischen",
+```
+
+```jsonc
+// ❌ en.json only, «the rest later» — the other two silently show English
+// and the tab looks finished in every screenshot anybody takes
+```
+
 `tests/test_panel_i18n.py` holds both halves — it fails on a key missing from any
 shipped locale, and on a translatable literal handed to a widget, a menu entry or a
 dialog anywhere under `panel/`. Run it before you call panel work done:
