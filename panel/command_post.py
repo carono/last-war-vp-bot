@@ -104,6 +104,20 @@ def _int(value, default: int = 0) -> int:
         return default
 
 
+def _level_text(value) -> str:
+    """A saved level bound as the box shows it: a number, or blank for «no bound».
+
+    A profile is a file a person may have edited, so anything that is not a whole
+    number reads as blank — an unreadable bound must widen nothing.
+    """
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value) if value > 0 else ""
+    text = str(value).strip() if value is not None else ""
+    return text if text.isdigit() else ""
+
+
 def _short(uuid) -> str:
     """The last 8 digits of a uuid — its tail is what tells two targets apart."""
     s = str(uuid)
@@ -743,6 +757,34 @@ class SharedMissionsPane(_Pane):
             return int(raw) if raw.isdigit() else None
         return bound(self._from_var), bound(self._to_var)
 
+    # -- what is remembered between sessions --------------------------------
+    def config(self) -> dict:
+        """The robbery rule as it is stored in the profile.
+
+        «Слушать эфир» is deliberately not in it: a listener is a running capture, not a
+        setting, and a tick restored without one would say the air is being watched when
+        nothing is.
+        """
+        lo, hi = self._levels()
+        return {
+            "rob": bool(self._rob_var.get()),
+            "stars_only": bool(self._star_var.get()),
+            "level_from": "" if lo is None else str(lo),
+            "level_to": "" if hi is None else str(hi),
+        }
+
+    def apply_config(self, raw) -> None:
+        """Restore the rule from a profile's block (anything unreadable -> the default)."""
+        raw = raw if isinstance(raw, dict) else {}
+        self._rob_var.set(bool(raw.get("rob", False)))
+        self._star_var.set(bool(raw.get("stars_only", True)))
+        for key, var in (("level_from", self._from_var), ("level_to", self._to_var)):
+            var.set(_level_text(raw.get(key)))
+
+    def persist_vars(self) -> list:
+        """The controls a change of has to be written to the profile."""
+        return [self._rob_var, self._star_var, self._from_var, self._to_var]
+
     def _steal(self, mission: dict) -> None:
         """Rob one shared mission by hand — `hero.dispatch.steal {uuid, targetServer}`.
 
@@ -824,6 +866,19 @@ class TreasuresPane(_Pane):
         ttk.Label(body, textvariable=self._info_var, foreground=DIM).pack(
             anchor="w", pady=(6, 4))
         self._scroll = self._list(body)
+
+    # -- what is remembered between sessions --------------------------------
+    def config(self) -> dict:
+        """The digging squad, as it is stored in the profile."""
+        return {"squad": _int(self._squad_var.get(), TREASURE_SQUADS[0])}
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        squad = raw.get("squad")
+        self._squad_var.set(squad if squad in TREASURE_SQUADS else TREASURE_SQUADS[0])
+
+    def persist_vars(self) -> list:
+        return [self._squad_var]
 
     def _scan(self) -> None:
         """Scan the map for `f2 = 21` chests — the other half of «is there one?».
@@ -1037,12 +1092,17 @@ class CommandPostTab:
         nb.pack(fill="both", expand=True)
         self._nb = nb
         self._pages = {}
+        # The same three pages by name, for the profile block: a saved setting has to
+        # find its page again, and a Tk widget path is not a name that survives a restart.
+        self._by_key = {}
         for key, cls in (("ghost", GhostReconPane),
                          ("shared", SharedMissionsPane),
                          ("treasure", TreasuresPane)):
             frame = ttk.Frame(nb)
             nb.add(frame, text=app._t("cmdpost.tab." + key))
-            self._pages[str(frame)] = cls(app, frame)
+            page = cls(app, frame)
+            self._pages[str(frame)] = page
+            self._by_key[key] = page
         app._tr_hooks.append(self._retranslate)
         nb.bind("<<NotebookTabChanged>>", self._on_page_changed)
 
@@ -1082,6 +1142,36 @@ class CommandPostTab:
             stop = getattr(page, "shutdown", None)
             if stop is not None:
                 stop()
+
+    # -- what is remembered between sessions --------------------------------
+    def config(self) -> dict:
+        """Every page's own settings, under the page's name — the tab's profile block.
+
+        The ghost page's standing order is not here: its checkbox var lives on the panel
+        («ghost_autoloot») and is saved with the rest of them.
+        """
+        out = {}
+        for key, page in self._by_key.items():
+            read = getattr(page, "config", None)
+            if read is not None:
+                out[key] = read()
+        return out
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        for key, page in self._by_key.items():
+            apply = getattr(page, "apply_config", None)
+            if apply is not None:
+                apply(raw.get(key))
+
+    def persist_vars(self) -> list:
+        """Every control on the tab a change of has to be written to the profile."""
+        out = []
+        for page in self._by_key.values():
+            read = getattr(page, "persist_vars", None)
+            if read is not None:
+                out.extend(read())
+        return out
 
     def restart_children(self) -> None:
         """The profile switched: re-point a running listener at the new client.

@@ -1331,6 +1331,9 @@ class Panel(tk.Tk):
             "autorally": self._autorally_config(),
             # The «Ралли» tab's own four choices (target kind, level, squads, repeats).
             "rally_tab": self._rally_tab_config(),
+            # The «Командный пункт» tab: the shared-mission robbery rule and the
+            # treasure page's digging squad, a block per page.
+            "command_post": self._command_post_config(),
             # The schedule is NOT here: a timer's switch and period live in the
             # profile's own timers.json beside its scenario, and when each last
             # ran in timers_last_run.json (see panel/timers.py).
@@ -1389,6 +1392,9 @@ class Panel(tk.Tk):
             tab = getattr(self, "_rally_tab", None)
             if tab is not None:
                 tab.apply_config(s.get("rally_tab"))
+            post = getattr(self, "_command_post_tab", None)
+            if post is not None:
+                post.apply_config(s.get("command_post"))
             self._reload_rally_limits_ui()
         finally:
             self._loading = False
@@ -1412,11 +1418,14 @@ class Panel(tk.Tk):
                     self._create_elite_var,
                     *self._rally_squad_vars.values()):
             var.trace_add("write", lambda *a: self._save_settings())
-        # The «Ралли» tab's own controls (panel/tabs_extra.py RallyTab). Traced from here
-        # like every other bound setting, so the tab stays free of the profile machinery.
-        rally_tab = getattr(self, "_rally_tab", None)
-        if rally_tab is not None:
-            for var in rally_tab.persist_vars():
+        # The two tabs that keep their own settings (panel/tabs_extra.py RallyTab,
+        # panel/command_post.py CommandPostTab). Traced from here like every other bound
+        # setting, so the tabs stay free of the profile machinery.
+        for owner in (getattr(self, "_rally_tab", None),
+                      getattr(self, "_command_post_tab", None)):
+            if owner is None:
+                continue
+            for var in owner.persist_vars():
                 var.trace_add("write", lambda *a: self._save_settings())
         # The two rule lines under «Автолут ★» and «Автообъезд» describe what the
         # boxes are about to do; keep them true as the numbers are typed.
@@ -6128,10 +6137,18 @@ class Panel(tk.Tk):
         settings are collected on every save, and one taken during startup would
         otherwise write a default over the choices about to be restored.
         """
-        tab = getattr(self, "_rally_tab", None)
+        return self._tab_config("_rally_tab", "rally_tab")
+
+    def _command_post_config(self) -> dict:
+        """The «Командный пункт» tab's block (panel/command_post.py CommandPostTab)."""
+        return self._tab_config("_command_post_tab", "command_post")
+
+    def _tab_config(self, attr: str, key: str) -> dict:
+        """A tab's own settings block, or the saved one while the tab does not exist."""
+        tab = getattr(self, attr, None)
         if tab is None:
             saved = getattr(self, "_settings", None) or {}
-            block = saved.get("rally_tab")
+            block = saved.get(key)
             return block if isinstance(block, dict) else {}
         return tab.config()
 

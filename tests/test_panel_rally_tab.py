@@ -474,9 +474,11 @@ def test_panel_saves_the_tab_block_without_erasing_it_at_startup():
 
     class _NoTabYet:
         _settings = {"rally_tab": block}
+        _tab_config = pm.Panel._tab_config
 
     class _Built:
         _settings = {"rally_tab": block}
+        _tab_config = pm.Panel._tab_config
 
         class _rally_tab:                                # the tab, once it exists
             @staticmethod
@@ -485,13 +487,17 @@ def test_panel_saves_the_tab_block_without_erasing_it_at_startup():
 
     class _Fresh:                                        # a profile with nothing saved
         _settings = {}
+        _tab_config = pm.Panel._tab_config
 
     assert pm.Panel._rally_tab_config(_NoTabYet()) == block, \
         "a save before the tab is built must keep what is on disk"
     assert pm.Panel._rally_tab_config(_Built()) == {"kind": "boss", "level": 35,
                                                     "squads": [], "repeats": 1}
     assert pm.Panel._rally_tab_config(_Fresh()) == {}
-    assert pm.Panel._rally_tab_config(object()) == {}    # not even a settings dict yet
+    class _Bare:                                         # not even a settings dict yet
+        _tab_config = pm.Panel._tab_config
+
+    assert pm.Panel._rally_tab_config(_Bare()) == {}
 
 
 def test_status_keys_are_named_per_kind():

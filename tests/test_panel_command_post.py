@@ -273,11 +273,77 @@ def test_tab_builds_and_drives_its_controls():
         treasure._squad_var.set(3)
         assert treasure._squad_var.get() == 3
 
+        # The rule and the squad are kept in the profile: what is saved comes back, and
+        # a junk block cannot smuggle in a bound or a squad the page would not offer.
+        shared._rob_var.set(True)
+        shared._star_var.set(False)
+        saved = tab.config()
+        assert saved["shared"] == {"rob": True, "stars_only": False,
+                                   "level_from": "3", "level_to": "7"}
+        assert saved["treasure"] == {"squad": 3}
+        tab.apply_config({})
+        assert tab.config()["shared"] == {"rob": False, "stars_only": True,
+                                          "level_from": "", "level_to": ""}
+        assert tab.config()["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
+        tab.apply_config(saved)
+        assert tab.config() == saved
+        tab.apply_config({"shared": {"level_from": "nonsense", "level_to": -4},
+                          "treasure": {"squad": 9}})
+        assert shared._levels() == (None, None)
+        assert treasure._squad_var.get() == cp.TREASURE_SQUADS[0]
+        tab.apply_config("not a block at all")
+        assert tab.config()["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
+        # «Слушать эфир» is a running capture, not a setting — restoring a tick without
+        # a listener behind it would claim the air is being watched when it is not.
+        assert all(str(shared._listen_var) != str(v) for v in tab.persist_vars())
+        for var in (shared._rob_var, shared._star_var, shared._from_var,
+                    shared._to_var, treasure._squad_var):
+            assert any(str(var) == str(v) for v in tab.persist_vars()), \
+                f"{var} is not persisted"
+
         # Shutting the tab down with nothing running is a no-op, not an error.
         tab.shutdown()
         tab.restart_children()
     finally:
         app.destroy()
+
+
+def test_panel_keeps_the_saved_command_post_block_until_the_tab_exists():
+    """`_tab_config` (panel/__main__.py) — the guard both tabs' blocks go through.
+
+    Settings are collected on every save, including saves before the tab is built; one
+    of those must hand back what is on disk, or a start-up save would write a default
+    over the settings that are about to be restored.
+    """
+    try:
+        import panel.__main__ as pm                      # needs tkinter
+    except Exception as exc:                             # noqa: BLE001
+        return _skip(exc)
+
+    block = {"shared": {"rob": True, "stars_only": False,
+                        "level_from": "3", "level_to": "7"},
+             "treasure": {"squad": 2}}
+
+    class _NoTabYet:
+        _settings = {"command_post": block}
+        _tab_config = pm.Panel._tab_config
+
+    class _Built:
+        _settings = {"command_post": block}
+        _tab_config = pm.Panel._tab_config
+
+        class _command_post_tab:
+            @staticmethod
+            def config():
+                return {"treasure": {"squad": 1}}
+
+    assert pm.Panel._command_post_config(_NoTabYet()) == block
+    assert pm.Panel._command_post_config(_Built()) == {"treasure": {"squad": 1}}
+    class _Fresh:                                        # a profile with nothing saved
+        _settings = {}
+        _tab_config = pm.Panel._tab_config
+
+    assert pm.Panel._command_post_config(_Fresh()) == {}
 
 
 def test_a_scanned_row_is_never_labelled_with_a_verdict_the_game_did_not_give():
