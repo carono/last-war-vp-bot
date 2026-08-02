@@ -44,7 +44,7 @@ from tkinter import ttk
 from ...runtime import captures as capturemod
 from ...widgets import (NumericEntry, ScrollableFrame, numeric_spinbox,
                         tk_stringvar, font as ui_font)
-from ..base import PanelTab
+from ..base import PanelTab, TriggerSpec
 from .autoloot import AutoLoot
 from .capture import Capture
 from .sweep import Sweep
@@ -72,6 +72,12 @@ SHARE_WORLD = "world"
 
 class SecretTasksTab(PanelTab):
     """The starred-secret-task list, its timers, its two actions and its three orders."""
+
+    #: An alliancemate sharing a task is a push, not something to poll for — so the
+    #: tab offers the standing order that re-merges the checkpoint when one lands.
+    TRIGGERS = (TriggerSpec(name="secret_task_share",
+                            event="alliance.share.mission.add",
+                            handler="refresh_live"),)
 
     ID = "secret_tasks"
     TITLE_KEY = "tab.secret_tasks"
@@ -426,6 +432,12 @@ class SecretTasksTab(PanelTab):
         except Exception:                     # noqa: BLE001 — a failed read is an empty tab
             tasks = []
         self.after(lambda: self._merge(tasks))
+
+    def refresh_live(self) -> None:
+        """A share landed: re-merge the checkpoint — but only if the tab has been
+        opened. An unopened one reads fresh when it is first shown."""
+        if self.loaded:
+            self.refresh()
 
     def refresh(self) -> None:
         """Merge the live capture checkpoint (the wire feed) into the list.

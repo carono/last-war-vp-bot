@@ -9,11 +9,18 @@ from __future__ import annotations
 from tkinter import ttk
 
 from ..widgets import ScrollableFrame, install_numeric_field, font as ui_font
+from .base import TriggerSpec
 from ._data import DataTab, _group, _marker_payloads, _run_lua, _stringvar
 
 class InventoryTab(DataTab):
     """The bag: icon (glyph fallback), name, count, description, with a search box
     that filters by name. Items are read best-effort from the item/bag manager."""
+
+    #: The bag changes without anybody pressing anything, so the tab offers the
+    #: standing order that keeps it live — and it is only offered while the tab is
+    #: here to be repainted (§3.2).
+    TRIGGERS = (TriggerSpec(name="inventory_refresh",
+                            event="push.resource.item.update", handler="refresh_live"),)
 
     ID = "inventory"
     TITLE_KEY = "tab.inventory"

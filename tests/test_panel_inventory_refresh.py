@@ -19,53 +19,63 @@ def test_trigger_is_registered_on_the_resource_push():
     assert t.event_pattern == "push.resource.item.update"
 
 
-def test_refresh_only_when_the_tab_was_opened():
-    class FakeTab:
+def test_the_tab_declares_the_trigger_and_only_repaints_when_it_was_opened():
+    """The bag repaint is the tab's own standing order now — and it is only offered
+    while the tab is here to be repainted."""
+    from panel.tabs.inventory import InventoryTab
+
+    specs = {t.name: t for t in InventoryTab.TRIGGERS}
+    assert "inventory_refresh" in specs, specs
+    spec = specs["inventory_refresh"]
+    assert spec.event == "push.resource.item.update"
+    assert spec.handler == "refresh_live"
+    assert not spec.needs_game, "a bag repaint must not wait for a daemon"
+
+    from panel.tabs._data import DataTab
+
+    class FakeTab(DataTab):
         def __init__(self):
             self._loaded = False
             self.calls = 0
+
         def refresh(self):
             self.calls += 1
 
-    class Stub:
-        _refresh_inventory_tab = pm.Panel._refresh_inventory_tab
-
-    s = Stub()
-    s._inventory_tab = FakeTab()
-    s._refresh_inventory_tab()                      # unopened -> no read
-    assert s._inventory_tab.calls == 0
-    s._inventory_tab._loaded = True
-    s._refresh_inventory_tab()                      # opened -> repaint
-    assert s._inventory_tab.calls == 1
-    del s._inventory_tab
-    s._refresh_inventory_tab()                      # no tab -> no crash
+    tab = FakeTab()
+    tab.refresh_live()                              # unopened -> no read
+    assert tab.calls == 0
+    tab._loaded = True
+    tab.refresh_live()                              # opened -> repaint
+    assert tab.calls == 1
 
 
-def test_dispatch_schedules_refresh_and_skips_the_daemon_gate():
-    scheduled = []
+def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
+    """The sentinel is gone: the tab CONTRIBUTES the handler and the schedule binds it.
 
-    class Stub:
-        _run_timer_action = pm.Panel._run_timer_action
-        def _claim_busy(self):
-            return True
-        def _release_busy(self):
-            pass
-        def _refresh_status(self):
-            pass
-        def _refresh_inventory_tab(self):
-            pass
-        def after(self, ms, fn=None):
-            scheduled.append(fn)
-        def _daemon_up(self):
-            raise AssertionError("the inventory refresh must not reach the daemon gate")
+    It is called before the daemon gate on purpose — the tab's own read degrades
+    gracefully, so a missing daemon must not fault the trigger.
+    """
+    import types
+    from panel.runtime.schedule import Schedule
 
-    class Timer:
-        name = "inventory_refresh"
-        scenario = ("__inventory_refresh__",)
-
-    s = Stub()
-    assert s._run_timer_action(Timer()) is True
-    assert s._refresh_inventory_tab in scheduled, "refresh was not scheduled on the Tk thread"
+    called = []
+    from panel.tabs.inventory import InventoryTab as _Cls
+    spec = {t.name: t for t in _Cls.TRIGGERS}['inventory_refresh']
+    tab = types.SimpleNamespace(TRIGGERS=(spec,),
+                                refresh_live=lambda: called.append(1))
+    sched = Schedule.__new__(Schedule)
+    sched.rt = types.SimpleNamespace(
+        game=types.SimpleNamespace(
+            claim=lambda _o: True, release=lambda: None, on_settled=lambda: None,
+            up=lambda: (_ for _ in ()).throw(
+                AssertionError("must not reach the daemon gate"))),
+        root=types.SimpleNamespace(after=lambda _ms, fn: fn()))
+    sched._handlers, sched._needs_game = {}, set()
+    sched._gates, sched._args = {}, {}
+    sched.register(tab)
+    assert sched.handles('inventory_refresh'), "the tab's trigger was not adopted"
+    assert sched.run_errand(types.SimpleNamespace(name='inventory_refresh')) is True
+    assert called == [1], "the tab's handler was not called"
 
 
 def _main() -> int:

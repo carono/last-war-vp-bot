@@ -42,9 +42,13 @@ class TriggerSpec:
     """
 
     def __init__(self, name: str, event: str, scenario: str | None = None,
-                 handler: str | None = None, enabled: bool = False) -> None:
+                 handler: str | None = None, enabled: bool = False,
+                 needs_game: bool = False) -> None:
         self.name, self.event = name, event
         self.scenario, self.handler, self.enabled = scenario, handler, enabled
+        # Whether the handler needs the client up. Most are a repaint off a file and
+        # must run whether or not a daemon is reachable; one reads the game.
+        self.needs_game = needs_game
 
     def as_entry(self) -> dict:
         return {"name": self.name, "event_pattern": self.event,

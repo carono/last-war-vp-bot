@@ -22,65 +22,53 @@ def test_trigger_is_registered_on_the_share_push():
     assert t.enabled is False               # opt-in, like the other listeners
 
 
+def test_the_tab_declares_the_share_trigger():
+    specs = {t.name: t for t in st.SecretTasksTab.TRIGGERS}
+    assert "secret_task_share" in specs, specs
+    spec = specs["secret_task_share"]
+    assert spec.event == "alliance.share.mission.add"
+    assert spec.handler == "refresh_live"
+
+
 def test_refresh_only_when_the_tab_was_opened():
-    class FakeTab:
-        def __init__(self):
-            self.loaded = False
-            self.calls = 0
-
-        def refresh(self):
-            self.calls += 1
-
-    import types
-
-    class Stub:
-        _refresh_secret_tasks_tab = pm.Panel._refresh_secret_tasks_tab
-
-    tab = FakeTab()
-    s = Stub()
-    # The tab is reached through the runtime's registry — and may not be in this
-    # window at all, which is why `get` is allowed to answer None.
-    s._rt = types.SimpleNamespace(tabs=types.SimpleNamespace(get=lambda _id: tab))
-    s._refresh_secret_tasks_tab()                  # unopened -> no read
-    assert tab.calls == 0
+    tab = object.__new__(st.SecretTasksTab)
+    tab.loaded = False
+    calls = []
+    tab.refresh = lambda: calls.append(1)
+    tab.refresh_live()                              # unopened -> no read
+    assert calls == []
     tab.loaded = True
-    s._refresh_secret_tasks_tab()                  # opened -> repaint
-    assert tab.calls == 1
-    s._rt.tabs.get = lambda _id: None              # tab not in this window -> no crash
-    s._refresh_secret_tasks_tab()
+    tab.refresh_live()                              # opened -> re-merge
+    assert calls == [1]
 
 
-def test_dispatch_schedules_refresh_and_skips_the_daemon_gate():
-    scheduled = []
+def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
+    """The sentinel is gone: the tab CONTRIBUTES the handler and the schedule binds it.
 
-    class Stub:
-        _run_timer_action = pm.Panel._run_timer_action
+    It is called before the daemon gate on purpose — the tab's own read degrades
+    gracefully, so a missing daemon must not fault the trigger.
+    """
+    import types
+    from panel.runtime.schedule import Schedule
 
-        def _claim_busy(self):
-            return True
-
-        def _release_busy(self):
-            pass
-
-        def _refresh_status(self):
-            pass
-
-        def _refresh_secret_tasks_tab(self):
-            pass
-
-        def after(self, ms, fn=None):
-            scheduled.append(fn)
-
-        def _daemon_up(self):
-            raise AssertionError("the secret-task refresh must not reach the daemon gate")
-
-    class Timer:
-        name = "secret_task_share"
-        scenario = ("__secret_task_share__",)
-
-    s = Stub()
-    assert s._run_timer_action(Timer()) is True
-    assert s._refresh_secret_tasks_tab in scheduled, "refresh was not scheduled on the Tk thread"
+    called = []
+    _Cls = st.SecretTasksTab
+    spec = {t.name: t for t in _Cls.TRIGGERS}['secret_task_share']
+    tab = types.SimpleNamespace(TRIGGERS=(spec,),
+                                refresh_live=lambda: called.append(1))
+    sched = Schedule.__new__(Schedule)
+    sched.rt = types.SimpleNamespace(
+        game=types.SimpleNamespace(
+            claim=lambda _o: True, release=lambda: None, on_settled=lambda: None,
+            up=lambda: (_ for _ in ()).throw(
+                AssertionError("must not reach the daemon gate"))),
+        root=types.SimpleNamespace(after=lambda _ms, fn: fn()))
+    sched._handlers, sched._needs_game = {}, set()
+    sched._gates, sched._args = {}, {}
+    sched.register(tab)
+    assert sched.handles('secret_task_share'), "the tab's trigger was not adopted"
+    assert sched.run_errand(types.SimpleNamespace(name='secret_task_share')) is True
+    assert called == [1], "the tab's handler was not called"
 
 
 def test_fmt_left_clock():

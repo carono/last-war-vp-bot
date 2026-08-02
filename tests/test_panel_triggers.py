@@ -84,26 +84,46 @@ def test_the_builtin_rally_auto_join_trigger_ships():
 def test_errand_args_injects_live_join_squads():
     """rally_auto_join takes its squads from the profile at fire time, not the trigger.
 
-    Needs the panel (tkinter); says SKIP where that is not importable.
+    The rule belongs to the rally code (it answers in a profile that does not show the
+    tab), and the schedule only knows that SOMETHING was registered under that name.
     """
-    try:
-        from panel.__main__ import Panel
-    except Exception:                           # noqa: BLE001
-        print("  SKIP panel deps (tkinter) not importable")
-        return
     import types
-    # The squads come from the «Ралли» tab when this window has one, and from the
-    # profile's saved block when it does not (panel/tabs/rally/ join_squads).
-    tabs = types.SimpleNamespace(get=lambda _id: types.SimpleNamespace(
-        join_squads=lambda: [2, 3]))
-    stub = types.SimpleNamespace(_rt=types.SimpleNamespace(tabs=tabs),
-                                 _say=lambda *a, **k: None)
+    from panel.runtime.schedule import Schedule
+
+    sched = Schedule.__new__(Schedule)
+    sched._args = {}
+    sched.register_args("rally_auto_join", lambda: {"squads": [2, 3]})
+
     # a plain errand passes its own args through unchanged…
     plain = triggersmod.Trigger(name="x", scenario=("y",), args={"a": 1})
-    assert Panel._errand_args(stub, plain) == {"a": 1}
+    assert sched.args(plain) == {"a": 1}
     # …the rally auto-join one gets the live squads merged in.
     raj = triggersmod.default_catalogue().by_name("rally_auto_join")
-    assert Panel._errand_args(stub, raj)["squads"] == [2, 3]
+    assert sched.args(raj)["squads"] == [2, 3]
+
+
+def test_a_trigger_whose_tab_is_missing_is_not_offered():
+    """The point of replacing the sentinels: a listener must not be spawned for work
+    that has nowhere to land (docs/research/panel-tabs-refactor.md §3.2)."""
+    import types
+    from panel.runtime.schedule import Schedule
+
+    sched = Schedule.__new__(Schedule)
+    sched._handlers, sched._needs_game = {}, set()
+    sched.trigger_catalogue = triggersmod.default_catalogue()
+    sched.trigger_config_source = lambda: {"inventory_refresh": True,
+                                           "alliance_help": True}
+    # No tab registered its handler, so the hook-shaped trigger is not offered…
+    assert sched.trigger_config()["inventory_refresh"] is False
+    # …while one naming a real scenario always is: a scenario belongs to the bot.
+    assert sched.trigger_config()["alliance_help"] is True
+    # Once the tab is there, it is offered again.
+    sched.register(types.SimpleNamespace(
+        TRIGGERS=({t.name: t for t in
+                   __import__("panel.tabs.inventory", fromlist=["InventoryTab"])
+                   .InventoryTab.TRIGGERS}["inventory_refresh"],),
+        refresh_live=lambda: None))
+    assert sched.trigger_config()["inventory_refresh"] is True
 
 
 def test_the_builtin_resource_tracker_trigger_ships():

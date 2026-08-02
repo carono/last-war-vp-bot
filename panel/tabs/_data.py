@@ -94,6 +94,13 @@ class DataTab(PanelTab):
             self._loaded = True
             self.refresh()
 
+    def refresh_live(self) -> None:
+        """Re-read because something on the wire said to — but only if this tab has
+        been opened at all. An unopened one reads fresh when it is first shown, so a
+        push landing behind it costs nothing."""
+        if self._loaded:
+            self.refresh()
+
     def refresh(self) -> None:
         if self._busy:
             return

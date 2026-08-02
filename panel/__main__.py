@@ -108,7 +108,6 @@ from . import mapsweep as mapsweepmod
 from . import profile as profilemod
 from . import timers as timersmod
 from . import triggers as triggersmod
-from . import resource_stats as resourcestatsmod
 from . import chat_history as chathistmod
 from . import tabs as tabsreg
 from .tabs import rally as rallytab
@@ -593,53 +592,32 @@ class Panel(tk.Tk):
         # Tk image name -> (uid, pic_ver, path) for the click that opens a chat photo
         # full-size. Keyed by the image, so it is bounded by the cache above.
         self._photo_meta: dict = {}
-        # Scheduled actions (panel/timers.py). The store is per profile, so it is
-        # re-pointed on a switch; the scheduler itself is created here and only
-        # started once the UI exists (_startup), because a fired timer logs.
-        self._timer_store = timersmod.LastRunStore(self._profiles.timers_state())
-        # WHICH timers exist comes from the PROFILE's own timers.json — not from
-        # code: one account's schedule is not the other's. A profile that has none
-        # yet is seeded from the template panel/timers.json.
-        self._timer_catalogue = timersmod.default_catalogue()
+        # THE SCHEDULE (panel/runtime/schedule.py): errands on a clock and errands
+        # the wire sets off, sharing one single-file queue. It is the runtime's rather
+        # than the Timers tab's because it is what the panel does while nobody is
+        # looking — and the tab that edits the list may well be switched off.
+        self._splash_step("splash.triggers", 0.35)
+        self._schedule = runtime.Schedule(self._rt)
+        self._rt.schedule = self._schedule
+        self._timers = self._schedule.timers
+        self._triggers = self._schedule.triggers
+        self._timer_store = self._schedule.store
         self._timer_vars: dict[str, dict] = {}   # name -> {"enabled": Var, "interval": Var}
         self._timer_rows: dict[str, dict] = {}   # name -> {"last"/"next" Labels, "box"}
         # Which row the editor's Add/Copy/Edit/Delete act on. A grid of checkbuttons
         # has no selection of its own, so the row label doubles as one.
         self._timer_selected: str | None = None
-        self._load_timer_catalogue()
-        self._timers = timersmod.TimerScheduler(
-            store=self._timer_store,
-            catalogue=lambda: self._timer_catalogue,
-            config=self._timer_config,
-            runner=self._run_timer_action,
-            log=lambda key, **fmt: self._log_put("[timer] " + self._t(key, **fmt)),
-            gate=self._timer_gate,
-        )
-        # Wire-driven errands (panel/triggers.py) — their OWN catalogue and OWN file,
-        # per profile, seeded from the template panel/triggers.json. A trigger has no
-        # period; the watcher keeps a listener alive per switched-on trigger and, on a
-        # matching push, hands the scenario to the scheduler's own queue (submit) so a
-        # triggered press runs single-file with the scheduled timers.
-        self._splash_step("splash.triggers", 0.35)
-        self._trigger_catalogue = triggersmod.default_catalogue()
         self._trigger_vars: dict[str, tk.BooleanVar] = {}   # name -> enabled Var
         self._trigger_rows: dict[str, dict] = {}            # name -> {"status" Label}
-        self._load_trigger_catalogue()
-        self._triggers = triggersmod.TriggerWatcher(
-            catalogue=lambda: self._trigger_catalogue,
-            config=self._trigger_config,
-            spawn=self._spawn_trigger_listener,
-            submit=self._timers.submit,
-            poll=self._poll_trigger,
-            log=lambda key, **fmt: self._log_put("[trigger] " + self._t(key, **fmt)),
-        )
-        # The «resource_tracker» trigger's state: the day-keyed tally (per profile) and
-        # the last balance seen, in memory, so a push's gain is `current - last`. The
-        # last is empty until the first push establishes a baseline (no gain counted
-        # then). Both re-pointed / cleared on a profile switch.
-        self._resource_stats = resourcestatsmod.load_stats(
-            self._profiles.resource_stats_json())
-        self._resource_last: dict = {}
+        self._schedule.timer_config_source = self._timer_widget_config
+        self._schedule.trigger_config_source = self._trigger_widget_config
+        # Two rules the schedule does not own: the rally auto-join's daily cap, and the
+        # squads it joins with. Both belong to the rally code (Tk-free on purpose, so
+        # they answer in a profile that does not show the tab); only the wiring is here.
+        self._schedule.register_gate("rally_auto_join",
+                                     lambda: rallygate.join_gate(self._rt),
+                                     lambda spent: rallygate.record_joins(self._rt, spent))
+        self._schedule.register_args("rally_auto_join", self._rally_join_args)
         # The Settings page's knobs, one Tk variable each, created BEFORE any tab is
         # built — the Settings tabs bind widgets to them and the main tab's watchdog
         # checkbox shares the very same variable, so the two can never disagree.
@@ -1167,7 +1145,7 @@ class Panel(tk.Tk):
         self._refresh_profile_combo(select=newn)
         # The directory moved under the schedule's feet: re-point both files, or
         # the next run would write into a re-created old directory.
-        self._timer_store.set_path(self._profiles.timers_state())
+        self._schedule.on_profile_switch()
         self._reload_timers(quiet=True)
         self._say("profile", "log.profile.renamed", old=cur, new=newn)
 
@@ -1326,20 +1304,13 @@ class Panel(tk.Tk):
         # periods, and the clock that says when each last ran. Re-read all of it,
         # or the profile just switched to would run the other one's errands and
         # look as freshly collected as it did.
-        self._timer_store.set_path(self._profiles.timers_state())
+        self._schedule.on_profile_switch()
         self._reload_timers(quiet=True)
         # The triggers belong to the account as much as the schedule: re-read this
         # profile's triggers.json, redraw the rows and reconcile the listeners — a
         # switch must not leave the previous profile's watcher listening on this one's
         # behalf. `_reload_triggers` does all three (and the one-time autohelp migrate).
         self._reload_triggers(quiet=True)
-        # The resource tally is per profile too: re-read this one's, drop the balance
-        # baseline (the other account's numbers are not this one's), and redraw.
-        self._resource_stats = resourcestatsmod.load_stats(
-            self._profiles.resource_stats_json())
-        self._resource_last = {}
-        if hasattr(self, "_stats_grid"):
-            self._refresh_stats_table()
 
     # `_update_path_hints` went with the rally monitor: the one label showing a
     # profile's log path is that tab's own now, and it refreshes itself on a language
@@ -1404,13 +1375,13 @@ class Panel(tk.Tk):
             if tab is not None:
                 self._plugin_tabs[spec.id] = tab
                 self._rt.tabs.add(tab)
+                # What the tab brought with it: its wire-driven errands (§3.2). A tab
+                # that is not in this profile registers nothing, so its trigger is not
+                # offered and no listener is spawned for it.
+                self._schedule.register(tab)
         # The Settings page is an aggregator now: the shell's own sub-tabs, then one per
         # tab that brought a page along («Авторалли» comes with rally).
         self._build_settings_tab(settings_tab)
-        self._inventory_tab = self._plugin_tabs.get("inventory")
-        self._stats_tab = self._plugin_tabs.get("stats")
-        if self._stats_tab is not None:      # the tracker owns the live tally
-            self._stats_tab.adopt(self._resource_stats)
         # The account summary strip goes into the «Аккаунты» tab, beside the list of
         # characters it summarises — and only if this profile has that tab at all.
         if "accounts" in frames:
@@ -2372,101 +2343,12 @@ class Panel(tk.Tk):
     # (panel/tabs/rally/): the capture child, the de-duplicated alert, the
     # «Присоединиться» press and the squads «Авторалли» allows are its own now.
 
-    # -- triggers: run an errand when a wire event lands ---------------------
+    # -- the wire watcher's listeners went to the runtime ---------------------
     #
-    # A trigger (panel/triggers.py) answers «Помочь всем» the instant a request's push
-    # crosses the wire. The bookkeeping — which listeners should be running — lives in
-    # the watcher; the panel only supplies the two things that need Tk / a child
-    # process: how to spawn a listener, and what to do when one fires. The watcher's
-    # `submit` is `self._timers.submit`, so a fired scenario goes on the SAME queue the
-    # schedule feeds and runs single-file with the scheduled timers.
-    #
-    # The listener is a general wire-event child (tools/wire_event_monitor.py):
-    # capture must run in the Windows Python, off the Tk thread. It presses nothing —
-    # it prints a marker line, and the panel turns that into one submit.
-    def _spawn_trigger_listener(self, trigger, on_fire):
-        """Start a wire listener for one trigger; call `on_fire` on every match.
-
-        Returns the child handle (a ChildMonitor, which has the `.stop()` the
-        watcher wants) or ``None`` if it would not start. The reader swallows the
-        marker line and lets the human line through into the log.
-
-        Most wire triggers listen with the generic wire_event_monitor (a marker on
-        every match). «leaderboard_collect» is different: the board data is in the
-        push payload, not readable off a mark, so its listener is the specialised
-        collector (scan_leaderboard.py) which decodes each board and appends it to
-        this profile's leaderboard_history.db itself — nothing is submitted, the
-        child does the work.
-        """
-        if trigger.name == "leaderboard_collect":
-            return self._spawn_leaderboard_collector(trigger)
-        marker = triggersmod.FIRE_MARKER
-
-        def on_line(line: str):
-            if line.startswith(marker):
-                on_fire()               # thread-safe: submit hands to the queue
-                return False            # the marker is machinery, not for the log
-            return None                 # the human line logs as usual
-
-        # no --all-tcp: auto-detect the narrow game port (see _start_monitor)
-        mon = self._child("trigger",
-                          [self._python(), "-u",
-                           os.path.join(TOOLS, "wire_event_monitor.py"),
-                           "--match", trigger.event_pattern],
-                          on_line=on_line,
-                          on_exit=lambda n=trigger.name: self._on_trigger_exit(n))
-        if not mon.start():
-            return None
-        return mon
-
-    def _spawn_leaderboard_collector(self, trigger):
-        """The «leaderboard_collect» listener: a standing capture that saves boards.
-
-        scan_leaderboard.py decodes every ranking board that crosses the wire and, with
-        --sqlite, appends it to this profile's leaderboard_history.db as a timestamped
-        snapshot. It writes the DB itself, so there is no marker and nothing is
-        submitted — the watcher just needs the handle to stop it when the box is
-        unticked. Runs under the Windows Python off the Tk thread, like every capture.
-        """
-        mon = self._child("trigger",
-                          [self._python(), "-u",
-                           os.path.join(TOOLS, "scan_leaderboard.py"),
-                           "--sqlite", self._profiles.leaderboard_db()],
-                          on_exit=lambda n=trigger.name: self._on_trigger_exit(n))
-        if not mon.start():
-            return None
-        return mon
-
-    def _on_trigger_exit(self, name: str) -> None:
-        """A trigger's listener died on its own — forget it and say so.
-
-        The next `_triggers.sync()` (a box toggled, the game relaunched) brings it
-        back if the trigger is still switched on.
-        """
-        self._triggers.on_listener_exit(name)
-        self._say("trigger", "triggers.log.died", name=name)
-
-    def _poll_trigger(self, trigger) -> bool:
-        """Evaluate a poll trigger's check through the daemon; ``True`` to fire.
-
-        Runs on the watcher's own poll thread (not Tk), every ``interval_sec``. Reads
-        the boolean off a marked log line the way the dashboard reads its numbers, and
-        uses its own evaluator so it does not share the dashboard client's socket. A
-        closed game / no daemon reads as ``False`` — there is no kick to recover from
-        if the client is not even up, and firing then would relaunch a game nobody
-        started.
-        """
-        if not self._daemon_up():
-            return False
-        chunk = ('local ok, v = pcall(function() return %s end) '
-                 'CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(ok and v and true or false))'
-                 % trigger.check)
-        try:
-            ev = lua_client.get_evaluator(port=self._daemon_port())
-            lines = ev.run(chunk, marker="TRIGCHK", settle=0.6)
-        except Exception:                       # noqa: BLE001 — a bad read is not a kick
-            return False
-        return any("TRIGCHK=true" in ln.lower() for ln in (lines or []))
+    # Spawning a trigger's listener, noticing one died and polling a check are
+    # panel/runtime/schedule.py's. They were here because they need a child process
+    # and a log line; neither needs a window, and both have to work in a profile that
+    # shows no Timers tab.
 
     def _migrate_autohelp(self) -> None:
         """Carry the retired «Авто-помощь» checkbox onto the `alliance_help` trigger.
@@ -3804,50 +3686,65 @@ class Panel(tk.Tk):
         else:
             self._say("timer", "timers.log.not_queued", name=timer.name)
 
+    @property
+    def _timer_catalogue(self):
+        """The active profile's errands — panel/runtime/schedule.py owns them, and the
+        rows below still reach for them under the name they always had."""
+        return self._schedule.timer_catalogue
+
+    @_timer_catalogue.setter
+    def _timer_catalogue(self, value) -> None:
+        self._schedule.timer_catalogue = value
+
+    @property
+    def _trigger_catalogue(self):
+        return self._schedule.trigger_catalogue
+
+    @_trigger_catalogue.setter
+    def _trigger_catalogue(self, value) -> None:
+        self._schedule.trigger_catalogue = value
+
+    def _timer_config(self) -> dict:
+        """The timers' settings as the scheduler wants them."""
+        return self._schedule.timer_config()
+
+    def _timer_widget_config(self):
+        """The switches and periods as the ROWS hold them, or ``None`` when this window
+        has no Timers tab — and then the saved catalogue is the answer, which is what
+        keeps the schedule firing without the tab."""
+        if not self._timer_vars:
+            return None
+        return {name: {"enabled": bool(var["enabled"].get()),
+                       "interval_sec": var["interval"].get()}
+                for name, var in self._timer_vars.items()}
+
+    def _trigger_widget_config(self):
+        """The trigger switches as the rows hold them, or ``None`` without the tab."""
+        if not self._trigger_vars:
+            return None
+        return {name: bool(var.get()) for name, var in self._trigger_vars.items()}
+
+    def _rally_join_args(self) -> dict:
+        """Which squads the rally auto-join spends — the «Авторалли» list, read live."""
+        squads = rallytab.join_squads(self._rt)
+        if not squads:
+            self._say("trigger", "triggers.log.no_squads")
+        return {"squads": squads}
+
     def _reload_timers(self, quiet: bool = False) -> None:
         """Re-read the profile's timers.json and redraw the rows from it."""
-        self._load_timer_catalogue()
+        self._schedule.load_timers()
         if hasattr(self, "_timer_grid"):
             self._fill_timer_grid()
         if not quiet:
             self._say("timer", "timers.log.reloaded", n=len(self._timer_catalogue))
 
-    def _load_timer_catalogue(self) -> None:
-        """Read the active profile's catalogue, reporting what it made no sense of.
-
-        Seeded from the template on a profile that has none yet, so a new account
-        starts with the same schedule and can then diverge freely.
-        """
-        path = self._profiles.timers_json()
-        self._timer_catalogue = timersmod.load_profile_catalogue(path)
-        for problem in self._timer_catalogue.errors:
-            self._log_put(f"[timer] {_repo_rel(path)}: {problem}")
-
-    # -- triggers: load, config, reload (panel/triggers.py) ------------------
-    def _load_trigger_catalogue(self) -> None:
-        """Read the active profile's trigger catalogue, reporting any junk in it.
-
-        Seeded from the template panel/triggers.json on a profile that has none yet,
-        exactly the way the timers are.
-        """
-        path = self._profiles.triggers_json()
-        self._trigger_catalogue = triggersmod.load_profile_catalogue(path)
-        for problem in self._trigger_catalogue.errors:
-            self._log_put(f"[trigger] {_repo_rel(path)}: {problem}")
-
-    def _trigger_config(self) -> dict:
-        """Which triggers are switched on, read off the widgets (fresh every sync).
-
-        Falls back to the catalogue's own switches while the UI is still being built
-        (the watcher may sync before the rows exist).
-        """
-        if not self._trigger_vars:
-            return self._trigger_catalogue.enabled_config()
-        return {name: bool(var.get()) for name, var in self._trigger_vars.items()}
+    # Reading a catalogue is panel/runtime/schedule.py's — a profile that shows no
+    # Timers tab still has errands, and they still have to be read.
 
     def _reload_triggers(self, quiet: bool = False) -> None:
         """Re-read the profile's triggers.json, redraw the rows, reconcile listeners."""
-        self._load_trigger_catalogue()
+        self._schedule.load_triggers()
         self._migrate_autohelp()
         if hasattr(self, "_trigger_grid"):
             self._fill_trigger_grid()
@@ -3856,185 +3753,16 @@ class Panel(tk.Tk):
         if not quiet:
             self._say("trigger", "triggers.log.reloaded", n=len(self._trigger_catalogue))
 
-    def _timer_config(self) -> dict:
-        """The timers' settings as the scheduler wants them (read off the widgets).
+    # The gate, the runner and the errand's live arguments went to the runtime with
+    # the rest of the schedule. The four sentinel errands went with them and came out
+    # the other side as `TriggerSpec(handler=…)` on the tabs that do the work (§3.2):
+    # a trigger whose tab is not in this profile is not offered at all, which the
+    # `if timer.name == …` chain could not express.
 
-        Read fresh on every tick, so ticking a box or changing a period applies at
-        once — there is nothing to restart. Falls back to the saved config while
-        the UI is still being built (the scheduler starts after it, but a manual
-        run from a test double may not).
-        """
-        if not self._timer_vars:
-            return self._timer_catalogue.default_config()
-        raw = {}
-        for name, var in self._timer_vars.items():
-            raw[name] = {"enabled": bool(var["enabled"].get()),
-                         "interval_sec": var["interval"].get()}
-        return self._timer_catalogue.normalize_config(raw)
-
-    def _timer_gate(self) -> str | None:
-        """Why no timer may fire right now — or ``None`` to let the tick through.
-
-        Only the game itself is a hard gate: a recipe fired at a closed client
-        would fail, be recorded as a failure and sit out the retry hold for
-        nothing. The daemon is not checked here — the runner starts it on demand,
-        exactly like a button press does.
-        """
-        running, _text = game_status(self._game_exe())
-        return None if running else "timers.log.skip_game"
-
-    def _run_timer_action(self, timer) -> bool:
-        """Run one timer's scenario to completion. ``False`` = panel busy, later.
-
-        Called on the scheduler thread, so it blocks there rather than spawning
-        another: that is what keeps two due timers from pressing at once. Raises
-        on a real failure — the scheduler turns that into a logged failure and a
-        retry hold, and `last_run` is deliberately left where it was.
-
-        A scenario of several steps (the alliance one is donate → gifts) runs
-        under ONE claim on the busy flag and in ONE script context: nothing may
-        slip between the halves, `args` and anything a step reads stay visible to
-        the next one, and a failing step aborts the rest, so the retry replays the
-        whole errand rather than half of it.
-
-        A step is the name of an action script when one exists by that name, and
-        otherwise DSL source run as it stands — which is what lets a timer in the
-        JSON carry its commands inline.
-        """
-        if not self._claim_busy():
-            return False
-        try:
-            # A UI refresh, not a game press: re-read the bag and repaint the
-            # «Инвентарь» tab. Handled before the daemon gate — the tab's own read
-            # degrades gracefully, so a missing daemon must not fault the trigger.
-            if getattr(timer, "name", "") == "inventory_refresh":
-                self.after(0, self._refresh_inventory_tab)
-                return True
-            # An alliancemate shared a secret task: re-merge the capture checkpoint so a
-            # freshly-seen tile appears on the «Secret Tasks» tab without a manual
-            # «Обновить». A UI refresh, not a game press — handled before the daemon gate,
-            # the tab's own read degrades gracefully.
-            if getattr(timer, "name", "") == "secret_task_share":
-                self.after(0, self._refresh_secret_tasks_tab)
-                return True
-            if not self._daemon_up() and not self._ensure_daemon():
-                raise RuntimeError(self._t("timers.log.no_daemon"))
-            # The resource tracker is a Python handler, not a DSL scenario: on each
-            # balance-changed push it reads the balance and tallies what went up.
-            if getattr(timer, "name", "") == "resource_tracker":
-                self._track_resources()
-                return True
-            # The leaderboard collector does all its work in its listener child
-            # (a standing scan_leaderboard --sqlite), so a fire is a no-op here — the
-            # arm-sweep submit must not try to run the placeholder scenario.
-            if getattr(timer, "name", "") == "leaderboard_collect":
-                return True
-            # Rally auto-join is capped per monster type per day (panel/rally_limits.py).
-            # Read the types out; if every one is at its cap, skip the whole join. `None`
-            # = the types could not be read — let the join proceed, uncounted.
-            join_types = None
-            if getattr(timer, "name", "") == "rally_auto_join":
-                join_types = rallygate.join_gate(self._rt)
-                if join_types is not None and not join_types:
-                    return True                  # all types at their daily cap — no-op
-            ctx = self._actions.context(
-                hwnd=0,
-                on_event=lambda msg: self._log_put(f"[timer] {timer.name}: {msg}"),
-                variables=self._errand_args(timer),
-            )
-            for step in timer.scenario:
-                if self._actions.resolve(step) is not None:
-                    ok = self._actions.run(step, hwnd=0, ctx=ctx)
-                else:
-                    ok = self._actions.run_text(step, ctx=ctx,
-                                                label=step.splitlines()[0])
-                if not ok:
-                    # The scenario's own FAIL reason when it left one. It is what the
-                    # row's status column will show, and «the step did not work: X»
-                    # tells the operator nothing they cannot already see in the name.
-                    reason = str(getattr(ctx, "fail_reason", "") or "").strip()
-                    raise RuntimeError(
-                        reason or self._t("timers.log.step_failed", step=step))
-            # The join ran clean — count what we let through, one per rally that was
-            # out and under its cap (best-effort: join_rally joins all it can).
-            if join_types:
-                rallygate.record_joins(self._rt, join_types)
-            return True
-        finally:
-            self._release_busy()
-            self.after(400, self._refresh_status)
-
-    def _errand_args(self, errand) -> dict:
-        """The variables a scenario runs with: the errand's own args, plus the few
-        that must be read LIVE from the panel rather than stored on the errand.
-
-        The «rally_auto_join» trigger is the one such case: which squads it joins with
-        is the «Авторалли» page's own list (the JOIN squads, the same one the manual
-        «Присоединиться» button and the rally-monitor auto-join use), and it must be
-        able to change on the Settings page without editing the trigger. With no squad
-        ticked the join is a clean no-op, so we say so and let it pass rather than fail.
-        """
-        args = dict(getattr(errand, "args", {}) or {})
-        if getattr(errand, "name", "") == "rally_auto_join":
-            squads = rallytab.join_squads(self._rt)
-            if not squads:
-                self._say("trigger", "triggers.log.no_squads")
-            args["squads"] = squads
-        return args
-
-    # The rally auto-join's daily caps went with the tab: the VM read that says
-    # which rallies are out, the gate against panel/rally_limits.py and the count
-    # after a clean join are panel/tabs/rally/limits.py. Deliberately Tk-free —
-    # the schedule has to gate a join in a profile that does not show the tab.
-
-    # -- resource tracker (panel/resource_stats.py) -------------------------
-    def _read_resource_balance(self) -> dict:
-        """The current resource balance off the game (panel/runtime/reads.py)."""
-        return runtime.reads.resource_balance(self._game)
-
-    def _track_resources(self) -> None:
-        """One balance-changed push: read the balance and tally what went up.
-
-        The gain is `current - last` per resource (positive only): the push says a
-        balance moved, not by how much, so the tracker diffs. The first read of a
-        session is a baseline — no gain — because there is nothing to diff against.
-        """
-        current = self._read_resource_balance()
-        if not current:
-            return
-        gains = resourcestatsmod.positive_deltas(current, self._resource_last)
-        self._resource_last = current
-        if not gains:
-            return
-        self._resource_stats = self._resource_stats.add(gains)
-        resourcestatsmod.save_stats(self._resource_stats,
-                                    self._profiles.resource_stats_json())
-        self._say("trigger", "triggers.log.resource_gain",
-                  what=", ".join(f"{k} +{v}" for k, v in gains.items()))
-        if hasattr(self, "_stats_grid"):
-            self.after(0, self._refresh_stats_table)
-
-    def _refresh_inventory_tab(self) -> None:
-        """A `push.resource.item.update` landed (the «inventory_refresh» trigger):
-        re-read the bag so the «Инвентарь» tab's counts stay live. Only if it has
-        been opened once — an unopened tab reads fresh when first shown anyway — and
-        InventoryTab.refresh() coalesces a burst of pushes (it skips while busy) and
-        keeps the current search filter, so this is a full-but-cheap repaint.
-        """
-        tab = getattr(self, "_inventory_tab", None)
-        if tab is not None and getattr(tab, "_loaded", False):
-            tab.refresh()
-
-    def _refresh_secret_tasks_tab(self) -> None:
-        """A share landed (the «secret_task_share» trigger): re-merge the capture
-        checkpoint so a freshly-seen starred tile shows up on the «Secret Tasks» tab.
-        Only once the tab has been opened — an unopened one reads fresh when first shown
-        anyway — and the tab's own refresh coalesces a burst (it skips while busy) and
-        only ADDS rows, so nothing on screen is lost.
-        """
-        tab = self._rt.tabs.get("secret_tasks")
-        if tab is not None and tab.loaded:
-            tab.refresh()
+    # The resource tracker, the inventory repaint and the secret-task re-merge are
+    # their own tabs' `TriggerSpec(handler=…)` now (§3.2): each is registered with the
+    # schedule by the tab that does the work, and a tab that is not in this profile
+    # registers nothing — so its trigger is not offered and nothing listens for it.
 
     def _on_main_tab_changed(self, _event=None) -> None:
         """Lazy-load the Alliance / Profile / Inventory tabs the first time each is
@@ -4049,13 +3777,6 @@ class Panel(tk.Tk):
         tab = getattr(self, "_lazy_tabs", {}).get(current)
         if tab is not None:
             tab.ensure_loaded()
-
-    # -- statistics tab: resources gained per day ---------------------------
-    def _refresh_stats_table(self) -> None:
-        """Repaint the «Статистика» tab, if it is one of the tabs this profile shows."""
-        tab = getattr(self, "_stats_tab", None)
-        if tab is not None:
-            tab.adopt(self._resource_stats)
 
     def _timer_run_now(self, timer) -> None:
         """The row's «Запустить» — put the errand on the schedule's own queue.

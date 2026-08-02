@@ -673,7 +673,14 @@ def test_timers_tab_builds_from_the_config_and_binds():
             self._timer_vars: dict = {}
             self._timer_rows: dict = {}
             self._timer_selected = None
-            self._timer_catalogue = cat
+            # The catalogue and the switches live in the runtime's Schedule now; the
+            # rows reach them through the panel's properties, so the stand-in carries
+            # just enough of one for those to work.
+            self._schedule = types.SimpleNamespace(
+                timer_catalogue=cat,
+                timer_config=lambda: self._schedule.timer_catalogue.normalize_config(
+                    self._timer_widget_config()
+                    or self._schedule.timer_catalogue.default_config()))
             self._timer_store = _store(tmp)
             self._profiles = types.SimpleNamespace(timers_json=lambda: str(cfg_path))
             self.afters: list = []
@@ -700,6 +707,8 @@ def test_timers_tab_builds_from_the_config_and_binds():
         _save_timers = Panel._save_timers
         _write_timer = Panel._write_timer
         _timer_config = Panel._timer_config
+        _timer_widget_config = Panel._timer_widget_config
+        _timer_catalogue = Panel.__dict__["_timer_catalogue"]
         _fmt_span = Panel._fmt_span
         _refresh_timer_rows = Panel._refresh_timer_rows
         _paint_timer_outcome = Panel._paint_timer_outcome
