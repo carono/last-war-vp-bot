@@ -314,10 +314,22 @@ def route_plan(spec: str):
         raise SystemExit("%s names no band at all — is it a Street Run recording?" % path)
     lost = named[0][0] // S.BAND_PITCH
     order = [s[1] for s in slots[lost:]]
+    # The slot list always runs one band PAST where the run got to, and a run that died early
+    # in a band leaves the one it died in barely seen — neither can be named, and neither is
+    # part of the route. Trailing unnamed slots are dropped; a hole in the MIDDLE is still a
+    # recording nothing can be replayed from, so that one still stops the tool.
+    dropped = 0
+    while order and order[-1] is None:
+        order.pop()
+        dropped += 1
     if any(b is None for b in order):
         gaps = [str(slots[lost + i][0]) for i, b in enumerate(order) if b is None]
         raise SystemExit("the recording has a hole at z=%s — no band explains it" % ",".join(gaps))
+    if not order:
+        raise SystemExit("%s names no band that the run actually ran through" % path)
     note = "%s: %d bands" % (os.path.basename(path), len(order))
+    if dropped:
+        note += " (%d unfinished slot%s at the end left out)" % (dropped, "" if dropped == 1 else "s")
     if lost:
         # the frame buffer keeps only the last ~900 samples, so a long run's opening is gone
         note += " (the recording lost the first %d — %d m — to its frame buffer)" % (

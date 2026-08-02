@@ -2113,6 +2113,137 @@ honest failure than the two before it. The killer is not in the frozen field eit
 nearest body is an oncoming truck in the centre lane at 1104.7), so it joins the `unknown`
 pile of #1162 — but it is not the roofs.
 
+## The unknown pile, read from the other end (#1167 / #1168)
+
+*Two sessions worked this at once and reached the same three findings from different ends;
+the code landed in e2ba3f7. What follows is the joint record.*
+
+
+Forty-two of the ninety-eight deaths on record are `unknown` — nothing the model knows about
+was in the lane the runner died in. That is the largest single cause and it had been left
+alone as "the model is blind here", which is honest but not useful. It turns out to be
+readable, and reading it named three things the model had wrong. None of the three is a
+tuning; all three are the model claiming something about the track that the recordings
+flatly contradict.
+
+The method is the same each time and it is worth stating on its own, because it is cheap and
+it does not cost an attempt: **a body a person demonstrably ran through is not a wall.** The
+three human recordings carry the runner's own `z`, its lane and its height frame by frame,
+beside the field it saw. Intersect the two and every frame where a person was inside a body
+and came out the other side is a counter-example to whatever the model says that body is.
+Deaths can mislead — a death is one event and the classifier has to guess which body caused
+it — but a pass-through cannot.
+
+### The viaduct was a forty-six metre wall
+
+`O_env_ditiepaoku_gaojiaqiao01` was modelled `solid`, and the collider it was measured from is
+39.9 back, 6.4 front and 18.8 wide — wider than 6, so `lanes = 3`. Every viaduct on the track
+was therefore a 46-metre wall across the whole road.
+
+It is not one. Counting ground frames (`y < 2`) inside a viaduct body across run_001/2/3:
+
+    left lane    12 passes / 20 frames
+    centre       23 passes / 45 frames
+    right        12 passes / 18 frames
+
+A person goes through it in every lane and never dies there. The collider says why: `y0` is
+14.76 — the deck is fifteen metres up, and the measurement never saw whatever else is on the
+prefab. `surfing_offline.py human run_002` scores exactly this, and the viaduct was nine of
+its ten "model says WALL where the run went on"; with it passed under, the check goes from ten
+to one.
+
+The cost of the mistake was not a missed obstacle but a phantom. A 46 m three-lane wall
+appearing 40 m ahead closes the road in the planner before anything real does, and `reach`
+falls to 0 with nothing to offer. Two live runs on 2026-08-02 ended at 731.7 and 730.7 with
+`reach = 0` for the last twenty metres and not one body within thirty metres of either corpse.
+Both had a viaduct anchored at 762.
+
+The same body is why `bridge` was the second-largest cause in the record: at 34-46 m long and
+19-64 wide, a bridge covers more track than everything else put together, and
+`surfing_stats.classify` names the nearest body that contains the death — so any death inside
+one was called a bridge death. That is very likely also what the single observation behind
+"a run died centre-lane at a gaojiaqiao the model had marked pass-under" really was. The
+classifier no longer offers bridges as killers; a death near one is reported as unexplained,
+which is what it is.
+
+### A driving truck is a roof
+
+`carriage` — the flag that makes a body roof to a runner above it and wall to one on the road —
+was withheld from anything with `move_speed > 0`, on the reasoning that only a parked body can
+be stood on. The recordings refute it as plainly as anything in this file. Frames inside a
+moving truck's body, with no carriage under the runner to explain the height:
+
+    O_Object_high_truck_gold_move_2    59 frames, every one at y > 2, none on the ground
+    O_Object_high_truck_gold_move_3    61 frames, every one at y > 2, none on the ground
+
+A person boards a driving truck and rides it. Not by jumping onto it — the hop tops out at
+3.24 and a truck roof is at 4.14 — but sideways off a neighbouring roof, which run_001 shows
+end to end:
+
+    z=878   drives up a `chexiangxiepo_3` in its own lane
+    z=886   y = 4.30, on the ramp's roof
+    z=893   crosses into the lane beside it, onto a `truck_gold_move_3`
+
+So it is never mountable from the road, exactly like a plain carriage chained behind a ramp.
+What is different is that its roof MOVES, so it cannot be laid out in track coordinates the
+way `roof_holes` lays out the parked ones: the planner fills those buckets in from the mover's
+own arrival-time projection, and the judge answers `roofAt` from the truck's live position.
+
+### The trucks are 23, 31 and 40 units long — and the model cannot carry that yet
+
+`_N x 8.24` is exact for the train carriages (measured 8.22 / 16.44 / 24.86 / 32.98 / 41.10)
+and simply wrong for the driving trucks, where `_N` is a variant index. Two independent
+measurements agree:
+
+* the colliders are **23.0 / 31.0 / 40.0** long (`size.z`);
+* the ride frames above run from `pz - z = -31.0` and `-40.0` to 0 — the whole body, end to end.
+
+And a third, from the deaths this section set out to read. Three of the repeating `unknown`
+deaths — 730.7, 770.1 and 1765.2 — have a `truck_gold_move_3` in the runner's own lane and
+nothing else anywhere near. At `_N x 8.24` the runner is thirteen metres clear of it, which is
+why they were unexplained; at 40 it is **inside the body**. The short length is not a harmless
+approximation, it is the reason those deaths had no killer.
+
+They had been measured before and recorded as nonsense — `back = 23.07 / 45.85 / 60.95` with
+fronts of `-0.07 / -14.85 / -20.95` — because `measure()` took its extents against `dataZ`, the
+spawn mark, while reading the collider where the body is NOW. For a parked body those are the
+same point; for a mover the difference is how far it has driven, which is exactly the offset in
+those three numbers. The anchor is the live position now, and `sz` is recorded beside `back` so
+a wrong anchor can never hide the length again.
+
+And then the honest number does not fit. Given 23/31/40 every offline measure collapses:
+
+|  | per-band | run_002 | seed 1 | seed 2 | seed 3 | seed 4 | seed 5 |
+|---|---|---|---|---|---|---|---|
+| name length (`_N x 8.24`) | 141/144 | 7390 | 4053 | 9041 | 6922 | 11881 | 11881 |
+| measured, as walls | 126/144 | 474 | 1338 | 766 | 1338 | 1669 | 2655 |
+| measured, as roofs | 135/144 | 474 | 4053 | 766 | 2422 | 2422 | 3448 |
+
+The bottom two rows are not a planner failing to find a route: the exhaustive search agrees
+there is none, on a track a person runs 12772 m of. So the number is right and something else
+about a mover is wrong — how it is boarded, or where along its body it is actually lethal, or
+the parked-until-120-then-oncoming motion, or all three. Until that is found, the shorter
+name-derived length is the better approximation of how much lane a truck really denies, and it
+is used deliberately rather than by omission: `surfing_simulate.kind_of` declines the measured
+extent for movers and `measure()` keeps it out of `AI.extent`, both in one line with the reason
+written beside them. Restoring it is a one-line change in each.
+
+Note what the third row does say: **rideable roofs cost nothing.** At the name lengths the
+whole battery is unchanged to the metre — 141/144, 7390, 4053, 9041, 6922, 11881, 11881 — so
+the roof model is landed on its own evidence and not on a score.
+
+### Reading a frame
+
+`tools/dev/surfing_frame.py` hands one frame back to the planner and prints what it built:
+`reach`, the move, the first blocked bucket per lane, the furthest the search gets in each,
+and then the occupancy bucket by bucket with the body that owns it. It takes a field on the
+command line or a death straight out of `ai_moves.log`:
+
+    python3 tools/dev/surfing_frame.py --death 1 --before 12
+
+That is what turns "reach counted down to zero and it never slid" into a named body in a named
+bucket, and it is where the next of these should start.
+
 ## The roof that reached two hundred metres (#1170)
 
 Two symptoms came in from the recordings of 2026-08-02, and they turned out to be one thing
