@@ -152,12 +152,14 @@ class SecretTasksTab(PanelTab):
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """Start the standing orders this profile asked for, and seed the list.
+        """Start the standing orders this profile asked for — and nothing else.
 
-        The seed is a one-time VM snapshot — the game's parsed table, richest and
-        available even before the capture has flushed a checkpoint. After it the wire
-        feeds the list. Idempotent: the shell calls this at boot (the orders have to be
-        running whether or not anybody opens the tab) and again on first show.
+        This runs at BOOT (the tab is EAGER: a capture has to be listening whether or
+        not anybody opens the tab), so it must cost nothing beyond that. The list's own
+        seed is a game read and lives in :meth:`on_show`, or every profile would pay a
+        VM round trip at start-up for a list nobody has looked at.
+
+        Idempotent — each order returns early when it is already running.
         """
         if self.monitor_var.get():
             self.capture.start()
@@ -165,10 +167,20 @@ class SecretTasksTab(PanelTab):
             self.autoloot.start()
         if self.sweep_var.get():
             self.sweep.start()
-        if not self.loaded:
-            self.loaded = True
-            self._start_ticking()
-            self._snapshot()
+
+    def on_show(self) -> None:
+        """Somebody opened the tab: start the countdown and seed the list, once.
+
+        The seed is a one-time VM snapshot — the game's parsed table, richest and
+        available even before the capture has flushed a checkpoint. After it the wire
+        feeds the list (the capture's nudge, «Обновить», the share trigger), which is
+        why this is the only game read the tab makes on its own behalf.
+        """
+        if self.loaded:
+            return
+        self.loaded = True
+        self._start_ticking()
+        self._snapshot()
 
     def on_profile_switch(self) -> None:
         """Bounce all three orders onto the new account.

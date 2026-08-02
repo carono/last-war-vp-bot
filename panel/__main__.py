@@ -3196,8 +3196,19 @@ class Panel(tk.Tk):
         return {"squads": squads}
 
     def _on_main_tab_changed(self, _event=None) -> None:
-        """Lazy-load the Alliance / Profile / Inventory tabs the first time each is
-        opened — their data reads the live game, so nothing runs until it is shown."""
+        """Tell the tabs which of them is on screen.
+
+        Three things, in the order the contract sets them out (§3): the tab being left
+        hears `on_hide`, the one arriving hears `ensure_loaded` (its first-time read)
+        and then `on_show`.
+
+        The two are NOT the same and the difference costs a game round trip.
+        `ensure_loaded` is "bring up what this tab is FOR" — a capture that has to be
+        listening whether or not anybody looks, which is why an EAGER tab gets it at
+        boot. `on_show` is "somebody is actually looking", which is where a read that
+        only feeds the screen belongs. Folding the second into the first meant every
+        profile paid a VM read at start-up for a list nobody had opened.
+        """
         nb = getattr(self, "_main_nb", None)
         if nb is None:
             return
@@ -3205,9 +3216,15 @@ class Panel(tk.Tk):
             current = str(nb.select())
         except tk.TclError:
             return
-        tab = getattr(self, "_lazy_tabs", {}).get(current)
+        tabs = getattr(self, "_lazy_tabs", {})
+        previous = getattr(self, "_shown_tab", None)
+        if previous is not None and previous is not tabs.get(current):
+            previous.on_hide()
+        tab = tabs.get(current)
+        self._shown_tab = tab
         if tab is not None:
             tab.ensure_loaded()
+            tab.on_show()
 
     def _build_settings_tab(self, parent: ttk.Frame) -> None:
         """The Settings page: an aggregator, not a page.

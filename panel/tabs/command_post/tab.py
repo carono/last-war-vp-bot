@@ -1131,13 +1131,17 @@ class CommandPostTab(PanelTab):
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """Start the standing order this profile asked for, and load the page on top.
+        """Start the standing order this profile asked for — and nothing else.
 
-        Called at boot (EAGER) and again the first time the tab is shown; both are
-        idempotent. The ghost watcher must not wait for a click — the event runs one day
-        a week and the five robberies are the whole of it.
+        This runs at BOOT (the tab is EAGER): the ghost watcher must not wait for a
+        click, because the event is open one day a week and the five robberies are the
+        whole of it. Loading a PAGE is a game read and waits for :meth:`on_show` — the
+        `_shown` guard below exists for exactly that reason and boot must not defeat it.
         """
         self.ghost.order.ensure_started()
+
+    def on_show(self) -> None:
+        """The panel showed this tab: load whichever page is on top."""
         self._shown = True
         page = self._current()
         if page is not None:

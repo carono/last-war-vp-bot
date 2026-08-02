@@ -127,6 +127,18 @@ def test_every_tab_builds_cold_and_survives_the_lifecycle():
                     f"{spec.id}: settings_page() touched the game ({rt.game.asked})")
                 page.destroy()
 
+            # An EAGER tab is loaded AT BOOT, before anybody has opened anything —
+            # so `ensure_loaded` must bring up what the tab is FOR (a capture that has
+            # to be listening) and nothing that merely draws. A game read here is one
+            # every profile pays at start-up for a tab it may never open; that read
+            # belongs in `on_show`, which only fires when somebody is looking.
+            if cls.EAGER:
+                tab.ensure_loaded()
+                assert rt.game.asked == [], (
+                    f"{spec.id}: ensure_loaded() read the game ({rt.game.asked}) — an "
+                    f"EAGER tab runs it at boot, so a read that only draws belongs in "
+                    f"on_show()")
+
             # The lifecycle, in the order the shell and the harness both use it.
             tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
             assert isinstance(tab.config(), dict), spec.id

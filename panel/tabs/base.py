@@ -95,10 +95,23 @@ class PanelTab:
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """First time the tab is shown: the lazy data read."""
+        """Bring up what this tab is FOR — once.
 
-    def on_show(self) -> None: ...
-    def on_hide(self) -> None: ...
+        Called at boot for an EAGER tab and on first show for every other, so it must
+        be idempotent. What belongs here is what has to be RUNNING: a capture listening
+        for an event that will not wait for a click. What does NOT belong here is a read
+        that only feeds the screen — that is :meth:`on_show`, and putting it here makes
+        every profile pay for it at start-up whether or not the tab is ever opened.
+        """
+
+    def on_show(self) -> None:
+        """Somebody is looking at this tab now. The place for a read that draws.
+
+        Called on every show, so a one-time seed gates itself on its own flag.
+        """
+
+    def on_hide(self) -> None:
+        """The notebook moved to another tab."""
     def on_profile_switch(self) -> None: ...
     def on_language_change(self) -> None: ...
     def panic(self) -> None:
@@ -202,8 +215,9 @@ def run_tab(cls, argv=None) -> int:
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _close)
+    # A window holding one tab is a window where that tab is always the one on screen.
     rt.say("panel", "standalone.started", tab=rt.t(cls.TITLE_KEY),
            profile=rt.profiles.active)
-    root.after(0, tab.ensure_loaded)
+    root.after(0, lambda: (tab.ensure_loaded(), tab.on_show()))
     root.mainloop()
     return 0
