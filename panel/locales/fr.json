@@ -168,6 +168,7 @@
   "log.game.kill_failed": "le processus n'a pas pu être tué : {error}",
   "log.game.killing": "arrêt de {exe}…",
   "log.game.launching": "démarrage du jeu par la recette launch_game…",
+  "log.game.other_session": "le client de ce profil vit dans la session Windows de {user} — c'est là qu'on le démarre et qu'on l'arrête ; le panneau ne fait que le piloter, par son propre port de démon",
   "log.game.watchdog_hold": "gardien : le dernier relancement date de {mins} min — j'attends",
   "log.game.watchdog_relaunch": "gardien : je relance le jeu",
   "log.ghost.error": "l'interrogation a échoué : {error}",
@@ -251,6 +252,10 @@
   "opt.launcher.hint": "Chemin vers le lanceur du jeu.",
   "opt.log_max_lines": "Lignes gardées dans le journal",
   "opt.log_max_lines.hint": "Ce que garde la zone de journal. panel.log n'est jamais tronqué.",
+  "opt.rdp_session": "Le jeu tourne dans une autre session Windows",
+  "opt.rdp_session.hint": "Coche ceci pour un second compte : son client vit dans une session Windows à lui (son propre bureau), pas sur celui-ci. Le panneau cherche alors CE client-là, et cesse de le démarrer ou de le relancer d'ici — cela agirait sur ce bureau à la place.",
+  "opt.rdp_user": "Identifiant de la session",
+  "opt.rdp_user.hint": "L'utilisateur Windows connecté à cette session : le client est cherché parmi ses processus. Vide revient à décoché — le client de ce bureau.",
   "opt.sniff_ready_timeout": "Attente de disponibilité du renifleur, s",
   "opt.sniff_ready_timeout.hint": "Combien de temps attendre que les deux moitiés d'un enregistrement se signalent.",
   "opt.sweep_dwell": "Pause entre les sauts, s",
@@ -370,6 +375,8 @@
   "senddiag.send": "Envoyer",
   "senddiag.title": "Envoyer le diagnostic",
   "senddiag.warning": "Aucune information personnelle n'est envoyée. Le journal ne contient que des données techniques sur le fonctionnement du panneau.",
+
+  "session.frame": "Session Windows",
 
   "settings.placeholder": "Bientôt",
   "settings.tab.autorally": "Ralliement Auto",
