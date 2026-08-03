@@ -24,6 +24,7 @@ let LOG_AT = 0;                // the newest log line already drawn
 let TIMER_ROWS = [];
 let ACTIONS = [];
 let RUNNING = '';              // the scenario the panel is playing, off /api/state
+let PROFILE = '';              // which account is being looked at ('' = the server's own)
 let NOTIFY = false;
 let POLLING = null;
 
@@ -52,8 +53,16 @@ function paintWords(root) {
 
 /* -- talking to the panel -------------------------------------------------- */
 
+/* WHICH ACCOUNT travels on every single request. A window may have two profiles open
+ * and they are two different clients, two schedules and two logs — a page that asked
+ * without saying which would be showing one of them and implying the other. */
+function withProfile(path) {
+  if (!PROFILE) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'profile=' + encodeURIComponent(PROFILE);
+}
+
 async function get(path) {
-  const answer = await fetch(path, { headers: { 'Accept': 'application/json' } });
+  const answer = await fetch(withProfile(path), { headers: { 'Accept': 'application/json' } });
   if (answer.status === 401) { showLogin(); throw new Error('unauthorised'); }
   if (!answer.ok) throw new Error('http ' + answer.status);
   return answer.json();
@@ -63,7 +72,7 @@ async function post(path, body) {
   const answer = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {})
+    body: JSON.stringify(Object.assign({ profile: PROFILE }, body || {}))
   });
   if (answer.status === 401) { showLogin(); throw new Error('unauthorised'); }
   return answer.json();
@@ -92,7 +101,7 @@ function when(stamp, now) {
 /* -- the state page -------------------------------------------------------- */
 
 function paintState(state) {
-  $('profile').textContent = state.profile;
+  if ($('profile-pick').hidden) $('profile').textContent = state.profile;
   // The scenario being played right now, by NAME — the id, not the sentence, because
   // the sentence is in whatever language the panel is set to (panel/web/api.py).
   const wasRunning = RUNNING;
@@ -123,6 +132,49 @@ function paintState(state) {
     ? T('web.ui.timers.next', { name: state.timers.next_name,
                                 when: when(state.timers.next, state.time) })
     : T('web.ui.timers.none');
+}
+
+/* -- which account ---------------------------------------------------------- */
+
+/* One profile and the header is a name; two and it is a selector. Rebuilt only when the
+ * set of open profiles actually changes, so the picker does not close under a thumb
+ * every time the poll comes back. */
+function paintProfiles(data) {
+  const names = data.profiles || [];
+  const pick = $('profile-pick');
+  const same = pick.options.length === names.length
+    && names.every((n, i) => pick.options[i].value === n);
+  if (!same) {
+    pick.textContent = '';
+    for (const name of names) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      pick.appendChild(option);
+    }
+  }
+  if (!PROFILE || !names.includes(PROFILE)) {
+    // Start on the account the WINDOW is showing, and fall back to it if the one being
+    // looked at was closed at the machine.
+    PROFILE = names.includes(data.showing) ? data.showing : (names[0] || '');
+  }
+  pick.value = PROFILE;
+  const many = names.length > 1;
+  pick.hidden = !many;
+  $('profile').hidden = many;
+}
+
+async function switchProfile(name) {
+  PROFILE = name;
+  // Another account is another log with its own numbering, another scenario list (the
+  // titles follow that profile's language) and another everything.
+  LOG_AT = 0;
+  ACTIONS = [];
+  RUNNING = '';
+  $('log-list').textContent = '';
+  await tick();
+  if (VIEW === 'actions') refreshActions();
+  if (VIEW === 'timers') refreshTimers();
 }
 
 /* -- the errands ----------------------------------------------------------- */
@@ -307,6 +359,7 @@ async function refreshActions() {
 
 async function tick() {
   try {
+    paintProfiles(await get('/api/profiles'));
     paintState(await get('/api/state'));
     paintLog(await get('/api/log?since=' + LOG_AT));
     if (VIEW === 'timers') await refreshTimers();
@@ -337,6 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     button.addEventListener('click', () => showView(button.dataset.view));
   }
   $('actions-filter').addEventListener('input', paintActions);
+  $('profile-pick').addEventListener('change', (e) => switchProfile(e.target.value));
   $('login-go').addEventListener('click', async () => {
     const token = $('login-token').value.trim();
     const answer = await post('/api/login', { token: token });

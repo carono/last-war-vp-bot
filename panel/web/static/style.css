@@ -73,6 +73,31 @@ header {
 .link { color: var(--muted); font-size: 13px; }
 .link:empty { display: none; }
 
+/* The account selector. A native <select>: on a phone that is the OS picker, which is
+   already thumb-sized, already accessible and already in the right language — a custom
+   dropdown would be all three of those done worse. 16 px so focusing it does not zoom
+   the page, 44 px tall like every other control. */
+.picker {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  min-height: 44px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 0 24px 0 0;
+  max-width: 60vw;
+  /* The chevron, drawn rather than fetched — one less request and it themes itself. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 8px center, right 3px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.picker:active { opacity: .7; }
+
 main { padding: var(--gap); padding-bottom: 92px; }
 
 nav {

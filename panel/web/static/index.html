@@ -29,7 +29,11 @@
 
 <div id="app" hidden>
   <header>
+    <!-- One account, and this says which. Two, and it becomes the selector — a native
+         <select>, so the phone opens its own picker instead of a menu we would have to
+         make thumb-sized ourselves. -->
     <span id="profile" class="profile"></span>
+    <select id="profile-pick" class="profile picker" hidden></select>
     <span id="link" class="link"></span>
   </header>
 

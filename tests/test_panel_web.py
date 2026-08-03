@@ -687,12 +687,34 @@ def test_every_control_is_at_least_a_finger_wide():
         "the buttons no longer declare a thumb-sized minimum")
 
 
-def test_no_input_is_small_enough_to_make_ios_zoom():
-    """Under 16 px in a focused field and Safari zooms the page; the person pinches back."""
+def test_no_field_is_small_enough_to_make_ios_zoom():
+    """Under 16 px in a focused field and Safari zooms the page; the person pinches back.
+
+    Every field, not only `<input>`: the account selector is a `<select>` and focusing
+    one zooms exactly the same way.
+    """
     css = _css()
-    for rule in re.findall(r"input[^{]*\{[^}]*\}", css):
-        for size in re.findall(r"font-size:\s*(\d+)px", rule):
-            assert int(size) >= 16, f"an input is set to {size}px:\n{rule}"
+    for what in ("input", "select", "textarea", r"\.picker"):
+        for rule in re.findall(what + r"[^{]*\{[^}]*\}", css):
+            for size in re.findall(r"font-size:\s*(\d+)px", rule):
+                assert int(size) >= 16, f"a field is set to {size}px:\n{rule}"
+
+
+def test_the_page_carries_a_switcher_when_there_is_more_than_one_account():
+    """The header is a name with one profile open and a picker with two.
+
+    A NATIVE `<select>`: on a phone that is the operating system's own picker, already
+    thumb-sized and already in the right language, which no custom dropdown here would
+    be.
+    """
+    html = (Path(apimod.static_dir()) / "index.html").read_text(encoding="utf-8")
+    assert '<select id="profile-pick"' in html, "there is no account selector"
+    js = (Path(apimod.static_dir()) / "app.js").read_text(encoding="utf-8")
+    assert "/api/profiles" in js, "the page never asks which accounts are open"
+    # …and every request carries the account, or the page would be showing one profile
+    # while implying the other — the failure this whole feature exists to prevent.
+    assert "function withProfile(" in js and "profile=" in js
+    assert "{ profile: PROFILE }" in js, "a POST does not say which account it is for"
 
 
 def test_the_layout_is_mobile_first_and_not_a_squeezed_desktop():
