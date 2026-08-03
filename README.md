@@ -83,7 +83,6 @@ without the other fourteen in the way.
 | Scenarios | the list of abilities, an editor for one, and the button that runs it |
 | Timers | the errands on a clock, and the ones the wire sets off — added, edited and deleted from the tab itself |
 | Settings | a page of sub-tabs: the interpreter for the child processes, the daemon, game paths, the auto-loot budget, the rally rules and the rest |
-| Web | the same panel from a phone: switch it on, open the address it shows on a phone on the same network, and watch the state, tick the timers and run a scenario from wherever you are |
 | Chat | the game's chat read live and answered from the panel, with emoji, stickers and photos drawn inline |
 | Alliance | the roster — name, level, power, who is online and when the rest were last seen |
 | Profile | this character at a glance: name, level, power, resources |

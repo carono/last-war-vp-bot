@@ -59,7 +59,7 @@ SKIP_PREFIXES = ("docs/", "tests/")
 #: Everything tracked, prose included. What the personal-data and absolute-path checks
 #: walk, because neither has any business skipping a file.
 ALL_GLOBS = ("*.py", "*.bat", "*.cmd", "*.ps1", "*.json", "*.sh", "*.md", "*.lua",
-             "*.js", "*.txt", "*.cfg", "*.ini", "*.yml", "*.yaml")
+             "*.js", "*.txt", "*.cfg", "*.ini", "*.yml", "*.yaml", "*.toml", "LICENSE")
 
 #: Where each value is allowed to be spelled out — the resolver, plus the files that
 #: legitimately show it to a person rather than use it.
@@ -221,8 +221,22 @@ def _fold(line: str) -> str:
 #: exempt, and nothing else is.
 REPO_URL = re.compile(r"github\.com(:\d+)?[/:]carono|carono/last-war-vp-bot")
 
-#: This file names them all in order to ban them, so it is the one that may.
-PERSONAL_ALLOWED = {"tests/test_no_hardcoded_values.py"}
+#: The three files where a real name is the point rather than a leak.
+#:
+#: A copyright line and an author field must name the actual author — that is what
+#: they are for, and stripping them would be a licensing bug, not a privacy fix. They
+#: are listed here (and `LICENSE`/`*.toml` are inside `ALL_GLOBS`) so that the guard
+#: SEES them and forgives them on purpose. Being outside the search is not the same as
+#: being allowed, and the difference is the whole subject of this file.
+PERSONAL_ALLOWED = {
+    "tests/test_no_hardcoded_values.py",   # names them all in order to ban them
+}
+
+#: The one LINE shape where a real name is the point: a copyright holder and a package
+#: author field. Deliberately a line rule and not a file rule — exempting the whole of
+#: `LICENSE` and `pyproject.toml` would mean anything else added to them goes unread,
+#: and «not searched» is the failure this entire file exists to stop repeating.
+ATTRIBUTION = re.compile(r"^\s*(#\s*)?(Copyright\b|authors?\s*=|author\s*=)", re.I)
 
 
 def test_no_personal_identity_is_shipped():
@@ -248,7 +262,7 @@ def test_no_personal_identity_is_shipped():
         if rel in PERSONAL_ALLOWED:
             continue
         for i, line in enumerate(_read(rel).splitlines(), 1):
-            if REPO_URL.search(line):
+            if REPO_URL.search(line) or ATTRIBUTION.match(line):
                 continue
             hit = PERSONAL.search(line)
             assert not hit, (

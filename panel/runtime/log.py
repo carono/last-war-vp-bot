@@ -98,13 +98,11 @@ class LogBus:
         self._dbg = debug_logger
         self._echo = echo
         self._fh = None                 # the panel.log handle, held open
-        self._taps: list = []           # see `tap` — readers beside the drawing one
 
     # -- writing ------------------------------------------------------------
     def put(self, line: str) -> None:
         """One raw line — a child's own output, or data already in its own words."""
         self._mirror_debug(line)
-        self._mirror_taps(line)
         if self._echo:
             try:
                 print(strip_ansi(line), flush=True)
@@ -120,36 +118,6 @@ class LogBus:
         the handful that are pure data.
         """
         self.put(f"[{tag}] " + self._t(key, **fmt))
-
-    # -- a second reader ----------------------------------------------------
-    def tap(self, func):
-        """Be handed every line as well, and return the callable that stops it.
-
-        :meth:`drain` EMPTIES the queue, so there can only ever be one drawing side —
-        a second reader would take lines away from the window rather than see a copy
-        of them. Anything that watches the log without owning it (the web front-end
-        reading over the network, a future notifier) taps instead.
-
-        Called on whatever thread produced the line, inside `put`, so a tap does the
-        least possible: append to a deque, set an event. One that raises is dropped
-        rather than allowed to fault the producer — a log line must never be the reason
-        an errand fails.
-        """
-        self._taps.append(func)
-
-        def _off() -> None:
-            try:
-                self._taps.remove(func)
-            except ValueError:
-                pass
-        return _off
-
-    def _mirror_taps(self, line: str) -> None:
-        for func in list(self._taps):
-            try:
-                func(line)
-            except Exception:           # noqa: BLE001 — a reader, never the producer
-                pass
 
     def drain(self) -> list:
         """Every line waiting, oldest first. The drawing side calls this."""
