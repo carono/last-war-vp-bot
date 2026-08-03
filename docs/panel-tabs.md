@@ -76,6 +76,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `SETTINGS_PAGE_KEY` | Locale key of the page this tab contributes to «Настройки». | If it has a settings page. Then implement `settings_page(parent)`. |
 | `TIMERS` / `TRIGGERS` | Errands the tab brings with it (§3.2). | If it has any; see below. |
 | `EAGER` | Load at boot instead of on first show. | Only if `ensure_loaded` brings up something that must be RUNNING. |
+| `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the three that must not (below). |
 
 ---
 
@@ -250,6 +251,13 @@ It fails on a key any shipped locale is missing (in either direction — a key n
 uses any more has to go from all of them at once), and on a translatable literal handed
 to a widget, a menu entry or a dialog anywhere under `panel/`.
 
+The fourth is the phone's copy: that the three exempt tabs still have no screen, that
+every word a screen names is a locale key that exists, that a screen is made of nothing
+the renderer cannot draw, and that a button offered on a screen has a `web_press` that
+answers for it. What it CANNOT check is «this tab was edited and its `web_view` was
+not» — that is a property of a diff, not of a snapshot, and it rests on the rule and on
+review.
+
 ---
 
 ## A language is a file
@@ -291,6 +299,69 @@ shipped file. `tests/test_panel_i18n.py` pins the rest, including that the table
 languages has not come back.
 
 ---
+
+## The phone's copy of this tab, and keeping it in step
+
+The panel has two front-ends: this window and the web one a phone opens
+(`panel/web/`, docs/research/panel-web.md). A tab hands the second one its screen as
+DATA and the browser draws it with a single renderer:
+
+```python
+WEB_SCREEN = True                       # this tab has a phone screen
+
+def web_view(self) -> dict:
+    """What the tab HAS — never a read of the game (see below)."""
+    return {"cards": [{"title": "tab.hospital",
+                       "rows":  [{"label": "hospital.wounded", "value": "128"}],
+                       "items": [{"text": "Иванов", "detail": "30 · 12 480 000",
+                                  "facts": [{"label": "rally_tab.soldiers",
+                                             "value": "4200"}],
+                                  "until": 1785776747.0,
+                                  "pill": "squads.kind.home",
+                                  "actions": [{"id": "join", "label": "rally.join"}]}],
+                       "empty": "tabx.no_game"}],
+            "now": time.time(),
+            "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+def web_press(self, action: str, args: dict) -> dict:
+    return {"ok": True} if action == "refresh" else {"error": "unknown"}
+```
+
+**Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
+`pill` are **locale keys** and are said by the browser out of the panel's own table;
+`text`, `value`, `detail`, `note`, `head` and a fact's `value` are **data** — a player's
+name, a count, a date. That is what puts a screen in eleven languages by construction:
+the i18n test only reads `t()` calls in `.py`, so a sentence written into a dict would
+sail past it. `tests/test_panel_web_screens.py` reads the views instead and fails on a
+label that is not a key.
+
+`until` is an epoch and `now` is the PANEL's clock: the phone counts down against the
+panel's time rather than its own, because a tablet an hour out would otherwise call
+every deadline expired.
+
+**`web_view` must be CHEAP.** It runs on the Tk thread every time a phone opens the
+screen, so it returns what the tab already holds. Reading the game belongs in the tab's
+own refresh, which the phone asks for by pressing «Обновить» — a phone in a pocket must
+not poll the client all day. The six `DataTab` tabs get this for free: the base class
+caches the last reading and only the mapping (`web_cards`) is each tab's own.
+
+### It travels in the same commit — this is binding
+
+**Any edit to a tab is mirrored here at once** (`CLAUDE.md`, «Every edit to a tab
+travels to the web at the same time»). A new button, field, reading or status line on
+the tab means an updated `web_view()` — and `web_press()` if it is a press — in the
+SAME change. Two front-ends that drift are worse than one, because the person reading
+the stale one has no way to know it is stale.
+
+Two things bound it:
+
+* **A press travels only when the ability is a scenario.** `web_press` runs
+  `rt.actions` / `rt.play_async` and nothing else. Where a tab still drives the game by
+  hand (#1188 — the secret-task and ghost robberies spawn their tool because the recipe
+  only spends a queue that tool fills), the web gets the reading and no button. First
+  the scenario, then the button.
+* **Three tabs have no screen on purpose:** `settings`, `web`, `develop` — the reasons
+  are in `CLAUDE.md`, and the test fails if one of them grows one quietly.
 
 ## Reaching another tab
 
@@ -337,6 +408,7 @@ tab has FOUND belongs on the tab, and what has HAPPENED belongs in the log.
 C:\Python312\python.exe tests\test_panel_tab_contract.py
 C:\Python312\python.exe tests\test_panel_dangling_refs.py
 C:\Python312\python.exe tests\test_panel_i18n.py
+C:\Python312\python.exe tests\test_panel_web_screens.py
 ```
 
 The second one is source-only and takes a second: no class in the panel may mention a

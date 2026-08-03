@@ -93,6 +93,71 @@ Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, lo
 menu, «Главная». If a change needs something from it, move that something into
 `panel/runtime/` first and use it from there.
 
+## Every edit to a tab travels to the web at the same time
+
+**Also binding, on every agent, with no exceptions.** The panel has two front-ends now:
+the Tk window and the web one a phone opens (`panel/web/`, #1221). They are not a
+product and a copy of it — they are two ways of drawing the same runtime, and the
+moment one of them is behind, the person away from the machine is being told something
+that is not true any more.
+
+So: **a tab that grows a button, a field, a reading or a status line updates its
+`web_view()` — and `web_press()` if it is a press — in the SAME commit.** The web does
+not catch up with the panel once a quarter; it moves with it. A tab's screen is data
+(`docs/panel-tabs.md`, «The phone's copy of this tab»), so mirroring an addition is
+usually four lines, and that is the point: it is cheap while the change is in your head
+and expensive six months later when nobody remembers which of the two is right.
+
+### What that looks like
+
+```python
+# ❌ the window learns something the phone will never hear
+def build(self) -> None:
+    ...
+    self.tr(ttk.Button(bar, command=self._heal), "hospital.heal").pack()
+    self._wounded = tk_stringvar(self.rt.root)      # a new reading on the tab
+```
+
+```python
+# ✅ the same change, both front-ends
+def build(self) -> None:
+    ...
+    self.tr(ttk.Button(bar, command=self._heal), "hospital.heal").pack()
+    self._wounded = tk_stringvar(self.rt.root)
+
+def web_view(self) -> dict:
+    return {"cards": [{"title": "tab.hospital",
+                       "rows": [{"label": "hospital.wounded",
+                                 "value": self._wounded.get()}]}],
+            "actions": [{"id": "heal", "label": "hospital.heal"}]}
+
+def web_press(self, action, args) -> dict:
+    if action != "heal":
+        return {"error": "unknown"}
+    return {"ok": self.rt.play_async("heal_units", tag="web")}
+```
+
+### A press travels only when the ability is a scenario
+
+`web_press` runs what `rt.actions` / `rt.play_async` runs and nothing else. Where a tab
+still drives the game by hand — the secret-task and ghost robberies spawn their tool
+because the recipe only spends a queue the tool fills (#1188) — **the web gets the
+READING and no button**, and the tab's own reading is mirrored as usual.
+
+This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a
+scenario, then the button appears in the web. A second copy of a hand-driven press,
+reachable from outside the house, is not an improvement — it is the same debt in two
+places.
+
+### Three tabs do not have a screen, and that is a decision
+
+`settings` — paths, interpreters and ports: breaking a profile with one thumb is easier
+than fixing it from a bus. `web` — the door the person came in through; managing it from
+the far side is how somebody locks themselves out. `develop` — two sniffers for working
+on the bot itself, switched off even in the window. They declare `WEB_SCREEN = False`
+and `tests/test_panel_web_screens.py` fails if one of them quietly grows a screen. What
+those three genuinely need on the move goes on «Состояние» as a switch, not as a page.
+
 ### Definition of done
 
 A task that delivers an ability is not done — and must not be marked done in the
@@ -102,6 +167,8 @@ tracker — until:
 - everything the panel does with it goes through `run_action`;
 - any primitive added along the way is documented in `docs/dsl.md`;
 - every string it shows is a locale key, present in **all** the shipped locales;
+- **anything it changed on a tab is mirrored in that tab's `web_view()` / `web_press()`**
+  — a tab edit is not done while the phone still shows the old panel;
 - nothing it adds is true of this machine only (below);
 - and, once the user has confirmed it live, both farming files say so (below).
 

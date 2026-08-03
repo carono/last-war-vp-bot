@@ -32,6 +32,7 @@ if str(_REPO) not in sys.path:
 
 from panel import i18n as i18nmod          # noqa: E402
 from panel import tabs as tabsreg          # noqa: E402
+from panel.tabs.base import PanelTab       # noqa: E402
 
 #: A locale key: dotted, lower-case, no spaces — the same shape the i18n test pins.
 _KEYISH = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)+$")
@@ -156,10 +157,11 @@ def _sample_view(cls):
     tab._last_data = _SAMPLES.get(cls.ID, [])
     tab._busy = False
     try:
-        return {"cards": cls.web_cards(tab, tab._last_data), "actions":
-                [{"id": "refresh", "label": "tabx.refresh"}]}
+        # The tab's OWN view, not one assembled here: the actions it offers have to
+        # come from the tab, or the dead-button guard would be checking the harness.
+        return cls.web_view(tab)
     except Exception as exc:            # noqa: BLE001 — a mapping that throws is a fail
-        raise AssertionError(f"{cls.ID}: web_cards raised {type(exc).__name__}: {exc}")
+        raise AssertionError(f"{cls.ID}: web_view raised {type(exc).__name__}: {exc}")
 
 
 #: One plausible reading per tab, in the shape that tab's own `fetch()` returns.
@@ -172,6 +174,52 @@ _SAMPLES = {
     "heroes": [{"name": "Somebody", "level": 30, "power": 4000}],
     "accounts": [{"name": "Somebody", "server": 935}],
 }
+
+
+def test_a_button_offered_on_a_screen_has_a_handler_that_answers_for_it():
+    """A dead button is the half-done mirror this CAN be caught.
+
+    «Any edit to a tab travels to the web at the same time» (`CLAUDE.md`) is a property
+    of a DIFF and no snapshot test can see it. What a snapshot CAN see is the commonest
+    way the mirror ends up half done: an action offered in `web_view` that `web_press`
+    knows nothing about. On the phone that is a button which does nothing at all and
+    says «unknown» — the exact failure a person cannot diagnose from a bus.
+    """
+    dead = []
+    for tab_id, cls in _tabs_with_screens():
+        view = _sample_view(cls)
+        if view is None:
+            continue
+        offered = [a.get("id") for a in view.get("actions") or ()]
+        for card in view.get("cards") or ():
+            for item in card.get("items") or ():
+                offered += [a.get("id") for a in item.get("actions") or ()]
+        if not offered:
+            continue
+        assert cls.web_press is not PanelTab.web_press, (
+            f"{tab_id}: offers {offered} and never overrides web_press")
+        tab = cls.__new__(cls)
+        for action in offered:
+            answer = _press(tab, action)
+            assert answer.get("error") != "unknown", (
+                f"{tab_id}: «{action}» is offered on the screen and web_press does not "
+                f"know it — a button that does nothing")
+        # …and something invented is still refused, so «unknown» means what it says.
+        assert _press(tab, "no-such-action-ever").get("error") == "unknown", (
+            f"{tab_id}: web_press accepts anything at all")
+
+
+def _press(tab, action: str) -> dict:
+    """`web_press` on a bare instance: only the routing, never the work.
+
+    The handlers here reach the runtime (a refresh spawns a thread), which a bare
+    instance has none of — so anything that gets PAST the routing is treated as
+    accepted. What is being asserted is that the action is recognised, not that it runs.
+    """
+    try:
+        return tab.web_press(action, {}) or {}
+    except Exception:                   # noqa: BLE001 — it got past the routing
+        return {"ok": True}
 
 
 def _main() -> int:
