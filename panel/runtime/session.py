@@ -24,6 +24,7 @@ independently (panel/debug_log.py).
 from __future__ import annotations
 
 import contextlib
+import functools
 import threading
 
 from .. import profile as profilemod
@@ -174,6 +175,34 @@ class SessionScoped:
             yield session
         finally:
             local.session = previous
+
+    def bind_session(self, func, session=None):
+        """``func``, re-entering the session it was made in whenever it is called.
+
+        «Made in» is :meth:`_session` — the session THIS THREAD is acting for — and not
+        the showing one. The difference is invisible on the Tk thread and load-bearing
+        everywhere else: the shell's start-up runs on a thread per profile, so
+        everything it arms or spawns there would otherwise be bound to whichever page
+        happened to be on screen. It cost the second profile's account strip: it polled
+        the FIRST profile's client and wrote the readings into the first profile's log.
+        Real numbers, wrong account.
+
+        Bind at the SCHEDULING site — an `after`, a thread, a repeating callback — never
+        at the site that reads an attribute.
+
+        NOT called `bind`: the shell mixes this into `tk.Tk`, and `Misc.bind` is how
+        every widget in the panel attaches an event handler. Shadowing it took the
+        window down on the line after the one that built it.
+        """
+        owner = session if session is not None else self._session()
+        if owner is None:
+            return func
+
+        @functools.wraps(func)
+        def run(*args, **kw):
+            with self.session_scope(owner):
+                return func(*args, **kw)
+        return run
 
     def _routed(self, name: str) -> bool:
         """Does ``name`` belong to a session? (A descriptor never does.)"""

@@ -76,7 +76,6 @@ if not __package__:
     __package__ = "panel"
 
 import ctypes
-import functools
 import logging
 import os
 import queue
@@ -538,16 +537,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return self.session_scope(session)
 
     def _bound(self, func, session=None):
-        """``func``, re-entering the session it was made in whenever it is called."""
-        owner = session if session is not None else self._current_session
-        if owner is None:
-            return func
+        """``func``, re-entering the session it was made in whenever it is called.
 
-        @functools.wraps(func)
-        def run(*args, **kw):
-            with self._on(owner):
-                return func(*args, **kw)
-        return run
+        «Made in» is `_session()` — the session THIS THREAD is acting for — and not
+        `_current_session`, which is only the one whose page is showing. The difference
+        is invisible on the Tk thread and load-bearing everywhere else: `_startup` runs
+        on a thread per profile, so everything IT arms or spawns (the status poll, the
+        account-strip poller) was being bound to whichever page happened to be on
+        screen. The second profile's dashboard then polled the FIRST profile's client
+        and wrote its readings into the first profile's log — the numbers were real,
+        they were just the wrong account's.
+        """
+        return self.bind_session(func, session)
 
     def _later(self, delay_ms: int, func):
         """`after`, bound — for a one-shot callback that touches this profile.
@@ -750,7 +751,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         The end signal is raised only when the LAST session has finished, so the splash
         stays up until every open profile has its systems, not just the first.
         """
-        session = session if session is not None else self._current_session
+        session = session if session is not None else self._session()
         try:
             with self._on(session):
                 self._startup()

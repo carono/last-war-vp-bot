@@ -336,6 +336,78 @@ def test_reading_a_routed_name_the_session_has_never_set_raises() -> None:
         raise AssertionError("a name nothing has set must raise, not answer None")
 
 
+def test_a_bound_call_answers_for_the_session_it_was_MADE_in() -> None:
+    """Not for the one whose page happens to be showing when it fires."""
+    shell, first, second = _Shell(), _Session("main"), _Session("alt")
+    shell._current_session = first
+    shell._log = "the main window's log"
+    shell._current_session = second
+    shell._log = "the alt window's log"
+
+    with shell.session_scope(first):
+        read_first = shell.bind_session(lambda: shell._log)
+    read_showing = shell.bind_session(lambda: shell._log)      # made with alt on screen
+
+    shell._current_session = second
+    assert read_first() == "the main window's log", "bound to main, so main it stays"
+    assert read_showing() == "the alt window's log"
+    shell._current_session = first
+    assert read_first() == "the main window's log"
+    assert read_showing() == "the alt window's log", "…and neither follows the page"
+
+
+def test_two_threads_bound_to_two_sessions_do_not_overwrite_each_other() -> None:
+    """The boot runs a thread per open profile; one shared attribute was a race."""
+    import threading
+
+    shell, first, second = _Shell(), _Session("main"), _Session("alt")
+    shell._current_session = first
+    shell._log = "main's"
+    shell._current_session = second
+    shell._log = "alt's"
+    shell._current_session = None
+
+    seen: dict = {}
+    gate = threading.Barrier(2, timeout=5)
+
+    def work(session, key):
+        def body():
+            gate.wait()               # both inside their scope at the same moment
+            seen[key] = shell._log
+        return shell.bind_session(body, session)
+
+    threads = [threading.Thread(target=work(first, "main")),
+               threading.Thread(target=work(second, "alt"))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert seen == {"main": "main's", "alt": "alt's"}, seen
+
+
+def test_nothing_on_SessionScoped_shadows_a_tkinter_widget_method() -> None:
+    """The shell mixes this into `tk.Tk`, so a clash is the window dying at boot.
+
+    It happened: the binder was called `bind`, and `Misc.bind` is how every widget in
+    the panel attaches an event handler. The window came up and fell over on the next
+    line, and nothing under `tests/` could see it — the stand-in above is not a widget.
+    """
+    try:
+        import tkinter as tk
+    except ImportError:                     # no Tk here; the shell will find out
+        return
+    ours = {n for n in vars(wsmod_session.SessionScoped) if not n.startswith("__")}
+    clashes = sorted(n for n in ours if hasattr(tk.Misc, n))
+    assert not clashes, f"these shadow tkinter.Misc: {clashes}"
+
+
+def test_binding_without_a_session_hands_the_function_back_untouched() -> None:
+    shell = _Shell()
+    def f():
+        return 1
+    assert shell.bind_session(f) is f
+
+
 def test_a_routed_name_can_be_deleted_from_its_own_session_only() -> None:
     shell, first, second = _Shell(), _Session("main"), _Session("alt")
     shell._current_session = first
