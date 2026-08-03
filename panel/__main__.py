@@ -230,6 +230,10 @@ WATCHDOG_COOLDOWN_SEC = 300.0
 # and on again; RedrawWindow's flags are INVALIDATE | ERASE | ALLCHILDREN | FRAME,
 # i.e. "repaint the lot, title bar included".
 RESIZE_SETTLE_MS = 160
+# …and the longest painting may stay off whatever else goes wrong (#1211). A drag
+# pauses for longer than this and repaints mid-drag, which is the price of never
+# leaving a window that answers every click and shows none of them.
+PAINT_OFF_MAX_MS = 500
 WM_SETREDRAW = 0x000B
 RDW_REPAINT_ALL = 0x0001 | 0x0004 | 0x0080 | 0x0400
 
@@ -448,6 +452,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # session, and there is no session until the workspace has built one — so every
         # attribute set between here and the first `_adopt` is plainly the window's.
         self._current_session = None
+        self._menubar = None
+        self._menu_lang = None            # the language the menu bar is written in
 
         # WHAT IS HOLDING THE TK THREAD, when it is held (panel/runtime/stall.py).
         # Off unless `LW_PANEL_STALL_MS` asks for it, because a sampler that runs
@@ -529,7 +535,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # …and ask origin whether this checkout is still the current one — after a
         # pause, because the first thing a freshly opened panel owes the operator is a
         # window, not an SSH handshake with github.
-        self._arm("updates", UPDATE_FIRST_DELAY_MS, self._poll_updates)
+        # …unless the page it would report into was never built (`LW_PANEL_BARE`).
+        if not os.environ.get("LW_PANEL_BARE"):
+            self._arm("updates", UPDATE_FIRST_DELAY_MS, self._poll_updates)
         # Fade the splash and reveal the fully-built window.
         if self._splash is not None:
             try:
@@ -644,6 +652,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         if session is None:
             return
+        # BEFORE ANYTHING ELSE: put the picture back up. The resize damper switches
+        # Windows' painting of this window off while a size settles
+        # (`_install_resize_damper`), and a switch that lands inside that window drew a
+        # whole page into a window that was not painting — the operator's click looked
+        # ignored, the Tk thread being perfectly answerable the whole time (#1211).
+        self._resume_painting()
         self._current_session = session
         self._profile_var.set(session.name)
         # EVERY PAGE GETS ITS OWN SASH, not just the first. `_restore_geometry` places
@@ -654,13 +668,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # its own.
         try:
             if getattr(session, "page", None) is not None:
+                # The pane has to have been laid out before a sash position means
+                # anything, so this one `update_idletasks` stays.
                 session.page.update_idletasks()
                 self._apply_sash(self._saved_sash())
         except (tk.TclError, RuntimeError):
             pass
         try:
             self.title(self._t("app.title"))
-            self._build_menu()
+            # ONLY WHEN THE WORDS WOULD CHANGE. Rebuilding the menu bar is a native
+            # Windows call per switch, and it dropped three `tk.Menu` objects on the
+            # floor each time — for a menu that says the same three words unless the
+            # profile being looked at is in another language.
+            if getattr(self, "_menu_lang", None) != self._i18n.lang:
+                self._build_menu()
             # The strip is said in the language of the page being looked at, and names
             # a profile only while more than one is open — both change here.
             self._paint_activity()
@@ -1198,6 +1219,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._paint_activity()
 
     def _build_menu(self) -> None:
+        #: Which language the bar standing there is written in — `_show` rebuilds it
+        #: only when that stops being the one being looked at (#1211).
+        self._menu_lang = self._i18n.lang
+        # The bar this replaces is dropped rather than left to the garbage collector:
+        # a `tk.Menu` is a Tcl command and a native menu handle, and one per profile
+        # switch is a leak that Windows notices long before Python does.
+        old = getattr(self, "_menubar", None)
         menubar = tk.Menu(self)
 
         lang_menu = tk.Menu(menubar, tearoff=0)
@@ -1221,6 +1249,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         menubar.add_cascade(label=self._t("menu.language"), menu=lang_menu)
         menubar.add_cascade(label=self._t("menu.help"), menu=help_menu)
         self.config(menu=menubar)
+        self._menubar = menubar
+        if old is not None:
+            try:
+                old.destroy()
+            except tk.TclError:            # already gone with the window
+                pass
         self._hook(self._build_menu)
 
     def _show_about(self) -> None:
@@ -1786,7 +1820,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # move three of them; «Главная» never moves — §4.4). They are ordered into the
         # same sequence by the numbers the registry would have given them, so the tab
         # bar reads the same whichever half a tab comes from.
-        entries = [("main", main, "tab.main", 0)]
+        # `LW_PANEL_BARE=1` takes «Главная» out of the notebook as well as out of the
+        # page — the tab itself, not only what is drawn under it. With every plugin tab
+        # switched off too the notebook is then empty, which is the floor of a
+        # bisection: a window with a profile strip, a status row and nothing else.
+        bare = bool(os.environ.get("LW_PANEL_BARE"))
+        entries = [] if bare else [("main", main, "tab.main", 0)]
         want_order = self._binder.tab_list("order")
         specs = tabsreg.resolve(
             enabled=self._binder.tab_list("enabled"), order=want_order,
@@ -1811,6 +1850,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # The «Сценарии» tab's `TAP` reference drops its choice into the DSL command
         # line, which lives here on «Главная» — so it asks rather than reaching (§7).
         self._rt.bus.subscribe("cmd.reference", lambda _p: self._show_button_reference())
+
 
         top = ttk.Frame(main, padding=8)
         top.pack(fill="x")
@@ -1838,6 +1878,23 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # which is exactly the wrong shape for the moment you actually need it.
         self._tr(ttk.Button(top, command=self._panic),
                  "panic.stop_all").pack(side="right", padx=(0, 6))
+
+        # A PAGE WITH NOTHING BELOW THIS LINE (`LW_PANEL_BARE=1`) — the floor of a
+        # bisection. Switching a tab off takes that tab out of the page; this takes the
+        # whole of «Главная» with it — the control blocks, the update block, the log
+        # widget and the command line — leaving the profile strip, the row above (the
+        # game and daemon indicators, which the status poll writes into every eight
+        # seconds and which would raise without them) and the runtime behind the page:
+        # the schedule, the wire listeners, the daemon, the poll itself. Whatever a
+        # freeze still costs with this set is the shell's own; whatever it stops costing
+        # belongs to what was removed. Off by default, never written into a profile —
+        # a switch for one run rather than a setting.
+        if bare:
+            self._log = None                 # no widget; the lines still reach panel.log
+            self._dbg.info("bare page: «Главная» is not in the notebook at all")
+            self._stage(self._session(),
+                        [functools.partial(self._finish_tabs, nb, frames, done)], staged)
+            return
 
         # The account summary strip that used to hang here now opens the «Аккаунты»
         # tab (built above, beside the character list it belongs with).
@@ -2406,6 +2463,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         once per line, which is the difference between a tracer's burst arriving in
         a blink and the panel visibly stuttering through it.
         """
+        if self._log is None:            # a page built without one (`LW_PANEL_BARE`)
+            return
         clean = _ANSI.sub("", text)
         level = self._log_severity(clean)
         body_tags = (f"sev_{level}",) if level else ()
@@ -3525,10 +3584,24 @@ class Panel(runtime.SessionScoped, tk.Tk):
             return
         self._paint_off = True
         self._paint_off_at = time.time()
+        # A DEAD MAN'S HANDLE (#1211). The settle timer is the normal way back, and it
+        # is one `after` among many: cancelled with a page, lost to a re-arm, delayed
+        # behind a busy loop. A window whose painting stayed off is a window that has
+        # frozen as far as anybody looking at it is concerned — the Tk thread answers,
+        # the clicks land, and nothing on the glass moves. So a second timer, armed here
+        # and never cancelled, puts the picture back whatever else happens.
+        try:
+            self.after(PAINT_OFF_MAX_MS, self._resume_painting)
+        except (tk.TclError, RuntimeError):
+            self._resume_painting()
 
     def _resume_painting(self) -> None:
-        """Paint again, and repaint everything once — the window is out of date."""
-        if not self._paint_off:
+        """Paint again, and repaint everything once — the window is out of date.
+
+        `getattr`, because `_show` calls this before the damper has been installed: the
+        first page is brought to the front from inside `__init__` (#1211).
+        """
+        if not getattr(self, "_paint_off", False):
             return
         self._paint_off = False
         hwnd = self._window_handle()

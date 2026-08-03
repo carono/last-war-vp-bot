@@ -54,6 +54,8 @@ class Workspace:
         self._held_elsewhere: list = []
         self._sessions: list = []
         self._current: "ProfileSession | None" = None
+        #: What `_remember` last wrote, so writing it again is skipped.
+        self._written: tuple = (None, None)
 
     def free(self, name: str) -> bool:
         """Is ``name`` open in no other panel? ``True`` when nothing was asked."""
@@ -222,11 +224,21 @@ class Workspace:
         list is closing it on purpose.
         """
         names = self.names
-        if self._current is not None:
-            names = [self._current.name] + [n for n in names if n != self._current.name]
-            self.profiles.set_active(self._current.name)
+        active = self._current.name if self._current is not None else None
+        if active is not None:
+            names = [active] + [n for n in names if n != active]
         names += [n for n in self._held_elsewhere if n not in names]
-        self.profiles.set_open_profiles(names)
+        # TWO FILE WRITES PER PROFILE SWITCH is what this used to be, unconditionally —
+        # and a switch is a click a person is waiting on, on the Tk thread, with a
+        # virus scanner between it and the disk (#1211). Nothing here changes on most
+        # switches, so nothing is written on most switches.
+        if (active, names) == self._written:
+            return
+        self._written = (active, names)
+        if active is not None:
+            # The pointer moves here and lands on disk with the list below — one write.
+            self.profiles.set_active(active, write=False)
+        self.profiles.set_open_profiles(names, active=active)
 
     def _complain(self, session, exc: Exception) -> None:
         if self._log is None:

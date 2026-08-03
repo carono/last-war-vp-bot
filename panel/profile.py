@@ -176,8 +176,18 @@ class ProfileManager:
         return data if isinstance(data, dict) else {}
 
     def _write_setting(self, key: str, value) -> None:
+        self._write_settings({key: value})
+
+    def _write_settings(self, values: dict) -> None:
+        """Merge ``values`` into the panel-wide file — ONE read and ONE write.
+
+        A profile switch used to write this file twice, once per key, on the Tk thread
+        with the operator waiting on the click (#1211).
+        """
         data = self._read_settings()
-        data[key] = value
+        if all(data.get(k) == v for k, v in values.items()):
+            return                      # nothing to say: do not touch the disk
+        data.update(values)
         _write_json(SETTINGS_FILE, data)
 
     def _read_active(self) -> str:
@@ -187,15 +197,19 @@ class ProfileManager:
             name = names[0] if names else self._ensure_dir(DEFAULT_PROFILE)
         return name
 
-    def set_active(self, name: str) -> str:
+    def set_active(self, name: str, *, write: bool = True) -> str:
         """Point the panel at ``name`` (creating it if missing) and persist it.
 
         A PINNED manager moves itself and stops there: it speaks for one open profile,
         not for the panel, and the shared pointer is the workspace's to write.
+
+        ``write=False`` moves the pointer without touching the file — for a caller that
+        is about to write it anyway, in the same breath as the open-profile list
+        (:meth:`set_open_profiles`). One file write per switch, not two (#1211).
         """
         name = self._ensure_dir(name) if not self.exists(name) else sanitize(name)
         self._active = name
-        if self.pinned:
+        if self.pinned or not write:
             return name
         self._write_setting("active_profile", name)
         return name
@@ -217,8 +231,12 @@ class ProfileManager:
                 out.append(name)
         return out
 
-    def set_open_profiles(self, names) -> None:
-        """Remember which profiles are open. Not for a pinned manager to say."""
+    def set_open_profiles(self, names, active: str | None = None) -> None:
+        """Remember which profiles are open — and, in the same write, which is showing.
+
+        ``active`` is the pointer :meth:`set_active` writes; passing it here is what
+        makes a profile switch one file write instead of two.
+        """
         if self.pinned:
             return
         seen: list[str] = []
@@ -226,7 +244,10 @@ class ProfileManager:
             name = sanitize(str(item))
             if name and name not in seen:
                 seen.append(name)
-        self._write_setting("open_profiles", seen)
+        values = {"open_profiles": seen}
+        if active:
+            values["active_profile"] = sanitize(active)
+        self._write_settings(values)
 
     # -- lifecycle: create / rename / delete --------------------------------
     def create(self, name: str) -> str:
