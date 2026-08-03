@@ -963,5 +963,7 @@
   "cmdpost.shared.matched": "готово",
   "rally_tab.soldiers": "солдат",
   "rally_tab.stamina": "Стамина",
-  "chat.empty": "сообщений пока нет"
+  "chat.empty": "сообщений пока нет",
+  "vsduel.empty": "на сегодня ничего не отмечено",
+  "vsduel.day.off": "сегодняшний день выключен"
 }

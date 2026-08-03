@@ -963,5 +963,7 @@
   "cmdpost.shared.matched": "ready",
   "rally_tab.soldiers": "soldiers",
   "rally_tab.stamina": "Stamina",
-  "chat.empty": "no messages yet"
+  "chat.empty": "no messages yet",
+  "vsduel.empty": "nothing ticked for today",
+  "vsduel.day.off": "today is switched off"
 }

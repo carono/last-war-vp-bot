@@ -963,5 +963,7 @@
   "cmdpost.shared.matched": "listo",
   "rally_tab.soldiers": "soldados",
   "rally_tab.stamina": "Vigor",
-  "chat.empty": "aún no hay mensajes"
+  "chat.empty": "aún no hay mensajes",
+  "vsduel.empty": "nada marcado para hoy",
+  "vsduel.day.off": "hoy está apagado"
 }

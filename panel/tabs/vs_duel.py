@@ -1154,6 +1154,48 @@ class VsDuelTab(PanelTab):
         return value if value > 0 else None
 
     # -- persistence -----------------------------------------------------------
+    # -- the phone ------------------------------------------------------------
+    #
+    # LOOKING, NOT EDITING. The plan is a week of ticked boxes and typed amounts, and
+    # editing that with a thumb on a bus is how somebody spends a day's speedups on
+    # the wrong day. What is worth carrying is the answer to «what is today for» —
+    # which is one card, read off the boxes the window already holds.
+    WEB_SCREEN = True
+
+    def web_view(self) -> "dict | None":
+        """Today's plan: what is ticked, and how much each is allowed to spend."""
+        import time as _time
+
+        day = DAYS[min(_time.localtime().tm_wday, len(DAYS) - 1)][0]
+        items = []
+        for item in walk_items(dict(DAYS)[day]):
+            name = f"{day}.{item.key}"
+            var = self._flags.get(name) or self._choices.get(name)
+            if var is None:
+                continue
+            try:
+                value = var.get()
+            except Exception:              # noqa: BLE001 — a half-built window
+                continue
+            if isinstance(value, bool) and not value:
+                continue                   # an unticked line is not part of today
+            facts = []
+            amount = getattr(item, "amount", None)
+            if amount is not None and self._amounts.get(f"{day}.{amount.key}") is not None:
+                try:
+                    facts.append({"label": amount.label_key,
+                                  "value": str(self._amounts[f"{day}.{amount.key}"].get())})
+                except Exception:          # noqa: BLE001
+                    pass
+            # The line is one of the panel's own words, so it travels as a KEY.
+            items.append({"label": item.label_key, "facts": facts})
+        enabled = self._flags.get(f"{day}.{DAY_ENABLED}")
+        return {"cards": [{"title": f"vsduel.day.{day}", "items": items,
+                           "empty": "vsduel.day.off"
+                           if enabled is not None and not enabled.get()
+                           else "vsduel.empty"}],
+                "actions": []}
+
     def config(self) -> dict:
         """The sets, and which one each day is played from.
 

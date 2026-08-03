@@ -963,5 +963,7 @@
   "cmdpost.shared.matched": "hazır",
   "rally_tab.soldiers": "asker",
   "rally_tab.stamina": "Dayanıklılık",
-  "chat.empty": "henüz mesaj yok"
+  "chat.empty": "henüz mesaj yok",
+  "vsduel.empty": "bugün için hiçbir şey işaretlenmedi",
+  "vsduel.day.off": "bugün kapalı"
 }

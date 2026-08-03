@@ -963,5 +963,7 @@
   "cmdpost.shared.matched": "sẵn sàng",
   "rally_tab.soldiers": "lính",
   "rally_tab.stamina": "Thể lực",
-  "chat.empty": "chưa có tin nhắn nào"
+  "chat.empty": "chưa có tin nhắn nào",
+  "vsduel.empty": "hôm nay chưa đánh dấu gì",
+  "vsduel.day.off": "hôm nay đã tắt"
 }

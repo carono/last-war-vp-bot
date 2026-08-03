@@ -67,6 +67,8 @@ def _keys_in(view: dict) -> list:
         for item in card.get("items") or ():
             if item.get("pill"):
                 found.append(item["pill"])
+            if item.get("label"):
+                found.append(item["label"])
             for fact in item.get("facts") or ():
                 found.append(fact.get("label", ""))
             for action in item.get("actions") or ():
@@ -110,7 +112,8 @@ def test_every_screen_is_made_of_keys_and_data_and_never_of_sentences():
 def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     """The shape is small on purpose: four things, and a phone renderer for each."""
     allowed_card = {"title", "head", "rows", "items", "empty", "search"}
-    allowed_item = {"text", "detail", "note", "pill", "actions", "facts", "until"}
+    allowed_item = {"text", "label", "detail", "note", "pill", "actions", "facts",
+                    "until"}
     for tab_id, cls in _tabs_with_screens():
         view = _sample_view(cls)
         if view is None:

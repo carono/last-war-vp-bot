@@ -143,6 +143,8 @@ class PanelTab:
                  "rows":  [{"label": "res.food",        # a KEY …
                             "value": "1 234"}],         # … and DATA, never translated
                  "items": [{"text": "Иванов",           # data: a name, a number, a time
+                            # …or `"label": "vsduel.drone_parts"` when the line IS a
+                            # word of the panel's rather than something read off a game
                             "detail": "30 · 12 480 000",
                             "facts": [{"label": "secrettasks.col.level",
                                        "value": "12"}],   # KEY + DATA, side by side

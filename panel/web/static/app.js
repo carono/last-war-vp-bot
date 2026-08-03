@@ -414,7 +414,8 @@ function renderItem(item) {
   head.className = 'row';
   const title = document.createElement('span');
   title.className = 'title';
-  title.textContent = item.text || '';
+  // `label` is a KEY (a line that IS one of the panel's own words), `text` is data.
+  title.textContent = item.label ? T(item.label) : (item.text || '');
   head.appendChild(title);
   if (item.detail) {
     const detail = document.createElement('span');
