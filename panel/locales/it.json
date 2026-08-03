@@ -178,6 +178,7 @@
   "log.chat.started": "il monitor è in funzione (pid {pid})",
   "log.chat.starting": "comincio a leggere la chat → {path}",
   "log.chat.stopped": "monitor fermato",
+  "log.children.failed": "non è stato possibile ripulire i resti dell'avvio precedente: {error}",
   "log.children.orphan": "un monitor dell'avvio precedente era ancora attivo — {name} (pid {pid}); fermato",
   "log.children.reaped": "rimasti dall'avvio precedente e fermati: {count}",
   "log.children.stopped": "processi in background fermati: {count}",

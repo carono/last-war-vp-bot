@@ -178,6 +178,7 @@
   "log.chat.started": "el monitor está en marcha (pid {pid})",
   "log.chat.starting": "empiezo a leer el chat → {path}",
   "log.chat.stopped": "monitor detenido",
+  "log.children.failed": "no se han podido limpiar los restos del arranque anterior: {error}",
   "log.children.orphan": "un monitor del arranque anterior seguía funcionando — {name} (pid {pid}); detenido",
   "log.children.reaped": "quedaban del arranque anterior y se han detenido: {count}",
   "log.children.stopped": "procesos en segundo plano detenidos: {count}",

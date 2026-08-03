@@ -178,6 +178,7 @@
   "log.chat.started": "o monitor está rodando (pid {pid})",
   "log.chat.starting": "começando a ler o chat → {path}",
   "log.chat.stopped": "monitor parado",
+  "log.children.failed": "não deu para limpar o que sobrou da execução anterior: {error}",
   "log.children.orphan": "um monitor da execução anterior ainda estava rodando — {name} (pid {pid}); parado",
   "log.children.reaped": "sobraram da execução anterior e foram parados: {count}",
   "log.children.stopped": "processos em segundo plano parados: {count}",

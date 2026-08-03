@@ -178,6 +178,7 @@
   "log.chat.started": "trình theo dõi đang chạy (pid {pid})",
   "log.chat.starting": "bắt đầu đọc trò chuyện → {path}",
   "log.chat.stopped": "đã dừng trình theo dõi",
+  "log.children.failed": "không dọn được phần còn sót lại của lần chạy trước: {error}",
   "log.children.orphan": "một trình theo dõi từ lần chạy trước vẫn còn chạy — {name} (pid {pid}); đã dừng",
   "log.children.reaped": "còn sót lại từ lần chạy trước và đã được dừng: {count}",
   "log.children.stopped": "số tiến trình nền đã dừng: {count}",

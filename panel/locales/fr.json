@@ -178,6 +178,7 @@
   "log.chat.started": "le moniteur tourne (pid {pid})",
   "log.chat.starting": "début de lecture de la discussion → {path}",
   "log.chat.stopped": "moniteur arrêté",
+  "log.children.failed": "les restes du lancement précédent n'ont pas pu être nettoyés : {error}",
   "log.children.orphan": "un moniteur du lancement précédent tournait encore — {name} (pid {pid}) ; arrêté",
   "log.children.reaped": "restés du lancement précédent et arrêtés : {count}",
   "log.children.stopped": "processus en arrière-plan arrêtés : {count}",

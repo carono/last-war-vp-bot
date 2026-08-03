@@ -191,6 +191,42 @@ def test_the_orphans_of_a_run_that_is_gone_are_ended() -> None:
             orphan.kill()
 
 
+def test_one_child_that_will_not_be_judged_does_not_abort_the_cleanup() -> None:
+    """A process ending mid-kill is ordinary, and used to throw out of the whole reap.
+
+    It cost a live run: `wait_procs` raised `NoSuchProcess`, the second orphan was left
+    running and the dead panel's file stayed on disk to be re-read for ever (#1212).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        first, second = _sleeper(), _sleeper()
+        dead = _dead_pid()
+        try:
+            path = _write_registry(tmp, dead, [_entry(first), _entry(second)])
+            boom = {"n": 0}
+            real = childrenmod._kill_tree
+
+            def flaky(pid, **kw):                 # the first kill dies of a vanished pid
+                boom["n"] += 1
+                if boom["n"] == 1:
+                    import psutil
+                    raise psutil.NoSuchProcess(pid)
+                return real(pid, **kw)
+
+            childrenmod._kill_tree = flaky
+            try:
+                assert childrenmod.reap(tmp) == 1, "the survivor was not ended"
+            finally:
+                childrenmod._kill_tree = real
+            assert _gone(second.pid), "the second orphan outlived the first one's failure"
+            assert not os.path.exists(path), "the dead run's file was left to be re-read"
+        finally:
+            for proc in (first, second):
+                try:
+                    proc.kill()
+                except Exception:                 # noqa: BLE001
+                    pass
+
+
 def test_a_live_owner_keeps_its_own_children() -> None:
     """A second panel, or a standalone tab open beside this one, is not ours to tidy."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -204,6 +240,27 @@ def test_a_live_owner_keeps_its_own_children() -> None:
         finally:
             owner.kill()
             child.kill()
+
+
+def test_an_owner_younger_than_its_child_is_a_reissued_number() -> None:
+    """The pid is alive and is a python — and it started AFTER the child it «owns».
+
+    Windows hands a pid back within minutes and this box spawns pythons by the dozen,
+    so a dead panel's number reappearing as somebody else's python read as «still
+    running» and spared the orphan for ever. Caught live (#1212).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        orphan = _sleeper()                       # the child: started FIRST
+        time.sleep(1.2)
+        impostor = _sleeper()                     # a python that took the number later
+        try:
+            _write_registry(tmp, impostor.pid, [_entry(orphan)])
+            assert childrenmod.reap(tmp) == 1, "the reissued number spared the orphan"
+            assert _gone(orphan.pid)
+            assert _alive(impostor.pid), "the stranger holding the number was killed"
+        finally:
+            orphan.kill()
+            impostor.kill()
 
 
 def test_our_own_file_is_never_reaped() -> None:
@@ -266,6 +323,33 @@ def test_the_sweep_does_not_touch_what_the_panel_never_started() -> None:
         assert _alive(stranger.pid), "the sweep killed an unstamped process"
     finally:
         stranger.kill()
+
+
+def test_the_sweep_runs_in_a_process_of_its_own() -> None:
+    """A thread would starve the panel: the walk holds Python's lock for ~6 s.
+
+    Six or seven seconds during which one ttk widget costs 37–74 ms instead of 1 ms
+    (docs/research/panel-freezes.md §1). So the sweep is a CHILD, and what it killed
+    comes back as marker lines the panel says in its own language.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        orphan = _sleeper(owner=_dead_pid())
+        log = _Log()
+        factory = _factory(tmp, log)
+        try:
+            factory.reap()                        # file pass here, sweep in a child
+            child = [c for c in factory.live if "_cli" in " ".join(c.cmd)]
+            assert child, [c.cmd for c in factory.live]
+            assert _gone(orphan.pid, within=60), "the child sweep did not end the orphan"
+            # …and the panel said it, from the marker rather than from the child's words
+            for _ in range(100):
+                if any(k == "log.children.orphan" for _t, k, _f in log.said):
+                    break
+                time.sleep(0.1)
+            assert any(k == "log.children.orphan" for _t, k, _f in log.said), log.said
+        finally:
+            factory.stop_all()
+            orphan.kill()
 
 
 def test_the_factory_stamps_its_children_and_the_daemons_environment_stays_clean() -> None:

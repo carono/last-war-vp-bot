@@ -183,6 +183,12 @@ def _kill_tree(pid: int, *, grace: float = GRACE_SEC) -> bool:
 
     The grandchildren matter: a robbery tool that shells out to a capture would
     otherwise survive its parent and go on spending the day's budget by itself.
+
+    EVERY psutil call here is guarded, including the waits. A process ending of its own
+    accord in the middle of being killed is the ordinary case, not the exceptional one —
+    and the one unguarded wait threw `NoSuchProcess` out of the whole reap, which left
+    the rest of a dead run's children alive and its record on disk. It was invisible
+    until the failure got a log line of its own (#1212).
     """
     ps = _psutil()
     if ps is None:
@@ -200,19 +206,27 @@ def _kill_tree(pid: int, *, grace: float = GRACE_SEC) -> bool:
             member.terminate()
         except Exception:             # noqa: BLE001
             pass
-    gone, alive = ps.wait_procs(family, timeout=grace)
+    alive = _wait(ps, family, grace)
     for member in alive:
         try:
             member.kill()
         except Exception:             # noqa: BLE001
             pass
     if alive:
-        ps.wait_procs(alive, timeout=grace)
-    del gone
+        _wait(ps, alive, grace)
     try:
         return not proc.is_running() or proc.status() == ps.STATUS_ZOMBIE
     except Exception:                 # noqa: BLE001 — gone
         return True
+
+
+def _wait(ps, procs: list, timeout: float) -> list:
+    """Wait for ``procs``; answer with the ones still standing. Never raises."""
+    try:
+        _gone, alive = ps.wait_procs(procs, timeout=timeout)
+        return list(alive)
+    except Exception:                 # noqa: BLE001 — one of them vanished mid-wait
+        return [p for p in procs if _alive(getattr(p, "pid", None))]
 
 
 def _taskkill(pid: int) -> bool:
@@ -241,13 +255,22 @@ def _owner_of(path: str) -> "int | None":
     return int(stem) if stem.isdigit() else None
 
 
-def _owner_alive(pid: int) -> bool:
-    """Is the process that wrote a registry file still running?
+def _owner_alive(pid: int, since: "float | None" = None) -> bool:
+    """Is the process that started a child still running?
 
     ``True`` whenever the answer cannot be had — no psutil, no permission. An unknown
     owner is treated as a live one on purpose: the cost of being wrong that way is a
     stale file, and the cost of being wrong the other way is the running panel's
     monitors killed out from under it.
+
+    ``since`` is when the CHILD started, and it is what makes this survive a busy
+    machine. Windows hands a pid back within minutes, and this box spawns pythons by
+    the dozen: a dead panel's pid reappearing as somebody else's python reads as «the
+    owner is still running», and the orphan is then spared for ever. A parent cannot
+    have started after its own child, so an owner younger than the child it supposedly
+    spawned is a different process wearing the same number. Caught live: an orphan
+    survived a start-up because the number had been reissued in the seconds before it
+    (#1212).
     """
     ps = _psutil()
     if ps is None:
@@ -257,7 +280,11 @@ def _owner_alive(pid: int) -> bool:
         if not proc.is_running() or proc.status() == ps.STATUS_ZOMBIE:
             return False
         # A recycled pid belonging to something that is not a python is not a panel.
-        return (proc.name() or "").lower().startswith("py")
+        if not (proc.name() or "").lower().startswith("py"):
+            return False
+        if since and float(proc.create_time()) > float(since) + CTIME_SLACK:
+            return False              # younger than its «child»: a reissued number
+        return True
     except Exception:                 # noqa: BLE001 — gone, or not ours to look at
         return False
 
@@ -302,24 +329,37 @@ def reap(directory: str, *, say=None) -> int:
             continue
         path = os.path.join(directory, name)
         owner = _owner_of(path)
-        if owner is None or owner == mine or _owner_alive(owner):
+        if owner is None or owner == mine:
             continue
         try:
             with open(path, encoding="utf-8") as fh:
                 entries = json.load(fh).get("children") or []
         except Exception:             # noqa: BLE001 — an unreadable file is a stale one
             entries = []
+        # The file is read BEFORE the owner is judged: the oldest child in it is when
+        # that owner must already have been running, and that is what tells a live panel
+        # from a number the machine has since reissued (see `_owner_alive`).
+        started = min((float(e.get("ctime") or 0) for e in entries), default=0.0)
+        if _owner_alive(owner, started or None):
+            continue
         for entry in entries:
-            pid = entry.get("pid")
-            if not pid or not _same_process(int(pid), entry):
-                continue
-            if _kill_tree(int(pid)):
+            # One entry at a time, each on its own: a child that cannot be judged or
+            # killed must not take the rest of the list — or the removal of the file
+            # below — with it.
+            try:
+                pid = entry.get("pid")
+                if not pid or not _same_process(int(pid), entry):
+                    continue
+                if not _kill_tree(int(pid)):
+                    continue
                 killed += 1
                 if say is not None:
                     # `name`, not `tag`: `LogBus.say(tag, key, **fmt)` already has a
                     # parameter of that name and a format field would collide with it.
                     say("panel", "log.children.orphan",
                         name=entry.get("tag") or "?", pid=int(pid))
+            except Exception:         # noqa: BLE001 — one orphan, not the cleanup
+                continue
         _forget(path)
     return killed
 
@@ -329,6 +369,14 @@ def reap(directory: str, *, say=None) -> int:
 #: same process list to find that the first one had already tidied it.
 _SWEPT = threading.Lock()
 _SWEPT_DONE = False
+
+#: What the out-of-process sweep prints for each orphan it ended, so the panel can say
+#: it in the operator's language instead of logging the child's own words.
+SWEEP_MARKER = "##SWEPT##"
+
+#: …and how that process is started (:meth:`ChildFactory._sweep`). Run by hand with
+#: `python -m panel.runtime.children`, which does the same thing.
+SWEEP_ENTRY = "from panel.runtime.children import _cli; raise SystemExit(_cli())"
 
 
 def sweep(*, say=None) -> int:
@@ -363,15 +411,23 @@ def sweep(*, say=None) -> int:
         try:
             owner = (proc.environ() or {}).get(OWNER_VAR) or ""
             script = _script_of(proc.cmdline() or [])
+            started = float(proc.create_time())
         except Exception:             # noqa: BLE001 — not ours to look at
             continue
-        if not owner.isdigit() or int(owner) == mine or _owner_alive(int(owner)):
+        # …and the child's own start time settles a reissued number, exactly as in
+        # `reap`: an «owner» younger than this process never started it.
+        if not owner.isdigit() or int(owner) == mine \
+                or _owner_alive(int(owner), started):
             continue
-        if _kill_tree(pid):
+        try:                          # one orphan, never the rest of the walk
+            if not _kill_tree(pid):
+                continue
             killed += 1
             if say is not None:
                 say("panel", "log.children.orphan",
                     name=os.path.basename(script) or proc.info.get("name"), pid=pid)
+        except Exception:             # noqa: BLE001
+            continue
     return killed
 
 
@@ -513,40 +569,71 @@ class ChildFactory:
 
         Two passes because they answer different questions. :func:`reap` reads the
         record and is exact — a directory listing and a handful of pid lookups, so it
-        happens here and now. :func:`sweep` walks every process on the machine, which
-        took SIX SECONDS on the first call of a fresh process on the machine this was
-        written on; that is a boot nobody would forgive, so it goes on a thread of its
-        own. Nothing waits for it: an orphan ended a second late has cost nothing, and
-        this panel's own children are stamped with this pid and are never candidates.
+        happens here and now. :func:`sweep` walks every process on the machine, six or
+        seven seconds of it, and goes into a process of its own (:meth:`_sweep`); nothing
+        waits for it, because an orphan ended a second late has cost nothing.
 
-        Neither pass may stop a start-up, so both are wrapped.
+        Neither pass may stop a start-up — but a pass that fails SAYS SO. Both were
+        silent to begin with, and a live run where an orphan died with nothing in the
+        log cost an hour of working out which of the two had done it and why the other
+        had not. A cleanup nobody can see is a cleanup nobody can trust.
         """
         killed = 0
         directory = self._dir()
         if directory is not None:
             try:
                 killed += reap(directory, say=self._log.say)
-            except Exception:         # noqa: BLE001 — cleaning up never stops a start-up
-                pass
+            except Exception as exc:  # noqa: BLE001 — cleaning up never stops a start-up
+                self._log.say("panel", "log.children.failed", error=exc)
         if killed:
             self._log.say("panel", "log.children.reaped", count=killed)
-        threading.Thread(target=self._sweep, name="panel-child-sweep",
-                         daemon=True).start()
+        self._sweep()
         return killed
 
     def _sweep(self) -> None:
-        """The machine-wide pass, off the Tk thread and once per process."""
+        """The machine-wide pass — IN ITS OWN PROCESS, and once per panel.
+
+        A thread would not do. The walk is six or seven seconds of Python holding
+        Python's lock, and while it runs everything the Tk thread does is ten to forty
+        times slower: one ttk widget goes from 1 ms to 37–74 ms, and a tab that builds in
+        180 ms takes nine seconds (docs/research/panel-freezes.md §1, measured by the
+        stall sampler that named this very sweep). A separate process has its own lock
+        and costs the panel nothing but the pipe it reads.
+
+        The child says what it killed with :data:`SWEEP_MARKER` and the panel says it in
+        the operator's language — a marker rather than words, exactly like the wire
+        listeners, because a child cannot know which language the window is in.
+        """
         global _SWEPT_DONE
         with _SWEPT:
             if _SWEPT_DONE:
                 return
             _SWEPT_DONE = True
+        killed: list = []
+
+        def on_line(line: str):
+            if not line.startswith(SWEEP_MARKER):
+                return None                       # the child's own words, logged as usual
+            parts = line.split(None, 2)
+            pid = parts[1] if len(parts) > 1 else "?"
+            killed.append(pid)
+            self._log.say("panel", "log.children.orphan",
+                          name=parts[2] if len(parts) > 2 else "?", pid=pid)
+            return False                          # the marker is machinery, not for the log
+
+        def on_exit() -> None:
+            if killed:
+                self._log.say("panel", "log.children.reaped", count=len(killed))
+
         try:
-            killed = sweep(say=self._log.say)
-        except Exception:             # noqa: BLE001 — cleaning up never stops a panel
-            return
-        if killed:
-            self._log.say("panel", "log.children.reaped", count=killed)
+            # `-c` rather than `-m`: `panel.runtime` imports this module, so running it
+            # as a module imports it twice and runpy says so on stderr — a warning the
+            # panel would then print into its log at every start.
+            mon = self.spawn("panel", [self.python(), "-u", "-c", SWEEP_ENTRY],
+                             on_line=on_line, on_exit=on_exit)
+            mon.start()
+        except Exception as exc:      # noqa: BLE001 — cleaning up never stops a panel
+            self._log.say("panel", "log.children.failed", error=exc)
 
     # -- the file ------------------------------------------------------------
     def _dir(self) -> "str | None":
@@ -592,3 +679,28 @@ def _alive(pid: "int | None") -> bool:
         return proc.is_running() and proc.status() != ps.STATUS_ZOMBIE
     except Exception:                 # noqa: BLE001
         return False
+
+
+# ---------------------------------------------------------------------------
+# `python -m panel.runtime.children` — the sweep, in a process of its own
+# ---------------------------------------------------------------------------
+def _cli() -> int:
+    """Walk the machine, end the orphans, print one marker line for each.
+
+    This is what :meth:`ChildFactory._sweep` starts. It prints rather than logs: the
+    panel that reads this pipe knows what language the window is in, and this process
+    does not.
+    """
+    def say(_tag, _key, *, name="?", pid="?", **_rest) -> None:
+        print(f"{SWEEP_MARKER} {pid} {name}", flush=True)
+
+    try:
+        sweep(say=say)
+    except Exception as exc:          # noqa: BLE001 — the panel logs what it reads
+        print(f"sweep failed: {exc}", flush=True)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())

@@ -53,6 +53,11 @@ The panel does such a walk at every start: the game-status probe
     STALL 1156 ms
       meanwhile 100% — panel-child-sweep: _pswindows.py:758 exe
 
+The sweep took the second cure: it is a CHILD PROCESS now
+(`ChildFactory._sweep` → `python -c "…_cli()"`), with its own interpreter lock and its
+own five seconds, and it reports what it ended through the pipe the panel already reads.
+The game-status probe is still on the panel's own lock.
+
 psutil caches its process map, so the SECOND walk costs nothing — which is why this is
 invisible to any measurement taken on a panel that has been open a while.
 
@@ -95,5 +100,6 @@ open, is **7–14 s**.
 * **A profile is silently not restored when a stale `panel.lock` is left behind** by a
   panel that was killed rather than closed. It reads as «open in another panel», so the
   operator's every switch to it pays the full build above.
-* **The machine-wide child sweep belongs off the panel's own lock** — a subprocess, or
-  a delay long enough that it cannot overlap a page build (#1212).
+* ~~The machine-wide child sweep belongs off the panel's own lock~~ — done in #1212: it
+  is a subprocess (see §1). The game-status probe's walk is still on the panel's lock at
+  every start, and is now the only one left.

@@ -178,6 +178,7 @@
   "log.chat.started": "monitor działa (pid {pid})",
   "log.chat.starting": "zaczynam czytać czat → {path}",
   "log.chat.stopped": "monitor zatrzymany",
+  "log.children.failed": "nie udało się posprzątać pozostałości poprzedniego uruchomienia: {error}",
   "log.children.orphan": "monitor z poprzedniego uruchomienia wciąż działał — {name} (pid {pid}); zatrzymany",
   "log.children.reaped": "zostały z poprzedniego uruchomienia i zostały zatrzymane: {count}",
   "log.children.stopped": "zatrzymane procesy w tle: {count}",

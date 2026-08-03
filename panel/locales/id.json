@@ -178,6 +178,7 @@
   "log.chat.started": "pemantau berjalan (pid {pid})",
   "log.chat.starting": "mulai membaca obrolan → {path}",
   "log.chat.stopped": "pemantau dihentikan",
+  "log.children.failed": "sisa dari sesi sebelumnya tidak bisa dibersihkan: {error}",
   "log.children.orphan": "monitor dari jalannya sesi sebelumnya masih berjalan — {name} (pid {pid}); dihentikan",
   "log.children.reaped": "tersisa dari sesi sebelumnya dan dihentikan: {count}",
   "log.children.stopped": "proses latar yang dihentikan: {count}",

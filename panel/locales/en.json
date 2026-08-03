@@ -178,6 +178,7 @@
   "log.chat.started": "the monitor is running (pid {pid})",
   "log.chat.starting": "starting to read the chat → {path}",
   "log.chat.stopped": "monitor stopped",
+  "log.children.failed": "the leftovers of a previous run could not be cleared: {error}",
   "log.children.orphan": "a monitor from a previous run was still going — {name} (pid {pid}); stopped",
   "log.children.reaped": "left over from a previous run and stopped: {count}",
   "log.children.stopped": "background processes stopped: {count}",

@@ -178,6 +178,7 @@
   "log.chat.started": "die Überwachung läuft (pid {pid})",
   "log.chat.starting": "beginne den Chat zu lesen → {path}",
   "log.chat.stopped": "Überwachung gestoppt",
+  "log.children.failed": "die Reste des letzten Starts ließen sich nicht beseitigen: {error}",
   "log.children.orphan": "ein Monitor vom letzten Start lief noch — {name} (PID {pid}); beendet",
   "log.children.reaped": "vom letzten Start übrig geblieben und beendet: {count}",
   "log.children.stopped": "beendete Hintergrundprozesse: {count}",
