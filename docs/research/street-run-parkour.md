@@ -473,7 +473,7 @@ this was a large gain: median 866 -> 2194 m, mean 1204 -> 2751, best 4606 -> 846
 reaching 3000 m 4 -> 18. The pre-fix median (866) matches what the bot really did live at the
 time (~900), which looked like good reason to trust the rest.
 
-**It did not survive contact.** A/B on one account (Casper), one session, three silent
+**It did not survive contact.** A/B on one account (<user2>), one session, three silent
 attempts per arm:
 
 | planner | attempts | median |

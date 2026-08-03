@@ -34,7 +34,7 @@ the whole list in `accountArr`:
 
 ```
 accountArr: 2 entries
-  [1] id=935  gameUid=1522777203000972  gameUserName=Carono          gameUserLevel=35  zone=APS935  power=241514404  alAbbr=TLou
+  [1] id=935  gameUid=<uid>  gameUserName=<PlayerName>          gameUserLevel=35  zone=APS935  power=241514404  alAbbr=<ALLY>
   [2] id=509  gameUid=2146058428000509  gameUserName=Игрок 3464d509  gameUserLevel=21  zone=APS509  power=4185296    alAbbr=RBs
 ```
 
@@ -80,7 +80,7 @@ What it held at the same moment the server said "two":
 
 | server | gameUid | HQ | what it really is |
 |--------|---------|----|-------------------|
-| 935 | …000972 | 35 | Carono, in play |
+| 935 | …000972 | 35 | <PlayerName>, in play |
 | 972 | …000972 | 35 | the server it was created on (the uid ends in it) |
 | 1012 | …000972 | 35 | a server it passed through |
 | 8118 | …000972 | 35 | a cross-server event server |

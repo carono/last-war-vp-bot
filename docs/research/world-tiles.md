@@ -31,7 +31,7 @@ sub-message (e.g. a base's `f3.f14` is the owner's name).
 
 | `f2` | count | kind | attribute sub-message (key fields) |
 |---|---|---|---|
-| 6 | 96 | **base** (player city) | `f3`: `f3`=HQ bId (`10100000`), `f4`=base level (35), `f14`=owner name (`"armaca"`), `f15`=alliance abbr (`"TLou"`), `f7`=alliance uuid, `f2`=player uuid, `f13`=10000 |
+| 6 | 96 | **base** (player city) | `f3`: `f3`=HQ bId (`10100000`), `f4`=base level (35), `f14`=owner name (`"<Player6>"`), `f15`=alliance abbr (`"<ALLY>"`), `f7`=alliance uuid, `f2`=player uuid, `f13`=10000 |
 | 7 | 97 | **mine / resource node** | `f6`: `f1`=amount/level, `f2`=1 |
 | 17 | 47 | **secret_task** (raidable SecretTask) | `f10`: `f2`=cfgId (`400703`), `f8`=expiry ms, `f9`=alliance uuid, `f100`=tile uuid |
 | 25 | 2 | **alliance city** ⟵ NEW | `f101`: `f10`=alliance name (`"The New Dawn"`), `f5`=alliance tag (`"CIan"`), `f4`=owner uid, `f7`=alliance uuid, `f15`=server, `f19`=`{uuid,pos,state,…}` |
@@ -75,7 +75,7 @@ resource mine but the enum `7` is `MonsterInvade`. Do not map one onto the other
 | message / manager | role |
 |---|---|
 | `push.running.boss.del` (and `.new`/`.add`) | roaming boss lifecycle (the lvl-19/22 "running monsters") |
-| `monster.invasion.boss.detail` | per-boss detail query → `{uuid, ownerName:"ofbi", allianceUid, allianceAbbr:"TLou", isProtected}` |
+| `monster.invasion.boss.detail` | per-boss detail query → `{uuid, ownerName:"<Player7>", allianceUid, allianceAbbr:"<ALLY>", isProtected}` |
 | `push.al.zombieRushPoint.change` | alliance zombie-rush spawn points → `{zombieRushPoint, allianceId}` |
 | `push.world.march.new` / `push.world.march.world.get.new` | marches (some target monsters; blob carries name, coords `x;y`, difficulty `"Normal"`, hero squad) |
 | `surprise.point.get.info` | event/surprise points (empty this run) |

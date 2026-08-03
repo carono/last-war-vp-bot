@@ -23,7 +23,7 @@ python tools/lastwar_proto.py capture.pcapng --json out.json    # full transcrip
 The client keeps **two** chat-carrying sockets alive at once:
 
 **A. Game gateway — `…:17935`, plain TCP, the `lastwar_proto.py` binary protocol.**
-The accelerator IP varies per session (`3.33.246.23`, `15.197.233.176`, … —
+The accelerator IP varies per session (`<server-ip>`, `15.197.233.176`, … —
 dialled bare, no DNS). This connection carries chat **control and low-rate**
 traffic only:
 - `common.chat.room.id` — the room registry (returns `country_<server>`,

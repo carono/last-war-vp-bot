@@ -37,7 +37,7 @@ reversible command.
 | `OpenProcess(PROCESS_DUP_HANDLE)` on the game | **granted** — `NtQueryObject` shows the DUP_HANDLE bit *kept*, not stripped. ACE here does not gate it. |
 | `DuplicateHandle` of the game's handles into us | **1406 / 1630 succeed** — once the x64 handle-truncation bug is fixed (see below). |
 | `ws2_32` on a duplicated handle | **works** — `getpeername` answers on hundreds of them, so `send()` is usable. The `WSAENOTSOCK` fear was wrong; no raw AFD IOCTL needed. |
-| Pinning the `:17935` game socket | **works, intermittently** — `getpeername` on a duplicated handle returned `3.33.246.23:17935` in 5 of 6 runs, uniquely identifying the game connection (handle e.g. `0x16a4`). |
+| Pinning the `:17935` game socket | **works, intermittently** — `getpeername` on a duplicated handle returned `<server-ip>:17935` in 5 of 6 runs, uniquely identifying the game connection (handle e.g. `0x16a4`). |
 
 `WSADuplicateSocket` itself stays **cooperative-only** (its `s` must be a socket
 in the *calling* process; the owner must call it naming our pid) and is unused —

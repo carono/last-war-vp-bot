@@ -455,11 +455,11 @@ def test_a_path_with_spaces_and_cyrillic_survives_the_xml():
     """Ordinary here: the install is wherever it was unpacked (#1196), and the account is
     the person's own. The definition is written UTF-16 for exactly this."""
     xml = autostartmod.task_xml(python=r"C:\Python312\pythonw.exe",
-                                repo=r"P:\projects abandoned\карono\last-war-vp-bot",
+                                repo=r"D:\Games\мои проекты\last-war-vp-bot",
                                 account="PC\\Игрок", run_level="LeastPrivilege")
     root = ET.fromstring(xml)
     assert (root.find(".//t:Actions/t:Exec/t:WorkingDirectory", NS).text
-            == r"P:\projects abandoned\карono\last-war-vp-bot")
+            == r"D:\Games\мои проекты\last-war-vp-bot")
     assert root.find(".//t:Principals/t:Principal/t:UserId", NS).text == "PC\\Игрок"
     # And it is handed to schtasks as UTF-16, which is the only encoding it reads.
     assert xml.startswith('<?xml version="1.0" encoding="UTF-16"?>')

@@ -24,7 +24,7 @@ confirmed live). The leader march carries everything a join needs:
 | `teamUuid`  | rally id (non-zero)                       |
 | `targetPos` | targetPointId (the join's point argument) |
 | `serverId`  | target server                            |
-| `ownerName` | player name (carries tags, e.g. `8888 Rock 8888`) |
+| `ownerName` | player name (carries tags, e.g. `<Player3>`) |
 
 `GetAllMarches()` returns **both sides** of a war; there is no reliable friend/foe field on the
 march, so "joinable" = "led by an alliance-mate". Join is validated after the fact (a new own
@@ -100,4 +100,4 @@ rally_join.py --cancel --team T --member M
 ```
 
 `--me` / `--leader` match names as a case-insensitive substring (handles tag-wrapped names like
-`8888 Rock 8888`).
+`<Player3>`).

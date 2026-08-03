@@ -20,7 +20,7 @@ python tools/lastwar_proto.py capture.pcapng --json out.json  # full transcript
 ## 1. Transport and endpoint map
 
 Custom binary over **plain TCP — no TLS**. Observed endpoint
-`3.33.246.23:17935` (AWS Global Accelerator). The client dials the accelerator
+`<server-ip>:17935` (AWS Global Accelerator). The client dials the accelerator
 IP directly with **no preceding DNS lookup**, so SNI/DNS filters will not find
 it — filter by frame shape or port instead.
 
@@ -42,11 +42,11 @@ main connection still dials a bare IP.
 
 | Flow | Volume | What it is |
 |---|---|---|
-| **TCP `3.33.246.23:17935`** | 23 KB up / 388 KB down | **The game.** Everything below decodes from this one connection. |
+| **TCP `<server-ip>:17935`** | 23 KB up / 388 KB down | **The game.** Everything below decodes from this one connection. |
 | TCP `129.226.1.157:80` | 14 KB up, 0 down | Tencent Cloud. Custom framing on port 80, not HTTP. Telemetry/SDK — undecoded, and it never gets a reply. |
 | UDP `129.226.1.x:8081` | ~7 KB | Tencent Cloud SDK. High-entropy, undecoded. |
 | UDP `129.226.1.157:137`, `101.32.143.x:137` | ~1.6 KB | NetBIOS-shaped `CKAAAA…` wildcard queries — SDK NAT-type probing. |
-| UDP `72.56.113.52:50080` | 21 892 pkts, 10.9 MB | **Not the game.** Header `48000001` + counter + max-entropy body, 1444 B MTU cap — reads as a VPN/tunnel. See open questions. |
+| UDP `<server-ip3>:50080` | 21 892 pkts, 10.9 MB | **Not the game.** Header `48000001` + counter + max-entropy body, 1444 B MTU cap — reads as a VPN/tunnel. See open questions. |
 | UDP `192.168.1.x` | ~450 KB | LAN traffic, not the game. Their first byte is `0x80` by coincidence, which is why `classify()` refuses to call UDP "GAME". |
 | TCP `lastwar-cdn.lastwarapp.net:443`, `lastwar-cdn.akamaized.net:443` | 55 KB / 53 KB down (B) | Asset CDN. TLS, not decoded, no gameplay. |
 | TCP `lastwar-us-translate.lastwargame.com:443` | 4.5 KB (B) | **Chat translation** service. TLS. The only game-adjacent endpoint that is genuinely separate. |
@@ -236,7 +236,7 @@ command name.
 
 **Capture C** — a 5-minute unattended live session
 (`results/live_5min_run3.log`, 301 s, 7395 packets / 260 frames across 145
-half-streams, one game endpoint `3.33.246.23:17935`). Worth contrasting with
+half-streams, one game endpoint `<server-ip>:17935`). Worth contrasting with
 the map-panning capture in `results/live_5min.log`: with the map idle, traffic
 collapses to keepalives and alliance pushes — 18 `world.get.block` in 5 minutes
 against 453 in under 2 minutes while scrolling. What an unattended capture
@@ -473,10 +473,10 @@ fastest; the losers get one handshake and are dropped. Observed in capture C:
 | Gateway | Provider | Role |
 |---|---|---|
 | `15.197.233.176:17935` | AWS Global Accelerator | winner — carried the whole session |
-| `172.65.210.24:17935` | Cloudflare | probed, 1 frame, dropped |
+| `<server-ip2>:17935` | Cloudflare | probed, 1 frame, dropped |
 | `34.145.128.94:17935` | Google Cloud | probed, 1 frame, dropped |
 
-**The game IP is not stable.** Capture A used `3.33.246.23`, capture C used
+**The game IP is not stable.** Capture A used `<server-ip>`, capture C used
 `15.197.233.176`, and in C the old address served plain TLS instead. Never
 hard-code it — match on the frame shape.
 
@@ -1324,7 +1324,7 @@ that capture has since been taken (below).
 #### Live-confirmed rally structure (task #995)
 
 A live 120 s passive capture (`tools/live_tshark.py` / raw `dumpcap` against
-`3.33.246.23:17935`, world 935, alliance TLou) caught a full alliance rally
+`<server-ip>:17935`, world 935, alliance <ALLY>) caught a full alliance rally
 lifecycle. Raw pcap + decoded extract: `results/rally/rally_live.pcapng`,
 `results/rally/rally_structure.json`.
 
@@ -1364,7 +1364,7 @@ rally runs, then grep the decoded transcript:
 
 ```bash
 # archive raw (small, endpoint-only) — dumpcap.exe from WSL, iface from `tshark.exe -D`
-dumpcap.exe -i 1 -f "host 3.33.246.23 and port 17935" -a duration:120 -w rally.pcapng
+dumpcap.exe -i 1 -f "host <server-ip> and port 17935" -a duration:120 -w rally.pcapng
 python tools/lastwar_proto.py rally.pcapng --grep 'alliance.march|world.march.new' --json out.json
 ```
 
@@ -1501,10 +1501,10 @@ and per-squad hero lists in nested LEN fields.
 - **DNS answers look proxied.** In capture B, `lastwar-cdn.lastwarapp.net` and
   `count.perplexity.ai` resolved to the *same* pair of IPs, and the capture is
   full of `198.18.x`/`198.19.x` benchmark-range addresses. Combined with the
-  `72.56.113.52:50080` tunnel, that suggests DNS is being answered
+  `<server-ip3>:50080` tunnel, that suggests DNS is being answered
   synthetically by a VPN client — so do not treat IP↔domain mappings from this
   capture as authoritative.
-- **`72.56.113.52:50080`** dominates by volume and is unidentified. Attribute
+- **`<server-ip3>:50080`** dominates by volume and is unidentified. Attribute
   it to a PID with `Get-NetUDPEndpoint` / `netstat -b` on the Windows side
   before concluding anything. If it is a tunnel, part of the capture may be
   traffic that is also visible in cleartext elsewhere.

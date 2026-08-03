@@ -272,7 +272,7 @@ Two things still owed:
   answer there is a fault to say out loud, not a fallback to use.
 
   Proof it is fixed: with both accounts up, the two daemons read two different games
-  (casper 6 alliancemates waiting / 1664 wounded, the console account 0 / 241). Before,
+  (<user2> 6 alliancemates waiting / 1664 wounded, the console account 0 / 241). Before,
   both readings were the console account's.
 
 ### 4.6 Foreground input — smaller than it looks

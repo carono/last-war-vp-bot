@@ -14,7 +14,7 @@ over TCP. Measured today: the second client stayed up for the whole session agai
 tasks out of the second account while the first one reported its own 209.
 
 ```
-session 1 (spame, console)            session 4 (casper, disconnected)
+session 1 (<user1>, console)            session 4 (<user2>, disconnected)
 ├─ LastWar.exe  ── lua_daemon :47654  ├─ LastWar.exe  ── lua_daemon :47655
 └─ tools/…  ─────────────────────── TCP ──────────────┘
 ```
@@ -81,7 +81,7 @@ name that says "myself" is refused.
 
 On a stock Windows client SKU only one session may be *connected* at a time, so an
 incoming RDP logon disconnects the console user. That did not happen here: during the
-connect both sessions read as `active`, and the console stayed with `spame` throughout.
+connect both sessions read as `active`, and the console stayed with `<user1>` throughout.
 The reason is on this machine:
 
 ```
@@ -120,7 +120,7 @@ headless-abilities instance.
   whose name contains lastwar" pinned it to the launcher, and the daemon never warmed.
   Both `clients()` and `il2cpp_probe.find_game_pid()` now match `lastwar.exe` exactly.
 * **One profile's `%TEMP%` is unreadable from another account.** A bootstrap script left
-  in `C:\Users\spame\AppData\Local\Temp` cannot be opened by `casper`; `cmd.exe` dies
+  in `C:\Users\<user1>\AppData\Local\Temp` cannot be opened by `<user2>`; `cmd.exe` dies
   with `0xc0000142` and leaves a message box and no log. The script the other session
   runs now lives under the repo (`results/logs/daemon-<port>.cmd`), which
   Authenticated Users can read.
@@ -142,17 +142,19 @@ Named instead of numbered, when a caller would rather not carry a port around:
 
 ```python
 from instance_manager import get_instance, status
-ev = get_instance("casper")        # or get_instance() for this session's client
+ev = get_instance("second")        # or get_instance() for this session's client
 ```
 
-`tools/lib/instance_manager.py` keeps the registry — the default pair `main` (:47654) and
-`casper` (:47655), overridable by `tools/data/instances.json` (see
-`instances.example.json`), with `LW_INSTANCE` naming the default for a whole process.
+`tools/lib/instance_manager.py` keeps the registry. By default it holds only `main`
+(:47654) — this session — because a second entry would have to name a Windows account,
+and no account name is right on somebody else's machine. Register one in
+`tools/data/instances.json` (copy `instances.example.json` beside it); `LW_INSTANCE`
+names the default instance for a whole process.
 Run it directly for a one-line health check of every instance:
 
 ```
   main       :47654  this session   warm  pid 102644
-  casper     :47655  casper         warm  pid 29352
+  second     :47655  <user2>        warm  pid 29352
 ```
 
 Two guards make the addressing safe:
@@ -185,7 +187,7 @@ So the profile also names the session, on **Настройки → Игра → 
 | Knob | Meaning |
 |---|---|
 | «Игра запущена в другой сессии Windows» | this profile's client is not the one on this desktop |
-| «Логин сессии» | the Windows user logged on to that session (`casper`) |
+| «Логин сессии» | the Windows user logged on to that session (`<user2>`) |
 
 …and **«Проверить»** beside them answers, in one line, which of the four states the
 profile is actually in: the box unticked (this desktop), ticked with no login, nobody
@@ -195,7 +197,7 @@ pid. A *disconnected* session is reported as disconnected and normal, because th
 how the second instance is meant to be left (§3.3).
 
 The port is the other half of the same answer, so the page says when the two disagree:
-a profile looking into `casper`'s session while its daemon port is still :47654 reads
+a profile looking into `<user2>`'s session while its daemon port is still :47654 reads
 one client's process list and presses the buttons of another. That warning sits under
 the two rows and appears the moment either knob makes it true.
 
@@ -207,7 +209,7 @@ clients inside that session. Two details are load-bearing:
   user's client comes back as "session 0", which reads as a service (`rdp_instance.py`
   learned this the same way, §3.4);
 * "nobody is logged on to that session" is reported as its own sentence — «пользователь
-  casper не залогинен» — never as `game not found`. Folding the two together is exactly
+  <user2> не залогинен» — never as `game not found`. Folding the two together is exactly
   what would have the watchdog relaunch a client that is alive. Every answer the probe
   gives is a `panel.i18n.Message` (the sentence and its locale key in one value), so the
   status strip says it in the panel's language and re-says it when the language changes.
@@ -242,7 +244,7 @@ The password for the second Windows account is stored once, by #1105's tool, and
 appears in the repo:
 
 ```bash
-C:\Python312\python.exe tools\launch_as_user.py --user casper --save-credential
+C:\Python312\python.exe tools\launch_as_user.py --user <user2> --save-credential
 ```
 
 `rdp_instance.py` copies it from there into the `TERMSRV/<server>` credential that mstsc

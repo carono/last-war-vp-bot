@@ -35,7 +35,7 @@ The scene switches were confirmed from the game's own Lua flags (Player.log mark
 ## The decisive finding — the server sends nothing on a scene switch
 
 `tshark` direction analysis of the raw pcap (`results/city_capture2.pcapng`), game flow
-`172.65.210.24:17935`:
+`<server-ip2>:17935`:
 
 | direction | frames with TCP payload |
 |---|---|
@@ -122,7 +122,7 @@ lastwar_proto.py results/coldload_game.pcapng --json results/coldload_decoded.js
 ```
 
 **The game server IP is not stable** (dialled without DNS): the cold session connected to
-`3.33.246.23:17935`, not the previous `172.65.210.24`. Filter by **port**, then pick the
+`<server-ip>:17935`, not the previous `<server-ip2>`. Filter by **port**, then pick the
 17935 peer with the most bytes. That flow carried **up 22,934 B / down 282,934 B** across a
 fresh connection (2 conns, 12 SYNs seen). Decoded: 528 messages, **303 server→client**.
 
@@ -224,5 +224,5 @@ self-describing; `bId`→building-type and `pId`→grid-position still need a co
 - `results/city_decoded.json`, `results/city_decoded2.json` — offline `lastwar_proto` decodes.
 - `results/city_entry.pcapng`, `results/city_entry.json` — dedicated clean World→City entry (75 up / 0 down; no city-side request).
 - `results/coldload_login.pcapng` — full cold-login capture (3 interfaces, from fresh SYN).
-- `results/coldload_game.pcapng` — the game flow extracted (`3.33.246.23:17935`, one interface, deduped).
+- `results/coldload_game.pcapng` — the game flow extracted (`<server-ip>:17935`, one interface, deduped).
 - `results/coldload_decoded.json` — 528 decoded messages incl. the 243-key `init` base snapshot.

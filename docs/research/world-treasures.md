@@ -44,8 +44,8 @@ f11 = {                          -- the treasure record
   1  = 1397117530950313784       -- treasure UUID  (this is what you claim)
   3  = "25193"                   -- cfgId   (config tables detect_event / world_treasure id 25193)
   5  = "3d4b9dee…43089"          -- alliance uuid
-  6  = "TLou"                    -- alliance abbr
-  7  = "1371213785000935"        -- finisher/operator uid (once dug)
+  6  = "<ALLY>"                    -- alliance abbr
+  7  = "<uid>"        -- finisher/operator uid (once dug)
   12 = "Uzilla"                  -- treasure name
   13 = 1785322473766             -- expiry ts
   16 = { 1=<uuid>, 3=500553, 4=8 }

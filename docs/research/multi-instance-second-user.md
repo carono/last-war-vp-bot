@@ -56,8 +56,8 @@ Two practical notes:
   `AddAccessAllowedAceEx` raises `OverflowError: Python int too large to convert to
   C long`. `_signed()` in the tool does that.
 
-Proof that this is load-bearing, measured on `charmap.exe` started as `casper` from
-session 1 (`spame`'s session):
+Proof that this is load-bearing, measured on `charmap.exe` started as `<user2>` from
+session 1 (`<user1>`'s session):
 
 | grants | result |
 |---|---|
@@ -76,7 +76,7 @@ session 1 (`spame`'s session):
 
 It needs **no privileges at all**, only the target's password, and it puts the child
 in the **caller's session** — the whole point. Verified: the child reports session 1,
-`tasklist /V` shows it owned by `Carono\casper`, and its window enumerates and draws
+`tasklist /V` shows it owned by `<PC>\<user2>`, and its window enumerates and draws
 on our desktop.
 
 `lpDesktop` accepts `NULL`, `""`, `"Default"`, `"WinSta0\Default"` — all equivalent
@@ -122,7 +122,7 @@ Controls, so the finding is about the token and not about a sick machine:
 * The client started **normally** by the interactive session owner, right after
   test 6, lives indefinitely (verified >90 s, ~1.3 GB resident).
 * Two clients *did* coexist on this machine before any of this — one per Windows
-  session (session 1 `spame`, session 3 `casper`). ACE therefore does not object to
+  session (session 1 `<user1>`, session 3 `<user2>`). ACE therefore does not object to
   two clients per machine.
 
 **The single-instance lock is not the barrier, and never was.** Two clients ran side

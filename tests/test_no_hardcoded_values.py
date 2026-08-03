@@ -35,16 +35,31 @@ sys.path.insert(0, str(_REPO / "tools" / "lib"))
 import game_paths as gp  # noqa: E402
 
 
-# `docs/` is prose by definition. `tests/` writes literals on purpose: it is what a
-# test asserts against — though NOT personal data, which is checked everywhere (see
-# `test_no_personal_identity_is_shipped`).
+# Which files the INSTALL-literal check skips, and it is now a very short list.
 #
-# `tools/archive/` and `tools/scratch/` used to be named here as well. They are not any
-# more, and not because the rule stopped applying to them: they are git-ignored, so
-# `git ls-files` never offers them and there is nothing left to exclude. A list of
-# exceptions that no longer excludes anything is worse than no list — it reads as
-# though those paths are still shipped and still forgiven.
+# `docs/` and `tests/` were on it, and that is precisely how 35 lines of real logins,
+# nicknames, a game uid and one developer's actual working directory sat in this
+# repository while this file reported ten passes. A guard that does not look does not
+# report «I did not look» — it reports «clean». The two are indistinguishable from the
+# outside, which makes an unexamined exclusion the most expensive line in a test.
+#
+# So: prose may SAY «FunFly» while explaining what the launcher is, and a test may
+# assert against a literal, because asserting is its job. Neither may carry a real
+# person, and neither may carry somebody's actual machine — `test_no_personal_identity_is_shipped`
+# and `test_no_absolute_path_of_one_machine` read every tracked file with no
+# exceptions at all.
+#
+# `tools/archive/` and `tools/scratch/` used to be named here too. They are not any
+# more, and not because the rule stopped applying: they are git-ignored, so
+# `git ls-files` never offers them and there is nothing left to exclude. An exception
+# that excludes nothing is worse than no exception — it reads as though those paths
+# are still shipped and still forgiven.
 SKIP_PREFIXES = ("docs/", "tests/")
+
+#: Everything tracked, prose included. What the personal-data and absolute-path checks
+#: walk, because neither has any business skipping a file.
+ALL_GLOBS = ("*.py", "*.bat", "*.cmd", "*.ps1", "*.json", "*.sh", "*.md", "*.lua",
+             "*.js", "*.txt", "*.cfg", "*.ini", "*.yml", "*.yaml")
 
 #: Where each value is allowed to be spelled out — the resolver, plus the files that
 #: legitimately show it to a person rather than use it.
@@ -83,6 +98,13 @@ def _tracked(*globs: str) -> list[str]:
     out = subprocess.run(["git", "ls-files", *globs], cwd=_REPO,
                          capture_output=True, text=True, check=True).stdout.split("\n")
     return [f for f in out if f and not f.startswith(SKIP_PREFIXES)]
+
+
+def _all_tracked() -> list[str]:
+    """Every tracked file, with NO exclusions — prose, tests and fixtures included."""
+    out = subprocess.run(["git", "ls-files", *ALL_GLOBS], cwd=_REPO,
+                         capture_output=True, text=True, check=True).stdout.split("\n")
+    return [f for f in out if f]
 
 
 def _read(rel: str) -> str:
@@ -170,10 +192,29 @@ def test_the_download_tree_is_not_the_install_tree():
 #: screen when a capture was recorded.
 PERSONAL = re.compile(
     r"\b(casper|spame"                        # Windows logins
-    r"|Carono|DeadMorozzz"                    # game nicknames
+    r"|Carono|DeadMorozzz"                    # game nicknames — the author's and others'
+    r"|Iwabo|mdw88|Korive|armaca|ofbi"        # …more players caught in recordings
     r"|TLou"                                  # an alliance tag
     r"|1522777203000972|1371213785000935)\b", # live game uids
     re.IGNORECASE)
+
+#: Cyrillic letters that are drawn exactly like Latin ones. A word mixing the two reads
+#: as ordinary text and matches nothing a plain pattern looks for — which is how
+#: `P:\projects abandoned\карono\…`, a real working directory, sat in a test through
+#: several green runs of this file. Every line is folded to Latin before it is
+#: searched, so a mixed-alphabet spelling meets the same pattern as a plain one.
+HOMOGLYPHS = str.maketrans({
+    "а": "a", "А": "A", "е": "e", "Е": "E", "о": "o", "О": "O",
+    "р": "p", "Р": "P", "с": "c", "С": "C", "х": "x", "Х": "X",
+    "у": "y", "У": "Y", "к": "k", "К": "K", "м": "m", "М": "M",
+    "т": "t", "Т": "T", "в": "b", "В": "B", "н": "h", "Н": "H",
+    "і": "i", "І": "I", "ѕ": "s", "Ѕ": "S", "ј": "j", "Ј": "J",
+})
+
+
+def _fold(line: str) -> str:
+    """The line as it LOOKS, not as it is encoded — see :data:`HOMOGLYPHS`."""
+    return line.translate(HOMOGLYPHS)
 
 #: The repository's own address is not personal data — it is where the project lives,
 #: and it has to be the real one for anybody to download it. Any line carrying it is
@@ -195,15 +236,16 @@ def test_no_personal_identity_is_shipped():
 
     Whole lines, quoted or not: comments and docstrings are exactly where the last
     Windows logins were hiding.
+
+    **`docs/` is checked too.** It was skipped as «prose the author signs», and that
+    reasoning was wrong twice over: research prose had 35 lines of real logins, a real
+    nickname, an alliance tag, a game uid and a `C:\\Users\\<login>\\…` path — and half
+    of those people are not the author, they are other players who happened to be on
+    screen when a capture was recorded. Prose is exactly where recorded data goes to
+    be forgotten.
     """
-    everything = subprocess.run(["git", "ls-files", *SOURCE_GLOBS, "*.md"], cwd=_REPO,
-                                capture_output=True, text=True,
-                                check=True).stdout.split("\n")
-    for rel in everything:
-        # `docs/` is prose, and prose the author signs: a name under a README is
-        # authorship, not a value the code acts on. Everything executable, and every
-        # fixture, is in scope — the untracked directories simply never appear.
-        if not rel or rel in PERSONAL_ALLOWED or rel.startswith("docs/"):
+    for rel in _all_tracked():
+        if rel in PERSONAL_ALLOWED:
             continue
         for i, line in enumerate(_read(rel).splitlines(), 1):
             if REPO_URL.search(line):
@@ -233,6 +275,100 @@ def test_the_second_client_asks_which_account_rather_than_guessing():
     users = [i.get("user") for i in instance_manager.DEFAULT_INSTANCES]
     assert users == [""], \
         f"the built-in registry names an account: {users!r} — register it instead"
+
+
+#: Any absolute path — a drive letter, or a WSL/Linux root. Deliberately broad: the
+#: point is that every one of them has to be JUSTIFIED below rather than merely look
+#: innocent, because «looks like an example» is exactly how a real working directory
+#: got in.
+MACHINE_PATH = re.compile(
+    r"""(?:(?<![A-Za-z\\])[A-Za-z]:[\\/](?![\\/])|/mnt/[a-z]/|/home/[a-z])""")
+#             ^ a `\` before the letter means an escape (`\d\d:\d\d` is a timestamp
+#               regex, not drive D:), never a disk.
+#            ^ `http://…` is `p:` + `//`, not drive P: — a URL is not a disk.
+
+#: Paths that name nothing real. A `<placeholder>`, an environment variable, an
+#: ellipsis or a `path/to` — all of them say «a path goes here» rather than «this
+#: path».
+PATH_PLACEHOLDER = re.compile(
+    r"<[^>]+>|PUT-A-|path[\\/]to|путь[\\/]к|\.\.\.|…|%[A-Za-z_]+%|\$\{?[A-Za-z_]+"
+    r"|\{[a-z_]+\}")
+
+#: The absolute paths this repository is allowed to write out, and why. **This list is
+#: the test.** Everything here is either a Windows location that is the same on every
+#: Windows, the installer's own documented default, or a made-up path used as an
+#: example or as test input — a name nobody's disk actually has.
+#:
+#: Adding a row is a decision: if a new path is real, it does not belong in the
+#: repository, and if it is invented, say so here. That is the whole mechanism —
+#: `P:\projects abandoned\…` would never have been written into this list, which is
+#: precisely why it has to exist for the check to mean anything.
+ILLUSTRATIVE = re.compile(
+    r"""(?ix)
+      C:[\\/]{1,2}Windows            # where Windows is on every Windows
+    | C:[\\/]{1,2}Python312          # install.bat's documented default
+    | C:[\\/]{1,2}Program\ Files
+    | /mnt/c/(Windows|Program\ Files|Python312)  # …the same three, seen from WSL
+    | (C:[\\/]{1,2}|/mnt/c/)Users[\\/]{1,2}(player2|you|\*|"\*")  # anonymised accounts
+    | C:[\\/]{1,2}tmp[\\/]                              # an invented scratch path
+    | [CD]:[\\/]{1,2}(Games|py|repos|LW)[\\/]       # invented example roots
+    | C:[\\/]{1,2}(LastWar|LastWarBot|a\.exe|nope|x\b)  # invented test inputs
+    | D:[\\/]{1,2}мои\ проекты                        # the Cyrillic-path test case
+    | Z:[\\/]                                          # the env-override test's drive
+    """)
+
+#: Where a concrete path is the subject rather than a decision.
+PATH_ALLOWED = {
+    "tests/test_no_hardcoded_values.py",   # this file spells them out to ban them
+    "tools/lib/game_paths.py",             # the resolver: the one place that may
+}
+
+
+def test_no_absolute_path_of_one_machine():
+    """No path that is true of one computer's disk and nobody else's.
+
+    This check did not exist, and on its absence `P:\\projects abandoned\\карono\\…` —
+    a real working directory, half-spelled in Cyrillic — rode into a test and sat
+    there through several green runs.
+
+    It is broad on purpose and forgiving only by name: every absolute path either
+    carries a `<placeholder>`, or is listed in :data:`ILLUSTRATIVE` as invented. There
+    is no rule that can tell a real `P:\\…` from an invented `D:\\…` by looking, so the
+    test does not try — it asks the author to have said which it is.
+    """
+    for rel in _all_tracked():
+        if rel in PATH_ALLOWED:
+            continue
+        for i, line in enumerate(_read(rel).splitlines(), 1):
+            folded = _fold(line)
+            hit = MACHINE_PATH.search(folded)
+            if not hit or PATH_PLACEHOLDER.search(folded) or ILLUSTRATIVE.search(folded):
+                continue
+            assert False, (
+                f"{rel}:{i} carries an absolute path ({hit.group(0)!r}). If it is real, "
+                f"ask tools/lib/game_paths.py or an environment variable; if it is an "
+                f"example, write a <placeholder> or declare it in ILLUSTRATIVE.\n"
+                f"    {line.strip()[:100]}"
+            )
+
+
+def test_a_homoglyph_spelling_does_not_slip_past():
+    """A word spelled half in Cyrillic must meet the same pattern as a plain one.
+
+    Not hypothetical: `P:\\projects abandoned\\карono\\…` — a real working directory,
+    with к-а-р in Cyrillic — sat in `tests/test_panel_autostart.py` through several
+    green runs of this file. A plain pattern cannot see it, and neither can a reviewer
+    reading the diff.
+
+    Folding is by SHAPE, not by sound: Cyrillic `к` is drawn like `k`, so `карono`
+    folds to `kapono`. That is the point — the spelling stops being invisible, and the
+    literal it hides behind stops being unsearchable.
+    """
+    assert _fold("карono") == "kapono"
+    assert _fold("Р:\\рrojects") == "P:\\projects"
+    assert PERSONAL.search(_fold("сasper")), "a folded login must still match"
+    assert MACHINE_PATH.search(_fold("Р:\\x")), \
+        "a folded drive letter must still match"
 
 
 def test_the_capture_tools_ask_rather_than_pin_the_port():

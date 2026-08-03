@@ -22,7 +22,7 @@ A shared map point is an ordinary `ChatMessage` with three distinguishing fields
 
 The bubble the player sees is rendered client-side from the attachment —
 `ChatMessage:getMessageWithExtra()` turns it into e.g.
-`[TLou] Carono (БЗ #935 X:567 Y:471)`. A consumer that only reads `getMsg()`
+`[<ALLY>] <PlayerName> (БЗ #935 X:567 Y:471)`. A consumer that only reads `getMsg()`
 sees `"?"`; `tools/chat_reader.py` already prefers `getMessageWithExtra()` for
 exactly this case.
 
@@ -125,7 +125,7 @@ Three sends through the tool landed in the EleNita DM room:
 | seq | what | rendered bubble |
 |---|---|---|
 | 132 | bare pin at 500,500 | ` (БЗ #935 X:500 Y:500)` |
-| 133 | `--my-base` | `[TLou] Carono (БЗ #935 X:567 Y:471)` |
+| 133 | `--my-base` | `[<ALLY>] <PlayerName> (БЗ #935 X:567 Y:471)` |
 | 134 | `--coords "X:512 Y:498" --coord-label "Тест координат"` | `Тест координат (БЗ #935 X:512 Y:498)` |
 
 seq 133 is shape-identical to `seq 125`, which the player produced by pressing
@@ -168,11 +168,11 @@ C:\Python312\python.exe tools\dispatch_tasks.py --alliance --ready --nearest --s
 C:\Python312\python.exe tools\chat_send.py --to <peerUid> \
     --coords "615,493" --coord-server 935 --coord-type 22 \
     --coord-label "Секретное задание" \
-    --coord-extra '{"uuid":…,"cfgId":…,"uname":"Iwabo","abbr":"TLou","dispatch":1}'
+    --coord-extra '{"uuid":…,"cfgId":…,"uname":"<Player2>","abbr":"<ALLY>","dispatch":1}'
 ```
 
 Verified live: `seq 137` in the EleNita room rendered
-`Секретное задание [TLou] Iwabo (БЗ #935 X:615 Y:493)` — field-for-field the same
+`Секретное задание [<ALLY>] <Player2> (БЗ #935 X:615 Y:493)` — field-for-field the same
 attachment shape the game's own tile-bubble share produced (`seq 126`, `seq 136`).
 
 `uuid` exceeds 2^53, so it must never be round-tripped through a float: it is read

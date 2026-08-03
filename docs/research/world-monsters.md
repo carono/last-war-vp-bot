@@ -51,7 +51,7 @@ play, not a bulk load (observed across the earlier world captures):
 
 | message | role / example |
 |---|---|
-| `monster.invasion.boss.detail` | **on-demand** query when you tap a boss → `{uuid, ownerName:"ofbi", allianceUid, allianceAbbr:"TLou", isProtected:true}` |
+| `monster.invasion.boss.detail` | **on-demand** query when you tap a boss → `{uuid, ownerName:"<Player7>", allianceUid, allianceAbbr:"<ALLY>", isProtected:true}` |
 | `push.running.boss.del` (and `.new`/`.add`) | roaming-boss lifecycle → `{uuid}` (spawn / move / death) |
 | `push.al.zombieRushPoint.change` | alliance zombie-rush spawn point → `{zombieRushPoint:5486330, allianceId}` |
 | chat/world ticker | e.g. `Ур. 130 Зомби-Босс (БЗ #935 X:519 Y:554)` — a lvl-130 Zombie-Boss at `(519,554)` (point `554519`) |
@@ -96,7 +96,7 @@ in **World**:
 - **`GoToUtil.FindMonster(arg)`** — the working entry. Navigates the camera to a world
   monster and opens its **attack popup**. Proven: `FindMonster(2)` (then `GoAttackMonster()`)
   centered on and opened the popup for a **lvl-120 «Зомби-Босс»** — rewards (rally-initiator /
-  seeker), `Найдено [TLou]mdw88`, stamina 20, recommended power 70M, and the orange
+  seeker), `Найдено [<ALLY>]<Player4>`, stamina 20, recommended power 70M, and the orange
   **«Точка сбора альянса»** (alliance rally) flag (`results/attack_monster.png`). The `arg` is
   **not** the level (`2` → a lvl-120 boss; `1` → nothing) — it behaves like a search
   category/slot, resolved server-side (the request packs a number via `SFSDataSerializer`;
@@ -150,7 +150,7 @@ The actual small monsters are the **roaming world zombies** (seen live at lvl 1/
   the found monster in any queryable manager (`MonsterLockDataManager.allMonster` stays `{}` —
   that manager is land-lock/PvE monsters, unrelated).
 - `GoToUtil.GoAttackMonster()` with no arg always opens the **alliance rally boss** popup
-  (lvl-120, «Найдено [TLou]mdw88», «Точка сбора альянса») — the alliance-shared target, not the
+  (lvl-120, «Найдено [<ALLY>]<Player4>», «Точка сбора альянса») — the alliance-shared target, not the
   `FindMonster`-selected small monster. Attacking a *specific* small monster needs its
   world-point object as the arg, which the client only produces from a real map tap
   (`OnClickWorldPoint`); it is not exposed in a live manager we could read.
@@ -164,7 +164,7 @@ of the small-monster field + ring-selection: `results/find_monster_lv8.png`.
 
 Corrected the "level-10" assumption: on the world map the **blue tank icons tagged 8/9/10 are
 Iron Mines** (resource nodes, wire `f2=7`) being harvested by alliance members — tapping one
-opened «Железный рудник 10 ур.» (`Добытчик [TLou]Korive, 370513/504000`), **not a monster**.
+opened «Железный рудник 10 ур.» (`Добытчик [<ALLY>]<Player5>, 370513/504000`), **not a monster**.
 The tag is the mine level. The real small monsters are the red **Behemoth "elites"** (lvl 3/33)
 and the roaming zombie squads.
 

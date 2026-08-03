@@ -69,7 +69,7 @@ National  custom_lang_<lang>_<server>
 Alliance  alliance_<serverId>_<allianceId>
 ```
 
-`selfUid` comes live from `ChatInterface.getPlayerUid()` (here 1522777203000972,
+`selfUid` comes live from `ChatInterface.getPlayerUid()` (here <uid>,
 server 935). EleNita's uid is 1697234600000972.
 
 ## Emoji — inline PUA glyphs

@@ -42,9 +42,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 
 import game_paths  # noqa: E402  (the client's process name — LW_GAME_EXE)
 
-POWERSHELL = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-NVIDIA_SMI = r"C:\Windows\System32\nvidia-smi.exe"
-TASKLIST = r"C:\Windows\System32\tasklist.exe"
+# Windows is not always on C:. `%SystemRoot%` is what every other tool in the repo
+# asks (tools/rdp_instance.py does the same), and it is set on every Windows there is.
+_SYS32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+POWERSHELL = os.path.join(_SYS32, "WindowsPowerShell", "v1.0", "powershell.exe")
+NVIDIA_SMI = os.path.join(_SYS32, "nvidia-smi.exe")
+TASKLIST = os.path.join(_SYS32, "tasklist.exe")
 
 # pid_153576_luid_0x00000000_0x0000fafa_phys_0_eng_0_engtype_3D
 _INSTANCE = re.compile(
