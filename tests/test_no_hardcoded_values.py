@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import pathlib
 import subprocess
 import sys
 from pathlib import Path
@@ -388,6 +389,61 @@ def test_a_homoglyph_spelling_does_not_slip_past():
     assert PERSONAL.search(_fold("сasper")), "a folded login must still match"
     assert MACHINE_PATH.search(_fold("Р:\\x")), \
         "a folded drive letter must still match"
+
+
+#: Directories that hold live data from a real account, on the machine that plays.
+#: Each is git-ignored, and that ignore is the ONLY thing between them and the public
+#: repository — there is no second line of defence, because the files are genuinely
+#: there in the working tree while the bot runs.
+PRIVATE_TREES = [
+    ("panel/profiles", "chat logs (real DMs, sender names and uids), per-account "
+                       "settings, session state"),
+    ("results",        "captures, traces and scans recorded off a live account"),
+    ("tools/scratch",  "throwaway RE probes"),
+    ("tools/archive",  "superseded probes, written against one machine"),
+]
+
+
+def test_the_trees_that_hold_live_data_stay_ignored():
+    """The private directories are ignored — checked, not assumed.
+
+    This test exists because of a near miss. A background grep, finished long after it
+    was started, surfaced `panel/profiles/default/chat_log.jsonl`: real direct
+    messages, with the sender names, the uids and the alliance of two actual people.
+    It was ignored and never at risk — but nothing verified that, and every other
+    check in this file reads only tracked files, so all of them would have gone on
+    reporting «clean» for as long as the ignore held and the exact moment it stopped.
+
+    An ignore rule is one line, edited by hand, with no test under it. Now there is
+    one: delete the line and this fails.
+    """
+    for path, what in PRIVATE_TREES:
+        if not (_REPO / path).exists():
+            continue          # not every machine has run every part of the bot
+        ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=_REPO).returncode
+        assert ignored == 0, (
+            f"{path}/ is NOT git-ignored, and it holds {what}. One `git add -A` "
+            f"publishes it."
+        )
+
+
+def test_nothing_untracked_is_waiting_to_be_committed_by_accident():
+    """Whatever `git add -A` would sweep up must be something we meant to ship.
+
+    The complement of the test above: a private tree can also leak by a file landing
+    OUTSIDE it. Anything untracked and unignored is listed here so a stray capture or
+    a pasted log is noticed while it is still a working-tree file.
+    """
+    out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
+                         cwd=_REPO, capture_output=True, text=True, check=True).stdout
+    stray = [l[3:] for l in out.split("\n") if l.startswith("??")]
+    # Source being added in the same commit is normal; data is not.
+    data = [f for f in stray if pathlib.Path(f).suffix.lower() in
+            (".jsonl", ".log", ".pcap", ".pcapng", ".png", ".jpg", ".csv", ".db")]
+    assert not data, (
+        f"untracked data files are neither ignored nor committed: {data[:5]}. "
+        f"Either they belong in a private tree, or .gitignore is missing a rule."
+    )
 
 
 def test_the_capture_tools_ask_rather_than_pin_the_port():
