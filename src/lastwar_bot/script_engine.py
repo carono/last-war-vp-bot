@@ -123,6 +123,13 @@ _LAUNCH_RE = re.compile(r'^LAUNCH\s+"([^"]+)"\s*$', re.IGNORECASE)
 _QUIT_GAME_RE = re.compile(r"^QUIT_GAME\s*$", re.IGNORECASE)
 _ATTACH_GAME_RE = re.compile(
     r"^ATTACH_GAME(?:\s+WITHIN\s+(\d+(?:\.\d+)?)\s*s?)?\s*$", re.IGNORECASE)
+# The opening half of the same story. LAUNCH spawns a process HERE, which is right for
+# one account and wrong for two: a profile whose client lives in another Windows
+# session (tools/rdp_instance.py) would get a third client on this desktop. START_GAME
+# starts it where the profile says it lives. See docs/dsl.md "Restarting the client".
+_START_GAME_RE = re.compile(
+    r'^START_GAME(?:\s+"([^"]+)")?(?:\s+WITHIN\s+(\d+(?:\.\d+)?)\s*s?)?\s*$',
+    re.IGNORECASE)
 
 #: How long ATTACH_GAME waits for the daemon to resolve the new client, when the
 #: script does not say. Resolving one is an il2cpp enumeration through a thread
@@ -131,6 +138,11 @@ _ATTACH_GAME_RE = re.compile(
 ATTACH_TIMEOUT_SEC = 120.0
 #: How long a QUIT_GAME waits for the client to actually disappear.
 QUIT_TIMEOUT_SEC = 30.0
+#: How long a START_GAME into ANOTHER Windows session waits for the client to appear.
+#: Only that route waits at all — a launch on this desktop is fire-and-forget, and the
+#: recipe's own `WAIT scene == city` is what says the base is up. Generous because a
+#: cold start behind a launcher update is minutes.
+START_TIMEOUT_SEC = 300.0
 _READ_TEXT_RE = re.compile(
     rf"^READ_TEXT\s+\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"
     rf"\s+INTO\s+profile\.({_IDENT})\s*$",
@@ -349,6 +361,13 @@ class LaunchStmt(_Stmt):
 @dataclass(slots=True)
 class QuitGameStmt(_Stmt):
     """Force-close the client this profile drives, and wait for it to go."""
+
+
+@dataclass(slots=True)
+class StartGameStmt(_Stmt):
+    """Start the client this profile drives, in the session the profile lives in."""
+    path: str | None = None
+    timeout: float = START_TIMEOUT_SEC
 
 
 @dataclass(slots=True)
@@ -613,6 +632,11 @@ def _parse_one(lines, i, indent):
     if _QUIT_GAME_RE.match(text):
         return QuitGameStmt(text=text, line_no=ln), i + 1
 
+    m = _START_GAME_RE.match(text)
+    if m:
+        return StartGameStmt(text=text, line_no=ln, path=m.group(1),
+                             timeout=float(m.group(2) or START_TIMEOUT_SEC)), i + 1
+
     m = _ATTACH_GAME_RE.match(text)
     if m:
         return AttachGameStmt(text=text, line_no=ln,
@@ -710,6 +734,12 @@ class Context:
     # (#1206) — so the token travels with the run as well.
     game_port: int | None = None
     game_token: str | None = None
+    # WHERE that client lives: the login of the Windows session it is in, or `None`
+    # for this desktop. The port says what to TALK to and this says where the process
+    # IS, which is a different question and the only one a launch can ask — there is
+    # nothing running yet to be attached to. `None` keeps every script started from a
+    # shell exactly as it was: the launcher spawns here (see START_GAME).
+    game_user: str | None = None
     # Script variables written by READ_LUA and tested by numeric IF/WHILE conditions.
     vars: dict = field(default_factory=dict)
     # Optional stop flag — anything with `.is_set()` (a threading.Event). Checked
@@ -832,6 +862,8 @@ class Interpreter:
                 self._do_launch(stmt)
             case QuitGameStmt():
                 self._do_quit_game(stmt)
+            case StartGameStmt():
+                self._do_start_game(stmt)
             case AttachGameStmt():
                 self._do_attach_game(stmt)
             case ReadTextStmt():
@@ -1562,6 +1594,48 @@ class Interpreter:
             self._fail(f"the client (pid {pid}) would not close")
         self._log(f"QUIT_GAME -> client pid {pid} closed")
 
+    def _do_start_game(self, stmt: StartGameStmt) -> None:
+        """Start the client this profile drives — in the session it lives in.
+
+        The opening half of what `QUIT_GAME` closes, and it has the same trap the other
+        way round. `LAUNCH` spawns a process on the desktop the panel is on, which is
+        the right answer for one account and the wrong one for two: a profile whose
+        client lives in another Windows session (tools/rdp_instance.py) would get a
+        THIRD client here — in front of whoever is using the machine, logged in to
+        nothing, while the account that was asked for went on being down.
+
+        Which session is `ctx.game_user`, the login the profile names. Nothing else can
+        answer it here: the port resolves the client through the daemon *attached* to
+        it, and at launch time there is no client to be attached to.
+
+        Two shapes of "it did not work", kept apart because they want different things
+        done. A launcher that is not where the path says is a configuration mistake and
+        blows up like `LAUNCH`'s always has; a session nobody is logged on to, or a
+        client that never appeared, is a condition to try again later — so it FAILs in
+        words, and a timer retries it rather than counting the errand done.
+        """
+        self._tools_lib_on_path()
+        import game_client
+
+        user = (self.ctx.game_user or "").strip() or None
+        where = f"{user}'s session" if user else "this desktop"
+        try:
+            pid = game_client.start(stmt.path, user=user, timeout=stmt.timeout,
+                                    log=lambda msg: self._log(f"  {msg}"))
+        except FileNotFoundError as exc:
+            raise ScriptRuntimeError(
+                f"line {stmt.line_no}: launcher not found at {exc}"
+            ) from exc
+        except LookupError as exc:
+            self._fail(str(exc))
+        except TimeoutError as exc:
+            self._fail(str(exc))
+        except OSError as exc:
+            self._fail(f"could not start the client in {where}: {exc}")
+        else:
+            self._log(f"START_GAME -> launched in {where}"
+                      + (f" (client pid {pid})" if pid else ""))
+
     def _do_attach_game(self, stmt: AttachGameStmt) -> None:
         """Point the warm daemon at the client that is running NOW.
 
@@ -1647,6 +1721,7 @@ def new_context(
     cancel: Any = None,
     game_port: int | None = None,
     game_token: str | None = None,
+    game_user: str | None = None,
 ) -> Context:
     """A run context, optionally pre-seeded with script variables.
 
@@ -1655,14 +1730,17 @@ def new_context(
     them with the ordinary ``IF x > 3`` / ``WHILE x > 0`` conditions.
 
     `game_port` / `game_token` name WHICH client this run drives and under whose lease;
-    left out, the environment answers as it always has (see :class:`Context`).
+    `game_user` names the Windows session it lives in, which is the only one of the
+    three a launch can use. Left out, the environment and this desktop answer as they
+    always have (see :class:`Context`).
 
     Pass the same context to several `run_action` / `run_text` calls to run them
     as one session: variables, the last FIND and the Lua evaluator are shared, so
     a sequence costs one daemon connection rather than one per step.
     """
     ctx = Context(hwnd=hwnd, on_event=on_event or (lambda _msg: None), profile=profile,
-                  cancel=cancel, game_port=game_port, game_token=game_token)
+                  cancel=cancel, game_port=game_port, game_token=game_token,
+                  game_user=game_user)
     if variables:
         ctx.vars.update(variables)
     return ctx
@@ -1678,6 +1756,7 @@ def run_action(
     cancel: Any = None,
     game_port: int | None = None,
     game_token: str | None = None,
+    game_user: str | None = None,
 ) -> bool:
     """Convenience: parse and execute the named action.
 
@@ -1687,12 +1766,12 @@ def run_action(
 
     `variables` seeds ``ctx.vars`` (see :func:`new_context`); `ctx` runs in an
     existing context instead of a fresh one, which is how a caller chains several
-    actions into one session. `game_port` / `game_token` are ignored when `ctx` is
-    given — the context already names its own client.
+    actions into one session. `game_port` / `game_token` / `game_user` are ignored when
+    `ctx` is given — the context already names its own client.
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token)
+                          game_port, game_token, game_user)
     return Interpreter(ctx).run_action(name)
 
 
@@ -1707,6 +1786,7 @@ def run_text(
     label: str = "inline",
     game_port: int | None = None,
     game_token: str | None = None,
+    game_user: str | None = None,
 ) -> bool:
     """Execute DSL source given as text — the same language as an action file.
 
@@ -1720,7 +1800,7 @@ def run_text(
     """
     if ctx is None:
         ctx = new_context(hwnd, on_event, profile, variables, cancel,
-                          game_port, game_token)
+                          game_port, game_token, game_user)
     interp = Interpreter(ctx)
     interp._log(f"> {label}")
     interp._depth += 1

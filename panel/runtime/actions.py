@@ -64,8 +64,9 @@ class ActionRunner:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
-        # callable() -> {"game_port": int, "game_token": str} — WHICH client this
-        # runner's scenarios drive, and under whose lease. See :meth:`_target`.
+        # callable() -> {"game_port": int, "game_token": str, "game_user": str} —
+        # WHICH client this runner's scenarios drive, under whose lease, and in which
+        # Windows session it lives. See :meth:`_target_kw`.
         self._target = target
         # What is being played, for the strip along the bottom of the window
         # (panel/runtime/activity.py). A scenario is the longest thing the panel ever
@@ -82,6 +83,12 @@ class ActionRunner:
         correctly drove the other one, and two profiles open at once could not both be
         right at all (#1206). A runner built without a target keeps the old behaviour,
         which is what a bare harness wants.
+
+        `game_user` is the third of them and the one a LAUNCH could never use: it names
+        the Windows session the client lives in, which is what `START_GAME` needs and
+        what the port cannot say — a client that is not running yet has no daemon
+        attached to it (#1218). Absent means this desktop, so it is left out rather
+        than sent as an empty string.
         """
         if self._target is None:
             return {}
@@ -89,7 +96,7 @@ class ActionRunner:
             target = self._target() or {}
         except Exception:                 # noqa: BLE001 — a read, never the run
             return {}
-        return {key: target[key] for key in ("game_port", "game_token")
+        return {key: target[key] for key in ("game_port", "game_token", "game_user")
                 if target.get(key) is not None}
 
     # -- running ------------------------------------------------------------

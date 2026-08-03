@@ -415,7 +415,7 @@
   "senddiag.title": "Gửi chẩn đoán",
   "senddiag.warning": "Không gửi bất kỳ thông tin cá nhân nào. Nhật ký chỉ chứa dữ liệu kỹ thuật về cách bảng chạy.",
   "session.check": "Kiểm tra",
-  "session.check.no_client": "phiên {session} ({state}) đã lên, nhưng không có {exe} nào chạy trong đó — hãy khởi động client bên trong phiên ấy.",
+  "session.check.no_client": "phiên {session} ({state}) đã lên, nhưng không có {exe} nào chạy trong đó — «{button}» sẽ khởi động một cái ở đấy.",
   "session.check.no_login": "ô đã đánh dấu, nhưng chưa gõ tên đăng nhập — không có phiên nào để nhìn vào.",
   "session.check.no_session": "không ai đăng nhập với tên {user}. Hãy dựng phiên lên trước — tools/rdp_instance.py --bring-up.",
   "session.check.off": "ô chưa đánh dấu: client của hồ sơ này chính là cái trên màn hình này.",

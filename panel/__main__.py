@@ -2768,10 +2768,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._say("game", "log.game.gone")
         if not self._opt_bool("watchdog"):
             return
-        # A client of another session cannot be put back from here — the recipe would
-        # start one on THIS desktop, which is a third client nobody asked for.
-        if self._elsewhere():
-            return
+        # A client of another session is put back too, and by the same recipe: it
+        # starts the launcher inside the session the profile names (#1218). It used to
+        # be refused here, because what the recipe did then was spawn a process on THIS
+        # desktop — a third client nobody asked for, while the account that had died
+        # stayed dead all night, which is the one case an overnight watchdog exists for.
         since = time.time() - self._watchdog_last
         if since < WATCHDOG_COOLDOWN_SEC:
             self._say("game", "log.game.watchdog_hold", mins=int(since // 60))
@@ -3193,11 +3194,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _elsewhere(self) -> bool:
         """Does this profile's client live in another Windows session? Say so if it does.
 
-        Starting and stopping it from here would act on the WRONG desktop in both
-        directions: the launcher would put a third client on this one, and a taskkill by
-        name would fell the client of whoever is farming here. The session's own client
-        is brought up and taken down from its own session (tools/rdp_instance.py); the
-        panel drives what is already there, over the daemon port.
+        What is left of a guard that used to cover BOTH ends of the client's life.
+        Starting one no longer needs it (#1218): `launch_game` starts the client in the
+        session the profile names, through the token that session already holds, so the
+        button and the watchdog reach the right desktop by themselves.
+
+        ENDING one still does. A force-close is `TerminateProcess` on a process owned by
+        another account, which this panel has no right to unless it is elevated — so a
+        restart aimed at another session would kill nothing and then wait for a client
+        that never went away. That session's client is taken down from its own session
+        (tools/rdp_instance.py --stop).
         """
         user = self._game_user()
         if not user:
@@ -3207,10 +3213,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     def _launch_game(self) -> None:
         # Launch through the same DSL recipe the bot uses: actions/launch_game.md
-        # (LAUNCH the launcher, then WAIT for the base screen). One source of truth
-        # for "start the game", shared by the panel and any scripted run.
-        if self._elsewhere():
-            return
+        # (START_GAME, then WAIT for the base screen). One source of truth for "start
+        # the game", shared by the panel and any scripted run — and the recipe is what
+        # knows WHERE this profile's client lives, so a profile farming a second account
+        # in its own Windows session presses the same button as everybody else.
         self._say("game", "log.game.launching")
         self._rt.play_async("launch_game")
 

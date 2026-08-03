@@ -415,7 +415,7 @@
   "senddiag.title": "Tanılamayı gönder",
   "senddiag.warning": "Hiçbir kişisel bilgi gönderilmez. Günlük yalnızca panelin nasıl çalıştığına dair teknik veri içerir.",
   "session.check": "Denetle",
-  "session.check.no_client": "{session} oturumu ({state}) ayakta, ama içinde çalışan bir {exe} yok — istemciyi o oturumun içinde başlat.",
+  "session.check.no_client": "{session} oturumu ({state}) ayakta, ama içinde çalışan bir {exe} yok — «{button}» orada bir tane başlatır.",
   "session.check.no_login": "kutu işaretli, ama bir kullanıcı yazılmamış — bakılacak bir oturum yok.",
   "session.check.no_session": "{user} olarak oturum açan yok. Önce oturumu ayağa kaldır — tools/rdp_instance.py --bring-up.",
   "session.check.off": "kutu işaretli değil: bu profilin istemcisi bu masaüstündeki.",

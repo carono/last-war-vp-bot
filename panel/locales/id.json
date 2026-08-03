@@ -415,7 +415,7 @@
   "senddiag.title": "Kirim diagnostik",
   "senddiag.warning": "Tidak ada data pribadi yang dikirim. Catatannya hanya berisi data teknis tentang bagaimana panel berjalan.",
   "session.check": "Periksa",
-  "session.check.no_client": "sesi {session} ({state}) menyala, tetapi tidak ada {exe} yang berjalan di dalamnya — jalankan kliennya di dalam sesi itu.",
+  "session.check.no_client": "sesi {session} ({state}) menyala, tetapi tidak ada {exe} yang berjalan di dalamnya — «{button}» menjalankan satu di sana.",
   "session.check.no_login": "kotaknya dicentang, tetapi tidak ada pengguna yang diketik — tidak ada sesi untuk dilihat.",
   "session.check.no_session": "tidak ada yang masuk sebagai {user}. Nyalakan dulu sesinya — tools/rdp_instance.py --bring-up.",
   "session.check.off": "kotaknya tidak dicentang: klien profil ini adalah yang di meja ini.",

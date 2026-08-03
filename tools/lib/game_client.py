@@ -1,10 +1,15 @@
-r"""Which game client this profile drives, and how to close it.
+r"""Which game client this profile drives, and how to start and close it.
 
 Everything else in the bot only ever needs the client to be *up*. A restart needs the
 opposite half: which process to end, and whether it really went away. That is not the
 same question as "is a LastWar.exe running", and answering it by process name is how a
 two-account box loses the wrong client — one Windows session per client
 (docs/research/multi-instance-rdp.md), and `taskkill /IM LastWar.exe` ends both.
+
+Starting one has the same trap the other way round. A launcher spawned from here lands
+on THIS desktop, so a profile whose client lives in another Windows session would get a
+third client in front of whoever is using the machine while its own account went on
+farming nothing. :func:`start` is the half that knows the difference.
 
 So the target is resolved from the narrowest evidence first:
 
@@ -39,6 +44,24 @@ GAME_EXE = "LastWar.exe"
 #: launcher over a client that is still exiting is how a relaunch ends up with no
 #: window at all.
 CLOSE_TIMEOUT_SEC = 30.0
+
+#: The launcher under a user's OWN profile. Per-user by construction — which is the
+#: whole reason a launch into another session resolves it *there* rather than
+#: expanding it here (see :func:`start`).
+DEFAULT_LAUNCHER = r"%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+
+#: How long a launch into another session waits for the client to appear. Generous on
+#: purpose: a cold start behind a launcher update is minutes, and the alternative to
+#: waiting is reporting a failure over a client that is on its way up.
+START_TIMEOUT_SEC = 300.0
+
+#: How long the SYSTEM hop itself is given — the scheduled task, not the game. It
+#: returns as soon as `CreateProcessAsUser` has, so this only ever fires when the
+#: elevation never happened at all.
+SYSTEM_HOP_TIMEOUT_SEC = 180.0
+
+#: How often the wait below looks for the new client.
+_POLL_SEC = 3.0
 
 # Windows: no console window for the taskkill fallback.
 _NO_WINDOW = 0x08000000
@@ -173,6 +196,143 @@ def wait_gone(pid: "int | None", timeout: float = CLOSE_TIMEOUT_SEC) -> bool:
             return False
         time.sleep(0.5)
     return True
+
+
+# -- starting it -------------------------------------------------------------
+#
+# Two routes, and the profile picks which by naming a Windows session or not:
+#
+#   * **No session named — this desktop.** `subprocess.Popen`, exactly what the DSL's
+#     `LAUNCH` has always done, and what every single-account box keeps doing.
+#   * **A session named — that session,** through `tools/session_launch.py`, which
+#     starts the launcher under the token that is ALREADY that session's interactive
+#     logon. That is the only arrangement the game's anti-cheat lets a second client
+#     live in (docs/research/multi-instance-rdp.md): process user and session owner are
+#     the same account, the launch is merely issued from outside. `WTSQueryUserToken`
+#     needs SeTcbPrivilege, so the call goes through the SYSTEM hop
+#     `tools/rdp_instance.py` already owns — one silent elevation and a throwaway
+#     scheduled task, the same route `--bring-up` takes.
+#
+# The wait afterwards is for the CLIENT, not the launcher: what `session_launch` starts
+# is `LastWarLauncher.exe`, which updates itself, then the game, and only then spawns
+# `LastWar.exe`. Returning at the launcher would report a start that has not happened.
+
+
+def _tools_on_path() -> None:
+    """Put `tools/` on `sys.path` — `tools/lib` is already there (see the top)."""
+    tools = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+
+
+def session_of(user: str) -> "int | None":
+    """The id of the Windows session ``user`` is logged on to, or ``None``.
+
+    ``None`` is "nobody by that name is logged on" — which is a state to say out loud
+    rather than to launch into: the session has to exist before anything can be started
+    inside it (`tools/rdp_instance.py --bring-up` makes one).
+    """
+    _tools_on_path()
+    import session_launch                     # noqa: PLC0415 — Windows-only
+    want = str(user).strip().lower()
+    for sess in session_launch.sessions():
+        if (sess.get("user") or "").strip().lower() == want:
+            return int(sess["id"])
+    return None
+
+
+def session_pids_of(session: int, game_exe: str = GAME_EXE) -> list:
+    """Every client inside one Windows session — another user's included.
+
+    `WTSEnumerateProcesses` rather than `ProcessIdToSessionId`, for the reason
+    tools/rdp_instance.py records: the latter needs query rights on the process, so a
+    foreign user's client comes back as "session 0" — which reads as a service and is
+    exactly the process being looked for. (`session_pids` above is the other half of
+    the same question, asked about OUR session, where psutil can answer it.)
+    """
+    import win32ts                            # noqa: PLC0415 — Windows-only
+    return [int(pid) for sid, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0)
+            if int(sid) == int(session) and (name or "").lower() == game_exe.lower()]
+
+
+def _shared_path(launcher: "str | None") -> "str | None":
+    """A launcher path that means the same file in any session, or ``None``.
+
+    ``%LOCALAPPDATA%\\…`` is per USER by construction: expanding it here would name the
+    PANEL user's installation and hand that path to the other account's token. An
+    absolute path with nothing left to expand is the same file for everybody, so it
+    travels — which is how a custom install (another drive, a portable copy) still
+    reaches a session that is not ours.
+    """
+    if not launcher:
+        return None
+    expanded = os.path.expanduser(os.path.expandvars(launcher))
+    if expanded != launcher or not os.path.isabs(expanded):
+        return None
+    return expanded
+
+
+def start(launcher: "str | None" = None, user: "str | None" = None,
+          timeout: float = START_TIMEOUT_SEC, game_exe: str = GAME_EXE,
+          log=None) -> "int | None":
+    """Start the client this profile drives. The client's pid when it can be known.
+
+    ``user`` is the login of the Windows session the client lives in; ``None`` means
+    this desktop, where nothing is waited for — the launcher is fire-and-forget and the
+    caller's own readiness test (`WAIT scene == city`) is what says the base is up.
+
+    Raises ``FileNotFoundError`` when the launcher is not where the path says (a
+    configuration mistake, not a condition to retry), ``LookupError`` when nobody is
+    logged on as ``user``, and ``TimeoutError`` when the client never appeared.
+    """
+    say = log or (lambda _msg: None)
+    if user and str(user).strip():
+        return _start_in_session(str(user).strip(), launcher, timeout, game_exe, say)
+    _start_here(launcher or DEFAULT_LAUNCHER, say)
+    return None
+
+
+def _start_here(launcher: str, say) -> None:
+    """The single-account case, unchanged: spawn the launcher as a detached child."""
+    path = os.path.expanduser(os.path.expandvars(launcher))
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    subprocess.Popen([path], cwd=os.path.dirname(path) or None, close_fds=True)
+    say(f"launcher started on this desktop: {path}")
+
+
+def _start_in_session(user: str, launcher: "str | None", timeout: float,
+                      game_exe: str, say) -> int:
+    session = session_of(user)
+    if session is None:
+        raise LookupError(f"nobody is logged on as {user}")
+    found = session_pids_of(session, game_exe)
+    if found:
+        # Not an error and not a second launch: the recipe's job is to get to "the
+        # client is up", and finding it already there is that job done.
+        say(f"a client is already running in {user}'s session (pid {found[0]})")
+        return found[0]
+
+    _tools_on_path()
+    import rdp_instance                       # noqa: PLC0415 — Windows-only
+
+    exe = _shared_path(launcher)
+    args = ["tools\\session_launch.py", "--session", str(session)]
+    args += ["--exe", exe] if exe else ["--game"]
+    say(f"starting the launcher in {user}'s session ({session}) through SYSTEM")
+    rc, text = rdp_instance.system_python(args, tag="game",
+                                          timeout=SYSTEM_HOP_TIMEOUT_SEC)
+    say(f"session_launch rc={rc}: {' '.join(text.split())[-200:]}")
+
+    deadline = time.time() + float(timeout)
+    while time.time() < deadline:
+        found = session_pids_of(session, game_exe)
+        if found:
+            say(f"client pid {found[0]} in {user}'s session")
+            return found[0]
+        time.sleep(_POLL_SEC)
+    raise TimeoutError(f"no client in {user}'s session after {timeout:.0f}s "
+                       f"(the launcher may still be updating)")
 
 
 # -- fallbacks ---------------------------------------------------------------

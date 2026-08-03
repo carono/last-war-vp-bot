@@ -283,6 +283,65 @@ runtime detects this and lazily re-finds the window on each WAIT
 iteration, so the same `WAIT screen == ...` form works whether the
 window already exists or is about to appear.
 
+`LAUNCH` is the generic "spawn a process" statement and it always spawns
+it **here**, on the desktop the bot is running on. To start the *game
+client* use `START_GAME` below, which knows where this profile's client
+lives.
+
+### `START_GAME ["path/to/launcher"] [WITHIN N s]`
+
+Start the game client **this profile drives**, in the Windows session it
+lives in. The opening half of what `QUIT_GAME` closes, and it has the
+same trap the other way round: a profile farming a second account runs
+its client in a Windows session of its own
+(`tools/rdp_instance.py`), and a launcher spawned from here would put a
+*third* client on this desktop while the account that was asked for
+stayed down.
+
+Which session is the profile's business, and the panel hands it to the
+run as `Context.game_user` — the login of the session's user. Nothing
+else can answer it at launch time: `QUIT_GAME` finds its client through
+the daemon *attached* to it, and there is no client to attach to yet.
+
+Two routes, picked by whether a session is named:
+
+- **no session — this desktop.** Exactly what `LAUNCH` does: spawn the
+  launcher as a detached child, return at once. Nothing is waited for;
+  the readiness test is the `WAIT scene == city` that follows.
+- **a session — that session,** through `tools/session_launch.py`, which
+  starts the launcher under the token that is *already* that session's
+  interactive logon. That is the only arrangement the game's anti-cheat
+  accepts (`docs/research/multi-instance-rdp.md`): the process user and
+  the session owner are the same account, the launch is merely issued
+  from outside. It needs `SeTcbPrivilege`, so it goes through the SYSTEM
+  hop `tools/rdp_instance.py` owns — one silent elevation and a
+  throwaway scheduled task, the same route `--bring-up` takes. This
+  route then **waits for the client**, not for the launcher, because
+  `LastWarLauncher.exe` updates itself and only then spawns the game.
+  Default window: 300 s, `WITHIN` overrides it. A client already running
+  in that session is the job already done, not an error.
+
+The optional path names the launcher. `%LOCALAPPDATA%\…` is per user by
+construction, so for a session that is not ours it is deliberately *not*
+expanded here — that session resolves its own install. An absolute path
+with nothing left to expand is the same file for both accounts and is
+used for either session, which is how a custom install still reaches an
+RDP profile. Omitted, the default is
+`%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe`.
+
+A launcher that is not where the path says is a blow-up (a configuration
+mistake). Nobody logged on as that user, or a client that never
+appeared, is a deliberate `FAIL` with words — a condition to try again
+later, which is what a timer does with it.
+
+```
+START_GAME "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+WAIT scene == city WITHIN 300s
+```
+
+That is `actions/launch_game.md`, which the panel's «Запустить игру»
+plays and `restart_game` calls.
+
 ### `QUIT_GAME`
 
 End the game client **this profile drives**, and wait until the process

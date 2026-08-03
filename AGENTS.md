@@ -134,6 +134,7 @@ screenshots/                           gitignored — runtime captures, debuggin
 | `STOP ["reason"]` | halt the whole action chain; runner stops on next check |
 | `CLOSE_WINDOW` | send WM_CLOSE to the game window |
 | `LAUNCH "path"` | spawn a detached process; `%VAR%` / `$VAR` / `~` are expanded |
+| `START_GAME ["path"] [WITHIN N s]` | start the game client **where this profile's client lives** — this desktop, or the Windows session the profile names, through `tools/session_launch.py` |
 | `QUIT_GAME` | force-close the client this profile drives (the pid its daemon holds), and wait for it to go |
 | `ATTACH_GAME [WITHIN N s]` | re-point the warm Lua daemon at the client running now — the other half of a restart |
 | `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]` | secret tasks read off the **wire**, not the screen; fills `MISSIONS` |
@@ -148,7 +149,8 @@ Conditions allowed in `IF` / `WHILE` / `WAIT`:
 ### Action scripts (`actions/`)
 
 Existing skills the user maintains:
-- `launch_game.md` — start the launcher, wait up to 5 min for base.
+- `launch_game.md` — start the launcher **in the Windows session this profile's
+  client lives in** (`START_GAME`), wait up to 5 min for base.
 - `go_to_base.md`, `go_to_world.md` — chrome-gated navigation.
 - `click_base_button.md`, `click_world_button.md` — leaf find+click.
 - `close_modals.md` — press ESC until the screen is recognised again.

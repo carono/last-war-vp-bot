@@ -415,7 +415,7 @@
   "senddiag.title": "Send diagnostics",
   "senddiag.warning": "No personal information is sent. The log contains only technical data about how the panel runs.",
   "session.check": "Check",
-  "session.check.no_client": "session {session} ({state}) is up, but no {exe} is running in it — start the client inside that session.",
+  "session.check.no_client": "session {session} ({state}) is up, but no {exe} is running in it — «{button}» starts one there.",
   "session.check.no_login": "the box is ticked, but no login is typed — there is no session to look in.",
   "session.check.no_session": "nobody is logged on as {user}. Bring the session up first — tools/rdp_instance.py --bring-up.",
   "session.check.off": "the box is not ticked: this profile's client is the one on this desktop.",

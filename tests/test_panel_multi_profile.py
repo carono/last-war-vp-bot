@@ -240,6 +240,51 @@ def test_the_runner_hands_the_interpreter_its_own_client() -> None:
     assert seen.get("game_token") == "tok9", seen
 
 
+def test_the_runner_hands_the_interpreter_the_session_the_client_lives_in() -> None:
+    """The third of the target's answers, and the only one a LAUNCH could use (#1218).
+
+    The port reaches a client through the daemon attached to it; `START_GAME` runs when
+    there is nothing to be attached to yet, so the Windows session has to travel with
+    the run or the launcher lands on the panel's own desktop.
+    """
+    seen: dict = {}
+
+    def fake_run_action(name, hwnd, **kw):
+        seen.update(kw)
+        return True
+
+    runner = ActionRunner(log=_Log(),
+                          target=lambda: {"game_port": 47655, "game_token": "tok9",
+                                          "game_user": "casper"})
+    saved = script_engine.run_action
+    script_engine.run_action = fake_run_action
+    try:
+        runner.run("launch_game")
+    finally:
+        script_engine.run_action = saved
+    assert seen.get("game_user") == "casper", seen
+
+
+def test_a_profile_on_this_desktop_names_no_session_at_all() -> None:
+    """`None` is left OUT rather than passed as one — "this desktop" is the default."""
+    seen: dict = {}
+
+    def fake_run_action(name, hwnd, **kw):
+        seen.update(kw)
+        return True
+
+    runner = ActionRunner(log=_Log(),
+                          target=lambda: {"game_port": 47654, "game_token": "",
+                                          "game_user": None})
+    saved = script_engine.run_action
+    script_engine.run_action = fake_run_action
+    try:
+        runner.run("launch_game")
+    finally:
+        script_engine.run_action = saved
+    assert "game_user" not in seen, seen
+
+
 def test_a_runner_without_a_target_says_nothing_and_the_environment_answers() -> None:
     """The old behaviour, kept for every harness and every one-tab window."""
     seen: dict = {}

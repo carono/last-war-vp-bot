@@ -456,6 +456,10 @@ class SettingsTab(PanelTab):
         fmt.pop("kind", None)
         if "state" in fmt:
             fmt["state"] = self._session_state_word(fmt["state"])
+        # The verdict that names a button spells the button out of the SAME key the
+        # button itself is drawn from, so the two can never drift into telling the
+        # person to press something that is no longer written there.
+        fmt["button"] = self.t("game.launch").strip("▶ ")
         try:
             self._session_verdict.configure(
                 text=self.t(f"session.check.{kind}", **fmt),

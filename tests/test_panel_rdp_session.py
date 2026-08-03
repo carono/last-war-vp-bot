@@ -318,6 +318,32 @@ def test_the_knobs_are_in_the_profile_defaults():
     assert settingsmod.DEFAULTS["rdp_user"] == ""
 
 
+def test_the_session_travels_to_a_scenario_beside_the_port():
+    """What the runtime hands a run: the port, the lease, and WHERE the client is.
+
+    The third one is the launch's (#1218). Without it `START_GAME` had nothing to go on
+    and the launcher landed on the panel's own desktop — a third client in front of
+    whoever is at the keyboard, while the account that was asked for stayed down.
+    """
+    from panel.runtime import host as hostmod
+
+    class _FakeGame:
+        token = "tok3"
+
+    class _Runtime:
+        settings = _Settings(rdp_session=True, rdp_user="casper", daemon_port=47655)
+        game = _FakeGame()
+        daemon_port = staticmethod(lambda: 47655)
+        game_target = hostmod.PanelRuntime.game_target
+
+    rt = _Runtime()
+    assert _Runtime.game_target(rt) == {"game_port": 47655, "game_token": "tok3",
+                                        "game_user": "casper"}
+    # …and a profile on this desktop names no session at all, rather than "".
+    _Runtime.settings = _Settings()
+    assert _Runtime.game_target(rt)["game_user"] is None
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

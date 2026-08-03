@@ -415,7 +415,7 @@
   "senddiag.title": "Enviar o diagnóstico",
   "senddiag.warning": "Nenhuma informação pessoal é enviada. O registro só tem dados técnicos sobre como o painel funciona.",
   "session.check": "Verificar",
-  "session.check.no_client": "a sessão {session} ({state}) está de pé, mas nenhum {exe} roda nela — inicie o cliente dentro daquela sessão.",
+  "session.check.no_client": "a sessão {session} ({state}) está de pé, mas nenhum {exe} roda nela — «{button}» inicia um lá.",
   "session.check.no_login": "a caixa está marcada, mas nenhum usuário foi digitado — não há sessão onde olhar.",
   "session.check.no_session": "ninguém está conectado como {user}. Levante a sessão primeiro — tools/rdp_instance.py --bring-up.",
   "session.check.off": "a caixa não está marcada: o cliente deste perfil é o desta área de trabalho.",

@@ -242,11 +242,18 @@ Two things still owed:
 * **Bringing one up from the panel.** Today `--bring-up` is a command line. A profile
   marked `rdp_session` should be able to start its session and its daemon from its own
   page. Wave 4, and it is a scenario plus a button, not new machinery.
-* **`launch_game.md` launches into THIS session.** `LAUNCH "%LOCALAPPDATA%\…"` starts the
-  client where the panel is. For an RDP profile the launch must go through
-  `tools/session_launch.py`. #1205's `QUIT_GAME` / `ATTACH_GAME` already target the
-  profile's own client (via the daemon's attached pid); the *launch* half does not yet.
-  Filed as its own task — it is an ability, so it is a scenario change, not a panel one.
+* ~~**`launch_game.md` launches into THIS session.**~~ **Done (#1218)**, and it was a
+  scenario change as predicted. `LAUNCH` — which always spawns on the desktop the panel
+  is on — became `START_GAME`, whose route is picked by the profile: this desktop when
+  it names no session, and `tools/session_launch.py` through the SYSTEM hop when it
+  does. The session travels with the run as `Context.game_user`, beside the port and
+  the lease, because the port cannot answer it: it reaches a client through the daemon
+  *attached* to it, and a launch happens when there is nothing to be attached to. Both
+  «Запустить игру» and the crash watchdog stopped refusing an RDP profile as a result.
+
+  The *ending* half is still refused there, and deliberately: a force-close is
+  `TerminateProcess` on another account's process, which an unelevated panel has no
+  right to. `tools/rdp_instance.py --stop` is where that lives.
 
 ### 4.6 Foreground input — smaller than it looks
 

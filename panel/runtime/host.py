@@ -14,6 +14,7 @@ from __future__ import annotations
 from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
 from .. import profile as profilemod
+from . import game_process
 from .actions import ActionRunner
 from .activity import Activity
 from .bus import EventBus
@@ -220,13 +221,21 @@ class PanelRuntime:
         return self.settings.opt_int("daemon_port", low=1, high=65535)
 
     def game_target(self) -> dict:
-        """Which client a scenario of THIS runtime drives, and under whose lease.
+        """Which client a scenario of THIS runtime drives, where it lives, under whose
+        lease.
 
-        Handed to the interpreter on every run (`Context.game_port` / `game_token`).
-        Read fresh each time rather than snapshotted: the port follows a profile switch
-        or an edited setting, and the token is only there for as long as the claim is.
+        Handed to the interpreter on every run (`Context.game_port` / `game_token` /
+        `game_user`). Read fresh each time rather than snapshotted: the port and the
+        session follow a profile switch or an edited setting, and the token is only
+        there for as long as the claim is.
+
+        The session is the one of the three that a launch can use. The port reaches a
+        client through the daemon attached to it, and `START_GAME` runs when there is
+        no client yet — so without this the launcher went onto the panel's own desktop
+        whatever the profile said, which is a third client nobody asked for (#1218).
         """
-        return {"game_port": self.daemon_port(), "game_token": self.game.token}
+        return {"game_port": self.daemon_port(), "game_token": self.game.token,
+                "game_user": game_process.profile_user(self.settings)}
 
     # -- «I am still here» --------------------------------------------------
     def start_heartbeat(self) -> None:

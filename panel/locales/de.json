@@ -415,7 +415,7 @@
   "senddiag.title": "Diagnose senden",
   "senddiag.warning": "Es werden keine persönlichen Daten gesendet. Das Protokoll enthält nur technische Angaben darüber, wie das Pult läuft.",
   "session.check": "Prüfen",
-  "session.check.no_client": "Sitzung {session} ({state}) läuft, aber kein {exe} darin — den Client innerhalb dieser Sitzung starten.",
+  "session.check.no_client": "Sitzung {session} ({state}) läuft, aber kein {exe} darin — «{button}» startet einen dort.",
   "session.check.no_login": "Das Häkchen ist gesetzt, aber kein Anmeldename eingetragen — es gibt keine Sitzung zum Nachsehen.",
   "session.check.no_session": "Niemand ist als {user} angemeldet. Die Sitzung zuerst hochfahren — tools/rdp_instance.py --bring-up.",
   "session.check.off": "Das Häkchen fehlt: Der Client dieses Profils ist der auf diesem Desktop.",

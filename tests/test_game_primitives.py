@@ -770,10 +770,25 @@ class FakeClient:
         self.attached = pid if attached is None else attached
         self.closed: list[int] = []
         self.reloads = 0
+        # …and the other end of its life: what START_GAME was asked for, what the
+        # launch is to raise (a missing launcher, a session nobody is logged on to),
+        # and the pid a successful launch into another session reports.
+        self.started: list[dict] = []
+        self.start_error: "Exception | None" = None
+        self.next_pid = 9999
 
     # the module surface the interpreter uses
     def target_pid(self, port=None, game_exe=None):
         return self.attached or self.pid
+
+    def start(self, launcher=None, user=None, timeout=None, game_exe=None, log=None):
+        self.started.append({"launcher": launcher, "user": user, "timeout": timeout})
+        if self.start_error is not None:
+            raise self.start_error
+        self.pid = self.next_pid
+        # A launch on this desktop is fire-and-forget and has no client pid to give;
+        # one into another session waits for the client and knows it.
+        return self.pid if user else None
 
     def running_pid(self, game_exe=None):
         return self.pid
@@ -982,6 +997,116 @@ def test_restart_recipe_closes_relaunches_and_re_attaches():
     guard = se.parse_text(body)[4]
     assert guard.condition == "scene != city", guard.condition
     assert type(guard.then_block[0]).__name__ == "FailStmt", guard.then_block
+
+
+# --- starting the client (START_GAME) ---------------------------------------
+
+def test_parse_start_game():
+    (s,) = se.parse_text("START_GAME")
+    assert isinstance(s, se.StartGameStmt), s
+    assert s.path is None and s.timeout == se.START_TIMEOUT_SEC, s
+    (s2,) = se.parse_text('START_GAME "C:\\Games\\LastWarLauncher.exe"')
+    assert s2.path == "C:\\Games\\LastWarLauncher.exe", s2
+    (s3,) = se.parse_text('START_GAME "C:\\a.exe" WITHIN 45s')
+    assert (s3.path, s3.timeout) == ("C:\\a.exe", 45.0), s3
+    (s4,) = se.parse_text("START_GAME WITHIN 45s")
+    assert s4.path is None and s4.timeout == 45.0, s4
+
+
+def test_start_game_on_this_desktop_names_no_session():
+    """The single-account case, which must keep behaving exactly like LAUNCH did."""
+    client = FakeClient(pid=None, attached=None)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None)
+    with _fakes(client):
+        assert se.run_text('START_GAME "C:\\a.exe"', ctx=ctx) is True
+    assert client.started == [{"launcher": "C:\\a.exe", "user": None,
+                               "timeout": se.START_TIMEOUT_SEC}], client.started
+
+
+def test_start_game_goes_to_the_windows_session_the_profile_names():
+    """The whole point (#1218): a profile farming a second account starts ITS client.
+
+    The port cannot answer this — it reaches a client through the daemon attached to
+    it, and there is nothing attached to at launch time — so the session travels on the
+    context beside it, and a launcher spawned here would have landed on this desktop.
+    """
+    client = FakeClient(pid=None, attached=None)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None,
+                     game_port=47655, game_user="casper")
+    with _fakes(client):
+        assert se.run_text("START_GAME WITHIN 60s", ctx=ctx) is True
+    assert client.started == [{"launcher": None, "user": "casper",
+                               "timeout": 60.0}], client.started
+
+
+def test_start_game_fails_in_words_when_nobody_is_logged_on():
+    """A session that is not up is a thing to try again later, not a broken script.
+
+    So it is a deliberate FAIL, with the reason the launcher gave: the panel shows
+    `ctx.fail_reason` verbatim and a timer retries rather than counting the errand done.
+    """
+    client = FakeClient(pid=None, attached=None)
+    client.start_error = LookupError("nobody is logged on as casper")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    with _fakes(client):
+        assert se.run_text("START_GAME", ctx=ctx) is False
+    assert ctx.failed and "casper" in ctx.fail_reason, ctx.fail_reason
+
+
+def test_start_game_fails_in_words_when_the_client_never_appeared():
+    client = FakeClient(pid=None, attached=None)
+    client.start_error = TimeoutError("no client in casper's session after 300s")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    with _fakes(client):
+        assert se.run_text("START_GAME", ctx=ctx) is False
+    assert ctx.failed and "no client" in ctx.fail_reason, ctx.fail_reason
+
+
+def test_a_launcher_that_is_not_there_blows_up_rather_than_failing():
+    """A path that names nothing is a configuration mistake, and LAUNCH always said so.
+
+    Kept apart from the two above on purpose: retrying it every hour would never help.
+    """
+    client = FakeClient(pid=None, attached=None)
+    client.start_error = FileNotFoundError("C:\\nope\\LastWarLauncher.exe")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None)
+    with _fakes(client):
+        assert se.run_text('START_GAME "C:\\nope\\LastWarLauncher.exe"', ctx=ctx) is False
+    assert not ctx.failed, "a missing launcher is a blow-up, not a FAIL to be retried"
+
+
+def test_launch_recipe_starts_the_game_where_the_profile_lives():
+    """actions/launch_game.md is the one way to start the client, in that order."""
+    path = se.resolve_action("launch_game")
+    assert path is not None, "actions/launch_game.md is missing"
+    body, _merged = se.prepare_source(path.read_text(encoding="utf-8"), {})
+    kinds = [type(s).__name__ for s in se.parse_text(body)]
+    assert kinds == ["StartGameStmt", "WaitStmt", "LogStmt"], kinds
+    assert "LAUNCH " not in body, \
+        "LAUNCH spawns on THIS desktop — a profile in another session gets a third client"
+
+
+def test_a_per_user_launcher_path_does_not_travel_to_another_session():
+    """`%LOCALAPPDATA%` names a different folder for every account.
+
+    Expanding it here and handing the result to the other session's token would start
+    the PANEL user's installation from that account — so a path with anything left to
+    expand stays home, and the session resolves its own install instead. An absolute
+    path with nothing to expand is the same file for everybody and travels.
+    """
+    import os
+
+    import game_client
+
+    assert game_client._shared_path(
+        r"%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe") is None
+    assert game_client._shared_path(None) is None
+    assert game_client._shared_path("LastWarLauncher.exe") is None, "not absolute"
+    # Absolute means absolute HERE, so the test says it in the running platform's
+    # words; the answer this asserts is the same one either way.
+    shared = (r"D:\Games\LastWarLauncher.exe" if os.name == "nt"
+              else "/opt/lastwar/LastWarLauncher.exe")
+    assert game_client._shared_path(shared) == shared
 
 
 def _main() -> int:
