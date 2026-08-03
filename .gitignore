@@ -56,13 +56,15 @@ sslkeys.log
 /players.json
 /result/
 
-# Every image, everywhere. Untracked as of #1220: each one is a crop of a running
-# game client — a screenshot of somebody's screen — and this repository is public.
-# The UI templates the vision paths match against live on the machine that runs the
-# bot and are cropped there with `python -m lastwar_bot.ui_region`; how, and what
-# depends on each, is in src/lastwar_bot/game/templates/README.md. Nothing fails
-# silently without them: FIND/CLICK raise a message that points at that file, and
-# screen detection answers «I cannot tell» instead of raising.
+# Every image, everywhere — development material, not source. Untracked as of #1220:
+# each one is a crop of a running game client, i.e. a screenshot of somebody's screen,
+# and this repository is public.
+#
+# Nothing shipped depends on them. The bot drives the game through the Lua daemon;
+# the pixel path that used to match against these templates survives only in
+# `src/lastwar_bot/actions/dev/` and in `tools/dev/`, and is not what any of the
+# working scenarios use. Whoever wants it crops their own with
+# `python -m lastwar_bot.ui_region` — see src/lastwar_bot/game/templates/README.md.
 *.png
 *.jpg
 *.jpeg
@@ -70,6 +72,11 @@ sslkeys.log
 *.bmp
 *.webp
 *.ico
+*.svg
+*.tif
+*.tiff
+*.psd
+*.mp4
 
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/
