@@ -76,7 +76,10 @@ class GameLink:
         self._env = env                   # callable: the child environment
         self._cwd = cwd
         self._script = daemon_script
-        self._on_state = on_state or (lambda state, ok: None)
+        #: "the daemon went warm / is starting / failed", said in one word. PUBLIC
+        #: and reassignable like `on_settled`: the shell rebinds it per session, so
+        #: the indicator that gets painted is the one on THAT profile's page (#1206).
+        self.on_state = on_state or (lambda state, ok: None)
         #: "an action has just let go of the game" — the shell re-reads its status strip
         #: there. A tab launched on its own has no strip and leaves it a no-op.
         self.on_settled = on_settled or (lambda: None)
@@ -130,11 +133,11 @@ class GameLink:
         port = self.port()
         if self.up():
             self._note("already warm on port %s", port)
-            self._on_state("warm", True)
+            self.on_state("warm", True)
             return True
         self._log.say("daemon", "log.daemon.starting")
         self._note("starting on port %s", port)
-        self._on_state("starting", None)
+        self.on_state("starting", None)
         try:
             subprocess.Popen(
                 [self._python(), self._script], cwd=self._cwd,
@@ -144,18 +147,18 @@ class GameLink:
         except Exception as exc:                      # noqa: BLE001
             self._log.say("daemon", "log.daemon.launch_failed", error=exc)
             self._note_error("launch failed")
-            self._on_state("error", False)
+            self.on_state("error", False)
             return False
         for _ in range(START_TRIES):
             if self.up():
                 self._log.say("daemon", "log.daemon.ready")
                 self._note("ready on port %s", port)
-                self._on_state("warm", True)
+                self.on_state("warm", True)
                 return True
             time.sleep(START_WAIT)
         self._log.say("daemon", "log.daemon.timeout")
         self._note_warn("did not come up on port %s within timeout", port)
-        self._on_state("none", False)
+        self.on_state("none", False)
         return False
 
     def restart(self) -> bool:
@@ -166,7 +169,7 @@ class GameLink:
         fresh one binding the port is the outcome either way.
         """
         self._log.say("daemon", "log.daemon.restarting")
-        self._on_state("starting", None)
+        self.on_state("starting", None)
         try:
             self.client.shutdown()
         except Exception as exc:                      # noqa: BLE001

@@ -76,6 +76,7 @@ if not __package__:
     __package__ = "panel"
 
 import ctypes
+import functools
 import logging
 import os
 import queue
@@ -386,41 +387,74 @@ list_actions = runtime.list_actions
 game_status = runtime.game_process.status
 
 
-class Panel(tk.Tk):
+class Panel(runtime.SessionScoped, tk.Tk):
+    """The window, and the profiles it has open.
+
+    ONE WINDOW, SEVERAL PROFILES (#1206). Everything below that reads `self._rt`,
+    `self._log`, `self._game` means «the profile whose page is showing» — which is what
+    those names always meant; there is simply more than one profile for them to mean it
+    about now. `SESSION_ATTRS` is the list of names that work that way and
+    `panel/runtime/session.py::SessionScoped` is how, in fifty lines with a test.
+
+    The window itself keeps only what is about the window: the menu, the geometry, the
+    splash, the update check. Everything else belongs to a `ProfileSession` and keeps
+    running whether or not its page is the one on screen.
+    """
+
+    #: The attributes that belong to the OPEN PROFILE rather than to the window
+    #: (docs/research/multi-profile-panel.md §9.1). Reads and writes of exactly these
+    #: go to the session showing; everything else is stored the ordinary way.
+    #:
+    #: A name that is a PROPERTY on this class is never routed, so the read-only
+    #: shorthands (`_settings`, `_loading`, `_daemon_up`, `_client`, `_busy`, …) are
+    #: deliberately absent — they already answer off `_binder` and `_game`, which are
+    #: here.
+    SESSION_ATTRS = frozenset({
+        # the runtime, and the pieces this file calls by their own names
+        "_rt", "_profiles", "_binder", "_i18n", "_logbus", "_tick", "_children",
+        "_game", "_actions", "_schedule", "_timers", "_triggers", "_timer_store",
+        # the technical loggers
+        "_dbg", "_dbg_ui", "_dbg_status_prev",
+        # the log pane
+        "_log", "_log_lines", "_log_kept", "_log_menu", "_log_filter_var",
+        # the tab area
+        "_main_nb", "_main_split", "_main_controls", "_lazy_tabs", "_plugin_tabs",
+        "_shown_tab",
+        # the two strips
+        "_status_var", "_status_lbl", "_status_msg", "_status_busy",
+        "_daemon_var", "_daemon_lbl",
+        # the account summary
+        "_dash_values", "_dash_stop", "_dash_err", "_dash_view",
+        # the map sweep
+        "_sweep_stop", "_sweep_at", "_sweep_pass",
+        # liveness and the watchdog
+        "_game_gone", "_game_was_up", "_watchdog_last",
+        # the DSL command line
+        "_cmd_var", "_cmd_at",
+    })
+
+    #: The outer notebook's style while ONE profile is open: the same layout with the
+    #: tab strip taken out of it, so a panel that never opens a second profile looks
+    #: exactly as it did before this existed.
+    _ONE_PAGE_STYLE = "OneProfile.TNotebook"
+
     def __init__(self, active_profile: str | None = None) -> None:
         super().__init__()
-        # THE RUNTIME (panel/runtime/): the profile and its settings, the translator,
-        # the log sink, the tick, the child factory, the link to the game and the
-        # action runner. A tab launched on its own builds the very same object around
-        # a bare root — which is what makes it launchable at all.
-        #
-        # An explicit --profile overrides the saved last-active profile, creating it
-        # on the fly if it does not exist yet.
-        profiles = profilemod.ProfileManager()
-        if active_profile:
-            profiles.set_active(active_profile)
-        self._rt = runtime.PanelRuntime(self, profiles=profiles,
-                                        defaults=SETTINGS_DEFAULTS,
-                                        daemon_state=self._daemon_state)
-        # The names the rest of this file (and the tests that borrow its methods)
-        # already use, pointing at the runtime's own pieces.
-        self._profiles = self._rt.profiles
-        self._binder = self._rt.settings
-        self._i18n = self._rt.i18n
-        self._logbus = self._rt.log
-        self._tick = self._rt.tick
-        self._children = self._rt.children
-        self._game = self._rt.game
-        # An action letting go of the game is when the status strip is stale — the link
-        # says so, and only a window that HAS a strip does anything about it.
-        self._game.on_settled = lambda: self.after(400, self._refresh_status)
-        self._actions = self._rt.actions
-        # «I am still here», once a minute, from this window's own event queue — the
-        # hourly scheduled check reads it (panel/runtime/autostart.py). Started HERE rather than
-        # in `_startup`: bringing the systems up takes tens of seconds, and a check that
-        # landed in the middle of that would find no beat and open a second panel.
-        self._rt.start_heartbeat()
-        self._binder.loading = True   # suppresses auto-save while we apply settings
+        # NOTHING IS ROUTED YET. `SessionScoped` sends a declared name to the showing
+        # session, and there is no session until the workspace has built one — so every
+        # attribute set between here and the first `_adopt` is plainly the window's.
+        self._current_session = None
+
+        # THE WORKSPACE (panel/runtime/workspace.py): which profiles this window holds
+        # open. `restore` opens whatever was open when it was last closed — for every
+        # panel before #1206 that is exactly one, the profile the saved pointer names,
+        # and `--profile` overrides which page is on top (creating it if it is new).
+        self._workspace = runtime.Workspace(
+            self, defaults=SETTINGS_DEFAULTS, log=self._session_complaint,
+            can_open=self._profile_is_free, refused=self._profile_held_elsewhere)
+        sessions = self._workspace.restore(first=active_profile)
+        # Adopted before anything is said or drawn: `self._t` is a session's translator.
+        self._adopt(self._workspace.current)
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
@@ -434,82 +468,24 @@ class Panel(tk.Tk):
         except Exception:             # noqa: BLE001
             self._splash = None
         self._splash_step("splash.profile", 0.12)
-        # Everything the panel says goes through one sink (panel/runtime/log.py): the
-        # queue this window drains, the profile's panel.log, and the debug log. The
-        # WIDGET is this shell's — a tab launched on its own has none, and says the
-        # same lines into the same two files.
-        self._log = None              # the widget, built by _build_ui
-        self._log_lines = 0           # lines in the widget, for the retention cap
-        self._log_kept: list = []     # every line this session, for a filter redraw
-        # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
-        # kept apart from panel.log and the UI widget. Pointed at the active profile
-        # here — before any _log_put — so the very first line and any start-up
-        # traceback already land in it. Two component loggers: `panel` for lifecycle
-        # and errors, `ui` for the mirror of every widget line. _dbg_status_prev
-        # remembers the last systems snapshot so only transitions are logged at INFO.
-        self._configure_debug_log()
-        self._dbg = self._rt.dbg("panel")
-        self._dbg_ui = self._rt.dbg("ui")
-        self._logbus.set_debug_logger(self._dbg_ui)
-        self._dbg_status_prev = None
         self._install_exception_logging()
-        self._dbg.info("panel starting — profile %r, version %s",
-                       self._profiles.active, APP_VERSION)
-        # Map sweep: the wrist that keeps the passive scan fed (panel/mapsweep.py).
-        self._sweep_stop = None       # threading.Event of the sweep loop, when running
-        self._sweep_at = 0            # index into the current pass's waypoints
-        self._sweep_pass = 0          # completed passes this session (for the log)
-        # Liveness: how many consecutive polls have found the game gone, and when
-        # the watchdog last relaunched it (see _refresh_status / _watchdog_check).
-        self._game_gone = 0
-        self._game_was_up = False
-        self._watchdog_last = 0.0
-        self._status_busy = False     # one status reading in flight at a time
-        # Account dashboard: the last readings and the poller's stop flag.
-        self._dash_values: dict = {}
-        self._dash_stop = None
-        self._dash_err = ""          # last complaint, so it is said once not per poll
-        # THE SCHEDULE (panel/runtime/schedule.py): errands on a clock and errands
-        # the wire sets off, sharing one single-file queue. It is the runtime's rather
-        # than the Timers tab's because it is what the panel does while nobody is
-        # looking — and the tab that edits the list may well be switched off.
-        self._splash_step("splash.triggers", 0.35)
-        self._schedule = self._rt.schedule
-        self._timers = self._schedule.timers
-        self._triggers = self._schedule.triggers
-        self._timer_store = self._schedule.store
-        # Two rules the schedule does not own: the rally auto-join's daily cap, and the
-        # squads it joins with. Both belong to the rally code (Tk-free on purpose, so
-        # they answer in a profile that does not show the tab); only the wiring is here.
-        self._schedule.register_gate("rally_auto_join",
-                                     lambda: rallygate.join_gate(self._rt),
-                                     lambda spent: rallygate.record_joins(self._rt, spent))
-        self._schedule.register_args("rally_auto_join", self._rally_join_args)
-
-
-
-        # The daemon this profile drives. A profile naming a non-default port drives
-        # the client of ANOTHER Windows session (tools/rdp_instance.py) — see
-        # SETTINGS_DEFAULTS. Re-pointed by `_rebind_daemon` on a switch or an edit.
         # Profile picker lives in a modal (menu → «Профиль»), not on the main page.
         # The var is always live; the combo exists only while that modal is open.
-        self._profile_var = tk.StringVar(value=self._profiles.active)
+        self._profile_var = tk.StringVar(value=self._workspace.current.name)
         self._profile_combo = None
         self._profile_win = None
         self._splash_step("splash.ui", 0.45)
+        self._build_outer()
+        # ONE PAGE PER OPEN PROFILE, each built under its own session so that every
+        # widget, every variable and every armed callback belongs to that profile.
+        for session in sessions:
+            self._open_session_page(session)
+        self._show(self._workspace.current)
         self._build_menu()
-        self._build_ui()
-        self._apply_settings_to_ui()  # restore this profile's saved values
-        self._loading = False
-        self._install_autosave()      # persist every subsequent change immediately
         self._restore_geometry()      # window size/position and the log sash
         self._install_resize_damper()  # …and keep dragging the frame cheap
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._pump_log()
-        self._open_panel_log()
         self._splash_step("splash.daemon", 0.6)
-        self._refresh_status()
-        self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
         # Bringing the systems up is the slow half of the boot — the monitors, the
         # schedule, the trigger listeners, the chat history, the daemon, the account
         # strip. It runs on its own thread (it waits on processes and on the game),
@@ -519,7 +495,13 @@ class Panel(tk.Tk):
         # why a freshly opened panel sat there unresponsive and half-drawn.
         self._boot_step: "queue.Queue[tuple]" = queue.Queue()
         self._boot_done = threading.Event()
-        threading.Thread(target=self._startup_boot, daemon=True).start()
+        self._boot_lock = threading.Lock()
+        # ONE THREAD PER SESSION, not one after another: `_ensure_daemon` blocks for up
+        # to half a minute, and two profiles must not mean two minutes of splash.
+        self._boot_left = len(sessions)
+        for session in sessions:
+            threading.Thread(target=self._startup_boot, args=(session,),
+                             daemon=True).start()
         self._await_boot()
         self._start_health_watch()
         # …and ask origin whether this checkout is still the current one — after a
@@ -535,14 +517,252 @@ class Panel(tk.Tk):
             self._splash = None
         self._reveal_window()
 
-    def _startup_boot(self) -> None:
-        """`_startup` with the splash told where it has got to, and an end signal."""
+    # -- the profiles this window has open ----------------------------------
+    #
+    # Three helpers and the rule they exist for. Routing (`SessionScoped`) answers
+    # «the session whose page is showing», which is right for a button and WRONG for a
+    # timer firing while the operator is looking at another profile. So the binding
+    # happens where work is SCHEDULED, never where an attribute is used: `_arm` binds
+    # what it arms, a thread is given a bound target, and an `after` that touches a
+    # declared name goes through `_later`. Get that right once at each of those places
+    # and every method in this file keeps working unchanged.
+
+    def _on(self, session):
+        """Act for ``session`` on THIS thread until the block ends.
+
+        Thread-local (`SessionScoped.session_scope`), not a swap of one shared
+        attribute: the boot runs a thread per open profile and they would otherwise
+        overwrite each other's idea of «the current profile» — which they did, and both
+        booted the same one.
+        """
+        return self.session_scope(session)
+
+    def _bound(self, func, session=None):
+        """``func``, re-entering the session it was made in whenever it is called."""
+        owner = session if session is not None else self._current_session
+        if owner is None:
+            return func
+
+        @functools.wraps(func)
+        def run(*args, **kw):
+            with self._on(owner):
+                return func(*args, **kw)
+        return run
+
+    def _later(self, delay_ms: int, func):
+        """`after`, bound — for a one-shot callback that touches this profile.
+
+        Never raises. Most callers are worker threads coming back to repaint something,
+        and `after` itself is a Tk call: from a worker, while the main thread is not
+        inside the event loop (which during the boot is most of the time), it raises
+        «main thread is not in main loop» and killed the whole worker. What is being
+        scheduled is always a repaint, and the poll behind it comes round again — so a
+        hand-over that cannot be made is dropped, not thrown.
+        """
         try:
-            self._startup()
+            return self.after(delay_ms, self._bound(func))
+        except (tk.TclError, RuntimeError):
+            return None
+
+    def _session_complaint(self, session, message: str) -> None:
+        """One session raised while the window was fanning something out at all of them."""
+        try:
+            with self._on(session):
+                self._log_put(f"[panel] {session.name}: {message}")
+                self._dbg.error("session %r: %s", session.name, message)
+        except Exception:                  # noqa: BLE001 — a complaint, not the panel
+            pass
+
+    def _profile_is_free(self, name: str) -> bool:
+        """Is ``name`` open in no OTHER panel? (ONE PANEL PER PROFILE.)
+
+        Two windows on two profiles is a way people work; two windows on the same
+        profile is the one that breaks quietly — both write its `config.json` over each
+        other and both drive its daemon. A profile this window already holds reads as
+        free, because the lock it is refused by is its own.
+        """
+        if self._workspace.get(name) is not None:
+            return True
+        return not autostartmod.locked(self._workspace.profiles, name)
+
+    def _profile_held_elsewhere(self, name: str) -> None:
+        try:
+            self._say("profile", "log.profile.held_elsewhere", name=name)
+        except Exception:                      # noqa: BLE001 — before there is a log
+            print(f"[profile] {name} is open in another panel", file=sys.stderr)
+
+    def _adopt(self, session) -> None:
+        """Point the window at ``session`` and fill in the names this file calls by hand.
+
+        The assignments land in the SESSION's state, not the window's, because every
+        one of them is declared in `SESSION_ATTRS`. Which is the whole trick: the two
+        hundred methods below go on saying `self._game` and mean this profile's.
+        """
+        self._current_session = session
+        rt = session.rt
+        self._rt = rt
+        self._profiles = rt.profiles
+        self._binder = rt.settings
+        self._i18n = rt.i18n
+        self._logbus = rt.log
+        self._tick = rt.tick
+        self._children = rt.children
+        self._game = rt.game
+        self._actions = rt.actions
+
+    def _show(self, session) -> None:
+        """Bring one open profile's page to the front. Nothing else changes.
+
+        Explicitly NOT a profile switch: the session that goes out of sight keeps its
+        daemon, its schedule, its captures and its claim. Only the window's own chrome
+        follows, because the menu and the title are the window's and are said in the
+        language of whatever profile is being looked at.
+        """
+        if session is None:
+            return
+        self._current_session = session
+        self._profile_var.set(session.name)
+        try:
+            self.title(self._t("app.title"))
+            self._build_menu()
+        except tk.TclError:                # the window is going away
+            pass
+
+    # -- the outer notebook: one page per open profile -----------------------
+    def _build_outer(self) -> None:
+        """The profile notebook, with a style that can hide its own tab strip."""
+        style = ttk.Style(self)
+        style.layout(self._ONE_PAGE_STYLE, style.layout("TNotebook"))
+        style.layout(f"{self._ONE_PAGE_STYLE}.Tab", [])       # no strip at all
+        self._outer = ttk.Notebook(self)
+        self._outer.pack(fill="both", expand=True)
+        self._outer.bind("<<NotebookTabChanged>>", self._on_session_tab_changed)
+
+    def _paint_outer(self) -> None:
+        """Show the profile strip only once there is more than one page to pick from."""
+        try:
+            self._outer.configure(style="TNotebook" if len(self._workspace) > 1
+                                  else self._ONE_PAGE_STYLE)
+        except tk.TclError:
+            pass
+
+    def _on_session_tab_changed(self, _event=None) -> None:
+        try:
+            page = self._outer.nametowidget(self._outer.select())
+        except (tk.TclError, KeyError):
+            return
+        session = next((s for s in self._workspace.sessions if s.page is page), None)
+        if session is None or session is self._current_session:
+            return
+        self._workspace.switch_to(session.name)
+        self._show(session)
+
+    def _open_session_page(self, session) -> None:
+        """Build one open profile: its page, its tabs, its log, its strips.
+
+        This is what the whole of `__init__` used to be, minus the window. It runs once
+        per session, under that session, so every widget it makes and every callback it
+        arms belongs to the profile it was made for.
+        """
+        page = ttk.Frame(self._outer)
+        session.page = page
+        self._outer.add(page, text=session.label())
+        self._paint_outer()
+        self._adopt(session)
+        self._binder.loading = True   # suppresses auto-save while we apply settings
+        # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
+        # kept apart from panel.log and the UI widget. Pointed at this profile before
+        # any _log_put, so the first line and any start-up traceback land in it. Two
+        # component loggers: `panel` for lifecycle and errors, `ui` for the mirror of
+        # every widget line. _dbg_status_prev remembers the last systems snapshot so
+        # only transitions are logged at INFO.
+        self._configure_debug_log()
+        self._dbg = self._rt.dbg("panel")
+        self._dbg_ui = self._rt.dbg("ui")
+        self._logbus.set_debug_logger(self._dbg_ui)
+        self._dbg_status_prev = None
+        self._dbg.info("panel starting — profile %r, version %s",
+                       self._profiles.active, APP_VERSION)
+        # Everything the panel says goes through one sink (panel/runtime/log.py): the
+        # queue this page drains, the profile's panel.log, and the debug log. The
+        # WIDGET is this page's — a tab launched on its own has none, and says the
+        # same lines into the same two files.
+        self._log = None              # the widget, built by _build_ui
+        self._log_lines = 0           # lines in the widget, for the retention cap
+        self._log_kept: list = []     # every line this session, for a filter redraw
+        # An action letting go of the game is when the status strip is stale — the link
+        # says so, and only a window that HAS a strip does anything about it. Both of
+        # these are called from the link's own thread, so both are BOUND: the indicator
+        # that gets painted must be the one on this profile's page.
+        self._game.on_settled = self._bound(
+            lambda: self._later(400, self._refresh_status))
+        self._game.on_state = self._bound(self._daemon_state)
+        # «I am still here», once a minute, from this window's event queue and once per
+        # OPEN PROFILE — the hourly scheduled check reads one per profile
+        # (panel/runtime/autostart.py), and a profile this panel is quietly farming
+        # must not read as stopped and have a second panel opened on it.
+        self._rt.start_heartbeat()
+        # Map sweep: the wrist that keeps the passive scan fed (panel/mapsweep.py).
+        self._sweep_stop = None       # threading.Event of the sweep loop, when running
+        self._sweep_at = 0            # index into the current pass's waypoints
+        self._sweep_pass = 0          # completed passes this session (for the log)
+        # Liveness: how many consecutive polls have found the game gone, and when
+        # the watchdog last relaunched it (see _refresh_status / _watchdog_check).
+        self._game_gone = 0
+        self._game_was_up = False
+        self._watchdog_last = 0.0
+        self._status_busy = False     # one status reading in flight at a time
+        # Account dashboard: the last readings and the poller's stop flag.
+        self._dash_values: dict = {}
+        self._dash_stop = None
+        self._dash_err = ""          # last complaint, so it is said once not per poll
+        # THE SCHEDULE (panel/runtime/schedule.py): errands on a clock and errands
+        # the wire sets off, sharing one single-file queue. One per open profile, so
+        # two accounts keep two schedules and neither waits for the other.
+        self._splash_step("splash.triggers", 0.35)
+        self._schedule = self._rt.schedule
+        self._timers = self._schedule.timers
+        self._triggers = self._schedule.triggers
+        self._timer_store = self._schedule.store
+        # Two rules the schedule does not own: the rally auto-join's daily cap, and the
+        # squads it joins with. Both belong to the rally code (Tk-free on purpose, so
+        # they answer in a profile that does not show the tab); only the wiring is here.
+        # Bound and captured, because the scheduler calls them from its own thread and
+        # they must read THIS profile's caps rather than the showing one's.
+        self._schedule.register_gate(
+            "rally_auto_join",
+            self._bound(lambda rt=self._rt: rallygate.join_gate(rt)),
+            self._bound(lambda spent, rt=self._rt: rallygate.record_joins(rt, spent)))
+        self._schedule.register_args("rally_auto_join",
+                                     self._bound(self._rally_join_args))
+        self._build_ui(page)
+        self._apply_settings_to_ui()  # restore this profile's saved values
+        self._loading = False
+        self._install_autosave()      # persist every subsequent change immediately
+        self._pump_log()
+        self._open_panel_log()
+        self._refresh_status()
+        self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
+
+    def _startup_boot(self, session=None) -> None:
+        """`_startup` for one session, with the splash told where it has got to.
+
+        The end signal is raised only when the LAST session has finished, so the splash
+        stays up until every open profile has its systems, not just the first.
+        """
+        session = session if session is not None else self._current_session
+        try:
+            with self._on(session):
+                self._startup()
         except Exception:            # noqa: BLE001 — a failed system is a log line,
-            self._dbg.error("startup failed", exc_info=True)   # not a dead panel
+            with self._on(session):                            # not a dead panel
+                self._dbg.error("startup failed", exc_info=True)
         finally:
-            self._boot_done.set()
+            with self._boot_lock:
+                self._boot_left -= 1
+                done = self._boot_left <= 0
+            if done:
+                self._boot_done.set()
 
     def _boot_at(self, key: str, progress: float) -> None:
         """Report a boot phase from the startup thread (drained by `_await_boot`)."""
@@ -903,9 +1123,17 @@ class Panel(tk.Tk):
                                           values=self._profiles.list())
         self._profile_combo.grid(row=0, column=1, sticky="we", padx=(8, 0))
         self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
+        # Said out loud, because the combo now does two things: a profile that is
+        # already open is gone to, one that is not is OPENED beside it (#1206).
+        self._tr(ttk.Label(frm, foreground="#888"), "profile.open_hint").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         btns = ttk.Frame(frm)
-        btns.grid(row=1, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        btns.grid(row=2, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        self._tr(ttk.Button(btns, command=lambda: self._switch_profile()),
+                 "profile.open").pack(side="left")
+        self._tr(ttk.Button(btns, command=lambda: self._close_profile()),
+                 "profile.close_one").pack(side="left", padx=6)
         self._tr(ttk.Button(btns, command=self._create_profile),
                  "profile.new").pack(side="left")
         self._tr(ttk.Button(btns, command=self._rename_profile),
@@ -948,14 +1176,68 @@ class Panel(tk.Tk):
                 pass
 
     def _switch_profile(self, name: str | None = None) -> None:
+        """Go to a profile: its page if it is open, a NEW page if it is not.
+
+        This used to re-point the one runtime the window had. It opens a second one
+        instead (#1206) — which is what «open a profile and run a daemon in it» asks
+        for, and it needs no new control: picking a profile that is not open is how you
+        open it, and picking one that is brings its page to the front. The one being
+        left keeps its daemon, its schedule and its captures; nothing is flushed,
+        because nothing is going away.
+        """
         name = name or self._profile_var.get()
-        if name == self._profiles.active:
+        session = self._workspace.get(name)
+        if session is not None:
+            if session is not self._current_session:
+                self._outer.select(session.page)
             return
-        self._save_settings()                 # flush the profile we are leaving
-        self._profiles.set_active(name)
-        self._settings = self._profiles.load()
-        self._reload_active_profile()
-        self._say("profile", "log.profile.active", name=name)
+        self._open_profile(name)
+
+    def _open_profile(self, name: str) -> None:
+        """Open one more profile beside the ones already open, and go to it."""
+        if not self._profile_is_free(name):
+            self._profile_held_elsewhere(name)
+            messagebox.showwarning(self._t("panel.busy.title"),
+                                   self._t("panel.busy", profile=name),
+                                   parent=self._profile_dialog_parent())
+            return
+        session = self._workspace.open(name)
+        self._open_session_page(session)
+        self._outer.select(session.page)
+        self._show(session)
+        self._say("profile", "log.profile.opened", name=session.name)
+        # Its systems come up on their own thread, exactly as they do at boot: the
+        # daemon alone can block for half a minute and the window must stay answerable.
+        threading.Thread(target=self._bound(self._startup, session),
+                         daemon=True).start()
+
+    def _close_profile(self, name: str | None = None) -> None:
+        """Close one open profile: its errands, its captures, its claim, its page.
+
+        The last one cannot be closed — a window with no profile in it is a window with
+        nothing in it, so the workspace refuses and this says so rather than emptying
+        the notebook.
+        """
+        name = name or self._profile_var.get()
+        session = self._workspace.get(name)
+        if session is None:
+            return
+        if len(self._workspace) <= 1:
+            self._say("profile", "log.profile.last_one", name=name)
+            return
+        page = session.page
+        self._close_session(session)
+        if self._workspace.close(name) is None:
+            return
+        try:
+            if page is not None:
+                self._outer.forget(page)
+                page.destroy()
+        except tk.TclError:
+            pass
+        self._paint_outer()
+        self._show(self._workspace.current)
+        self._say("profile", "log.profile.closed", name=name)
 
     def _profile_language(self) -> str | None:
         """The language the active profile asks for — or English, said out loud.
@@ -1203,13 +1485,15 @@ class Panel(tk.Tk):
     # switch and on `on_profile_switch`.
 
     # -- UI -----------------------------------------------------------------
-    def _build_ui(self) -> None:
+    def _build_ui(self, parent=None) -> None:
         # The selected timer row has to be visible: a checkbox has no "selected"
         # look of its own, and the four editor buttons act on whichever row that
         # is. Give that row a bold "Selected.TCheckbutton" style; every other row
         # keeps the stock "TCheckbutton" (see _paint_timer_selection).
         ttk.Style(self).configure("Selected.TCheckbutton", font=ui_font(weight="bold"))
-        nb = ttk.Notebook(self)
+        # Into this profile's PAGE, not into the window: the window holds the outer
+        # notebook and one page per open profile (#1206).
+        nb = ttk.Notebook(parent if parent is not None else self)
         nb.pack(fill="both", expand=True)
         main = ttk.Frame(nb)
         self._main_nb = nb
@@ -1501,7 +1785,7 @@ class Panel(tk.Tk):
             return
         self._dash_stop = threading.Event()
         self._rt.dbg("dashboard").info("poller started")
-        threading.Thread(target=self._dash_loop, args=(self._dash_stop,),
+        threading.Thread(target=self._bound(self._dash_loop), args=(self._dash_stop,),
                          daemon=True).start()
 
     def _stop_dashboard(self) -> None:
@@ -1552,7 +1836,7 @@ class Panel(tk.Tk):
         values = dashmod.parse(lines, debug=self._rt.dbg("dashboard"))
         self._dash_err = ""
         self._dash_values = values
-        self.after(0, self._render_dashboard)
+        self._later(0, self._render_dashboard)
 
     def _refresh_dashboard(self) -> None:
         """The ↻ beside the strip — one read, now, off the Tk thread."""
@@ -1561,7 +1845,7 @@ class Panel(tk.Tk):
                 self._dash_tick()
             except Exception as exc:      # noqa: BLE001
                 self._say("dash", "log.dash.unreadable", error=exc)
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _render_dashboard(self) -> None:
         """Paint the strip from the last readings."""
@@ -1898,9 +2182,22 @@ class Panel(tk.Tk):
         # the rally monitor is a capture whose whole point is being up before the rally
         # goes out, and nobody has opened a tab yet. Idempotent, so the first show
         # calling it again costs nothing.
+        #
+        # ON THE TK THREAD, and each one guarded. `ensure_loaded` reads the tab's own
+        # widgets (the rally monitor asks its own checkbox whether it is switched on),
+        # and this runs on the boot thread — while the main thread is pumping `update()`
+        # in `_await_boot` with gaps between the pumps. A Tk read landing in one of
+        # those gaps raises «main thread is not in main loop»: a race that was always
+        # here (thirty-six of them in one profile's debug log) and that TWO boot threads
+        # made reliable. It cost the whole rest of this method — the schedule included,
+        # so the panel came up with no timers running at all and said nothing.
         for tab in getattr(self, "_plugin_tabs", {}).values():
-            if tab.EAGER:
-                tab.ensure_loaded()
+            if not tab.EAGER:
+                continue
+            try:
+                self._on_tk(tab.ensure_loaded)
+            except Exception:            # noqa: BLE001 — one tab, not the whole boot
+                self._dbg.error("eager load of %r failed", tab.ID, exc_info=True)
         # The schedule runs whenever the panel is open: the thread is started
         # unconditionally and a tick with every row unticked costs one dict
         # comparison, which keeps switching a timer on a matter of the checkbox
@@ -1932,8 +2229,14 @@ class Panel(tk.Tk):
     # first instead of racing it. `_disarm` is the same guarantee at the other end —
     # a pending callback must not fire into a window that is being torn down.
     def _arm(self, name: str, delay_ms: int, func) -> None:
-        """(Re)arm the repeating callback ``name`` — cancelling any pending one."""
-        self._tick.arm(name, delay_ms, func)
+        """(Re)arm the repeating callback ``name`` — cancelling any pending one.
+
+        BOUND: the ticker is this profile's, and so is what the callback will touch
+        when it fires — which may well be while another profile's page is showing.
+        Binding here covers every self-rearming loop in the file at once, which is
+        exactly why they all go through this method (#1206).
+        """
+        self._tick.arm(name, delay_ms, self._bound(func))
 
     def _disarm_all(self) -> None:
         self._tick.disarm_all()
@@ -2007,7 +2310,7 @@ class Panel(tk.Tk):
         key = {"warm": "daemon.warm", "starting": "daemon.starting",
                "error": "daemon.error"}.get(state, "daemon.none")
         try:
-            self.after(0, lambda: self._set_daemon(self._t(key), ok))
+            self._later(0, lambda: self._set_daemon(self._t(key), ok))
         except (tk.TclError, RuntimeError):      # the window is going away
             pass
 
@@ -2043,13 +2346,13 @@ class Panel(tk.Tk):
                 warm = self._daemon_up()
             finally:
                 self._status_busy = False
-            self.after(0, lambda: (
+            self._later(0, lambda: (
                 self._set_status_msg(s),
                 self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
                 self._dbg_status(ok, warm),
                 self._watchdog_check(ok)))
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _set_status_msg(self, msg) -> None:
         """Show the probe's answer, in the panel's language, and keep it for a re-say."""
@@ -2167,7 +2470,7 @@ class Panel(tk.Tk):
             finally:
                 self._update_busy = False
             self.after(0, lambda: self._show_update_state(state, manual))
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _poll_updates(self) -> None:
         """The periodic check, re-arming itself (see UPDATE_POLL_MS)."""
@@ -2278,7 +2581,7 @@ class Panel(tk.Tk):
             finally:
                 self._update_busy = False
             self.after(0, lambda: self._show_pull_result(res, before))
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _show_pull_result(self, res, before: str) -> None:
         """What the pull did — in the log, in the block, and (on success) in a dialog."""
@@ -2361,14 +2664,22 @@ class Panel(tk.Tk):
         A scenario in flight is ASKED to stop (it halts at its next step) rather than
         killed, so nothing is left half-sent to the game — same as the Scenarios
         tab's own Stop.
+
+        EVERY open profile, not the one being looked at. It is the emergency button:
+        the moment you want it is the moment you do not want to find out that the other
+        account carried on pressing.
         """
-        self._say("panel", "panic.log")
-        # …and each plugin tab stops whatever it holds — one loop, so a tab added
-        # later cannot be the one «Стоп всё» quietly does not reach.
-        for tab in getattr(self, "_plugin_tabs", {}).values():
-            tab.panic()
-        self._schedule.stop()
-        self._say("panel", "panic.done")
+        self._workspace.each(self._panic_session)
+
+    def _panic_session(self, session) -> None:
+        with self._on(session):
+            self._say("panel", "panic.log")
+            # …and each plugin tab stops whatever it holds — one loop, so a tab added
+            # later cannot be the one «Стоп всё» quietly does not reach.
+            for tab in getattr(self, "_plugin_tabs", {}).values():
+                tab.panic()
+            self._schedule.stop()
+            self._say("panel", "panic.done")
 
     # -- one way to run a child ---------------------------------------------
     # -- the secret-task capture went with its tab (panel/tabs/secret_tasks/) -
@@ -2473,9 +2784,9 @@ class Panel(tk.Tk):
                 self._say(tag, "log.error", error=exc)
             finally:
                 self._release_busy()
-                self.after(400, self._refresh_status)
+                self._later(400, self._refresh_status)
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     # -- game lifecycle -----------------------------------------------------
     def _elsewhere(self) -> bool:
@@ -2582,9 +2893,9 @@ class Panel(tk.Tk):
                 self._say("cmd", "log.error", error=exc)
             finally:
                 self._release_busy()
-                self.after(400, self._refresh_status)
+                self._later(400, self._refresh_status)
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _cmd_recall(self, delta: int) -> str:
         """Up / Down through what has been typed — a debugging loop is one line
@@ -2641,26 +2952,40 @@ class Panel(tk.Tk):
             side="bottom", anchor="e", pady=(6, 0))
 
     def _on_close(self) -> None:
-        # A debounced edit is still pending for up to a second — write it before
-        # the window goes, or the last thing typed is the thing that is lost.
-        self._save_settings()   # geometry and the sash, as the operator left them
-        # Every plugin tab goes with the window: the rally monitor's child, a bus
-        # subscription, anything else a tab is holding.
-        for tab in getattr(self, "_plugin_tabs", {}).values():
-            tab.shutdown()
-        self._stop_dashboard()
-        self._schedule.stop()
-        # Closed on purpose: take the heartbeat with it, so the hourly check reads
-        # «not running» straight away instead of waiting for the beat to go stale.
-        self._rt.stop_heartbeat()
-        self._close_panel_log()
-        # Every repeating callback goes with the window. One that fires into a
-        # half-torn-down panel is a traceback nobody sees and a log line nobody
-        # gets, because the log has just been closed above.
-        self._disarm_all()
-        self._dbg.info("panel closing")
-        dbgmod.shutdown(self._rt.scope)
+        """Close the window — and with it EVERY open profile.
+
+        Two halves on purpose. `_close_session` is what only the WINDOW knows about (a
+        pending edit, the strip poller, the log mirror); `Workspace.shutdown` is what a
+        session holds whether or not it was ever drawn (its tabs, its errands, its
+        claim, its files) and is the same call a standalone tab makes. Both go through
+        `each`, so a profile that throws on the way out cannot leave the others running
+        behind a window that is gone.
+        """
+        self._workspace.each(self._close_session)
+        self._workspace.shutdown()
         self.destroy()
+
+    def _close_session(self, session) -> None:
+        """The window's half of letting one open profile go.
+
+        Deliberately does NOT shut the tabs down or release the runtime: that is
+        `ProfileSession.shutdown`, and doing it in both places would shut every tab
+        down twice.
+        """
+        with self._on(session):
+            # A debounced edit is still pending for up to a second — write it before
+            # the window goes, or the last thing typed is the thing that is lost.
+            self._save_settings()   # geometry and the sash, as the operator left them
+            self._stop_dashboard()
+            # Closed on purpose: take the heartbeat with it, so the hourly check reads
+            # «not running» straight away instead of waiting for the beat to go stale.
+            self._rt.stop_heartbeat()
+            self._close_panel_log()
+            # Every repeating callback goes with the page. One that fires into a
+            # half-torn-down panel is a traceback nobody sees and a log line nobody
+            # gets, because the log has just been closed above.
+            self._disarm_all()
+            self._dbg.info("panel closing — profile %r", session.name)
 
     # -- window geometry, remembered per profile -----------------------------
     def _current_geometry(self) -> str:
@@ -2697,7 +3022,7 @@ class Panel(tk.Tk):
             sash = max(int(sash), 0)
         except (TypeError, ValueError):
             sash = 0
-        self.after(200, lambda: self._apply_sash(sash))
+        self._later(200, lambda: self._apply_sash(sash))
 
     def _apply_sash(self, sash: int = 0) -> None:
         """Put the main tab's sash ``sash`` px from the top — or, with 0, where the

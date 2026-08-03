@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "Über das Programm",
   "about.version": "Version {version}",
-
   "app.title": "Last War — Navigation",
-
   "autorally.create.elite": "Level der Elite der Verdammten:",
   "autorally.create.frame": "Versammlung starten",
   "autorally.create.hint": "Wähle die eine Truppe, die das Banner hebt und damit die Versammlung startet, sowie das Level der Elite der Verdammten (1–35), auf das sie zielt. Nur eine Truppe kann führen; ein erneuter Klick hebt die Wahl auf.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Automatische Versammlung",
   "autorally.hint": "Die Truppen, die zu einer Versammlung geschickt werden dürfen. Jede geht zu einer eigenen.",
   "autorally.squads": "Truppen:",
-
   "autostart.frame": "Autostart",
   "autostart.enable": "Stündlich prüfen und das Panel öffnen, wenn es nicht läuft",
   "autostart.hint": "Eine Aufgabe der Windows-Aufgabenplanung sieht einmal pro Stunde nach, ob das Panel mit diesem Profil läuft, und öffnet es andernfalls. Sie unterscheidet ein laufendes Panel von einem hängenden: Das geöffnete Panel trägt sich jede Minute im Profil ein, und eines, das nicht mehr antwortet, wird beendet und neu geöffnet. Gestartet werden dieselbe Installation und dasselbe Profil, unter Ihrem eigenen Konto.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Die Aufgabenplanung gibt es nur unter Windows.",
   "autostart.error.admin": "Windows hat abgelehnt: Für diese Aufgabe werden Administratorrechte benötigt. Starten Sie das Panel als Administrator und setzen Sie den Haken erneut. ({error})",
   "autostart.error.failed": "Die Aufgabenplanung hat abgelehnt: {error}",
-
   "busy": "beschäftigt — warte, bis die laufende Aktion fertig ist",
   "busy.elsewhere": "das Spiel ist belegt — {owner} steuert es seit {sec} s",
-
   "capture.ghost_op": "Geistereinsatz",
   "capture.secret_tasks": "Geheime Missionen",
-
   "chat.clear": "Leeren",
   "chat.contacts": "Kontakte",
   "chat.contacts.empty": "noch keine Gespräche",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Welt",
   "chat.to": "an:",
   "chat.you": "Du:",
-
   "cmd.failed": "nicht ausgeführt — siehe die Zeilen darüber",
   "cmd.label": "Befehl:",
   "cmd.ok": "fertig",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Ins Feld setzen",
   "cmd.reference.title": "Benannte Drücke (TAP)",
   "cmd.run": "Ausführen",
-
-
   "daemon.error": "Fehler",
   "daemon.none": "keiner",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "startet…",
   "daemon.warm": "warm",
-
   "dash.all_quiet": "alles ruhig — nichts wartet",
   "dash.donate": "Spenden",
   "dash.frame": "Kontoübersicht",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "Geschenke am Tor",
   "dash.visitors": "Überlebende am Tor",
   "dash.wounded": "Verwundete",
-
   "debug.frame": "Diagnose (Debug-Protokoll)",
   "debug.send": "Diagnose senden",
-
   "develop.hint": "Beide Hälften einer Aufzeichnung auf einmal: ein passives Mitschneiden der Leitung neben einem Tracer, der das eigene Lua des Clients umschließt. Einschalten, die Sache im Spiel EINMAL tun, ausschalten — dann das Paar mit einer Beschreibung des Getanen aufheben oder wegwerfen. Eine Aufzeichnung, die niemand beschriftet hat, kann eine Woche später niemand mehr lesen. Die Haken des Tracers sitzen im laufenden Client, deshalb wird «Stopp» höflich erbeten und das Pult setzt sie zurück, falls das Kind es nicht tut.",
   "develop.label.prompt": "Bezeichnung der Sitzung (freiwillig).\nSie geht in den Namen der Protokolldatei; Leerzeichen werden zu Unterstrichen.",
   "develop.label.title": "Bezeichnung der Sitzung",
@@ -125,7 +113,6 @@
   "develop.run.title": "Sniffer-Aufzeichnung",
   "develop.sniff.frame": "Eine Sitzung aufzeichnen",
   "develop.sniff.toggle": "Sniffer",
-
   "game.frame": "Spiel",
   "game.launch": "▶  Spiel starten",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "läuft in der Sitzung von {user} (pid {pid})",
   "game.st.session_running_at": "läuft in der Sitzung von {user} (pid {pid}) → {conn}",
   "game.watchdog": "Spiel neu starten, wenn es abstürzt",
-
   "ghost.autoloot": "Truppen selbsttätig plündern",
   "ghost.frame": "Geistereinsatz",
   "ghost.hint": "ein eigenes Tagesbudget, getrennt von den Geheimen Missionen. Das Ereignis läuft einen Tag in der Woche und tut an den übrigen nichts. Keine Kartenabfahrt nötig — der Client kennt die Truppenliste selbst.",
   "ghost.off": "Autoplünderung des Geistereinsatzes aus",
   "ghost.on": "Autoplünderung des Geistereinsatzes an",
   "ghost.robbing": "das Ereignis läuft, {n} übrig — jede plünderbare Truppe wird geholt",
-
   "language.name": "Deutsch",
-
   "log.autoloot.no_monitor": "die Überwachung der Geheimen Missionen ist aus — die Autoplünderung liest die Missionen der Allianz unmittelbar aus dem Client und arbeitet weiter; die Überwachung steuert nur die gegnerischen Felder bei, über die die Kartenabfahrt läuft",
   "log.autoloot.no_scan": "noch keine Quelle — starte das Spiel (die Autoplünderung liest unmittelbar aus dem Client) oder schalte die Überwachung der Geheimen Missionen ein und bewege die Karte",
   "log.autoloot.off": "aus",
@@ -249,7 +233,6 @@
   "log.traffic.started": "der Sniffer läuft (pid {pid}); seine Ausgabe geht ins Protokoll, die Aufzeichnung nach results/traffic/",
   "log.traffic.starting": "starte den Sniffer für den rohen Verkehr …",
   "log.traffic.stopped": "Verkehrs-Sniffer gestoppt",
-
   "log.triggers.no_check": "{name}: keine Prüfung abzufragen — übersprungen",
   "log.triggers.no_name": "Eintrag #{n} hat keinen Namen — übersprungen",
   "log.triggers.no_pattern": "{name}: kein Ereignis, auf das er warten könnte — übersprungen",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Protokoll an den Entwickler senden",
   "menu.language": "Sprache",
   "menu.profile": "Profil",
-
-
   "opt.autoloot_limit": "Ziele je Durchlauf",
   "opt.autoloot_limit.hint": "Mehr als das Tagesbudget ändert nichts.",
   "opt.autoloot_pause_min": "Pause, wenn verbraucht, min",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Bemerkt der Wächter, dass der Spielprozess weg ist, startet er ihn erneut — höchstens alle 5 Minuten.",
   "opt.win_python": "Python für die Kindprozesse",
   "opt.win_python.hint": "Es führt die Aufzeichnungen, die Raubzüge und den Lua-Daemon selbst aus.",
-
   "panic.done": "alles gestoppt; der Zeitplan ist aus — schalte ihn im Reiter «Zeitpläne» wieder ein",
   "panic.log": "stoppe alles: Überwachungen, Wächter, die Kartenabfahrt, das Szenario und den Zeitplan",
   "panic.stop_all": "⏹ Alles stoppen",
-
   "profile.close": "Schließen",
+  "profile.open": "Öffnen",
+  "profile.close_one": "Profil schließen",
+  "profile.open_hint": "Ein noch nicht geöffnetes Profil wird neben diesem geöffnet.",
   "profile.confirm_delete": "Das Profil «{name}» löschen? Sein ganzes Verzeichnis {path} geht mit — der Chatverlauf, die Protokolle der Versammlungen und der Geheimen Missionen, panel.log und die Notiz, wann jeder Zeitplan zuletzt lief. Das lässt sich nicht rückgängig machen.",
   "profile.delete": "Löschen",
   "profile.error.empty_name": "Der Name des Profils darf nicht leer sein.",
@@ -318,7 +300,6 @@
   "profile.new": "Neu",
   "profile.prompt_name": "Name des Profils:",
   "profile.rename": "Umbenennen",
-
   "rally.alert": "Mich benachrichtigen",
   "rally.alert.fired": "★ VERSAMMLUNG (Banner {team}) — beitretbar",
   "rally.autojoin": "Von selbst beitreten",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Allianz-Übung",
   "rally_limit.type.monster": "Monster",
   "rally_limit.type.zombie_invasion": "Zombie-Invasion",
-
   "rally_tab.frame": "Eine Versammlung gegen ein Weltmonster starten",
   "rally_tab.kind": "Ziel:",
   "rally_tab.kind_boss": "Elite der Verdammten",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "das Banner steht — Truppe {squad}, Monster auf Level {level}",
   "rally_tab.error": "Fehler beim Starten der Versammlung: {error}",
   "rally_tab.error_short": "Fehler — siehe Protokoll",
-
   "scenarios.actions": "Aktionsskripte",
   "scenarios.args": "Argumente (JSON):",
   "scenarios.bad_args": "die Argumente sind kein lesbares JSON — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Auch die experimentellen",
   "scenarios.stop": "Stopp",
   "scenarios.stopping": "{name}: wird gestoppt — der Lauf endet mit seinem nächsten Schritt",
-
   "secret.autoloot": "★ des höchsten Levels selbsttätig plündern",
   "secret.autoloot.frame": "Autoplünderung ★ (Geheime Missionen)",
   "secret.autoloot.level_from": "Level ab",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Überwachung",
   "secret.pending_only": "Nur ausstehende",
   "secret.stars_only": "Nur Sterne",
-
   "senddiag.cancel": "Abbrechen",
   "senddiag.empty": "das Debug-Protokoll ist noch leer",
   "senddiag.open": "Öffnen",
@@ -405,7 +382,6 @@
   "senddiag.send": "Senden",
   "senddiag.title": "Diagnose senden",
   "senddiag.warning": "Es werden keine persönlichen Daten gesendet. Das Protokoll enthält nur technische Angaben darüber, wie das Pult läuft.",
-
   "session.check": "Prüfen",
   "session.check.no_client": "Sitzung {session} ({state}) läuft, aber kein {exe} darin — den Client innerhalb dieser Sitzung starten.",
   "session.check.no_login": "Das Häkchen ist gesetzt, aber kein Anmeldename eingetragen — es gibt keine Sitzung zum Nachsehen.",
@@ -419,12 +395,10 @@
   "session.state.active": "aktiv",
   "session.state.disconnected": "getrennt — genau so gehört sie hinterlassen",
   "session.state.other": "Zustand {code}",
-
   "settings.placeholder": "Kommt bald",
   "settings.tab.autorally": "Automatische Versammlung",
   "settings.tab.game": "Spiel",
   "settings.tab.general": "Allgemein",
-
   "settings.tab.tabs": "Reiter",
   "settings.tabs.hint": "Welche Reiter dieses Profil zeigt. Ein ausgeschalteter Reiter wird gar nicht gebaut: keine Bedienelemente, keine eigene Einstellungsseite, keine angebotenen Auslöser und keine seiner Aufzeichnungen oder Wächter gestartet — «Geheime Missionen» aus heißt eine Aufzeichnung und zwei Wächter-Fäden, die nie laufen. Die Spalte daneben sagt, was jeder Reiter hochfährt, wenn er an ist.",
   "settings.tabs.restart": "Gespeichert. Die Liste greift beim nächsten Start des Pults — ein Reiter fährt seine stehenden Aufträge hoch, wenn er gebaut wird, und ihn im Flug abzuräumen ist nicht dasselbe.",
@@ -437,9 +411,7 @@
   "splash.systems": "Starte die Systeme…",
   "splash.triggers": "Lade die Auslöser…",
   "splash.ui": "Baue die Oberfläche…",
-
   "status.checking": "prüfe…",
-
   "sweep.centre": "Mitte X/Y:",
   "sweep.enabled": "Die Karte abfahren",
   "sweep.frame": "Automatische Kartenabfahrt",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "Durchgang {n} fertig — {mins} min Pause",
   "sweep.rule": "ein Kasten von {side}×{side} Feldern · {jumps} Sprünge · ~{mins} min je Durchgang",
   "sweep.settings_hint": "ein Kasten von {side}×{side} Feldern — {jumps} Sprünge, ~{mins} min je Durchgang",
-
   "tab.chat": "Chat",
   "tab.develop": "Entwicklung",
   "tab.main": "Start",
   "tab.scenarios": "Szenarien",
   "tab.settings": "Einstellungen",
   "tab.timers": "Zeitpläne",
-
   "timers.add": "Hinzufügen",
   "timers.cancel": "✕",
   "timers.col.action": "Fähigkeit",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} Std {m} min",
   "timers.span.min": "{n} min",
   "timers.span.now": "unter einer Minute",
-
   "triggers.col.action": "Fähigkeit",
   "triggers.col.event": "bei Ereignis",
   "triggers.col.status": "Zustand",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Den Versammlungen der Allianz selbsttätig beitreten",
   "triggers.log.no_squads": "Auto-Beitritt: auf der Seite «Automatische Versammlung» ist keine Truppe angehakt — es gibt nichts zu schicken",
   "triggers.log.rally_capped": "Auto-Beitritt: jede Art von Versammlung hat ihre Tagesgrenze erreicht — nichts beigetreten",
-
   "top.daemon": "Daemon:",
   "top.game": "Spiel:",
   "stats.col.date": "Datum",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Den Reiter «Inventar» selbsttätig auffrischen",
   "triggers.item.leaderboard_collect": "Den Verlauf der Rangliste sammeln",
   "triggers.log.resource_gain": "Rohstoffe gewonnen: {what}",
-
   "tab.alliance": "Allianz",
   "tab.profile": "Profil",
   "tab.inventory": "Inventar",
@@ -599,7 +566,6 @@
   "inventory.search": "Suche:",
   "inventory.count": "{n} Gegenstände",
   "inventory.empty": "leer — drücke «Auffrischen» (das Spiel muss laufen)",
-
   "tab.heroes": "Helden",
   "heroes.col.icon": "",
   "heroes.col.name": "Name",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "keiner",
   "heroes.count": "{n} Helden",
   "heroes.empty": "keine Helden — drücke «Auffrischen» (das Spiel muss laufen)",
-
   "tab.accounts": "Konten",
   "accounts.col.name": "Charakter",
   "accounts.col.server": "Server",
@@ -628,7 +593,6 @@
   "accounts.switching": "wechsle…",
   "accounts.switched": "[accounts] zu {name} gewechselt (Server {server})",
   "accounts.switch_fail": "[accounts] der Wechsel zu {name} ist fehlgeschlagen: {state}",
-
   "tab.secret_tasks": "Geheime Missionen",
   "tab.rally": "Versammlung",
   "triggers.item.secret_task_share": "Geteilte Geheime Missionen live aufnehmen",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "das Absuchen der Karte hat aufgehört",
   "cmdpost.ghost.state.map_ready": "bereit (von der Karte)",
   "cmdpost.ghost.state.map_running": "noch unterwegs (von der Karte)",
-
   "update.frame": "Aktualisierung",
   "update.version": "Version {version}",
   "update.version.commit": "Version {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "Aktualisierung fehlgeschlagen: kein Weg zu origin ({detail})",
   "log.update.fail_error": "Aktualisierung fehlgeschlagen: {detail}",
   "log.update.restarting": "starte das Pult mit dem aktualisierten Code neu…",
-
   "tab.vs_duel": "VS-Duell",
   "vsduel.hint": "Das Duell zahlt an jedem Tag Punkte für andere Handlungen. Hake an, was an einem gegebenen Tag getan werden soll, und begrenze, was es dafür ausgeben darf. Von selbst läuft noch nichts — die Auswahl wird für den Tag aufgehoben, an dem die Handlungen kommen.",
   "vsduel.shield": "Schild:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Die Overlord-Fähigkeiten erhöhen",
   "vsduel.lord_level": "Das Overlord-Level erhöhen",
   "vsduel.unit_train": "Einheiten ausbilden",
-  "vsduel.unit_upgrade": "Einheiten verbessern"
+  "vsduel.unit_upgrade": "Einheiten verbessern",
+  "log.profile.opened": "Profil geöffnet: {name}",
+  "log.profile.closed": "Profil geschlossen: {name}",
+  "log.profile.held_elsewhere": "{name} ist in einem anderen Panel offen — hier nicht geöffnet",
+  "log.profile.last_one": "{name} ist das einzige offene Profil — es kann nicht geschlossen werden"
 }

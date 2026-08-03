@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "Giới thiệu",
   "about.version": "Phiên bản {version}",
-
   "app.title": "Last War — Điều hướng",
-
   "autorally.create.elite": "Cấp Tinh Anh Tận Thế:",
   "autorally.create.frame": "Tạo tập kết",
   "autorally.create.hint": "Chọn một đội duy nhất giương cờ và tạo tập kết, cùng cấp Tinh Anh Tận Thế (1–35) mà nó nhắm tới. Chỉ một đội được dẫn đầu; bấm lại để bỏ chọn.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Tập Kết Tự Động",
   "autorally.hint": "Những đội được phép gửi tới một tập kết. Mỗi đội đi tới tập kết riêng của mình.",
   "autorally.squads": "Các đội:",
-
   "autostart.frame": "Tự khởi động",
   "autostart.enable": "Ngó mỗi giờ và mở bảng nếu nó không chạy",
   "autostart.hint": "Một tác vụ trong bộ lập lịch của Windows ngó một lần mỗi giờ và mở bảng theo hồ sơ này khi không thấy nó. Nó phân biệt được bảng đang làm việc với bảng đã treo: bảng đang mở ghi lại giờ mỗi phút, còn cái đã thôi trả lời thì bị đóng rồi mở lại. Thứ nó khởi động chính là bản cài này và hồ sơ này, dưới tài khoản của chính bạn.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Bộ lập lịch tác vụ chỉ có trên Windows.",
   "autostart.error.admin": "Windows từ chối: tạo tác vụ này cần quyền quản trị. Hãy chạy bảng với quyền quản trị rồi đánh dấu lại. ({error})",
   "autostart.error.failed": "Bộ lập lịch tác vụ từ chối: {error}",
-
   "busy": "đang bận — chờ hành động hiện tại xong đã",
   "busy.elsewhere": "trò chơi đang bận — {owner} đã điều khiển nó {sec} giây",
-
   "capture.ghost_op": "Chiến Dịch Linh Hồn",
   "capture.secret_tasks": "Nhiệm vụ bí mật",
-
   "chat.clear": "Xóa sạch",
   "chat.contacts": "Danh bạ",
   "chat.contacts.empty": "chưa có cuộc trò chuyện nào",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Thế giới",
   "chat.to": "tới:",
   "chat.you": "Bạn:",
-
   "cmd.failed": "không chạy — xem các dòng ở trên",
   "cmd.label": "Lệnh:",
   "cmd.ok": "xong",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Đặt vào ô",
   "cmd.reference.title": "Các lần nhấn có tên (TAP)",
   "cmd.run": "Chạy",
-
-
   "daemon.error": "lỗi",
   "daemon.none": "không có",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "đang khởi động…",
   "daemon.warm": "đang nóng",
-
   "dash.all_quiet": "mọi thứ yên ắng — không có gì chờ",
   "dash.donate": "quyên góp",
   "dash.frame": "Tóm tắt tài khoản",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "quà ở cổng",
   "dash.visitors": "người sống sót ở cổng",
   "dash.wounded": "thương binh",
-
   "debug.frame": "Chẩn đoán (nhật ký gỡ lỗi)",
   "debug.send": "Gửi chẩn đoán",
-
   "develop.hint": "Cả hai nửa của một bản ghi cùng lúc: một bản bắt thụ động trên đường truyền, bên cạnh bộ dò bao lấy Lua của chính client. Bật lên, làm việc đó trong trò chơi MỘT lần, tắt đi — rồi giữ cả cặp kèm mô tả những gì đã làm, hoặc bỏ đi. Một bản bắt không ai ghi nhãn là một tệp mà một tuần sau chẳng ai đọc nổi. Móc của bộ dò nằm trong client đang chạy, nên việc dừng được yêu cầu một cách lịch sự và bảng sẽ tự gỡ chúng ra nếu tiến trình con không làm.",
   "develop.label.prompt": "Tên phiên (không bắt buộc).\nNó đi vào tên tệp nhật ký; dấu cách thành gạch dưới.",
   "develop.label.title": "Tên phiên",
@@ -125,7 +113,6 @@
   "develop.run.title": "Bản ghi của trình nghe lén",
   "develop.sniff.frame": "Ghi một phiên",
   "develop.sniff.toggle": "Nghe lén",
-
   "game.frame": "Trò chơi",
   "game.launch": "▶  Khởi động trò chơi",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "đang chạy trong phiên của {user} (pid {pid})",
   "game.st.session_running_at": "đang chạy trong phiên của {user} (pid {pid}) → {conn}",
   "game.watchdog": "Khởi động lại trò chơi khi nó chết",
-
   "ghost.autoloot": "Tự cướp các đội",
   "ghost.frame": "Chiến Dịch Linh Hồn",
   "ghost.hint": "có ngân sách hằng ngày riêng, tách khỏi nhiệm vụ bí mật. Sự kiện chạy một ngày mỗi tuần, các ngày khác không làm gì. Không cần quét bản đồ — client tự biết danh sách đội.",
   "ghost.off": "tự cướp Chiến Dịch Linh Hồn đã tắt",
   "ghost.on": "tự cướp Chiến Dịch Linh Hồn đã bật",
   "ghost.robbing": "sự kiện đang mở, còn {n} — lấy mọi đội cướp được",
-
   "language.name": "Tiếng Việt",
-
   "log.autoloot.no_monitor": "trình theo dõi nhiệm vụ bí mật đang tắt — tự cướp đọc nhiệm vụ của liên minh thẳng từ client nên vẫn chạy; trình theo dõi chỉ thêm những ô của địch mà lượt quét đi ngang qua",
   "log.autoloot.no_scan": "chưa có nguồn — hãy khởi động trò chơi (tự cướp đọc thẳng từ client), hoặc bật trình theo dõi nhiệm vụ bí mật rồi kéo bản đồ",
   "log.autoloot.off": "tắt",
@@ -249,7 +233,6 @@
   "log.traffic.started": "trình nghe lén đang chạy (pid {pid}); đầu ra đi vào nhật ký, bản ghi vào results/traffic/",
   "log.traffic.starting": "đang khởi động trình nghe lén lưu lượng thô …",
   "log.traffic.stopped": "đã dừng trình nghe lén lưu lượng",
-
   "log.triggers.no_check": "{name}: không có phép kiểm để hỏi — đã bỏ qua",
   "log.triggers.no_name": "mục số {n} không có tên — đã bỏ qua",
   "log.triggers.no_pattern": "{name}: không có sự kiện để canh — đã bỏ qua",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Gửi nhật ký cho người phát triển",
   "menu.language": "Ngôn ngữ",
   "menu.profile": "Hồ sơ",
-
-
   "opt.autoloot_limit": "Mục tiêu mỗi lượt",
   "opt.autoloot_limit.hint": "Nhiều hơn ngân sách hằng ngày cũng chẳng đổi gì.",
   "opt.autoloot_pause_min": "Nghỉ khi hết, phút",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Thấy tiến trình trò chơi biến mất thì khởi động lại — nhiều nhất 5 phút một lần.",
   "opt.win_python": "Python cho các tiến trình con",
   "opt.win_python.hint": "Chính nó chạy các bản bắt, các lượt cướp và cả daemon Lua.",
-
   "panic.done": "mọi thứ đã dừng; lịch đang tắt — hãy bật lại ở thẻ Lịch",
   "panic.log": "đang dừng mọi thứ: các trình theo dõi, người gác, lượt quét bản đồ, kịch bản và lịch",
   "panic.stop_all": "⏹ Dừng mọi thứ",
-
   "profile.close": "Đóng",
+  "profile.open": "Mở",
+  "profile.close_one": "Đóng hồ sơ",
+  "profile.open_hint": "Chọn một hồ sơ chưa mở sẽ mở nó bên cạnh hồ sơ này.",
   "profile.confirm_delete": "Xóa hồ sơ «{name}»? Cả thư mục {path} của nó cũng đi theo — lịch sử trò chuyện, nhật ký tập kết và nhiệm vụ bí mật, panel.log cùng dấu ghi lần cuối mỗi tác vụ hẹn giờ đã chạy. Không thể hoàn tác.",
   "profile.delete": "Xóa",
   "profile.error.empty_name": "Tên hồ sơ không được để trống.",
@@ -318,7 +300,6 @@
   "profile.new": "Mới",
   "profile.prompt_name": "Tên hồ sơ:",
   "profile.rename": "Đổi tên",
-
   "rally.alert": "Báo cho tôi",
   "rally.alert.fired": "★ TẬP KẾT (cờ {team}) — có thể tham gia",
   "rally.autojoin": "Tự tham gia",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Diễn Tập Liên Minh",
   "rally_limit.type.monster": "Quái vật",
   "rally_limit.type.zombie_invasion": "Zombie xâm lăng",
-
   "rally_tab.frame": "Mở tập kết vào một con quái trên bản đồ",
   "rally_tab.kind": "Mục tiêu:",
   "rally_tab.kind_boss": "Tinh Anh Tận Thế",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "cờ đã giương — đội {squad}, quái cấp {level}",
   "rally_tab.error": "lỗi khi mở tập kết: {error}",
   "rally_tab.error_short": "lỗi — xem nhật ký",
-
   "scenarios.actions": "Kịch bản hành động",
   "scenarios.args": "tham số (JSON):",
   "scenarios.bad_args": "tham số không phải JSON đọc được — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Cả loại thử nghiệm",
   "scenarios.stop": "Dừng",
   "scenarios.stopping": "{name}: đang dừng — lượt chạy kết thúc ở bước kế tiếp",
-
   "secret.autoloot": "Tự cướp ★ ở cấp cao nhất",
   "secret.autoloot.frame": "Tự cướp ★ (nhiệm vụ bí mật)",
   "secret.autoloot.level_from": "Cấp từ",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Theo dõi",
   "secret.pending_only": "Chỉ loại đang chờ",
   "secret.stars_only": "Chỉ loại có sao",
-
   "senddiag.cancel": "Hủy",
   "senddiag.empty": "nhật ký gỡ lỗi hiện còn trống",
   "senddiag.open": "Mở",
@@ -405,7 +382,6 @@
   "senddiag.send": "Gửi",
   "senddiag.title": "Gửi chẩn đoán",
   "senddiag.warning": "Không gửi bất kỳ thông tin cá nhân nào. Nhật ký chỉ chứa dữ liệu kỹ thuật về cách bảng chạy.",
-
   "session.check": "Kiểm tra",
   "session.check.no_client": "phiên {session} ({state}) đã lên, nhưng không có {exe} nào chạy trong đó — hãy khởi động client bên trong phiên ấy.",
   "session.check.no_login": "ô đã đánh dấu, nhưng chưa gõ tên đăng nhập — không có phiên nào để nhìn vào.",
@@ -419,12 +395,10 @@
   "session.state.active": "đang hoạt động",
   "session.state.disconnected": "đã ngắt kết nối — và nên để yên như vậy",
   "session.state.other": "trạng thái {code}",
-
   "settings.placeholder": "Sắp có",
   "settings.tab.autorally": "Tập Kết Tự Động",
   "settings.tab.game": "Trò chơi",
   "settings.tab.general": "Chung",
-
   "settings.tab.tabs": "Các thẻ",
   "settings.tabs.hint": "Hồ sơ này hiện những thẻ nào. Thẻ đã tắt thì không được dựng chút nào: không điều khiển, không trang cài đặt riêng, không bộ kích hoạt nào được mời, và không bản bắt hay người gác nào của nó chạy — «Nhiệm vụ bí mật» tắt nghĩa là một bản bắt và hai luồng gác không bao giờ chạy. Cột bên cạnh cho biết mỗi thẻ dựng lên cái gì khi bật.",
   "settings.tabs.restart": "Đã lưu. Danh sách có hiệu lực ở lần khởi động bảng kế tiếp — một thẻ dựng lên các lệnh thường trực của nó lúc được dựng, còn tháo nó giữa chừng lại là chuyện khác.",
@@ -437,9 +411,7 @@
   "splash.systems": "Đang khởi động các hệ thống…",
   "splash.triggers": "Đang nạp các bộ kích hoạt…",
   "splash.ui": "Đang dựng giao diện…",
-
   "status.checking": "đang kiểm tra…",
-
   "sweep.centre": "Tâm X/Y:",
   "sweep.enabled": "Quét bản đồ",
   "sweep.frame": "Tự quét bản đồ",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "vòng {n} xong — nghỉ {mins} phút",
   "sweep.rule": "khung {side}×{side} ô · {jumps} bước nhảy · ~{mins} phút mỗi vòng",
   "sweep.settings_hint": "khung {side}×{side} ô — {jumps} bước nhảy, ~{mins} phút mỗi vòng",
-
   "tab.chat": "Trò chuyện",
   "tab.develop": "Phát triển",
   "tab.main": "Trang chính",
   "tab.scenarios": "Kịch bản",
   "tab.settings": "Cài đặt",
   "tab.timers": "Lịch",
-
   "timers.add": "Thêm",
   "timers.cancel": "✕",
   "timers.col.action": "Khả năng",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} giờ {m} phút",
   "timers.span.min": "{n} phút",
   "timers.span.now": "chưa tới một phút",
-
   "triggers.col.action": "Khả năng",
   "triggers.col.event": "khi có sự kiện",
   "triggers.col.status": "trạng thái",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Tự vào các tập kết của liên minh",
   "triggers.log.no_squads": "tự tham gia: trang «Tập Kết Tự Động» chưa đánh dấu đội nào — chẳng có gì để gửi",
   "triggers.log.rally_capped": "tự tham gia: mọi loại tập kết đều đã chạm giới hạn ngày — không vào cái nào",
-
   "top.daemon": "daemon:",
   "top.game": "Trò chơi:",
   "stats.col.date": "Ngày",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Tự làm mới thẻ Túi đồ",
   "triggers.item.leaderboard_collect": "Thu thập lịch sử bảng xếp hạng",
   "triggers.log.resource_gain": "tài nguyên thu được: {what}",
-
   "tab.alliance": "Liên minh",
   "tab.profile": "Hồ sơ",
   "tab.inventory": "Túi đồ",
@@ -599,7 +566,6 @@
   "inventory.search": "Tìm:",
   "inventory.count": "{n} vật phẩm",
   "inventory.empty": "trống — hãy bấm Làm mới (trò chơi phải đang chạy)",
-
   "tab.heroes": "Tướng",
   "heroes.col.icon": "",
   "heroes.col.name": "Tên",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "không có",
   "heroes.count": "{n} tướng",
   "heroes.empty": "không có tướng nào — hãy bấm Làm mới (trò chơi phải đang chạy)",
-
   "tab.accounts": "Tài khoản",
   "accounts.col.name": "Nhân vật",
   "accounts.col.server": "Máy chủ",
@@ -628,7 +593,6 @@
   "accounts.switching": "đang chuyển…",
   "accounts.switched": "[accounts] đã chuyển sang {name} (máy chủ {server})",
   "accounts.switch_fail": "[accounts] chuyển sang {name} thất bại: {state}",
-
   "tab.secret_tasks": "Nhiệm Vụ Bí Mật",
   "tab.rally": "Tập kết",
   "triggers.item.secret_task_share": "Thêm ngay các nhiệm vụ bí mật được chia sẻ",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "lượt quét bản đồ đã dừng",
   "cmdpost.ghost.state.map_ready": "sẵn sàng (theo bản đồ)",
   "cmdpost.ghost.state.map_running": "vẫn còn ở ngoài (theo bản đồ)",
-
   "update.frame": "Cập nhật",
   "update.version": "Phiên bản {version}",
   "update.version.commit": "Phiên bản {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "cập nhật thất bại: không có đường tới origin ({detail})",
   "log.update.fail_error": "cập nhật thất bại: {detail}",
   "log.update.restarting": "đang khởi động lại bảng trên mã đã cập nhật…",
-
   "tab.vs_duel": "Đấu VS",
   "vsduel.hint": "Cuộc đấu cho điểm theo một nhóm hành động khác nhau mỗi ngày. Hãy đánh dấu những gì cần làm trong ngày đó, và giới hạn mức được tiêu. Chưa có gì tự chạy — các lựa chọn được giữ lại cho tới khi chính các hành động ấy xuất hiện.",
   "vsduel.shield": "Khiên:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Nâng kỹ năng của Chúa Tể",
   "vsduel.lord_level": "Nâng cấp của Chúa Tể",
   "vsduel.unit_train": "Huấn luyện binh lính",
-  "vsduel.unit_upgrade": "Nâng cấp binh lính"
+  "vsduel.unit_upgrade": "Nâng cấp binh lính",
+  "log.profile.opened": "đã mở hồ sơ: {name}",
+  "log.profile.closed": "đã đóng hồ sơ: {name}",
+  "log.profile.held_elsewhere": "{name} đang mở ở bảng khác — không mở ở đây",
+  "log.profile.last_one": "{name} là hồ sơ duy nhất đang mở — không thể đóng"
 }

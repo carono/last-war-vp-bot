@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "About",
   "about.version": "Version {version}",
-
   "app.title": "Last War — Navigation",
-
   "autorally.create.elite": "Doom Elite level:",
   "autorally.create.frame": "Create a rally",
   "autorally.create.hint": "Pick the one squad that raises the banner to create a rally, and the Doom Elite level (1–35) the rally targets. Only one squad can lead; click it again to clear it.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Auto Rally",
   "autorally.hint": "The squads that may be sent to a rally. Each goes to a rally of its own.",
   "autorally.squads": "Squads:",
-
   "autostart.frame": "Autostart",
   "autostart.enable": "Check every hour and open the panel if it is not running",
   "autostart.hint": "A task in the Windows scheduler looks once an hour and opens the panel on this profile when it is not there. It tells a working panel from a frozen one: an open panel notes the time every minute, and one that has stopped answering is closed and opened again. What it starts is this very install and this profile, under your own account.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "The task scheduler is Windows-only.",
   "autostart.error.admin": "Windows refused: creating this task needs administrator rights. Start the panel as administrator and tick it again. ({error})",
   "autostart.error.failed": "The task scheduler refused: {error}",
-
   "busy": "busy — wait for the current action to finish",
   "busy.elsewhere": "the game is busy — {owner} has been driving it for {sec}s",
-
   "capture.ghost_op": "Ghost Ops",
   "capture.secret_tasks": "Secret tasks",
-
   "chat.clear": "Clear",
   "chat.contacts": "Contacts",
   "chat.contacts.empty": "no conversations yet",
@@ -67,7 +61,6 @@
   "chat.tab.world": "World",
   "chat.to": "to:",
   "chat.you": "You:",
-
   "cmd.failed": "did not run — see the lines above",
   "cmd.label": "Command:",
   "cmd.ok": "done",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Put in the box",
   "cmd.reference.title": "Named presses (TAP)",
   "cmd.run": "Run",
-
-
   "daemon.error": "error",
   "daemon.none": "none",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "starting…",
   "daemon.warm": "warm",
-
   "dash.all_quiet": "all quiet — nothing waiting",
   "dash.donate": "donations",
   "dash.frame": "Account summary",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "gifts at the gate",
   "dash.visitors": "survivors at the gate",
   "dash.wounded": "wounded",
-
   "debug.frame": "Diagnostics (debug log)",
   "debug.send": "Send diagnostics",
-
   "develop.hint": "Both halves of a recording at once: a passive capture of the wire beside a tracer that wraps the client's own Lua. Switch it on, do the thing in the game ONCE, switch it off — then keep the pair with a description of what was done, or throw it away. A capture nobody labelled is a file nobody can read a week later. The tracer's hooks live in the running client, so Stop is asked politely and the panel puts them back if the child does not.",
   "develop.label.prompt": "Session label (optional).\nGoes into the log file name; spaces become underscores.",
   "develop.label.title": "Session label",
@@ -125,7 +113,6 @@
   "develop.run.title": "Sniffer run",
   "develop.sniff.frame": "Record a session",
   "develop.sniff.toggle": "Sniffer",
-
   "game.frame": "Game",
   "game.launch": "▶  Launch game",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "running in {user}'s session (pid {pid})",
   "game.st.session_running_at": "running in {user}'s session (pid {pid}) → {conn}",
   "game.watchdog": "Relaunch the game when it dies",
-
   "ghost.autoloot": "Auto-loot squads",
   "ghost.frame": "Ghost Ops",
   "ghost.hint": "its own daily budget, separate from the secret tasks. The event runs one day a week and does nothing on the others. No map scan needed — the client knows the squad list itself.",
   "ghost.off": "ghost auto-loot off",
   "ghost.on": "ghost auto-loot on",
   "ghost.robbing": "the event is open, {n} left — taking every robbable squad",
-
   "language.name": "English",
-
   "log.autoloot.no_monitor": "the secret-task monitor is off — auto-loot reads the alliance's tasks from the client directly, so it still works; the monitor only adds enemy tiles the sweep pans over",
   "log.autoloot.no_scan": "no source yet — start the game (auto-loot reads the client directly), or switch the secret-task monitor on and move the map",
   "log.autoloot.off": "off",
@@ -249,7 +233,6 @@
   "log.traffic.started": "the sniffer is running (pid {pid}); its output goes to the log, the recording to results/traffic/",
   "log.traffic.starting": "starting the raw traffic sniffer …",
   "log.traffic.stopped": "traffic sniffer stopped",
-
   "log.triggers.no_check": "{name}: no check to poll — skipped",
   "log.triggers.no_name": "entry #{n} has no name — skipped",
   "log.triggers.no_pattern": "{name}: no event to watch for — skipped",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Send log to developer",
   "menu.language": "Language",
   "menu.profile": "Profile",
-
-
   "opt.autoloot_limit": "Targets per run",
   "opt.autoloot_limit.hint": "More than the daily budget makes no difference.",
   "opt.autoloot_pause_min": "Pause when spent, min",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Noticing the game process gone, start it again — at most once every 5 minutes.",
   "opt.win_python": "Python for the child processes",
   "opt.win_python.hint": "It runs the captures, the robberies and the Lua daemon itself.",
-
   "panic.done": "everything stopped; the schedule is off — switch it back on in the Timers tab",
   "panic.log": "stopping everything: monitors, watchers, the map sweep, the scenario and the schedule",
   "panic.stop_all": "⏹ Stop everything",
-
   "profile.close": "Close",
+  "profile.open": "Open",
+  "profile.close_one": "Close profile",
+  "profile.open_hint": "Picking a profile that is not open opens it beside this one.",
   "profile.confirm_delete": "Delete the profile «{name}»? Its whole directory {path} goes with it — the chat history, the rally and secret-task logs, panel.log and the record of when each timer last ran. This cannot be undone.",
   "profile.delete": "Delete",
   "profile.error.empty_name": "The profile name cannot be empty.",
@@ -318,7 +300,6 @@
   "profile.new": "New",
   "profile.prompt_name": "Profile name:",
   "profile.rename": "Rename",
-
   "rally.alert": "Alert me",
   "rally.alert.fired": "★ RALLY (banner {team}) — joinable",
   "rally.autojoin": "Join by itself",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Alliance Exercise",
   "rally_limit.type.monster": "Monsters",
   "rally_limit.type.zombie_invasion": "Zombie invasion",
-
   "rally_tab.frame": "Raise a rally on a world monster",
   "rally_tab.kind": "Target:",
   "rally_tab.kind_boss": "Doom Elite",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "banner up — squad {squad}, lvl-{level} monster",
   "rally_tab.error": "rally launch error: {error}",
   "rally_tab.error_short": "error — see log",
-
   "scenarios.actions": "Action scripts",
   "scenarios.args": "arguments (JSON):",
   "scenarios.bad_args": "arguments are not readable JSON — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Experimental too",
   "scenarios.stop": "Stop",
   "scenarios.stopping": "{name}: stopping — the run ends at its next step",
-
   "secret.autoloot": "Auto-loot ★ at the top level",
   "secret.autoloot.frame": "Auto-loot ★ (secret tasks)",
   "secret.autoloot.level_from": "Level from",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Monitoring",
   "secret.pending_only": "Pending only",
   "secret.stars_only": "Stars only",
-
   "senddiag.cancel": "Cancel",
   "senddiag.empty": "the debug log is empty yet",
   "senddiag.open": "Open",
@@ -405,7 +382,6 @@
   "senddiag.send": "Send",
   "senddiag.title": "Send diagnostics",
   "senddiag.warning": "No personal information is sent. The log contains only technical data about how the panel runs.",
-
   "session.check": "Check",
   "session.check.no_client": "session {session} ({state}) is up, but no {exe} is running in it — start the client inside that session.",
   "session.check.no_login": "the box is ticked, but no login is typed — there is no session to look in.",
@@ -419,12 +395,10 @@
   "session.state.active": "active",
   "session.state.disconnected": "disconnected — which is how it should be left",
   "session.state.other": "state {code}",
-
   "settings.placeholder": "Coming soon",
   "settings.tab.autorally": "Auto Rally",
   "settings.tab.game": "Game",
   "settings.tab.general": "General",
-
   "settings.tab.tabs": "Tabs",
   "settings.tabs.hint": "Which tabs this profile shows. A tab that is off is not built at all: no widgets, no settings page of its own, no triggers offered, and none of its captures or watchers started — «Secret Tasks» off is a capture and two watcher threads that never run. The column beside each says what it brings up when it is on.",
   "settings.tabs.restart": "Saved. The list is applied the next time the panel starts — a tab brings up its own standing orders when it is built, and taking one down mid-flight is not the same thing.",
@@ -437,9 +411,7 @@
   "splash.systems": "Starting the systems…",
   "splash.triggers": "Loading the triggers…",
   "splash.ui": "Building the interface…",
-
   "status.checking": "checking…",
-
   "sweep.centre": "Centre X/Y:",
   "sweep.enabled": "Sweep the map",
   "sweep.frame": "Automatic map sweep",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "pass {n} done — resting {mins} min",
   "sweep.rule": "a {side}×{side} tile box · {jumps} jumps · ~{mins} min a pass",
   "sweep.settings_hint": "a {side}×{side} tile box — {jumps} jumps, ~{mins} min a pass",
-
   "tab.chat": "Chat",
   "tab.develop": "Develop",
   "tab.main": "Main",
   "tab.scenarios": "Scenarios",
   "tab.settings": "Settings",
   "tab.timers": "Timers",
-
   "timers.add": "Add",
   "timers.cancel": "✕",
   "timers.col.action": "Ability",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} h {m} min",
   "timers.span.min": "{n} min",
   "timers.span.now": "under a minute",
-
   "triggers.col.action": "Ability",
   "triggers.col.event": "on event",
   "triggers.col.status": "status",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Auto-join alliance rallies",
   "triggers.log.no_squads": "rally auto-join: no squads ticked on the «Auto Rally» page — nothing to send",
   "triggers.log.rally_capped": "rally auto-join: every rally type is at its daily cap — nothing joined",
-
   "top.daemon": "daemon:",
   "top.game": "Game:",
   "stats.col.date": "Date",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Auto-refresh the Inventory tab",
   "triggers.item.leaderboard_collect": "Collect leaderboard history",
   "triggers.log.resource_gain": "resources gained: {what}",
-
   "tab.alliance": "Alliance",
   "tab.profile": "Profile",
   "tab.inventory": "Inventory",
@@ -599,7 +566,6 @@
   "inventory.search": "Search:",
   "inventory.count": "{n} items",
   "inventory.empty": "empty — press Refresh (needs the game running)",
-
   "tab.heroes": "Heroes",
   "heroes.col.icon": "",
   "heroes.col.name": "Name",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "none",
   "heroes.count": "{n} heroes",
   "heroes.empty": "no heroes — press Refresh (needs the game running)",
-
   "tab.accounts": "Accounts",
   "accounts.col.name": "Character",
   "accounts.col.server": "Server",
@@ -628,7 +593,6 @@
   "accounts.switching": "switching…",
   "accounts.switched": "[accounts] switched to {name} (server {server})",
   "accounts.switch_fail": "[accounts] switch to {name} failed: {state}",
-
   "tab.secret_tasks": "Secret Tasks",
   "tab.rally": "Rally",
   "triggers.item.secret_task_share": "Live-add shared secret tasks",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "the map scan has stopped",
   "cmdpost.ghost.state.map_ready": "ready (from the map)",
   "cmdpost.ghost.state.map_running": "still out (from the map)",
-
   "update.frame": "Update",
   "update.version": "Version {version}",
   "update.version.commit": "Version {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "update failed: no route to origin ({detail})",
   "log.update.fail_error": "update failed: {detail}",
   "log.update.restarting": "restarting the panel on the updated code…",
-
   "tab.vs_duel": "VS Duel",
   "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive.",
   "vsduel.shield": "Shield:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Raise the Overlord skills",
   "vsduel.lord_level": "Raise the Overlord level",
   "vsduel.unit_train": "Train units",
-  "vsduel.unit_upgrade": "Upgrade units"
+  "vsduel.unit_upgrade": "Upgrade units",
+  "log.profile.opened": "profile opened: {name}",
+  "log.profile.closed": "profile closed: {name}",
+  "log.profile.held_elsewhere": "{name} is open in another panel — left alone here",
+  "log.profile.last_one": "{name} is the only profile open — it cannot be closed"
 }

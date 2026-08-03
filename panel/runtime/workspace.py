@@ -30,7 +30,7 @@ class Workspace:
     """Every profile this window has open."""
 
     def __init__(self, root, *, defaults: dict | None = None, profiles=None,
-                 daemon_state=None, log=None) -> None:
+                 daemon_state=None, log=None, can_open=None, refused=None) -> None:
         self._root = root
         self._defaults = defaults
         #: The panel's OWN profile manager — unpinned, and the only one allowed to
@@ -38,8 +38,31 @@ class Workspace:
         self.profiles = profiles if profiles is not None else profilemod.ProfileManager()
         self._daemon_state = daemon_state
         self._log = log                      # callable(session, tag, key, **fmt)
+        #: ``can_open(name) -> bool`` — is this profile free to open HERE? The rule the
+        #: operator set is ONE PANEL PER PROFILE, not one per machine: a profile another
+        #: panel already holds must not be opened a second time, because the two would
+        #: write one `config.json` over each other and drive one daemon. Without this,
+        #: a second panel started for its own profile would silently adopt the FIRST
+        #: one's remembered list and take over every profile in it — which is exactly
+        #: what happened the first time this was run live.
+        self._can_open = can_open
+        self._refused = refused              # callable(name) — say a profile was skipped
+        #: Profiles this window WANTED open and could not have (another panel holds
+        #: them). Remembered beside the open ones so a refusal — which may be nothing
+        #: worse than the previous panel's lock outliving it by a moment — cannot erase
+        #: a profile from the list for good.
+        self._held_elsewhere: list = []
         self._sessions: list = []
         self._current: "ProfileSession | None" = None
+
+    def free(self, name: str) -> bool:
+        """Is ``name`` open in no other panel? ``True`` when nothing was asked."""
+        if self._can_open is None:
+            return True
+        try:
+            return bool(self._can_open(name))
+        except Exception:                    # noqa: BLE001 — a refusal must not be one
+            return True
 
     # -- what is open -------------------------------------------------------
     @property
@@ -96,6 +119,9 @@ class Workspace:
         with nothing in it, and «Закрыть» must not be the way to get there.
         """
         session = self.get(name)
+        # Closing on purpose is the one thing that forgets a profile — see `_remember`.
+        self._held_elsewhere = [n for n in self._held_elsewhere
+                                if n != profilemod.sanitize(name)]
         if session is None or len(self._sessions) <= 1:
             return None
         index = self._sessions.index(session)
@@ -156,7 +182,18 @@ class Workspace:
         head = profilemod.sanitize(first or "") or self.profiles.active
         if head not in wanted:
             wanted.insert(0, head)
+        # The head is opened whatever the answer: a window a person asked for opens,
+        # and whether THAT profile is already somewhere else was decided before this
+        # window was built at all (`panel/__main__.py::_already_open`). The rest of the
+        # remembered list is only remembered, so a profile another panel is holding is
+        # skipped and said out loud rather than taken over.
+        self._held_elsewhere = []
         for name in wanted:
+            if name != head and not self.free(name):
+                self._held_elsewhere.append(name)
+                if self._refused is not None:
+                    self._refused(name)
+                continue
             self.open(name, make_current=False)
         self.switch_to(head)
         # The pointer follows the page that is on screen, so the next plain launch
@@ -176,11 +213,19 @@ class Workspace:
         return None if not self._sessions else name
 
     def _remember(self) -> None:
-        """Write down what is open and what is showing, for the next launch."""
+        """Write down what this window would have open, and what is showing.
+
+        WOULD have, not does: a profile another panel is holding stays in the list. It
+        may be held for the length of a lock that outlived a killed panel by a moment,
+        and dropping it would quietly forget the profile for ever — the next launch has
+        no way to know it was ever wanted. The only thing that takes a name out of this
+        list is closing it on purpose.
+        """
         names = self.names
         if self._current is not None:
             names = [self._current.name] + [n for n in names if n != self._current.name]
             self.profiles.set_active(self._current.name)
+        names += [n for n in self._held_elsewhere if n not in names]
         self.profiles.set_open_profiles(names)
 
     def _complain(self, session, exc: Exception) -> None:

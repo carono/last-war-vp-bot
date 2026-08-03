@@ -4,9 +4,7 @@
   "about.ok": "ОК",
   "about.title": "О программе",
   "about.version": "Версия {version}",
-
   "app.title": "Last War — навигация",
-
   "autorally.create.elite": "Уровень Роковой Элиты:",
   "autorally.create.frame": "Создание стягивания",
   "autorally.create.hint": "Выбери один отряд, который поднимает стяг и создаёт стягивание, и уровень Роковой Элиты (1–35), против которого оно идёт. Флагман только один; повторный клик снимает его.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Автосбор",
   "autorally.hint": "Отряды, которые можно отправлять в стягивание. Каждый идёт в своё.",
   "autorally.squads": "Отряды:",
-
   "autostart.frame": "Автозапуск",
   "autostart.enable": "Проверять раз в час и открывать панель, если она не запущена",
   "autostart.hint": "Задача в планировщике Windows раз в час смотрит, работает ли панель на этом профиле, и открывает её, если нет. Живую панель она отличает от зависшей: открытая панель раз в минуту отмечается в профиле, а ту, что перестала отвечать, задача закрывает и открывает заново. Запускается та же самая установка и этот же профиль, от вашего имени.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Планировщик задач есть только в Windows.",
   "autostart.error.admin": "Windows отказал: создание такой задачи требует прав администратора. Запустите панель от имени администратора и поставьте галочку заново. ({error})",
   "autostart.error.failed": "Планировщик задач отказал: {error}",
-
   "busy": "занят — дождись завершения текущего действия",
   "busy.elsewhere": "игра занята — {owner} ведёт её уже {sec} с",
-
   "capture.ghost_op": "Операция Призрак",
   "capture.secret_tasks": "Секретные задания",
-
   "chat.clear": "Очистить",
   "chat.contacts": "Контакты",
   "chat.contacts.empty": "диалогов пока нет",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Мировой",
   "chat.to": "куда:",
   "chat.you": "Вы:",
-
   "cmd.failed": "не выполнено — смотри строки выше",
   "cmd.label": "Команда:",
   "cmd.ok": "выполнено",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Подставить в строку",
   "cmd.reference.title": "Справочник нажатий (TAP)",
   "cmd.run": "Выполнить",
-
-
   "daemon.error": "ошибка",
   "daemon.none": "нет",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "старт…",
   "daemon.warm": "тёплый",
-
   "dash.all_quiet": "всё спокойно — дел нет",
   "dash.donate": "донат",
   "dash.frame": "Сводка по аккаунту",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "подарков у ворот",
   "dash.visitors": "выживших у ворот",
   "dash.wounded": "раненых",
-
   "debug.frame": "Диагностика (debug-лог)",
   "debug.send": "Отправить диагностику",
-
   "develop.hint": "Обе половины записи разом: пассивный перехват трафика рядом с трассировщиком, который оборачивает Lua самого клиента. Включи, сделай нужное в игре ОДИН раз, выключи — потом сохрани пару с описанием того, что делалось, или выброси. Перехват, который никто не подписал, через неделю уже не прочесть. Хуки трассировщика живут в работающем клиенте, поэтому «Стоп» просит по-хорошему, а панель возвращает их на место, если ребёнок этого не сделал.",
   "develop.label.prompt": "Метка сессии (необязательно).\nПопадёт в имя файла лога; пробелы станут подчёркиваниями.",
   "develop.label.title": "Метка сессии",
@@ -125,7 +113,6 @@
   "develop.run.title": "Запись снифера",
   "develop.sniff.frame": "Запись сессии",
   "develop.sniff.toggle": "Снифер",
-
   "game.frame": "Игра",
   "game.launch": "▶  Запустить игру",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "работает в сессии {user} (pid {pid})",
   "game.st.session_running_at": "работает в сессии {user} (pid {pid}) → {conn}",
   "game.watchdog": "Поднимать игру при падении",
-
   "ghost.autoloot": "Автолут отрядов",
   "ghost.frame": "Операция Призрак",
   "ghost.hint": "своя дневная норма, отдельно от секреток. Событие идёт один день в неделю, в остальные дни ничего не делает. Скан карты не нужен — список отрядов клиент знает сам.",
   "ghost.off": "автолут призрака выключен",
   "ghost.on": "автолут призрака включён",
   "ghost.robbing": "событие открыто, осталось {n} — забираю доступные отряды",
-
   "language.name": "Русский",
-
   "log.autoloot.no_monitor": "мониторинг секреток выключен — автолут читает секретки альянса прямо из клиента, так что работает и без него; мониторинг лишь добавляет вражеские тайлы с автообъезда",
   "log.autoloot.no_scan": "источника пока нет — запусти игру (автолут читает клиент напрямую) или включи «Мониторинг» секреток и подвигай карту",
   "log.autoloot.off": "выключен",
@@ -249,7 +233,6 @@
   "log.traffic.started": "снифер запущен (pid {pid}); вывод идёт в лог, запись — в results/traffic/",
   "log.traffic.starting": "запускаю сырой снифер трафика …",
   "log.traffic.stopped": "стоп снифера трафика",
-
   "log.triggers.no_check": "{name}: не указано, что опрашивать — пропущен",
   "log.triggers.no_name": "у записи №{n} нет имени — пропущена",
   "log.triggers.no_pattern": "{name}: не указано, какое событие ждать — пропущен",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Отправить лог разработчику",
   "menu.language": "Язык",
   "menu.profile": "Профиль",
-
-
   "opt.autoloot_limit": "Целей за один заход",
   "opt.autoloot_limit.hint": "Больше дневной нормы смысла не имеет.",
   "opt.autoloot_pause_min": "Пауза при исчерпании, мин",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Заметив, что процесс игры исчез, запустить её заново — не чаще раза в 5 минут.",
   "opt.win_python": "Python для дочерних процессов",
   "opt.win_python.hint": "Им запускаются захваты, кражи и сам lua-демон.",
-
   "panic.done": "всё остановлено; расписание выключено — включи его обратно на вкладке «Таймеры»",
   "panic.log": "останавливаю всё: мониторы, наблюдатели, обход карты, сценарий и расписание",
   "panic.stop_all": "⏹ Стоп всё",
-
   "profile.close": "Закрыть",
+  "profile.open": "Открыть",
+  "profile.close_one": "Закрыть профиль",
+  "profile.open_hint": "Выбор профиля, который ещё не открыт, откроет его рядом с этим.",
   "profile.confirm_delete": "Удалить профиль «{name}»? Вместе с ним исчезнет вся его папка {path} — история чата, логи стягиваний и секреток, panel.log и отметки о том, когда какой таймер отработал. Отменить будет нельзя.",
   "profile.delete": "Удалить",
   "profile.error.empty_name": "Имя профиля не может быть пустым.",
@@ -318,7 +300,6 @@
   "profile.new": "Создать",
   "profile.prompt_name": "Имя профиля:",
   "profile.rename": "Переименовать",
-
   "rally.alert": "Оповещать",
   "rally.alert.fired": "★ СТЯГИВАНИЕ (стяг {team}) — можно присоединиться",
   "rally.autojoin": "Присоединяться сам",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Учение Альянса",
   "rally_limit.type.monster": "Монстры",
   "rally_limit.type.zombie_invasion": "Зомби-вторжение",
-
   "rally_tab.frame": "Запуск стягивания на монстра карты",
   "rally_tab.kind": "Цель:",
   "rally_tab.kind_boss": "Роковая Элита",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "стяг поднят — отряд {squad}, монстр ур.{level}",
   "rally_tab.error": "ошибка запуска стягивания: {error}",
   "rally_tab.error_short": "ошибка — см. лог",
-
   "scenarios.actions": "Скрипты-действия",
   "scenarios.args": "аргументы (JSON):",
   "scenarios.bad_args": "аргументы — не читаемый JSON: {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "И экспериментальные",
   "scenarios.stop": "Стоп",
   "scenarios.stopping": "{name}: останавливаю — прогон завершится на следующем шаге",
-
   "secret.autoloot": "Автолут ★ по верхнему уровню",
   "secret.autoloot.frame": "Автолут ★ (секретки)",
   "secret.autoloot.level_from": "Уровень от",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Мониторинг",
   "secret.pending_only": "Только пендинг",
   "secret.stars_only": "Только звёзды",
-
   "senddiag.cancel": "Отмена",
   "senddiag.empty": "debug-лог пока пуст",
   "senddiag.open": "Открыть",
@@ -405,7 +382,6 @@
   "senddiag.send": "Отправить",
   "senddiag.title": "Отправить диагностику",
   "senddiag.warning": "Никакая личная информация не отправляется. Лог содержит только технические данные о работе панели.",
-
   "session.check": "Проверить",
   "session.check.no_client": "сессия {session} ({state}) поднята, но {exe} в ней не запущен — запусти клиент внутри этой сессии.",
   "session.check.no_login": "галочка стоит, но логин не введён — искать не в чем.",
@@ -419,12 +395,10 @@
   "session.state.active": "активна",
   "session.state.disconnected": "отключена — так её и оставляют",
   "session.state.other": "состояние {code}",
-
   "settings.placeholder": "Скоро",
   "settings.tab.autorally": "Автосбор",
   "settings.tab.game": "Игра",
   "settings.tab.general": "Общие",
-
   "settings.tab.tabs": "Вкладки",
   "settings.tabs.hint": "Какие вкладки показывает этот профиль. Выключенная вкладка не строится совсем: ни виджетов, ни своей страницы настроек, ни предлагаемых триггеров, ни запущенных захватов и сторожей — выключенные «Секретки» это перехват и два потока-сторожа, которые не работают. В колонке рядом — что вкладка поднимает, когда включена.",
   "settings.tabs.restart": "Сохранено. Список применяется при следующем запуске панели: вкладка поднимает свои постоянные приказы, когда её строят, и снять её на ходу — не то же самое.",
@@ -437,9 +411,7 @@
   "splash.systems": "Запуск систем…",
   "splash.triggers": "Загрузка триггеров…",
   "splash.ui": "Построение интерфейса…",
-
   "status.checking": "проверяю…",
-
   "sweep.centre": "Центр X/Y:",
   "sweep.enabled": "Объезжать карту",
   "sweep.frame": "Автообъезд карты",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "круг {n} пройден — пауза {mins} мин",
   "sweep.rule": "квадрат {side}×{side} тайлов · {jumps} прыжков · ~{mins} мин на круг",
   "sweep.settings_hint": "квадрат {side}×{side} тайлов — {jumps} прыжков, ~{mins} мин на круг",
-
   "tab.chat": "Чат",
   "tab.develop": "Разработка",
   "tab.main": "Основные",
   "tab.scenarios": "Сценарии",
   "tab.settings": "Настройки",
   "tab.timers": "Таймеры",
-
   "timers.add": "Добавить",
   "timers.cancel": "✕",
   "timers.col.action": "Действие",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} ч {m} мин",
   "timers.span.min": "{n} мин",
   "timers.span.now": "меньше минуты",
-
   "triggers.col.action": "Действие",
   "triggers.col.event": "по событию",
   "triggers.col.status": "статус",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Автоприсоединение к стягиваниям альянса",
   "triggers.log.no_squads": "автосбор: на странице «Автосбор» не отмечен ни один отряд — отправлять нечего",
   "triggers.log.rally_capped": "автосбор: все типы стягиваний достигли дневного лимита — ничего не присоединено",
-
   "top.daemon": "демон:",
   "top.game": "Игра:",
   "stats.col.date": "Дата",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Автообновление вкладки «Инвентарь»",
   "triggers.item.leaderboard_collect": "Собирать историю лидербордов",
   "triggers.log.resource_gain": "получено ресурсов: {what}",
-
   "tab.alliance": "Альянс",
   "tab.profile": "Профиль",
   "tab.inventory": "Инвентарь",
@@ -599,7 +566,6 @@
   "inventory.search": "Поиск:",
   "inventory.count": "{n} предметов",
   "inventory.empty": "пусто — нажми «Обновить» (нужна запущенная игра)",
-
   "tab.heroes": "Герои",
   "heroes.col.icon": "",
   "heroes.col.name": "Имя",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "нет",
   "heroes.count": "{n} героев",
   "heroes.empty": "нет героев — нажми «Обновить» (нужна запущенная игра)",
-
   "tab.accounts": "Аккаунты",
   "accounts.col.name": "Персонаж",
   "accounts.col.server": "Сервер",
@@ -628,7 +593,6 @@
   "accounts.switching": "переключаю…",
   "accounts.switched": "[accounts] переключено на {name} (сервер {server})",
   "accounts.switch_fail": "[accounts] смена на {name} не удалась: {state}",
-
   "tab.secret_tasks": "Секретки",
   "tab.rally": "Стягивание",
   "triggers.item.secret_task_share": "Добавлять расшаренные секретки в список",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "сканирование карты остановлено",
   "cmdpost.ghost.state.map_ready": "готов (с карты)",
   "cmdpost.ghost.state.map_running": "ещё идёт (с карты)",
-
   "update.frame": "Обновление",
   "update.version": "Версия {version}",
   "update.version.commit": "Версия {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "обновление не удалось: нет связи с origin ({detail})",
   "log.update.fail_error": "обновление не удалось: {detail}",
   "log.update.restarting": "перезапускаю панель на обновлённом коде…",
-
   "tab.vs_duel": "Дуэль VS",
   "vsduel.hint": "Дуэль каждый день начисляет очки за свой набор действий. Отметьте, что делать в этот день, и ограничьте трату. Пока ничего не выполняется само — выбор сохраняется до появления самих действий.",
   "vsduel.shield": "Щит:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Повышать навыки Повелителя",
   "vsduel.lord_level": "Повышать уровень Повелителя",
   "vsduel.unit_train": "Тренировать юниты",
-  "vsduel.unit_upgrade": "Повышать юниты"
+  "vsduel.unit_upgrade": "Повышать юниты",
+  "log.profile.opened": "профиль открыт: {name}",
+  "log.profile.closed": "профиль закрыт: {name}",
+  "log.profile.held_elsewhere": "{name} открыт в другой панели — здесь не открываю",
+  "log.profile.last_one": "{name} — единственный открытый профиль, его нельзя закрыть"
 }

@@ -4,9 +4,7 @@
   "about.ok": "Tamam",
   "about.title": "Hakkında",
   "about.version": "Sürüm {version}",
-
   "app.title": "Last War — Gezinme",
-
   "autorally.create.elite": "Kıyamet Eliti seviyesi:",
   "autorally.create.frame": "Ralli kur",
   "autorally.create.hint": "Sancağı kaldırıp ralliyi kuran tek takımı ve rallinin hedeflediği Kıyamet Eliti seviyesini (1–35) seç. Yalnız bir takım önderlik edebilir; kaldırmak için ona yeniden tıkla.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Otomatik Ralli",
   "autorally.hint": "Ralliye gönderilebilecek takımlar. Her biri kendi rallisine gider.",
   "autorally.squads": "Takımlar:",
-
   "autostart.frame": "Kendiliğinden başlatma",
   "autostart.enable": "Saatte bir bak ve panel çalışmıyorsa aç",
   "autostart.hint": "Windows görev zamanlayıcısındaki bir görev saatte bir bakar ve panel yoksa onu bu profille açar. Çalışan paneli donmuş olandan ayırt eder: açık panel her dakika saati not eder, yanıt vermeyi bırakmış olan kapatılıp yeniden açılır. Başlattığı şey tam da bu kurulum ve bu profildir, kendi hesabınla.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Görev zamanlayıcı yalnız Windows'ta vardır.",
   "autostart.error.admin": "Windows geri çevirdi: bu görevi oluşturmak yönetici hakları ister. Paneli yönetici olarak başlat ve yeniden işaretle. ({error})",
   "autostart.error.failed": "Görev zamanlayıcı geri çevirdi: {error}",
-
   "busy": "meşgul — yürüyen işlemin bitmesini bekle",
   "busy.elsewhere": "oyun meşgul — {owner} {sec} sn'dir onu sürüyor",
-
   "capture.ghost_op": "Hayalet Operasyonu",
   "capture.secret_tasks": "Gizli görevler",
-
   "chat.clear": "Temizle",
   "chat.contacts": "Kişiler",
   "chat.contacts.empty": "henüz konuşma yok",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Dünya",
   "chat.to": "kime:",
   "chat.you": "Sen:",
-
   "cmd.failed": "çalışmadı — yukarıdaki satırlara bak",
   "cmd.label": "Komut:",
   "cmd.ok": "bitti",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Kutuya koy",
   "cmd.reference.title": "Adlı basışlar (TAP)",
   "cmd.run": "Çalıştır",
-
-
   "daemon.error": "hata",
   "daemon.none": "yok",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "başlıyor…",
   "daemon.warm": "sıcak",
-
   "dash.all_quiet": "her şey sakin — bekleyen yok",
   "dash.donate": "bağışlar",
   "dash.frame": "Hesap özeti",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "kapıdaki armağanlar",
   "dash.visitors": "kapıdaki hayatta kalanlar",
   "dash.wounded": "yaralılar",
-
   "debug.frame": "Tanılama (hata ayıklama günlüğü)",
   "debug.send": "Tanılamayı gönder",
-
   "develop.hint": "Bir kaydın iki yarısı birden: ağın edilgen yakalanışı ile istemcinin kendi Lua'sını saran izleyici yan yana. Aç, işi oyunda BİR kez yap, kapat — sonra çifti ne yapıldığının açıklamasıyla sakla ya da at. Kimsenin etiketlemediği bir yakalama, bir hafta sonra kimsenin okuyamayacağı bir dosyadır. İzleyicinin kancaları çalışan istemcinin içinde yaşar, bu yüzden durma kibarca istenir ve çocuk yapmazsa panel onları kendisi geri alır.",
   "develop.label.prompt": "Oturum adı (isteğe bağlı).\nGünlük dosyasının adına girer; boşluklar alt çizgiye döner.",
   "develop.label.title": "Oturum adı",
@@ -125,7 +113,6 @@
   "develop.run.title": "Koklayıcı kaydı",
   "develop.sniff.frame": "Bir oturum kaydet",
   "develop.sniff.toggle": "Koklayıcı",
-
   "game.frame": "Oyun",
   "game.launch": "▶  Oyunu başlat",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "{user} oturumunda çalışıyor (pid {pid})",
   "game.st.session_running_at": "{user} oturumunda çalışıyor (pid {pid}) → {conn}",
   "game.watchdog": "Oyun düştüğünde yeniden başlat",
-
   "ghost.autoloot": "Takımları kendiliğinden yağmala",
   "ghost.frame": "Hayalet Operasyonu",
   "ghost.hint": "gizli görevlerden ayrı, kendi günlük bütçesi. Etkinlik haftada bir gün sürer, öbür günlerde hiçbir şey yapmaz. Harita taramasına gerek yok — istemci takım listesini kendisi bilir.",
   "ghost.off": "Hayalet Operasyonu otomatik yağması kapalı",
   "ghost.on": "Hayalet Operasyonu otomatik yağması açık",
   "ghost.robbing": "etkinlik açık, {n} kaldı — yağmalanabilir her takımı alıyorum",
-
   "language.name": "Türkçe",
-
   "log.autoloot.no_monitor": "gizli görev gözcüsü kapalı — otomatik yağma ittifakın görevlerini doğrudan istemciden okur, yani yine de çalışır; gözcü yalnızca taramanın üzerinden geçtiği düşman karelerini ekler",
   "log.autoloot.no_scan": "henüz kaynak yok — oyunu başlat (otomatik yağma doğrudan istemciden okur) ya da gizli görev gözcüsünü aç ve haritayı oynat",
   "log.autoloot.off": "kapalı",
@@ -249,7 +233,6 @@
   "log.traffic.started": "koklayıcı çalışıyor (pid {pid}); çıktısı günlüğe, kaydı results/traffic/ altına gidiyor",
   "log.traffic.starting": "ham trafik koklayıcısı başlatılıyor …",
   "log.traffic.stopped": "trafik koklayıcısı durduruldu",
-
   "log.triggers.no_check": "{name}: sorgulanacak denetim yok — atlandı",
   "log.triggers.no_name": "{n}. girdinin adı yok — atlandı",
   "log.triggers.no_pattern": "{name}: gözlenecek olay yok — atlandı",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Günlüğü geliştiriciye gönder",
   "menu.language": "Dil",
   "menu.profile": "Profil",
-
-
   "opt.autoloot_limit": "Tur başına hedef",
   "opt.autoloot_limit.hint": "Günlük bütçeden fazlası bir şey değiştirmez.",
   "opt.autoloot_pause_min": "Tükenince ara, dk",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Oyun sürecinin gittiğini görünce onu yeniden başlatır — en çok 5 dakikada bir.",
   "opt.win_python": "Çocuk süreçler için Python",
   "opt.win_python.hint": "Yakalamaları, soygunları ve Lua cininin kendisini o çalıştırır.",
-
   "panic.done": "her şey durdu; zamanlama kapalı — Zamanlama sekmesinden geri aç",
   "panic.log": "her şey durduruluyor: gözcüler, bekçiler, harita taraması, betik ve zamanlama",
   "panic.stop_all": "⏹ Her şeyi durdur",
-
   "profile.close": "Kapat",
+  "profile.open": "Aç",
+  "profile.close_one": "Profili kapat",
+  "profile.open_hint": "Açık olmayan bir profili seçmek onu bunun yanında açar.",
   "profile.confirm_delete": "«{name}» profili silinsin mi? Bütün klasörü {path} de onunla gider — sohbet geçmişi, ralli ve gizli görev günlükleri, panel.log ve her zamanlanmış işin en son ne zaman çalıştığının kaydı. Bu geri alınamaz.",
   "profile.delete": "Sil",
   "profile.error.empty_name": "Profil adı boş olamaz.",
@@ -318,7 +300,6 @@
   "profile.new": "Yeni",
   "profile.prompt_name": "Profil adı:",
   "profile.rename": "Adını değiştir",
-
   "rally.alert": "Beni uyar",
   "rally.alert.fired": "★ RALLİ (sancak {team}) — katılınabilir",
   "rally.autojoin": "Kendiliğinden katıl",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "İttifak Tatbikatı",
   "rally_limit.type.monster": "Canavarlar",
   "rally_limit.type.zombie_invasion": "Zombi istilası",
-
   "rally_tab.frame": "Harita canavarına ralli kur",
   "rally_tab.kind": "Hedef:",
   "rally_tab.kind_boss": "Kıyamet Eliti",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "sancak kalktı — takım {squad}, {level}. seviye canavar",
   "rally_tab.error": "ralli kurma hatası: {error}",
   "rally_tab.error_short": "hata — günlüğe bak",
-
   "scenarios.actions": "Eylem betikleri",
   "scenarios.args": "argümanlar (JSON):",
   "scenarios.bad_args": "argümanlar okunabilir JSON değil — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Deneysel olanlar da",
   "scenarios.stop": "Durdur",
   "scenarios.stopping": "{name}: durduruluyor — çalışma bir sonraki adımda biter",
-
   "secret.autoloot": "En yüksek seviyede otomatik ★ yağma",
   "secret.autoloot.frame": "Otomatik ★ yağma (gizli görevler)",
   "secret.autoloot.level_from": "Seviye alt",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Gözetim",
   "secret.pending_only": "Yalnız bekleyenler",
   "secret.stars_only": "Yalnız yıldızlılar",
-
   "senddiag.cancel": "Vazgeç",
   "senddiag.empty": "hata ayıklama günlüğü daha boş",
   "senddiag.open": "Aç",
@@ -405,7 +382,6 @@
   "senddiag.send": "Gönder",
   "senddiag.title": "Tanılamayı gönder",
   "senddiag.warning": "Hiçbir kişisel bilgi gönderilmez. Günlük yalnızca panelin nasıl çalıştığına dair teknik veri içerir.",
-
   "session.check": "Denetle",
   "session.check.no_client": "{session} oturumu ({state}) ayakta, ama içinde çalışan bir {exe} yok — istemciyi o oturumun içinde başlat.",
   "session.check.no_login": "kutu işaretli, ama bir kullanıcı yazılmamış — bakılacak bir oturum yok.",
@@ -419,12 +395,10 @@
   "session.state.active": "etkin",
   "session.state.disconnected": "bağlantısı kesik — ki öyle bırakılmalıdır",
   "session.state.other": "durum {code}",
-
   "settings.placeholder": "Yakında",
   "settings.tab.autorally": "Otomatik Ralli",
   "settings.tab.game": "Oyun",
   "settings.tab.general": "Genel",
-
   "settings.tab.tabs": "Sekmeler",
   "settings.tabs.hint": "Bu profilin hangi sekmeleri gösterdiği. Kapalı bir sekme hiç kurulmaz: ne denetim, ne kendi ayar sayfası, ne sunulan tetikleyici, ne de yakalamaları ya da bekçileri başlatılır — «Gizli Görevler» kapalıyken bu, hiç çalışmayan bir yakalama ve iki bekçi ipliği demektir. Yanındaki sütun, her biri açıkken neyi ayağa kaldırdığını söyler.",
   "settings.tabs.restart": "Kaydedildi. Liste panelin bir sonraki açılışında geçerlidir — bir sekme kendi kalıcı emirlerini kurulurken ayağa kaldırır, uçarken sökmek aynı şey değildir.",
@@ -437,9 +411,7 @@
   "splash.systems": "Sistemler başlatılıyor…",
   "splash.triggers": "Tetikleyiciler yükleniyor…",
   "splash.ui": "Arayüz kuruluyor…",
-
   "status.checking": "bakılıyor…",
-
   "sweep.centre": "Merkez X/Y:",
   "sweep.enabled": "Haritayı tara",
   "sweep.frame": "Otomatik harita taraması",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "{n}. tur bitti — {mins} dk dinlenme",
   "sweep.rule": "{side}×{side} karelik kutu · {jumps} sıçrama · tur başına ~{mins} dk",
   "sweep.settings_hint": "{side}×{side} karelik kutu — {jumps} sıçrama, tur başına ~{mins} dk",
-
   "tab.chat": "Sohbet",
   "tab.develop": "Geliştirme",
   "tab.main": "Ana",
   "tab.scenarios": "Betikler",
   "tab.settings": "Ayarlar",
   "tab.timers": "Zamanlama",
-
   "timers.add": "Ekle",
   "timers.cancel": "✕",
   "timers.col.action": "Yetenek",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} sa {m} dk",
   "timers.span.min": "{n} dk",
   "timers.span.now": "bir dakikadan az",
-
   "triggers.col.action": "Yetenek",
   "triggers.col.event": "olayda",
   "triggers.col.status": "durum",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "İttifak rallilerine kendiliğinden katıl",
   "triggers.log.no_squads": "otomatik katılım: «Otomatik Ralli» sayfasında hiçbir takım işaretli değil — gönderilecek bir şey yok",
   "triggers.log.rally_capped": "otomatik katılım: her ralli türü günlük sınırında — hiçbirine katılınmadı",
-
   "top.daemon": "cin:",
   "top.game": "Oyun:",
   "stats.col.date": "Tarih",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Envanter sekmesini kendiliğinden tazele",
   "triggers.item.leaderboard_collect": "Sıralama geçmişini topla",
   "triggers.log.resource_gain": "kazanılan kaynaklar: {what}",
-
   "tab.alliance": "İttifak",
   "tab.profile": "Profil",
   "tab.inventory": "Envanter",
@@ -599,7 +566,6 @@
   "inventory.search": "Ara:",
   "inventory.count": "{n} eşya",
   "inventory.empty": "boş — Tazele'ye bas (oyunun çalışıyor olması gerekir)",
-
   "tab.heroes": "Kahramanlar",
   "heroes.col.icon": "",
   "heroes.col.name": "Ad",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "yok",
   "heroes.count": "{n} kahraman",
   "heroes.empty": "kahraman yok — Tazele'ye bas (oyunun çalışıyor olması gerekir)",
-
   "tab.accounts": "Hesaplar",
   "accounts.col.name": "Karakter",
   "accounts.col.server": "Sunucu",
@@ -628,7 +593,6 @@
   "accounts.switching": "geçiliyor…",
   "accounts.switched": "[accounts] {name} karakterine geçildi (sunucu {server})",
   "accounts.switch_fail": "[accounts] {name} karakterine geçiş başarısız: {state}",
-
   "tab.secret_tasks": "Gizli Görevler",
   "tab.rally": "Ralli",
   "triggers.item.secret_task_share": "Paylaşılan gizli görevleri anında ekle",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "harita taraması durdu",
   "cmdpost.ghost.state.map_ready": "hazır (haritadan)",
   "cmdpost.ghost.state.map_running": "hâlâ dışarıda (haritadan)",
-
   "update.frame": "Güncelleme",
   "update.version": "Sürüm {version}",
   "update.version.commit": "Sürüm {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "güncelleme başarısız: origin'e yol yok ({detail})",
   "log.update.fail_error": "güncelleme başarısız: {detail}",
   "log.update.restarting": "panel güncellenmiş kodla yeniden başlatılıyor…",
-
   "tab.vs_duel": "VS Düellosu",
   "vsduel.hint": "Düello her gün başka bir eylem kümesine puan verir. O gün ne yapılacağını işaretle ve ne kadar harcayabileceğini sınırla. Henüz hiçbir şey kendiliğinden çalışmıyor — seçimler, eylemler geldiğinde kullanılmak üzere saklanıyor.",
   "vsduel.shield": "Kalkan:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Derebeyinin yeteneklerini yükselt",
   "vsduel.lord_level": "Derebeyinin seviyesini yükselt",
   "vsduel.unit_train": "Birlik eğit",
-  "vsduel.unit_upgrade": "Birlikleri yükselt"
+  "vsduel.unit_upgrade": "Birlikleri yükselt",
+  "log.profile.opened": "profil açıldı: {name}",
+  "log.profile.closed": "profil kapatıldı: {name}",
+  "log.profile.held_elsewhere": "{name} başka bir panelde açık — burada açılmadı",
+  "log.profile.last_one": "{name} açık olan tek profil — kapatılamaz"
 }

@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "À propos",
   "about.version": "Version {version}",
-
   "app.title": "Last War — Navigation",
-
   "autorally.create.elite": "Niveau d'Élite Maudite :",
   "autorally.create.frame": "Créer un ralliement",
   "autorally.create.hint": "Choisis l'unique équipe qui lève l'étendard pour créer le ralliement, et le niveau d'Élite Maudite (1–35) qu'il vise. Une seule équipe peut mener ; reclique dessus pour l'enlever.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Ralliement Auto",
   "autorally.hint": "Les équipes qu'on peut envoyer à un ralliement. Chacune va au sien.",
   "autorally.squads": "Équipes :",
-
   "autostart.frame": "Démarrage automatique",
   "autostart.enable": "Vérifier toutes les heures et ouvrir le panneau s'il ne tourne pas",
   "autostart.hint": "Une tâche du planificateur Windows regarde une fois par heure et ouvre le panneau sur ce profil quand il n'est pas là. Elle distingue un panneau qui travaille d'un panneau figé : un panneau ouvert note l'heure chaque minute, et celui qui a cessé de répondre est fermé puis rouvert. Ce qu'elle lance, c'est cette installation-ci et ce profil-ci, sous ton propre compte.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Le planificateur de tâches n'existe que sous Windows.",
   "autostart.error.admin": "Windows a refusé : créer cette tâche demande des droits d'administrateur. Lance le panneau en administrateur et recoche. ({error})",
   "autostart.error.failed": "Le planificateur de tâches a refusé : {error}",
-
   "busy": "occupé — attends la fin de l'action en cours",
   "busy.elsewhere": "le jeu est pris — {owner} le pilote depuis {sec} s",
-
   "capture.ghost_op": "Opérations Fantômes",
   "capture.secret_tasks": "Tâches secrètes",
-
   "chat.clear": "Vider",
   "chat.contacts": "Contacts",
   "chat.contacts.empty": "aucune conversation pour l'instant",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Monde",
   "chat.to": "à :",
   "chat.you": "Toi :",
-
   "cmd.failed": "n'a pas été exécuté — voir les lignes ci-dessus",
   "cmd.label": "Commande :",
   "cmd.ok": "terminé",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Mettre dans le champ",
   "cmd.reference.title": "Appuis nommés (TAP)",
   "cmd.run": "Exécuter",
-
-
   "daemon.error": "erreur",
   "daemon.none": "aucun",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "démarrage…",
   "daemon.warm": "chaud",
-
   "dash.all_quiet": "tout est calme — rien en attente",
   "dash.donate": "dons",
   "dash.frame": "Résumé du compte",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "cadeaux à la porte",
   "dash.visitors": "survivants à la porte",
   "dash.wounded": "blessés",
-
   "debug.frame": "Diagnostic (journal de débogage)",
   "debug.send": "Envoyer le diagnostic",
-
   "develop.hint": "Les deux moitiés d'un enregistrement à la fois : une capture passive du réseau à côté d'un traceur qui enveloppe le Lua du client. Active-le, fais la chose dans le jeu UNE fois, désactive-le — puis garde la paire avec une description de ce qui a été fait, ou jette-la. Une capture que personne n'a étiquetée est un fichier que personne ne pourra lire une semaine plus tard. Les crochets du traceur vivent dans le client en marche, donc l'arrêt est demandé poliment et le panneau les retire si l'enfant ne le fait pas.",
   "develop.label.prompt": "Nom de la session (facultatif).\nIl entre dans le nom du fichier journal ; les espaces deviennent des tirets bas.",
   "develop.label.title": "Nom de la session",
@@ -125,7 +113,6 @@
   "develop.run.title": "Session du renifleur",
   "develop.sniff.frame": "Enregistrer une session",
   "develop.sniff.toggle": "Renifleur",
-
   "game.frame": "Jeu",
   "game.launch": "▶  Lancer le jeu",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "en marche dans la session de {user} (pid {pid})",
   "game.st.session_running_at": "en marche dans la session de {user} (pid {pid}) → {conn}",
   "game.watchdog": "Relancer le jeu quand il tombe",
-
   "ghost.autoloot": "Piller les équipes automatiquement",
   "ghost.frame": "Opérations Fantômes",
   "ghost.hint": "son propre budget quotidien, distinct des tâches secrètes. L'événement dure un jour par semaine et ne fait rien les autres. Aucun balayage de carte nécessaire — le client connaît lui-même la liste des équipes.",
   "ghost.off": "pillage auto des Opérations Fantômes désactivé",
   "ghost.on": "pillage auto des Opérations Fantômes activé",
   "ghost.robbing": "l'événement est ouvert, {n} restants — je prends chaque équipe pillable",
-
   "language.name": "Français",
-
   "log.autoloot.no_monitor": "le moniteur des tâches secrètes est arrêté — le pillage auto lit les tâches de l'alliance directement dans le client, donc il fonctionne toujours ; le moniteur n'ajoute que les cases ennemies survolées par le balayage",
   "log.autoloot.no_scan": "aucune source pour l'instant — démarre le jeu (le pillage auto lit directement le client), ou active le moniteur des tâches secrètes et déplace la carte",
   "log.autoloot.off": "arrêté",
@@ -249,7 +233,6 @@
   "log.traffic.started": "le renifleur tourne (pid {pid}) ; sa sortie va au journal, l'enregistrement dans results/traffic/",
   "log.traffic.starting": "démarrage du renifleur de trafic brut …",
   "log.traffic.stopped": "renifleur de trafic arrêté",
-
   "log.triggers.no_check": "{name} : aucune vérification à interroger — ignoré",
   "log.triggers.no_name": "l'entrée n°{n} n'a pas de nom — ignorée",
   "log.triggers.no_pattern": "{name} : aucun événement à guetter — ignoré",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Envoyer le journal au développeur",
   "menu.language": "Langue",
   "menu.profile": "Profil",
-
-
   "opt.autoloot_limit": "Cibles par passage",
   "opt.autoloot_limit.hint": "Au-delà du budget quotidien, ça ne change rien.",
   "opt.autoloot_pause_min": "Pause une fois épuisé, min",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Voyant le processus du jeu disparu, le relancer — au plus une fois toutes les 5 minutes.",
   "opt.win_python": "Python pour les processus enfants",
   "opt.win_python.hint": "C'est lui qui exécute les captures, les pillages et le démon Lua lui-même.",
-
   "panic.done": "tout est arrêté ; la planification est coupée — remets-la dans l'onglet Planification",
   "panic.log": "arrêt de tout : moniteurs, gardiens, balayage de la carte, scénario et planification",
   "panic.stop_all": "⏹ Tout arrêter",
-
   "profile.close": "Fermer",
+  "profile.open": "Ouvrir",
+  "profile.close_one": "Fermer le profil",
+  "profile.open_hint": "Choisir un profil non ouvert l'ouvre à côté de celui-ci.",
   "profile.confirm_delete": "Supprimer le profil « {name} » ? Tout son dossier {path} part avec — l'historique de discussion, les journaux de ralliements et de tâches secrètes, panel.log et la trace du dernier passage de chaque tâche planifiée. C'est irréversible.",
   "profile.delete": "Supprimer",
   "profile.error.empty_name": "Le nom du profil ne peut pas être vide.",
@@ -318,7 +300,6 @@
   "profile.new": "Nouveau",
   "profile.prompt_name": "Nom du profil :",
   "profile.rename": "Renommer",
-
   "rally.alert": "Me prévenir",
   "rally.alert.fired": "★ RALLIEMENT (étendard {team}) — on peut rejoindre",
   "rally.autojoin": "Rejoindre tout seul",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Exercice d'Alliance",
   "rally_limit.type.monster": "Monstres",
   "rally_limit.type.zombie_invasion": "Invasion de zombies",
-
   "rally_tab.frame": "Lancer un ralliement sur un monstre de la carte",
   "rally_tab.kind": "Cible :",
   "rally_tab.kind_boss": "Élite Maudite",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "étendard levé — équipe {squad}, monstre de niveau {level}",
   "rally_tab.error": "erreur de lancement du ralliement : {error}",
   "rally_tab.error_short": "erreur — voir le journal",
-
   "scenarios.actions": "Scripts d'action",
   "scenarios.args": "arguments (JSON) :",
   "scenarios.bad_args": "les arguments ne sont pas du JSON lisible — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Les expérimentaux aussi",
   "scenarios.stop": "Arrêter",
   "scenarios.stopping": "{name} : arrêt — l'exécution s'arrête à l'étape suivante",
-
   "secret.autoloot": "Pillage auto ★ au niveau le plus haut",
   "secret.autoloot.frame": "Pillage auto ★ (tâches secrètes)",
   "secret.autoloot.level_from": "Niveau depuis",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Surveillance",
   "secret.pending_only": "En attente seulement",
   "secret.stars_only": "Étoiles seulement",
-
   "senddiag.cancel": "Annuler",
   "senddiag.empty": "le journal de débogage est encore vide",
   "senddiag.open": "Ouvrir",
@@ -405,7 +382,6 @@
   "senddiag.send": "Envoyer",
   "senddiag.title": "Envoyer le diagnostic",
   "senddiag.warning": "Aucune information personnelle n'est envoyée. Le journal ne contient que des données techniques sur le fonctionnement du panneau.",
-
   "session.check": "Vérifier",
   "session.check.no_client": "la session {session} ({state}) est ouverte, mais aucun {exe} n'y tourne — lance le client à l'intérieur de cette session.",
   "session.check.no_login": "la case est cochée, mais aucun identifiant n'est saisi — il n'y a pas de session où regarder.",
@@ -419,12 +395,10 @@
   "session.state.active": "active",
   "session.state.disconnected": "déconnectée — et c'est ainsi qu'il faut la laisser",
   "session.state.other": "état {code}",
-
   "settings.placeholder": "Bientôt",
   "settings.tab.autorally": "Ralliement Auto",
   "settings.tab.game": "Jeu",
   "settings.tab.general": "Général",
-
   "settings.tab.tabs": "Onglets",
   "settings.tabs.hint": "Quels onglets ce profil affiche. Un onglet désactivé n'est pas construit du tout : aucun widget, aucune page de réglages à lui, aucun déclencheur proposé, et aucune de ses captures ni de ses gardiens démarrés — « Tâches Secrètes » désactivé, c'est une capture et deux fils de garde qui ne tournent jamais. La colonne à côté dit ce que chacun met en route quand il est actif.",
   "settings.tabs.restart": "Enregistré. La liste s'applique au prochain démarrage du panneau — un onglet met en route ses ordres permanents quand il est construit, et le démonter en vol n'est pas la même chose.",
@@ -437,9 +411,7 @@
   "splash.systems": "Démarrage des systèmes…",
   "splash.triggers": "Chargement des déclencheurs…",
   "splash.ui": "Construction de l'interface…",
-
   "status.checking": "vérification…",
-
   "sweep.centre": "Centre X/Y :",
   "sweep.enabled": "Balayer la carte",
   "sweep.frame": "Balayage automatique de la carte",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "passage {n} terminé — repos de {mins} min",
   "sweep.rule": "un carré de {side}×{side} cases · {jumps} sauts · ~{mins} min par passage",
   "sweep.settings_hint": "un carré de {side}×{side} cases — {jumps} sauts, ~{mins} min par passage",
-
   "tab.chat": "Discussion",
   "tab.develop": "Développement",
   "tab.main": "Accueil",
   "tab.scenarios": "Scénarios",
   "tab.settings": "Réglages",
   "tab.timers": "Planification",
-
   "timers.add": "Ajouter",
   "timers.cancel": "✕",
   "timers.col.action": "Capacité",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} h {m} min",
   "timers.span.min": "{n} min",
   "timers.span.now": "moins d'une minute",
-
   "triggers.col.action": "Capacité",
   "triggers.col.event": "sur événement",
   "triggers.col.status": "état",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Rejoindre automatiquement les ralliements de l'alliance",
   "triggers.log.no_squads": "adhésion auto : aucune équipe cochée sur la page « Ralliement Auto » — rien à envoyer",
   "triggers.log.rally_capped": "adhésion auto : chaque type de ralliement est à sa limite quotidienne — rien de rejoint",
-
   "top.daemon": "démon :",
   "top.game": "Jeu :",
   "stats.col.date": "Date",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Rafraîchir l'onglet Inventaire tout seul",
   "triggers.item.leaderboard_collect": "Collecter l'historique du classement",
   "triggers.log.resource_gain": "ressources gagnées : {what}",
-
   "tab.alliance": "Alliance",
   "tab.profile": "Profil",
   "tab.inventory": "Inventaire",
@@ -599,7 +566,6 @@
   "inventory.search": "Recherche :",
   "inventory.count": "{n} objets",
   "inventory.empty": "vide — appuie sur Rafraîchir (le jeu doit tourner)",
-
   "tab.heroes": "Héros",
   "heroes.col.icon": "",
   "heroes.col.name": "Nom",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "aucune",
   "heroes.count": "{n} héros",
   "heroes.empty": "aucun héros — appuie sur Rafraîchir (le jeu doit tourner)",
-
   "tab.accounts": "Comptes",
   "accounts.col.name": "Personnage",
   "accounts.col.server": "Serveur",
@@ -628,7 +593,6 @@
   "accounts.switching": "changement…",
   "accounts.switched": "[accounts] passé à {name} (serveur {server})",
   "accounts.switch_fail": "[accounts] le passage à {name} a échoué : {state}",
-
   "tab.secret_tasks": "Tâches Secrètes",
   "tab.rally": "Ralliement",
   "triggers.item.secret_task_share": "Ajouter en direct les tâches secrètes partagées",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "le scan de la carte s'est arrêté",
   "cmdpost.ghost.state.map_ready": "prête (d'après la carte)",
   "cmdpost.ghost.state.map_running": "toujours sortie (d'après la carte)",
-
   "update.frame": "Mise à jour",
   "update.version": "Version {version}",
   "update.version.commit": "Version {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "échec de la mise à jour : aucune route vers origin ({detail})",
   "log.update.fail_error": "échec de la mise à jour : {detail}",
   "log.update.restarting": "redémarrage du panneau sur le code mis à jour…",
-
   "tab.vs_duel": "Duel VS",
   "vsduel.hint": "Le duel donne des points pour un ensemble d'actions différent chaque jour. Coche ce qui doit être fait un jour donné, et limite ce qu'il peut dépenser. Rien ne tourne encore tout seul — les choix sont gardés pour quand les actions arriveront.",
   "vsduel.shield": "Bouclier :",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Monter les compétences du Suzerain",
   "vsduel.lord_level": "Monter le niveau du Suzerain",
   "vsduel.unit_train": "Entraîner des unités",
-  "vsduel.unit_upgrade": "Améliorer des unités"
+  "vsduel.unit_upgrade": "Améliorer des unités",
+  "log.profile.opened": "profil ouvert : {name}",
+  "log.profile.closed": "profil fermé : {name}",
+  "log.profile.held_elsewhere": "{name} est ouvert dans un autre panneau — non ouvert ici",
+  "log.profile.last_one": "{name} est le seul profil ouvert — impossible de le fermer"
 }

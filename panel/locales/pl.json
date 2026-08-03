@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "O programie",
   "about.version": "Wersja {version}",
-
   "app.title": "Last War — Nawigacja",
-
   "autorally.create.elite": "Poziom Elity Zagłady:",
   "autorally.create.frame": "Utwórz rajd",
   "autorally.create.hint": "Wybierz jeden oddział, który podnosi sztandar i tworzy rajd, oraz poziom Elity Zagłady (1–35), na który rajd idzie. Prowadzić może tylko jeden oddział; kliknij go ponownie, aby go zdjąć.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Automatyczny rajd",
   "autorally.hint": "Oddziały, które można wysyłać na rajd. Każdy idzie na swój własny.",
   "autorally.squads": "Oddziały:",
-
   "autostart.frame": "Autostart",
   "autostart.enable": "Sprawdzać co godzinę i otwierać panel, gdy nie działa",
   "autostart.hint": "Zadanie w Harmonogramie zadań Windows zagląda raz na godzinę i otwiera panel na tym profilu, gdy go nie ma. Odróżnia panel pracujący od zawieszonego: otwarty panel co minutę zapisuje czas, a ten, który przestał odpowiadać, jest zamykany i otwierany na nowo. Uruchamia dokładnie tę instalację i ten profil, na twoim własnym koncie.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Harmonogram zadań jest tylko w Windows.",
   "autostart.error.admin": "Windows odmówił: utworzenie tego zadania wymaga uprawnień administratora. Uruchom panel jako administrator i zaznacz ponownie. ({error})",
   "autostart.error.failed": "Harmonogram zadań odmówił: {error}",
-
   "busy": "zajęte — poczekaj, aż skończy się bieżąca akcja",
   "busy.elsewhere": "gra jest zajęta — {owner} prowadzi ją od {sec} s",
-
   "capture.ghost_op": "Operacja Widmo",
   "capture.secret_tasks": "Tajne zadania",
-
   "chat.clear": "Wyczyść",
   "chat.contacts": "Kontakty",
   "chat.contacts.empty": "jeszcze nie ma rozmów",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Świat",
   "chat.to": "do:",
   "chat.you": "Ty:",
-
   "cmd.failed": "nie wykonało się — zobacz wiersze powyżej",
   "cmd.label": "Polecenie:",
   "cmd.ok": "gotowe",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Wstaw do pola",
   "cmd.reference.title": "Nazwane naciśnięcia (TAP)",
   "cmd.run": "Wykonaj",
-
-
   "daemon.error": "błąd",
   "daemon.none": "brak",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "uruchamianie…",
   "daemon.warm": "ciepły",
-
   "dash.all_quiet": "cicho — nic nie czeka",
   "dash.donate": "darowizny",
   "dash.frame": "Podsumowanie konta",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "prezenty przy bramie",
   "dash.visitors": "ocalali przy bramie",
   "dash.wounded": "ranni",
-
   "debug.frame": "Diagnostyka (dziennik debugowania)",
   "debug.send": "Wyślij diagnostykę",
-
   "develop.hint": "Obie połowy nagrania naraz: bierne przechwytywanie sieci obok tropiciela, który opakowuje Lua samego klienta. Włącz, zrób daną rzecz w grze RAZ, wyłącz — a potem zachowaj parę wraz z opisem tego, co zostało zrobione, albo ją wyrzuć. Nagranie, którego nikt nie opisał, to plik, którego tydzień później nikt nie odczyta. Haki tropiciela żyją w działającym kliencie, więc o zatrzymanie prosi się grzecznie, a panel zdejmuje je sam, jeśli dziecko tego nie zrobi.",
   "develop.label.prompt": "Nazwa sesji (nieobowiązkowa).\nTrafia do nazwy pliku dziennika; spacje zamieniają się w podkreślenia.",
   "develop.label.title": "Nazwa sesji",
@@ -125,7 +113,6 @@
   "develop.run.title": "Nagranie podsłuchu",
   "develop.sniff.frame": "Nagraj sesję",
   "develop.sniff.toggle": "Podsłuch",
-
   "game.frame": "Gra",
   "game.launch": "▶  Uruchom grę",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "działa w sesji {user} (pid {pid})",
   "game.st.session_running_at": "działa w sesji {user} (pid {pid}) → {conn}",
   "game.watchdog": "Uruchamiać grę ponownie, gdy padnie",
-
   "ghost.autoloot": "Sam grabić oddziały",
   "ghost.frame": "Operacja Widmo",
   "ghost.hint": "własny dzienny budżet, osobny od tajnych zadań. Wydarzenie trwa jeden dzień w tygodniu, w pozostałe nic nie robi. Objazd mapy niepotrzebny — klient sam zna listę oddziałów.",
   "ghost.off": "automatyczna grabież Operacji Widmo wyłączona",
   "ghost.on": "automatyczna grabież Operacji Widmo włączona",
   "ghost.robbing": "wydarzenie jest otwarte, zostało {n} — biorę każdy oddział, który da się ograbić",
-
   "language.name": "Polski",
-
   "log.autoloot.no_monitor": "monitor tajnych zadań jest wyłączony — automatyczna grabież czyta zadania sojuszu wprost z klienta, więc nadal działa; monitor dokłada tylko wrogie pola, po których przejeżdża objazd",
   "log.autoloot.no_scan": "brak źródła — uruchom grę (automatyczna grabież czyta wprost z klienta) albo włącz monitor tajnych zadań i porusz mapą",
   "log.autoloot.off": "wyłączona",
@@ -249,7 +233,6 @@
   "log.traffic.started": "podsłuch działa (pid {pid}); jego wyjście idzie do dziennika, nagranie do results/traffic/",
   "log.traffic.starting": "uruchamiam podsłuch surowego ruchu …",
   "log.traffic.stopped": "podsłuch ruchu zatrzymany",
-
   "log.triggers.no_check": "{name}: nie ma czego odpytywać — pominięty",
   "log.triggers.no_name": "wpis nr {n} nie ma nazwy — pominięty",
   "log.triggers.no_pattern": "{name}: nie ma zdarzenia do pilnowania — pominięty",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Wyślij dziennik do twórcy",
   "menu.language": "Język",
   "menu.profile": "Profil",
-
-
   "opt.autoloot_limit": "Celów na przebieg",
   "opt.autoloot_limit.hint": "Więcej niż dzienny budżet niczego nie zmienia.",
   "opt.autoloot_pause_min": "Przerwa po wyczerpaniu, min",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Zauważywszy, że proces gry zniknął, uruchomić go znowu — najwyżej raz na 5 minut.",
   "opt.win_python": "Python dla procesów potomnych",
   "opt.win_python.hint": "To on wykonuje przechwytywania, kradzieże i samego demona Lua.",
-
   "panic.done": "wszystko zatrzymane; harmonogram jest wyłączony — włącz go z powrotem na karcie Harmonogram",
   "panic.log": "zatrzymuję wszystko: monitory, stróże, objazd mapy, scenariusz i harmonogram",
   "panic.stop_all": "⏹ Zatrzymaj wszystko",
-
   "profile.close": "Zamknij",
+  "profile.open": "Otwórz",
+  "profile.close_one": "Zamknij profil",
+  "profile.open_hint": "Wybranie profilu, który nie jest otwarty, otworzy go obok tego.",
   "profile.confirm_delete": "Usunąć profil «{name}»? Przepadnie z nim cały jego katalog {path} — historia czatu, dzienniki rajdów i tajnych zadań, panel.log oraz zapis tego, kiedy które zadanie ostatnio się wykonało. Tego nie da się cofnąć.",
   "profile.delete": "Usuń",
   "profile.error.empty_name": "Nazwa profilu nie może być pusta.",
@@ -318,7 +300,6 @@
   "profile.new": "Nowy",
   "profile.prompt_name": "Nazwa profilu:",
   "profile.rename": "Zmień nazwę",
-
   "rally.alert": "Powiadom mnie",
   "rally.alert.fired": "★ RAJD (sztandar {team}) — można dołączyć",
   "rally.autojoin": "Dołączać samemu",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Ćwiczenia Sojuszu",
   "rally_limit.type.monster": "Potwory",
   "rally_limit.type.zombie_invasion": "Inwazja zombie",
-
   "rally_tab.frame": "Wystaw rajd na potwora z mapy",
   "rally_tab.kind": "Cel:",
   "rally_tab.kind_boss": "Elita Zagłady",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "sztandar w górze — oddział {squad}, potwór poziomu {level}",
   "rally_tab.error": "błąd wystawiania rajdu: {error}",
   "rally_tab.error_short": "błąd — zobacz dziennik",
-
   "scenarios.actions": "Skrypty akcji",
   "scenarios.args": "argumenty (JSON):",
   "scenarios.bad_args": "argumenty nie są czytelnym JSON-em — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Także eksperymentalne",
   "scenarios.stop": "Zatrzymaj",
   "scenarios.stopping": "{name}: zatrzymuję — wykonanie skończy się na następnym kroku",
-
   "secret.autoloot": "Automatyczna grabież ★ na najwyższym poziomie",
   "secret.autoloot.frame": "Automatyczna grabież ★ (tajne zadania)",
   "secret.autoloot.level_from": "Poziom od",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Nadzór",
   "secret.pending_only": "Tylko oczekujące",
   "secret.stars_only": "Tylko z gwiazdką",
-
   "senddiag.cancel": "Anuluj",
   "senddiag.empty": "dziennik debugowania jest jeszcze pusty",
   "senddiag.open": "Otwórz",
@@ -405,7 +382,6 @@
   "senddiag.send": "Wyślij",
   "senddiag.title": "Wyślij diagnostykę",
   "senddiag.warning": "Nie są wysyłane żadne dane osobowe. Dziennik zawiera tylko dane techniczne o tym, jak działa panel.",
-
   "session.check": "Sprawdź",
   "session.check.no_client": "sesja {session} ({state}) jest podniesiona, ale nie działa w niej żaden {exe} — uruchom klienta wewnątrz tamtej sesji.",
   "session.check.no_login": "pole jest zaznaczone, ale nie wpisano loginu — nie ma sesji, w której można szukać.",
@@ -419,12 +395,10 @@
   "session.state.active": "aktywna",
   "session.state.disconnected": "rozłączona — i tak należy ją zostawić",
   "session.state.other": "stan {code}",
-
   "settings.placeholder": "Wkrótce",
   "settings.tab.autorally": "Automatyczny rajd",
   "settings.tab.game": "Gra",
   "settings.tab.general": "Ogólne",
-
   "settings.tab.tabs": "Karty",
   "settings.tabs.hint": "Które karty pokazuje ten profil. Wyłączona karta nie jest w ogóle budowana: żadnych kontrolek, żadnej własnej strony ustawień, żadnych oferowanych wyzwalaczy ani uruchomionych przechwytywań czy stróżów — wyłączone «Tajne zadania» to przechwytywanie i dwa wątki stróżujące, które nigdy nie ruszą. Kolumna obok mówi, co każda podnosi, gdy jest włączona.",
   "settings.tabs.restart": "Zapisano. Lista obowiązuje od następnego uruchomienia panelu — karta podnosi własne stałe zlecenia w chwili budowy, a rozbieranie jej w locie to nie to samo.",
@@ -437,9 +411,7 @@
   "splash.systems": "Uruchamiam systemy…",
   "splash.triggers": "Wczytuję wyzwalacze…",
   "splash.ui": "Buduję interfejs…",
-
   "status.checking": "sprawdzam…",
-
   "sweep.centre": "Środek X/Y:",
   "sweep.enabled": "Objeżdżaj mapę",
   "sweep.frame": "Automatyczny objazd mapy",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "przebieg {n} skończony — odpoczynek {mins} min",
   "sweep.rule": "kwadrat {side}×{side} pól · {jumps} skoków · ~{mins} min na przebieg",
   "sweep.settings_hint": "kwadrat {side}×{side} pól — {jumps} skoków, ~{mins} min na przebieg",
-
   "tab.chat": "Czat",
   "tab.develop": "Rozwój",
   "tab.main": "Start",
   "tab.scenarios": "Scenariusze",
   "tab.settings": "Ustawienia",
   "tab.timers": "Harmonogram",
-
   "timers.add": "Dodaj",
   "timers.cancel": "✕",
   "timers.col.action": "Zdolność",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} godz {m} min",
   "timers.span.min": "{n} min",
   "timers.span.now": "poniżej minuty",
-
   "triggers.col.action": "Zdolność",
   "triggers.col.event": "przy zdarzeniu",
   "triggers.col.status": "stan",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Sam dołączać do rajdów sojuszu",
   "triggers.log.no_squads": "automatyczne dołączanie: na stronie «Automatyczny rajd» nie zaznaczono żadnego oddziału — nie ma czego wysyłać",
   "triggers.log.rally_capped": "automatyczne dołączanie: każdy rodzaj rajdu jest na dziennym limicie — do niczego nie dołączono",
-
   "top.daemon": "demon:",
   "top.game": "Gra:",
   "stats.col.date": "Data",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Sam odświeżać kartę Ekwipunek",
   "triggers.item.leaderboard_collect": "Zbierać historię rankingu",
   "triggers.log.resource_gain": "zdobyte surowce: {what}",
-
   "tab.alliance": "Sojusz",
   "tab.profile": "Profil",
   "tab.inventory": "Ekwipunek",
@@ -599,7 +566,6 @@
   "inventory.search": "Szukaj:",
   "inventory.count": "{n} przedmiotów",
   "inventory.empty": "pusto — naciśnij Odśwież (gra musi działać)",
-
   "tab.heroes": "Bohaterowie",
   "heroes.col.icon": "",
   "heroes.col.name": "Nazwa",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "brak",
   "heroes.count": "{n} bohaterów",
   "heroes.empty": "brak bohaterów — naciśnij Odśwież (gra musi działać)",
-
   "tab.accounts": "Konta",
   "accounts.col.name": "Postać",
   "accounts.col.server": "Serwer",
@@ -628,7 +593,6 @@
   "accounts.switching": "przełączam…",
   "accounts.switched": "[accounts] przełączono na {name} (serwer {server})",
   "accounts.switch_fail": "[accounts] przełączenie na {name} nie powiodło się: {state}",
-
   "tab.secret_tasks": "Tajne zadania",
   "tab.rally": "Rajd",
   "triggers.item.secret_task_share": "Dodawać na żywo udostępnione tajne zadania",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "skanowanie mapy zatrzymane",
   "cmdpost.ghost.state.map_ready": "gotowy (z mapy)",
   "cmdpost.ghost.state.map_running": "wciąż w terenie (z mapy)",
-
   "update.frame": "Aktualizacja",
   "update.version": "Wersja {version}",
   "update.version.commit": "Wersja {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "aktualizacja nie powiodła się: brak drogi do origin ({detail})",
   "log.update.fail_error": "aktualizacja nie powiodła się: {detail}",
   "log.update.restarting": "uruchamiam panel ponownie na zaktualizowanym kodzie…",
-
   "tab.vs_duel": "Pojedynek VS",
   "vsduel.hint": "Pojedynek daje punkty za inny zestaw działań każdego dnia. Zaznacz, co ma być zrobione danego dnia, i ogranicz, ile wolno mu wydać. Nic jeszcze nie dzieje się samo — wybory czekają na chwilę, gdy pojawią się same działania.",
   "vsduel.shield": "Tarcza:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Podnosić umiejętności Władcy",
   "vsduel.lord_level": "Podnosić poziom Władcy",
   "vsduel.unit_train": "Szkolić jednostki",
-  "vsduel.unit_upgrade": "Ulepszać jednostki"
+  "vsduel.unit_upgrade": "Ulepszać jednostki",
+  "log.profile.opened": "profil otwarty: {name}",
+  "log.profile.closed": "profil zamknięty: {name}",
+  "log.profile.held_elsewhere": "{name} jest otwarty w innym panelu — tutaj nie otwieram",
+  "log.profile.last_one": "{name} to jedyny otwarty profil — nie można go zamknąć"
 }

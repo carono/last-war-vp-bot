@@ -24,12 +24,19 @@ fires into a tab that does not exist.
 from __future__ import annotations
 
 import os
+import threading
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
 from . import game_process
+
+#: How long a tick waits for the Tk thread to read the switches off the widgets
+#: (:meth:`Schedule._ask`). Short on purpose: missing one tick's widget state and
+#: falling back to the saved catalogue is a great deal better than a scheduler thread
+#: parked behind a window that is busy.
+ASK_TIMEOUT_SEC = 3.0
 
 
 class Schedule:
@@ -142,8 +149,7 @@ class Schedule:
         once. With no Timers tab in this profile there are no widgets, and the saved
         catalogue IS the answer — which is what keeps the schedule running without it.
         """
-        source = self.timer_config_source
-        raw = source() if source is not None else None
+        raw = self._ask(self.timer_config_source)
         if not raw:
             return self.timer_catalogue.default_config()
         return self.timer_catalogue.normalize_config(raw)
@@ -156,8 +162,7 @@ class Schedule:
         burning a capture for nothing. A trigger naming a scenario is always offered —
         a scenario belongs to the bot, not to a tab.
         """
-        source = self.trigger_config_source
-        raw = source() if source is not None else None
+        raw = self._ask(self.trigger_config_source)
         if not raw:
             raw = self.trigger_catalogue.enabled_config()
         return {name: bool(on) and self.offered(name) for name, on in raw.items()}
@@ -352,6 +357,44 @@ class Schedule:
         self.load_timers()
         self.load_triggers()
         self.triggers.sync()
+
+    def _ask(self, source):
+        """Read a WIDGET-BACKED config, from whatever thread this happens to be on.
+
+        The sources are the Timers tab's Tk variables and everything that reads them
+        runs on the scheduler's own thread. A Tk variable read off the Tk thread raises
+        «main thread is not in main loop» whenever the main thread is not inside the
+        event loop — which during the boot is most of the time, and which took the
+        whole of `_startup` with it: no daemon ensured, no dashboard, and a panel that
+        looked up and was running nothing. It was always a race (one profile's debug
+        log had thirty-six of them); two profiles booting at once made it reliable.
+
+        So the read is HANDED to the Tk thread and waited for. If it cannot be handed
+        over — no root, or nobody pumping — the answer is ``None`` and the caller falls
+        back to the SAVED catalogue, which is exactly what a profile with no Timers tab
+        already does.
+        """
+        if source is None:
+            return None
+        # `rt` may be absent entirely: the trigger tests build a bare Schedule to ask it
+        # what it offers, which needs no window and must not grow one.
+        rt = getattr(self, "rt", None)
+        root = getattr(rt, "root", None) if rt is not None else None
+        if root is None or threading.current_thread() is threading.main_thread():
+            try:
+                return source()
+            except Exception:                    # noqa: BLE001 — the file is the fallback
+                return None
+        box: dict = {}
+
+        def read() -> None:
+            try:
+                box["value"] = source()
+            except Exception:                    # noqa: BLE001
+                pass
+
+        rt.tick.on_tk(read, timeout=ASK_TIMEOUT_SEC)
+        return box.get("value")
 
     def _on_tk(self, func) -> None:
         try:

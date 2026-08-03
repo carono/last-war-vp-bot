@@ -23,6 +23,9 @@ independently (panel/debug_log.py).
 """
 from __future__ import annotations
 
+import contextlib
+import threading
+
 from .. import profile as profilemod
 from .host import PanelRuntime
 
@@ -135,22 +138,55 @@ class SessionScoped:
     #: The attribute names that belong to the open profile. Declared by the subclass.
     SESSION_ATTRS: frozenset = frozenset()
 
-    #: Set by the container to the session whose page is on screen. Read through
-    #: `getattr` with a default so this works during `__init__`, before it exists.
+    #: The session whose page is on screen. The default answer, and the right one for
+    #: the Tk thread — which is where a button, a menu and a repaint all happen.
     _current_session = None
 
+    # WHY A THREAD-LOCAL, AND NOT JUST THE ATTRIBUTE ABOVE. The first version of this
+    # swapped `_current_session` around a call and put it back. That is correct on the
+    # Tk thread, where there is one caller at a time; it is a DATA RACE the moment two
+    # workers are bound to two different sessions at once. It cost a whole live boot:
+    # two profiles opening in parallel, both boot threads swapping the one attribute,
+    # and both ran the FIRST profile's start-up — one client got its schedule started
+    # twice and the other got nothing at all, in silence.
+    #
+    # So a bound call marks the session on ITS OWN thread and the attribute stays the
+    # default for everybody else.
+    def _bindings(self):
+        local = self.__dict__.get("_session_local")
+        if local is None:
+            local = threading.local()
+            object.__setattr__(self, "_session_local", local)
+        return local
+
+    def _session(self):
+        """The session THIS thread is acting for: its binding, else the showing one."""
+        bound = getattr(self._bindings(), "session", None)
+        return bound if bound is not None else self.__dict__.get("_current_session")
+
+    @contextlib.contextmanager
+    def session_scope(self, session):
+        """Act for ``session`` on this thread until the block ends. Nestable."""
+        local = self._bindings()
+        previous = getattr(local, "session", None)
+        local.session = session
+        try:
+            yield session
+        finally:
+            local.session = previous
+
     def _routed(self, name: str) -> bool:
-        """Does ``name`` belong to the showing session? (A descriptor never does.)"""
+        """Does ``name`` belong to a session? (A descriptor never does.)"""
         cls = type(self)
         if name not in cls.SESSION_ATTRS or hasattr(cls, name):
             return False
-        return getattr(self, "_current_session", None) is not None
+        return self._session() is not None
 
     def __getattr__(self, name):
         # Reached only when ordinary lookup failed — which for a routed name it always
         # does, because `__setattr__` never puts one in the instance dictionary.
         if name in type(self).SESSION_ATTRS:
-            session = self.__dict__.get("_current_session")
+            session = self._session()
             if session is not None:
                 try:
                     return session.state[name]
@@ -161,12 +197,13 @@ class SessionScoped:
 
     def __setattr__(self, name, value) -> None:
         if self._routed(name):
-            self._current_session.state[name] = value
+            self._session().state[name] = value
             return
         super().__setattr__(name, value)
 
     def __delattr__(self, name) -> None:
-        if self._routed(name) and name in self._current_session.state:
-            del self._current_session.state[name]
+        session = self._session() if self._routed(name) else None
+        if session is not None and name in session.state:
+            del session.state[name]
             return
         super().__delattr__(name)

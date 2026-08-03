@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "Informazioni",
   "about.version": "Versione {version}",
-
   "app.title": "Last War — Navigazione",
-
   "autorally.create.elite": "Livello dell'Elite Zombie:",
   "autorally.create.frame": "Creare un rally",
   "autorally.create.hint": "Scegli l'unica squadra che alza lo stendardo e crea il rally, e il livello di Elite Zombie (1–35) a cui punta. Solo una squadra può guidare; ricliccala per toglierla.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Rally Automatico",
   "autorally.hint": "Le squadre che si possono mandare a un rally. Ognuna va al proprio.",
   "autorally.squads": "Squadre:",
-
   "autostart.frame": "Avvio automatico",
   "autostart.enable": "Guardare ogni ora e aprire il pannello se non è in funzione",
   "autostart.hint": "Un compito nell'utilità di pianificazione di Windows guarda una volta all'ora e apre il pannello su questo profilo quando non c'è. Distingue un pannello che lavora da uno bloccato: un pannello aperto annota l'ora ogni minuto, e quello che ha smesso di rispondere viene chiuso e riaperto. Quello che avvia è proprio questa installazione e questo profilo, con il tuo account.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "L'utilità di pianificazione esiste solo su Windows.",
   "autostart.error.admin": "Windows ha rifiutato: creare questo compito richiede diritti di amministratore. Avvia il pannello come amministratore e rispuntalo. ({error})",
   "autostart.error.failed": "L'utilità di pianificazione ha rifiutato: {error}",
-
   "busy": "occupato — aspetta che finisca l'azione in corso",
   "busy.elsewhere": "il gioco è occupato — {owner} lo guida da {sec} s",
-
   "capture.ghost_op": "Operazioni Fantasma",
   "capture.secret_tasks": "Attività segrete",
-
   "chat.clear": "Svuota",
   "chat.contacts": "Contatti",
   "chat.contacts.empty": "ancora nessuna conversazione",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Mondo",
   "chat.to": "a:",
   "chat.you": "Tu:",
-
   "cmd.failed": "non è stato eseguito — guarda le righe qui sopra",
   "cmd.label": "Comando:",
   "cmd.ok": "fatto",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Metti nel campo",
   "cmd.reference.title": "Pressioni con nome (TAP)",
   "cmd.run": "Esegui",
-
-
   "daemon.error": "errore",
   "daemon.none": "nessuno",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "avvio…",
   "daemon.warm": "caldo",
-
   "dash.all_quiet": "tutto tranquillo — niente in attesa",
   "dash.donate": "donazioni",
   "dash.frame": "Riepilogo dell'account",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "regali al cancello",
   "dash.visitors": "sopravvissuti al cancello",
   "dash.wounded": "feriti",
-
   "debug.frame": "Diagnostica (registro di debug)",
   "debug.send": "Invia la diagnostica",
-
   "develop.hint": "Le due metà di una registrazione insieme: una cattura passiva della rete accanto a un tracciatore che avvolge il Lua del client. Accendilo, fai la cosa nel gioco UNA volta, spegnilo — poi tieni la coppia con una descrizione di ciò che è stato fatto, oppure buttala. Una cattura che nessuno ha etichettato è un file che nessuno saprà leggere una settimana dopo. I ganci del tracciatore vivono nel client in esecuzione, quindi l'arresto viene chiesto con garbo e il pannello li toglie se il figlio non lo fa.",
   "develop.label.prompt": "Nome della sessione (facoltativo).\nFinisce nel nome del file di registro; gli spazi diventano trattini bassi.",
   "develop.label.title": "Nome della sessione",
@@ -125,7 +113,6 @@
   "develop.run.title": "Registrazione dello sniffer",
   "develop.sniff.frame": "Registra una sessione",
   "develop.sniff.toggle": "Sniffer",
-
   "game.frame": "Gioco",
   "game.launch": "▶  Avvia il gioco",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "in funzione nella sessione di {user} (pid {pid})",
   "game.st.session_running_at": "in funzione nella sessione di {user} (pid {pid}) → {conn}",
   "game.watchdog": "Riavviare il gioco quando cade",
-
   "ghost.autoloot": "Saccheggiare le squadre da sé",
   "ghost.frame": "Operazioni Fantasma",
   "ghost.hint": "un budget giornaliero suo, separato da quello delle attività segrete. L'evento dura un giorno alla settimana e negli altri non fa nulla. Non serve battere la mappa — il client conosce da sé l'elenco delle squadre.",
   "ghost.off": "saccheggio automatico delle Operazioni Fantasma spento",
   "ghost.on": "saccheggio automatico delle Operazioni Fantasma acceso",
   "ghost.robbing": "l'evento è aperto, ne restano {n} — prendo ogni squadra saccheggiabile",
-
   "language.name": "Italiano",
-
   "log.autoloot.no_monitor": "il monitor delle attività segrete è spento — il saccheggio automatico legge le attività dell'alleanza direttamente dal client, quindi funziona lo stesso; il monitor aggiunge solo le caselle nemiche su cui passa la battuta",
   "log.autoloot.no_scan": "ancora nessuna fonte — avvia il gioco (il saccheggio automatico legge direttamente dal client), oppure accendi il monitor delle attività segrete e muovi la mappa",
   "log.autoloot.off": "spento",
@@ -249,7 +233,6 @@
   "log.traffic.started": "lo sniffer è in funzione (pid {pid}); la sua uscita va nel registro, la registrazione in results/traffic/",
   "log.traffic.starting": "avvio dello sniffer del traffico grezzo …",
   "log.traffic.stopped": "sniffer del traffico fermato",
-
   "log.triggers.no_check": "{name}: nessun controllo da interrogare — saltato",
   "log.triggers.no_name": "la voce n. {n} non ha nome — saltata",
   "log.triggers.no_pattern": "{name}: nessun evento da sorvegliare — saltato",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Invia il registro allo sviluppatore",
   "menu.language": "Lingua",
   "menu.profile": "Profilo",
-
-
   "opt.autoloot_limit": "Bersagli per passata",
   "opt.autoloot_limit.hint": "Più del budget giornaliero non cambia nulla.",
   "opt.autoloot_pause_min": "Pausa a budget esaurito, min",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Notando sparito il processo del gioco, riavviarlo — al massimo una volta ogni 5 minuti.",
   "opt.win_python": "Python per i processi figli",
   "opt.win_python.hint": "È lui che esegue le catture, i furti e il demone Lua stesso.",
-
   "panic.done": "tutto fermo; la pianificazione è spenta — riaccendila nella scheda Pianificazione",
   "panic.log": "fermo tutto: monitor, guardiani, la battuta della mappa, lo script e la pianificazione",
   "panic.stop_all": "⏹ Ferma tutto",
-
   "profile.close": "Chiudi",
+  "profile.open": "Apri",
+  "profile.close_one": "Chiudi profilo",
+  "profile.open_hint": "Scegliere un profilo non aperto lo apre accanto a questo.",
   "profile.confirm_delete": "Cancellare il profilo «{name}»? Se ne va con lui tutta la sua cartella {path} — la cronologia della chat, i registri dei rally e delle attività segrete, panel.log e la nota di quando ogni compito pianificato è girato l'ultima volta. Non si può tornare indietro.",
   "profile.delete": "Cancella",
   "profile.error.empty_name": "Il nome del profilo non può essere vuoto.",
@@ -318,7 +300,6 @@
   "profile.new": "Nuovo",
   "profile.prompt_name": "Nome del profilo:",
   "profile.rename": "Rinomina",
-
   "rally.alert": "Avvisami",
   "rally.alert.fired": "★ RALLY (stendardo {team}) — ci si può unire",
   "rally.autojoin": "Unirsi da sé",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Esercitazione dell'Alleanza",
   "rally_limit.type.monster": "Mostri",
   "rally_limit.type.zombie_invasion": "Invasione di zombie",
-
   "rally_tab.frame": "Lanciare un rally su un mostro della mappa",
   "rally_tab.kind": "Bersaglio:",
   "rally_tab.kind_boss": "Elite Zombie",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "stendardo alzato — squadra {squad}, mostro di livello {level}",
   "rally_tab.error": "errore nel lancio del rally: {error}",
   "rally_tab.error_short": "errore — guarda il registro",
-
   "scenarios.actions": "Script d'azione",
   "scenarios.args": "argomenti (JSON):",
   "scenarios.bad_args": "gli argomenti non sono JSON leggibile — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Anche quelli sperimentali",
   "scenarios.stop": "Ferma",
   "scenarios.stopping": "{name}: mi fermo — l'esecuzione finisce al passo successivo",
-
   "secret.autoloot": "Saccheggio automatico ★ al livello più alto",
   "secret.autoloot.frame": "Saccheggio automatico ★ (attività segrete)",
   "secret.autoloot.level_from": "Livello da",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Sorveglianza",
   "secret.pending_only": "Solo in attesa",
   "secret.stars_only": "Solo stelle",
-
   "senddiag.cancel": "Annulla",
   "senddiag.empty": "il registro di debug è ancora vuoto",
   "senddiag.open": "Apri",
@@ -405,7 +382,6 @@
   "senddiag.send": "Invia",
   "senddiag.title": "Invia la diagnostica",
   "senddiag.warning": "Non viene inviata nessuna informazione personale. Il registro contiene solo dati tecnici su come gira il pannello.",
-
   "session.check": "Controlla",
   "session.check.no_client": "la sessione {session} ({state}) è aperta, ma non ci gira nessun {exe} — avvia il client dentro quella sessione.",
   "session.check.no_login": "la casella è spuntata, ma non è scritto nessun utente — non c'è una sessione in cui guardare.",
@@ -419,12 +395,10 @@
   "session.state.active": "attiva",
   "session.state.disconnected": "disconnessa — ed è così che va lasciata",
   "session.state.other": "stato {code}",
-
   "settings.placeholder": "Prossimamente",
   "settings.tab.autorally": "Rally Automatico",
   "settings.tab.game": "Gioco",
   "settings.tab.general": "Generale",
-
   "settings.tab.tabs": "Schede",
   "settings.tabs.hint": "Quali schede mostra questo profilo. Una scheda spenta non viene costruita affatto: nessun controllo, nessuna pagina d'impostazioni sua, nessun innesco offerto, e nessuna delle sue catture o dei suoi guardiani avviati — «Attività Segrete» spenta sono una cattura e due fili guardiani che non girano mai. La colonna accanto dice cosa tira su ciascuna quando è accesa.",
   "settings.tabs.restart": "Salvato. L'elenco vale dal prossimo avvio del pannello — una scheda tira su i propri ordini permanenti quando viene costruita, e smontarla in volo non è la stessa cosa.",
@@ -437,9 +411,7 @@
   "splash.systems": "Avvio dei sistemi…",
   "splash.triggers": "Caricamento degli inneschi…",
   "splash.ui": "Costruzione dell'interfaccia…",
-
   "status.checking": "controllo…",
-
   "sweep.centre": "Centro X/Y:",
   "sweep.enabled": "Battere la mappa",
   "sweep.frame": "Battuta automatica della mappa",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "passata {n} finita — riposo di {mins} min",
   "sweep.rule": "un riquadro di {side}×{side} caselle · {jumps} salti · ~{mins} min a passata",
   "sweep.settings_hint": "un riquadro di {side}×{side} caselle — {jumps} salti, ~{mins} min a passata",
-
   "tab.chat": "Chat",
   "tab.develop": "Sviluppo",
   "tab.main": "Home",
   "tab.scenarios": "Script",
   "tab.settings": "Impostazioni",
   "tab.timers": "Pianificazione",
-
   "timers.add": "Aggiungi",
   "timers.cancel": "✕",
   "timers.col.action": "Capacità",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} h {m} min",
   "timers.span.min": "{n} min",
   "timers.span.now": "meno di un minuto",
-
   "triggers.col.action": "Capacità",
   "triggers.col.event": "all'evento",
   "triggers.col.status": "stato",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Unirsi da sé ai rally dell'alleanza",
   "triggers.log.no_squads": "unione automatica: nessuna squadra spuntata nella pagina «Rally Automatico» — non c'è nulla da mandare",
   "triggers.log.rally_capped": "unione automatica: ogni tipo di rally è al suo limite giornaliero — non mi sono unito a nulla",
-
   "top.daemon": "demone:",
   "top.game": "Gioco:",
   "stats.col.date": "Data",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Aggiornare da sé la scheda Inventario",
   "triggers.item.leaderboard_collect": "Raccogliere la cronologia della classifica",
   "triggers.log.resource_gain": "risorse guadagnate: {what}",
-
   "tab.alliance": "Alleanza",
   "tab.profile": "Profilo",
   "tab.inventory": "Inventario",
@@ -599,7 +566,6 @@
   "inventory.search": "Cerca:",
   "inventory.count": "{n} oggetti",
   "inventory.empty": "vuoto — premi Aggiorna (il gioco deve essere in funzione)",
-
   "tab.heroes": "Eroi",
   "heroes.col.icon": "",
   "heroes.col.name": "Nome",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "nessuna",
   "heroes.count": "{n} eroi",
   "heroes.empty": "nessun eroe — premi Aggiorna (il gioco deve essere in funzione)",
-
   "tab.accounts": "Account",
   "accounts.col.name": "Personaggio",
   "accounts.col.server": "Server",
@@ -628,7 +593,6 @@
   "accounts.switching": "cambio…",
   "accounts.switched": "[accounts] passato a {name} (server {server})",
   "accounts.switch_fail": "[accounts] il passaggio a {name} è fallito: {state}",
-
   "tab.secret_tasks": "Attività Segrete",
   "tab.rally": "Rally",
   "triggers.item.secret_task_share": "Aggiungere dal vivo le attività segrete condivise",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "la scansione della mappa si è fermata",
   "cmdpost.ghost.state.map_ready": "pronta (dalla mappa)",
   "cmdpost.ghost.state.map_running": "ancora fuori (dalla mappa)",
-
   "update.frame": "Aggiornamento",
   "update.version": "Versione {version}",
   "update.version.commit": "Versione {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "aggiornamento fallito: nessuna via verso origin ({detail})",
   "log.update.fail_error": "aggiornamento fallito: {detail}",
   "log.update.restarting": "riavvio del pannello sul codice aggiornato…",
-
   "tab.vs_duel": "Duello VS",
   "vsduel.hint": "Il duello dà punti per un insieme di azioni diverso ogni giorno. Spunta cosa va fatto in un dato giorno e limita quanto può spendere. Da sé non gira ancora nulla — le scelte restano per quando arriveranno le azioni.",
   "vsduel.shield": "Scudo:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Alzare le abilità dell'Overlord",
   "vsduel.lord_level": "Alzare il livello dell'Overlord",
   "vsduel.unit_train": "Addestrare unità",
-  "vsduel.unit_upgrade": "Migliorare unità"
+  "vsduel.unit_upgrade": "Migliorare unità",
+  "log.profile.opened": "profilo aperto: {name}",
+  "log.profile.closed": "profilo chiuso: {name}",
+  "log.profile.held_elsewhere": "{name} è aperto in un altro pannello — qui non viene aperto",
+  "log.profile.last_one": "{name} è l'unico profilo aperto — non può essere chiuso"
 }

@@ -4,9 +4,7 @@
   "about.ok": "OK",
   "about.title": "Tentang",
   "about.version": "Versi {version}",
-
   "app.title": "Last War — Navigasi",
-
   "autorally.create.elite": "Level Doom Elite:",
   "autorally.create.frame": "Buat reli",
   "autorally.create.hint": "Pilih satu skuad yang mengangkat panji dan membuat reli, serta level Doom Elite (1–35) yang dituju reli itu. Hanya satu skuad yang bisa memimpin; klik lagi untuk melepasnya.",
@@ -19,7 +17,6 @@
   "autorally.frame": "Reli Otomatis",
   "autorally.hint": "Skuad yang boleh dikirim ke reli. Masing-masing pergi ke relinya sendiri.",
   "autorally.squads": "Skuad:",
-
   "autostart.frame": "Mulai otomatis",
   "autostart.enable": "Menengok tiap jam dan membuka panel kalau tidak berjalan",
   "autostart.hint": "Sebuah tugas di penjadwal Windows menengok sekali tiap jam dan membuka panel pada profil ini kalau panelnya tidak ada. Ia membedakan panel yang bekerja dari yang membeku: panel yang terbuka mencatat waktu tiap menit, dan yang berhenti menjawab ditutup lalu dibuka lagi. Yang dinyalakannya adalah pemasangan ini juga dan profil ini juga, dengan akunmu sendiri.",
@@ -34,13 +31,10 @@
   "autostart.error.unsupported": "Penjadwal tugas hanya ada di Windows.",
   "autostart.error.admin": "Windows menolak: membuat tugas ini perlu hak administrator. Jalankan panel sebagai administrator lalu centang lagi. ({error})",
   "autostart.error.failed": "Penjadwal tugas menolak: {error}",
-
   "busy": "sibuk — tunggu tindakan yang sedang berjalan selesai",
   "busy.elsewhere": "permainan sedang dipakai — {owner} menjalankannya sejak {sec} d",
-
   "capture.ghost_op": "Operasi Hantu",
   "capture.secret_tasks": "Tugas rahasia",
-
   "chat.clear": "Bersihkan",
   "chat.contacts": "Kontak",
   "chat.contacts.empty": "belum ada percakapan",
@@ -67,7 +61,6 @@
   "chat.tab.world": "Dunia",
   "chat.to": "ke:",
   "chat.you": "Kamu:",
-
   "cmd.failed": "tidak jalan — lihat baris-baris di atas",
   "cmd.label": "Perintah:",
   "cmd.ok": "selesai",
@@ -79,15 +72,12 @@
   "cmd.reference.take": "Taruh di kotak",
   "cmd.reference.title": "Tekanan bernama (TAP)",
   "cmd.run": "Jalankan",
-
-
   "daemon.error": "galat",
   "daemon.none": "tidak ada",
   "daemon.pending": "…",
   "daemon.restart": "⭮",
   "daemon.starting": "memulai…",
   "daemon.warm": "hangat",
-
   "dash.all_quiet": "semua tenang — tidak ada yang menunggu",
   "dash.donate": "sumbangan",
   "dash.frame": "Ringkasan akun",
@@ -104,10 +94,8 @@
   "dash.visitor_gifts": "hadiah di gerbang",
   "dash.visitors": "penyintas di gerbang",
   "dash.wounded": "yang terluka",
-
   "debug.frame": "Diagnostik (catatan awakutu)",
   "debug.send": "Kirim diagnostik",
-
   "develop.hint": "Dua bagian rekaman sekaligus: penangkapan pasif atas jaringan di samping pelacak yang membungkus Lua milik klien sendiri. Nyalakan, lakukan hal itu di permainan SEKALI, matikan — lalu simpan pasangannya beserta keterangan tentang apa yang dilakukan, atau buang. Rekaman yang tidak diberi keterangan adalah berkas yang seminggu kemudian tak seorang pun bisa membacanya. Kait pelacak hidup di dalam klien yang sedang berjalan, jadi berhenti diminta dengan sopan dan panel mencabutnya sendiri kalau anaknya tidak melakukannya.",
   "develop.label.prompt": "Nama sesi (boleh kosong).\nMasuk ke nama berkas catatan; spasi menjadi garis bawah.",
   "develop.label.title": "Nama sesi",
@@ -125,7 +113,6 @@
   "develop.run.title": "Rekaman pengendus",
   "develop.sniff.frame": "Rekam satu sesi",
   "develop.sniff.toggle": "Pengendus",
-
   "game.frame": "Permainan",
   "game.launch": "▶  Mulai permainan",
   "game.launcher_hint": "LastWarLauncher.exe",
@@ -140,16 +127,13 @@
   "game.st.session_running": "berjalan di sesi {user} (pid {pid})",
   "game.st.session_running_at": "berjalan di sesi {user} (pid {pid}) → {conn}",
   "game.watchdog": "Mulai ulang permainan kalau mati",
-
   "ghost.autoloot": "Rampas skuad sendiri",
   "ghost.frame": "Operasi Hantu",
   "ghost.hint": "anggaran hariannya sendiri, terpisah dari tugas rahasia. Acaranya berjalan satu hari seminggu dan pada hari lain tidak melakukan apa-apa. Tak perlu menyapu peta — klien tahu sendiri daftar skuadnya.",
   "ghost.off": "rampasan otomatis Operasi Hantu mati",
   "ghost.on": "rampasan otomatis Operasi Hantu hidup",
   "ghost.robbing": "acaranya buka, sisa {n} — aku ambil setiap skuad yang bisa dirampas",
-
   "language.name": "Bahasa Indonesia",
-
   "log.autoloot.no_monitor": "pemantau tugas rahasia mati — rampasan otomatis membaca tugas aliansi langsung dari klien, jadi tetap jalan; pemantau hanya menambah petak musuh yang dilewati sapuan",
   "log.autoloot.no_scan": "belum ada sumber — mulai permainan (rampasan otomatis membaca langsung dari klien), atau hidupkan pemantau tugas rahasia lalu geser peta",
   "log.autoloot.off": "mati",
@@ -249,7 +233,6 @@
   "log.traffic.started": "pengendus berjalan (pid {pid}); keluarannya masuk ke catatan, rekamannya ke results/traffic/",
   "log.traffic.starting": "memulai pengendus lalu lintas mentah …",
   "log.traffic.stopped": "pengendus lalu lintas dihentikan",
-
   "log.triggers.no_check": "{name}: tidak ada pemeriksaan untuk ditanyai — dilewati",
   "log.triggers.no_name": "entri ke-{n} tidak punya nama — dilewati",
   "log.triggers.no_pattern": "{name}: tidak ada peristiwa untuk ditunggu — dilewati",
@@ -264,8 +247,6 @@
   "menu.help.send_log": "Kirim catatan ke pengembang",
   "menu.language": "Bahasa",
   "menu.profile": "Profil",
-
-
   "opt.autoloot_limit": "Sasaran per putaran",
   "opt.autoloot_limit.hint": "Lebih dari anggaran harian tidak mengubah apa pun.",
   "opt.autoloot_pause_min": "Jeda saat habis, mnt",
@@ -302,12 +283,13 @@
   "opt.watchdog.hint": "Begitu melihat proses permainan hilang, menyalakannya lagi — paling sering sekali tiap 5 menit.",
   "opt.win_python": "Python untuk proses anak",
   "opt.win_python.hint": "Dialah yang menjalankan penangkapan, rampasan, dan daemon Lua itu sendiri.",
-
   "panic.done": "semuanya berhenti; penjadwalan mati — nyalakan lagi di tab Penjadwalan",
   "panic.log": "menghentikan semuanya: pemantau, penjaga, sapuan peta, skrip, dan penjadwalan",
   "panic.stop_all": "⏹ Hentikan semua",
-
   "profile.close": "Tutup",
+  "profile.open": "Buka",
+  "profile.close_one": "Tutup profil",
+  "profile.open_hint": "Memilih profil yang belum terbuka akan membukanya di samping ini.",
   "profile.confirm_delete": "Hapus profil «{name}»? Seluruh foldernya {path} ikut hilang — riwayat obrolan, catatan reli dan tugas rahasia, panel.log, serta tanda kapan tiap tugas terjadwal terakhir berjalan. Ini tidak bisa dibatalkan.",
   "profile.delete": "Hapus",
   "profile.error.empty_name": "Nama profil tidak boleh kosong.",
@@ -318,7 +300,6 @@
   "profile.new": "Baru",
   "profile.prompt_name": "Nama profil:",
   "profile.rename": "Ganti nama",
-
   "rally.alert": "Beri tahu aku",
   "rally.alert.fired": "★ RELI (panji {team}) — bisa diikuti",
   "rally.autojoin": "Ikut sendiri",
@@ -333,7 +314,6 @@
   "rally_limit.type.alliance_drill": "Latihan Aliansi",
   "rally_limit.type.monster": "Monster",
   "rally_limit.type.zombie_invasion": "Serbuan zombi",
-
   "rally_tab.frame": "Buat reli pada monster di peta",
   "rally_tab.kind": "Sasaran:",
   "rally_tab.kind_boss": "Doom Elite",
@@ -358,7 +338,6 @@
   "rally_tab.raised_monster": "panji terangkat — skuad {squad}, monster level {level}",
   "rally_tab.error": "galat saat membuat reli: {error}",
   "rally_tab.error_short": "galat — lihat catatan",
-
   "scenarios.actions": "Skrip tindakan",
   "scenarios.args": "argumen (JSON):",
   "scenarios.bad_args": "argumennya bukan JSON yang terbaca — {error}",
@@ -380,7 +359,6 @@
   "scenarios.show_dev": "Yang percobaan juga",
   "scenarios.stop": "Berhenti",
   "scenarios.stopping": "{name}: berhenti — jalannya berakhir pada langkah berikutnya",
-
   "secret.autoloot": "Rampasan otomatis ★ pada level tertinggi",
   "secret.autoloot.frame": "Rampasan otomatis ★ (tugas rahasia)",
   "secret.autoloot.level_from": "Level dari",
@@ -396,7 +374,6 @@
   "secret.monitoring": "Pengawasan",
   "secret.pending_only": "Hanya yang tertunda",
   "secret.stars_only": "Hanya yang berbintang",
-
   "senddiag.cancel": "Batal",
   "senddiag.empty": "catatan awakutu masih kosong",
   "senddiag.open": "Buka",
@@ -405,7 +382,6 @@
   "senddiag.send": "Kirim",
   "senddiag.title": "Kirim diagnostik",
   "senddiag.warning": "Tidak ada data pribadi yang dikirim. Catatannya hanya berisi data teknis tentang bagaimana panel berjalan.",
-
   "session.check": "Periksa",
   "session.check.no_client": "sesi {session} ({state}) menyala, tetapi tidak ada {exe} yang berjalan di dalamnya — jalankan kliennya di dalam sesi itu.",
   "session.check.no_login": "kotaknya dicentang, tetapi tidak ada pengguna yang diketik — tidak ada sesi untuk dilihat.",
@@ -419,12 +395,10 @@
   "session.state.active": "aktif",
   "session.state.disconnected": "terputus — dan memang begitu seharusnya ditinggalkan",
   "session.state.other": "keadaan {code}",
-
   "settings.placeholder": "Segera hadir",
   "settings.tab.autorally": "Reli Otomatis",
   "settings.tab.game": "Permainan",
   "settings.tab.general": "Umum",
-
   "settings.tab.tabs": "Tab",
   "settings.tabs.hint": "Tab mana yang ditampilkan profil ini. Tab yang dimatikan tidak dibangun sama sekali: tidak ada kendali, tidak ada halaman setelannya sendiri, tidak ada pemicu yang ditawarkan, dan tak satu pun penangkapan atau penjaganya dijalankan — «Tugas Rahasia» yang mati berarti satu penangkapan dan dua utas penjaga yang tak pernah jalan. Kolom di sebelahnya menyebutkan apa yang dinyalakan masing-masing saat hidup.",
   "settings.tabs.restart": "Tersimpan. Daftarnya berlaku pada panel yang dimulai berikutnya — sebuah tab menyalakan perintah tetapnya sendiri saat dibangun, dan membongkarnya sambil terbang bukan hal yang sama.",
@@ -437,9 +411,7 @@
   "splash.systems": "Menjalankan sistem…",
   "splash.triggers": "Memuat pemicu…",
   "splash.ui": "Membangun antarmuka…",
-
   "status.checking": "memeriksa…",
-
   "sweep.centre": "Pusat X/Y:",
   "sweep.enabled": "Sapu peta",
   "sweep.frame": "Sapuan peta otomatis",
@@ -449,14 +421,12 @@
   "sweep.pass_done": "putaran {n} selesai — istirahat {mins} mnt",
   "sweep.rule": "kotak {side}×{side} petak · {jumps} lompatan · ~{mins} mnt per putaran",
   "sweep.settings_hint": "kotak {side}×{side} petak — {jumps} lompatan, ~{mins} mnt per putaran",
-
   "tab.chat": "Obrolan",
   "tab.develop": "Pengembangan",
   "tab.main": "Beranda",
   "tab.scenarios": "Skrip",
   "tab.settings": "Setelan",
   "tab.timers": "Penjadwalan",
-
   "timers.add": "Tambah",
   "timers.cancel": "✕",
   "timers.col.action": "Kemampuan",
@@ -524,7 +494,6 @@
   "timers.span.hour": "{h} j {m} mnt",
   "timers.span.min": "{n} mnt",
   "timers.span.now": "kurang dari semenit",
-
   "triggers.col.action": "Kemampuan",
   "triggers.col.event": "pada peristiwa",
   "triggers.col.status": "keadaan",
@@ -546,7 +515,6 @@
   "triggers.item.rally_auto_join": "Ikut sendiri ke reli aliansi",
   "triggers.log.no_squads": "pengikutan otomatis: tidak ada skuad yang dicentang di halaman «Reli Otomatis» — tidak ada yang bisa dikirim",
   "triggers.log.rally_capped": "pengikutan otomatis: setiap jenis reli sudah di batas hariannya — tidak ikut apa pun",
-
   "top.daemon": "daemon:",
   "top.game": "Permainan:",
   "stats.col.date": "Tanggal",
@@ -563,7 +531,6 @@
   "triggers.item.inventory_refresh": "Menyegarkan sendiri tab Inventaris",
   "triggers.item.leaderboard_collect": "Mengumpulkan riwayat papan peringkat",
   "triggers.log.resource_gain": "sumber daya yang didapat: {what}",
-
   "tab.alliance": "Aliansi",
   "tab.profile": "Profil",
   "tab.inventory": "Inventaris",
@@ -599,7 +566,6 @@
   "inventory.search": "Cari:",
   "inventory.count": "{n} barang",
   "inventory.empty": "kosong — tekan Segarkan (permainan harus berjalan)",
-
   "tab.heroes": "Hero",
   "heroes.col.icon": "",
   "heroes.col.name": "Nama",
@@ -610,7 +576,6 @@
   "heroes.squad_none": "tidak ada",
   "heroes.count": "{n} hero",
   "heroes.empty": "tidak ada hero — tekan Segarkan (permainan harus berjalan)",
-
   "tab.accounts": "Akun",
   "accounts.col.name": "Karakter",
   "accounts.col.server": "Server",
@@ -628,7 +593,6 @@
   "accounts.switching": "mengganti…",
   "accounts.switched": "[accounts] berganti ke {name} (server {server})",
   "accounts.switch_fail": "[accounts] pergantian ke {name} gagal: {state}",
-
   "tab.secret_tasks": "Tugas Rahasia",
   "tab.rally": "Reli",
   "triggers.item.secret_task_share": "Menambahkan langsung tugas rahasia yang dibagikan",
@@ -710,7 +674,6 @@
   "cmdpost.scan_off": "pemindaian peta berhenti",
   "cmdpost.ghost.state.map_ready": "siap (dari peta)",
   "cmdpost.ghost.state.map_running": "masih di luar (dari peta)",
-
   "update.frame": "Pembaruan",
   "update.version": "Versi {version}",
   "update.version.commit": "Versi {version} · {local}",
@@ -759,7 +722,6 @@
   "log.update.fail_offline": "pembaruan gagal: tidak ada jalan ke origin ({detail})",
   "log.update.fail_error": "pembaruan gagal: {detail}",
   "log.update.restarting": "memulai ulang panel dengan kode yang diperbarui…",
-
   "tab.vs_duel": "Duel VS",
   "vsduel.hint": "Duel memberi poin untuk kumpulan tindakan yang berbeda tiap hari. Centang apa yang harus dikerjakan pada hari itu, dan batasi berapa yang boleh dihabiskan. Belum ada yang berjalan sendiri — pilihannya disimpan sampai tindakannya nanti tiba.",
   "vsduel.shield": "Perisai:",
@@ -839,5 +801,9 @@
   "vsduel.lord_skills": "Menaikkan keahlian Overlord",
   "vsduel.lord_level": "Menaikkan level Overlord",
   "vsduel.unit_train": "Melatih unit",
-  "vsduel.unit_upgrade": "Meningkatkan unit"
+  "vsduel.unit_upgrade": "Meningkatkan unit",
+  "log.profile.opened": "profil dibuka: {name}",
+  "log.profile.closed": "profil ditutup: {name}",
+  "log.profile.held_elsewhere": "{name} terbuka di panel lain — tidak dibuka di sini",
+  "log.profile.last_one": "{name} adalah satu-satunya profil yang terbuka — tidak bisa ditutup"
 }
