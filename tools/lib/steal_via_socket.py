@@ -74,9 +74,12 @@ from pathlib import Path
 
 sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import game_paths  # noqa: E402  (the game's port and process name)
 
-GAME_PORT = 17935
-GAME_PROCESS = "lastwar.exe"
+# Both from the resolver: the port has moved before (LW_GAME_PORT), and the
+# process name is the same answer every other tool in the repo asks it for.
+GAME_PORT = game_paths.game_port()
+GAME_PROCESS = game_paths.game_exe().lower()
 
 C_OK = "\033[92m"
 C_WARN = "\033[93m"

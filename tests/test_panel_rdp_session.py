@@ -92,10 +92,10 @@ class _Machine:
 # -- the two knobs are one answer -------------------------------------------
 
 def test_the_login_means_nothing_while_the_tick_is_off():
-    assert gp.profile_user(_Settings(rdp_user="casper")) is None
-    assert gp.profile_user(_Settings(rdp_session=True, rdp_user="casper")) == "casper"
+    assert gp.profile_user(_Settings(rdp_user="player2")) is None
+    assert gp.profile_user(_Settings(rdp_session=True, rdp_user="player2")) == "player2"
     # Trimmed, because a login typed with a trailing space is the same login.
-    assert gp.profile_user(_Settings(rdp_session=True, rdp_user=" casper ")) == "casper"
+    assert gp.profile_user(_Settings(rdp_session=True, rdp_user=" player2 ")) == "player2"
     # Ticked with nothing typed is not a session — it is this desktop, as before.
     assert gp.profile_user(_Settings(rdp_session=True, rdp_user="  ")) is None
 
@@ -114,32 +114,32 @@ def test_a_half_typed_profile_is_this_desktop_rather_than_a_crash():
 # -- a session that cannot be resolved is not "no game" ----------------------
 
 def test_nobody_logged_on_there_is_said_in_so_many_words():
-    with _Machine(sessions={"spame": 1}, processes={1: [111]}):
-        running, label = gp.status("LastWar.exe", user="casper")
+    with _Machine(sessions={"player1": 1}, processes={1: [111]}):
+        running, label = gp.status("LastWar.exe", user="player2")
     assert running is False, label
     # NOT "game not found": the answer is "there is nowhere to look", and the watchdog
     # relaunching on the strength of it would start a client on the wrong desktop.
     assert label.key == "game.st.no_session", label.key
-    assert label.fmt == {"user": "casper"}, label.fmt
+    assert label.fmt == {"user": "player2"}, label.fmt
 
 
 def test_the_client_on_this_desktop_is_not_the_other_profiles():
-    with _Machine(sessions={"spame": 1, "casper": 4}, processes={1: [111]}):
-        running, label = gp.status("LastWar.exe", user="casper")
+    with _Machine(sessions={"player1": 1, "player2": 4}, processes={1: [111]}):
+        running, label = gp.status("LastWar.exe", user="player2")
     assert running is False, label
     assert label.key == "game.st.session_not_found", label.key
 
 
 def test_a_client_in_the_named_session_is_found_there():
-    with _Machine(sessions={"spame": 1, "casper": 4}, processes={1: [111], 4: [222]}):
-        running, label = gp.status("LastWar.exe", user="casper")
+    with _Machine(sessions={"player1": 1, "player2": 4}, processes={1: [111], 4: [222]}):
+        running, label = gp.status("LastWar.exe", user="player2")
     assert running is True, label
     assert label.key == "game.st.session_running", label.key
-    assert label.fmt == {"user": "casper", "pid": 222}, label.fmt
+    assert label.fmt == {"user": "player2", "pid": 222}, label.fmt
 
 
 def test_without_a_session_nothing_changes():
-    with _Machine(sessions={"spame": 1}, processes={1: [111]}):
+    with _Machine(sessions={"player1": 1}, processes={1: [111]}):
         running, label = gp.status("LastWar.exe")
     assert running is True and label.fmt == {"pid": 111}, label
     assert label.key == "game.st.running", label.key
@@ -156,12 +156,12 @@ def test_the_strip_never_shows_a_sentence_the_locales_do_not_have():
     from pathlib import Path
 
     seen = []
-    with _Machine(sessions={"spame": 1, "casper": (4, gp.WTS_DISCONNECTED)},
+    with _Machine(sessions={"player1": 1, "player2": (4, gp.WTS_DISCONNECTED)},
                   processes={1: [111], 4: [222]}):
         seen.append(gp.status("LastWar.exe")[1])
-        seen.append(gp.status("LastWar.exe", user="casper")[1])
+        seen.append(gp.status("LastWar.exe", user="player2")[1])
         seen.append(gp.status("Nothing.exe")[1])
-        seen.append(gp.status("Nothing.exe", user="casper")[1])
+        seen.append(gp.status("Nothing.exe", user="player2")[1])
         seen.append(gp.status("LastWar.exe", user="nobody")[1])
     keys = [m.key for m in seen]
     assert len(set(keys)) == 5, keys
@@ -177,7 +177,7 @@ def test_the_strip_never_shows_a_sentence_the_locales_do_not_have():
 # -- «Проверить»: what is wrong, not merely that something is ----------------
 
 def test_the_check_tells_the_four_ways_it_can_be_wrong_apart():
-    live = {"spame": 1, "casper": (4, gp.WTS_DISCONNECTED)}
+    live = {"player1": 1, "player2": (4, gp.WTS_DISCONNECTED)}
 
     def kind(settings, sessions=live, processes=None):
         with _Machine(sessions=sessions, processes=processes or {1: [111], 4: [222]}):
@@ -190,22 +190,22 @@ def test_the_check_tells_the_four_ways_it_can_be_wrong_apart():
     # Nobody by that name is logged on: the session is not up yet.
     assert kind(_Settings(rdp_session=True, rdp_user="ghost"))["kind"] == "no_session"
     # The session is up and empty: the client itself has to be started in it.
-    empty = kind(_Settings(rdp_session=True, rdp_user="casper"), processes={1: [111]})
+    empty = kind(_Settings(rdp_session=True, rdp_user="player2"), processes={1: [111]})
     assert empty["kind"] == "no_client" and empty["session"] == 4, empty
     # …and the whole of it in place.
-    ok = kind(_Settings(rdp_session=True, rdp_user="casper"))
+    ok = kind(_Settings(rdp_session=True, rdp_user="player2"))
     assert ok["kind"] == "ok" and ok["pid"] == 222, ok
     assert ok["state"] == gp.WTS_DISCONNECTED, ok      # normal, and shown as such
     # A machine that cannot be asked is its own answer, not "no such session".
-    assert kind(_Settings(rdp_session=True, rdp_user="casper"),
+    assert kind(_Settings(rdp_session=True, rdp_user="player2"),
                 sessions=None)["kind"] == "unsupported"
 
 
 def test_the_port_and_the_session_are_read_as_one_answer():
     import lua_client
 
-    other = _Settings(rdp_session=True, rdp_user="casper", daemon_port=47655)
-    same = _Settings(rdp_session=True, rdp_user="casper",
+    other = _Settings(rdp_session=True, rdp_user="player2", daemon_port=47655)
+    same = _Settings(rdp_session=True, rdp_user="player2",
                      daemon_port=lua_client.DEFAULT_PORT)
     here = _Settings(daemon_port=lua_client.DEFAULT_PORT)
 
@@ -216,7 +216,7 @@ def test_the_port_and_the_session_are_read_as_one_answer():
     # …and a profile that never left this desktop is not in that state at all.
     assert gp.port_clash(here) is False
 
-    with _Machine(sessions={"casper": 4}, processes={4: [222]}):
+    with _Machine(sessions={"player2": 4}, processes={4: [222]}):
         assert gp.check(same)["clash"] is True
         assert gp.check(other)["clash"] is False
 
@@ -274,7 +274,7 @@ def test_the_page_answers_in_sentences_and_greys_the_login_box():
             for kind in ("off", "no_login", "no_session", "no_client", "ok",
                          "unsupported", "probe_error"):
                 gp.check = lambda s, k=kind: {
-                    "kind": k, "user": "casper", "session": 4,
+                    "kind": k, "user": "player2", "session": 4,
                     "state": gp.WTS_DISCONNECTED, "exe": "LastWar.exe", "pid": 222,
                     "port": 47655, "clash": False, "error": "boom"}
                 page._check_session()
@@ -304,8 +304,8 @@ def test_profile_status_honours_the_executable_and_the_session_together():
     gp.status = lambda exe, user=None: seen.update(exe=exe, user=user) or (True, "ok")
     try:
         gp.profile_status(_Settings(game_exe="Other.exe", rdp_session=True,
-                                    rdp_user="casper"))
-        assert seen == {"exe": "Other.exe", "user": "casper"}, seen
+                                    rdp_user="player2"))
+        assert seen == {"exe": "Other.exe", "user": "player2"}, seen
         gp.profile_status(_Settings(game_exe="Other.exe"))
         assert seen == {"exe": "Other.exe", "user": None}, seen
     finally:
@@ -331,14 +331,14 @@ def test_the_session_travels_to_a_scenario_beside_the_port():
         token = "tok3"
 
     class _Runtime:
-        settings = _Settings(rdp_session=True, rdp_user="casper", daemon_port=47655)
+        settings = _Settings(rdp_session=True, rdp_user="player2", daemon_port=47655)
         game = _FakeGame()
         daemon_port = staticmethod(lambda: 47655)
         game_target = hostmod.PanelRuntime.game_target
 
     rt = _Runtime()
     assert _Runtime.game_target(rt) == {"game_port": 47655, "game_token": "tok3",
-                                        "game_user": "casper"}
+                                        "game_user": "player2"}
     # …and a profile on this desktop names no session at all, rather than "".
     _Runtime.settings = _Settings()
     assert _Runtime.game_target(rt)["game_user"] is None

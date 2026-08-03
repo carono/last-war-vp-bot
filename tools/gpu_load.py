@@ -38,6 +38,10 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+import game_paths  # noqa: E402  (the client's process name — LW_GAME_EXE)
+
 POWERSHELL = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
 NVIDIA_SMI = r"C:\Windows\System32\nvidia-smi.exe"
 TASKLIST = r"C:\Windows\System32\tasklist.exe"
@@ -63,7 +67,7 @@ def game_pids() -> dict[int, str]:
     text = _run([TASKLIST, "/FO", "CSV", "/NH"])
     for line in text.splitlines():
         parts = [p.strip('"') for p in line.split('","')]
-        if len(parts) < 3 or "lastwar.exe" not in parts[0].lower():
+        if len(parts) < 3 or game_paths.game_exe().lower() not in parts[0].lower():
             continue
         try:
             found[int(parts[1])] = f"{parts[2]}/{parts[3]}" if len(parts) > 3 else parts[2]

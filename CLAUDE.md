@@ -143,8 +143,9 @@ running», and the person who installed the bot has no way to tell the two apart
 # ❌ every one of these is one machine's answer, written down as everyone's
 info = find_window("Last War-Survival Game", "LastWar.exe")
 cache = Path(home) / "FunFly" / "Last War-Survival Game" / "Cache" / "AssetBundles"
-DEFAULT_USER = "casper"
+DEFAULT_USER = "<the author's own Windows login>"
 WIN_PYTHON = r"C:\Python312\python.exe"
+GAME_PORT = 17935                          # …until the server moves, and it has
 ```
 
 ```python
@@ -153,7 +154,13 @@ info = find_window()                       # title + process from game_paths
 cache = Path(game_paths.asset_cache())     # LW_ASSET_CACHE, or the ordinary install
 DEFAULT_USER = (os.environ.get("LW_SECOND_USER") or "").strip()   # and ask if empty
 WIN_PYTHON = game_paths.win_python()
+GAME_PORT = game_paths.game_port()         # …and ask the live socket before trusting it
 ```
+
+**A recording is not a fixture until it is anonymised.** A capture taken from a live
+session carries whoever was on screen — nicknames, account ids, alliance tags, device
+ids, and they are not all yours to publish. Replace them before the file is committed;
+`tests/fixtures/` is as public as the rest of the repository.
 
 Prose is not a value: a comment or a docstring may name the game, the launcher or a
 «run it like this» line, and should. What may not come back is a **quoted literal being

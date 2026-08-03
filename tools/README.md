@@ -48,7 +48,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
   capture stack (`lastwar_proto`, `live_sniffer`, `live_tshark`, `map_capture`,
   `lastwar_encode`), and helpers (`coords`, `chat_share` — build and send chat
   coordinate attachments, `hero_icons_map`, `steal_via_socket`, `instance_manager` —
-  named game instances (`get_instance("casper")`) over the per-instance daemon ports,
+  named game instances (`get_instance("player2")`) over the per-instance daemon ports,
   `run_output` — the per-run timestamped file under `results/`, `run_notes` — the
   description stored beside a sniffer run and the keep/delete of that run,
   `alliance_help` — the gated "Help All" press shared by the auto-helper and the panel).

@@ -1,12 +1,12 @@
 [
   {
     "user": "user2",
-    "_comment": "No exe: resolves to this account's own %LOCALAPPDATA%\\FunFly\\Last War-Survival Game\\LastWarLauncher.exe. No password: read from Windows Credential Manager, so this file holds no secret — store it once with `--user user2 --save-credential`."
+    "_comment": "No exe: resolves to this account's own install, wherever tools/lib/game_paths.py says that is. No password: read from Windows Credential Manager, so this file holds no secret — store it once with `--user user2 --save-credential`."
   },
   {
     "user": "user3",
-    "exe": "C:\\Games\\LastWar\\LastWar.exe",
+    "exe": "PUT-A-PATH-HERE-ONLY-IF-NOT-THE-ORDINARY-INSTALL",
     "args": "",
-    "_comment": "An explicit exe wins over the per-profile install. `domain` may be added for a non-local account; `cwd` overrides the working directory."
+    "_comment": "An explicit exe wins over the per-profile install, and is only worth setting when that account keeps the game somewhere unusual. `domain` may be added for a non-local account; `cwd` overrides the working directory."
   }
 ]

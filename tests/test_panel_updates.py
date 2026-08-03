@@ -307,7 +307,7 @@ def test_a_failing_ssh_remote_is_fetched_the_other_way():
         # had it. The fallback URL is the only thing stubbed — where a real one resolves
         # to github, this one resolves to the bare repo next door, so everything after it
         # (the refspec, the tracking ref, the comparison) is the real code path.
-        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:carono/x.git")
+        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:owner/x.git")
         updates.https_url = lambda url: w.origin if url.startswith("git@") else ""
         state = updates.check(w.work)
         assert state.state == updates.BEHIND, state
@@ -328,7 +328,7 @@ def test_an_ssh_remote_with_nowhere_to_fall_back_to_is_still_offline():
         return
     over_https = updates.https_url
     try:
-        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:carono/x.git")
+        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:owner/x.git")
         updates.https_url = lambda url: ""             # no HTTPS form of this remote
         state = updates.check(w.work)
         assert state.state == updates.OFFLINE, state

@@ -57,8 +57,8 @@ class _FakeEval:
 # What the server answered on 2026-08-02: two characters, and nothing else.
 _ROLES = [
     "ACT cur=935",
-    _role(935, "1522777203000972", 35, "Carono", 241514404, "TLou",
-          273, "7bc1a2f6-1449-4cbd-81f0-e76716446155_n3d1728050557170"),
+    _role(935, "1000000000000935", 35, "Player2", 241514404, "ALLY",
+          273, "00000000-0000-4000-8000-000000000000_n0000000000000000"),
     _role(509, "2146058428000509", 21, "Игрок 3464d509", 4185296, "RBs"),
 ]
 
@@ -66,11 +66,11 @@ _ROLES = [
 _CACHE = [
     "ACT cur=935",
     _cached(1, 2105, "1092741133002105", 0, "Игрок 1aada2105", "Online: 0"),
-    _cached(2, 1012, "1522777203000972", 35, "Carono"),
-    _cached(3, 972, "1522777203000972", 35, "Carono"),
-    _cached(4, 8118, "1522777203000972", 35, "Carono"),
+    _cached(2, 1012, "1000000000000935", 35, "Player2"),
+    _cached(3, 972, "1000000000000935", 35, "Player2"),
+    _cached(4, 8118, "1000000000000935", 35, "Player2"),
     _cached(5, 509, "2146058428000509", 21, "Игрок 3464d509"),
-    _cached(6, 935, "1522777203000972", 35, "Carono"),
+    _cached(6, 935, "1000000000000935", 35, "Player2"),
 ]
 
 
@@ -95,14 +95,14 @@ def test_the_character_in_play_is_flagged_and_comes_first():
 def test_every_field_the_tab_draws_survives_the_read():
     rows = account_switch.read_accounts(_FakeEval(_ROLES))
     by_server = {r["serverid"]: r for r in rows}
-    assert by_server[935]["nickname"] == "Carono"
+    assert by_server[935]["nickname"] == "Player2"
     assert by_server[935]["level"] == 35
     assert by_server[935]["zone"] == "APS935"
-    assert by_server[935]["gameUid"] == "1522777203000972"
+    assert by_server[935]["gameUid"] == "1000000000000935"
     assert by_server[935]["power"] == 241514404
-    assert by_server[935]["alliance"] == "TLou"
+    assert by_server[935]["alliance"] == "ALLY"
     assert by_server[935]["picVer"] == 273
-    assert by_server[935]["uuid"].endswith("_n3d1728050557170")
+    assert by_server[935]["uuid"].endswith("_n0000000000000000")
     assert by_server[509]["nickname"] == "Игрок 3464d509"
 
 
@@ -122,7 +122,7 @@ def test_a_silent_server_yields_no_characters_not_stale_rows():
 
 def test_the_placeholder_row_is_not_a_character():
     """The screen's «add a character» slot carries no id and must not be listed."""
-    lines = ["ACT cur=935", _role(935, "1522777203000972", 35, "Carono")]
+    lines = ["ACT cur=935", _role(935, "1000000000000935", 35, "Player2")]
     rows = account_switch.read_accounts(_FakeEval(lines))
     assert len(rows) == 1 and rows[0]["serverid"] == 935
 
@@ -140,8 +140,8 @@ def test_the_login_cache_still_holds_six_rows_for_two_characters():
 
 def test_the_cache_repeats_one_character_across_four_servers():
     rows = account_switch.read_login_cache(_FakeEval(_CACHE))
-    carono = [r for r in rows if r["gameUid"] == "1522777203000972"]
-    assert sorted(r["serverid"] for r in carono) == [935, 972, 1012, 8118]
+    player2 = [r for r in rows if r["gameUid"] == "1000000000000935"]
+    assert sorted(r["serverid"] for r in player2) == [935, 972, 1012, 8118]
 
 
 def test_the_cache_reader_flags_the_character_in_play():

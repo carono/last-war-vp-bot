@@ -251,9 +251,9 @@ def clients() -> list[dict]:
     by_session = {s["id"]: s["user"] for s in sessions()}
     out = []
     for session, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0):
-        # Exactly the client: LastWarLauncher.exe and LastWarSync.exe also start with
-        # "lastwar", and pinning the daemon to the launcher gets a daemon that never warms.
-        if (name or "").lower() != "lastwar.exe":
+        # Exactly the client: the launcher and the updater share its prefix, and pinning
+        # the daemon to the launcher gets a daemon that never warms.
+        if (name or "").lower() != game_paths.game_exe().lower():
             continue
         # The SID that comes back for another user's process is not a usable PySID here;
         # the session's logged-on user is the same answer and always available.

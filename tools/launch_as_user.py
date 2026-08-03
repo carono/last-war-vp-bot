@@ -84,7 +84,8 @@ and it resolves to that account's own install. Real account lists are git-ignore
 Importable::
 
     from launch_as_user import launch_as_user
-    pid = launch_as_user("user2", None, r"C:\Games\LastWar\LastWar.exe")  # None => Credential Manager
+    pid = launch_as_user("user2", None, exe=None)   # exe=None => that account's own
+                                                    # install; password None => Credential Manager
 
 Known limits (read before blaming the script)
 ---------------------------------------------
@@ -326,7 +327,7 @@ def running_clients() -> list[tuple[str, ...]]:
     rows = []
     for line in _oem(raw).splitlines():
         parts = [p.strip('" ') for p in line.split('","')]
-        if len(parts) >= 7 and parts[0].lower() == "lastwar.exe":
+        if len(parts) >= 7 and parts[0].lower() == _game_paths.game_exe().lower():
             rows.append(tuple(parts))
     return rows
 
@@ -666,7 +667,7 @@ def load_accounts(path: str) -> list[dict]:
 
         [
           {"user": "user2"},
-          {"user": "user3", "exe": "C:\\Games\\LastWar\\LastWar.exe"}
+          {"user": "user3", "exe": "<a path, only if not the ordinary install>"}
         ]
     """
     with open(path, "r", encoding="utf-8") as fh:

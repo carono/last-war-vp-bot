@@ -255,14 +255,14 @@ def test_the_runner_hands_the_interpreter_the_session_the_client_lives_in() -> N
 
     runner = ActionRunner(log=_Log(),
                           target=lambda: {"game_port": 47655, "game_token": "tok9",
-                                          "game_user": "casper"})
+                                          "game_user": "player2"})
     saved = script_engine.run_action
     script_engine.run_action = fake_run_action
     try:
         runner.run("launch_game")
     finally:
         script_engine.run_action = saved
-    assert seen.get("game_user") == "casper", seen
+    assert seen.get("game_user") == "player2", seen
 
 
 class _Spawned:
@@ -304,11 +304,11 @@ def test_a_daemon_for_another_session_is_started_INSIDE_it() -> None:
     session it is itself running in. Started here for a profile whose game is in
     session 4, it would bind the right port and then drive this desktop's game — or
     none at all. So the session decides HOW it is started, not just what it finds."""
-    link = _cold_link(47655, user="casper")
+    link = _cold_link(47655, user="player2")
     seen: dict = {}
     link._start_in_session = lambda user, port: seen.update(user=user, port=port)
     spawned = _ensure_watching_popen(link)
-    assert seen == {"user": "casper", "port": 47655}, seen
+    assert seen == {"user": "player2", "port": 47655}, seen
     assert spawned == [], "a daemon for another session must not be spawned here"
 
 
@@ -591,8 +591,8 @@ class _TwoClients:
     def __enter__(self):
         self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
                        gp._endpoint, gp.own_session)
-        gp.sessions = lambda: [{"id": 1, "user": "spame", "state": gp.WTS_ACTIVE},
-                               {"id": 4, "user": "casper",
+        gp.sessions = lambda: [{"id": 1, "user": "player1", "state": gp.WTS_ACTIVE},
+                               {"id": 4, "user": "player2",
                                 "state": gp.WTS_DISCONNECTED}]
         gp._pids_in_session = lambda exe, session: list(self.procs.get(session, ()))
         gp._pids_by_name = lambda exe: [p for ps in self.procs.values() for p in ps]
@@ -625,10 +625,10 @@ def test_a_profile_naming_no_session_means_THIS_desktop_not_any_client() -> None
     """The bug the second account made visible: both profiles reported one pid."""
     with _TwoClients(here=1):
         assert gp.pids("LastWar.exe") == [1001], "ours, not whichever came first"
-        assert gp.pids("LastWar.exe", user="casper") == [4004]
+        assert gp.pids("LastWar.exe", user="player2") == [4004]
 
         console = gp.profile_status(_Knobs())
-        second = gp.profile_status(_Knobs(rdp_session=True, rdp_user="casper"))
+        second = gp.profile_status(_Knobs(rdp_session=True, rdp_user="player2"))
         assert console[0] and second[0]
         assert "1001" in str(console[1]) and "4004" in str(second[1])
         assert str(console[1]) != str(second[1]), \

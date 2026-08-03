@@ -31,10 +31,13 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402
+import game_paths  # noqa: E402  (the game's port and process name)
 from live_sniffer import C_DIM, C_ERR, C_RESET, LiveDecoder  # noqa: E402
 
-GAME_PORT = 17935
-GAME_PROCESS = "lastwar.exe"
+# Both from the resolver: the port has moved before (LW_GAME_PORT), and the
+# process name is the same answer every other tool in the repo asks it for.
+GAME_PORT = game_paths.game_port()
+GAME_PROCESS = game_paths.game_exe().lower()
 # Outbound web ports the client also opens (translation is TLS on :443,
 # see docs/research/chat.md) and which are never the game stream. Dropped from
 # auto-detection so a capture narrows to the game connection, not the noise.

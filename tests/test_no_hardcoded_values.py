@@ -56,12 +56,25 @@ ALLOWED = {
     "Last War-Survival Game": {"tools/lib/game_paths.py"},
 }
 
-#: A quoted value, in Python or JSON alike.
+#: Every kind of file that can hold a decision. **The list matters more than it looks:**
+#: the first cut of this test read `.py`, `.bat` and `.json`, and `tools/start_instance.cmd`
+#: sat outside it with the interpreter, the install path and the port all written out.
+#: A guard that covers most of the tree reads exactly like one that covers all of it.
+SOURCE_GLOBS = ("*.py", "*.bat", "*.cmd", "*.ps1", "*.json", "*.sh")
+
+
 def _quoted(value: str) -> re.Pattern:
-    return re.compile(r"""["']""" + re.escape(value) + r"""["']""")
+    """A quoted value, in Python or JSON alike — and in EITHER case.
+
+    Case-insensitively on purpose: `GAME_PROCESS = "lastwar.exe"` in the capture tools
+    is the same decision as `"LastWar.exe"` anywhere else, and a case-sensitive first
+    cut of this test walked straight past two of them.
+    """
+    return re.compile(r"""["']""" + re.escape(value) + r"""["']""", re.IGNORECASE)
 
 
 def _tracked(*globs: str) -> list[str]:
+    globs = globs or SOURCE_GLOBS
     out = subprocess.run(["git", "ls-files", *globs], cwd=_REPO,
                          capture_output=True, text=True, check=True).stdout.split("\n")
     return [f for f in out if f and not f.startswith(SKIP_PREFIXES)]
@@ -78,7 +91,7 @@ def test_where_the_game_is_installed_is_spelled_out_once():
     """The publisher folder, the launcher and the client, each in one file only."""
     for value, allowed in ALLOWED.items():
         pat = _quoted(value)
-        for rel in _tracked("*.py", "*.bat", "*.json"):
+        for rel in _tracked():
             if rel in allowed:
                 continue
             hit = pat.search(_read(rel))
@@ -105,6 +118,8 @@ def test_every_knob_moves_exactly_what_it_names():
         ("LW_CHAT_PHOTOS", os.path.join("Z:", os.sep, "pics"), gp.chat_photos_dir),
         ("LW_GAMERES", os.path.join("Z:", os.sep, "gameres"), gp.gameres),
         ("LW_ASSET_CACHE", os.path.join("Z:", os.sep, "cache"), gp.asset_cache),
+        ("LW_WIRESHARK_DIR", os.path.join("Z:", os.sep, "ws"),
+         lambda: gp.wireshark_dirs()[0]),
     ]
     for name, value, read in cases:
         old = os.environ.get(name)
@@ -143,21 +158,57 @@ def test_the_download_tree_is_not_the_install_tree():
     assert gp.gameres().startswith(gp.game_dir())
 
 
-def test_no_personal_login_is_shipped():
-    """No Windows account name from any one developer's machine, anywhere.
+#: Real people, in the two shapes this repository kept collecting them in: Windows
+#: logins, and the game identities that got copied out of a live session into a test
+#: fixture. Both are personal data in a public repository, and the second kind is not
+#: even the author's own — `DeadMorozzz` was another player who happened to be on
+#: screen when a capture was recorded.
+PERSONAL = re.compile(
+    r"\b(casper|spame"                        # Windows logins
+    r"|Carono|DeadMorozzz"                    # game nicknames
+    r"|TLou"                                  # an alliance tag
+    r"|1522777203000972|1371213785000935)\b", # live game uids
+    re.IGNORECASE)
 
-    A login is the most personal of these values and the least visible: it reads as a
-    perfectly ordinary identifier right up until somebody else runs the code. So the
-    check is on the whole line, quoted or not — including comments, which is where the
-    last ones were hiding.
+#: The repository's own address is not personal data — it is where the project lives,
+#: and it has to be the real one for anybody to download it. Any line carrying it is
+#: exempt, and nothing else is.
+REPO_URL = re.compile(r"github\.com(:\d+)?[/:]carono|carono/last-war-vp-bot")
+
+#: This file names them all in order to ban them, so it is the one that may.
+PERSONAL_ALLOWED = {"tests/test_no_hardcoded_values.py"}
+
+
+def test_no_personal_identity_is_shipped():
+    """No real person — a Windows login, a game nickname, an alliance, an account id.
+
+    **Tests are checked too**, and that is the point rather than an afterthought: the
+    other assertions here skip `tests/`, because a test writes literals on purpose. But
+    a fixture recorded from a live session is not a literal written on purpose — it is
+    a real account, and the first cut of this guard skipped the whole directory and so
+    walked past a live player's nickname and uid sitting in a committed fixture.
+
+    Whole lines, quoted or not: comments and docstrings are exactly where the last
+    Windows logins were hiding.
     """
-    personal = re.compile(r"\b(casper|spame)\b", re.IGNORECASE)
-    for rel in _tracked("*.py", "*.bat", "*.json", "*.cmd", "*.ps1"):
+    everything = subprocess.run(["git", "ls-files", *SOURCE_GLOBS, "*.md"], cwd=_REPO,
+                                capture_output=True, text=True,
+                                check=True).stdout.split("\n")
+    for rel in everything:
+        # `docs/` is prose, and prose the author signs: a name under a README is
+        # authorship, not a value the code acts on. Everything executable, and every
+        # fixture, is in scope.
+        if not rel or rel in PERSONAL_ALLOWED or rel.startswith(
+                ("tools/archive/", "tools/scratch/", "docs/")):
+            continue
         for i, line in enumerate(_read(rel).splitlines(), 1):
-            hit = personal.search(line)
+            if REPO_URL.search(line):
+                continue
+            hit = PERSONAL.search(line)
             assert not hit, (
-                f"{rel}:{i} names {hit.group(0)!r} — a Windows account that exists on "
-                f"exactly one machine. Use a placeholder, or ask for it."
+                f"{rel}:{i} names {hit.group(0)!r} — a real person or account. Use a "
+                f"placeholder; a fixture recorded live has to be anonymised before it "
+                f"is committed."
             )
 
 
@@ -178,6 +229,48 @@ def test_the_second_client_asks_which_account_rather_than_guessing():
     users = [i.get("user") for i in instance_manager.DEFAULT_INSTANCES]
     assert users == [""], \
         f"the built-in registry names an account: {users!r} — register it instead"
+
+
+def test_the_capture_tools_ask_rather_than_pin_the_port():
+    """A capture filtered on a port that has moved does not fail — it goes quiet.
+
+    That is why this one is worth a test of its own: `17935` was pinned in two files
+    while a live client had connected out on `10012`, and the tools reported an empty
+    capture, which reads exactly like «nothing is happening in the game».
+    """
+    old = os.environ.get("LW_GAME_PORT")
+    os.environ["LW_GAME_PORT"] = "10012"
+    try:
+        assert gp.game_port() == 10012
+    finally:
+        os.environ.pop("LW_GAME_PORT", None)
+        if old is not None:
+            os.environ["LW_GAME_PORT"] = old
+    assert gp.game_port() == gp.DEFAULT_GAME_PORT
+    # Nonsense must not crash a capture that would otherwise have worked.
+    os.environ["LW_GAME_PORT"] = "not-a-port"
+    try:
+        assert gp.game_port() == gp.DEFAULT_GAME_PORT
+    finally:
+        os.environ.pop("LW_GAME_PORT", None)
+
+
+def test_the_installer_puts_python_where_it_is_told():
+    """`C:\\Python312` is the installer's *default*, not its decision.
+
+    It stays a literal in exactly two places — `install.bat`'s default and the
+    resolver's — and both are reachable: `--pydir` on the command line, `LW_PY_DIR`
+    in the environment.
+    """
+    bat = _read("install.bat")
+    assert "--pydir" in bat, "the installer offers no way to choose the location"
+    assert 'if not defined LW_PY_DIR' in bat, \
+        "the installer's default is not an overridable one"
+    # …and the launchers find it there rather than assuming the default.
+    for rel in ("panel.bat", "daemon.bat", "update.bat", "tools/start_instance.cmd"):
+        text = _read(rel)
+        assert "LW_WIN_PYTHON" in text and "LW_PY_DIR" in text, \
+            f"{rel} cannot find a Python installed anywhere but the default"
 
 
 def test_the_interpreter_is_decided_in_one_place():

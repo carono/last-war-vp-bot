@@ -67,6 +67,20 @@ ASSET_CACHE_SUBPATH = os.path.join("Cache", "AssetBundles")
 #: The client itself, relative to the installation folder (the launcher's sibling).
 GAME_EXE_SUBDIR = "Game"
 
+#: The TCP port the client talks to the game server on. A *fallback*: the capture tools
+#: ask the live connection first (`map_capture.detect_game_ports`), because this has
+#: already moved once — a capture pinned to 17935 went quietly empty against a client
+#: that had connected out on 10012, which reads exactly like «nothing is happening».
+DEFAULT_GAME_PORT = 17935
+
+#: Where Wireshark's `tshark` lives, seen from WSL. Two guesses at the ordinary Windows
+#: install under the ordinary mount point — neither of which is a given: a machine may
+#: mount its drives elsewhere (`/c`, `/windows/c`) and may keep Wireshark off C:.
+DEFAULT_WIRESHARK_DIRS = (
+    "/mnt/c/Program Files/Wireshark",
+    "/mnt/c/Program Files (x86)/Wireshark",
+)
+
 
 def _env(name: str, fallback: str) -> str:
     """An environment override, ignoring one that is set but empty."""
@@ -198,3 +212,31 @@ def gameres() -> str:
 def asset_cache() -> str:
     """The downloaded-bundle cache. Machine-specific: it can sit on any drive."""
     return _env("LW_ASSET_CACHE", os.path.join(game_dir(), ASSET_CACHE_SUBPATH))
+
+
+# --- what the capture tools need ---------------------------------------------------
+
+
+def game_port() -> int:
+    """The server port to filter a capture on, when the live connection cannot say.
+
+    `LW_GAME_PORT` moves it. Prefer asking the running client
+    (`map_capture.detect_game_ports`) — a port that has changed under a hardcoded
+    filter does not raise, it simply captures nothing at all.
+    """
+    raw = (os.environ.get("LW_GAME_PORT") or "").strip()
+    try:
+        return int(raw) if raw else DEFAULT_GAME_PORT
+    except ValueError:
+        return DEFAULT_GAME_PORT
+
+
+def wireshark_dirs() -> tuple[str, ...]:
+    """Where to look for `tshark`, most specific first.
+
+    `LW_WIRESHARK_DIR` is tried first and is the whole answer for a machine that keeps
+    Wireshark somewhere else or mounts its Windows drives somewhere else — both of
+    which are ordinary, and neither of which the two guesses below can cover.
+    """
+    forced = (os.environ.get("LW_WIRESHARK_DIR") or "").strip()
+    return (forced,) + DEFAULT_WIRESHARK_DIRS if forced else DEFAULT_WIRESHARK_DIRS

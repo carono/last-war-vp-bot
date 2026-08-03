@@ -39,14 +39,10 @@ from collections import Counter
 sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import game_paths  # noqa: E402  (where tshark is — LW_WIRESHARK_DIR)
 import lastwar_proto as proto  # noqa: E402
 import run_output  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
-
-WIRESHARK_DIRS = (
-    "/mnt/c/Program Files/Wireshark",
-    "/mnt/c/Program Files (x86)/Wireshark",
-)
 
 # Freshness window for the task index, shared with secret_task_capture and the
 # reader via proto.TASK_FRESH_SECONDS so every layer agrees on "current": a
@@ -65,7 +61,7 @@ PCAP_MAGICS = {
 def find_binary(name: str, override: str | None = None) -> str | None:
     if override:
         return override if os.path.exists(override) else None
-    for directory in WIRESHARK_DIRS:
+    for directory in game_paths.wireshark_dirs():
         path = os.path.join(directory, name)
         if os.path.exists(path):
             return path
@@ -228,7 +224,7 @@ class TaskListener:
         if not dumpcap or not tshark:
             missing = "tshark.exe" if not tshark else "dumpcap.exe"
             override = "--tshark" if not tshark else "--dumpcap"
-            looked = ", ".join(WIRESHARK_DIRS)
+            looked = ", ".join(game_paths.wireshark_dirs())
             # "not found" on its own sends people hunting for an install that
             # is usually already there — the useful facts are which binary was
             # missing, where it was looked for, and how to override that.
@@ -590,7 +586,7 @@ def main() -> int:
     dumpcap = find_binary("dumpcap.exe", args.dumpcap) or tshark
     if not tshark or not dumpcap:
         print(f"{C_ERR}Wireshark not found. Looked in:{C_RESET}", file=sys.stderr)
-        for directory in WIRESHARK_DIRS:
+        for directory in game_paths.wireshark_dirs():
             print(f"  {directory}", file=sys.stderr)
         print("Pass --tshark / --dumpcap explicitly.", file=sys.stderr)
         return 1

@@ -336,43 +336,43 @@ def test_the_set_it_opens_is_the_one_the_panel_saved():
     """Read when the task fires, never frozen into it — the person opens and closes pages."""
     with _profiles_in_tmp() as profiles:
         assert autostartmod.open_set(profiles) == [profiles.active], "no set = the active one"
-        profiles.create("casper")
-        profiles.set_open_profiles([profiles.active, "casper"])
-        assert autostartmod.open_set(profiles) == [profiles.active, "casper"]
+        profiles.create("player2")
+        profiles.set_open_profiles([profiles.active, "player2"])
+        assert autostartmod.open_set(profiles) == [profiles.active, "player2"]
         # `--profile` only says which page is on top; the rest still come up.
-        assert autostartmod.open_set(profiles, "casper") == ["casper", profiles.active]
+        assert autostartmod.open_set(profiles, "player2") == ["player2", profiles.active]
 
 
 def test_a_legacy_task_pointing_at_a_deleted_profile_opens_the_saved_set_instead():
     """#1203 left tasks named after profiles. One whose profile is gone must NOT re-create
     it, empty, and open a panel on it every hour for ever."""
     with _profiles_in_tmp() as profiles:
-        profiles.create("casper")
-        profiles.set_open_profiles([profiles.active, "casper"])
+        profiles.create("player2")
+        profiles.set_open_profiles([profiles.active, "player2"])
         assert autostartmod.open_set(profiles, "deleted-long-ago") == \
-            [profiles.active, "casper"]
+            [profiles.active, "player2"]
 
 
 def test_one_beating_page_means_the_panel_is_up_and_nothing_is_opened():
     """The window is one. A profile of the set still beating IS the panel — opening a
     second one for the page that is quiet would fight the first for its config.json."""
     with _profiles_in_tmp() as profiles:
-        profiles.create("casper")
-        profiles.set_open_profiles([profiles.active, "casper"])
+        profiles.create("player2")
+        profiles.set_open_profiles([profiles.active, "player2"])
         launched = []
         real_open, real_pids = autostartmod.open_panel, autostartmod.panel_pids
         autostartmod.open_panel = lambda p, n: launched.append(n)
         autostartmod.panel_pids = lambda p, n=None: []
         try:
-            autostartmod.beat(profiles, "casper")      # only the second page beats
+            autostartmod.beat(profiles, "player2")      # only the second page beats
             record = autostartmod.check()
         finally:
             autostartmod.open_panel, autostartmod.panel_pids = real_open, real_pids
         assert launched == [], "it opened a second panel over a running one"
         assert record["state"] == "running", record
-        assert record["profiles"] == [profiles.active, "casper"], record
+        assert record["profiles"] == [profiles.active, "player2"], record
         # …and every page's Settings reads the same verdict, whichever one is showing.
-        for name in (profiles.active, "casper"):
+        for name in (profiles.active, "player2"):
             saved = json.loads(Path(profiles.autostart_state(name))
                                .read_text(encoding="utf-8"))
             assert saved["state"] == "running", name
@@ -381,8 +381,8 @@ def test_one_beating_page_means_the_panel_is_up_and_nothing_is_opened():
 def test_nothing_beating_opens_ONE_panel_on_the_first_page():
     """The whole set is dead — one window comes up, and it restores the rest itself."""
     with _profiles_in_tmp() as profiles:
-        profiles.create("casper")
-        profiles.set_open_profiles([profiles.active, "casper"])
+        profiles.create("player2")
+        profiles.set_open_profiles([profiles.active, "player2"])
         launched = []
         real_open, real_pids = autostartmod.open_panel, autostartmod.panel_pids
         autostartmod.open_panel = lambda p, n: launched.append(n)
@@ -393,7 +393,7 @@ def test_nothing_beating_opens_ONE_panel_on_the_first_page():
             autostartmod.open_panel, autostartmod.panel_pids = real_open, real_pids
         assert launched == [profiles.active], "one panel, on the page that was on top"
         assert record["state"] == "failed"        # the stand-in never beats
-        assert record["profiles"] == [profiles.active, "casper"]
+        assert record["profiles"] == [profiles.active, "player2"]
 
 
 def test_the_task_names_this_install_and_looks_once_an_hour():

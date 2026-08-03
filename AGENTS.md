@@ -388,6 +388,8 @@ over guesswork.
   | `LW_CHAT_PHOTOS` | `<data dir>\ChatPhotos` | the chat photo / avatar cache |
   | `LW_GAMERES` | `<install>\…\AssetBundles\gameres` | the asset index |
   | `LW_ASSET_CACHE` | `<install>\Cache\AssetBundles` | the downloaded-bundle cache |
+  | `LW_WIRESHARK_DIR` | `/mnt/c/Program Files/Wireshark` | where `tshark` is, seen from WSL |
+  | `LW_GAME_PORT` | `17935` | capture filter **fallback** — ask the live socket first |
 
   **Nothing here has to be set**, and adding a second account must never
   need it: the login names the session, the session's profile directory
