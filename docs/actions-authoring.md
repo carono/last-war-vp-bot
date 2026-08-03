@@ -87,7 +87,7 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `STOP` | `STOP "reason"` | Halt the action stack; runner stops on the next check. |
 | `CLOSE_WINDOW` | `CLOSE_WINDOW` | Send `WM_CLOSE` to the game window. |
 | `LAUNCH "path"` | `LAUNCH "C:\path\to\LastWarLauncher.exe"` | Start a detached process; pair with `WAIT screen == base` to block until the game is up. |
-| `START_GAME ["path"]` | `START_GAME "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"` | Start the game client *where this profile's client lives* — this desktop, or the Windows session the profile names. `LAUNCH` always spawns here, which puts a spare client in front of the person. |
+| `START_GAME ["path"]` | `START_GAME` | Start the game client *where this profile's client lives* — this desktop, or the Windows session the profile names. `LAUNCH` always spawns here, which puts a spare client in front of the person. The path is best left unsaid: `tools/lib/game_paths.py` resolves it per session, and `LW_LAUNCHER` moves it without editing the scenario. |
 | `QUIT_GAME` | `QUIT_GAME` | Force-close the client *this profile drives* (not "the LastWar.exe") and wait for it to go. |
 | `ATTACH_GAME` | `ATTACH_GAME WITHIN 120s` | Re-point the warm Lua daemon at the client running now — the other half of a restart. |
 | `CLICK (x, y)` | `CLICK (50, 50)` | Click absolute client coords (when FIND isn't usable, e.g. unique-per-player avatar). |

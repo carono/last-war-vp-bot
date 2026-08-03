@@ -33,11 +33,13 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import game_paths  # noqa: E402
 import lua_client  # noqa: E402
 
 #: The client executable. A profile may name another one (an install somewhere else),
-#: which is why the process-name fallbacks take it as a parameter.
-GAME_EXE = "LastWar.exe"
+#: which is why the process-name fallbacks take it as a parameter — and why the default
+#: is `LW_GAME_EXE`'s answer rather than a literal (tools/lib/game_paths.py).
+GAME_EXE = game_paths.game_exe()
 
 #: How long a closed client is given to actually disappear. TerminateProcess is not
 #: instant — the Unity process unwinds its own handles first — and starting the
@@ -45,10 +47,14 @@ GAME_EXE = "LastWar.exe"
 #: window at all.
 CLOSE_TIMEOUT_SEC = 30.0
 
-#: The launcher under a user's OWN profile. Per-user by construction — which is the
-#: whole reason a launch into another session resolves it *there* rather than
-#: expanding it here (see :func:`start`).
-DEFAULT_LAUNCHER = r"%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+def default_launcher() -> str:
+    """The launcher on THIS desktop — `LW_LAUNCHER`, or the ordinary install.
+
+    Resolved on every call rather than frozen at import, so setting the variable and
+    running is enough; and returned already absolute, which is what lets the same
+    answer reach a second account's session (`_shared_path`).
+    """
+    return game_paths.launcher()
 
 #: How long a launch into another session waits for the client to appear. Generous on
 #: purpose: a cold start behind a launcher update is minutes, and the alternative to
@@ -358,7 +364,7 @@ def start(launcher: "str | None" = None, user: "str | None" = None,
     say = log or (lambda _msg: None)
     if user and str(user).strip():
         return _start_in_session(str(user).strip(), launcher, timeout, game_exe, say)
-    _start_here(launcher or DEFAULT_LAUNCHER, say)
+    _start_here(launcher or default_launcher(), say)
     return None
 
 
@@ -394,9 +400,18 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
     _tools_on_path()
     import rdp_instance                       # noqa: PLC0415 — Windows-only
 
-    exe = _shared_path(launcher)
+    # WHICH launcher, said in whichever of the two forms can survive the trip. The hop
+    # below runs as SYSTEM out of a scheduled task and inherits NOTHING from here — not
+    # the environment, not the caller's account — so anything the answer depends on
+    # travels on the command line or does not travel at all.
+    exe = _shared_path(launcher or os.environ.get("LW_LAUNCHER"))
     args = ["tools\\session_launch.py", "--session", str(session)]
-    args += ["--exe", exe] if exe else ["--game"]
+    if exe:
+        args += ["--exe", exe]           # one file for every account on the machine
+    else:
+        args += ["--game",               # …or that account's own copy, named in parts
+                 "--game-folder", game_paths.game_folder(),
+                 "--launcher-exe", game_paths.launcher_exe()]
     say(f"starting the launcher in {user}'s session ({session}) through SYSTEM")
     rc, text = rdp_instance.system_python(args, tag="game",
                                           timeout=SYSTEM_HOP_TIMEOUT_SEC)

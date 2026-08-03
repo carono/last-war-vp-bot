@@ -28,15 +28,24 @@ import os
 import sys
 import tkinter as tk
 
+import game_paths
 import lua_client
 
 from .. import mapsweep as mapsweepmod
 
 # Where the Windows client and its launcher live by default. A profile may name
 # another install (a second client in its own Windows session), which is the whole
-# reason these are knobs and not constants any more.
-MANAGED_PYTHON = r"C:\Python312\python.exe"
-GAME_DIR = r"C:\Program Files\LastWar"
+# reason these are knobs and not constants any more — and the DEFAULT behind the knob
+# is `tools/lib/game_paths.py`, so a machine with the game somewhere else is an
+# environment variable rather than a source change.
+#
+# It had to become one answer rather than two: what stood here was
+# `C:\Program Files\LastWar`, which is not where the game installs itself and not what
+# `panel/__main__.py` said three hundred lines away. Nothing noticed for as long as the
+# «launcher» setting was unread; `tools/game_locale.py` reads it to find the game's own
+# locale tables, and #1218 made it reachable from a button.
+MANAGED_PYTHON = game_paths.win_python()
+GAME_DIR = game_paths.game_dir()
 
 
 def _default_python() -> str:
@@ -80,8 +89,8 @@ DEFAULTS: dict = {
     "autoloot_pause_min": 30,
     "trace_filter": "SFS",
     "sniff_ready_timeout": 25.0,
-    "launcher": os.path.join(GAME_DIR, "LastWarLauncher.exe"),
-    "game_exe": "LastWar.exe",
+    "launcher": game_paths.launcher(),
+    "game_exe": game_paths.game_exe(),
     "watchdog": False,
     # …and `daemon_port`'s other half. The port says WHAT to talk to; these two say
     # WHERE the client is, which is a different question and the one the process probe

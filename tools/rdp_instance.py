@@ -81,6 +81,8 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools", "lib"))
 
+import game_paths  # noqa: E402
+
 DEFAULT_USER = "casper"
 DEFAULT_PORT = 47655
 # NOT "localhost": mstsc recognises its own machine and hangs up before the server ever
@@ -95,7 +97,10 @@ WIN = os.environ.get("SystemRoot", r"C:\Windows")
 CMD = os.path.join(WIN, "System32", "cmd.exe")
 POWERSHELL = os.path.join(WIN, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 MSTSC = os.path.join(WIN, "System32", "mstsc.exe")
-PYTHON = sys.executable if sys.platform == "win32" else r"C:\Python312\python.exe"
+# The interpreter this repo's tools are run with on the far side of an elevation.
+# `sys.executable` when we are already the Windows Python; otherwise whatever
+# `LW_WIN_PYTHON` says, and only then the installer's own location.
+PYTHON = sys.executable if sys.platform == "win32" else game_paths.win_python()
 
 WORK = os.path.join(tempfile.gettempdir(), "lwbot")
 LOGDIR = os.path.join(REPO, "results", "logs")

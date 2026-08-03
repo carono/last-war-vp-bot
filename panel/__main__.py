@@ -126,9 +126,10 @@ for _tp in (TOOLS, TOOLS_LIB, SRC):
         sys.path.insert(0, _tp)
 import lua_actions      # noqa: E402
 import coords           # noqa: E402
+import game_paths       # noqa: E402  (where the game is — LW_LAUNCHER & co)
 import game_buttons     # noqa: E402  (the named presses the reference pane lists)
 
-WIN_PYTHON = r"C:\Python312\python.exe"
+WIN_PYTHON = game_paths.win_python()
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
@@ -248,11 +249,13 @@ DASH_POLL_SEC = 30.0
 # Python somewhere else is a field to edit rather than a source change.
 DEFAULT_WIN_PYTHON = WIN_PYTHON
 
-# Game lifecycle (paths derived from %LOCALAPPDATA%, no hardcoded username)
-_LOCALAPPDATA = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
-GAME_DIR = os.path.join(_LOCALAPPDATA, "FunFly", "Last War-Survival Game")
-LAUNCHER = os.path.join(GAME_DIR, "LastWarLauncher.exe")
-GAME_EXE = "LastWar.exe"
+# Game lifecycle. No hardcoded username and, since #1218, no hardcoded install either:
+# `tools/lib/game_paths.py` is the one resolver, and `LW_LAUNCHER` / `LW_GAME_DIR` /
+# `LW_GAME_EXE` move it without a source change. These stay as names because the file
+# uses them; they are no longer a SECOND opinion about where the game is.
+GAME_DIR = game_paths.game_dir()
+LAUNCHER = game_paths.launcher()
+GAME_EXE = game_paths.game_exe()
 
 # Capture options: a stable i18n key (combobox label) paired with its capture script.
 # The selected script is resolved by combobox index, so the visible label can be

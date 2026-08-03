@@ -27,6 +27,9 @@ import argparse
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+import game_paths  # noqa: E402
+
 if sys.platform != "win32":
     raise SystemExit(
         "session_launch.py needs the Windows Python (pywin32):\n"
@@ -39,7 +42,6 @@ import win32profile  # noqa: E402
 import win32security  # noqa: E402
 import win32ts  # noqa: E402
 
-GAME_SUBDIR = os.path.join("AppData", "Local", "FunFly", "Last War-Survival Game")
 STATE_NAMES = {0: "active", 1: "connected", 2: "connectquery", 3: "shadow",
                4: "disconnected", 5: "idle", 6: "listen", 7: "reset", 8: "down",
                9: "init"}
@@ -102,7 +104,20 @@ def profile_of(session: int) -> str:
 
 
 def game_launcher(session: int) -> str:
-    return os.path.join(profile_of(session), GAME_SUBDIR, "LastWarLauncher.exe")
+    """That session's own copy of the launcher, under that account's profile.
+
+    Not `%LOCALAPPDATA%`: this process is SYSTEM, so expanding it here would name
+    SYSTEM's profile. The account's own directory comes from the registry
+    (:func:`profile_of`) and the rest is `tools/lib/game_paths.py`'s answer.
+
+    **This process does not inherit the caller's environment.** It is started by a
+    scheduled task running as SYSTEM, so `LW_GAME_FOLDER` and friends set in a panel
+    are simply not here — which is why `--game-folder` and `--launcher-exe` exist and
+    why `game_client` passes them. The environment is still read when nothing is
+    passed, for a hand-run from a SYSTEM shell.
+    """
+    return os.path.join(profile_of(session), game_paths.LOCAL_APPDATA_SUBDIR,
+                        game_paths.game_folder(), game_paths.launcher_exe())
 
 
 # -------------------------------------------------------------------- launch --
@@ -156,10 +171,27 @@ def main() -> int:
                                      "a level of quoting when the payload has arguments")
     ap.add_argument("--cwd", default=None)
     ap.add_argument("--game", action="store_true",
-                    help="start that session's LastWarLauncher.exe")
+                    help="start that session's own copy of the launcher")
+    # Both default to `tools/lib/game_paths.py`, i.e. to LW_GAME_FOLDER /
+    # LW_LAUNCHER_EXE or the ordinary install. They are options and not just
+    # environment variables because this process is usually started by a SYSTEM
+    # scheduled task, which inherits nothing from whoever asked for the launch.
+    ap.add_argument("--game-folder", default=None,
+                    help="the game's folder under a user's Local AppData "
+                         f"(default: {game_paths.DEFAULT_GAME_FOLDER})")
+    ap.add_argument("--launcher-exe", default=None,
+                    help=f"the launcher's filename (default: "
+                         f"{game_paths.DEFAULT_LAUNCHER_EXE})")
     ap.add_argument("--hidden", action="store_true", help="start minimised/hidden")
     ap.add_argument("--list", action="store_true", help="print the sessions and exit")
     a = ap.parse_args()
+
+    # Put them where `game_launcher` reads them from, so there is one resolver and
+    # not a second copy of the join.
+    if a.game_folder:
+        os.environ["LW_GAME_FOLDER"] = a.game_folder
+    if a.launcher_exe:
+        os.environ["LW_LAUNCHER_EXE"] = a.launcher_exe
 
     if a.list or not a.session:
         for s in sessions():

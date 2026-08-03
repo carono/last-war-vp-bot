@@ -21,11 +21,15 @@ translated at all.
 """
 from __future__ import annotations
 
+import game_paths
+
 from ..i18n import Message
 
 #: The default client executable. A profile may name another one — a second client in
 #: its own Windows session, or an install somewhere else — so every caller passes it.
-GAME_EXE = "LastWar.exe"
+#: The default itself is `LW_GAME_EXE`'s answer (tools/lib/game_paths.py) rather than a
+#: literal, so the four modules that used to spell it out cannot drift apart again.
+GAME_EXE = game_paths.game_exe()
 
 _NON_GAME_PORTS = frozenset({80, 443})
 

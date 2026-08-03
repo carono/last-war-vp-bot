@@ -321,13 +321,31 @@ Two routes, picked by whether a session is named:
   Default window: 300 s, `WITHIN` overrides it. A client already running
   in that session is the job already done, not an error.
 
-The optional path names the launcher. `%LOCALAPPDATA%\…` is per user by
-construction, so for a session that is not ours it is deliberately *not*
-expanded here — that session resolves its own install. An absolute path
-with nothing left to expand is the same file for both accounts and is
-used for either session, which is how a custom install still reaches an
-RDP profile. Omitted, the default is
-`%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe`.
+**Where the launcher is, is not written in the scenario.** A scenario is
+the same file on everybody's machine and an install is not, so
+`launch_game.md` says a bare `START_GAME` and each side resolves its own
+copy — `tools/lib/game_paths.py`, which reads the environment first:
+
+| variable | default | what it is |
+|---|---|---|
+| `LW_LAUNCHER` | *(built below)* | the launcher, absolute — **the one knob most people need** |
+| `LW_GAME_DIR` | `%LOCALAPPDATA%\FunFly\Last War-Survival Game` | the install folder |
+| `LW_GAME_FOLDER` | `FunFly\Last War-Survival Game` | the same folder *relative to a user's Local AppData* |
+| `LW_LAUNCHER_EXE` | `LastWarLauncher.exe` | the launcher's filename |
+| `LW_GAME_EXE` | `LastWar.exe` | the client's process name |
+
+Prefer `LW_LAUNCHER`, and prefer it absolute, because that is the form
+that travels: `%LOCALAPPDATA%` names a different folder for every
+account, so a path built from it is this desktop's alone and cannot be
+handed to another session's token. An absolute path has nothing left to
+expand, is the same file for everybody, and is therefore used for either
+session. With only the folder knobs set, this desktop expands its own
+and the other session is told the *relative* form and expands its own —
+on the command line, not through the environment, because the SYSTEM hop
+inherits nothing from the panel.
+
+The optional quoted path still overrides all of it, and follows exactly
+the same rule about which form travels.
 
 A launcher that is not where the path says is a blow-up (a configuration
 mistake). Nobody logged on as that user, or a client that never
@@ -344,7 +362,7 @@ of its own, which is how the second client is meant to be left, and the
 launch goes into it unchanged.
 
 ```
-START_GAME "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
+START_GAME
 WAIT scene == city WITHIN 300s
 ```
 

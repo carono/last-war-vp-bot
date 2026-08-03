@@ -19,13 +19,29 @@ import time
 sys.path.insert(0, "tools/lib")
 import xlua_route as XR
 import il2cpp_probe as P
+import game_paths
 
 
 def player_log_path():
-    """%LOCALAPPDATA% is ...\\AppData\\Local; Player.log lives under ...\\AppData\\LocalLow."""
+    """Where every Lua result is read back from — this ACCOUNT's `Player.log`.
+
+    `%LOCALAPPDATA%` is ``…\\AppData\\Local``; the log lives beside it under
+    ``…\\AppData\\LocalLow``. Deliberately the calling process's own: two accounts have
+    two logs, another user's LocalLow is unreadable without a grant, and a daemon
+    pointed at the wrong one silently returns nothing at all
+    (docs/research/multi-instance-second-user.md). So each daemon must run as its own
+    account — which is what `GameLink` now makes sure of.
+
+    The publisher/product folder is `tools/lib/game_paths.py`'s answer rather than a
+    literal, so a game installed elsewhere moves this too (`LW_GAME_FOLDER`), and
+    `LW_PLAYER_LOG` names the file outright for anything stranger.
+    """
+    forced = (os.environ.get("LW_PLAYER_LOG") or "").strip()
+    if forced:
+        return forced
     local = os.environ.get("LOCALAPPDATA", "")
     low = os.path.join(os.path.dirname(local), "LocalLow")
-    return os.path.join(low, "FunFly", "Last War-Survival Game", "Player.log")
+    return os.path.join(low, game_paths.game_folder(), "Player.log")
 
 
 class LuaEval:

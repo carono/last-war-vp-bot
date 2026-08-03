@@ -368,6 +368,27 @@ over guesswork.
   Python commits explain *why* the DSL was insufficient.
 - **Never put a username into a path** — use `%LOCALAPPDATA%`,
   `%USERPROFILE%`, etc. `LAUNCH` paths expand them automatically.
+- **Never put an INSTALL into a path either.** Where the game is, is
+  `tools/lib/game_paths.py` and nothing else — one resolver, read by the
+  panel, the tools and the DSL alike, every value an environment
+  variable with the old literal as its default:
+
+  | variable | default | what it is |
+  |---|---|---|
+  | `LW_LAUNCHER` | *(built from the two below)* | the launcher, absolute — the one knob most people need |
+  | `LW_GAME_DIR` | `%LOCALAPPDATA%\FunFly\Last War-Survival Game` | the install folder |
+  | `LW_GAME_FOLDER` | `FunFly\Last War-Survival Game` | the same, *relative to a user's Local AppData* — the only form that can name ANOTHER account's copy |
+  | `LW_LAUNCHER_EXE` | `LastWarLauncher.exe` | the launcher's filename |
+  | `LW_GAME_EXE` | `LastWar.exe` | the client's process name |
+  | `LW_WIN_PYTHON` | `C:\Python312\python.exe` | the interpreter child processes are started with |
+  | `LW_PLAYER_LOG` | `…\AppData\LocalLow\<game folder>\Player.log` | where Lua results are read back from |
+
+  Prefer `LW_LAUNCHER`, absolute: `%LOCALAPPDATA%` names a different
+  folder for every account, so a path built from it belongs to this
+  desktop alone and cannot be handed to a second account's session.
+  `tests/test_game_paths.py` fails on a module that spells any of it out
+  for itself again — which is how the panel's «launcher» default came to
+  say `C:\Program Files\LastWar` while the shell said something else.
 
 ---
 

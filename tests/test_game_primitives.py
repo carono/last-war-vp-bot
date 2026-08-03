@@ -1089,6 +1089,11 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     assert kinds == ["StartGameStmt", "WaitStmt", "LogStmt"], kinds
     assert "LAUNCH " not in body, \
         "LAUNCH spawns on THIS desktop — a profile in another session gets a third client"
+    # …and it names no path. A scenario is the same file on every machine; the install
+    # is not, and under another account it is not even expressible (%LOCALAPPDATA% is
+    # per user). `tools/lib/game_paths.py` resolves it per session, LW_LAUNCHER moves it.
+    assert se.parse_text(body)[0].path is None, \
+        "the recipe must not carry one machine's install path"
 
 
 def test_quit_carries_the_session_to_the_closer():
