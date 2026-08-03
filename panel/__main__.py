@@ -2088,6 +2088,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # one showing (a tab clicked, then a profile switched before the event is
         # drained), and it acts on `self._main_nb` — which would be the wrong page's.
         nb.bind("<<NotebookTabChanged>>", self._bound(self._on_main_tab_changed))
+        # EVERY EAGER TAB, NOW THAT THEY EXIST. `_startup` also walks them, but it runs
+        # on a thread of its own that is started while these are still being built one
+        # event-loop turn at a time — so a tab built after that walk was silently never
+        # loaded. It cost the «Веб» tab its whole point: the panel came up, the profile
+        # said the remote control was on, and nothing was listening until somebody
+        # clicked the tab (#1221). `ensure_loaded` is idempotent by contract, so the two
+        # walks cost nothing where they overlap.
+        for tab in self._plugin_tabs.values():
+            if not tab.EAGER:
+                continue
+            try:
+                tab.ensure_loaded()
+            except Exception:                # noqa: BLE001 — one tab, not the window
+                self._dbg.error("eager load of %r failed", tab.ID, exc_info=True)
         if done is not None:
             done()
 
