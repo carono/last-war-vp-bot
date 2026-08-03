@@ -39,6 +39,7 @@ Usage (run under the Windows Python so it can both capture and reach the daemon)
 --------------------------------------------------------------------------------
     C:\Python312\python.exe tools\secret_share_autoloot.py
     C:\Python312\python.exe tools\secret_share_autoloot.py --star-max --level-min 1 --level-max 7
+    C:\Python312\python.exe tools\secret_share_autoloot.py --star-max --skip-own-server
     C:\Python312\python.exe tools\secret_share_autoloot.py --seconds 1800
     C:\Python312\python.exe tools\secret_share_autoloot.py --dry-run     # decode + decide, never send
     C:\Python312\python.exe tools\secret_share_autoloot.py --list-ifaces
@@ -121,7 +122,7 @@ class ShareAutoloot(LiveDecoder):
     """
 
     def __init__(self, ev, star_max: bool, level_min, level_max,
-                 limit: int, dry_run: bool):
+                 limit: int, dry_run: bool, skip_own_server: bool = False):
         super().__init__()
         self._ev = ev
         self._star_max = star_max
@@ -129,6 +130,11 @@ class ShareAutoloot(LiveDecoder):
         self._level_max = level_max
         self._limit = limit
         self._dry_run = dry_run
+        self._skip_own = skip_own_server
+        # The own server, resolved lazily on the first push that matters and then kept:
+        # the listener is started with the panel (often before the game is logged in), so
+        # asking at start-up would answer "unknown" for the whole run.
+        self._own = 0
         # (uuid, server) already acted on this run: a push can repeat, and a refused
         # tile stays shared, so without this the same doomed target is retried on every
         # duplicate frame. A fresh run forgets them again.
@@ -164,12 +170,40 @@ class ShareAutoloot(LiveDecoder):
             print(f"{_stamp()} {C_DIM}share: {label} — outside the rule, left alone"
                   f"{C_RESET}", flush=True)
             return
+        if self._skip_own and not self._allowed_server(server):
+            return
         if (uuid, server) in self._seen:
             return
         self._seen.add((uuid, server))
         self.hits += 1
         print(f"{_stamp()} {C_HIT}SHARE MATCH{C_RESET}  {label}", flush=True)
         self._rob(uuid, server, label)
+
+    # -- «не грабить на своём сервере» -------------------------------------
+
+    def _allowed_server(self, server: int) -> bool:
+        """Whether a tile on ``server`` may be robbed under the own-server prohibition.
+
+        The own server is asked for at the first push that gets this far, not at start-up:
+        the panel spawns this listener as it boots, and a client not logged in yet would
+        answer "unknown" once and be believed for the rest of the run.
+
+        An own server that still cannot be read refuses the robbery. The prohibition is
+        the point of the flag — letting it lapse because a read failed is exactly the
+        silent widening the level gate was bitten by (#1099).
+        """
+        if not self._own:
+            import steal_secret_task              # tools/, the robbery policy lives there
+            self._own = steal_secret_task.own_server(self._ev)
+        if not self._own:
+            print(f"{_stamp()} {C_DIM}own server unreadable — not robbing "
+                  f"#{server} while «skip own server» is on{C_RESET}", flush=True)
+            return False
+        if server == self._own:
+            print(f"{_stamp()} {C_DIM}share on the own server #{server} — left alone"
+                  f"{C_RESET}", flush=True)
+            return False
+        return True
 
     # -- the robbery -------------------------------------------------------
 
@@ -252,6 +286,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=5,
                     help="stop sending after this many robberies this run (default 5, the "
                          "daily cap; the server enforces the real budget regardless)")
+    ap.add_argument("--skip-own-server", action="store_true",
+                    help="never rob a share standing on the player's own server (the "
+                         "panel's «не грабить на своём сервере»); an own server that "
+                         "cannot be read refuses the robbery rather than allowing it")
     ap.add_argument("--dry-run", action="store_true",
                     help="decode and decide, but never send a robbery (for verifying the "
                          "wire path without spending the budget)")
@@ -273,7 +311,7 @@ def main() -> int:
 
     monitor = ShareAutoloot(ev, star_max=args.star_max, level_min=args.level_min,
                             level_max=args.level_max, limit=args.limit,
-                            dry_run=args.dry_run)
+                            dry_run=args.dry_run, skip_own_server=args.skip_own_server)
     stop, bpf = start_capture(monitor, args)
 
     print("Shared-secret-task auto-loot — scapy/npcap, no dumpcap")
@@ -283,7 +321,8 @@ def main() -> int:
                         args.level_max if args.level_max is not None else "")) or "any"
     window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
     mode = " (dry-run — nothing is sent)" if args.dry_run else ""
-    print(f"{C_DIM}rule: {rule}, level {span}; robbing on {SHARE_ADD}{mode}\n"
+    own = ", own server left alone" if args.skip_own_server else ""
+    print(f"{C_DIM}rule: {rule}, level {span}{own}; robbing on {SHARE_ADD}{mode}\n"
           f"listening {window} — an ally must share a secret task for anything to "
           f"arrive{C_RESET}\n")
 

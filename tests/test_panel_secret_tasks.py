@@ -211,6 +211,154 @@ def test_auto_loot_skips_out_of_range_and_when_unticked():
     assert robbed == []
 
 
+def test_the_table_has_one_cell_per_column_and_a_link_column():
+    """The list is a grid now (#1209): a row is exactly as wide as the headings."""
+    tab = _make_tab({})
+    row = _row(1697234600000972, 7, 120_000, 600_000)
+    row["timer"].set("готово через 02:00")
+    row["server"], row["x"], row["y"], row["loot_count"] = 534, 568, 371, 1
+    values = st.SecretTasksTab._row_values(tab, row)
+    assert len(values) == len(st.COLUMNS), (values, st.COLUMNS)
+    assert "⭐×7" in values[0] and st.TYPE_GLYPH in values[0]
+    assert values[1] == "#534 X:568 Y:371", values          # the clickable cell
+    assert values[2] == "готово через 02:00", values
+    assert values[3] == "1/3", values
+    assert values[4] == "…00000972", values
+
+    # A ready tile swaps the glyph — the colour is the tag, the glyph is the text.
+    row["ready"] = True
+    assert st.READY_GLYPH in st.SecretTasksTab._row_values(tab, row)[0]
+
+    # …and the column a click walks to the tile is a column that exists.
+    assert st.LINK_COLUMN in [c[0] for c in st.COLUMNS]
+
+
+def test_the_table_sorts_by_the_heading_and_falls_back_to_the_best_raid():
+    """No heading clicked: the best raid on top. Clicked: by that column, both ways."""
+    tab = _make_tab({})
+    tab._sort = None
+    rows = [
+        dict(_row(1, 6, -5_000, 900_000), server=1, x=1, y=1, loot_count=2, ready=True),
+        dict(_row(2, 7, -5_000, 600_000), server=1, x=2, y=2, loot_count=0, ready=True),
+        dict(_row(3, 7, 120_000, 300_000), server=1, x=3, y=3, loot_count=1),
+    ]
+    order = st.SecretTasksTab._sorted_rows(tab, rows)
+    # highest star first, and within a level the tile that expires soonest
+    assert [r["uuid"] for r in order] == [3, 2, 1], [r["uuid"] for r in order]
+
+    tab._sort = ("slots", False)
+    assert [r["uuid"] for r in st.SecretTasksTab._sorted_rows(tab, rows)] == [2, 3, 1]
+    tab._sort = ("slots", True)
+    assert [r["uuid"] for r in st.SecretTasksTab._sorted_rows(tab, rows)] == [1, 3, 2]
+    # «Состояние» sorts by attention needed: the ready rows first, soonest to expire.
+    tab._sort = ("state", False)
+    assert [r["uuid"] for r in st.SecretTasksTab._sorted_rows(tab, rows)] == [2, 1, 3]
+    # Every column the table draws knows how to sort itself.
+    assert set(st.SecretTasksTab.SORT_KEYS) == {c[0] for c in st.COLUMNS}
+
+
+class _FakeTree:
+    """Enough of a Treeview to aim a click at a cell: a region, a column, a row."""
+
+    def __init__(self, region="cell", column="#2", row="11"):
+        self._region, self._column, self._row = region, column, row
+        self.cursor = None
+
+    def identify(self, _what, _x, _y):
+        return self._region
+
+    def identify_column(self, _x):
+        return self._column
+
+    def identify_row(self, _y):
+        return self._row
+
+    def configure(self, cursor=None):
+        self.cursor = cursor
+
+
+def test_only_the_coordinate_cell_is_a_link():
+    """A click walks the camera from the coordinate column and from nowhere else."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._rows = {"11": _row(11, 7, -5_000, 600_000)}
+    walked = []
+    tab._jump_to_row = lambda row: walked.append(row["uuid"])
+
+    link_at = "#%d" % (1 + [c[0] for c in st.COLUMNS].index(st.LINK_COLUMN))
+    tab._tree = _FakeTree(column=link_at)
+    event = __import__("types").SimpleNamespace(x=10, y=10)
+    assert st.SecretTasksTab._column_at(tab, event) == st.LINK_COLUMN
+    st.SecretTasksTab._on_click(tab, event)
+    assert walked == [11], walked
+
+    # …the level column is not a link, and neither is the empty space under the rows.
+    tab._tree = _FakeTree(column="#1")
+    st.SecretTasksTab._on_click(tab, event)
+    assert walked == [11], "a click outside the coordinate column jumped"
+    tab._tree = _FakeTree(region="nothing", column=link_at)
+    assert st.SecretTasksTab._column_at(tab, event) == ""
+    st.SecretTasksTab._on_click(tab, event)
+    assert walked == [11], "a click below the last row jumped"
+
+    # The pointer says so before the click: a hand over the link, nothing elsewhere.
+    tab._tree = _FakeTree(column=link_at)
+    st.SecretTasksTab._on_motion(tab, event)
+    assert tab._tree.cursor == "hand2", tab._tree.cursor
+    tab._tree = _FakeTree(column="#1")
+    st.SecretTasksTab._on_motion(tab, event)
+    assert tab._tree.cursor == "", tab._tree.cursor
+
+
+def test_the_own_server_is_read_once_and_an_unreadable_one_is_zero():
+    """What «не грабить на своём сервере» judges a tile against.
+
+    Zero rather than an exception on a dead game: the standing order reads that as
+    «do not rob», and a raise on the watcher thread would take the loop down.
+    """
+    tab = object.__new__(st.SecretTasksTab)
+    tab._own_server = 0
+    tab._ids = None
+    reads = []
+    tab.rt = __import__("types").SimpleNamespace(
+        game=__import__("types").SimpleNamespace(client=object()))
+    tab._self_ids = lambda ev: (reads.append(1), ("534", "a1"))[1]
+    assert tab.own_server() == 534
+    assert tab.own_server() == 534
+    assert reads == [1], "the own server was re-read: %r" % (reads,)
+
+    blind = object.__new__(st.SecretTasksTab)
+    blind._own_server = 0
+    blind.rt = __import__("types").SimpleNamespace(
+        game=__import__("types").SimpleNamespace(client=object()))
+    blind._self_ids = lambda ev: ("", "")
+    assert blind.own_server() == 0
+
+    def _boom(_ev):
+        raise RuntimeError("no daemon")
+
+    blind._self_ids = _boom
+    assert blind.own_server() == 0
+
+
+def test_the_jump_history_remembers_the_newest_first_and_is_capped():
+    """«Куда ходил» on the tab's coordinate block: newest first, no duplicates, capped."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._jump_hist = []
+    tab._jump_hist_combo = None
+    saved = []
+    tab.rt = __import__("types").SimpleNamespace(
+        settings=__import__("types").SimpleNamespace(changed=lambda: saved.append(1)))
+    tab._remember_jump(568, 371, 534)
+    tab._remember_jump(100, 200, None)
+    tab._remember_jump(568, 371, 534)          # the same tile again -> moves to the top
+    assert tab._jump_hist == ["#534 X:568 Y:371", "X:100 Y:200"], tab._jump_hist
+    assert saved, "a walked-to tile was not persisted"
+
+    for i in range(st.JUMP_HISTORY_MAX + 5):
+        tab._remember_jump(i, i, 1)
+    assert len(tab._jump_hist) == st.JUMP_HISTORY_MAX, len(tab._jump_hist)
+
+
 def test_room_ids_from_cached_self_ids():
     tab = object.__new__(st.SecretTasksTab)         # no Tk build
     tab._ids = ("935", "3d4b9dee")

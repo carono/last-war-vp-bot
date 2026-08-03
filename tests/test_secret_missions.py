@@ -276,11 +276,12 @@ def _checkpoint(tmp_path, tasks) -> str:
     return str(path)
 
 
-def _task(uuid: int, cfg_id: int, family: str, level: int, looted=()) -> "proto.SecretTask":
+def _task(uuid: int, cfg_id: int, family: str, level: int, looted=(),
+          server: int = 534) -> "proto.SecretTask":
     """A raidable tile: dispatch finished a minute ago, expires in an hour."""
     now_ms = int(time.time() * 1000)
     return proto.SecretTask(
-        uuid=uuid, server_id=534, x=100 + uuid, y=200, level=level,
+        uuid=uuid, server_id=server, x=100 + uuid, y=200, level=level,
         cfg_id=cfg_id, family=family, looted_by=tuple(looted), owner_uid="u%d" % uuid,
         alliance_id="a", expires_at=now_ms + 3_600_000, completed_at=now_ms - 60_000)
 
@@ -307,6 +308,38 @@ def test_autoloot_takes_only_starred_tasks_of_the_best_level(tmp_path=None):
     picked = steal.targets_from_scan(_checkpoint(tmp_path, tasks), limit=5,
                                      star_max=True, say=lambda _m: None)
     assert [uuid for uuid, _srv, _label in picked] == [3], picked
+
+
+def test_autoloot_skips_the_own_server_before_it_chooses(tmp_path=None):
+    """«Не грабить на своём сервере» (#1209) — a filter, and one that runs FIRST.
+
+    Applied before the star rule picks its level: with the top star standing at home and
+    a lower one on a neighbour's server, the neighbour's is robbed. Applied afterwards it
+    would take the home tile, find it forbidden and rob nothing at all.
+    """
+    import tempfile
+    from pathlib import Path as _Path
+    tmp_path = _Path(tmp_path or tempfile.mkdtemp())
+    import steal_secret_task as steal
+
+    tasks = [
+        _task(3, 60000701, "6000", 7, server=534),     # the best star — but at home
+        _task(4, 60000601, "6000", 6, server=999),     # a neighbour's, one level lower
+    ]
+    checkpoint = _checkpoint(tmp_path, tasks)
+    free = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                   say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in free] == [3], free
+
+    guarded = steal.targets_from_scan(checkpoint, limit=5, star_max=True,
+                                      skip_server=534, say=lambda _m: None)
+    assert [uuid for uuid, _srv, _label in guarded] == [4], guarded
+
+    # And with nothing left off the own server, the answer is "nothing to rob" — never
+    # the home tile as a consolation.
+    only_home = _checkpoint(tmp_path, [_task(3, 60000701, "6000", 7, server=534)])
+    assert steal.targets_from_scan(only_home, limit=5, star_max=True,
+                                   skip_server=534, say=lambda _m: None) == []
 
 
 def test_autoloot_robs_the_filter_top_level_and_nothing_lower(tmp_path=None):
@@ -492,6 +525,39 @@ def test_share_autoloot_robs_once_on_a_matching_push():
     mon._consider(_mission(222, 60000601))
     mon._consider(_mission(333, 50000704))
     assert mon.robbed == 1, mon.robbed
+
+
+def test_share_autoloot_leaves_the_own_server_alone():
+    """The listener obeys «не грабить на своём сервере» too (#1209).
+
+    It is the fast path — a share is robbed within a second of the push — so a
+    prohibition the poll honours and this does not would be no prohibition at all. The
+    own server is resolved through the client, and an unreadable one refuses the
+    robbery rather than allowing it.
+    """
+    import secret_share_autoloot as sa
+    import steal_secret_task as steal
+
+    ev = _StealEv(left=5)
+    mon = sa.ShareAutoloot(ev, star_max=True, level_min=None, level_max=None,
+                           limit=5, dry_run=False, skip_own_server=True)
+    saved, steal.own_server = steal.own_server, lambda _ev: 946
+    try:
+        mon._consider(_mission(111, 60000701, server=946))     # home -> left alone
+        assert mon.robbed == 0, mon.robbed
+        mon._consider(_mission(222, 60000701, server=999))     # a neighbour -> robbed
+        assert mon.robbed == 1, mon.robbed
+        assert any("steal_sent uuid=222" in c for c in ev.chunks), ev.chunks
+
+        # An own server nobody could read robs NOTHING — the flag fails safe.
+        blind = sa.ShareAutoloot(_StealEv(left=5), star_max=True, level_min=None,
+                                 level_max=None, limit=5, dry_run=False,
+                                 skip_own_server=True)
+        steal.own_server = lambda _ev: 0
+        blind._consider(_mission(333, 60000701, server=999))
+        assert blind.robbed == 0, blind.robbed
+    finally:
+        steal.own_server = saved
 
 
 def test_share_autoloot_holds_when_budget_spent():

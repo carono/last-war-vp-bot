@@ -50,11 +50,11 @@ except Exception:       # noqa: BLE001 — no display is fine, no module is not
 import lastwar_proto as proto  # noqa: E402
 
 
-def _task(uuid: int, cfg_id: int, family: str, level: int, looted=()):
+def _task(uuid: int, cfg_id: int, family: str, level: int, looted=(), server: int = 534):
     """A raidable tile: dispatch finished a minute ago, expires in an hour."""
     now_ms = int(time.time() * 1000)
     return proto.SecretTask(
-        uuid=uuid, server_id=534, x=100 + uuid, y=200, level=level,
+        uuid=uuid, server_id=server, x=100 + uuid, y=200, level=level,
         cfg_id=cfg_id, family=family, looted_by=tuple(looted), owner_uid="u%d" % uuid,
         alliance_id="a", expires_at=now_ms + 3_600_000, completed_at=now_ms - 60_000)
 
@@ -70,7 +70,8 @@ def _checkpoint(path: Path, tasks, age: int = 0) -> None:
     path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
 
 
-def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = ""):
+def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = "",
+             skip_own: bool = False, own_server: int = 0, vm_up: bool = False):
     """The «Автолут ★» standing order, wired to nothing but a checkpoint path.
 
     It is `panel/tabs/secret_tasks/autoloot.py` now — the watcher moved out of the
@@ -86,7 +87,7 @@ def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = ""):
     logs: list = []
     i18n = rtmod.Translator("ru")
     bus = fake_runtime.RecordingBus(translate=i18n.t, lines=logs)
-    game = types.SimpleNamespace(up=lambda: False, client=None, busy=False)
+    game = types.SimpleNamespace(up=lambda: vm_up, client=None, busy=False)
     # The knobs live in the binder; with no widgets attached the saved dict is the
     # answer, so an empty one means SETTINGS_DEFAULTS — the constants these numbers
     # used to be (the auto-loot budget, the poll period, the spent-pause).
@@ -100,9 +101,14 @@ def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = ""):
     # The «уровень от / до» entries — auto-loot's OWN pair, not the display filter's —
     # duck-typed: `levels()` only reads `.get()`, so the rule can be exercised with no
     # Tk root window.
+    # «Не грабить на своём сервере» rides along the same way: a box the rule reads live,
+    # plus the tab's cached answer to "which server am I". Both duck-typed — the standing
+    # order only ever calls `.get()` on the one and `own_server()` on the other.
     tab = types.SimpleNamespace(
         level_from_var=types.SimpleNamespace(get=lambda: level_from),
         level_to_var=types.SimpleNamespace(get=lambda: level_to),
+        skip_own_var=types.SimpleNamespace(get=lambda: skip_own),
+        own_server=lambda: own_server,
         capture=types.SimpleNamespace(running=False),
         t=i18n.t, say=bus.say)
     w = AutoLoot(rt, tab)
@@ -267,6 +273,81 @@ def test_autoloot_unions_vm_and_checkpoint():
     w.tick()
     assert w.runs == [str(cp)], w.runs      # checkpoint present -> it is passed to the child
     assert w._seen == {3, 7}, w._seen
+
+
+def test_a_star_on_the_own_server_is_not_a_target_while_the_box_is_ticked():
+    """«Не грабить на своём сервере» (#1209): the neighbour's tile is robbed, home is not.
+
+    The prohibition is applied where the targets are CHOSEN, not after — so the rule
+    still picks the best allowed star instead of picking a forbidden one and coming
+    back with nothing.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp, level_from="1", level_to="7", skip_own=True, own_server=534,
+                 vm_up=True)
+    w.vm_targets = lambda: []              # the VM source has its own tests above
+    _checkpoint(cp, [_task(3, 60000701, "6000", 7, server=534),     # home
+                     _task(4, 60000701, "6000", 7, server=999)])    # a neighbour
+    w.tick()
+    assert w.runs == [str(cp)], w.runs
+    assert w._seen == {4}, "the tile on the own server was taken as a target: %r" % (w._seen,)
+
+    # Untick the box and the same home tile is a target again — nothing else changed.
+    w2 = _Watcher(cp, level_from="1", level_to="7", skip_own=False, vm_up=True)
+    w2.vm_targets = lambda: []
+    _checkpoint(cp, [_task(3, 60000701, "6000", 7, server=534)])
+    w2.tick()
+    assert w2._seen == {3}, w2._seen
+
+
+def test_an_unreadable_own_server_stops_the_robbery_instead_of_letting_it_through():
+    """A prohibition that cannot be checked must pause the watcher, not lapse quietly."""
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp, level_from="1", level_to="7", skip_own=True, own_server=0,
+                 vm_up=True)
+    w.vm_targets = lambda: []
+    _checkpoint(cp, [_task(4, 60000701, "6000", 7, server=999)])
+    w.tick()
+    w.tick()
+    assert w.runs == [], "robbed while the own server was unknown: %r" % (w.runs,)
+    assert sum("свой сервер не прочитан" in m for m in w.logs) == 1, w.logs
+
+
+def test_the_prohibition_travels_to_both_children():
+    """Each child re-reads the sources and re-applies the rule — so each is told.
+
+    The same trap the level range was bitten by (#1099): a gate the panel obeys and the
+    child it spawns does not is a gate that is not there.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp, level_from="1", level_to="7", skip_own=True, own_server=534)
+    spawned: list = []
+    w.rt.children.spawn_raw = lambda cmd, tag: spawned.append(cmd)
+    w.start_push()                                  # the event-driven listener
+    del w.run                                       # …and the poll's own child
+    w.run(str(cp), vm_ready=False)
+    assert len(spawned) == 2, spawned
+    for cmd in spawned:
+        assert "--skip-own-server" in cmd, cmd
+        assert "--level-max" in cmd, cmd             # the old rule still travels too
+
+    off = _Watcher(cp, level_from="1", level_to="7", skip_own=False)
+    quiet: list = []
+    off.rt.children.spawn_raw = lambda cmd, tag: quiet.append(cmd)
+    off.start_push()
+    assert quiet and "--skip-own-server" not in quiet[0], quiet
 
 
 def _run_standalone() -> int:

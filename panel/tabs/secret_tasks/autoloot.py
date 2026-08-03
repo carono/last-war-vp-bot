@@ -13,7 +13,10 @@ out until the reset (#1099). Everything here follows from that:
   subprocess started with a fixed one — that is the exact trap #1099 closed for the
   poll and would have left open here;
 * **a uuid already fired at is never fired at again this session**, so a poll on a
-  spent budget does not burn the allowance on a target that cannot pay.
+  spent budget does not burn the allowance on a target that cannot pay;
+* **«не грабить на своём сервере» travels the same way the range does** — it filters
+  the targets here AND is handed to both children, because each of them re-reads the
+  sources and would otherwise rob the neighbours the box says to leave alone.
 
 Two paths on purpose. The listener robs a *shared* secret task the instant its push
 crosses the wire (< 1 s), which is the case a human used to win; the poll is the slower
@@ -46,6 +49,7 @@ class AutoLoot:
         self._seen: set = set()      # uuids sent this session (no re-tries)
         self._pause_until = 0.0      # wall clock the watcher may fire again at
         self._warned = False         # "no checkpoint yet" is said once per run
+        self._warned_own = False     # so is "the own server cannot be read"
 
     @property
     def running(self) -> bool:
@@ -64,7 +68,7 @@ class AutoLoot:
         self._stop = threading.Event()
         self._seen.clear()
         self._pause_until = 0.0
-        self._warned = False
+        self._warned = self._warned_own = False
         self.tab.say("autoloot", "log.autoloot.on", rule=self.rule_text())
         if not self.tab.capture.running:
             self.tab.say("autoloot", "log.autoloot.no_monitor")
@@ -96,6 +100,10 @@ class AutoLoot:
             cmd += ["--level-min", str(lo)]
         if hi is not None:
             cmd += ["--level-max", str(hi)]
+        # The listener resolves the own server itself (it is spawned at boot, when the
+        # client may not be logged in yet), so the box travels as a flag, not a number.
+        if self.tab.skip_own_var.get():
+            cmd.append("--skip-own-server")
         proc = self.rt.children.spawn_raw(cmd, "autoloot")
         if proc is None:
             return
@@ -118,11 +126,13 @@ class AutoLoot:
         self.start_push()
 
     def range_changed(self) -> None:
-        """The range was typed in. Bounce the listener onto it, debounced.
+        """The rule was changed (the range, or «не грабить на своём сервере»). Bounce
+        the listener onto it, debounced.
 
-        The poll re-reads the range live every tick, but the listener is a subprocess
+        The poll re-reads the rule live every tick, but the listener is a subprocess
         started with a fixed one — a range typed while auto-loot is on would otherwise
-        keep robbing to the OLD «уровень до».
+        keep robbing to the OLD «уровень до», and a box ticked after it started would
+        not reach it at all.
         """
         if self._stop is None:
             return
@@ -187,6 +197,17 @@ class AutoLoot:
                 self.tab.say("autoloot", "log.autoloot.no_scan")
             return
         self._warned = False
+        # «Не грабить на своём сервере» is a prohibition, so an unknown own server stops
+        # the tick rather than letting it through: robbing a neighbour the operator asked
+        # to be left alone cannot be taken back, and a paused watcher says so in the log.
+        # The read needs the live VM, so a checkpoint alone is not enough to fire on.
+        if self.tab.skip_own_var.get():
+            if not (vm_ready and self.tab.own_server()):
+                if not self._warned_own:
+                    self._warned_own = True
+                    self.tab.say("autoloot", "log.autoloot.no_own_server")
+                return
+            self._warned_own = False
         targets = self.all_targets(checkpoint if have_scan else None, vm_ready)
         # Already-sent uuids are skipped: a source keeps showing a tile the server refused
         # (or that we robbed but whose loot count has not come back yet), and re-firing at
@@ -238,7 +259,8 @@ class AutoLoot:
         lo, hi = self.levels()
         return steal_secret_task.targets_from_vm(
             self.rt.game.client, limit=self.limit(), star_max=True,
-            level_min=lo, level_max=hi, say=lambda _m: None)
+            level_min=lo, level_max=hi, skip_server=self.skip_server(),
+            say=lambda _m: None)
 
     def scan_targets(self, checkpoint: str) -> list:
         """Star-max targets in the checkpoint right now, as (uuid, server, label).
@@ -250,7 +272,8 @@ class AutoLoot:
         lo, hi = self.levels()
         return steal_secret_task.targets_from_scan(
             checkpoint, limit=self.limit(), star_max=True,
-            level_min=lo, level_max=hi, say=lambda _m: None)
+            level_min=lo, level_max=hi, skip_server=self.skip_server(),
+            say=lambda _m: None)
 
     def run(self, checkpoint, vm_ready: bool) -> None:
         cmd = [self.rt.children.python(), "-u",
@@ -265,12 +288,15 @@ class AutoLoot:
         if checkpoint is not None:
             cmd += ["--from-scan", checkpoint]
         # The range has to travel with it: without these the watcher would agree to a
-        # target inside the range and the child would then rob outside it.
+        # target inside the range and the child would then rob outside it. The
+        # own-server prohibition travels for exactly the same reason.
         lo, hi = self.levels()
         if lo is not None:
             cmd += ["--level-min", str(lo)]
         if hi is not None:
             cmd += ["--level-max", str(hi)]
+        if self.tab.skip_own_var.get():
+            cmd.append("--skip-own-server")
         self.rt.put(f"[autoloot] {self.rule_text()} …")
         proc = self.rt.children.spawn_raw(cmd, "autoloot")
         if proc is None:
@@ -315,6 +341,18 @@ class AutoLoot:
             return int(raw) if raw.isdigit() else None
         return bound(self.tab.level_from_var), bound(self.tab.level_to_var)
 
+    def skip_server(self) -> "int | None":
+        """The server the standing order must not rob on — the player's own, or None.
+
+        None means "no prohibition": either the box is clear, or the own server could not
+        be read. The unreadable case is NOT silently permissive — `tick` refuses to fire
+        at all while the box is ticked and the answer is unknown; this only reports what
+        the filter can be given.
+        """
+        if not self.tab.skip_own_var.get():
+            return None
+        return self.tab.own_server()
+
     def rule_text(self) -> str:
         """The standing order in one phrase — what it will rob, in the log's words.
 
@@ -324,7 +362,11 @@ class AutoLoot:
         """
         lo, hi = self.levels()
         if hi is not None:
-            return self.tab.t("secret.autoloot.rule_top", lvl=hi,
+            text = self.tab.t("secret.autoloot.rule_top", lvl=hi,
                               lo=lo if lo is not None else "—")
-        return self.tab.t("secret.autoloot.rule_found",
-                          lo=lo if lo is not None else "—")
+        else:
+            text = self.tab.t("secret.autoloot.rule_found",
+                              lo=lo if lo is not None else "—")
+        if self.tab.skip_own_var.get():
+            text += " " + self.tab.t("secret.autoloot.rule_skip_own")
+        return text

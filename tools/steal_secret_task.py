@@ -28,6 +28,12 @@ docs/research/secret-task-steal.md.
                 --level-max M      levels outside it are not targets at all, and
                                    with --star-max the target level IS --level-max
                                    («от 1 до 7» robs 7s and leaves a 6 alone)
+    --skip-own-server              never rob a tile standing on the player's OWN
+                                   server — the neighbours you share a map (and an
+                                   alliance politics) with. The own server is read
+                                   live from the client; when it cannot be read
+                                   nothing is robbed, because a prohibition that
+                                   silently lapses is worse than a run that stops
 
 Usage (run under the Windows Python so it can reach the warm daemon)
 --------------------------------------------------------------------
@@ -111,6 +117,21 @@ def resolve_uuid(ev, x: int, y: int, server: int) -> int:
     return 0
 
 
+def own_server(ev) -> int:
+    """The server the PLAYER belongs to, live from the client (0 when unreadable).
+
+    Not the server currently on screen: the camera walks into other servers all day
+    (that is what a robbery run does), so `curServerId` would answer "wherever I am
+    looking". `ChatInterface.getSelfServerId()` is the account's own one, which is what
+    «не грабить на своём сервере» is about — the neighbours.
+    """
+    import chat_share                          # tools/lib, already on sys.path
+    try:
+        return int(chat_share.self_profile(ev).get("srv") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _label(task) -> str:
     return ("%s%s lvl %d %d/3 looted"
             % ("*" if task.starred else " ",
@@ -120,6 +141,7 @@ def _label(task) -> str:
 
 def targets_from_scan(path: str, limit: int, star_max: bool = False,
                       level_min: int | None = None, level_max: int | None = None,
+                      skip_server: int | None = None,
                       say=print) -> list[tuple[int, int, str]]:
     """Raidable tasks from a capture checkpoint, as (uuid, server, label).
 
@@ -130,6 +152,11 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
     `level_min` / `level_max` bound which levels may be robbed at all — the panel's
     «уровень от / до». They are applied FIRST, before `star_max` picks its target
     level, so the range is a hard gate and not a preference. Either end may be None.
+
+    `skip_server` drops every tile standing on that server before anything is chosen —
+    the panel's «не грабить на своём сервере». Before, not after, so the rule then picks
+    the best target among the ones that ARE allowed instead of picking a forbidden one
+    and coming back empty.
 
     `star_max` is the panel's auto-loot rule: **starred tasks only**, and only at ONE
     level — `level_max`, the top of the configured range. «от 1 до 7» means level 7
@@ -152,11 +179,13 @@ def targets_from_scan(path: str, limit: int, star_max: bool = False,
 
     tasks = proto.load_fresh_tasks(path)
     return _select_targets(tasks, limit, star_max=star_max,
-                           level_min=level_min, level_max=level_max, say=say)
+                           level_min=level_min, level_max=level_max,
+                           skip_server=skip_server, say=say)
 
 
 def targets_from_vm(ev, limit: int, star_max: bool = False,
                     level_min: int | None = None, level_max: int | None = None,
+                    skip_server: int | None = None,
                     say=print) -> list[tuple[int, int, str]]:
     """Raidable alliance secret tasks read straight from the live Lua VM, freshest rule.
 
@@ -174,7 +203,8 @@ def targets_from_vm(ev, limit: int, star_max: bool = False,
     """
     tasks = _vm_raidable_tasks(ev)
     return _select_targets(tasks, limit, star_max=star_max,
-                           level_min=level_min, level_max=level_max, say=say)
+                           level_min=level_min, level_max=level_max,
+                           skip_server=skip_server, say=say)
 
 
 def _vm_raidable_tasks(ev) -> list:
@@ -242,15 +272,21 @@ def _int(value) -> int:
 
 def _select_targets(tasks, limit: int, star_max: bool = False,
                     level_min: int | None = None, level_max: int | None = None,
+                    skip_server: int | None = None,
                     say=print) -> list[tuple[int, int, str]]:
     """The auto-loot rule applied to a list of `SecretTask`s — the shared core.
 
     Both `targets_from_scan` (capture checkpoint) and `targets_from_vm` (live VM) feed
     the same rule here, so a target picked by one source is picked identically by the
     other. See `targets_from_scan` for the full description of `star_max` / the level
-    gate — the reasoning lives with it and is not repeated.
+    gate and `skip_server` — the reasoning lives with it and is not repeated.
     """
     raidable = [t for t in tasks if t.can_loot]
+    if skip_server:
+        mine = [t for t in raidable if t.server_id == skip_server]
+        if mine:
+            say("own server %d: %d raidable task(s) left alone" % (skip_server, len(mine)))
+        raidable = [t for t in raidable if t.server_id != skip_server]
     if level_min is not None or level_max is not None:
         inside = [t for t in raidable
                   if (level_min is None or t.level >= level_min)
@@ -308,6 +344,10 @@ def main() -> int:
     ap.add_argument("--level-max", type=int, metavar="N",
                     help="with --from-scan: never rob above level N («уровень до») — "
                          "and with --star-max this IS the level robbed, nothing lower")
+    ap.add_argument("--skip-own-server", action="store_true",
+                    help="never rob a tile on the player's own server (the panel's "
+                         "«не грабить на своём сервере»); the own server is read live "
+                         "and an unreadable one robs nothing")
     ap.add_argument("--queue-only", action="store_true",
                     help="park the targets in the game VM and stop (no robbery)")
     ap.add_argument("--status", action="store_true",
@@ -327,6 +367,18 @@ def main() -> int:
         print("robberies left today: %d   targets queued: %d" % (left, queued))
         return 0
 
+    # «Не грабить на своём сервере», resolved once and up front. A prohibition that
+    # cannot be checked must stop the run rather than lapse quietly: an unreadable own
+    # server would otherwise mean every neighbour is fair game again.
+    skip = 0
+    if args.skip_own_server:
+        skip = own_server(ev)
+        if not skip:
+            print("--skip-own-server: the player's own server could not be read — "
+                  "nothing robbed (is the game running and logged in?)")
+            return 1
+        print("own server: %d — its tiles are not targets" % skip)
+
     targets: list[tuple[int, int, str]] = []
     if args.from_vm or args.from_scan:
         # Two sources, unioned: the live VM (alliance tasks, always current) and, when
@@ -344,11 +396,13 @@ def main() -> int:
 
         if args.from_vm:
             _add(targets_from_vm(ev, args.limit, star_max=args.star_max,
-                                 level_min=args.level_min, level_max=args.level_max))
+                                 level_min=args.level_min, level_max=args.level_max,
+                                 skip_server=skip or None))
         if args.from_scan:
             if os.path.exists(args.from_scan):
                 _add(targets_from_scan(args.from_scan, args.limit, star_max=args.star_max,
-                                       level_min=args.level_min, level_max=args.level_max))
+                                       level_min=args.level_min, level_max=args.level_max,
+                                       skip_server=skip or None))
             elif not args.from_vm:
                 print("no scan checkpoint at %s — run the capture (panel: «Мониторинг "
                       "секреток») while the map moves" % args.from_scan)
@@ -383,6 +437,19 @@ def main() -> int:
     else:
         ap.error("name a target: --uuid, --coords, --from-vm or --from-scan "
                  "(or ask for --status)")
+
+    # The last gate, over WHATEVER named the targets: the two source paths dropped the
+    # own server before choosing, but a hand-named `--uuid`/`--coords` never went through
+    # that rule and must obey the same prohibition.
+    if skip:
+        kept = [t for t in targets if t[1] != skip]
+        if len(kept) != len(targets):
+            print("own server %d: %d target(s) left alone"
+                  % (skip, len(targets) - len(kept)))
+        targets = kept
+        if not targets:
+            print("every target stood on the own server — nothing to rob")
+            return 0
 
     left, _ = read_status(ev)
     print("robberies left today: %d" % left)

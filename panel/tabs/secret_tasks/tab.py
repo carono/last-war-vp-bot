@@ -31,6 +31,18 @@ and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). The «ур�
 range doubles as the list's display filter — a starred tile shows only while its level is
 inside it, so the operator sees exactly the tiles auto-loot is about to weigh.
 
+THE LIST IS A TABLE (#1209). It was a stack of hand-packed rows, each label carrying its
+own width, which is why nothing lined up under anything: a `ttk.Treeview` gives the
+columns one width apiece, a heading that sorts, and a header that stays put. The two
+row actions moved with it — a click on the **coordinate** column walks the camera to the
+tile, and «Собрать» / «Поделиться» act on the selected row, from the strip under the
+table and from the right-click menu.
+
+The tab also carries the panel's **«Переход по координатам»**, the block «Главная» lost
+in #1183, because this is the tab whose work is coordinates: a tile read off the wire, a
+tile a member named in chat, the tile the last jump went to. It jumps through the very
+same `rt.game.jump` the table's links use, and remembers where it has been per profile.
+
 Kept Tk-thin: the two game round trips (scan, steal) and the share run on background
 threads and degrade gracefully — no daemon, no game, or a manager not loaded yet leaves
 the list empty and never crashes the tab.
@@ -42,8 +54,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from ...runtime import captures as capturemod
-from ...widgets import (NumericEntry, ScrollableFrame, numeric_spinbox,
-                        tk_stringvar, font as ui_font)
+from ...widgets import (NumericEntry, numeric_spinbox, tk_stringvar,
+                        font as ui_font)
 from ..base import PanelTab, TriggerSpec
 from .autoloot import AutoLoot
 from .capture import Capture
@@ -58,6 +70,25 @@ READY_GLYPH = "✅"
 # The amber the countdown is drawn in, and the green a ready row switches to.
 TIMER_COLOR = "#e0a84f"
 READY_COLOR = "#4fe08a"
+
+# The table's columns: (id, locale key of the heading, width in px, anchor, stretch).
+# The state column is the one that takes the slack — it carries the longest sentence
+# («готово к сбору · истекает через 1:02:03») and the one that varies most by language.
+COLUMNS = (
+    ("lvl", "secrettasks.col.level", 110, "w", False),
+    ("coords", "secrettasks.col.coords", 190, "w", False),
+    ("state", "secrettasks.col.state", 260, "w", True),
+    ("slots", "secrettasks.col.slots", 80, "center", False),
+    ("uuid", "secrettasks.col.uuid", 110, "w", False),
+)
+
+# The one column a click walks to the tile (task #1209). Named rather than indexed, so
+# re-ordering COLUMNS cannot silently make «Слоты» the link.
+LINK_COLUMN = "coords"
+
+# How many jumps the «куда ходил» list remembers. One account's tiles are not another's,
+# so it belongs to the profile like every other setting here.
+JUMP_HISTORY_MAX = 20
 
 # How often the ready-row poll re-reads the game once a tile is raidable. Slow on
 # purpose — a raidable tile lives for minutes, and this is the list's own safety net,
@@ -96,6 +127,9 @@ class SecretTasksTab(PanelTab):
         "filter_level_from", "filter_level_to",
         "autoloot", "autoloot_level_from", "autoloot_level_to",
         "map_sweep", "sweep_centre_x", "sweep_centre_y")}
+    # `autoloot_skip_own_server` and the four `coord_*` keys are NOT here on purpose:
+    # they are new to this tab (#1209) and were never spelled flat on the profile, so
+    # there is no old spelling to keep in step with.
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -117,9 +151,17 @@ class SecretTasksTab(PanelTab):
         self._polling = False
         # Cached (server, allianceId) for the chat room ids — read once, live.
         self._ids = None
+        # The player's OWN server, cached the same way: what «не грабить на своём
+        # сервере» compares a tile against. 0 = not read yet / unreadable.
+        self._own_server = 0
         self._status_var = tk_stringvar(master)
-        self._scroll = None
         self._combo = None
+        # -- the table ------------------------------------------------------
+        self._tree = None
+        self._body = None
+        self._empty = None
+        self._sort = None            # (column id, reversed) once a heading is clicked
+        self._collect_btn = self._share_btn = self._goto_btn = None
 
         # -- the controls the three orders read ------------------------------
         self.monitor_var = tk.BooleanVar(master=master, value=False)
@@ -132,11 +174,25 @@ class SecretTasksTab(PanelTab):
         self.autoloot_var = tk.BooleanVar(master=master, value=False)
         self.level_from_var = tk_stringvar(master)
         self.level_to_var = tk_stringvar(master)
+        # «Не грабить на своём сервере»: the robberies are the only thing it gates —
+        # a tile at home is still listed, still shareable and still collectable by hand.
+        self.skip_own_var = tk.BooleanVar(master=master, value=False)
         self.sweep_var = tk.BooleanVar(master=master, value=False)
         self.sweep_cx_var = tk.StringVar(master=master)
         self.sweep_cy_var = tk.StringVar(master=master)
         self._sweep_hint = None
         self._rule_lbl = None
+
+        # -- «Переход по координатам» ----------------------------------------
+        # The server box may be left empty on purpose: a blank one jumps on whatever
+        # server the client is looking at, which is what the removed block did through
+        # `_jump`'s own fallback. «↻ сервер» fills it in when the number is wanted.
+        self.coord_x_var = tk.StringVar(master=master)
+        self.coord_y_var = tk.StringVar(master=master)
+        self.coord_srv_var = tk.StringVar(master=master)
+        self._jump_hist: list = []
+        self._jump_hist_var = tk_stringvar(master)
+        self._jump_hist_combo = None
 
         self.capture = Capture(rt, self)
         self.autoloot = AutoLoot(rt, self)
@@ -192,6 +248,11 @@ class SecretTasksTab(PanelTab):
         self.capture.stop()
         self.autoloot.stop()
         self.sweep.stop()
+        # Another account is another server and another alliance: both cached readings
+        # would otherwise answer for the profile that has just been left — and the own
+        # server is what the robbery prohibition is judged against.
+        self._ids = None
+        self._own_server = 0
         self._refresh_rule_hints()
         if self.monitor_var.get():
             self.capture.start()
@@ -202,7 +263,11 @@ class SecretTasksTab(PanelTab):
 
     def on_language_change(self) -> None:
         self._retranslate_combo()
+        self._retranslate_headings()
         self._refresh_rule_hints()
+        # The rows themselves carry words too («⭐×7», «готово через …»), and a heading
+        # is only half the table.
+        self._render()
 
     def panic(self) -> None:
         """«Стоп всё»: every standing order down, and the boxes say so."""
@@ -235,9 +300,14 @@ class SecretTasksTab(PanelTab):
             "autoloot": bool(self.autoloot_var.get()),
             "autoloot_level_from": self.level_from_var.get(),
             "autoloot_level_to": self.level_to_var.get(),
+            "autoloot_skip_own_server": bool(self.skip_own_var.get()),
             "map_sweep": bool(self.sweep_var.get()),
             "sweep_centre_x": self.sweep_cx_var.get(),
             "sweep_centre_y": self.sweep_cy_var.get(),
+            "coord_x": self.coord_x_var.get(),
+            "coord_y": self.coord_y_var.get(),
+            "coord_server": self.coord_srv_var.get(),
+            "coord_history": list(self._jump_hist),
         }
 
     def apply_config(self, raw) -> None:
@@ -263,16 +333,24 @@ class SecretTasksTab(PanelTab):
         self.level_to_var.set(raw.get("autoloot_level_to",
                                       raw.get("filter_level_to", "")))
         self.autoloot_var.set(bool(raw.get("autoloot", False)))
+        # Off by default: robbing the whole map is what the tab has always done, and a
+        # prohibition nobody asked for would be a silent behaviour change.
+        self.skip_own_var.set(bool(raw.get("autoloot_skip_own_server", False)))
         self.sweep_var.set(bool(raw.get("map_sweep", False)))
         self.sweep_cx_var.set(raw.get("sweep_centre_x", ""))
         self.sweep_cy_var.set(raw.get("sweep_centre_y", ""))
+        self.coord_x_var.set(str(raw.get("coord_x", "")))
+        self.coord_y_var.set(str(raw.get("coord_y", "")))
+        self.coord_srv_var.set(str(raw.get("coord_server", "")))
+        self._set_jump_history(raw.get("coord_history"))
         self._refresh_rule_hints()
 
     def persist_vars(self) -> list:
         return [self.monitor_var, self.interval_var, self.star_var, self.pending_var,
                 self.can_loot_var, self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_from_var, self.level_to_var,
-                self.sweep_var, self.sweep_cx_var, self.sweep_cy_var]
+                self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
+                self.coord_x_var, self.coord_y_var, self.coord_srv_var]
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
@@ -287,6 +365,7 @@ class SecretTasksTab(PanelTab):
         ttk.Label(bar, textvariable=self._status_var, foreground="#888").pack(
             side="right", padx=8)
 
+        self._build_coord_bar()
         self._build_monitor_bar()
         self._build_filter_bar()
 
@@ -294,9 +373,38 @@ class SecretTasksTab(PanelTab):
                           justify="left"), "secrettasks.hint").pack(
             anchor="w", padx=10, pady=(0, 6))
 
-        self._scroll = ScrollableFrame(self.parent)
-        self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._build_table()
         self._refresh_rule_hints()
+
+    # -- «Переход по координатам» ---------------------------------------------
+    def _build_coord_bar(self) -> None:
+        """The jump block «Главная» lost in #1183, on the tab that lives on coordinates.
+
+        Same three boxes, same «Перейти», same «↻ сервер» and the same per-profile «куда
+        ходил» list — and the same `rt.game.jump` underneath, which is what the table's
+        coordinate links and a scenario's `JUMP` also walk through.
+        """
+        box = self.tr(ttk.LabelFrame(self.parent, padding=6), "coord.frame")
+        box.pack(fill="x", padx=10, pady=(0, 4))
+        self.tr(ttk.Label(box), "coord.x").pack(side="left")
+        NumericEntry(box, textvariable=self.coord_x_var, width=7,
+                     signed=True).pack(side="left", padx=(2, 8))
+        self.tr(ttk.Label(box), "coord.y").pack(side="left")
+        NumericEntry(box, textvariable=self.coord_y_var, width=7,
+                     signed=True).pack(side="left", padx=(2, 8))
+        self.tr(ttk.Label(box), "coord.server").pack(side="left")
+        NumericEntry(box, textvariable=self.coord_srv_var,
+                     width=7).pack(side="left", padx=(2, 8))
+        self.tr(ttk.Button(box, command=self._goto_coord),
+                "coord.jump").pack(side="left", padx=4, ipady=2)
+        self.tr(ttk.Button(box, command=self._load_current_server),
+                "coord.reload_server").pack(side="left", padx=4)
+        self._jump_hist_combo = ttk.Combobox(box, textvariable=self._jump_hist_var,
+                                             state="readonly", width=18, values=[])
+        self._jump_hist_combo.pack(side="right", padx=(4, 0))
+        self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
+        self.tr(ttk.Label(box), "coord.history").pack(side="right", padx=(8, 2))
+        self._set_jump_history(self._jump_hist)
 
     def _build_monitor_bar(self) -> None:
         """The capture block: which capture, how often, what reaches the log — and the
@@ -356,13 +464,19 @@ class SecretTasksTab(PanelTab):
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
     def _build_filter_bar(self) -> None:
-        """The level range and «Автолут ★» — the rule the robberies obey.
+        """The level range, «Автолут ★» and the own-server prohibition — the rule the
+        robberies obey.
 
         The same range doubles as the list's display filter (:meth:`_in_range`), so the
-        operator sees exactly the tiles the standing order is about to weigh.
+        operator sees exactly the tiles the standing order is about to weigh. «Не грабить
+        на своём сервере» is in THIS frame rather than beside the display filters on
+        purpose: it gates the robberies and nothing else, and a box that hid tiles would
+        be a different feature wearing the same words.
         """
-        bar = self.tr(ttk.LabelFrame(self.parent, padding=6), "secret.autoloot.frame")
-        bar.pack(fill="x", padx=10, pady=(0, 4))
+        frame = self.tr(ttk.LabelFrame(self.parent, padding=6), "secret.autoloot.frame")
+        frame.pack(fill="x", padx=10, pady=(0, 4))
+        bar = ttk.Frame(frame)
+        bar.pack(fill="x")
         self.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
                                 command=self.autoloot.toggle),
                 "secret.autoloot").pack(side="left")
@@ -371,9 +485,12 @@ class SecretTasksTab(PanelTab):
         NumericEntry(bar, textvariable=self.level_from_var, width=4).pack(side="left")
         self.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
         NumericEntry(bar, textvariable=self.level_to_var, width=4).pack(side="left")
-        self._rule_lbl = ttk.Label(bar, foreground="#888", wraplength=380,
+        self.tr(ttk.Checkbutton(bar, variable=self.skip_own_var,
+                                command=self._on_skip_own_change),
+                "secret.autoloot.skip_own").pack(side="left", padx=(16, 0))
+        self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=760,
                                    justify="left")
-        self._rule_lbl.pack(side="left", padx=(10, 0))
+        self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
         # Typing the range re-filters the shown list (cached — no game round trip), keeps
         # the rule line true, and bounces the event-driven listener onto the new bounds.
         for var in (self.level_from_var, self.level_to_var):
@@ -384,6 +501,242 @@ class SecretTasksTab(PanelTab):
         # effect on the next launch: bounce a running one rather than waiting for a
         # manual toggle.
         self.interval_var.trace_add("write", lambda *_a: self._on_interval_change())
+
+    # -- the table -------------------------------------------------------------
+    def _build_table(self) -> None:
+        """The found secret tasks as a real table: fixed header, sortable, one row deep.
+
+        A `ttk.Treeview` rather than a stack of frames (#1209). The rows used to be packed
+        by hand, each label carrying its own width, so nothing lined up under anything and
+        a long countdown pushed its neighbours off the row. Here the widths belong to the
+        columns, the header stays put while the list scrolls, and a heading sorts.
+
+        What a Treeview cannot hold is a widget, so the two row actions live under it and
+        act on the selection — plus the right-click menu, and the coordinate link.
+        """
+        # The action strip is packed FIRST, against the bottom: pack clips whatever was
+        # packed last when the window is short, and the buttons are the one thing on the
+        # tab that must never be the part that falls off the edge.
+        acts = ttk.Frame(self.parent)
+        acts.pack(side="bottom", fill="x", padx=10, pady=(4, 10))
+        wrap = ttk.Frame(self.parent)
+        wrap.pack(fill="both", expand=True, padx=10, pady=(0, 0))
+        self._empty = self.tr(ttk.Label(wrap, foreground="#888"), "secrettasks.empty")
+        self._body = ttk.Frame(wrap)
+        self._body.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(self._body, columns=[c[0] for c in COLUMNS],
+                            show="headings", selectmode="browse")
+        bar = ttk.Scrollbar(self._body, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        tree.pack(side="left", fill="both", expand=True)
+        for col, _key, width, anchor, stretch in COLUMNS:
+            tree.column(col, width=width, anchor=anchor, stretch=stretch)
+        # A ready tile is green and a counting-down one amber, exactly as the packed rows
+        # were — the colour is the fastest read on the tab.
+        tree.tag_configure("ready", foreground=READY_COLOR)
+        tree.tag_configure("waiting", foreground=TIMER_COLOR)
+        tree.bind("<Button-1>", self._on_click)
+        tree.bind("<Double-Button-1>", self._on_double_click)
+        tree.bind("<Button-3>", self._on_right_click)
+        tree.bind("<Motion>", self._on_motion)
+        tree.bind("<<TreeviewSelect>>", lambda _e: self._sync_actions())
+        self._tree = tree
+        self._retranslate_headings()
+
+        self._goto_btn = self.tr(ttk.Button(acts, width=12, command=self._goto_selected),
+                                 "secrettasks.goto")
+        self._goto_btn.pack(side="left")
+        self.tr(ttk.Label(acts, foreground="#888"), "secrettasks.click_hint").pack(
+            side="left", padx=10)
+        self._share_btn = ttk.Button(acts, width=12)
+        self._share_btn.configure(command=lambda: self._open_share_menu(
+            self._share_btn, self._selected()))
+        self.tr(self._share_btn, "secrettasks.share").pack(side="right", padx=(6, 0))
+        self._collect_btn = self.tr(ttk.Button(acts, width=12,
+                                               command=self._collect_selected),
+                                    "secrettasks.collect")
+        self._collect_btn.pack(side="right")
+        self._sync_actions()
+
+    def _retranslate_headings(self) -> None:
+        """(Re)write the column headings and re-arm their sort commands."""
+        if self._tree is None:
+            return
+        for col, key, _w, _a, _s in COLUMNS:
+            try:
+                self._tree.heading(col, text=self.t(key),
+                                   command=lambda c=col: self._sort_by(c))
+            except tk.TclError:
+                return
+
+    def _sort_by(self, column: str) -> None:
+        """A heading was clicked: sort by it, and flip the direction on a second click."""
+        if self._sort and self._sort[0] == column:
+            self._sort = (column, not self._sort[1])
+        else:
+            self._sort = (column, False)
+        self._render()
+
+    #: How each column orders. `state` sorts by "how soon this row wants attention" —
+    #: the ready ones first, then the shortest countdown — which is what the eye is
+    #: after, rather than the alphabet of a translated sentence.
+    SORT_KEYS = {
+        "lvl": lambda r: int(r["level"] or 0),
+        "coords": lambda r: (int(r["server"] or 0), int(r["x"] or 0), int(r["y"] or 0)),
+        "state": lambda r: (0 if r.get("ready") else 1,
+                            (r["expires_at"] if r.get("ready")
+                             else r["completed_at"]) or 0),
+        "slots": lambda r: int(r["loot_count"] or 0),
+        "uuid": lambda r: str(r["uuid"]),
+    }
+
+    def _sorted_rows(self, rows) -> list:
+        """The rows in the order the table shows them.
+
+        Untouched headings keep the order auto-loot prizes them in — the highest star
+        first, and within a level the tile that expires soonest — so the tab opens on the
+        best raid without anybody having to ask for it.
+        """
+        if self._sort is None:
+            return sorted(rows, key=lambda r: (-int(r["level"] or 0),
+                                               r["expires_at"] or float("inf")))
+        column, backwards = self._sort
+        key = self.SORT_KEYS.get(column)
+        if key is None:
+            return list(rows)
+        return sorted(rows, key=key, reverse=backwards)
+
+    def _row_values(self, row) -> tuple:
+        """One row as the five cells of the table."""
+        import coords as coords_fmt
+        ready = bool(row.get("ready"))
+        return ("%s %s" % (READY_GLYPH if ready else TYPE_GLYPH,
+                           self.t("secrettasks.stars", n=int(row["level"] or 0))),
+                coords_fmt.fmt(row["x"], row["y"], row["server"]),
+                row["timer"].get(),
+                self.t("secrettasks.slots", n=int(row["loot_count"] or 0)),
+                self._short_uuid(row["uuid"]))
+
+    def _show_empty(self, empty: bool) -> None:
+        """Say «нет звёздных секреток» above the table, or take the line away."""
+        if self._empty is None:
+            return
+        try:
+            if empty:
+                self._empty.pack(before=self._body, anchor="w", pady=(0, 4))
+            else:
+                self._empty.pack_forget()
+        except tk.TclError:
+            pass
+
+    # -- what a click on the table does ----------------------------------------
+    def _column_at(self, event) -> str:
+        """Which column the pointer is over, "" when it is not over a cell."""
+        tree = self._tree
+        if tree is None or tree.identify("region", event.x, event.y) != "cell":
+            return ""
+        col = tree.identify_column(event.x)          # "#1" … "#5"
+        try:
+            return COLUMNS[int(col[1:]) - 1][0]
+        except (ValueError, IndexError):
+            return ""
+
+    def _row_at(self, event):
+        return self._rows.get(self._tree.identify_row(event.y)) if self._tree else None
+
+    def _on_click(self, event) -> None:
+        """A coordinate is a place you can go: clicking one walks the camera there.
+
+        Not bound with a `break` — the click still selects the row, so the strip's
+        buttons are aimed at the tile that was just jumped to.
+        """
+        if self._column_at(event) != LINK_COLUMN:
+            return
+        row = self._row_at(event)
+        if row is not None:
+            self._jump_to_row(row)
+
+    def _on_motion(self, event) -> None:
+        """The link cursor over the coordinate column, the ordinary one everywhere else."""
+        try:
+            self._tree.configure(
+                cursor="hand2" if self._column_at(event) == LINK_COLUMN else "")
+        except tk.TclError:
+            pass
+
+    def _on_double_click(self, event) -> None:
+        """Double-click a ready row to rob it — the one-press collect the rows had."""
+        row = self._row_at(event)
+        if row is not None and row.get("ready"):
+            self._collect(row)
+
+    def _on_right_click(self, event) -> None:
+        """The row's own menu, under the pointer: jump, collect, share."""
+        tree = self._tree
+        iid = tree.identify_row(event.y) if tree is not None else ""
+        row = self._rows.get(iid)
+        if row is None:
+            return
+        tree.selection_set(iid)
+        menu = tk.Menu(self.rt.root, tearoff=0)
+        menu.add_command(label=self.t("secrettasks.goto"),
+                         command=lambda: self._jump_to_row(row))
+        if row.get("ready"):
+            menu.add_command(label=self.t("secrettasks.collect"),
+                             command=lambda: self._collect(row))
+        menu.add_separator()
+        menu.add_command(label=self.t("secrettasks.share_alliance"),
+                         command=lambda: self._share(row, SHARE_ALLIANCE))
+        menu.add_command(label=self.t("secrettasks.share_world"),
+                         command=lambda: self._share(row, SHARE_WORLD))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _selected(self):
+        """The row the table's selection is on, or None."""
+        tree = self._tree
+        if tree is None:
+            return None
+        picked = tree.selection()
+        return self._rows.get(picked[0]) if picked else None
+
+    def _sync_actions(self) -> None:
+        """Enable each button of the strip only where it means something.
+
+        «Собрать» on a tile still counting down is a robbery the server would refuse, so
+        the button says so by being unavailable rather than by failing afterwards.
+        """
+        row = self._selected()
+        for widget, live in ((self._goto_btn, row is not None),
+                             (self._share_btn, row is not None),
+                             (self._collect_btn, bool(row and row.get("ready")))):
+            if widget is None:
+                continue
+            try:
+                widget.state(("!disabled",) if live else ("disabled",))
+            except tk.TclError:
+                pass
+
+    def _collect_selected(self) -> None:
+        row = self._selected()
+        if row is not None and row.get("ready"):
+            self._collect(row)
+
+    def _goto_selected(self) -> None:
+        row = self._selected()
+        if row is not None:
+            self._jump_to_row(row)
+
+    def _jump_to_row(self, row) -> None:
+        """Walk the camera to one row's tile, and say where it went."""
+        import coords as coords_fmt
+        x, y, srv = int(row["x"] or 0), int(row["y"] or 0), row["server"] or None
+        self.say("secret", "log.coord.clicked", where=coords_fmt.fmt(x, y, srv))
+        self._jump(x, y, srv)
 
     def _retranslate_combo(self) -> None:
         if self._combo is None:
@@ -403,6 +756,107 @@ class SecretTasksTab(PanelTab):
     def _on_interval_change(self) -> None:
         if not self.rt.settings.loading and self.capture.running:
             self.capture.restart()
+
+    def _on_skip_own_change(self) -> None:
+        """«Не грабить на своём сервере» was ticked or cleared.
+
+        The poll re-reads the box every tick, but the push listener is a subprocess
+        started with a fixed rule — without the bounce a box ticked while auto-loot is
+        running would go on robbing the neighbours it was ticked to protect.
+        """
+        self._refresh_rule_hints()
+        self.autoloot.range_changed()
+
+    # -- jumping ---------------------------------------------------------------
+    def _jump(self, x: int, y: int, server) -> None:
+        """The one way this tab walks the camera anywhere. Remembers where it went.
+
+        ``server`` may be None — the runtime then jumps on whatever server the client is
+        currently looking at, which is what an empty «Сервер» box means.
+        """
+        if self.rt.game.jump(x, y, server):
+            self._remember_jump(x, y, server)
+
+    def _goto_coord(self) -> None:
+        """«Перейти»: the three boxes, validated, then the same jump as everything else."""
+        x, y = self.coord_x_var.get().strip(), self.coord_y_var.get().strip()
+        if not (x.lstrip("-").isdigit() and y.lstrip("-").isdigit()):
+            self.say("coord", "log.coord.bad_xy")
+            return
+        srv = self.coord_srv_var.get().strip()
+        self._jump(int(x), int(y), int(srv) if srv.isdigit() else None)
+
+    def _load_current_server(self) -> None:
+        """«↻ сервер»: fill the box with the server the client is looking at.
+
+        Off the Tk thread — it is a game round trip — and only ever pressed, never run at
+        boot: the block it belonged to cost the panel a read at every start-up (#1183).
+        """
+        def work() -> None:
+            srv = self.rt.game.current_server()
+            self.after(lambda: (self.coord_srv_var.set(str(srv)),
+                                self.say("coord", "log.server.current", srv=srv)))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _remember_jump(self, x: int, y: int, server) -> None:
+        """Put a walked-to tile at the top of «куда ходил» (most recent first, capped).
+
+        Hopping between a handful of known tiles — the base, an alliance city, the star
+        somebody keeps robbing — is the routine use, and re-typing the triple was the
+        whole cost of it.
+        """
+        import coords as coords_fmt
+        token = coords_fmt.fmt(x, y, server)
+        history = [t for t in self._jump_hist if t != token]
+        history.insert(0, token)
+        self._set_jump_history(history[:JUMP_HISTORY_MAX])
+        self.rt.settings.changed()
+
+    def _set_jump_history(self, tokens) -> None:
+        """Replace the history and repaint the combobox (tolerant of junk in a profile)."""
+        self._jump_hist = [str(t) for t in (tokens or []) if str(t).strip()]
+        if self._jump_hist_combo is None:
+            return
+        try:
+            self._jump_hist_combo.configure(values=self._jump_hist)
+            self._jump_hist_var.set("")
+        except tk.TclError:
+            pass
+
+    def _on_jump_history(self, _event=None) -> None:
+        """A remembered tile was picked: fill the three boxes and go there."""
+        import coords as coords_fmt
+        hits = coords_fmt.parse(self._jump_hist_var.get())
+        self._jump_hist_var.set("")
+        if not hits:
+            return
+        _s, _e, x, y, srv = hits[0]
+        self.coord_x_var.set(str(x))
+        self.coord_y_var.set(str(y))
+        self.coord_srv_var.set(str(srv) if srv else "")
+        self._jump(x, y, srv)
+
+    # -- who I am --------------------------------------------------------------
+    def own_server(self) -> int:
+        """The PLAYER's own server id, cached for the session (0 when unreadable).
+
+        Not the server on screen: an auto-loot run walks the camera into other servers all
+        day, so `curServerId` would answer "wherever I am looking". This is the account's
+        own one — what «не грабить на своём сервере» compares a tile against — and it
+        comes from the same `ChatInterface` read the chat rooms are built from.
+
+        Called from the auto-loot thread, so it must never raise: an unreadable answer is
+        0, and the standing order treats that as "do not rob" rather than "rob anything".
+        """
+        if self._own_server:
+            return self._own_server
+        try:
+            srv, _aid = self._self_ids(self.rt.game.client)
+            self._own_server = int(srv or 0)
+        except Exception:                     # noqa: BLE001 — no daemon, no game, no id
+            self._own_server = 0
+        return self._own_server
 
     def _refresh_rule_hints(self) -> None:
         """Re-render the two "this is what the checkbox will do" lines.
@@ -424,7 +878,7 @@ class SecretTasksTab(PanelTab):
         keep the rule line true, and re-aim the listener."""
         self._refresh_rule_hints()
         self.autoloot.range_changed()
-        if self._scroll is None:
+        if self._tree is None:
             return
         self._render()
         self._update_status()
@@ -509,7 +963,11 @@ class SecretTasksTab(PanelTab):
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
                 "level": t.level, "cfg_id": t.cfg_id, "loot_count": t.loot_count,
                 "expires_at": t.expires_at, "completed_at": t.completed_at,
-                "timer": tk_stringvar(self.rt.root), "frame": None, "ready": False,
+                # The countdown is still written into a variable of its own rather than
+                # straight into the cell: it is what `_refresh_timers` decides, and the
+                # table then paints it. A tile off screen (out of the level range) keeps
+                # counting all the same.
+                "timer": tk_stringvar(self.rt.root), "ready": False,
             }
         self._render()
         # An empty list after a clean read is "no starred tile right now", not "no game" —
@@ -520,27 +978,49 @@ class SecretTasksTab(PanelTab):
 
     # -- drawing ---------------------------------------------------------------
     def _render(self) -> None:
-        """Rebuild the scroll from the current rows, the best raids on top.
+        """Rebuild the table from the current rows, in the order the headings ask for.
 
-        Sorted the way auto-loot prizes them: the highest star first, and within a level
-        the tile that expires soonest. Called on a merge / collect / clear, NOT every
-        second — the countdown is a StringVar the tick writes in place.
+        Called on a merge / collect / clear / sort, NOT every second — the countdown is
+        written cell by cell by :meth:`_paint_timers`, which costs nothing next to
+        emptying and refilling the table.
         """
-        if self._scroll is None:
+        tree = self._tree
+        if tree is None:
             return
-        for child in self._scroll.winfo_children():
-            child.destroy()
-        rows = self._visible_rows()
-        if not rows:
-            self.tr(ttk.Label(self._scroll, foreground="#888"),
-                    "secrettasks.empty").grid(row=0, column=0, sticky="w", pady=6)
-            return
-        rows = sorted(rows, key=lambda r: (-int(r["level"] or 0),
-                                           r["expires_at"] or float("inf")))
-        for r in rows:
-            r["frame"] = self._row_widget(r)
-            r["frame"].pack(fill="x", pady=1)
+        # A tile merged a moment ago has no countdown written yet, and a cell is drawn
+        # once — unlike the old labels, which followed their variable. So the clocks are
+        # brought up to date first and the row is drawn with the state it really is in.
         self._refresh_timers()
+        # The selection is what the strip's buttons are aimed at; a repaint every time a
+        # tile matures must not take it away from under the operator's hand.
+        chosen = set(tree.selection())
+        for iid in tree.get_children(""):
+            tree.delete(iid)
+        rows = self._sorted_rows(self._visible_rows())
+        for row in rows:
+            tree.insert("", "end", iid=str(row["uuid"]), values=self._row_values(row),
+                        tags=("ready",) if row.get("ready") else ("waiting",))
+        back = [iid for iid in chosen if tree.exists(iid)]
+        if back:
+            tree.selection_set(back)
+        self._show_empty(not rows)
+        self._sync_actions()
+
+    def _paint_timers(self) -> None:
+        """Write each row's countdown into its cell — the per-second half of the drawing.
+
+        Only the state cell changes as a second passes; the ready-transition is what asks
+        for a full :meth:`_render`, because it re-colours the row and re-sorts it.
+        """
+        tree = self._tree
+        if tree is None:
+            return
+        for key, row in self._rows.items():
+            try:
+                if tree.exists(key):
+                    tree.set(key, "state", row["timer"].get())
+            except tk.TclError:
+                return
 
     def _in_range(self, level) -> bool:
         """Whether `level` falls inside the «уровень от / до» range (either end open).
@@ -562,40 +1042,6 @@ class SecretTasksTab(PanelTab):
     def _update_status(self) -> None:
         n = len(self._visible_rows())
         self._status_var.set(self.t("secrettasks.count", n=n) if n else "")
-
-    # The row is packed left-to-right: icon, stars, coords, countdown, uuid, then the
-    # action buttons on the right. Built one row at a time (not a shared grid) so a
-    # collect can drop a single row without re-flowing the columns of the rest. A ready
-    # tile is drawn green with the ✅ glyph and grows its «Собрать» button; one still
-    # counting down shows only «Поделиться», since collecting it early is a robbery the
-    # server would refuse.
-    def _row_widget(self, row):
-        import coords as coords_fmt
-        ready = bool(row.get("ready"))
-        frame = ttk.Frame(self._scroll)
-        ttk.Label(frame, text=READY_GLYPH if ready else TYPE_GLYPH,
-                  font=ui_font(size=15)).pack(side="left", padx=(0, 6))
-        stars = ttk.Label(frame, text=self.t("secrettasks.stars",
-                                             n=int(row["level"] or 0)),
-                          font=ui_font(weight="bold"), width=52)
-        if ready:
-            stars.configure(foreground=READY_COLOR)
-        stars.pack(side="left", padx=(0, 8))
-        ttk.Label(frame, text=coords_fmt.fmt(row["x"], row["y"], row["server"]),
-                  width=110).pack(side="left", padx=(0, 8))
-        ttk.Label(frame, textvariable=row["timer"],
-                  foreground=READY_COLOR if ready else TIMER_COLOR,
-                  width=150, anchor="w").pack(side="left", padx=(0, 8))
-        ttk.Label(frame, text=self._short_uuid(row["uuid"]), foreground="#888").pack(
-            side="left", padx=(0, 8))
-        share = ttk.Button(frame, width=12)
-        share.configure(command=lambda b=share, r=row: self._open_share_menu(b, r))
-        self.tr(share, "secrettasks.share").pack(side="right", padx=(4, 0))
-        if ready:
-            self.tr(ttk.Button(frame, width=12,
-                               command=lambda r=row: self._collect(r)),
-                    "secrettasks.collect").pack(side="right")
-        return frame
 
     @staticmethod
     def _short_uuid(uuid) -> str:
@@ -624,6 +1070,8 @@ class SecretTasksTab(PanelTab):
             if expired or changed:
                 self._render()
                 self._update_status()
+            else:
+                self._paint_timers()
             self._maybe_start_poll()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
@@ -785,6 +1233,8 @@ class SecretTasksTab(PanelTab):
 
     def _open_share_menu(self, button, row) -> None:
         """Pop the «alliance / world» choice under the «Поделиться» button."""
+        if row is None:                       # the button is disabled, but never trust it
+            return
         menu = tk.Menu(self.rt.root, tearoff=0)
         menu.add_command(label=self.t("secrettasks.share_alliance"),
                          command=lambda: self._share(row, SHARE_ALLIANCE))
