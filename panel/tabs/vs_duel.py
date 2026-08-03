@@ -512,6 +512,9 @@ class VsDuelTab(PanelTab):
         #: from configuring a style to the width it already has, and so from a
         #: <Configure> that feeds itself.
         self._wrap_at: dict = {}
+        #: The day frames with a re-wrap already queued for idle time — what turns a
+        #: burst of <Configure> into one pass. See :meth:`_rewrap_soon`.
+        self._rewrap_due: dict = {}
         #: "<day>.<action>.<choice>" -> (combobox, the choice) — what a language change
         #: has to re-fill, since a combobox's list is not a widget option `tr` can set.
         self._combos: dict = {}
@@ -592,7 +595,7 @@ class VsDuelTab(PanelTab):
             self._build_day_switch(box, day)
             self._build_day_set(box, day)
             self._build_items(box, day, items, day_box=box)
-            box.bind("<Configure>", lambda _e, b=box: self._rewrap(b))
+            box.bind("<Configure>", lambda _e, b=box: self._rewrap_soon(b))
         self._refresh_set_lists()
         self._load_all_days()
         self._retranslate_choices()
@@ -921,12 +924,29 @@ class VsDuelTab(PanelTab):
             widget.configure(style=style)
         self._wrapped.setdefault(day_box, []).append((widget, indent, style))
 
+    def _rewrap_soon(self, day_box) -> None:
+        """Re-wrap ``day_box`` once the layout has stopped moving.
+
+        The first time the page is built the six frames go through several widths each
+        before they settle, and a wrap done on every one of them re-lays the whole page
+        out again — for a second or two the tab shows half-drawn lines over the
+        half-drawn lines under them. Coalescing the whole storm into one idle-time pass
+        makes the first paint the only one anybody sees.
+        """
+        if self._rewrap_due.get(day_box):
+            return
+        try:
+            self._rewrap_due[day_box] = day_box.after_idle(self._rewrap, day_box)
+        except tk.TclError:                 # the page went away mid-layout
+            pass
+
     def _rewrap(self, day_box) -> None:
         """The day's column changed width — re-wrap the text in it.
 
         Nothing is re-set to the value it already has: a wrap re-lays the frame out,
         which fires <Configure> again, and an unguarded handler would do that for ever.
         """
+        self._rewrap_due.pop(day_box, None)
         try:
             width = day_box.winfo_width()
         except tk.TclError:

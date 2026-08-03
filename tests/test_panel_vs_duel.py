@@ -887,6 +887,43 @@ def test_the_text_wraps_to_the_column_it_is_drawn_in():
         root.destroy()
 
 
+def test_a_storm_of_resizes_is_one_re_wrap():
+    """Building the page walks each frame through several widths, and wrapping on every
+    one of them re-lays the whole page out again — which is a second of half-drawn lines
+    over half-drawn lines. The burst has to collapse into a single idle-time pass."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        box = list(tab._wrapped)[0]
+        passes = []
+        real = tab._rewrap
+        tab._rewrap = lambda b, _r=real: (passes.append(b), _r(b))[1]
+        for _ in range(4):                  # let the build's own layout finish first
+            root.update()
+        passes.clear()
+
+        for _ in range(20):
+            tab._rewrap_soon(box)
+        assert passes == [], "a resize re-wrapped on the spot instead of at idle time"
+        assert len(tab._rewrap_due) == 1, "a pass queued per event, not per burst"
+
+        root.update()                                   # idle time arrives
+        mine = [b for b in passes if b is box]
+        assert len(mine) == 1, f"{len(mine)} passes for one burst of twenty resizes"
+        assert box not in tab._rewrap_due, "the queued pass was never cleared"
+
+        # And the next burst queues again — this is a coalescer, not a one-shot.
+        passes.clear()
+        tab._rewrap_soon(box)
+        root.update()
+        assert [b for b in passes if b is box] == [box]
+    finally:
+        root.destroy()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
