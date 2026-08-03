@@ -68,9 +68,31 @@ class SplashScreen(tk.Toplevel):
         except Exception:           # noqa: BLE001 — window may already be gone
             pass
 
+    def say(self, text: str) -> None:
+        """Show ``text`` WITHOUT pumping the event loop. For a running commentary.
+
+        `step()` renders with `update()`, which drains the whole application's event
+        queue — every pending click, every `after` due, every virtual event a notebook
+        queued when a page was added to it. That is right between the boot's PHASES and
+        very wrong DURING one: the panel calls this per tab while a profile's page is
+        half-built, and a re-entrant `<<NotebookTabChanged>>` in the middle of that used
+        to flip which profile the shell was acting for — after which the rest of the
+        page's widgets were recorded against the OTHER profile, and both pages came up
+        wrong (#1208). Idle tasks are enough to repaint a label.
+        """
+        try:
+            self._step_lbl.configure(text=text)
+            self.update_idletasks()
+        except Exception:           # noqa: BLE001 — the splash is never load-bearing
+            pass
+
     def step(self, text: str, progress: float | None = None) -> None:
         """Show ``text`` as the current step and, if given, tween the bar to
-        ``progress`` (0..1) smoothly."""
+        ``progress`` (0..1) smoothly.
+
+        Pumps the event loop (`_render`). Call it between phases; use :meth:`say` for
+        anything reported from inside one.
+        """
         try:
             self._step_lbl.configure(text=text)
         except Exception:           # noqa: BLE001

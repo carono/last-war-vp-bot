@@ -637,6 +637,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
             return
         self._current_session = session
         self._profile_var.set(session.name)
+        # EVERY PAGE GETS ITS OWN SASH, not just the first. `_restore_geometry` places
+        # it once, for the window, out of whichever profile was in front at boot — so
+        # the log pane of every other open profile sat wherever the pane happened to
+        # leave it, and the position the operator dragged there was remembered and
+        # never applied. It is a per-profile setting; this is where a page finds out
+        # its own.
+        try:
+            if getattr(session, "page", None) is not None:
+                session.page.update_idletasks()
+                self._apply_sash(self._saved_sash())
+        except (tk.TclError, RuntimeError):
+            pass
         try:
             self.title(self._t("app.title"))
             self._build_menu()
@@ -732,12 +744,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except tk.TclError:                    # the window is going away
             return
         # While the window is still hidden the strip is behind a splash, and the same
-        # sentence is what the splash has room for: no progress, so no tween — one
-        # redraw, and the boot's «интерфейс» phase names the tab it is on.
+        # sentence is what the splash has room for — so the boot's «интерфейс» phase
+        # names the tab it is on. `say`, NEVER `step`: this is reported from INSIDE a
+        # page build, and `step` pumps the whole event queue (see panel/splash.py).
         splash = getattr(self, "_splash", None)
         if splash is not None:
             try:
-                splash.step(said)
+                splash.say(said)
             except Exception:                  # noqa: BLE001 — never load-bearing
                 self._splash = None
 
@@ -800,6 +813,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
         `staged` the method returns long before that, and what follows an open profile —
         its start-up thread — must not begin against half a page.
         """
+        # PINNED TO THE SESSION BEING BUILT, not to the one on screen. Every routed
+        # name this writes — `_log`, `_main_nb`, `_status_var`, the lot — goes to
+        # whichever session `_session()` answers, and until this that was
+        # `_current_session`: a global that ANY re-entrant callback can move. One does
+        # get in, too. Building a page adds pages to a notebook, and a notebook queues
+        # `<<NotebookTabChanged>>`; anything that pumps the event loop mid-build (a
+        # splash rendering itself, an `update()`) delivers it, `_on_session_tab_changed`
+        # calls `_show`, and from that line on the rest of THIS page is recorded against
+        # the OTHER profile. Which is exactly what a person sees as «открываю первый
+        # профиль — чистая страница». The binding is thread-local and takes precedence,
+        # so the build cannot be stolen from itself.
+        with self._on(session):
+            self._draw_session_page(session, staged, done)
+
+    def _draw_session_page(self, session, staged: bool, done) -> None:
+        """The page itself. Always under `_open_session_page`'s session binding."""
         page = ttk.Frame(self._outer)
         session.page = page
         self._outer.add(page, text=session.label())
@@ -1581,6 +1610,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # launch always started on the first row with an empty args box.
             "log_filter": self._log_filter_var.get(),
             "window_geometry": self._current_geometry(),
+            "window_zoomed": self._is_zoomed(),
             "log_sash": self._current_sash(),
             # The «Командный пункт» tab: the shared-mission robbery rule and the
             # treasure page's digging squad, a block per page.
@@ -3259,8 +3289,31 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._dbg.info("panel closing — profile %r", session.name)
 
     # -- window geometry, remembered per profile -----------------------------
-    def _current_geometry(self) -> str:
+    def _is_zoomed(self) -> bool:
+        """Is the window maximised right now?"""
         try:
+            return self.state() == "zoomed"
+        except tk.TclError:
+            return False
+
+    def _current_geometry(self) -> str:
+        """Where the window is — the size it has when it is NOT maximised.
+
+        `winfo_geometry` on a maximised window answers with the maximised rectangle,
+        and on Windows that is a little TALLER than the space a window may use: the
+        resize frame is invisible but counted. Restoring it as an ordinary window
+        therefore hangs the last twenty pixels of the panel under the taskbar, where
+        they cannot be seen — and the last thing on the panel is now the strip that
+        says what it is doing (#1208), so the whole feature disappeared for anybody
+        whose panel had been closed while maximised.
+
+        A maximised window keeps the geometry it had before it was maximised, and
+        `window_zoomed` remembers the state separately. Un-maximising then gives back a
+        window the right size instead of one exactly the size of the screen.
+        """
+        try:
+            if self._is_zoomed():
+                return str(self._settings.get("window_geometry") or "")
             return self.winfo_geometry()
         except tk.TclError:
             return ""
@@ -3288,12 +3341,27 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self.geometry(geom)
             except tk.TclError:
                 pass
+        # …and maximise it again if that is how it was left. The state, never the
+        # rectangle: the window manager knows how much room there actually is, and a
+        # remembered maximised rectangle does not (see `_current_geometry`).
+        if self._settings.get("window_zoomed"):
+            try:
+                self.state("zoomed")
+            except tk.TclError:
+                pass
         sash = self._settings.get("log_sash")
         try:
             sash = max(int(sash), 0)
         except (TypeError, ValueError):
             sash = 0
         self._later(200, lambda: self._apply_sash(sash))
+
+    def _saved_sash(self) -> int:
+        """Where this profile last left the log's sash (0 = «wherever the blocks end»)."""
+        try:
+            return max(int(self._settings.get("log_sash")), 0)
+        except (TypeError, ValueError):
+            return 0
 
     def _apply_sash(self, sash: int = 0) -> None:
         """Put the main tab's sash ``sash`` px from the top — or, with 0, where the
@@ -3387,7 +3455,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._resume_painting()
 
     def _window_handle(self) -> int:
-        if self._paint_hwnd is None:
+        # `getattr`, because the first page is SHOWN before the resize damper has been
+        # installed — and the damper is where these two were being initialised. Asking
+        # for a window handle that early used to be an AttributeError out of `_show`,
+        # which is inside `__init__`: the panel died on boot with nothing in the log
+        # (pythonw has no console to print the traceback to).
+        if getattr(self, "_paint_hwnd", None) is None:
             try:
                 self._paint_hwnd = int(self.wm_frame(), 16)
             except (tk.TclError, ValueError):

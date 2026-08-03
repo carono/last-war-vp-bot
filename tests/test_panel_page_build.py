@@ -64,8 +64,15 @@ class _Harness:
         # still holds open, and a log handler that outlives its session is a bug in the
         # session, not in this file — `test_panel_debug_log.py` is where that is pinned.
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        # BOTH of them, and the second one is the one that bites: `PROFILES_DIR` holds
+        # the profiles, but which of them a panel has OPEN is panel-wide state in
+        # `SETTINGS_FILE` beside them — and a workspace writes it on every open. Patch
+        # only the first and this test quietly tells the operator's own panel to come
+        # up on a profile that exists nowhere but in a temporary directory.
         self.saved_dir = profilemod.PROFILES_DIR
+        self.saved_settings = profilemod.SETTINGS_FILE
         profilemod.PROFILES_DIR = self.tmp.name
+        profilemod.SETTINGS_FILE = str(Path(self.tmp.name) / "settings.json")
 
         app = pm.Panel.__new__(pm.Panel)
         tk.Tk.__init__(app)
@@ -120,6 +127,7 @@ class _Harness:
         except Exception:                              # noqa: BLE001
             pass
         profilemod.PROFILES_DIR = self.saved_dir
+        profilemod.SETTINGS_FILE = self.saved_settings
         self.tmp.cleanup()
 
 
@@ -175,6 +183,27 @@ def _built(harness: "_Harness") -> None:
                 "the summary strip was built before the tab it belongs under"
 
 
+def test_building_a_page_leaves_the_machines_own_panel_alone() -> None:
+    """Opening a profile HERE must not tell the operator's panel to open it too.
+
+    Written after this file did exactly that: a workspace writes «which profiles are
+    open» to the panel-wide `settings.json` on every open, and patching only the
+    profiles DIRECTORY left that file pointing the real panel at a profile that existed
+    nowhere but in a temporary folder — which it would have come up on at the next
+    launch, alone, instead of the two the operator had.
+    """
+    from panel import profile as profilemod
+
+    path = Path(profilemod.SETTINGS_FILE)
+    before = path.read_text(encoding="utf-8") if path.exists() else None
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    harness.close()
+    after = path.read_text(encoding="utf-8") if path.exists() else None
+    assert after == before, "the machine's own panel state was rewritten"
+
+
 def test_a_page_built_in_one_go_is_whole() -> None:
     harness = _open(staged=False)
     if harness is None:
@@ -205,6 +234,184 @@ def test_a_staged_page_reaches_exactly_the_same_place() -> None:
         _built(harness)
     finally:
         harness.close()
+
+
+def test_a_page_cannot_be_stolen_by_a_profile_switch_halfway_through() -> None:
+    """A build writes to ITS OWN profile even if the shown one moves under it.
+
+    The live failure this is written from: the strip's own commentary was rendered on
+    the splash with `update()`, which drains the event queue — and a `<<NotebookTabChanged>>`
+    queued by adding a page arrived in the middle of building the next one. `_show`
+    ran, `_current_session` moved, and every widget the rest of the build made was
+    recorded against the wrong profile: one page came up blank and the other's tabs
+    did nothing. Both halves are pinned here — the pumping is gone (`splash.say`), and
+    a build binds its session so that even a re-entrant switch cannot take it.
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app, first = harness.app, harness.session
+        second = app._workspace.open("other")
+        second.rt.start_heartbeat = lambda: None
+        # Somebody switches to the FIRST profile in the middle of the second's build:
+        # `_show` is what a notebook's tab-changed handler calls, so call that.
+        # IN THE MIDDLE OF «Главная», before the line that decides which session the
+        # tab steps will be built under. Later than that and the staged build's own
+        # per-step binding already covers it, and the test would pass either way.
+        stolen: list = []
+
+        original = app._install_log_copy
+
+        def steal(widget) -> None:
+            stolen.append(True)
+            app._show(first)                      # …the page on screen is now the other
+            original(widget)
+
+        app._install_log_copy = steal
+        try:
+            app._open_session_page(second)
+        finally:
+            del app._install_log_copy
+        assert stolen, "the build never reached the log pane — the test proves nothing"
+        # Every routed name of the SECOND page must have landed on the second session.
+        for name in ("_log", "_main_nb", "_status_var", "_lazy_tabs", "_plugin_tabs"):
+            assert name in second.state, f"{name} was recorded against the wrong profile"
+        assert second.state["_log"] is not first.state["_log"], \
+            "the two pages share one log widget"
+        assert second.state["_plugin_tabs"], "the second page built no tabs at all"
+        # …and the first profile's page is untouched by any of it.
+        assert first.state["_main_nb"] is not second.state["_main_nb"]
+    finally:
+        harness.close()
+
+
+def test_a_maximised_window_is_remembered_as_maximised_not_as_a_rectangle() -> None:
+    """…because the last row of the panel is the strip, and it was falling off.
+
+    A maximised window's own rectangle is taller than the room a window may use, so
+    putting it back as an ordinary window hangs the bottom of the panel under the
+    taskbar. That used to cost nothing visible; it now costs the whole strip.
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app = harness.app
+        app.deiconify()
+        app.geometry("800x600+40+40")
+        app.update()
+        normal = app._current_geometry()
+        assert normal.startswith("800x600"), normal
+        with app._on(harness.session):
+            app._binder.values["window_geometry"] = normal
+            try:
+                app.state("zoomed")
+                app.update()
+            except Exception:                          # noqa: BLE001 — no such state
+                return                                 # …then there is nothing to pin
+            if not app._is_zoomed():
+                return                    # the window manager refused; not a failure
+            # Maximised: the remembered geometry is the one from BEFORE, and the state
+            # is remembered on its own.
+            assert app._current_geometry() == normal, app._current_geometry()
+            assert app._collect_settings()["window_zoomed"] is True
+            app.state("normal")
+            app.update()
+            assert app._collect_settings()["window_zoomed"] is False
+    finally:
+        harness.close()
+
+
+def test_every_page_gets_its_own_remembered_sash_when_it_is_shown() -> None:
+    """The log pane's position is per profile, and every page must get ITS one.
+
+    The window places the sash once, at boot, from whichever profile was in front —
+    so with two profiles open the second one's log pane sat where the pane happened to
+    leave it, and the position that profile had remembered was never applied to
+    anything.
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app, first = harness.app, harness.session
+        second = app._workspace.open("other")
+        second.rt.start_heartbeat = lambda: None
+        app._open_session_page(second)
+        app.deiconify()
+        app.geometry("900x700")
+        app.update()
+        with app._on(second):
+            app._binder.values["log_sash"] = 90
+        # …the way a person does it: pick the profile's tab, and let the notebook's
+        # own handler run (`_on_session_tab_changed` → `_show`).
+        app._outer.select(second.page)
+        app.update()
+        with app._on(second):
+            got = app._current_sash()
+        # Bounded from above by what the blocks ask for (see `_apply_sash`), so a
+        # modest number is the one that survives unchanged.
+        assert abs(got - 90) <= 8, f"the page was shown with the sash at {got}"
+    finally:
+        harness.close()
+
+
+def test_showing_a_page_works_before_the_window_is_finished() -> None:
+    """`_show` runs during `__init__`, BEFORE the resize damper is installed.
+
+    That order is what the boot does — pages, then `_show`, then the menu, then the
+    geometry, then the damper — and everything `_show` reaches for has to survive it.
+    It did not: forcing the repaint that a freshly shown page needs asked for the
+    window handle, which the damper had not created yet, and the panel died on boot
+    with an AttributeError nothing could print (pythonw has no console).
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app = harness.app
+        for name in ("_paint_hwnd", "_paint_off", "_resize_size", "_resize_job"):
+            assert not hasattr(app, name), f"{name} exists before the damper — re-aim me"
+        app._show(harness.session)          # must not raise
+        assert app._current_session is harness.session
+        # …and again once the damper IS installed, which is the ordinary case.
+        app._install_resize_damper()
+        app._show(harness.session)
+    finally:
+        harness.close()
+
+
+def test_the_splash_commentary_does_not_pump_the_event_loop() -> None:
+    """`say` repaints; `step` pumps. A build reports through the first one only.
+
+    An `update()` from inside a page build delivers whatever is queued — clicks,
+    virtual events, `after` callbacks — into a half-built window. `update_idletasks`
+    redraws and does not.
+    """
+    from panel import splash as splashmod
+
+    calls: list = []
+
+    class _Fake(splashmod.SplashScreen):
+        def __init__(self) -> None:               # no Tk, no window
+            self._step_lbl = self
+            self._progress = 0.0
+
+        def configure(self, **kw) -> None:
+            calls.append(("label", kw.get("text")))
+
+        def update(self) -> None:
+            calls.append(("update",))
+
+        def update_idletasks(self) -> None:
+            calls.append(("idle",))
+
+    fake = _Fake()
+    fake.say("building the «Чат» tab…")
+    kinds = [c[0] for c in calls]
+    assert "update" not in kinds, "say() pumped the event loop"
+    assert kinds == ["label", "idle"], kinds
 
 
 def test_the_bottom_strip_says_what_is_running_and_names_the_profile() -> None:
