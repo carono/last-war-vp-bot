@@ -29,6 +29,7 @@ import json
 import mimetypes
 import os
 import socket
+import ssl
 import threading
 import time
 import urllib.parse
@@ -160,7 +161,8 @@ class WebServer:
     """One window's remote control: a thread, a socket, and the API behind it."""
 
     def __init__(self, rt, *, host: str = DEFAULT_HOST, port: int | None = None,
-                 token: str = "", api: "WebApi | None" = None) -> None:
+                 token: str = "", api: "WebApi | None" = None,
+                 certfile: str = "", keyfile: str = "") -> None:
         self.rt = rt
         self.host = host or DEFAULT_HOST
         # `None` is «whatever this machine says» — not 9761, which would be this file
@@ -168,6 +170,13 @@ class WebServer:
         # ephemeral port with it.
         self.port = default_port() if port is None else int(port)
         self.token = str(token or "")
+        # OPTIONAL TLS, and the person's own certificate. The panel does not make one:
+        # generating a certificate needs a library this project does not depend on, and
+        # a self-signed one warns in the browser once per device anyway — so this is a
+        # door for somebody who already has a certificate (or made one with `openssl`),
+        # not a promise of encryption nobody asked for.
+        self.certfile = str(certfile or "").strip()
+        self.keyfile = str(keyfile or "").strip()
         self.api = api if api is not None else WebApi(rt)
         #: Which profile started it. Shown by a sibling session's tab, which has to be
         #: able to say WHOSE window is answering on that address.
@@ -184,6 +193,15 @@ class WebServer:
     @property
     def running(self) -> bool:
         return self._httpd is not None
+
+    @property
+    def scheme(self) -> str:
+        """`https` when a certificate was given, `http` otherwise.
+
+        Read by the tab to build the address: an `http://` link to a server that only
+        speaks TLS fails in a way nobody diagnoses on a phone.
+        """
+        return "https" if self.certfile else "http"
 
     def start(self) -> None:
         """Bind and serve. Raises `OSError` when the port is taken — the caller says so.
@@ -204,6 +222,18 @@ class WebServer:
             self.api.detach()
             raise
         httpd.daemon_threads = True
+        if self.certfile:
+            # A certificate that cannot be loaded RAISES rather than falling back to
+            # plain HTTP: believing you have TLS and not having it is the one failure
+            # here worse than having none, and the caller says so on the tab.
+            try:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context.load_cert_chain(self.certfile, self.keyfile or None)
+                httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+            except Exception:
+                httpd.server_close()
+                self.api.detach()
+                raise
         self._httpd = httpd
         with _SERVING_LOCK:
             _SERVING[self.bound_port()] = self
@@ -394,7 +424,8 @@ def _make_handler(server: WebServer):
             refuse to send in clear afterwards. A phone on the home network arrives over
             plain HTTP and must NOT get `Secure`, or it could never sign in at all.
             """
-            https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https")
+            https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+                     or isinstance(self.connection, ssl.SSLSocket))
             bits = [f"{COOKIE}={token}", "Path=/", "SameSite=Lax", "HttpOnly",
                     f"Max-Age={COOKIE_MAX_AGE_SEC}"]
             if https:

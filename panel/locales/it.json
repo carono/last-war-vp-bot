@@ -875,7 +875,7 @@
   "web.open": "Apri qui",
   "web.address": "Indirizzo per il telefono",
   "web.hint": "Apri questo indirizzo su un telefono collegato alla stessa rete di questa macchina. Il token è già nel link; se il telefono non riesce a seguirlo, digita il token a mano.",
-  "web.warning": "Pensato per una rete domestica. Qui non c'è cifratura: non inoltrare questa porta su internet — mettici davanti qualcosa che faccia TLS.",
+  "web.warning": "Per raggiungerlo da fuori della rete di casa, inoltra questa porta sul router. Il traffico non è cifrato, quindi il token si legge per strada — conviene limitare chi può collegarsi: un filtro di indirizzi sul router, una VPN, o il tunnel qui sotto.",
   "web.state.on": "in ascolto sulla porta {port}",
   "web.state.off": "spento",
   "web.log.started": "controllo remoto acceso, porta {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "il tunnel si è fermato da solo",
   "web.log.tunnel_failed": "il tunnel non è partito",
   "web.log.no_cloudflared": "cloudflared non è installato — non c'è con cosa fare un tunnel",
-  "web.log.signed_in": "accesso da {peer}"
+  "web.log.signed_in": "accesso da {peer}",
+  "web.cert": "Certificato (PEM)",
+  "web.key": "Chiave (PEM)",
+  "web.https": "Facoltativo: indica qui un certificato e la sua chiave e il pannello servirà HTTPS invece di HTTP. Uno autofirmato va bene — ogni dispositivo avvisa una volta e poi se lo ricorda. Per crearlo: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "il certificato non si è caricato: {error}"
 }

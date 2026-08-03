@@ -875,7 +875,7 @@
   "web.open": "Mở tại đây",
   "web.address": "Địa chỉ cho điện thoại",
   "web.hint": "Mở địa chỉ này trên điện thoại nối cùng mạng với máy này. Mã khoá đã nằm sẵn trong liên kết; nếu điện thoại không mở được liên kết, hãy nhập mã khoá bằng tay.",
-  "web.warning": "Dành cho mạng gia đình. Ở đây không có mã hoá: đừng mở cổng này ra internet — hãy đặt trước nó một thứ có TLS.",
+  "web.warning": "Để tới được từ ngoài mạng nhà, hãy chuyển tiếp cổng này trên bộ định tuyến. Lưu lượng không được mã hoá nên mã khoá đọc được dọc đường — nên giới hạn ai được kết nối: lọc địa chỉ trên bộ định tuyến, VPN, hoặc đường hầm bên dưới.",
   "web.state.on": "đang nghe cổng {port}",
   "web.state.off": "tắt",
   "web.log.started": "điều khiển từ xa đã bật, cổng {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "đường hầm tự dừng",
   "web.log.tunnel_failed": "đường hầm không khởi động được",
   "web.log.no_cloudflared": "chưa cài cloudflared — không có gì để mở đường hầm",
-  "web.log.signed_in": "đăng nhập từ {peer}"
+  "web.log.signed_in": "đăng nhập từ {peer}",
+  "web.cert": "Chứng chỉ (PEM)",
+  "web.key": "Khoá (PEM)",
+  "web.https": "Tuỳ chọn: trỏ vào chứng chỉ và khoá của nó, bảng điều khiển sẽ chạy HTTPS thay cho HTTP. Chứng chỉ tự ký cũng được — mỗi thiết bị cảnh báo một lần rồi nhớ. Tạo bằng: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "không nạp được chứng chỉ: {error}"
 }

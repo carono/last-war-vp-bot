@@ -875,7 +875,7 @@
   "web.open": "Ouvrir ici",
   "web.address": "Adresse pour le téléphone",
   "web.hint": "Ouvrez cette adresse sur un téléphone connecté au même réseau que cette machine. Le jeton est déjà dans le lien ; si le téléphone ne peut pas le suivre, saisissez le jeton à la main.",
-  "web.warning": "Prévu pour un réseau domestique. Il n'y a aucun chiffrement ici : ne redirigez pas ce port vers Internet — placez plutôt devant lui quelque chose qui fait du TLS.",
+  "web.warning": "Pour l'atteindre depuis l'extérieur du réseau domestique, redirigez ce port sur le routeur. Le trafic n'est pas chiffré, le jeton est donc lisible en chemin — il vaut la peine de limiter qui peut se connecter : un filtre d'adresses sur le routeur, un VPN, ou le tunnel ci-dessous.",
   "web.state.on": "écoute sur le port {port}",
   "web.state.off": "désactivé",
   "web.log.started": "commande à distance activée, port {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "le tunnel s'est arrêté tout seul",
   "web.log.tunnel_failed": "le tunnel n'a pas démarré",
   "web.log.no_cloudflared": "cloudflared n'est pas installé — rien pour faire un tunnel",
-  "web.log.signed_in": "connexion depuis {peer}"
+  "web.log.signed_in": "connexion depuis {peer}",
+  "web.cert": "Certificat (PEM)",
+  "web.key": "Clé (PEM)",
+  "web.https": "Facultatif : indiquez ici un certificat et sa clé et le panneau servira du HTTPS au lieu du HTTP. Un certificat auto-signé convient — chaque appareil avertira une fois puis s'en souviendra. En créer un : openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "le certificat n'a pas pu être chargé : {error}"
 }

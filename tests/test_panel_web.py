@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import sys
 import tempfile
 import time
@@ -589,6 +590,44 @@ def test_only_one_server_holds_the_window():
         finally:
             one.stop()
         assert webmod.serving_any() is None, "the registry kept a stopped server"
+
+
+# ---------------------------------------------------------------------------
+# TLS, when the person has a certificate of their own
+# ---------------------------------------------------------------------------
+def test_without_a_certificate_it_is_plain_http_and_says_so():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert webmod.WebServer(rt, token="t", api=api).scheme == "http"
+
+
+def test_a_certificate_makes_it_https_in_the_address_it_hands_out():
+    """An `http://` link to a server that only speaks TLS fails in a way nobody
+    diagnoses on a phone, so the scheme follows the certificate."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        server = webmod.WebServer(rt, token="t", api=api, certfile="cert.pem")
+        assert server.scheme == "https"
+
+
+def test_a_certificate_that_will_not_load_refuses_to_serve():
+    """THE failure worth preventing: believing you have TLS and serving plain HTTP.
+
+    Anything that cannot be loaded — a path that is not there, a key that does not
+    match — takes the server down with it instead of quietly falling back.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        server = webmod.WebServer(rt, host="127.0.0.1", port=0, token="t", api=api,
+                                  certfile=os.path.join(home, "nothing.pem"))
+        try:
+            server.start()
+        except (OSError, ValueError, ssl.SSLError):
+            assert not server.running
+            return
+        finally:
+            server.stop()
+        raise AssertionError("it served without the certificate it was told to use")
 
 
 # ---------------------------------------------------------------------------

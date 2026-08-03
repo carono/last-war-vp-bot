@@ -875,7 +875,7 @@
   "web.open": "Burada aç",
   "web.address": "Telefon için adres",
   "web.hint": "Bu adresi, bu makineyle aynı ağdaki bir telefonda açın. Jeton bağlantının içinde; telefon bağlantıyı açamıyorsa jetonu elle yazın.",
-  "web.warning": "Ev ağı için düşünüldü. Burada şifreleme yok: bu bağlantı noktasını internete yönlendirmeyin — önüne TLS yapan bir şey koyun.",
+  "web.warning": "Ev ağının dışından erişmek için bu bağlantı noktasını yönlendiricide yönlendirin. Trafik şifrelenmiyor, yani jeton yol boyunca okunabilir — kimin bağlanabileceğini sınırlamakta yarar var: yönlendiricide adres filtresi, bir VPN ya da aşağıdaki tünel.",
   "web.state.on": "{port} numaralı bağlantı noktasını dinliyor",
   "web.state.off": "kapalı",
   "web.log.started": "uzaktan kumanda açık, bağlantı noktası {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "tünel kendiliğinden durdu",
   "web.log.tunnel_failed": "tünel başlamadı",
   "web.log.no_cloudflared": "cloudflared kurulu değil — tüneli yapacak bir şey yok",
-  "web.log.signed_in": "{peer} adresinden giriş"
+  "web.log.signed_in": "{peer} adresinden giriş",
+  "web.cert": "Sertifika (PEM)",
+  "web.key": "Anahtar (PEM)",
+  "web.https": "İsteğe bağlı: buraya bir sertifika ve anahtarını yazın, panel HTTP yerine HTTPS versin. Kendi imzalı olanı yeter — her cihaz bir kez uyarır, sonra hatırlar. Oluşturmak için: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "sertifika yüklenmedi: {error}"
 }

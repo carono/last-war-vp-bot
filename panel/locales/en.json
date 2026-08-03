@@ -875,7 +875,7 @@
   "web.open": "Open it here",
   "web.address": "Address for the phone",
   "web.hint": "Open this address on a phone that is on the same network as this machine. The token is already in the link; if the phone cannot follow it, type the token in by hand.",
-  "web.warning": "Meant for a home network. There is no encryption here: do not forward this port to the internet — put something that does TLS in front of it instead.",
+  "web.warning": "To reach it from outside the home network, forward this port on the router. The traffic is not encrypted, so the token is readable along the way — worth limiting who may connect: an address filter on the router, a VPN, or the tunnel below.",
   "web.state.on": "listening on port {port}",
   "web.state.off": "off",
   "web.log.started": "remote control is on, port {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "the tunnel stopped on its own",
   "web.log.tunnel_failed": "the tunnel would not start",
   "web.log.no_cloudflared": "cloudflared is not installed — nothing to make a tunnel with",
-  "web.log.signed_in": "signed in from {peer}"
+  "web.log.signed_in": "signed in from {peer}",
+  "web.cert": "Certificate (PEM)",
+  "web.key": "Key (PEM)",
+  "web.https": "Optional: point those two at a certificate and its key and the panel serves HTTPS instead of HTTP. A self-signed one is fine — every device will warn once and remember. Make one with: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "the certificate would not load: {error}"
 }

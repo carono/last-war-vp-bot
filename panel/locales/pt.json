@@ -875,7 +875,7 @@
   "web.open": "Abrir aqui",
   "web.address": "Endereço para o telemóvel",
   "web.hint": "Abra este endereço num telemóvel ligado à mesma rede que esta máquina. O token já vai na ligação; se o telemóvel não a conseguir seguir, escreva o token à mão.",
-  "web.warning": "Feito para uma rede doméstica. Aqui não há cifra: não encaminhe esta porta para a internet — ponha à frente algo que faça TLS.",
+  "web.warning": "Para lhe chegar de fora da rede doméstica, encaminhe esta porta no router. O tráfego não é cifrado, por isso o token lê-se pelo caminho — vale a pena limitar quem se pode ligar: um filtro de endereços no router, uma VPN, ou o túnel abaixo.",
   "web.state.on": "a escutar na porta {port}",
   "web.state.off": "desligado",
   "web.log.started": "controlo remoto ligado, porta {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "o túnel parou sozinho",
   "web.log.tunnel_failed": "o túnel não arrancou",
   "web.log.no_cloudflared": "cloudflared não está instalado — não há com que fazer um túnel",
-  "web.log.signed_in": "entrada a partir de {peer}"
+  "web.log.signed_in": "entrada a partir de {peer}",
+  "web.cert": "Certificado (PEM)",
+  "web.key": "Chave (PEM)",
+  "web.https": "Opcional: indique aqui um certificado e a respetiva chave e o painel serve HTTPS em vez de HTTP. Um autoassinado serve — cada dispositivo avisa uma vez e depois lembra-se. Para criar: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "o certificado não carregou: {error}"
 }

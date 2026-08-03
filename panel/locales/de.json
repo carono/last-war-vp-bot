@@ -875,7 +875,7 @@
   "web.open": "Hier öffnen",
   "web.address": "Adresse für das Telefon",
   "web.hint": "Diese Adresse auf einem Telefon im selben Netz wie dieser Rechner öffnen. Das Token steckt bereits im Link; folgt das Telefon dem Link nicht, das Token von Hand eingeben.",
-  "web.warning": "Gedacht für das Heimnetz. Es gibt hier keine Verschlüsselung: diesen Port nicht ins Internet weiterleiten — stattdessen etwas davorsetzen, das TLS beherrscht.",
+  "web.warning": "Um sie von außerhalb des Heimnetzes zu erreichen, leiten Sie diesen Port am Router weiter. Der Verkehr ist unverschlüsselt, das Token ist unterwegs also lesbar — es lohnt sich einzuschränken, wer verbinden darf: ein Adressfilter am Router, ein VPN oder der Tunnel unten.",
   "web.state.on": "lauscht auf Port {port}",
   "web.state.off": "aus",
   "web.log.started": "Fernsteuerung an, Port {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "der Tunnel hat von selbst aufgehört",
   "web.log.tunnel_failed": "der Tunnel startete nicht",
   "web.log.no_cloudflared": "cloudflared ist nicht installiert — womit sollte ein Tunnel entstehen",
-  "web.log.signed_in": "Anmeldung von {peer}"
+  "web.log.signed_in": "Anmeldung von {peer}",
+  "web.cert": "Zertifikat (PEM)",
+  "web.key": "Schlüssel (PEM)",
+  "web.https": "Optional: hier ein Zertifikat und seinen Schlüssel angeben, dann liefert das Panel HTTPS statt HTTP. Ein selbstsigniertes genügt — jedes Gerät warnt einmal und merkt es sich. Erzeugen mit: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "das Zertifikat ließ sich nicht laden: {error}"
 }

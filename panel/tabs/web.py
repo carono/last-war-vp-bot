@@ -26,6 +26,7 @@ the machine that farms. The hint on the tab says so, in all eleven languages.
 from __future__ import annotations
 
 import secrets
+import ssl
 import tkinter as tk
 import webbrowser
 from tkinter import ttk
@@ -68,6 +69,8 @@ class WebTab(PanelTab):
         self._token = None              # StringVar
         self._state = None              # the label saying what it is doing
         self._link = None               # the address, selectable
+        self._cert = None               # StringVar: optional certificate (PEM)
+        self._key = None                # StringVar: …and its key
         self._tunnel_on = None          # BooleanVar: reach it from the internet
         self._tunnel_link = None        # the public address, selectable
         self._tunnel_note = None        # …or why there is not one
@@ -80,6 +83,8 @@ class WebTab(PanelTab):
         self._port = tk.StringVar(value=str(webmod.default_port()))
         self._host = tk.StringVar(value=webmod.DEFAULT_HOST)
         self._token = tk.StringVar(value="")
+        self._cert = tk.StringVar(value="")
+        self._key = tk.StringVar(value="")
 
         head = ttk.Frame(self.parent)
         head.pack(fill="x", padx=10, pady=(10, 4))
@@ -105,6 +110,17 @@ class WebTab(PanelTab):
                                                                  pady=(4, 0))
         self.tr(ttk.Button(grid, command=self._new_token), "web.token.new").grid(
             row=2, column=2, sticky="w", pady=(4, 0))
+
+        self.tr(ttk.Label(grid), "web.cert").grid(row=3, column=0, sticky="w",
+                                                  pady=(4, 0))
+        ttk.Entry(grid, textvariable=self._cert, width=24).grid(row=3, column=1,
+                                                                sticky="w", padx=6,
+                                                                pady=(4, 0))
+        self.tr(ttk.Label(grid), "web.key").grid(row=4, column=0, sticky="w",
+                                                 pady=(4, 0))
+        ttk.Entry(grid, textvariable=self._key, width=24).grid(row=4, column=1,
+                                                               sticky="w", padx=6,
+                                                               pady=(4, 0))
 
         buttons = ttk.Frame(self.parent)
         buttons.pack(fill="x", padx=10, pady=(8, 4))
@@ -133,6 +149,8 @@ class WebTab(PanelTab):
                                       text="")
         self._tunnel_note.pack(anchor="w", padx=10, pady=(4, 0))
 
+        self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
+                "web.https").pack(anchor="w", padx=10, pady=(8, 0))
         self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
                 "web.hint").pack(anchor="w", padx=10, pady=(10, 0))
         self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
@@ -185,6 +203,8 @@ class WebTab(PanelTab):
                 "port": self._port.get() if self._port is not None else "",
                 "host": self._host.get() if self._host is not None else "",
                 "token": self._token.get() if self._token is not None else "",
+                "cert": self._cert.get() if self._cert is not None else "",
+                "key": self._key.get() if self._key is not None else "",
                 "tunnel": bool(self._tunnel_on.get())
                 if self._tunnel_on is not None else False}
 
@@ -196,13 +216,15 @@ class WebTab(PanelTab):
         self._port.set(str(raw.get("port") or webmod.default_port()))
         self._host.set(str(raw.get("host") or webmod.DEFAULT_HOST))
         self._token.set(str(raw.get("token") or ""))
+        self._cert.set(str(raw.get("cert") or ""))
+        self._key.set(str(raw.get("key") or ""))
         if self._tunnel_on is not None:
             self._tunnel_on.set(bool(raw.get("tunnel")))
         self._paint()
 
     def persist_vars(self) -> list:
         return [v for v in (self._on, self._port, self._host, self._token,
-                            self._tunnel_on) if v is not None]
+                            self._cert, self._key, self._tunnel_on) if v is not None]
 
     # -- the switch ---------------------------------------------------------
     def _toggled(self) -> None:
@@ -240,12 +262,20 @@ class WebTab(PanelTab):
         token = self._token.get().strip() or self._new_token(quiet=True)
         try:
             server = webmod.WebServer(self.rt, host=self._host.get().strip(),
-                                      port=self._port_number(), token=token)
+                                      port=self._port_number(), token=token,
+                                      certfile=self._cert.get().strip(),
+                                      keyfile=self._key.get().strip())
             server.start()
         except OSError:
             self._server = None
             self._on.set(False)
             self.say("web", "web.log.busy", port=self._port_number())
+        except (ssl.SSLError, OSError, ValueError) as exc:
+            # A certificate that will not load is the likely one, and it must not
+            # quietly become plain HTTP — the person believes they have TLS.
+            self._server = None
+            self._on.set(False)
+            self.say("web", "web.log.cert_error", error=exc)
         except Exception as exc:            # noqa: BLE001 — never the window
             self._server = None
             self._on.set(False)

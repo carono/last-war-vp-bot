@@ -875,7 +875,7 @@
   "web.open": "Otwórz tutaj",
   "web.address": "Adres dla telefonu",
   "web.hint": "Otwórz ten adres na telefonie podłączonym do tej samej sieci co ten komputer. Token jest już w odnośniku; jeśli telefon nie może z niego skorzystać, wpisz token ręcznie.",
-  "web.warning": "Pomyślane dla sieci domowej. Nie ma tu szyfrowania: nie przekierowuj tego portu do internetu — postaw przed nim coś, co obsługuje TLS.",
+  "web.warning": "Żeby dostać się spoza sieci domowej, przekieruj ten port na routerze. Ruch nie jest szyfrowany, więc token da się odczytać po drodze — warto ograniczyć, kto może się łączyć: filtr adresów na routerze, VPN albo tunel poniżej.",
   "web.state.on": "nasłuchuje na porcie {port}",
   "web.state.off": "wyłączone",
   "web.log.started": "zdalne sterowanie włączone, port {port}",
@@ -959,5 +959,9 @@
   "web.log.tunnel_died": "tunel zatrzymał się sam",
   "web.log.tunnel_failed": "tunel nie wystartował",
   "web.log.no_cloudflared": "cloudflared nie jest zainstalowany — nie ma czym zrobić tunelu",
-  "web.log.signed_in": "logowanie z {peer}"
+  "web.log.signed_in": "logowanie z {peer}",
+  "web.cert": "Certyfikat (PEM)",
+  "web.key": "Klucz (PEM)",
+  "web.https": "Opcjonalnie: wskaż tu certyfikat i jego klucz, a panel poda HTTPS zamiast HTTP. Samopodpisany wystarczy — każde urządzenie ostrzeże raz i zapamięta. Utworzyć: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
+  "web.log.cert_error": "certyfikat nie wczytał się: {error}"
 }
