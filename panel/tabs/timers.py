@@ -331,6 +331,25 @@ class TimersTab(PanelTab):
             var["enabled"].trace_add("write", lambda *a: self._save_timers())
             var["interval"].trace_add("write", lambda *a: self._save_timers())
 
+    def set_enabled(self, name: str, on: bool) -> bool:
+        """Tick or untick one errand FROM OUTSIDE. ``False`` if there is no such row.
+
+        The web front-end presses this (#1221), and it has to be this rather than the
+        file: while this tab exists its boxes ARE the configuration — `Schedule
+        .timer_config` reads the widgets and falls back to the catalogue only when there
+        are none — so a switch written straight to `timers.json` would be overwritten by
+        the next save and look, from the phone, like a switch that does not stay.
+
+        Moving the variable is enough: the trace put on it by `_bind_timer_autosave`
+        persists the catalogue, exactly as a click on the box does. TK THREAD ONLY, like
+        every other read or write of a variable in this file.
+        """
+        row = self._timer_vars.get(name)
+        if row is None:
+            return False
+        row["enabled"].set(bool(on))
+        return True
+
     def _save_timers(self) -> None:
         """Write the ticked boxes and typed periods into the profile's timers.json.
 
