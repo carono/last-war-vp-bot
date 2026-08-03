@@ -506,7 +506,16 @@ def daemon_script(session: int, port: int) -> str:
     return path
 
 
-def start_daemon(session: int, port: int, timeout: float = 120.0) -> bool:
+def start_daemon(session: int, port: int, timeout: float = 120.0,
+                 say=None) -> bool:
+    """Bring this repo's Lua daemon up INSIDE ``session``, on ``port``.
+
+    ``say`` is where the running commentary goes. It defaults to this tool's
+    own stdout, which is right for a command line and useless to the panel:
+    a windowed panel has no console, so a caller that wants these lines in
+    its log hands one in (panel/runtime/daemon.py does).
+    """
+    log = say or globals()["log"]
     if daemon_state(port).get("ok"):
         log(f"daemon already listening on {port}")
     else:

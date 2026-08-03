@@ -265,6 +265,74 @@ def test_the_runner_hands_the_interpreter_the_session_the_client_lives_in() -> N
     assert seen.get("game_user") == "casper", seen
 
 
+class _Spawned:
+    """Just enough of a Popen for `ensure` to carry on past the spawn."""
+
+    pid = 4321
+
+
+def _cold_link(port: int, user=None) -> GameLink:
+    """A link whose daemon is never up, so `ensure` always reaches the start."""
+    link = GameLink(port=lambda: port, python=lambda: "python", log=_Log(),
+                    env=dict, cwd=str(_REPO), daemon_script="x",
+                    user=(lambda: user) if user else None)
+    link.up = lambda: False
+    return link
+
+
+def _ensure_watching_popen(link) -> list:
+    """Run `link.ensure()` with the spawn recorded and the retry loop cut to one turn."""
+    import subprocess
+
+    from panel.runtime import daemon as daemonmod
+
+    spawned: list = []
+    saved_popen, saved_tries, saved_wait = (subprocess.Popen, daemonmod.START_TRIES,
+                                            daemonmod.START_WAIT)
+    subprocess.Popen = lambda *a, **kw: (spawned.append(a), _Spawned())[1]
+    daemonmod.START_TRIES, daemonmod.START_WAIT = 1, 0
+    try:
+        link.ensure()                     # it never comes up; the START is the point
+    finally:
+        subprocess.Popen = saved_popen
+        daemonmod.START_TRIES, daemonmod.START_WAIT = saved_tries, saved_wait
+    return spawned
+
+
+def test_a_daemon_for_another_session_is_started_INSIDE_it() -> None:
+    """A daemon hijacks a thread of the client it drives, and finds that client in the
+    session it is itself running in. Started here for a profile whose game is in
+    session 4, it would bind the right port and then drive this desktop's game — or
+    none at all. So the session decides HOW it is started, not just what it finds."""
+    link = _cold_link(47655, user="casper")
+    seen: dict = {}
+    link._start_in_session = lambda user, port: seen.update(user=user, port=port)
+    spawned = _ensure_watching_popen(link)
+    assert seen == {"user": "casper", "port": 47655}, seen
+    assert spawned == [], "a daemon for another session must not be spawned here"
+
+
+def test_a_daemon_for_this_desktop_is_still_spawned_here() -> None:
+    """The single-account case, untouched: no session named means the ordinary child."""
+    link = _cold_link(47654)
+    link._start_in_session = lambda user, port: (_ for _ in ()).throw(
+        AssertionError("nothing named a session"))
+    assert len(_ensure_watching_popen(link)) == 1
+
+
+def test_a_session_nobody_is_logged_on_to_is_a_refusal_not_a_crash() -> None:
+    """`_start_in_session` raises; `ensure` has to answer False and say so, because the
+    caller of a daemon start is a button and the alternative is a traceback nobody sees.
+    """
+    link = _cold_link(47655, user="ghost")
+    link._start_in_session = lambda user, port: (_ for _ in ()).throw(
+        LookupError(f"nobody is logged on as {user}"))
+    states: list = []
+    link.on_state = lambda state, ok: states.append((state, ok))
+    assert link.ensure() is False
+    assert ("error", False) in states, states
+
+
 def test_a_profile_on_this_desktop_names_no_session_at_all() -> None:
     """`None` is left OUT rather than passed as one — "this desktop" is the default."""
     seen: dict = {}

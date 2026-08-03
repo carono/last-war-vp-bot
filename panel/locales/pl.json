@@ -210,7 +210,6 @@
   "log.game.kill_failed": "nie udało się zabić procesu: {error}",
   "log.game.killing": "zabijam {exe}…",
   "log.game.launching": "uruchamiam grę przepisem launch_game…",
-  "log.game.other_session": "klient tego profilu żyje w sesji Windows użytkownika {user} — tam się go uruchamia i zatrzymuje; panel tylko nim kieruje, przez własny port demona",
   "log.game.restarting": "restartuję klienta przepisem restart_game…",
   "log.game.watchdog_hold": "stróż: ostatni restart był {mins} min temu — czekam",
   "log.game.watchdog_relaunch": "stróż: uruchamiam grę ponownie",

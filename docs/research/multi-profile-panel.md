@@ -251,9 +251,29 @@ Two things still owed:
   *attached* to it, and a launch happens when there is nothing to be attached to. Both
   «Запустить игру» and the crash watchdog stopped refusing an RDP profile as a result.
 
-  The *ending* half is still refused there, and deliberately: a force-close is
-  `TerminateProcess` on another account's process, which an unelevated panel has no
-  right to. `tools/rdp_instance.py --stop` is where that lives.
+  The *ending* half went the same way. `TerminateProcess` on another account's process
+  really is refused for an unelevated panel — measured, `OpenProcess` returns error 5 —
+  so `QUIT_GAME` retries through one elevated `taskkill /F /PID`. That is a smaller
+  privilege than the start needs: getting a process INTO somebody else's session takes
+  SYSTEM, getting one out takes an administrator.
+
+* **The daemon was being started on the wrong desktop, and nobody had noticed.** Found
+  while testing the above. `GameLink.ensure()` spawned `lua_daemon.py` as an ordinary
+  child of the panel, so for an RDP profile it came up in the CONSOLE session, bound
+  the profile's port (47655) and hijacked the console session's client —
+  `find_game_pid` looks in the session the daemon itself runs in. Everything then
+  worked and was wrong: the second profile's reads, its scenarios and its status all
+  answered for the first account's game. Measured on the live box before the fix:
+  port 47655's daemon in session 1, attached to pid 153576, the console client.
+
+  So `GameLink` takes the session too and, when there is one, starts the daemon inside
+  it through `rdp_instance.start_daemon`. And `game_client.target_pid` no longer
+  believes a daemon whose attached pid is not in the profile's session — a wrong
+  answer there is a fault to say out loud, not a fallback to use.
+
+  Proof it is fixed: with both accounts up, the two daemons read two different games
+  (casper 6 alliancemates waiting / 1664 wounded, the console account 0 / 241). Before,
+  both readings were the console account's.
 
 ### 4.6 Foreground input — smaller than it looks
 

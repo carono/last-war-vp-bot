@@ -210,7 +210,6 @@
   "log.game.kill_failed": "der Prozess ließ sich nicht beenden: {error}",
   "log.game.killing": "beende {exe}…",
   "log.game.launching": "starte das Spiel über das Rezept launch_game…",
-  "log.game.other_session": "der Client dieses Profils lebt in der Windows-Sitzung von {user} — dort wird er gestartet und beendet; das Panel steuert ihn nur, über seinen eigenen Daemon-Port",
   "log.game.restarting": "starte den Client über das Rezept restart_game neu…",
   "log.game.watchdog_hold": "Wächter: der letzte Neustart war vor {mins} min — warte",
   "log.game.watchdog_relaunch": "Wächter: starte das Spiel erneut",

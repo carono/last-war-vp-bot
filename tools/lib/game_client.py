@@ -141,9 +141,41 @@ def session_pids(game_exe: str = GAME_EXE) -> list:
     return out
 
 
-def target_pid(port: "int | None" = None, game_exe: str = GAME_EXE) -> "int | None":
-    """The client this profile drives: the daemon's, or the ordinary reading."""
-    return attached_pid(port) or running_pid(game_exe)
+def target_pid(port: "int | None" = None, game_exe: str = GAME_EXE,
+               user: "str | None" = None, log=None) -> "int | None":
+    """The client this profile drives: the daemon's, or the ordinary reading.
+
+    ``user`` names the Windows session the client lives in, and it makes this function
+    strictly narrower rather than wider — which is the point, because the caller that
+    needs it most is a force-close.
+
+    Without it, both routes answer with THIS desktop's client whenever the profile's
+    own is not found: `running_pid` is documented as "the client of this session", and
+    for a profile whose client is in session 4 this session's client is the NEIGHBOUR'S.
+    A restart would then end the game in front of the person.
+
+    The daemon's own attachment is checked against the session for the same reason, and
+    it is not a theoretical worry: a daemon started on the wrong desktop binds the right
+    port and hijacks the wrong client (that is what `GameLink` had to be taught, #1218).
+    Its answer is believed only when the process it names really is in the session this
+    profile plays in; otherwise it is ignored and said out loud, because a port pointing
+    at another session's game is a fault, not a fallback.
+    """
+    say = log or (lambda _msg: None)
+    if not user:
+        return attached_pid(port) or running_pid(game_exe)
+
+    session = session_of(user)
+    if session is None:
+        say(f"nobody is logged on as {user} — no client of this profile's to find")
+        return None
+    here = session_pids_of(session, game_exe)
+    attached = attached_pid(port)
+    if attached is not None and attached not in here:
+        say(f"the daemon on port {port} is attached to pid {attached}, which is NOT in "
+            f"{user}'s session — ignoring it")
+        attached = None
+    return attached or (here[0] if here else None)
 
 
 def alive(pid: "int | None") -> bool:
@@ -161,14 +193,40 @@ def alive(pid: "int | None") -> bool:
         return False
 
 
-def close(pid: int, timeout: float = CLOSE_TIMEOUT_SEC) -> bool:
+def close(pid: int, timeout: float = CLOSE_TIMEOUT_SEC, user: "str | None" = None,
+          log=None) -> bool:
     """End the client at ``pid`` and wait for it to go. ``True`` once it has.
 
     Force, not a polite close: the point of a scheduled restart is to end a client
     that may well be wedged behind a modal, and a WM_CLOSE it is not answering would
     turn the errand into a five-minute wait for nothing.
+
+    ``user`` names the Windows session the client lives in, and it exists because a
+    client in ANOTHER account's session is not this process's to terminate: an
+    unelevated panel gets ACCESS_DENIED out of `OpenProcess(PROCESS_TERMINATE)`,
+    measured, not assumed. So that case is retried through one elevated `taskkill`,
+    which is the smallest privilege that does the job — a restart needs a high-integrity
+    token, not SYSTEM (which is what starting a process inside a session needs, and is
+    the heavier hop of the two).
+
+    The fallback is gated on a session being NAMED rather than tried on any refusal:
+    a profile on this desktop that cannot kill its own client has something else wrong,
+    and a surprise elevation prompt is not the way to find out.
     """
+    say = log or (lambda _msg: None)
     pid = int(pid)
+    if not alive(pid):
+        return True
+    if _close_here(pid, timeout, say):
+        return True
+    if not user:
+        return False
+    say(f"pid {pid} belongs to {user}'s session — ending it with an elevated taskkill")
+    return _close_elevated(pid, timeout, say)
+
+
+def _close_here(pid: int, timeout: float, say) -> bool:
+    """Terminate ``pid`` with the rights this process already has."""
     try:
         import psutil
     except Exception:                        # noqa: BLE001 — Windows without psutil
@@ -179,13 +237,25 @@ def close(pid: int, timeout: float = CLOSE_TIMEOUT_SEC) -> bool:
         return True
     try:
         proc.kill()
+    except psutil.AccessDenied:
+        # Not a failure to report yet: another account owns it, and there is a
+        # bigger hammer. Said out loud because it is the one interesting step.
+        say(f"pid {pid} refused TerminateProcess — another account owns it")
+        return False
     except Exception:                        # noqa: BLE001 — gone between the two lines
         pass
-    try:
-        proc.wait(timeout=timeout)
-    except Exception:                        # noqa: BLE001 — psutil.TimeoutExpired
-        return not alive(pid)
-    return True
+    return wait_gone(pid, timeout)
+
+
+def _close_elevated(pid: int, timeout: float, say) -> bool:
+    """Terminate ``pid`` through one silent elevation. By PID — never an image name."""
+    _tools_on_path()
+    import rdp_instance                      # noqa: PLC0415 — Windows-only
+
+    rc, text = rdp_instance.run_elevated([f"taskkill /F /PID {pid}"], tag="quit",
+                                         timeout=max(60.0, float(timeout)))
+    say(f"taskkill rc={rc}: {' '.join(text.split())[:200]}")
+    return wait_gone(pid, timeout)
 
 
 def wait_gone(pid: "int | None", timeout: float = CLOSE_TIMEOUT_SEC) -> bool:
@@ -305,7 +375,15 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
                       game_exe: str, say) -> int:
     session = session_of(user)
     if session is None:
-        raise LookupError(f"nobody is logged on as {user}")
+        # There is nothing to start a client INSIDE. Creating the session is a
+        # different and much heavier act — an RDP connection, saved credentials, and
+        # the console changing hands while it happens — so this names the one command
+        # that does it rather than doing it behind a «Запустить игру» press. A
+        # DISCONNECTED session is not this case: it is a working session with a
+        # desktop of its own, and the launch below goes into it unchanged.
+        raise LookupError(
+            f"nobody is logged on as {user} — bring the session up first: "
+            f"tools\\rdp_instance.py --bring-up --user {user}")
     found = session_pids_of(session, game_exe)
     if found:
         # Not an error and not a second launch: the recipe's job is to get to "the

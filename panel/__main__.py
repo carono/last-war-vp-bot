@@ -1153,15 +1153,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _game_exe(self) -> str:
         return self._opt_str("game_exe")
 
-    def _game_user(self) -> str | None:
-        """The login of the Windows session this profile's client lives in, if another.
-
-        ``None`` means the ordinary case: the client on this desktop. Anything else is
-        a second account in its own session (tools/rdp_instance.py) — the panel talks to
-        it over its own daemon port, but starting and stopping it is not the panel's to
-        do from here (see `_launch_game`).
-        """
-        return runtime.game_process.profile_user(self._binder)
+    # There WAS a `_game_user()` here, and it existed to refuse things: which Windows
+    # session this profile's client lives in, read so the two lifecycle buttons could
+    # decline. Nothing declines any more (#1218) — the recipes carry the session, and
+    # the runtime hands it to them (`PanelRuntime.game_target`) and to the daemon it
+    # starts (`GameLink.user`). `runtime.game_process.profile_user` is the one reader.
 
     def _game_status(self) -> tuple:
         """`(running, label)` for THIS profile's client — its executable, its session."""
@@ -3191,26 +3187,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         threading.Thread(target=self._bound(work), daemon=True).start()
 
     # -- game lifecycle -----------------------------------------------------
-    def _elsewhere(self) -> bool:
-        """Does this profile's client live in another Windows session? Say so if it does.
-
-        What is left of a guard that used to cover BOTH ends of the client's life.
-        Starting one no longer needs it (#1218): `launch_game` starts the client in the
-        session the profile names, through the token that session already holds, so the
-        button and the watchdog reach the right desktop by themselves.
-
-        ENDING one still does. A force-close is `TerminateProcess` on a process owned by
-        another account, which this panel has no right to unless it is elevated — so a
-        restart aimed at another session would kill nothing and then wait for a client
-        that never went away. That session's client is taken down from its own session
-        (tools/rdp_instance.py --stop).
-        """
-        user = self._game_user()
-        if not user:
-            return False
-        self._say("game", "log.game.other_session", user=user)
-        return True
-
+    #
+    # Both buttons used to refuse a profile whose client lives in another Windows
+    # session, and the refusal was right for as long as it lasted: what the recipes did
+    # was spawn a launcher on THIS desktop and terminate a process this account owns —
+    # a third client in front of whoever is at the keyboard, and a kill that silently
+    # did nothing. #1218 moved both ends into the recipes (`START_GAME`, and `QUIT_GAME`
+    # carrying the session), so neither button needs a guard any more: they play the
+    # same scenario for every profile and the scenario knows where the client is.
     def _launch_game(self) -> None:
         # Launch through the same DSL recipe the bot uses: actions/launch_game.md
         # (START_GAME, then WAIT for the base screen). One source of truth for "start
@@ -3239,8 +3223,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # and the log line are spelled out together, so a restart cannot overlap a
         # timer errand and a 35-second run cannot freeze the window. The scenario's
         # own words — why it failed, if it did — reach the log through it either way.
-        if self._elsewhere():
-            return
+        #
+        # A second account's client is ended the same way as this one's, and the only
+        # difference is who is allowed to: `TerminateProcess` on another account's
+        # process comes back ACCESS_DENIED for an unelevated panel, so the recipe
+        # falls back to one elevated taskkill by PID. By PID, never by image name —
+        # that was the original bug here and it would be the same bug again.
         self._say("game", "log.game.restarting")
         self._rt.play_async("restart_game", tag="game")
 

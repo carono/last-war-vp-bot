@@ -210,7 +210,6 @@
   "log.game.kill_failed": "the process could not be killed: {error}",
   "log.game.killing": "killing {exe}…",
   "log.game.launching": "starting the game through the launch_game recipe…",
-  "log.game.other_session": "this profile's client lives in {user}'s Windows session — it is started and stopped there; the panel only drives it, over its own daemon port",
   "log.game.restarting": "restarting the client through the restart_game recipe…",
   "log.game.watchdog_hold": "watchdog: the last relaunch was {mins} min ago — waiting",
   "log.game.watchdog_relaunch": "watchdog: starting the game again",

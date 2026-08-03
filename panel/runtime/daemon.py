@@ -71,13 +71,20 @@ class GameLink:
     """The warm daemon for one profile, plus the one-action-at-a-time claim."""
 
     def __init__(self, port, python, log, env, cwd: str, daemon_script: str,
-                 on_state=None, debug=None, on_settled=None, activity=None) -> None:
+                 on_state=None, debug=None, on_settled=None, activity=None,
+                 user=None) -> None:
         self._port = port                 # callable: this profile's daemon port
         self._python = python             # callable: the interpreter to start it with
         self._log = log                   # the LogBus
         self._env = env                   # callable: the child environment
         self._cwd = cwd
         self._script = daemon_script
+        # callable: the login of the Windows session this profile's CLIENT lives in,
+        # or None for this desktop. A daemon has to be started beside the client it
+        # hijacks — `il2cpp_probe.find_game_pid` looks in the session the daemon
+        # itself runs in — so a daemon started here for a profile whose client is in
+        # session 4 comes up on the right port and finds the wrong game, or no game.
+        self._user = user if user is not None else (lambda: None)
         #: "the daemon went warm / is starting / failed", said in one word. PUBLIC
         #: and reassignable like `on_settled`: the shell rebinds it per session, so
         #: the indicator that gets painted is the one on THAT profile's page (#1206).
@@ -136,6 +143,37 @@ class GameLink:
         self.client = lua_client.DaemonClient(port=port, token=self.token)
         return True
 
+    def user(self) -> "str | None":
+        """The login of the session this profile's client lives in, or ``None``."""
+        try:
+            found = self._user()
+        except Exception:                             # noqa: BLE001 — a read, not the run
+            return None
+        return (str(found).strip() or None) if found else None
+
+    def _start_in_session(self, user: str, port: int) -> None:
+        """Start the daemon INSIDE ``user``'s Windows session, beside its client.
+
+        A daemon hijacks a thread of the client it drives, and it finds that client in
+        the session it is itself running in — so one started here would listen on the
+        right port and drive the wrong game, or none at all. `tools/rdp_instance.py`
+        already owns the hop that gets a process into somebody else's session (SYSTEM,
+        then the session's own logon token); this only hands it the port and a place to
+        say what it is doing, since a windowed panel has no console for its prints.
+
+        Raises `LookupError` when nobody is logged on there — a session that does not
+        exist has nothing to start a daemon in, and saying so is better than half a
+        minute of silence followed by a timeout.
+        """
+        import game_client
+        import rdp_instance
+
+        session = game_client.session_of(user)
+        if session is None:
+            raise LookupError(f"nobody is logged on as {user}")
+        rdp_instance.start_daemon(session, port,
+                                  say=lambda msg: self._log.put(f"[daemon] {msg}"))
+
     def ensure(self) -> bool:
         """Make sure the daemon is up, starting it if not. Blocks; call off the Tk thread."""
         port = self.port()
@@ -143,18 +181,22 @@ class GameLink:
             self._note("already warm on port %s", port)
             self.on_state("warm", True)
             return True
+        user = self.user()
         self._log.say("daemon", "log.daemon.starting")
-        self._note("starting on port %s", port)
+        self._note("starting on port %s (session %s)", port, user or "this desktop")
         self.on_state("starting", None)
         # Up to START_TRIES × START_WAIT of waiting — thirty seconds of a window with
         # nothing to say for itself unless it says this.
         with self._activity.step("activity.daemon.start", port=port):
             try:
-                subprocess.Popen(
-                    [self._python(), self._script], cwd=self._cwd,
-                    creationflags=NO_WINDOW | DETACHED, env=self._env(),
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    stdin=subprocess.DEVNULL)
+                if user:
+                    self._start_in_session(user, port)
+                else:
+                    subprocess.Popen(
+                        [self._python(), self._script], cwd=self._cwd,
+                        creationflags=NO_WINDOW | DETACHED, env=self._env(),
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        stdin=subprocess.DEVNULL)
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("daemon", "log.daemon.launch_failed", error=exc)
                 self._note_error("launch failed")

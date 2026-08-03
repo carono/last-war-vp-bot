@@ -113,7 +113,12 @@ class PanelRuntime:
             python=lambda: self.settings.opt_str("win_python"),
             log=self.log, env=self.children.env, cwd=REPO,
             daemon_script=LUA_DAEMON, on_state=daemon_state,
-            debug=self.dbg("daemon"), activity=self.activity)
+            debug=self.dbg("daemon"), activity=self.activity,
+            # A callable, like the port: it has to follow a profile switch. This is
+            # what stops the panel starting a daemon HERE for a client that lives in
+            # another Windows session — it would bind the right port and then drive
+            # this desktop's game, or nothing (#1218).
+            user=lambda: game_process.profile_user(self.settings))
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity)
         self._schedule = None           # built on first ask (see the property below)

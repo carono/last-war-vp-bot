@@ -334,6 +334,15 @@ mistake). Nobody logged on as that user, or a client that never
 appeared, is a deliberate `FAIL` with words — a condition to try again
 later, which is what a timer does with it.
 
+**A session that does not exist is not created here.** Making one means
+an RDP connection, saved credentials, and the console changing hands
+while it happens; doing that behind a «Запустить игру» press would be a
+surprise, so the failure names the command that does it instead
+(`tools/rdp_instance.py --bring-up --user <login>`). A *disconnected*
+session is not this case at all — it is a working session with a desktop
+of its own, which is how the second client is meant to be left, and the
+launch goes into it unchanged.
+
 ```
 START_GAME "%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe"
 WAIT scene == city WITHIN 300s
@@ -357,6 +366,30 @@ profile's daemon is attached to**, never "the LastWar.exe" by name
 (`tools/lib/game_client.py` resolves it: the daemon's attachment, then
 `LW_GAME_PID`, then the client in this Windows session). Closing by
 image name would end the other account's session too.
+
+When the profile names a Windows session (`Context.game_user`), the
+lookup gets **narrower**, not wider, and both halves of that matter:
+
+- the fallback never reaches this desktop's client. `running_pid` means
+  "the client of *this* session", which for a profile playing in session
+  4 is the neighbour's game — and the next thing that happens is not a
+  read but a kill;
+- the daemon's own answer is checked against that session before it is
+  believed. A daemon started on the wrong desktop binds the right port
+  and hijacks the wrong client, which is not hypothetical: that is
+  exactly what was found running when #1218 went looking, and a restart
+  that trusted it would have force-closed the game in front of the
+  person.
+
+Ending it needs rights this process may not have. `TerminateProcess` on
+a process owned by another account comes back ACCESS_DENIED for an
+unelevated panel, so that case is retried through **one elevated
+`taskkill /F /PID`** — by pid, never by image name. The fallback fires
+only when a session was named; a profile on this desktop that cannot
+kill its own client has something else wrong, and a surprise elevation
+prompt is not how to discover it. (Note that this is a *smaller*
+privilege than `START_GAME` needs: starting a process inside somebody
+else's session takes SYSTEM, ending one takes an administrator.)
 
 A client that is not running is not an error — the statement's job is to
 leave nothing running, and that is already true.

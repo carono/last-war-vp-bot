@@ -1581,16 +1581,25 @@ class Interpreter:
         A client that is already gone is not an error — the recipe's job is to get
         from "running" to "freshly started", and half of that being done for it is a
         head start, not a failure.
+
+        The session travels with the close for the same reason it travels with the
+        start, and for a sharper one: a client in another account's session refuses
+        `TerminateProcess` outright for an unelevated panel, so without saying whose
+        session it is the statement would kill nothing and then spend its whole
+        timeout waiting for a process that never went away.
         """
         self._tools_lib_on_path()
         import game_client
 
-        pid = game_client.target_pid(port=self._game_port())
+        user = (self.ctx.game_user or "").strip() or None
+        pid = game_client.target_pid(port=self._game_port(), user=user,
+                                     log=lambda msg: self._log(f"  {msg}"))
         self._detach()                        # nothing may hold the old process
         if pid is None:
             self._log("QUIT_GAME -> no client is running")
             return
-        if not game_client.close(pid, timeout=QUIT_TIMEOUT_SEC):
+        if not game_client.close(pid, timeout=QUIT_TIMEOUT_SEC, user=user,
+                                 log=lambda msg: self._log(f"  {msg}")):
             self._fail(f"the client (pid {pid}) would not close")
         self._log(f"QUIT_GAME -> client pid {pid} closed")
 

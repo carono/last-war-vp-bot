@@ -210,7 +210,6 @@
   "log.game.kill_failed": "süreç öldürülemedi: {error}",
   "log.game.killing": "{exe} öldürülüyor…",
   "log.game.launching": "oyun launch_game tarifiyle başlatılıyor…",
-  "log.game.other_session": "bu profilin istemcisi {user} adlı kullanıcının Windows oturumunda yaşıyor — başlatılması ve durdurulması orada olur; panel onu yalnızca kendi cin kapısı üzerinden sürer",
   "log.game.restarting": "istemci restart_game tarifiyle yeniden başlatılıyor…",
   "log.game.watchdog_hold": "bekçi: son yeniden başlatma {mins} dk önceydi — bekliyorum",
   "log.game.watchdog_relaunch": "bekçi: oyunu yeniden başlatıyorum",

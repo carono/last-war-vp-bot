@@ -210,7 +210,6 @@
   "log.game.kill_failed": "proses tidak bisa dimatikan: {error}",
   "log.game.killing": "mematikan {exe}…",
   "log.game.launching": "memulai permainan lewat resep launch_game…",
-  "log.game.other_session": "klien profil ini hidup di sesi Windows milik {user} — di sanalah ia dinyalakan dan dimatikan; panel hanya menjalankannya, lewat porta daemonnya sendiri",
   "log.game.restarting": "memulai ulang klien lewat resep restart_game…",
   "log.game.watchdog_hold": "penjaga: mulai ulang terakhir {mins} mnt lalu — menunggu",
   "log.game.watchdog_relaunch": "penjaga: memulai permainan lagi",

@@ -210,7 +210,6 @@
   "log.game.kill_failed": "non è stato possibile terminare il processo: {error}",
   "log.game.killing": "termino {exe}…",
   "log.game.launching": "avvio del gioco tramite la ricetta launch_game…",
-  "log.game.other_session": "il client di questo profilo vive nella sessione Windows di {user} — lì lo si avvia e lo si ferma; il pannello si limita a guidarlo, tramite la propria porta del demone",
   "log.game.restarting": "riavvio del client tramite la ricetta restart_game…",
   "log.game.watchdog_hold": "guardiano: l'ultimo riavvio è di {mins} min fa — aspetto",
   "log.game.watchdog_relaunch": "guardiano: riavvio il gioco",

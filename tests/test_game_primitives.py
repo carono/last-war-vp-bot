@@ -768,7 +768,11 @@ class FakeClient:
     def __init__(self, pid=4242, attached=None) -> None:
         self.pid = pid
         self.attached = pid if attached is None else attached
-        self.closed: list[int] = []
+        #: every close, as ``{"pid", "user"}`` — the session has to reach the closer
+        #: too, or another account's client refuses the kill and is waited for anyway.
+        self.closed: list[dict] = []
+        self.close_ok = True
+        self.asked_for: list = []
         self.reloads = 0
         # …and the other end of its life: what START_GAME was asked for, what the
         # launch is to raise (a missing launcher, a session nobody is logged on to),
@@ -778,7 +782,8 @@ class FakeClient:
         self.next_pid = 9999
 
     # the module surface the interpreter uses
-    def target_pid(self, port=None, game_exe=None):
+    def target_pid(self, port=None, game_exe=None, user=None, log=None):
+        self.asked_for.append(user)
         return self.attached or self.pid
 
     def start(self, launcher=None, user=None, timeout=None, game_exe=None, log=None):
@@ -796,12 +801,12 @@ class FakeClient:
     def attached_pid(self, port=None):
         return self.attached
 
-    def close(self, pid, timeout=None):
-        self.closed.append(pid)
+    def close(self, pid, timeout=None, user=None, log=None):
+        self.closed.append({"pid": pid, "user": user})
         if pid == self.pid:
             self.pid = None
         self.attached = None
-        return True
+        return self.close_ok
 
     # what the game does around it
     def restart(self, pid=5151):
@@ -872,7 +877,7 @@ def test_quit_closes_the_pid_the_daemon_drives_and_drops_the_link():
     ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=ev)
     with _fakes(client):
         se.Interpreter(ctx)._run_block(se.parse_text("QUIT_GAME"))
-    assert client.closed == [4242], client.closed
+    assert client.closed == [{"pid": 4242, "user": None}], client.closed
     assert ctx.evaluator is None, "the dead process's evaluator was kept"
 
 
@@ -1084,6 +1089,92 @@ def test_launch_recipe_starts_the_game_where_the_profile_lives():
     assert kinds == ["StartGameStmt", "WaitStmt", "LogStmt"], kinds
     assert "LAUNCH " not in body, \
         "LAUNCH spawns on THIS desktop — a profile in another session gets a third client"
+
+
+def test_quit_carries_the_session_to_the_closer():
+    """Ending a client needs the session as much as starting one does.
+
+    Another account's process refuses `TerminateProcess` outright for an unelevated
+    panel, so a close that did not know whose session it was in would kill nothing and
+    then sit out its whole timeout waiting for a process that never went away.
+    """
+    client = FakeClient(pid=4242)
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(),
+                     game_port=47655, game_user="casper")
+    with _fakes(client):
+        se.Interpreter(ctx)._run_block(se.parse_text("QUIT_GAME"))
+    assert client.closed == [{"pid": 4242, "user": "casper"}], client.closed
+    # …and the LOOKUP is narrowed by it too, which matters more: without the session
+    # both routes fall back to the client of this desktop — the neighbour's game.
+    assert client.asked_for == ["casper"], client.asked_for
+
+
+def test_a_client_that_would_not_close_fails_the_recipe_in_words():
+    client = FakeClient(pid=4242)
+    client.close_ok = False
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    with _fakes(client):
+        assert se.run_text("QUIT_GAME", ctx=ctx) is False
+    assert ctx.failed and "4242" in ctx.fail_reason, ctx.fail_reason
+
+
+def test_the_elevated_kill_is_only_for_a_client_in_another_session():
+    """The fallback is gated on a session being NAMED, not on any refusal.
+
+    A profile on this desktop that cannot kill its own client has something else wrong,
+    and a surprise elevation prompt is not how a person should find that out.
+    """
+    import game_client
+
+    calls: list = []
+    saved = game_client._close_here, game_client._close_elevated, game_client.alive
+    game_client.alive = lambda pid: True
+    game_client._close_here = lambda pid, timeout, say: calls.append("here") or False
+    game_client._close_elevated = lambda pid, timeout, say: calls.append("elevated") or True
+    try:
+        assert game_client.close(11, user=None) is False
+        assert calls == ["here"], calls
+        calls.clear()
+        assert game_client.close(11, user="casper") is True
+        assert calls == ["here", "elevated"], calls
+        # …and a client that is already gone is never killed twice.
+        calls.clear()
+        game_client.alive = lambda pid: False
+        assert game_client.close(11, user="casper") is True
+        assert calls == [], calls
+    finally:
+        game_client._close_here, game_client._close_elevated, game_client.alive = saved
+
+
+def test_a_daemon_pointing_at_the_wrong_session_is_not_believed():
+    """Found live (#1218): the profile's daemon was running on THIS desktop.
+
+    It bound the right port and hijacked the console session's client, so it answered
+    "attached to 153576" — the game in front of the person. A restart that believed it
+    would have force-closed that game instead of the second account's. So the daemon's
+    answer is checked against the session the profile actually plays in.
+    """
+    import game_client
+
+    saved = (game_client.attached_pid, game_client.session_of,
+             game_client.session_pids_of)
+    said: list = []
+    game_client.session_of = lambda user: 4
+    game_client.session_pids_of = lambda session, game_exe=None: [777]
+    try:
+        game_client.attached_pid = lambda port=None: 777          # the right client
+        assert game_client.target_pid(port=47655, user="casper", log=said.append) == 777
+        assert said == [], said
+        game_client.attached_pid = lambda port=None: 153576       # this desktop's
+        assert game_client.target_pid(port=47655, user="casper", log=said.append) == 777
+        assert said and "NOT in casper's session" in said[0], said
+        # …and with nothing of this profile's running, the honest answer is none —
+        # never the client that happens to be in front of the person.
+        game_client.session_pids_of = lambda session, game_exe=None: []
+        assert game_client.target_pid(port=47655, user="casper") is None
+    finally:
+        (game_client.attached_pid, game_client.session_of,
+         game_client.session_pids_of) = saved
 
 
 def test_a_per_user_launcher_path_does_not_travel_to_another_session():
