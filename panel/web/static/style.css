@@ -3,7 +3,21 @@
 
    No fonts are fetched and no framework is used: the panel installs on a machine that
    may have no internet worth speaking of, and the page has to come up on a home network
-   with the router as the only hop. */
+   with the router as the only hop. Three files, about 25 KB, nothing to build.
+
+   THE RULES THIS FILE IS HELD TO, measured on 360x640 (Android) and 393x852 (iPhone 15,
+   through WebKit) — tests/test_panel_web.py pins the ones a static reading can see:
+
+   * MOBILE FIRST. There is no desktop layout being squeezed: one column, and the only
+     media query widens the page on a big screen rather than the other way round.
+   * 44 CSS px is the floor for anything a finger has to hit — Apple's own number, and
+     the one a measured audit of this page failed on its first draft (the timer switches
+     were 26 px, which is a fingernail).
+   * NO :hover ANYWHERE. A phone has no cursor; a rule that only shows on hover is a
+     rule that never shows. Feedback is `:active` and nothing else.
+   * 16 px on every input, or iOS zooms the page on focus and the person has to pinch
+     back out — the single most common way a page "does not work on a phone".
+   * No table ever. Rows are cards; a card wraps, a table row scrolls sideways. */
 
 :root {
   --bg: #12161d;
@@ -26,6 +40,10 @@ body {
   color: var(--ink);
   font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
+  /* The grey flash Safari and Chrome paint over a tapped element. It lands on the
+     whole card rather than the control and reads as a glitch; the `:active` rules
+     below say the same thing where it is actually being pressed. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* --- the token box ------------------------------------------------------ */
@@ -53,6 +71,7 @@ header {
 }
 .profile { font-weight: 600; }
 .link { color: var(--muted); font-size: 13px; }
+.link:empty { display: none; }
 
 main { padding: var(--gap); padding-bottom: 92px; }
 
@@ -95,6 +114,10 @@ nav {
 .bad { color: var(--bad); }
 p { margin: 6px 0 0; }
 
+/* A pill with nothing in it is a grey blob nobody can read — it was the first thing
+   the eye landed on in the screenshots of the timers screen. Empty means gone. */
+.pill:empty { display: none; }
+
 .pill {
   font-size: 13px;
   font-weight: 600;
@@ -133,37 +156,110 @@ input[type=password], input[type=search], input[type=text] {
   width: 100%;
 }
 
-/* the switch is a plain checkbox, scaled up to a thumb */
-input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--accent); }
-.switch { padding: 4px 2px 12px; }
+/* THE SWITCH. A checkbox scaled up is still a checkbox: 26 px of hit area, drawn by
+   the browser (a white square on WebKit, which is not this theme), and impossible to
+   be sure of with a thumb. This is a real toggle — 56x32 of drawn control inside a row
+   that is 48 px tall and the full width of the card, so the whole line is the target. */
+input[type=checkbox] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex: none;
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+  background: #39445a;
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background .15s;
+}
+input[type=checkbox]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #cfd8e3;
+  transition: transform .15s;
+}
+input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+input[type=checkbox]:checked::after { transform: translateX(24px); background: #fff; }
+input[type=checkbox]:active::after { width: 28px; }
+input[type=checkbox]:disabled { opacity: .5; }
+
+/* A row that carries a switch is a tap target in its own right: the label wraps both,
+   so the title is as pressable as the toggle. 48 px is the floor, and it grows with a
+   title that wraps to two lines. */
+.switch-row {
+  min-height: 48px;
+  padding: 6px 0;
+  gap: 12px;
+}
+.switch-row:active { opacity: .7; }
+.switch { padding: 6px 2px 12px; min-height: 48px; }
 
 /* --- lists -------------------------------------------------------------- */
 .item {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px 10px;
   margin-bottom: 10px;
 }
 .item .title { font-weight: 600; overflow-wrap: anywhere; }
+/* The button is ALWAYS in the same place — bottom right of the card, whether or not
+   there is a pill beside it. With `space-between` a row whose pill was hidden put its
+   button on the left, so «Запустить» moved from card to card down the list and the
+   thumb had to look for it every time. */
 .item .foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
 }
+.item .foot > :first-child { margin-right: auto; }
+/* A scenario is one line of title and one line of «id … Run»: four of them fitted on
+   a 360-wide screen out of twenty-five, which is a list nobody scrolls to the end of.
+   The button keeps its 44 px; everything around it gives way. */
+.item.act { padding: 6px 12px 8px; }
+.item.act .foot { margin-top: 4px; }
+.item.act button { padding: 8px 16px; }
+/* …and the one that is running says so, so a press that took a second to dispatch is
+   not pressed again. */
+.item.running { border-color: var(--accent); }
+.item.running .title::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
 
 /* --- the log ------------------------------------------------------------ */
+/* 13px rather than 12: this is read on a phone, at arm's length, and a monospace
+   digit at 12 is where «47654» stops being legible without leaning in. */
 .log {
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.log div { padding: 3px 0; border-bottom: 1px solid rgba(42, 51, 65, .5); }
-.log .error { color: var(--bad); }
-.log .warn { color: var(--warn); }
-.log .ok { color: var(--ok); }
+.log div {
+  padding: 5px 0 5px 10px;
+  border-bottom: 1px solid rgba(42, 51, 65, .5);
+  border-left: 3px solid transparent;
+}
+/* ONLY THE BAD NEWS IS COLOURED. Painting every ordinary line green — which is what
+   the severity classifier calls «готов», «запущен», «включён» — made the screen a wall
+   of green with the one red line lost in it. The routine is quiet; a failure is red and
+   carries a bar down its left edge so it is findable while scrolling past. */
+.log .error { color: var(--bad); border-left-color: var(--bad); }
+.log .warn { color: var(--warn); border-left-color: var(--warn); }
 
 /* --- transient ---------------------------------------------------------- */
 .offline, .toast {
@@ -178,3 +274,12 @@ input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--accent); }
 .offline { top: 8px; background: rgba(248, 81, 73, .92); color: #fff; }
 .toast { bottom: calc(86px + env(safe-area-inset-bottom)); background: #263041;
          border: 1px solid var(--line); }
+
+/* --- the only media query, and it widens rather than narrows ------------- */
+/* Everything above is the phone. This is the tablet and the desktop browser getting
+   the same page centred instead of a column of cards stretched to 1400 px — which is
+   the right way round: the small screen is not a special case here, it is the case. */
+@media (min-width: 700px) {
+  main { max-width: 640px; margin: 0 auto; }
+  nav { position: sticky; bottom: 0; max-width: 640px; margin: 0 auto; }
+}

@@ -23,6 +23,7 @@ let VIEW = 'state';
 let LOG_AT = 0;                // the newest log line already drawn
 let TIMER_ROWS = [];
 let ACTIONS = [];
+let RUNNING = '';              // the scenario the panel is playing, off /api/state
 let NOTIFY = false;
 let POLLING = null;
 
@@ -92,7 +93,11 @@ function when(stamp, now) {
 
 function paintState(state) {
   $('profile').textContent = state.profile;
-  $('link').textContent = T('web.ui.port', { port: state.daemon.port });
+  // The scenario being played right now, by NAME — the id, not the sentence, because
+  // the sentence is in whatever language the panel is set to (panel/web/api.py).
+  const wasRunning = RUNNING;
+  RUNNING = (state.activity && state.activity.name) || '';
+  if (RUNNING !== wasRunning && VIEW === 'actions') paintActions();
 
   const game = $('game-dot');
   game.textContent = state.game.running ? T('web.ui.on') : T('web.ui.off');
@@ -136,8 +141,11 @@ function timerItem(row, now) {
   const item = document.createElement('div');
   item.className = 'item';
 
+  // THE WHOLE ROW IS THE TARGET. A <label> wrapping both means the title toggles the
+  // errand as surely as the switch does — 48 px tall and the width of the card, where
+  // the drawn control alone was 26 px of fingernail (measured at 360x640).
   const head = document.createElement('label');
-  head.className = 'row';
+  head.className = 'row switch-row';
   const title = document.createElement('span');
   title.className = 'title';
   title.textContent = row.title;
@@ -166,6 +174,8 @@ function timerItem(row, now) {
 
   const foot = document.createElement('div');
   foot.className = 'foot';
+  // Empty and it is not drawn at all (`.pill:empty` in the stylesheet): a pill with no
+  // word in it is a grey blob, and it was the first thing the eye found on this screen.
   const mark = document.createElement('span');
   mark.className = 'pill' + (row.queued ? ' warn' : '');
   mark.textContent = row.queued ? T('web.ui.queued') : '';
@@ -198,7 +208,7 @@ function paintActions() {
   $('actions-empty').hidden = shown.length > 0;
   for (const action of shown) {
     const item = document.createElement('div');
-    item.className = 'item';
+    item.className = 'item act' + (action.name === RUNNING ? ' running' : '');
     const title = document.createElement('div');
     title.className = 'title';
     title.textContent = action.title;
@@ -216,6 +226,7 @@ function paintActions() {
         const answer = await post('/api/actions/run', { name: action.name });
         toast(answer.ok ? T('web.ui.started', { name: action.title })
                         : T('web.ui.refused'));
+        if (answer.ok) tick();          // show the running mark now, not in 2.5 s
       } finally { go.disabled = false; }
     });
     foot.append(name, go);

@@ -136,7 +136,11 @@ class WebApi:
             # method on none of them — read it, never call it.
             "daemon": {"up": self.rt.game.up(), "port": self._port(),
                        "busy": bool(self.rt.game.busy)},
+            # `name` is passed through raw beside the sentence: the page marks the
+            # scenario card that is running with it, and matching on the translated
+            # sentence would be matching on a language.
             "activity": ({"key": step.key,
+                          "name": str(step.fmt.get("name") or ""),
                           "text": self.rt.t(step.key, **step.fmt)}
                          if step is not None else None),
             "timers": due,
@@ -176,7 +180,10 @@ class WebApi:
             if when is None:
                 continue
             if soonest is None or when < soonest:
-                soonest, whose = when, timer.name
+                # The TITLE, not the id: what the front page said until now was
+                # «ближайший: alliance_upkeep», which is the key the file is keyed by
+                # and not a thing anybody calls it (the tab has never shown it either).
+                soonest, whose = when, self._timer_title(timer)
         # `running` is a property on the scheduler, like `busy` on the game link.
         return {"on": on, "next": soonest, "next_name": whose,
                 "running": bool(getattr(schedule.timers, "running", False))}

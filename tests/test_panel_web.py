@@ -203,7 +203,8 @@ def test_the_state_says_what_the_runtime_says():
         assert state["daemon"]["port"] == 47654
         assert state["daemon"]["up"] is False
         assert state["timers"]["on"] == 1, state["timers"]
-        assert state["timers"]["next_name"] == "collect"
+        # The TITLE — see `test_the_front_page_names_the_errand_rather_than_its_id`.
+        assert state["timers"]["next_name"] == "Collect"
 
 
 def test_a_scenario_runs_through_play_async_and_a_busy_panel_says_so():
@@ -443,6 +444,100 @@ def test_the_pages_placeholders_match_the_english_ones():
             want = set(holes.findall(english.get(key, "")))
             got = set(holes.findall(table.get(key, "")))
             assert want == got, f"{path.stem}.json[{key}]: {sorted(got)} ≠ {sorted(want)}"
+
+
+# ---------------------------------------------------------------------------
+# the phone it is actually held on
+# ---------------------------------------------------------------------------
+#
+# The page was measured through real engines at 360x640 (Android, Chromium mobile) and
+# 393x852 (iPhone 15, WebKit) — no horizontal overflow, no tap target under 44 px, no
+# input under 16 px. That run needs Playwright and lives outside the repository
+# (~/playwright-tests/shot-panel-web.js). What follows is the half a static reading can
+# keep honest, so a later edit cannot quietly undo it.
+
+def _css(with_comments: bool = False) -> str:
+    """The stylesheet — by default WITHOUT its comments.
+
+    The rules below read the text rather than a parsed tree, and the file explains the
+    rules it is held to in prose. A comment saying «no `:hover` anywhere» is not a
+    `:hover`, and the first version of this test failed on its own documentation.
+    """
+    css = (Path(apimod.static_dir()) / "style.css").read_text(encoding="utf-8")
+    return css if with_comments else re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def test_the_page_is_told_it_is_on_a_phone():
+    html = (Path(apimod.static_dir()) / "index.html").read_text(encoding="utf-8")
+    meta = re.search(r'<meta name="viewport" content="([^"]+)"', html)
+    assert meta, "no viewport meta — the phone renders it at 980 px and shrinks it"
+    content = meta.group(1)
+    assert "width=device-width" in content and "initial-scale=1" in content, content
+    # The notch: without it the header sits under the status bar and the bottom bar
+    # under the home indicator.
+    assert "viewport-fit=cover" in content, content
+    assert "env(safe-area-inset" in _css(), "the safe area is not kept clear"
+
+
+def test_nothing_waits_for_a_cursor_that_is_not_there():
+    """`:hover` on a phone is a state that never happens — the control looks dead."""
+    assert ":hover" not in _css()
+
+
+def test_every_control_is_at_least_a_finger_wide():
+    """44 CSS px, and the audit that measured it found the switches at 26."""
+    css = _css()
+    heights = [int(n) for n in re.findall(r"min-height:\s*(\d+)px", css)]
+    assert heights, "nothing declares a minimum height any more"
+    assert min(heights) >= 44, f"a control is {min(heights)} px tall"
+    assert re.search(r"button\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px", css), (
+        "the buttons no longer declare a thumb-sized minimum")
+
+
+def test_no_input_is_small_enough_to_make_ios_zoom():
+    """Under 16 px in a focused field and Safari zooms the page; the person pinches back."""
+    css = _css()
+    for rule in re.findall(r"input[^{]*\{[^}]*\}", css):
+        for size in re.findall(r"font-size:\s*(\d+)px", rule):
+            assert int(size) >= 16, f"an input is set to {size}px:\n{rule}"
+
+
+def test_the_layout_is_mobile_first_and_not_a_squeezed_desktop():
+    """Every media query WIDENS. A `max-width` one means the phone is the exception."""
+    queries = re.findall(r"@media\s*\(([^)]+)\)", _css())
+    assert queries, "there is no media query at all — that is fine, but say so here"
+    for query in queries:
+        assert "min-width" in query, f"@media ({query}) narrows instead of widening"
+
+
+def test_nothing_is_wider_than_the_narrowest_phone():
+    """A fixed width above 360 px is a page that scrolls sideways on an Android."""
+    css = _css()
+    wide = [int(n) for n in re.findall(r"[^-]width:\s*(\d{3,})px", css)
+            if int(n) > 360]
+    # `max-width` inside the desktop media query is allowed — it is a ceiling, not a size.
+    allowed = {int(n) for n in re.findall(r"max-width:\s*(\d+)px", css)}
+    assert not [n for n in wide if n not in allowed], f"fixed widths over 360: {wide}"
+
+
+def test_the_front_page_names_the_errand_rather_than_its_id():
+    """«ближайший: alliance_upkeep» is the file's key, not a thing anybody calls it."""
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        assert api.state()["timers"]["next_name"] == "Collect", api.state()["timers"]
+
+
+def test_the_running_scenario_is_named_so_the_page_can_mark_its_card():
+    """The sentence is in whatever language the panel is set to; the name is not."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+
+        class _Step:
+            key, fmt = "activity.action", {"name": "collect_base_resources"}
+
+        rt.activity.current = lambda: _Step()
+        activity = api.state()["activity"]
+        assert activity["name"] == "collect_base_resources", activity
 
 
 def test_the_timers_tab_offers_the_hook_the_web_presses():
