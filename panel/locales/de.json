@@ -759,7 +759,7 @@
   "log.update.fail_error": "Aktualisierung fehlgeschlagen: {detail}",
   "log.update.restarting": "starte das Pult mit dem aktualisierten Code neu…",
   "tab.vs_duel": "VS-Duell",
-  "vsduel.hint": "Das Duell zahlt an jedem Tag Punkte für andere Handlungen. Hake an, was an einem gegebenen Tag getan werden soll, und begrenze, was es dafür ausgeben darf. Von selbst läuft noch nichts — die Auswahl wird für den Tag aufgehoben, an dem die Handlungen kommen.",
+  "vsduel.hint": "Das Duell zahlt an jedem Tag Punkte für andere Handlungen. Hake an, was an einem gegebenen Tag getan werden soll, und begrenze, was es dafür ausgeben darf. Von selbst läuft noch nichts — die Auswahl wird für den Tag aufgehoben, an dem die Handlungen kommen. Wird der Haken beim Namen eines Tages entfernt, wird dieser Tag komplett ausgelassen.",
   "vsduel.shield": "Schild:",
   "vsduel.shield.twice_12h": "zweimal, je zwölf Stunden",
   "vsduel.shield.once_24h": "einmal, einen ganzen Tag",

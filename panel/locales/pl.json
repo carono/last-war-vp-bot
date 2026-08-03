@@ -759,7 +759,7 @@
   "log.update.fail_error": "aktualizacja nie powiodła się: {detail}",
   "log.update.restarting": "uruchamiam panel ponownie na zaktualizowanym kodzie…",
   "tab.vs_duel": "Pojedynek VS",
-  "vsduel.hint": "Pojedynek daje punkty za inny zestaw działań każdego dnia. Zaznacz, co ma być zrobione danego dnia, i ogranicz, ile wolno mu wydać. Nic jeszcze nie dzieje się samo — wybory czekają na chwilę, gdy pojawią się same działania.",
+  "vsduel.hint": "Pojedynek daje punkty za inny zestaw działań każdego dnia. Zaznacz, co ma być zrobione danego dnia, i ogranicz, ile wolno mu wydać. Nic jeszcze nie dzieje się samo — wybory czekają na chwilę, gdy pojawią się same działania. Odznaczenie nazwy dnia sprawia, że ten dzień jest w całości pomijany.",
   "vsduel.shield": "Tarcza:",
   "vsduel.shield.twice_12h": "dwa razy, po dwanaście godzin",
   "vsduel.shield.once_24h": "raz, na całą dobę",

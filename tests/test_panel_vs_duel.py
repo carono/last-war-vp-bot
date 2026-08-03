@@ -695,6 +695,198 @@ def test_a_ceiling_is_greyed_out_while_its_action_is_off():
         root.destroy()
 
 
+def test_a_day_that_is_switched_off_plans_nothing():
+    """The box in a group's title is the day's master switch: unticked, the day is not
+    played at all — not «played with whatever happens to be ticked inside it»."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.vs_duel import DAY_ENABLED
+
+        tab._flags["mon.hero_level"].set(True)
+        assert tab.plan("mon") == {"hero_level": {"limit": None, "exp_boxes": False}}
+
+        tab._flags[f"mon.{DAY_ENABLED}"].set(False)
+        assert tab.plan("mon") == {}, "a day nobody plays still handed out actions"
+        # Saturday's shield is the one thing a day always answers with — unless the
+        # day is not played.
+        assert "shield" in tab.plan("sat")
+        tab._flags[f"sat.{DAY_ENABLED}"].set(False)
+        assert tab.plan("sat") == {}
+
+        # The boxes are NOT cleared: switching the day back on brings the plan back.
+        tab._flags[f"mon.{DAY_ENABLED}"].set(True)
+        assert tab.plan("mon") == {"hero_level": {"limit": None, "exp_boxes": False}}
+    finally:
+        root.destroy()
+
+
+def test_a_day_switched_off_greys_out_everything_but_its_own_two_controls():
+    """Its actions, their ceilings, its radio buttons and its groups all go grey. The
+    switch stays live, obviously — and so does the picker that says which set the switch
+    itself is read from, or a day switched off in one week could never be moved to
+    another."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.vs_duel import DAY_ENABLED
+
+        day_on = tab._flags[f"mon.{DAY_ENABLED}"]
+        mine = [w for w, var, _live in tab._day_gated if var is day_on]
+        assert len(mine) >= 4, f"only {len(mine)} widgets follow Monday's switch"
+
+        tab._flags["mon.hero_level"].set(True)
+        tab._sync_dependents()
+        ceiling = tab._dependents["mon.hero_exp_m"][0]
+        assert str(ceiling.cget("state")) == "normal"
+
+        day_on.set(False)
+        tab._sync_dependents()
+        assert all(str(w.cget("state")) == "disabled" for w in mine)
+        # A ticked action inside a day that is off greys out with it, ceiling and all.
+        assert str(ceiling.cget("state")) == "disabled"
+        # Not the picker: it chooses the set the switch above it lives in.
+        assert str(tab._day_combos["mon"].cget("state")) == "readonly"
+        # And not another day.
+        others = [w for w, var, _l in tab._day_gated
+                  if var is tab._flags[f"tue.{DAY_ENABLED}"]]
+        assert all(str(w.cget("state")) == "normal" for w in others)
+
+        day_on.set(True)
+        tab._sync_dependents()
+        assert all(str(w.cget("state")) == "normal" for w in mine)
+        assert str(ceiling.cget("state")) == "normal"
+    finally:
+        root.destroy()
+
+
+def test_whether_a_day_is_played_belongs_to_the_set_and_survives_a_profile():
+    """It is a setting like any other: «hoard» may sit a day out that «push» plays, and
+    it round-trips. A set written before the switch existed says nothing about it — and
+    that has to read as ON, because those weeks were played in full."""
+    try:
+        root, tab = _tab(blank=False)
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs import vs_duel
+
+        # Both shipped sets play the whole week to begin with.
+        for record in vs_duel.default_presets():
+            for day, _items in vs_duel.DAYS:
+                assert record["values"][f"{day}.{vs_duel.DAY_ENABLED}"] is True
+
+        hoard, push = vs_duel.PRESET_HOARD, vs_duel.PRESET_PUSH
+        tab._day_set["thu"].set(hoard)
+        tab._load_day("thu")
+        tab._flags[f"thu.{vs_duel.DAY_ENABLED}"].set(False)
+        saved = json.loads(json.dumps(tab.config()))
+
+        root.destroy()
+        root, tab = _tab(blank=False)
+        tab.apply_config(saved)
+        assert tab._flags[f"thu.{vs_duel.DAY_ENABLED}"].get() is False
+        # The other set still plays Thursday — the switch went into ONE week.
+        tab._day_set["thu"].set(push)
+        tab._load_day("thu")
+        assert tab._flags[f"thu.{vs_duel.DAY_ENABLED}"].get() is True
+
+        # A profile from before the switch: no key at all, and the day is played.
+        tab.apply_config({"presets": [{"id": "old", "name": "Old", "values": {}}],
+                          "days": {}})
+        assert all(tab._flags[f"{day}.{vs_duel.DAY_ENABLED}"].get() is True
+                   for day, _items in vs_duel.DAYS)
+    finally:
+        root.destroy()
+
+
+def test_the_week_is_drawn_two_days_to_a_row_starting_at_monday():
+    """Six groups in one column is a page the week cannot be seen on. Two columns, read
+    left to right and then down, so Monday is still the first thing on it."""
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+        from panel.tabs import vs_duel
+
+        assert vs_duel.DAY_COLUMNS == 2
+        placed = {}
+        def walk(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, ttk.LabelFrame):
+                    try:
+                        info = child.grid_info()
+                    except tk.TclError:
+                        info = {}
+                    if info:
+                        placed[(int(info["row"]), int(info["column"]))] = child
+                walk(child)
+        walk(tab.parent)
+
+        assert sorted(placed) == [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]
+        # The order on screen is the order of DAYS, row by row.
+        titles = [str(root.nametowidget(placed[cell].cget("labelwidget")).cget("text"))
+                  for cell in sorted(placed)]
+        assert titles == [tab.t(f"vsduel.day.{day}") for day, _items in vs_duel.DAYS]
+    finally:
+        root.destroy()
+
+
+def test_the_text_wraps_to_the_column_it_is_drawn_in():
+    """Half a panel is not wide enough for the longest labels, so they wrap to whatever
+    the day's frame is — and a ttk box takes that through a STYLE, since `wraplength` is
+    an option a Checkbutton has never had.
+
+    The width is fed in by hand: a withdrawn window applies no geometry, so asking Tk to
+    resize one and believing the answer would be a test of nothing.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from panel.tabs.vs_duel import DAYS
+
+        assert tab._wrapped, "no day registered anything that wraps"
+        boxes = list(tab._wrapped)
+        assert len(boxes) == len(DAYS), "a day whose text does not wrap"
+        box = boxes[0]
+        # The wrap follows the frame, so the frame has to be watched for resizes.
+        assert box.bind("<Configure>"), "nothing re-wraps when the column changes"
+
+        # A box carries its wrap on a style of its own; a Label takes it as an option.
+        styled = [(w, s) for w, _i, s in tab._wrapped[box] if s]
+        assert styled and all(str(w.cget("style")) == s for w, s in styled)
+
+        def wraps_at(width):
+            box.winfo_width = lambda w=width: w
+            tab._rewrap(box)
+            return dict(tab._wrap_at)
+
+        narrow, wide = wraps_at(360), wraps_at(700)
+        assert all(wide[k] > narrow[k] for k in narrow), f"{narrow} -> {wide}"
+        # The deeper a widget sits, the less room it has left.
+        assert (wide["VsDuelWrap24.TCheckbutton"]
+                < wide["VsDuelWrap0.TCheckbutton"])
+        # Below the floor the words would break one per line, which is worse than a
+        # little clipping — so the wrap stops shrinking.
+        assert set(wraps_at(60).values()) == {tab._WRAP_FLOOR}
+    finally:
+        root.destroy()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

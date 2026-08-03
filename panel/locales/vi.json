@@ -759,7 +759,7 @@
   "log.update.fail_error": "cập nhật thất bại: {detail}",
   "log.update.restarting": "đang khởi động lại bảng trên mã đã cập nhật…",
   "tab.vs_duel": "Đấu VS",
-  "vsduel.hint": "Cuộc đấu cho điểm theo một nhóm hành động khác nhau mỗi ngày. Hãy đánh dấu những gì cần làm trong ngày đó, và giới hạn mức được tiêu. Chưa có gì tự chạy — các lựa chọn được giữ lại cho tới khi chính các hành động ấy xuất hiện.",
+  "vsduel.hint": "Cuộc đấu cho điểm theo một nhóm hành động khác nhau mỗi ngày. Hãy đánh dấu những gì cần làm trong ngày đó, và giới hạn mức được tiêu. Chưa có gì tự chạy — các lựa chọn được giữ lại cho tới khi chính các hành động ấy xuất hiện. Bỏ đánh dấu tên của một ngày sẽ bỏ qua hoàn toàn ngày đó.",
   "vsduel.shield": "Khiên:",
   "vsduel.shield.twice_12h": "hai lần, mỗi lần mười hai giờ",
   "vsduel.shield.once_24h": "một lần, trọn một ngày",

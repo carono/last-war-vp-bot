@@ -1,8 +1,16 @@
 """The «VS Duel» tab: what the bot is allowed to do on each day of the alliance duel.
 
 The duel scores a DIFFERENT set of actions every weekday (docs/game/daily_cycle.md),
-so the tab is a column of day groups — Monday to Saturday, the whole week the duel
-runs — and each group holds the actions that day pays points for.
+so the tab is a grid of day groups — Monday to Saturday, the whole week the duel runs,
+two days to a row — and each group holds the actions that day pays points for. Two
+columns rather than one because six groups in a single column is a page nobody can see
+the week on: the first three days are read, the rest are scrolled to.
+
+**The day's title is a box.** Unticking it says «this day is not played» — every action,
+ceiling, detail and pick inside it goes grey at once, and :meth:`plan` answers with
+nothing for it. Two things in the group stay live: the box itself, and the picker that
+says which set the day is read from — see «the sets» below for why that one cannot go
+grey with the day it selects.
 
 Four shapes make up every group, and nothing else:
 
@@ -26,8 +34,8 @@ what keeps «speed the research up» and «start one and hurry it» from reading
 box written twice.
 
 A detail and a ceiling go grey with their action, because a choice about something
-nobody is doing is not a choice. A day's own pick never greys out — one of its options
-is always chosen.
+nobody is doing is not a choice. No ACTION greys out a day's own pick — one of its
+options is always chosen — but the day switching itself off does.
 
 An action that scores on two different days is written ONCE and placed in both — the
 hero (Monday and Thursday) and the drone components (Monday and Wednesday). They are
@@ -211,9 +219,19 @@ def _research_category() -> _Choice:
                    + RESEARCH_CATEGORIES)
 
 
-#: The duel week, Monday first — the order the groups are drawn in. A day whose actions
-#: are still to be written down carries an empty tuple and draws a «later» line, which
-#: is all it takes to add one: put its actions here and give them locale keys.
+#: The key, under each day, of the box in the group's title: «this day is played».
+#: It is a setting like any other — it lives in the day's set, so a week of hoarding may
+#: sit Thursday out while a week of pushing plays it.
+DAY_ENABLED = "enabled"
+
+#: How many day groups stand side by side. Six days, so two columns is three rows —
+#: a week that fits on the page instead of a column that has to be scrolled through.
+DAY_COLUMNS = 2
+
+#: The duel week, Monday first — the order the groups are drawn in, left to right and
+#: then down, so the week reads the way it is written. A day whose actions are still to
+#: be written down carries an empty tuple and draws a «later» line, which is all it takes
+#: to add one: put its actions here and give them locale keys.
 DAYS: tuple = (
     ("mon", (
         _drone_parts(),
@@ -297,13 +315,15 @@ PRESET_PUSH = "push"
 
 
 def _base_values() -> dict:
-    """Every box of the week ticked, every ceiling empty, every pick on its default.
+    """Every day played, every box of the week ticked, every ceiling empty, every pick
+    on its default.
 
     The ground both sets are built from: a duel day is spent DOING the things, and what
     tells «hoard» from «push» apart is how much each is allowed to spend.
     """
     values: dict = {}
     for day, items in DAYS:
+        values[f"{day}.{DAY_ENABLED}"] = True
         for item in walk_items(items):
             if isinstance(item, _Choice):
                 values[f"{day}.{item.key}"] = item.default
@@ -473,9 +493,25 @@ class VsDuelTab(PanelTab):
         #: number the previously open account happened to be left on.
         self._defaults: dict = {}
         #: What an unticked action greys out with it — its ceiling, its detail boxes and
-        #: its picker, as "<the dependent's own name>" -> (widget, action's variable,
-        #: the state to put it back into).
+        #: its picker, as "<the dependent's own name>" -> (widget, the variables that
+        #: ALL have to be on for it to be live, the state to put it back into). The
+        #: day's own box is one of those variables, so a day switched off greys what its
+        #: actions carry without every caller having to remember it.
         self._dependents: dict = {}
+        #: What goes grey with the DAY and nothing else: the action boxes themselves,
+        #: the labels beside the ceilings, a day's own radio buttons, a group's frame
+        #: and its line of explanation. As (widget, day's variable, the live state).
+        self._day_gated: list = []
+        #: The day frame -> the widgets in it whose text re-wraps to its width, each
+        #: with how far it is indented inside the frame. Half a panel is not wide enough
+        #: for «Открывать сундуки опыта героя при необходимости» on one line, and a
+        #: fixed `wraplength` would be wrong at every width but the one it was measured
+        #: at, so the wrapping follows the frame instead. See :meth:`_rewrap`.
+        self._wrapped: dict = {}
+        #: The wrap each of those styles is currently set to — what keeps :meth:`_rewrap`
+        #: from configuring a style to the width it already has, and so from a
+        #: <Configure> that feeds itself.
+        self._wrap_at: dict = {}
         #: "<day>.<action>.<choice>" -> (combobox, the choice) — what a language change
         #: has to re-fill, since a combobox's list is not a widget option `tr` can set.
         self._combos: dict = {}
@@ -493,6 +529,12 @@ class VsDuelTab(PanelTab):
         self._set_combo = None
         self._day_combos: dict = {}
         for day, items in DAYS:
+            name = f"{day}.{DAY_ENABLED}"
+            self._flags[name] = tk.BooleanVar(master=master, value=True)
+            # A set written before a day could be sat out has no such key, and the
+            # absence has to read as ON: those weeks were played in full.
+            self._defaults[name] = True
+            self._keys_by_day[day].append(name)
             for item in walk_items(items):
                 if isinstance(item, _Choice):           # the day's own pick
                     name = f"{day}.{item.key}"
@@ -537,11 +579,20 @@ class VsDuelTab(PanelTab):
 
         scroll = ScrollableFrame(self.parent)
         scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        for day, items in DAYS:
-            box = self.tr(ttk.LabelFrame(scroll, padding=8), f"vsduel.day.{day}")
-            box.pack(fill="x", padx=(0, 4), pady=(0, 8))
+        # `uniform` is what keeps the columns the same width whatever is inside them:
+        # without it Friday's six one-line boxes would squeeze the column Monday's
+        # ceilings are in, and the week would look ragged.
+        for column in range(DAY_COLUMNS):
+            scroll.columnconfigure(column, weight=1, uniform="vsduel.day")
+        for index, (day, items) in enumerate(DAYS):
+            box = ttk.LabelFrame(scroll, padding=8)
+            box.grid(row=index // DAY_COLUMNS, column=index % DAY_COLUMNS,
+                     sticky="nsew", padx=(0, 6), pady=(0, 8))
+            self._wrapped[box] = []
+            self._build_day_switch(box, day)
             self._build_day_set(box, day)
-            self._build_items(box, day, items)
+            self._build_items(box, day, items, day_box=box)
+            box.bind("<Configure>", lambda _e, b=box: self._rewrap(b))
         self._refresh_set_lists()
         self._load_all_days()
         self._retranslate_choices()
@@ -567,8 +618,27 @@ class VsDuelTab(PanelTab):
                           justify="left"), "vsduel.sets.hint").pack(
             anchor="w", padx=10, pady=(0, 6))
 
+    def _build_day_switch(self, box, day: str) -> None:
+        """The day's name, drawn AS the box that says whether the day is played.
+
+        The group's title and the switch are one widget rather than two: a title with a
+        box under it would read as "Monday, and by the way here is an action called
+        Monday". Tk's own idiom for this is `labelwidget`, and the label is where the eye
+        goes first — which is what a master switch wants to be.
+        """
+        switch = self.tr(
+            ttk.Checkbutton(box, variable=self._flags[f"{day}.{DAY_ENABLED}"],
+                            command=self._sync_dependents), f"vsduel.day.{day}")
+        box.configure(labelwidget=switch)
+
     def _build_day_set(self, box, day: str) -> None:
-        """The day's own picker: which set this day is played from."""
+        """The day's own picker: which set this day is played from.
+
+        It does NOT go grey with the day, and that is deliberate: the box above it lives
+        IN the set this picker chooses, so greying the picker would trap a day that was
+        switched off — to move it to a week where it is played you would first have to
+        switch it back on in the week where it is not.
+        """
         row = ttk.Frame(box)
         row.pack(fill="x", pady=(0, 6))
         self.tr(ttk.Label(row, foreground="#888"), "vsduel.day.set").pack(
@@ -641,7 +711,10 @@ class VsDuelTab(PanelTab):
         values = self._store.values(self._day_set[day].get())
         for name in self._keys_by_day[day]:
             if name in self._flags:
-                self._flags[name].set(bool(values.get(name, False)))
+                # Only the day's own box has a default; every action box that a set is
+                # silent about stays unticked, as it always did.
+                self._flags[name].set(bool(values.get(
+                    name, self._defaults.get(name, False))))
             elif name in self._amounts:
                 self._amounts[name].set(str(values.get(
                     name, self._defaults.get(name, ""))))
@@ -729,59 +802,85 @@ class VsDuelTab(PanelTab):
         self._sync_dependents()
         self.rt.settings.changed()
 
-    def _build_items(self, box, day: str, items) -> None:
-        """Draw a day's items into ``box`` — a group becomes a frame of its own."""
+    def _build_items(self, box, day: str, items, day_box, indent: int = 0) -> None:
+        """Draw a day's items into ``box`` — a group becomes a frame of its own.
+
+        ``day_box`` is the DAY's frame however deep the recursion goes, and ``indent``
+        is how far into it this level already sits: the two are what let the text wrap
+        to the column it is drawn in (:meth:`_rewrap`).
+        """
         for item in items:
             if isinstance(item, _Group):
-                inner = self.tr(ttk.LabelFrame(box, padding=8), item.label)
+                inner = ttk.LabelFrame(box, padding=8)
+                # A LabelFrame has no state of its own, so its title is a Label rather
+                # than a `text=` — otherwise the frame's name would stay black over a
+                # day that is switched off, and only the day's frames would say so.
+                title = self.tr(ttk.Label(inner, style="TLabelframe.Label"), item.label)
+                inner.configure(labelwidget=self._gate_by_day(day, title))
+                self._wraps(day_box, title, indent + 20)
                 inner.pack(fill="x", pady=(2, 6))
                 if item.hint:
-                    self.tr(ttk.Label(inner, foreground="#888", wraplength=560,
-                                      justify="left"), item.hint).pack(
-                        anchor="w", pady=(0, 4))
-                self._build_items(inner, day, item.items)
+                    hint = self._gate_by_day(day, self.tr(
+                        ttk.Label(inner, foreground="#888", justify="left"), item.hint))
+                    hint.pack(anchor="w", pady=(0, 4))
+                    self._wraps(day_box, hint, indent + 20)
+                self._build_items(inner, day, item.items, day_box, indent + 20)
             elif isinstance(item, _Choice):
-                self._build_day_choice(box, day, item)
+                self._build_day_choice(box, day, item, day_box, indent)
             else:
-                self._build_action(box, day, item)
+                self._build_action(box, day, item, day_box, indent)
 
-    def _build_day_choice(self, box, day: str, choice: _Choice) -> None:
+    def _build_day_choice(self, box, day: str, choice: _Choice, day_box,
+                          indent: int) -> None:
         """A decision the DAY makes, with no box above it — drawn as radio buttons.
 
-        Nothing greys it out: one of its options is always chosen, so there is no state
-        in which the pick means nothing (unlike a picker that belongs to an action).
+        No ACTION greys it out: one of its options is always chosen, so there is no state
+        in which the pick means nothing (unlike a picker that belongs to an action). The
+        day itself still does — a day nobody plays makes no decisions.
         """
         name = f"{day}.{choice.key}"
-        self.tr(ttk.Label(box), choice.label).pack(anchor="w", pady=(0, 2))
+        label = self._gate_by_day(day, self.tr(ttk.Label(box), choice.label))
+        label.pack(anchor="w", pady=(0, 2))
+        self._wraps(day_box, label, indent)
         for value, label in choice.options:
-            self.tr(ttk.Radiobutton(box, variable=self._choices[name], value=value),
-                    label).pack(anchor="w", padx=(24, 0), pady=(0, 2))
+            button = self._gate_by_day(day, self.tr(
+                ttk.Radiobutton(box, variable=self._choices[name], value=value), label))
+            button.pack(anchor="w", padx=(24, 0), pady=(0, 2))
+            self._wraps(day_box, button, indent + 24)
         ttk.Frame(box, height=4).pack()          # air before the boxes below
 
-    def _build_action(self, box, day: str, action: _Action) -> None:
+    def _build_action(self, box, day: str, action: _Action, day_box,
+                      indent: int) -> None:
         """One box, and — indented under it — what only makes sense while it is ticked:
         the ceiling it spends against, its detail boxes, its picker."""
+        day_on = self._flags[f"{day}.{DAY_ENABLED}"]
         flag = self._flags[f"{day}.{action.key}"]
-        self.tr(ttk.Checkbutton(box, variable=flag, command=self._sync_dependents),
-                action.label).pack(anchor="w", pady=(0, 2))
+        button = self._gate_by_day(day, self.tr(
+            ttk.Checkbutton(box, variable=flag, command=self._sync_dependents),
+            action.label))
+        button.pack(anchor="w", pady=(0, 2))
+        self._wraps(day_box, button, indent)
         if action.amount is not None:
             name = f"{day}.{action.amount.key}"
             row = self._indented(box)
-            self.tr(ttk.Label(row, foreground="#888"), action.amount.label).pack(
+            self._gate_by_day(day, self.tr(ttk.Label(row, foreground="#888"),
+                                           action.amount.label)).pack(
                 side="left", padx=(0, 6))
             entry = NumericEntry(row, width=8, textvariable=self._amounts[name])
             entry.pack(side="left")
-            self._dependents[name] = (entry, flag, "normal")
+            self._dependents[name] = (entry, (day_on, flag), "normal")
         for sub in action.subs:
             name = f"{day}.{action.key}.{sub.key}"
             widget = self.tr(ttk.Checkbutton(box, variable=self._flags[name]),
                              sub.label)
             widget.pack(anchor="w", padx=(24, 0), pady=(0, 2))
-            self._dependents[name] = (widget, flag, "normal")
+            self._wraps(day_box, widget, indent + 24)
+            self._dependents[name] = (widget, (day_on, flag), "normal")
         if action.choice is not None:
             name = f"{day}.{action.key}.{action.choice.key}"
             row = self._indented(box)
-            self.tr(ttk.Label(row, foreground="#888"), action.choice.label).pack(
+            self._gate_by_day(day, self.tr(ttk.Label(row, foreground="#888"),
+                                           action.choice.label)).pack(
                 side="left", padx=(0, 6))
             combo = ttk.Combobox(row, state="readonly", width=28)
             combo.pack(side="left")
@@ -790,7 +889,7 @@ class VsDuelTab(PanelTab):
             self._combos[name] = (combo, action.choice)
             # Back to READONLY rather than «normal»: a combobox left normal is one a
             # person can type anything into, and the list is the whole point of it.
-            self._dependents[name] = (combo, flag, "readonly")
+            self._dependents[name] = (combo, (day_on, flag), "readonly")
         if action.amount is not None or action.subs or action.choice is not None:
             ttk.Frame(box, height=4).pack()      # air before the next action's box
 
@@ -800,13 +899,74 @@ class VsDuelTab(PanelTab):
         row.pack(anchor="w", padx=(24, 0), pady=(0, 2))
         return row
 
-    def _sync_dependents(self) -> None:
-        """Grey out what an unticked action carries — its ceiling has nothing to limit,
-        its detail boxes have nothing to be a detail of."""
-        for widget, flag, live in self._dependents.values():
+    #: Off a day frame's width before its text has to wrap: the frame's own padding on
+    #: both sides, its border, and the room a box or a radio button's indicator takes.
+    _WRAP_MARGIN = 44
+    #: No column is ever narrower than this for wrapping purposes — below it the words
+    #: would break one per line, which is worse to read than a little clipping.
+    _WRAP_FLOOR = 150
+
+    def _wraps(self, day_box, widget, indent: int) -> None:
+        """Say that ``widget``'s text re-wraps to ``day_box``, ``indent`` px in.
+
+        A ttk Label takes `wraplength` as an option; a ttk Checkbutton and Radiobutton
+        do NOT — the option exists only on the label ELEMENT inside them, reachable
+        through a style. So a box is given a style of its own per indent, and the wrap
+        is set on the style rather than on the widget. Every day column is the same
+        width (`uniform`), so one style per indent serves all six days.
+        """
+        style = ""
+        if not isinstance(widget, ttk.Label):
+            style = f"VsDuelWrap{indent}.{widget.winfo_class()}"
+            widget.configure(style=style)
+        self._wrapped.setdefault(day_box, []).append((widget, indent, style))
+
+    def _rewrap(self, day_box) -> None:
+        """The day's column changed width — re-wrap the text in it.
+
+        Nothing is re-set to the value it already has: a wrap re-lays the frame out,
+        which fires <Configure> again, and an unguarded handler would do that for ever.
+        """
+        try:
+            width = day_box.winfo_width()
+        except tk.TclError:
+            return
+        if width <= 1:                     # not mapped yet; <Configure> will come again
+            return
+        styles = ttk.Style(day_box)
+        for widget, indent, style in self._wrapped.get(day_box, ()):
+            wrap = max(self._WRAP_FLOOR, width - self._WRAP_MARGIN - indent)
             try:
-                widget.configure(state=(live if flag.get() else "disabled"))
+                if style:
+                    if self._wrap_at.get(style) != wrap:
+                        self._wrap_at[style] = wrap
+                        styles.configure(style, wraplength=wrap)
+                elif int(widget.cget("wraplength") or 0) != wrap:
+                    widget.configure(wraplength=wrap)
+            except (tk.TclError, ValueError):
+                pass
+
+    def _gate_by_day(self, day: str, widget):
+        """Make ``widget`` go grey when ``day`` is switched off. Returns it, so it can
+        be packed in the same breath it is registered in."""
+        self._day_gated.append((widget, self._flags[f"{day}.{DAY_ENABLED}"],
+                                str(widget.cget("state")) or "normal"))
+        return widget
+
+    def _sync_dependents(self) -> None:
+        """Grey out what nobody is doing: everything in a day that is not played, and —
+        inside a day that is — what an unticked action carries, since its ceiling has
+        nothing to limit and its detail boxes have nothing to be a detail of."""
+        for widget, day_on, live in self._day_gated:
+            try:
+                widget.configure(state=(live if day_on.get() else "disabled"))
             except tk.TclError:                 # the window went away mid-callback
+                pass
+        for widget, flags, live in self._dependents.values():
+            try:
+                widget.configure(state=(live if all(f.get() for f in flags)
+                                        else "disabled"))
+            except tk.TclError:
                 pass
 
     # -- the pickers -----------------------------------------------------------
@@ -846,9 +1006,15 @@ class VsDuelTab(PanelTab):
         an empty field, or an action that spends nothing countable. An action that is
         not ticked is simply absent, and so is a day nobody has written actions for.
 
+        A day whose box in the group's title is unticked is not played at all, and
+        answers with ``{}`` — not with the actions that happen to be ticked inside it.
+        That is the ONE thing that empties a day the person can still see filled in: the
+        boxes keep what they were set to, so switching the day back on brings its plan
+        back exactly as it was.
+
         A decision the day itself makes — Saturday's shield — is always there, under its
         own key as ``{"pick": <value>}``: one of its options is always chosen, so there
-        is nothing for its absence to mean.
+        is nothing for its absence to mean. Unless, of course, the day is not played.
 
         FLAT across a day's groups: an action keeps its own key wherever it is drawn, so
         Wednesday answers with `research_speedup` and `research_start` side by side. The
@@ -859,6 +1025,8 @@ class VsDuelTab(PanelTab):
         for name, items in DAYS:
             if name != day:
                 continue
+            if not self._flags[f"{day}.{DAY_ENABLED}"].get():
+                return {}
             for item in walk_items(items):
                 if isinstance(item, _Choice):
                     out[item.key] = {"pick": self._choices[f"{day}.{item.key}"].get()}

@@ -759,7 +759,7 @@
   "log.update.fail_error": "update failed: {detail}",
   "log.update.restarting": "restarting the panel on the updated code…",
   "tab.vs_duel": "VS Duel",
-  "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive.",
+  "vsduel.hint": "The duel pays points for a different set of actions every day. Tick what should be done on a given day, and cap what it may spend. Nothing runs by itself yet — the choices are kept for when the actions arrive. Unticking a day's own name sits that day out entirely.",
   "vsduel.shield": "Shield:",
   "vsduel.shield.twice_12h": "twice, twelve hours each",
   "vsduel.shield.once_24h": "once, a whole day",

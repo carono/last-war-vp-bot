@@ -759,7 +759,7 @@
   "log.update.fail_error": "échec de la mise à jour : {detail}",
   "log.update.restarting": "redémarrage du panneau sur le code mis à jour…",
   "tab.vs_duel": "Duel VS",
-  "vsduel.hint": "Le duel donne des points pour un ensemble d'actions différent chaque jour. Coche ce qui doit être fait un jour donné, et limite ce qu'il peut dépenser. Rien ne tourne encore tout seul — les choix sont gardés pour quand les actions arriveront.",
+  "vsduel.hint": "Le duel donne des points pour un ensemble d'actions différent chaque jour. Coche ce qui doit être fait un jour donné, et limite ce qu'il peut dépenser. Rien ne tourne encore tout seul — les choix sont gardés pour quand les actions arriveront. Décocher le nom d'un jour fait sauter ce jour entièrement.",
   "vsduel.shield": "Bouclier :",
   "vsduel.shield.twice_12h": "deux fois, douze heures chacun",
   "vsduel.shield.once_24h": "une fois, une journée entière",

@@ -759,7 +759,7 @@
   "log.update.fail_error": "pembaruan gagal: {detail}",
   "log.update.restarting": "memulai ulang panel dengan kode yang diperbarui…",
   "tab.vs_duel": "Duel VS",
-  "vsduel.hint": "Duel memberi poin untuk kumpulan tindakan yang berbeda tiap hari. Centang apa yang harus dikerjakan pada hari itu, dan batasi berapa yang boleh dihabiskan. Belum ada yang berjalan sendiri — pilihannya disimpan sampai tindakannya nanti tiba.",
+  "vsduel.hint": "Duel memberi poin untuk kumpulan tindakan yang berbeda tiap hari. Centang apa yang harus dikerjakan pada hari itu, dan batasi berapa yang boleh dihabiskan. Belum ada yang berjalan sendiri — pilihannya disimpan sampai tindakannya nanti tiba. Menghapus centang pada nama hari membuat hari itu dilewati sepenuhnya.",
   "vsduel.shield": "Perisai:",
   "vsduel.shield.twice_12h": "dua kali, dua belas jam masing-masing",
   "vsduel.shield.once_24h": "sekali, sehari penuh",

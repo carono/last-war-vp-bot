@@ -759,7 +759,7 @@
   "log.update.fail_error": "aggiornamento fallito: {detail}",
   "log.update.restarting": "riavvio del pannello sul codice aggiornato…",
   "tab.vs_duel": "Duello VS",
-  "vsduel.hint": "Il duello dà punti per un insieme di azioni diverso ogni giorno. Spunta cosa va fatto in un dato giorno e limita quanto può spendere. Da sé non gira ancora nulla — le scelte restano per quando arriveranno le azioni.",
+  "vsduel.hint": "Il duello dà punti per un insieme di azioni diverso ogni giorno. Spunta cosa va fatto in un dato giorno e limita quanto può spendere. Da sé non gira ancora nulla — le scelte restano per quando arriveranno le azioni. Togliendo la spunta al nome di un giorno, quel giorno viene saltato del tutto.",
   "vsduel.shield": "Scudo:",
   "vsduel.shield.twice_12h": "due volte, dodici ore ciascuna",
   "vsduel.shield.once_24h": "una volta, un giorno intero",

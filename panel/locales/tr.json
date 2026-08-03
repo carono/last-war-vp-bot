@@ -759,7 +759,7 @@
   "log.update.fail_error": "güncelleme başarısız: {detail}",
   "log.update.restarting": "panel güncellenmiş kodla yeniden başlatılıyor…",
   "tab.vs_duel": "VS Düellosu",
-  "vsduel.hint": "Düello her gün başka bir eylem kümesine puan verir. O gün ne yapılacağını işaretle ve ne kadar harcayabileceğini sınırla. Henüz hiçbir şey kendiliğinden çalışmıyor — seçimler, eylemler geldiğinde kullanılmak üzere saklanıyor.",
+  "vsduel.hint": "Düello her gün başka bir eylem kümesine puan verir. O gün ne yapılacağını işaretle ve ne kadar harcayabileceğini sınırla. Henüz hiçbir şey kendiliğinden çalışmıyor — seçimler, eylemler geldiğinde kullanılmak üzere saklanıyor. Bir günün adındaki işareti kaldırmak o günü tamamen atlar.",
   "vsduel.shield": "Kalkan:",
   "vsduel.shield.twice_12h": "iki kez, on ikişer saat",
   "vsduel.shield.once_24h": "bir kez, bütün gün",

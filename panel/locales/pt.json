@@ -759,7 +759,7 @@
   "log.update.fail_error": "a atualização falhou: {detail}",
   "log.update.restarting": "reiniciando o painel no código atualizado…",
   "tab.vs_duel": "Duelo VS",
-  "vsduel.hint": "O duelo dá pontos por um conjunto de ações diferente a cada dia. Marque o que deve ser feito em cada dia e limite o quanto ele pode gastar. Ainda não roda nada sozinho — as escolhas ficam guardadas para quando as ações chegarem.",
+  "vsduel.hint": "O duelo dá pontos por um conjunto de ações diferente a cada dia. Marque o que deve ser feito em cada dia e limite o quanto ele pode gastar. Ainda não roda nada sozinho — as escolhas ficam guardadas para quando as ações chegarem. Desmarcar o nome de um dia faz com que esse dia seja totalmente ignorado.",
   "vsduel.shield": "Escudo:",
   "vsduel.shield.twice_12h": "duas vezes, doze horas cada",
   "vsduel.shield.once_24h": "uma vez, um dia inteiro",
