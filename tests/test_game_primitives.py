@@ -517,14 +517,21 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     body, merged = se.prepare_source(src, {})
     assert merged["squads"] == [1, 2, 3], "the recipe must default to all three squads"
     stmts = se.parse_text(body)
-    # The recipe now leads with `CALL rally_monitor` — it logs who is in the rallies
-    # (the members and squads) before spending anything (#1130) — then parks the
-    # squads and presses.
-    assert [type(s).__name__ for s in stmts] == ["CallStmt", "LuaStmt", "TapStmt"], stmts
+    # The recipe leads with `CALL rally_monitor` — it logs who is in the rallies (the
+    # members and squads) before spending anything (#1130) — then parks the squads,
+    # SIEVES them down to the ones standing in the base (#1222), refuses when none is
+    # left, and presses.
+    assert [type(s).__name__ for s in stmts] == [
+        "CallStmt", "LuaStmt", "ReadLuaStmt", "IfStmt", "TapStmt"], stmts
     assert stmts[0].action_name == "rally_monitor"
     assert "{ 1, 2, 3 }" in stmts[1].chunk, stmts[1].chunk
-    assert stmts[2].name == "join_rally"
-    assert stmts[2].count is None, "the press must be TAP … xall, not a fixed count"
+    # The sieve is in the recipe rather than in the panel: a squad already out joins
+    # nothing, and the send for it is a silent no-op that looks exactly like a join.
+    assert "IsFree" in stmts[1].chunk and "ArmyFormationList" in stmts[1].chunk, stmts[1].chunk
+    assert stmts[2].var == "free_squads", stmts[2]
+    assert type(stmts[3].then_block[0]).__name__ == "FailStmt", stmts[3]
+    assert stmts[4].name == "join_rally"
+    assert stmts[4].count is None, "the press must be TAP … xall, not a fixed count"
 
     # The parked squads live on the LuaStmt (now the second statement, after CALL).
     def _lua_chunk(squads):

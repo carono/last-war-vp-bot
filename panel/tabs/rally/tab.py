@@ -17,8 +17,17 @@ stops when the «monster» budget for today is spent.
 
 The game work is `actions/create_rally.md` — the scenario is the ability and this tab
 only plays it (CLAUDE.md), so what a repeat that came to nothing says is the
-SCENARIO's own words: it names six distinct failures and the tab quotes the one it
-gave rather than re-diagnosing the game itself.
+SCENARIO's own words: it names every way a rally fails and the tab quotes the one it
+gave rather than re-diagnosing the game itself. That includes the first of them —
+**a squad that is not in the base cannot raise a rally**; the recipe asks before it
+searches, and refuses saying whether the squad is marching, gathering, standing in
+another rally, wiped or captured. The tab holds no such gate of its own.
+
+**Where the squads are.** The line under the form says what each squad is doing and how
+much stamina is left. It is read by `panel/runtime/squads.py` — on the RUNTIME, so this
+tab reads it the same way whether it is in the shell or opened on its own — and it is
+repainted from two places: a poll while somebody is looking at the tab, and the
+«squad_state» trigger, which fires the moment a march message crosses the wire.
 
 **Hearing about one.** The monitor is a child process reading `push.alliance.march.*`
 off the wire; a march carrying a `team=` is a rally, and the first line about each
@@ -32,14 +41,13 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from tkinter import ttk
 
 from ...runtime import log as logmod
 from ...runtime.paths import TOOLS, repo_rel
 from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
                         font as ui_font)
-from ..base import PanelTab
+from ..base import PanelTab, TriggerSpec
 from . import limits as rallylimits
 from .autorally import AutoRallyPage
 
@@ -64,13 +72,6 @@ RALLY_ELITE_TYPE = "monster"
 # Seconds to pause between two sends so the previous banner settles before the next
 # find; interruptible by Stop.
 RALLY_BETWEEN_S = 6.0
-# A rally goes out from a squad standing in the base, so a squad that is still out is
-# waited for rather than sent with: this is how long, and how often the game is re-read
-# while waiting. Three minutes is a march there and back on the near part of the map;
-# a squad gathering on a mine is hours away and is skipped instead, which is the honest
-# answer — a repeat that cannot be spent should say so, not hold the loop for ever.
-RALLY_HOME_WAIT_S = 180.0
-RALLY_HOME_POLL_S = 10.0
 
 
 def _kind_key(base: str, kind: str) -> str:
@@ -106,6 +107,15 @@ class RallyTab(PanelTab):
     LEGACY_KEYS = {"form": "rally_tab", "autorally": "autorally",
                    "monitor": "rally_monitor", "alert": "rally_alert",
                    "autojoin": "rally_autojoin"}
+    #: A squad's state changes when a march does, and the game says so on the wire the
+    #: moment it happens. The poll in `panel/runtime/squads.py` is the floor — fifteen
+    #: seconds, so nothing is ever stale for long; this is the standing ear that makes
+    #: the line change AS the squad leaves or lands. The pattern is the bare word
+    #: `march` because every command that moves a squad carries it
+    #: (`world.march.formation.new`, `push.alliance.march.refresh`, …) and the handler
+    #: is cheap: it asks the runtime's reader to re-read, on a worker, taking no lease.
+    TRIGGERS = (TriggerSpec(name="squad_state", event="march",
+                            handler="refresh_squads"),)
 
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
@@ -312,6 +322,15 @@ class RallyTab(PanelTab):
         if off is not None:
             off()
 
+    def refresh_squads(self) -> None:
+        """The «squad_state» trigger fired: read the squads again, off the Tk thread.
+
+        Handed to the schedule as this tab's handler (`TRIGGERS`), and called on the Tk
+        thread — so it must not block. `refresh_async` spawns the worker, and whoever is
+        watching hears the reading through the bus.
+        """
+        self.rt.squads.refresh_async()
+
     def _on_squads(self, state) -> None:
         """A fresh reading arrived (on the Tk thread — the bus delivers there)."""
         self._render_squads(state)
@@ -509,13 +528,6 @@ class RallyTab(PanelTab):
                         self._status("rally_tab.capped",
                                      cap=limits.limit_for(RALLY_ELITE_TYPE))
                         raise _Stopped
-                    # A rally is raised BY a squad, and a squad that is out cannot raise
-                    # one: the search would run, the window would open and the game
-                    # would refuse at the last press, minutes later. So the squad is
-                    # waited for first (interruptibly) and the repeat is skipped when it
-                    # does not come home.
-                    if not self._wait_home(stop, squad):
-                        continue
                     self._status(_kind_key("searching", kind),
                                  level=level, rep=rep, total=repeats)
                     out = self._one_send(stop, kind, level, squad)
@@ -549,62 +561,6 @@ class RallyTab(PanelTab):
         finally:
             self._run_stop = None
             self._after(lambda: self._set_running(False))
-
-    def _home_squads(self, squads) -> list:
-        """The ones of ``squads`` that are in the base — all of them if it cannot be read.
-
-        Each squad left behind is named in the log with what it is doing instead, so a
-        join that spent two squads out of three says which one it did not spend and why.
-        """
-        state = self.rt.squads.read(force=True)
-        if not state.ok:
-            return list(squads)                    # cannot see — send, as before
-        home = []
-        for squad in squads:
-            info = state.squad(squad)
-            if info is None or info.at_base:
-                home.append(squad)
-            else:
-                self.say("rally", "rally_tab.not_home", squad=squad,
-                         state=self.t("squads.kind." + info.kind))
-        return home
-
-    def _wait_home(self, stop, squad) -> bool:
-        """Wait (up to :data:`RALLY_HOME_WAIT_S`) for ``squad`` to be back in the base.
-
-        ``True`` means «send it now»; ``False`` means this repeat is not to be spent —
-        because Stop was pressed, or because the squad is still out when the wait ran
-        out. The state is re-read forced each round: a squad that came home while the
-        loop was waiting has to be noticed on the round it came home, not on the next
-        one.
-
-        A reading that could not be TAKEN is not a refusal. No daemon, no client, a
-        manager not loaded — any of them and the answer is ``None``, and then the send
-        goes out as it always did and the scenario says what happened. A gate that
-        cannot see must not hold the loop.
-        """
-        deadline = None
-        while True:
-            if stop.is_set():
-                return False
-            state = self.rt.squads.read(force=True)
-            if not state.ok:
-                return True                        # cannot see — send, as before
-            info = state.squad(squad)
-            if info is None:
-                return True                        # a slot the game does not list
-            if info.at_base:
-                return True
-            where = self.t("squads.kind." + info.kind)
-            if deadline is None:
-                deadline = time.monotonic() + RALLY_HOME_WAIT_S
-            if time.monotonic() >= deadline:
-                self._status("rally_tab.not_home", squad=squad, state=where)
-                self._log("rally_tab.not_home", squad=squad, state=where)
-                return False
-            self._status("rally_tab.waiting_home", squad=squad, state=where)
-            if stop.wait(RALLY_HOME_POLL_S):
-                return False
 
     def _one_send(self, stop, kind, level, squad):
         """One rally, played as the scenario. ``None`` if Stop won the wait for the game.
@@ -707,23 +663,27 @@ class RallyTab(PanelTab):
         threading.Thread(target=self._join_work, args=(squads,), daemon=True).start()
 
     def _join_work(self, squads) -> None:
-        """The join itself, off the Tk thread and under the game claim."""
+        """The join itself, off the Tk thread and under the game claim.
+
+        Which of the ticked squads may actually be spent is the RECIPE's business
+        (`actions/join_rally.md` keeps only the ones standing in the base and fails
+        saying so when none is) — the tab hands over what the operator ticked and
+        repeats what came back.
+        """
         if not self.rt.game.claim("panel/rally-join"):
             self.say("rally", "busy")
             return
         try:
-            # A join is a send like any other, so it too is spent on a squad standing in
-            # the base — one already out joins nothing and says nothing about it. The
-            # squads are therefore sieved through the same reading the run loop gates on.
-            squads = self._home_squads(squads)
-            if not squads:
-                self.say("rally", "rally.no_home_squads")
-                return
-            self.rt.actions.run("join_rally", {"squads": squads})
+            out = self.rt.actions.play("join_rally", {"squads": squads},
+                                       on_event=lambda msg: self.rt.put(f"[rally] {msg}"))
+            if not out.ok and out.reason:
+                self.say("rally", "rally_tab.refused", reason=out.reason)
         except Exception as exc:                   # noqa: BLE001 — never crash the panel
             self.say("rally", "rally_tab.error", error=exc)
         finally:
             self.rt.game.release()
+        # The join has spent squads — the line under the form is stale until it is read.
+        self.rt.squads.refresh_async()
 
     # -- talking to the panel (always from a worker thread) ------------------
     def _after(self, func) -> None:

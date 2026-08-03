@@ -10,6 +10,10 @@
 #   run join_rally                       -- all three squads, one rally each
 #   run join_rally {"squads": [2, 3]}    -- only squads 2 and 3
 #
+# Only squads standing in the BASE are spent: a squad already marching, gathering or
+# in another rally cannot join one, and the send for it is a silent no-op. The run
+# fails, saying so, when not one of the chosen squads is at home.
+#
 # A rally is an alliance march the bot can read straight off the game (no map
 # panning, no pcap): the leader's march carries the rally id, its target tile and
 # server, which is everything a join needs. Rallies the player is already in are
@@ -36,5 +40,16 @@ ARGS squads = [1, 2, 3]
 # trigger uses (actions/rally_monitor.md); reused here with CALL, not duplicated.
 CALL rally_monitor
 
-LUA DataCenter.__lw_rally_squads = { {squads} } DataCenter.__lw_rally_joined = {}
+# Which squads may be spent — sieved through the same question `create_rally.md` asks
+# before it raises one: a squad that is already out joins nothing, and the send is a
+# silent no-op that looks exactly like a join. Sieved HERE rather than in the panel
+# because it is a rule of the ability, not of the button (CLAUDE.md); a squad whose
+# state cannot be read is kept, because a gate that cannot see must not refuse.
+LUA DataCenter.__lw_rally_squads = (function() local want = { {squads} } local afd = DataCenter.ArmyFormationDataManager local home = {} for _, idx in ipairs(want) do local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == tonumber(idx) then f = v end end if f == nil then home[#home+1] = idx else local st = tonumber(f.state) local free = false pcall(function() free = f:IsFree() end) if st == nil or (st == 0 and free) then home[#home+1] = idx end end end return home end)() DataCenter.__lw_rally_joined = {}
+
+READ_LUA #(DataCenter.__lw_rally_squads or {}) INTO free_squads
+
+IF free_squads == 0
+    FAIL "not one of the chosen squads is in the base — there is nothing to join with"
+
 TAP join_rally xall   # one press per squad, each to a rally of its own

@@ -110,14 +110,62 @@ opened — they are filled in by the dispatch UI, not by the config. So the pane
 the pool and does not gate on it: a gate priced from a field that reads zero would
 either never fire or fire always, and neither has been seen to be right.
 
+## Who asks, and where the answer is used
+
+| where | what it does with it |
+|---|---|
+| `actions/create_rally.md` §0 | the GATE: one code per squad, and a named refusal before the camera moves or anything is pressed |
+| `actions/join_rally.md` | sieves the squads it was handed down to the ones standing in the base |
+| `actions/read_squad_state.md` | the whole picture, one line, for the panel to draw |
+| `panel/runtime/squads.py` | the panel's cache/poll/`at_base` around that recipe — display, never a gate |
+
+The code table the gate answers with (also the panel's `KINDS`):
+
+`0` at home · `1` marching · `2` in a rally · `3` gathering · `4` in battle ·
+`5` coming home · `6` stationed out · `7` wiped · `8` captured · `9` out (unnamed) ·
+`-1` nothing could be read.
+
+**`-1` never refuses.** A read that failed says nothing about the squad, so the send
+goes out and the game answers, exactly as before the gate existed.
+
 ## What is proven, and what is not
 
-Read live, repeatedly: the enums, every squad's `index` / `state` / `IsFree()` /
-`totalSoldierNum`, the stamina pool with its maximum and its full-time, and
-`GetOwnerFormationMarch` answering `nil` for a squad that is home.
+Read live off two running clients: the enums, every squad's `index` / `state` /
+`IsFree()` / `totalSoldierNum`, the stamina pool with its maximum and its full-time
+(one client 105/120 refilling, the other 120/120 full), `GetOwnerFormationMarch`
+answering `nil` for a squad that is home, and the gate answering `0` for every real
+squad and `-1` for a slot the game does not have.
 
-NOT seen live: a squad actually out. Every reading so far was taken with all three
-squads in the base, so the march half of the reading — `status`, `march`, `team`,
-`point`, `arrive` — is best-effort until a march is caught in one. The gate the panel
-holds does not depend on it: «at home» is `state == Free` **and** `IsFree()`, both of
-which have been read, and everything else only decides which WORD the strip shows.
+**No squad was ever actually out.** Both accounts had all three squads in the base for
+the whole session (`GetOwnerMarches()` = 0, `GetMarchArmyNum()` = 0 on both), and the
+map search found no monster to rally at any level tried, so no march could be made to
+observe. The busy branches were therefore exercised IN the live VM instead, against the
+real data structures: the formation's own `state` field poked, and
+`GetOwnerFormationMarch` wrapped to answer — including once with a REAL march object
+off the game's own table (the base's train, `status = MOVING: 1`). Every branch
+answered its documented code, and the poke was undone (`state` back to `Free`, the
+method back to the original) and re-read to prove it:
+
+| set up in the VM | gate |
+|---|---|
+| `state=March`, no march | 1 |
+| `state=March`, the real train march (`MOVING`) | 1 |
+| march `WAIT_RALLY` + `teamUuid` / `IN_TEAM` | 2 |
+| march `COLLECTING` | 3 |
+| march `ATTACKING` | 4 |
+| march `BACK_HOME` | 5 |
+| `state=StationBuilding` | 6 |
+| `state=Death` (even with a march) | 7 |
+| `state=Prison` | 8 |
+| `state=Formation` | 9 |
+
+End to end with the same poke, `create_rally.md` refused in words — «squad 1 is out on
+a march…», «squad 1 was wiped out…» — and pressed NOTHING: no camera flight, no search
+window, no arm. `join_rally.md`'s sieve dropped exactly the poked squads (`1,2,3` →
+`1,3` → `1`) and restored to `1,2,3`.
+
+What is still unwitnessed is a march this account really made: the mapping of a real
+`COLLECTING` or `WAIT_RALLY` status onto a real squad. The field names and their string
+form are read off real march objects, so the risk is in the mapping and not in the
+reading — and the gate's own «at home» half (`state == Free` **and** `IsFree()`) has
+been read live many times.

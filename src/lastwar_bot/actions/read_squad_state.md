@@ -43,6 +43,11 @@
 # whole line. A squad whose march cannot be resolved still reports its `state`, which is
 # what the at-home gate is really made of.
 #
+# The same three facts — the state, the idle flag and the march's `MarchStatus` — are
+# what `create_rally.md` asks about ONE squad before it raises a banner, and what
+# `join_rally.md` sieves its squads with. They read them the same way and mean the same
+# thing by them; docs/research/squad-state.md is where that mapping is written down once.
+#
 # The panel keeps this in one place for every tab that needs it —
 # `panel/runtime/squads.py` polls this recipe and hands the parsed answer around
 # (`rt.squads`), so the full panel and a single tab opened on its own

@@ -2,10 +2,14 @@
 
 A rally goes out from a squad standing in the base. So does a gather, so does an
 attack — and a send with the squad already out is refused by the game minutes after
-the operator asked for it, with nothing to show for the wait. The panel therefore has
-to KNOW where its squads are, and more than one place needs the same answer: the
-«Ралли» tab gates its run on it, the monitor's auto-join has the same question to ask,
-and anything that dispatches later will ask it too.
+the operator asked for it, with nothing to show for the wait.
+
+THE GATE IS NOT HERE. Whether a send may go out is a rule of the ability and lives in
+the recipe: `actions/create_rally.md` asks before it searches and refuses by name,
+`actions/join_rally.md` sieves the squads it was given (CLAUDE.md — the panel is a
+player). What lives here is the ANSWER TO «where are they», for everything that merely
+wants to know: the line under the rally form, the trigger that repaints it when a march
+crosses the wire, and any tab that comes later.
 
 It lives here rather than in the tab for the reason everything else in
 `panel/runtime/` does: a tab opened on its own (`python -m panel.tabs.rally`) is handed
@@ -274,7 +278,7 @@ def _name(raw) -> str:
 class SquadReader:
     """The one place the panel asks where its squads are.
 
-    Three ways in, and they are for three different callers:
+    Four ways in, and they are for four different callers:
 
     * :meth:`read` — blocking, off the Tk thread, for the caller about to act on the
       answer (the rally loop, before it sends). ``force=True`` when it must be current.
@@ -282,6 +286,9 @@ class SquadReader:
     * :meth:`watch` — a callback per reading, and the poll runs for as long as somebody
       is watching. Stop watching and the polling stops with the last watcher, so a tab
       nobody has open costs no game reads.
+    * :meth:`refresh_async` — «something happened, look again», from the Tk thread and
+      without blocking it. This is what the «squad_state» trigger calls when a march
+      message crosses the wire, and what a tab calls after spending a squad.
     """
 
     def __init__(self, rt) -> None:

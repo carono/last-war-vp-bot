@@ -18,7 +18,12 @@
 #                anything else reads as `boss`.
 #
 # It does what a player does, in the same order, and each step waits for the game to
-# actually be in the next state rather than sleeping a guessed amount:
+# actually be in the next state rather than sleeping a guessed amount — starting with
+# the question a player answers by looking at the base:
+#
+#   0. is that squad even at home? A squad already marching, gathering, standing in
+#      somebody else's rally or wiped cannot raise one, and the game only says so at
+#      the last press. This asks first, and says which of those it is;
 #
 #   1. ask the game's own map search («лупа») for a target of that kind and level —
 #      not a scan of whatever monsters happen to be loaded on screen;
@@ -28,11 +33,12 @@
 #   4. launch, and confirm by looking — a rally of ours has to actually appear.
 #
 # Nothing is claimed from a press that returned cleanly. The run ends as a FAILURE,
-# naming the step, when the search finds nothing of that level, when the search finds
-# something that cannot be rallied, when the squad is not one the game knows, when
-# «Стягивание» does not bring up the squad screen, when that screen will not take the
-# squad, or when everything was pressed and no banner appeared. A timer therefore
-# keeps its place and tries again instead of counting a run that raised nothing.
+# naming the step, when the squad is not in the base (with what it is doing instead),
+# when the search finds nothing of that level, when the search finds something that
+# cannot be rallied, when the squad is not one the game knows, when «Стягивание» does
+# not bring up the squad screen, when that screen will not take the squad, or when
+# everything was pressed and no banner appeared. A timer therefore keeps its place and
+# tries again instead of counting a run that raised nothing.
 #
 # The presses live in tools/lib/game_buttons.py (`rally_*`) and their engine calls in
 # tools/lib/lua_actions.py; the reverse-engineering is docs/research/rally-create.md
@@ -46,6 +52,45 @@
 ARGS squad = 1
 ARGS level = 35
 ARGS target = boss
+
+# --- 0. The squad has to be standing in the base ----------------------------------
+# FIRST, before the camera moves and before anything is pressed. A rally is raised BY a
+# squad, and a squad that is already out cannot raise one — the game refuses at the
+# LAST press, which is a minute of searching, a camera flight and an open window later,
+# and all the operator saw was «не вышло». Asking the squad first costs one VM read and
+# names what it is doing instead.
+#
+# The code is the same one the panel's squad line is drawn from — the state, the idle
+# flag and (when there is one) the march's `MarchStatus`, mapped exactly as in
+# actions/read_squad_state.md and docs/research/squad-state.md:
+#
+#     0 at home   1 marching   2 in a rally   3 gathering   4 in battle
+#     5 coming home   6 stationed out   7 wiped   8 captured   9 out (unnamed)
+#    -1 nothing could be read
+#
+# -1 does NOT stop the run. A read that failed says nothing about the squad, and a gate
+# that cannot see must not refuse — the send goes out and the game answers, exactly as
+# it did before this gate existed.
+READ_LUA (function() local afd = DataCenter.ArmyFormationDataManager local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == {squad} then f = v end end if f == nil then return -1 end local st = tonumber(f.state) or -1 local free = false pcall(function() free = f:IsFree() end) if st == 0 and free then return 0 end if st == 3 or st == 5 then return 7 end if st == 2 or st == 6 then return 8 end local status, team = "", "0" pcall(function() local P = LuaEntry.Player local m = DataCenter.WorldMarchDataManager:GetOwnerFormationMarch(P.uid, f.uuid, P.allianceId) if m ~= nil then status = tostring(m.status):match("^[%u%d_]+") or "" team = tostring(m.teamUuid) end end) if team ~= "0" and team ~= "nil" then return 2 end if status == "WAIT_RALLY" or status == "IN_TEAM" then return 2 end if status == "COLLECTING" or status == "COLLECTING_ASSISTANCE" or status == "TREASURE_DIGGING" or status == "SAMPLING" or status == "PICKING" then return 3 end if status == "ATTACKING" or status == "CHASING" then return 4 end if status == "BACK_HOME" or status == "TRANSPORT_BACK_HOME" then return 5 end if status == "STATION" then return 6 end if status == "MOVING" then return 1 end if st == 1 then return 1 end if st == 4 then return 5 end if st == 7 then return 6 end if st < 0 then return -1 end return 9 end)() INTO squad_state
+
+IF squad_state == 1
+    FAIL "squad {squad} is out on a march — a rally is raised by a squad standing in the base"
+IF squad_state == 2
+    FAIL "squad {squad} is already in a rally"
+IF squad_state == 3
+    FAIL "squad {squad} is gathering resources — it cannot raise a rally until it is home"
+IF squad_state == 4
+    FAIL "squad {squad} is in battle"
+IF squad_state == 5
+    FAIL "squad {squad} is on its way home — try again when it lands"
+IF squad_state == 6
+    FAIL "squad {squad} is stationed out in the world"
+IF squad_state == 7
+    FAIL "squad {squad} was wiped out and is not in the base"
+IF squad_state == 8
+    FAIL "squad {squad} is a prisoner"
+IF squad_state == 9
+    FAIL "squad {squad} is not in the base"
 
 # The «лупа» is the world map's search, so the map has to be up. In the city the
 # window would not open and the run would fail on a press instead of on a state.

@@ -26,6 +26,9 @@ from lastwar_bot import script_engine as se  # noqa: E402
 # Which reading a chunk is, by a fragment only that reading contains. Order matters:
 # the squad-pick check also mentions the formation windows, so it is matched first.
 _READS = (
+    # The at-home gate, first in the recipe and first here: it is the only reading that
+    # asks the march table which squad is where.
+    ("squad_state", "GetOwnerFormationMarch"),
     ("scene", "SceneUtils.GetIsInWorld"),
     ("armed", ".formation ~= nil) and 1 or 0"),
     ("found", "GetPointBtnEnumName"),
@@ -88,6 +91,9 @@ def _run(variables=None, **answers):
     what would make this test take a minute.
     """
     answers.setdefault("scene", "world")
+    # Every other test is about what happens once the squad IS at home, so that is the
+    # default; the gate's own tests say otherwise on purpose.
+    answers.setdefault("squad_state", 0)
     fake = FakeRallyGame(**answers)
     log: list[str] = []
     ctx = se.Context(hwnd=0, on_event=log.append, evaluator=fake)
@@ -168,6 +174,55 @@ def test_the_arguments_reach_the_game():
     assert len(parked) == 1, fake.chunks
     assert "squad = 3" in parked[0] and "level = 120" in parked[0] \
         and 'kind = "monster"' in parked[0], parked[0]
+
+
+# --- the squad has to be at home (#1222) -------------------------------------------
+#
+# The gate is HERE, in the recipe, and not in the «Ралли» tab: it is a rule of the
+# ability, and the panel is a player (CLAUDE.md). What matters is that it costs nothing
+# when it refuses — no camera flight, no window, no press — and that it says which of
+# the busy states it saw, because "не вышло" was the whole of the old answer.
+
+#: The gate's own code table (actions/create_rally.md §0), and the word each refusal
+#: has to carry. -1 and 0 are the two that let the run through.
+BUSY_STATES = {
+    1: "march",
+    2: "rally",
+    3: "gathering",
+    4: "battle",
+    5: "way home",
+    6: "stationed",
+    7: "wiped",
+    8: "prisoner",
+    9: "not in the base",
+}
+
+
+def test_a_squad_that_is_out_is_refused_before_anything_is_pressed():
+    ok, fake, _log = _run(squad_state=1)
+    assert ok is False
+    assert fake.presses == [], "a refused rally must not touch the game: %s" % fake.presses
+
+
+def test_every_busy_state_says_which_one_it_was():
+    """One reason per state — the panel quotes it verbatim, so it has to be the truth."""
+    seen = set()
+    for code, word in BUSY_STATES.items():
+        ok, fake, log = _run(squad_state=code)
+        reason = [line for line in log if "FAIL ->" in line]
+        assert ok is False and reason, "state %d did not refuse" % code
+        text = reason[0]
+        assert word in text, "state %d said %r, expected to mention %r" % (code, text, word)
+        assert fake.presses == [], "state %d pressed %s" % (code, fake.presses)
+        seen.add(text)
+    assert len(seen) == len(BUSY_STATES), "two states share a reason: %s" % seen
+
+
+def test_a_state_that_cannot_be_read_does_not_stop_the_run():
+    """No daemon, no client, a manager not loaded — a gate that cannot see must not refuse."""
+    ok, fake, _log = _run(squad_state=-1, armed=1, found=1, panel=1, picked=1, raised=1)
+    assert ok is True, "an unreadable state blocked a rally it knows nothing about"
+    assert "launch" in fake.presses, fake.presses
 
 
 # --- every way it is allowed to give up -------------------------------------------
