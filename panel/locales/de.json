@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Dieses Profil hat keine weiteren Ansichten.",
   "web.ui.back": "Zurück",
   "web.ui.not_read": "noch nichts gelesen — «Auffrischen» drücken",
-  "web.ui.done": "fertig"
+  "web.ui.done": "fertig",
+  "cmdpost.col.level": "Stufe",
+  "cmdpost.col.robbed": "ausgeraubt",
+  "cmdpost.shared.matched": "bereit"
 }

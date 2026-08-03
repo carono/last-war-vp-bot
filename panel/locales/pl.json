@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Ten profil nie ma innych ekranów.",
   "web.ui.back": "Wstecz",
   "web.ui.not_read": "nic jeszcze nie odczytano — naciśnij «Odśwież»",
-  "web.ui.done": "gotowe"
+  "web.ui.done": "gotowe",
+  "cmdpost.col.level": "poziom",
+  "cmdpost.col.robbed": "obrabowane",
+  "cmdpost.shared.matched": "gotowe"
 }

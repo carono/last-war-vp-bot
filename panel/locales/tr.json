@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Bu profilin başka ekranı yok.",
   "web.ui.back": "Geri",
   "web.ui.not_read": "henüz bir şey okunmadı — «Yenile»ye basın",
-  "web.ui.done": "tamam"
+  "web.ui.done": "tamam",
+  "cmdpost.col.level": "seviye",
+  "cmdpost.col.robbed": "soyuldu",
+  "cmdpost.shared.matched": "hazır"
 }

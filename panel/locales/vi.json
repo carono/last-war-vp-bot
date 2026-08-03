@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Hồ sơ này không có màn hình nào khác.",
   "web.ui.back": "Quay lại",
   "web.ui.not_read": "chưa đọc được gì — hãy bấm «Làm mới»",
-  "web.ui.done": "xong"
+  "web.ui.done": "xong",
+  "cmdpost.col.level": "cấp",
+  "cmdpost.col.robbed": "đã cướp",
+  "cmdpost.shared.matched": "sẵn sàng"
 }

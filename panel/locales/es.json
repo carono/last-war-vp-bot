@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Este perfil no tiene más pantallas.",
   "web.ui.back": "Atrás",
   "web.ui.not_read": "aún no se ha leído nada — pulsa «Actualizar»",
-  "web.ui.done": "hecho"
+  "web.ui.done": "hecho",
+  "cmdpost.col.level": "nivel",
+  "cmdpost.col.robbed": "robado",
+  "cmdpost.shared.matched": "listo"
 }

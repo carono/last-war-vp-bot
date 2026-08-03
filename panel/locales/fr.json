@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Ce profil n'a pas d'autres écrans.",
   "web.ui.back": "Retour",
   "web.ui.not_read": "rien de lu pour l'instant — appuyez sur « Rafraîchir »",
-  "web.ui.done": "fait"
+  "web.ui.done": "fait",
+  "cmdpost.col.level": "niveau",
+  "cmdpost.col.robbed": "pillé",
+  "cmdpost.shared.matched": "prêt"
 }

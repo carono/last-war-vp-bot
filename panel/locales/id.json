@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Profil ini tidak punya layar lain.",
   "web.ui.back": "Kembali",
   "web.ui.not_read": "belum ada yang dibaca — tekan «Segarkan»",
-  "web.ui.done": "selesai"
+  "web.ui.done": "selesai",
+  "cmdpost.col.level": "level",
+  "cmdpost.col.robbed": "dirampok",
+  "cmdpost.shared.matched": "siap"
 }

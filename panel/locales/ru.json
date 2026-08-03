@@ -957,5 +957,8 @@
   "web.ui.more.empty": "У этого профиля других экранов нет.",
   "web.ui.back": "Назад",
   "web.ui.not_read": "ещё ничего не прочитано — нажмите «Обновить»",
-  "web.ui.done": "готово"
+  "web.ui.done": "готово",
+  "cmdpost.col.level": "уровень",
+  "cmdpost.col.robbed": "ограблено",
+  "cmdpost.shared.matched": "готово"
 }

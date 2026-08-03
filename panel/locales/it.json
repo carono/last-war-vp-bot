@@ -957,5 +957,8 @@
   "web.ui.more.empty": "Questo profilo non ha altre schermate.",
   "web.ui.back": "Indietro",
   "web.ui.not_read": "non è stato ancora letto nulla — premi «Aggiorna»",
-  "web.ui.done": "fatto"
+  "web.ui.done": "fatto",
+  "cmdpost.col.level": "livello",
+  "cmdpost.col.robbed": "derubato",
+  "cmdpost.shared.matched": "pronto"
 }
