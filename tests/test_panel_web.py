@@ -277,7 +277,7 @@ def test_the_log_is_replayed_by_number_and_only_once():
             ["[panel] three"]
         api.detach()
         rt.log.put("[panel] four")
-        assert api.log(0)["lines"][-1]["text"] == "[panel] three", "still tapped"
+        assert api.log(0)["lines"] == [], "a stopped server is still collecting"
 
 
 def test_a_phone_that_connects_late_is_handed_the_file():
@@ -444,6 +444,151 @@ def test_the_pages_placeholders_match_the_english_ones():
             want = set(holes.findall(english.get(key, "")))
             got = set(holes.findall(table.get(key, "")))
             assert want == got, f"{path.stem}.json[{key}]: {sorted(got)} ≠ {sorted(want)}"
+
+
+# ---------------------------------------------------------------------------
+# two accounts, one socket
+# ---------------------------------------------------------------------------
+#
+# The window may hold two profiles open (#1206) and that is how this bot is actually
+# run. A front-end that showed one of them and did not say which is the failure this
+# whole section exists to prevent — it has happened at the machine already, one profile
+# reading the other's client and looking perfectly healthy doing it.
+
+class _Workspace:
+    """The half of `panel/runtime/workspace.py` the web asks about."""
+
+    def __init__(self, sessions) -> None:
+        self._sessions = list(sessions)
+        self.current = self._sessions[0]
+
+    @property
+    def sessions(self) -> list:
+        return list(self._sessions)
+
+    def close(self, name: str) -> None:
+        self._sessions = [s for s in self._sessions if s.name != name]
+        if self.current.name == name and self._sessions:
+            self.current = self._sessions[0]
+
+
+def _two_profiles(home: str):
+    """Two runtimes in one workspace, wired the way `Workspace.open` wires them."""
+    first, second = _Runtime(os.path.join(home, "a")), _Runtime(os.path.join(home, "b"))
+    for rt, name in ((first, "main"), (second, "second")):
+        os.makedirs(rt.profiles._home, exist_ok=True)
+        rt.profiles.active = name
+    sessions = [type("_S", (), {"name": "main", "rt": first})(),
+                type("_S", (), {"name": "second", "rt": second})()]
+    workspace = _Workspace(sessions)
+    first.workspace = workspace
+    second.workspace = workspace
+    return first, second, workspace
+
+
+def test_the_page_can_ask_which_accounts_are_open():
+    with tempfile.TemporaryDirectory() as home:
+        first, _second, _ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+        answer = api.profiles()
+        assert answer["profiles"] == ["main", "second"], answer
+        assert answer["home"] == "main" and answer["showing"] == "main"
+
+
+def test_every_route_answers_for_the_profile_it_was_asked_about():
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        second.schedule.timer_catalogue = timersmod.Catalogue((
+            timersmod.Timer(name="second_only", scenario=("heal_units",),
+                            interval_sec=600, enabled=True, title="Second only"),))
+        api = apimod.WebApi(first)
+        assert api.state("second")["profile"] == "second"
+        assert [t["name"] for t in api.timers("second")["timers"]] == ["second_only"]
+        assert [t["name"] for t in api.timers()["timers"]] == ["collect", "upkeep"]
+
+
+def test_a_press_lands_on_the_client_of_the_profile_it_named():
+    """The whole point of naming one: the second account's button is not the first's."""
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+        assert api.run_action("collect_base_resources", "second")["ok"] is True
+        assert second.played == ["collect_base_resources"]
+        assert first.played == [], "the press went to the wrong account"
+        api.run_timer("collect")                      # unnamed = the server's own
+        assert first.schedule.timers.requested == ["collect"]
+        assert second.schedule.timers.requested == []
+
+
+def test_each_profile_keeps_its_own_log_and_its_own_numbering():
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+        api.attach()
+        try:
+            first.log.put("[panel] first says one")
+            second.log.put("[panel] second says one")
+            second.log.put("[panel] second says two")
+            mine = api.log(0)
+            theirs = api.log(0, "second")
+            assert [r["text"] for r in mine["lines"]] == ["[panel] first says one"]
+            assert len(theirs["lines"]) == 2, theirs
+            # …and the sequence is per profile, so one does not skip the other's numbers
+            assert mine["next"] == 1 and theirs["next"] == 2
+        finally:
+            api.detach()
+
+
+def test_a_profile_opened_after_the_server_is_picked_up():
+    with tempfile.TemporaryDirectory() as home:
+        first, second, workspace = _two_profiles(home)
+        workspace._sessions = workspace._sessions[:1]          # only «main» at start
+        api = apimod.WebApi(first)
+        api.attach()
+        try:
+            workspace._sessions.append(
+                type("_S", (), {"name": "second", "rt": second})())
+            api.log(0)                      # the phone's next ordinary poll
+            second.log.put("[panel] opened later")
+            assert any("opened later" in r["text"]
+                       for r in api.log(0, "second")["lines"])
+        finally:
+            api.detach()
+
+
+def test_a_profile_closed_at_the_machine_does_not_blank_the_phone():
+    """The selector may name a profile that has just been closed — fall back, do not 404."""
+    with tempfile.TemporaryDirectory() as home:
+        first, _second, workspace = _two_profiles(home)
+        api = apimod.WebApi(first)
+        workspace.close("second")
+        assert api.state("second")["profile"] == "main"
+        assert api.profiles()["profiles"] == ["main"]
+
+
+def test_a_runtime_with_no_workspace_answers_for_itself():
+    """A tab launched on its own is the same code path with one session in it."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert api.profiles()["profiles"] == ["test"]
+        assert api.state("nobody")["profile"] == "test"
+
+
+def test_only_one_server_holds_the_window():
+    """A second session's tab must not put a second address in front of the same pair."""
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        one = webmod.WebServer(first, host="127.0.0.1", port=0, token="t1")
+        one.start()
+        try:
+            assert webmod.serving_any() is one
+            assert webmod.serving(one.bound_port()) is one
+            assert one.owner == "main"
+            # What the sibling's tab reads to decide it has nothing to start.
+            assert webmod.serving_any().token == "t1"
+        finally:
+            one.stop()
+        assert webmod.serving_any() is None, "the registry kept a stopped server"
 
 
 # ---------------------------------------------------------------------------

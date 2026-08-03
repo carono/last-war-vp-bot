@@ -5,12 +5,19 @@ answers it gives are `panel/web/api.py`, and neither knows this tab exists. What
 here is what only a window can do — say whether it is running, show the link to type
 into a phone, and hand over the token.
 
-WHY A TAB AND NOT A LINE IN THE SHELL. Because the remote control belongs to a PROFILE,
-exactly as the daemon port does: two accounts farming at once are two panels' worth of
-state, and a phone asking «is the base collected» has to be asking about one of them.
-So the port is a per-profile knob, a second profile that wants a web front-end of its
-own names a second port, and switching the tab off in «Настройки → Вкладки» is what
-turns the whole thing off — no server, no thread, no socket (docs/panel-tabs.md).
+ONE SERVER, EVERY PROFILE. A window may hold two accounts open at once (#1206) and the
+front-end answers for all of them (`panel/web/api.py`): the page has a switcher at the
+top and every route takes a profile. So the socket belongs to the WINDOW, not to this
+session — the first tab whose switch goes on binds it, and the tab of a profile opened
+beside it says «обслуживает <профиль>» and shows that same address instead of starting a
+second server nobody asked for.
+
+The knobs stay per profile all the same, because a profile is where the panel keeps
+anything a person can set — and because two PANELS (two processes, one per profile, which
+some people run) then each have their own port and their own token.
+
+Switching the tab off in «Настройки → Вкладки» is what turns the whole thing off — no
+server, no thread, no socket (docs/panel-tabs.md).
 
 WHAT IT IS NOT. It is not an internet service. There is no TLS here and the token
 travels in a cookie over plain HTTP: this is for the phone on the same home network as
@@ -116,6 +123,14 @@ class WebTab(PanelTab):
         """Bring the server up if this profile asked for it. Idempotent, no game."""
         self._apply()
 
+    def on_show(self) -> None:
+        """Repaint: the profile that was serving may have been closed since.
+
+        A read of two module-level dictionaries, no game and no file — which is what
+        `on_show` is for (docs/panel-tabs.md).
+        """
+        self._apply()
+
     def on_language_change(self) -> None:
         self._paint()
 
@@ -182,6 +197,14 @@ class WebTab(PanelTab):
         if self._server is not None and self._server.running:
             self._paint()
             return
+        # A SIBLING SESSION MAY ALREADY BE SERVING. One server per window answers for
+        # every open profile, so there is nothing for this one to add — and binding a
+        # second socket would either fail on the port or put a second address in front
+        # of the same two accounts. Say who is answering and show their address.
+        held = webmod.serving_any()
+        if held is not None:
+            self._paint()
+            return
         token = self._token.get().strip() or self._new_token(quiet=True)
         try:
             server = webmod.WebServer(self.rt, host=self._host.get().strip(),
@@ -226,24 +249,42 @@ class WebTab(PanelTab):
         return token
 
     # -- what the tab shows -------------------------------------------------
+    def _serving(self):
+        """The server answering for this window: mine, or a sibling profile's."""
+        if self._server is not None and self._server.running:
+            return self._server
+        return webmod.serving_any()
+
     def _address(self) -> str:
-        """The link to type into a phone: the machine's own address, port and token."""
+        """The link to type into a phone: the machine's address, port and token.
+
+        Of whoever is actually SERVING — a sibling profile's server has a different token
+        and possibly a different port, and showing this profile's saved one would be an
+        address that answers 401.
+        """
+        server = self._serving()
         host = webmod.addresses()[0]
-        token = self._token.get().strip()
-        port = self._server.bound_port() if self._server is not None else self._port_number()
+        token = server.token if server is not None else self._token.get().strip()
+        port = server.bound_port() if server is not None else self._port_number()
         tail = f"/?token={token}" if token else "/"
         return f"http://{host}:{port}{tail}"
 
     def _paint(self) -> None:
+        """Three states, not two: mine, a sibling's, or nothing at all."""
         if self._state is None:
             return
-        running = self._server is not None and self._server.running
-        self._state.configure(
-            text=(self.t("web.state.on", port=self._server.bound_port()) if running
-                  else self.t("web.state.off")))
+        server = self._serving()
+        if server is None:
+            text = self.t("web.state.off")
+        elif server is self._server:
+            text = self.t("web.state.on", port=server.bound_port())
+        else:
+            text = self.t("web.state.elsewhere", profile=server.owner,
+                          port=server.bound_port())
+        self._state.configure(text=text)
         if self._link is not None:
             self._link.delete(0, "end")
-            self._link.insert(0, self._address() if running else "")
+            self._link.insert(0, self._address() if server is not None else "")
 
     def _copy(self) -> None:
         try:

@@ -928,5 +928,6 @@
   "web.ui.unit.sec": "{n} dtk",
   "web.ui.unit.min": "{n} mnt",
   "web.ui.unit.hour": "{n} jam",
-  "web.ui.unit.day": "{n} hr"
+  "web.ui.unit.day": "{n} hr",
+  "web.state.elsewhere": "dilayani profil «{profile}», porta {port}"
 }

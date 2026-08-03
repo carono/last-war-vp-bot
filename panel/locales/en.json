@@ -928,5 +928,6 @@
   "web.ui.unit.sec": "{n} s",
   "web.ui.unit.min": "{n} min",
   "web.ui.unit.hour": "{n} h",
-  "web.ui.unit.day": "{n} d"
+  "web.ui.unit.day": "{n} d",
+  "web.state.elsewhere": "profile «{profile}» is serving it, port {port}"
 }

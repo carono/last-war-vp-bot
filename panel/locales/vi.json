@@ -928,5 +928,6 @@
   "web.ui.unit.sec": "{n} giây",
   "web.ui.unit.min": "{n} phút",
   "web.ui.unit.hour": "{n} giờ",
-  "web.ui.unit.day": "{n} ngày"
+  "web.ui.unit.day": "{n} ngày",
+  "web.state.elsewhere": "hồ sơ «{profile}» đang phục vụ, cổng {port}"
 }

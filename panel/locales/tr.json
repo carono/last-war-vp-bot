@@ -928,5 +928,6 @@
   "web.ui.unit.sec": "{n} sn",
   "web.ui.unit.min": "{n} dk",
   "web.ui.unit.hour": "{n} sa",
-  "web.ui.unit.day": "{n} g"
+  "web.ui.unit.day": "{n} g",
+  "web.state.elsewhere": "«{profile}» profili yanıtlıyor, bağlantı noktası {port}"
 }

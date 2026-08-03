@@ -196,6 +196,24 @@ class WebApi:
             feed.detach()
         self._feeds.clear()
 
+    def _sync_feeds(self) -> None:
+        """Tap every profile that is open now, and let go of the ones that are not.
+
+        Called on every log poll — which is every couple of seconds — so a profile
+        opened at the machine is being collected within one tick rather than from the
+        first request that happens to name it. Without it the lines said in between
+        would only survive because `panel.log` is re-read on seeding, and «only
+        because of the file» is not a thing to lean on.
+        """
+        if not self._attached:
+            return
+        live = {}
+        for name, rt in self.sessions():
+            live[name] = rt
+            self._feed(name, rt).attach()
+        for name in [n for n in self._feeds if n not in live]:
+            self._feeds.pop(name).detach()
+
     def log(self, since: int = 0, profile: str | None = None) -> dict:
         """The lines newer than ``since``, with the number to ask for next time.
 
@@ -204,8 +222,9 @@ class WebApi:
         longer the beginning of this". The numbering is PER PROFILE, so switching the
         selector at the top of the page starts that profile's own sequence.
         """
+        self._sync_feeds()
         rt = self._runtime(profile)
-        feed = self._feed(profile or self.rt.profiles.active, rt)
+        feed = self._feed(self._name_of(rt), rt)
         with feed.lock:
             held = list(feed.lines)
             newest = feed.seq

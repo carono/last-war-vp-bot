@@ -107,6 +107,20 @@ class Workspace:
         session = ProfileSession(
             name, root=self._root, defaults=self._defaults,
             scope=self._next_scope(name), daemon_state=self._daemon_state)
+        # THE WAY BACK. A runtime is one profile and knows nothing above itself, which is
+        # right for everything a tab does — and wrong for the one thing that has to speak
+        # for the whole window: the web front-end serves EVERY open profile off one
+        # socket, so it has to be able to ask what else is open (#1221). Set here rather
+        # than declared on `PanelRuntime` because it is a fact about a session that was
+        # opened INTO a workspace; a runtime built on its own (a standalone tab, a test)
+        # has no workspace and every reader asks with `getattr(rt, "workspace", None)`.
+        # Guarded, because this class deliberately does not care what a session is made
+        # of — tests/test_panel_workspace.py opens sessions that are a name and nothing
+        # else, and the whole reason that file needs no display is that this one never
+        # reaches into them.
+        rt = getattr(session, "rt", None)
+        if rt is not None:
+            rt.workspace = self
         self._sessions.append(session)
         if make_current or self._current is None:
             self._current = session

@@ -71,6 +71,33 @@ MAX_BODY = 64 * 1024
 #: box would be the one screen in the panel written in locale keys.
 PUBLIC = frozenset({"/api/i18n"})
 
+#: WHO IS SERVING, in THIS process: `port -> WebServer`.
+#:
+#: One server per window, not per profile. The API answers for every open profile
+#: (`panel/web/api.py`), so a second session starting a second socket would be two
+#: addresses showing the same two accounts — and the second one would fail to bind
+#: anyway, which reads as a fault rather than as "already done". A session whose switch
+#: is on and whose port is held by a sibling shows the address that IS serving instead
+#: (`panel/tabs/web.py`).
+#:
+#: Process-wide on purpose: a SECOND PANEL is a second process and gets its own
+#: registry, so it binds — or fails on the port, which is then a real clash and is said
+#: out loud.
+_SERVING: dict = {}
+_SERVING_LOCK = threading.Lock()
+
+
+def serving(port: int):
+    """The server holding ``port`` in this process, or ``None``."""
+    with _SERVING_LOCK:
+        return _SERVING.get(int(port))
+
+
+def serving_any():
+    """Any server this window is running — what a tab shows when a sibling holds it."""
+    with _SERVING_LOCK:
+        return next(iter(_SERVING.values()), None)
+
 
 class WebServer:
     """One profile's remote control: a thread, a socket, and the API behind it."""
@@ -85,6 +112,9 @@ class WebServer:
         self.port = default_port() if port is None else int(port)
         self.token = str(token or "")
         self.api = api if api is not None else WebApi(rt)
+        #: Which profile started it. Shown by a sibling session's tab, which has to be
+        #: able to say WHOSE window is answering on that address.
+        self.owner = str(getattr(getattr(rt, "profiles", None), "active", "") or "")
         self._httpd = None
         self._thread = None
 
@@ -113,6 +143,8 @@ class WebServer:
             raise
         httpd.daemon_threads = True
         self._httpd = httpd
+        with _SERVING_LOCK:
+            _SERVING[self.bound_port()] = self
         self._thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.5},
                                         daemon=True, name="panel-web")
         self._thread.start()
@@ -122,6 +154,10 @@ class WebServer:
         httpd, self._httpd = self._httpd, None
         thread, self._thread = self._thread, None
         self.api.detach()
+        with _SERVING_LOCK:
+            for port, server in list(_SERVING.items()):
+                if server is self:
+                    del _SERVING[port]
         if httpd is None:
             return
         try:

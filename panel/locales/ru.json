@@ -928,5 +928,6 @@
   "web.ui.unit.sec": "{n} с",
   "web.ui.unit.min": "{n} мин",
   "web.ui.unit.hour": "{n} ч",
-  "web.ui.unit.day": "{n} д"
+  "web.ui.unit.day": "{n} д",
+  "web.state.elsewhere": "обслуживает профиль «{profile}», порт {port}"
 }
