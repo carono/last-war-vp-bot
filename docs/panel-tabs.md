@@ -122,6 +122,7 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.activity` | `with rt.activity.step("activity.x", **fmt):` — what the panel is doing right now, on the strip along the bottom of the window |
 | `rt.tabs.get(id)` | another tab, **or `None`** — it may not be in this window |
 | `rt.schedule` | the errands; built on first ask, started only by the shell |
+| `rt.squads` | where every squad is and how much stamina is left: `at_base(n)` (`None` when it could not be read), `read(force=…)` off the Tk thread, `latest()` to draw with, `watch(fn) -> unwatch` — the poll runs only while somebody is watching. Built on first ask; the reading itself is `actions/read_squad_state.md`. |
 | `rt.root` | for `after()` / `bell()` — **not** to build into; build into `self.parent` |
 
 ---

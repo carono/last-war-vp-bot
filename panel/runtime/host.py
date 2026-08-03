@@ -122,6 +122,7 @@ class PanelRuntime:
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity)
         self._schedule = None           # built on first ask (see the property below)
+        self._squads = None             # …and so is the squad reader
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
         self._lock_on = None            # …and which profile it is holding
@@ -157,6 +158,21 @@ class PanelRuntime:
     @schedule.setter
     def schedule(self, value) -> None:
         self._schedule = value
+
+    @property
+    def squads(self):
+        """Where every squad is and how much stamina is left (panel/runtime/squads.py).
+
+        Built on first ask and nothing more: constructing it reads nothing, and the poll
+        only runs while a tab is watching it. Here rather than on the «Ралли» tab
+        because a squad standing in the base is the precondition of every send — the
+        rally, the gather, the attack — and because a tab opened on its own has to be
+        able to ask the same question the shell asks (§4).
+        """
+        if self._squads is None:
+            from .squads import SquadReader
+            self._squads = SquadReader(self)
+        return self._squads
 
     # -- the shorthands every tab uses constantly ---------------------------
     def dbg(self, component: str = "panel"):
@@ -301,6 +317,8 @@ class PanelRuntime:
     # -- teardown -----------------------------------------------------------
     def shutdown(self) -> None:
         self.stop_heartbeat()
+        if self._squads is not None:
+            self._squads.stop()
         self.tick.disarm_all()
         # EVERY child, not just the ones a tab remembered to stop. A tab's own
         # `shutdown` still runs first and still knows what its checkbox means; this is
