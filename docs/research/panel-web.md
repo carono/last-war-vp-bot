@@ -218,7 +218,7 @@ spoken to the server since the small hours, while every errand went on reporting
 |---|---|---|
 | `online` | green | an ESTABLISHED connection to the game server — the only green one |
 | `lost` | red | the client is up and its sockets are half-closed: the server hung up |
-| `unknown` | amber | the client is up and its sockets say nothing — the ordinary state of an account in a background Windows session, and NOT a fault |
+| `unknown` | amber | the client is up and its sockets say nothing yet — one still coming up, or a machine that will not attribute them. NOT a fault |
 | `offline` | red | no client at all |
 
 `running` is left exactly as it was, because it is what the watchdog acts on: a client

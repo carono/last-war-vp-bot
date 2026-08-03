@@ -11,8 +11,8 @@ holds an ESTABLISHED connection to the game server, a stranded one holds sockets
 So the answer this module gives is not a boolean. It is one of four
 (:func:`probe`, :data:`ONLINE` / :data:`LOST` / :data:`UNKNOWN` / :data:`OFFLINE`), and
 the difference between the middle two is the difference between "I know the link is
-broken" and "I cannot see this client's sockets at all" — which is the ordinary state of
-a client in somebody else's Windows session and must never be painted as a fault.
+broken" and "I cannot tell yet" — a client still coming up, or a machine that will not
+show us its sockets. The second must never be painted as a fault.
 
 A `psutil` probe, no Tk and no game link — the panel's status strip asks it, and so does
 the ghost-recon watcher before it spends a robbery on a client that is not there. It was
@@ -56,9 +56,9 @@ _NON_GAME_PORTS = frozenset({80, 443})
 #: * ``ONLINE`` — an ESTABLISHED connection to the game server. The only green one.
 #: * ``LOST`` — the process is alive and its sockets say the server hung up. This is
 #:   the state that used to read as "running": everything answers, nothing arrives.
-#: * ``UNKNOWN`` — the process is alive and its sockets cannot be seen or make no
-#:   verdict: a client in another Windows session (the sockets come back with no pid),
-#:   or one still starting up. NOT a fault, and never to be painted as one.
+#: * ``UNKNOWN`` — the process is alive and its sockets make no verdict: one still
+#:   starting up, or a machine that will not attribute a foreign process's sockets at
+#:   all. NOT a fault, and never to be painted as one.
 #: * ``OFFLINE`` — no client process at all, whatever the reason.
 ONLINE = "online"
 LOST = "lost"
@@ -237,70 +237,94 @@ def _is_game_socket(c) -> bool:
     return not (ip.startswith("127.") or ip in ("::1", "0.0.0.0", "::"))
 
 
-def _endpoint(found) -> str | None:
-    """The first game-server TCP endpoint among ``found``, if one is established."""
-    import psutil
-    known = set(found)
-    for c in psutil.net_connections(kind="tcp"):
-        if c.pid in known and c.status == "ESTABLISHED" and _is_game_socket(c):
-            return f"{c.raddr.ip}:{c.raddr.port}"
-    return None
+def _client_sockets(found) -> list:
+    """Every TCP socket the OS attributes to this client — ONE walk of the table.
 
+    THE SEAM, and there is exactly one of it on purpose. The status poll runs every
+    eight seconds in the window and every five in the phone's cache, and each reading
+    used to be able to walk the table twice: once for the live connection, once for the
+    dead ones. `net_connections` is a kernel table rather than a process walk — nothing
+    like the 6–7 s of a cold `process_iter` (docs/research/panel-freezes.md §1) — but it
+    still holds the interpreter lock while it builds a few hundred objects, and doing
+    that twice for one answer is a cost with nothing to show for it.
 
-def _stale(found) -> int:
-    """How many of this client's game sockets the server has already hung up on.
+    An empty list means "nothing of this client's is visible from here", which is NOT
+    the same as "this client has no sockets" — a machine that will not attribute a
+    foreign process's sockets answers exactly the same way. :func:`link_of` is the one
+    that must tell those apart.
 
-    Zero means "none seen", which covers both a healthy client and one whose sockets
-    this machine will not show us — the two are told apart by :func:`_endpoint`, not
-    here, because a count of nothing cannot say why it is nothing.
-
-    A COUNT ON ITS OWN PROVES NOTHING EITHER. A healthy client keeps a pile of these:
-    it greets several gateway addresses while logging in, keeps one and leaves the
-    losers half-closed for the rest of the session — the first live reading found six
-    of them beside one perfectly good connection. That is why :func:`link_of` asks for
-    an established socket FIRST and only falls back to this: half-closed sockets and
-    nothing else is the stranded client; half-closed sockets beside a live one are an
-    ordinary afternoon.
-
-    Same rules as :func:`_is_game_socket` about which sockets are the game's at all.
+    **A second account's sockets ARE attributed on this machine**, which the comment
+    that used to sit in `server_connection` denied: read live on 2026-08-03, the client
+    in the second account's own Windows session came back with eight sockets of its own
+    and an endpoint of its own gateway. So a second account gets a real verdict rather
+    than a permanent «не знаю» — but the empty answer is still handled as its own state,
+    because that is a property of the machine and not of this code.
     """
     import psutil
     known = set(found)
     try:
         conns = psutil.net_connections(kind="tcp")
     except Exception:                        # noqa: BLE001 — a reading, never a crash
-        return 0
-    return sum(1 for c in conns
-               if c.pid in known and c.status in _HALF_CLOSED and _is_game_socket(c))
+        return []
+    return [c for c in conns if c.pid in known]
+
+
+def _endpoint(found) -> str | None:
+    """The first game-server TCP endpoint among ``found``, if one is established."""
+    return _live_endpoint(_client_sockets(found))
+
+
+def _live_endpoint(mine) -> str | None:
+    """The established game connection among sockets already read, if there is one."""
+    for c in mine:
+        if c.status == "ESTABLISHED" and _is_game_socket(c):
+            return f"{c.raddr.ip}:{c.raddr.port}"
+    return None
 
 
 def link_of(found) -> tuple:
     """The link state of a client that IS running: ``(state, endpoint, dead)``.
 
-    Established first, because that is the only proof of a live account. Failing that,
-    a half-closed socket is proof of the opposite — :data:`LOST`. With neither, the
-    honest answer is :data:`UNKNOWN`: a client in another user's session shows no
-    sockets of its own at all, and one that is still logging in has not opened any yet.
-    Guessing "lost" there would cry wolf every start-up and on every second profile.
+    Established first, because that is the only proof of a live account, and because a
+    pile of half-closed sockets means nothing beside a live one: a healthy client keeps
+    six of them to `:10012`, the losers of the gateway race it runs while logging in.
+
+    Failing that, a half-closed game socket is proof of the opposite — :data:`LOST`. The
+    far end sent FIN, the client never noticed, and it will sit there until the process
+    dies. That is the stranded client exactly (docs/research/server-link-status.md).
+
+    With neither, the honest answer is :data:`UNKNOWN` rather than a guess:
+
+    * a client that is still starting has its web sockets and its own loopback pair and
+      no game socket yet, and a launch takes about 45 seconds — long enough for a red
+      strip and a log line after every scheduled restart if that were called "lost";
+    * a machine that will not attribute a foreign process's sockets shows none of a
+      second account's at all, and a permanent red over an account that is playing
+      perfectly well is a warning nobody reads by the second day. (This machine DOES
+      attribute them — see :func:`_client_sockets` — but that is its answer, not a
+      guarantee.)
+
+    So the fourth state is the one that says «I cannot tell», and it is amber.
     """
-    conn = _endpoint(found)
+    mine = _client_sockets(found)
+    conn = _live_endpoint(mine)
     if conn:
         return ONLINE, conn, 0
-    try:
-        dead = _stale(found)
-    except Exception:                        # noqa: BLE001 — no psutil, no verdict
-        dead = 0
+    dead = sum(1 for c in mine if c.status in _HALF_CLOSED and _is_game_socket(c))
     return (LOST if dead else UNKNOWN), None, dead
 
 
 def server_connection(game_exe: str = GAME_EXE, user: str | None = None) -> str | None:
     """The game-server TCP endpoint, if a connection is currently ESTABLISHED.
 
-    Purely supplementary detail. Its absence (VPN off, mid-reconnect, or the OS
-    withholding foreign-owned sockets) must NOT be read as "game not running" —
-    that is decided by :func:`status` from the process list alone. A client in
-    another user's session is exactly that withheld case: the sockets come back
-    without a pid, so the endpoint is simply not shown for it.
+    Purely supplementary detail. Its absence (VPN off, mid-reconnect, or an OS that
+    will not attribute foreign-owned sockets) must NOT be read as "game not running" —
+    that is decided by :func:`status` from the process list alone. What it DOES mean is
+    :func:`link_of`'s business, and «not online» is not «not running».
+
+    A client in another Windows session was assumed to be the withheld case here for a
+    year, and it is not: read live, the second account answered with its own sockets and
+    its own endpoint. The withheld case is still handled — it is just not this one.
 
     The remote port is not stable across builds (:17935 historically, :10012 on
     the current client), so the check is port-agnostic: find the client's PIDs,

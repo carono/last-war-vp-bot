@@ -590,20 +590,20 @@ class _TwoClients:
 
     def __enter__(self):
         self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-                       gp._endpoint, gp._stale, gp.own_session)
+                       gp._endpoint, gp._client_sockets, gp.own_session)
         gp.sessions = lambda: [{"id": 1, "user": "player1", "state": gp.WTS_ACTIVE},
                                {"id": 4, "user": "player2",
                                 "state": gp.WTS_DISCONNECTED}]
         gp._pids_in_session = lambda exe, session: list(self.procs.get(session, ()))
         gp._pids_by_name = lambda exe: [p for ps in self.procs.values() for p in ps]
         gp._endpoint = lambda found: None
-        gp._stale = lambda found: 0        # no sockets to see, so no verdict on the link
+        gp._client_sockets = lambda found: []   # not visible here, so no verdict
         gp.own_session = lambda: self.here
         return self
 
     def __exit__(self, *exc):
         (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-         gp._endpoint, gp._stale, gp.own_session) = self._saved
+         gp._endpoint, gp._client_sockets, gp.own_session) = self._saved
         return False
 
 

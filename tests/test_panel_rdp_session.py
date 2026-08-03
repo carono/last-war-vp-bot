@@ -76,19 +76,19 @@ class _Machine:
 
     def __enter__(self):
         self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-                       gp._endpoint, gp._stale)
+                       gp._endpoint, gp._client_sockets)
         gp.sessions = lambda: self.rows
         gp._pids_in_session = lambda exe, session: (
             list(self.processes.get(session, ())) if self._named(exe) else [])
         gp._pids_by_name = lambda exe: ([pid for pids in self.processes.values()
                                          for pid in pids] if self._named(exe) else [])
         gp._endpoint = lambda found: None      # foreign sockets come back without a pid
-        gp._stale = lambda found: 0            # …so there is no verdict on the link here
+        gp._client_sockets = lambda found: []  # …so there is no verdict on the link here
         return self
 
     def __exit__(self, *exc):
         (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-         gp._endpoint, gp._stale) = self._saved
+         gp._endpoint, gp._client_sockets) = self._saved
         return False
 
 

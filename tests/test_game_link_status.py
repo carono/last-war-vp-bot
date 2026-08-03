@@ -12,8 +12,8 @@ second one has four answers, not two:
 
   * ONLINE — an ESTABLISHED connection to the game server. The only green one.
   * LOST — the process is alive and its sockets are half-closed: the server hung up.
-  * UNKNOWN — the process is alive and its sockets say nothing, which is the ORDINARY
-    state of a client in another Windows session and must never read as a fault.
+  * UNKNOWN — the process is alive and its sockets say nothing: one still starting up,
+    or a machine that will not attribute them. Never to be read as a fault.
   * OFFLINE — no client at all.
 
 And one thing that must not change: `running` stays true through a LOST link. The
@@ -121,12 +121,24 @@ def test_a_half_closed_socket_is_the_state_that_used_to_read_as_running():
 
 
 def test_sockets_that_cannot_be_seen_are_not_a_fault():
-    """A client in another user's session: the table comes back with no pid of ours."""
+    """A machine that will not attribute this client's sockets: the table comes back
+    with no pid of ours in it. (This one DOES attribute a second account's — read live
+    — but that is its answer, not a guarantee, and a permanent red would be wrong.)"""
     with _Machine([111], [_Conn(None, "ESTABLISHED"), _Conn(999, "CLOSE_WAIT")]):
         found = gp.probe("LastWar.exe")
     assert found.link == gp.UNKNOWN, found.link
     assert found.running is True and found.dead == 0, found
     assert found.message.key == "game.st.running", found.message.key
+
+
+def test_a_client_that_is_still_starting_is_not_a_lost_one():
+    """Web sockets and its own loopback pair, no game socket yet — a launch takes about
+    45 seconds, and calling that «связь потеряна» would put a red strip and a log line
+    after every scheduled restart."""
+    with _Machine([111], [_Conn(111, "ESTABLISHED", port=443),
+                          _Conn(111, "ESTABLISHED", port=63204, ip="127.0.0.1")]):
+        found = gp.probe("LastWar.exe")
+    assert found.link == gp.UNKNOWN and found.dead == 0, found
 
 
 def test_no_client_at_all_is_offline_however_the_sockets_look():

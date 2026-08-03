@@ -220,8 +220,9 @@ STATUS_POLL_MS = 8000
 # which one it is). Green is the ONLY state that means the account is actually playing:
 # a client that lost the server keeps its window, its pid and every Lua getter, so
 # painting «работает» green over it is the whole bug this table exists to end. Amber is
-# «не знаю» — the sockets of a client in another Windows session cannot be seen from
-# here, and that is the ordinary, healthy state of a second account, never a fault.
+# «не знаю» — a client that has not opened a game socket yet (a launch takes about 45
+# seconds), or a machine that will not show us this client's sockets at all. Neither is
+# a fault, and painting either red is how a warning stops being read by the second day.
 LINK_COLOURS = {
     runtime.game_process.ONLINE: "#3c3",
     runtime.game_process.LOST: "#c33",
@@ -2393,8 +2394,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         traceback.print_exception(exc, val, tb)
 
 
-    def _dbg_status(self, game_ok: bool, daemon_warm: bool) -> None:
+    def _dbg_status(self, game_ok: bool, daemon_warm: bool, link=None) -> None:
         """Record a systems snapshot: DEBUG every poll, INFO only when it changes.
+
+        ``link`` is the server connection as `panel/runtime/game_process.py` found it,
+        and it is here for the morning after: «game=up» all night with «link=lost» from
+        03:41 is the difference between a panel that was lying and a client that was.
 
         Runs on the Tk thread (the status poll's after-callback), so it can read the
         timer/trigger checkbuttons safely. This is the "statuses of systems" stream —
@@ -2416,9 +2421,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except (tk.TclError, AttributeError):
             timers_on = triggers_on = -1
         dash = "err" if self._dash_err else ("on" if self._dash_stop else "off")
-        snap = (bool(game_ok), bool(daemon_warm), timers_on, triggers_on, dash)
-        msg = ("systems: game=%s daemon=%s timers_on=%s triggers_on=%s dashboard=%s"
-               % ("up" if game_ok else "down",
+        snap = (bool(game_ok), str(link or ""), bool(daemon_warm), timers_on,
+                triggers_on, dash)
+        msg = ("systems: game=%s link=%s daemon=%s timers_on=%s triggers_on=%s "
+               "dashboard=%s"
+               % ("up" if game_ok else "down", link or "?",
                   "warm" if daemon_warm else "down", timers_on, triggers_on, dash))
         if snap != self._dbg_status_prev:
             self._dbg_status_prev = snap
@@ -2767,7 +2774,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._status_lbl.configure(
                     foreground=LINK_COLOURS.get(found.link, "#888")),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
-                self._dbg_status(ok, warm),
+                self._dbg_status(ok, warm, found.link),
                 self._announce_link(found),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()

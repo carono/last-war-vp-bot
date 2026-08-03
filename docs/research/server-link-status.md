@@ -75,15 +75,21 @@ answer: from outside, that client's only remote peer is a program on the same co
 |---|---|---|
 | `online` | an ESTABLISHED game socket owned by this client | the only proof the account is playing |
 | `lost` | no ESTABLISHED one, and ≥1 in `CLOSE_WAIT` / `CLOSING` / `LAST_ACK` / `FIN_WAIT1` / `FIN_WAIT2` | a fact, not a guess: the far end hung up and nothing replaced it (§2.1 — the count alone proves nothing) |
-| `unknown` | the process is there and its sockets make no verdict | see below — this is the ordinary state of a second account |
+| `unknown` | the process is there and its sockets make no verdict | see below — «I cannot tell», which is not «it is broken» |
 | `offline` | no client process (or nowhere to look for one) | unchanged from before |
 
-**`unknown` is the honest half.** A client running in another Windows session comes back
-from `psutil.net_connections()` with no pid attributed to it, so its sockets cannot be
-read from here at all; a client that is still logging in has not opened one yet. Calling
-either of those "lost" would cry wolf on every start-up and permanently on every second
-account — which is exactly how a warning stops being read. Amber, and the sentence says
-«связь не подтверждена».
+**`unknown` is the honest half.** A client that is still starting has its web sockets
+and its own loopback pair and no game socket yet, and a launch takes about 45 seconds —
+calling that "lost" would put a red strip and a log line after every scheduled restart.
+The same answer covers a machine that will not attribute a foreign process's sockets at
+all. Amber, and the sentence says «связь не подтверждена».
+
+**A second account is NOT that case, and the old comment saying so was wrong.** It had
+been written into `server_connection` for a year — «the sockets come back without a
+pid» — and the live reading of 2026-08-03 disproves it: the client in the second account's own
+Windows session answered with eight sockets of its own and a gateway of its own, i.e.
+a full `online` verdict from the console session's panel. Both accounts get a real
+answer; `unknown` stays for the machine that genuinely cannot say.
 
 **`TIME_WAIT` is deliberately not in the half-closed set.** It is what an ordinary, clean
 close leaves behind, so a client that reconnects every few hours would look broken for a
@@ -93,6 +99,50 @@ minute after every healthy reconnect.
 (`panel/__main__.py`, `_watchdog_check`) acts on it, and a client that lost the server is
 not a client to kill and relaunch behind the person's back — the panel says so and leaves
 the decision where it was.
+
+### 3.1 Proven against a real socket table, both ways
+
+Stubs prove the classifier; they cannot prove that `psutil` says `CLOSE_WAIT` where this
+expects it, that the pid is attributed, or that the port and loopback filters keep the
+right rows. So the flip was watched live (2026-08-03), on this machine:
+
+* **the live client**, both profiles: the console one → `online -> <gateway>:10012` (25
+  sockets visible), the second account, in its own Windows session → `online ->
+  <another gateway>:10012` (8 visible);
+* **a real hang-up**, end to end. A stand-in server was bound to this machine's LAN
+  address (`<lan-ip>:10012` — deliberately not loopback, which the reading ignores),
+  a socket connected to it, and the server closed:
+
+      connected           -> ('online', '<lan-ip>:10012', 0)
+      server hung up (1s) -> ('lost', None, 1)
+      raw:  [('CLOSE_WAIT', '<lan-ip>:10012')]
+
+  That is the stranded client's exact signature, read by the shipped code path.
+
+What could NOT be produced on demand is the game server hanging up on its own: a socket
+opened to the live gateway and left silent was still ESTABLISHED after two minutes,
+so the real thing takes hours of idleness. The classifier is proven; catching it against
+the actual game is a matter of waiting for the next one.
+
+### 3.2 What the reading costs
+
+The whole probe — which Windows session, which pids, one walk of the socket table —
+measured **46–67 ms** on a live machine with two clients up. Nothing here is a
+`process_iter`: on Windows the pids come from `WTSEnumerateProcesses`, and
+`net_connections` is a kernel table rather than a walk of every process's handles. That
+matters because a cold `process_iter` costs 6–7 s and slows the Tk thread by 40× while it
+runs (`docs/research/panel-freezes.md` §1) — this reading must never grow into one.
+
+Two rules keep it there:
+
+* **one walk per reading.** `_client_sockets` is the single seam; the live endpoint and
+  the dead count are both derived from what it returned. The first draft walked the table
+  twice for one answer.
+* **the callers already have a clock.** The window polls every eight seconds off the Tk
+  thread (`_refresh_status`), and the phone's `/api/state` caches per profile for five
+  seconds (`panel/web/api.py`, `STATUS_TTL_SEC`) — a phone polling every two seconds
+  therefore does not add a reading. Nothing new was introduced for the link: it rides the
+  probe that was already being made.
 
 ## 4. Where it shows
 
