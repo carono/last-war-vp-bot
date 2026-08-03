@@ -15,7 +15,8 @@ what was deliberately left out.
 
 ## 1. What it is
 
-A small HTTP server inside the panel, one per open profile, serving a single page:
+A small HTTP server inside the panel — one per WINDOW, answering for every profile
+that window has open — serving a single page:
 
 ```
 panel/web/api.py        the JSON surface — state, timers, scenarios, log, words
@@ -30,7 +31,10 @@ it last ran and a «run now»), **scenarios** (all of `actions/*.md`, searchable
 each) and **log** (the panel's own lines, coloured by severity, with a browser
 notification when one of them is an error).
 
-Default port **9761**, a knob on the tab. Off until somebody switches it on.
+Default port **9761** — and the number lives in `tools/lib/game_paths.py` like every
+other value that has a different answer on a different machine. Three layers: the
+profile's own knob wins, `LW_WEB_PORT` is the machine's answer, 9761 is everybody's. Off
+until somebody switches it on.
 
 ## 2. Why it is not a bot, and cannot become one
 
@@ -41,6 +45,7 @@ one call onto the runtime:
 
 | route | what it is |
 |---|---|
+| `/api/profiles` | `rt.workspace.sessions` — which accounts are open |
 | `/api/state` | `rt.game.up()`, `game_process.status(...)`, `rt.activity.current()` |
 | `/api/timers` | `rt.schedule.timer_catalogue` + `timer_config()` + the last-run store |
 | `/api/timers/run` | `rt.schedule.timers.request(timer)` — the scheduler's own queue |
@@ -55,15 +60,35 @@ front-ends are windows onto it.
 
 ## 3. Decisions worth the words
 
-### 3.1 One server per profile, not one per panel
+### 3.1 One server per WINDOW, and it answers for every profile in it
 
-The daemon port is per profile, because two accounts farmed at once are two clients and
-two sets of state (#1206). The web port follows it: profile A on 9761, profile B on
-9762 if it wants one at all. The alternative — one server listing every open profile —
-means a phone that has to say WHICH account it is asking about on every screen, and a
-server that outlives the session it was started from.
+The first draft was one server per profile: profile A on 9761, profile B on 9762 if it
+wanted one at all. That was wrong, and the reason is worth writing down because it is the
+same reason a bug had already been found at the machine that week.
 
-The cost is honest and small: two accounts are two links on the phone.
+**A front-end that shows one of two open accounts, and does not say which, is worse than
+no front-end.** The panel holds two profiles at once (#1206) and that is how this bot is
+actually run; a page that says «база собрана» without saying whose is a page you cannot
+act on. The identical confusion had already cost a live session — one profile reading the
+other one's client and looking perfectly healthy doing it.
+
+So: one socket, owned by the window. `/api/profiles` says what is open and which one the
+window itself is showing; every other route takes `?profile=<name>` (a field in the body
+on a POST); the page has a native `<select>` in its header and starts on the account the
+window is showing. A press lands on the client of the account it names — that is the
+whole point of naming one.
+
+The way back up is an attribute the workspace sets on each session's runtime as it opens
+it (`rt.workspace`). It is deliberately NOT declared on `PanelRuntime`: it is a fact about
+a session opened *into* a workspace, and a runtime built on its own — a standalone tab, a
+test — has none. Every reader asks with `getattr`, and a runtime without one answers for
+itself and lists exactly one profile, which is the same code path with one session in it.
+
+The tab is then the switch for the window rather than for the profile: the first session
+whose switch goes on binds the socket, and a sibling profile's tab says «обслуживает
+профиль X» and shows *that* server's address — including its token, since showing its own
+would be an address that answers 401. A second PANEL is a second process with its own
+registry: it binds its own port, or says the port is taken, which is then a real clash.
 
 ### 3.2 A tab, so switching it off means switching it off
 
@@ -133,6 +158,32 @@ is a twelfth language in both.
 `tests/test_panel_web.py` walks the HTML and the JavaScript for keys and asserts every
 one of them is in every shipped locale, with matching placeholders — the Python i18n test
 cannot see this, because it only parses `.py`.
+
+### 3.7 The phone is the case, not a case
+
+The page is written mobile-first and then MEASURED — Chromium mobile at 360×640 and
+WebKit iPhone 15 at 393×852, through the real engines, with the screenshots looked at
+rather than assumed (`~/playwright-tests/shot-panel-web.js`). The first pass found seven
+things wrong that reading the source would never have shown, and the two worth
+remembering are:
+
+* **the switches were 26 px.** Drawn by the browser, which on WebKit is a white square in
+  a dark theme, and impossible to be sure of with a thumb. They are toggles now — 56×32
+  of control inside a label that is 48 px tall and the width of the card, so the title
+  toggles the errand as surely as the switch does. The audit measures the EFFECTIVE
+  target (a control inside a `<label>` is hit anywhere on the label), which is why an
+  iOS-sized switch passes and a bare 26 px checkbox does not;
+* **the log was a wall of green.** The severity classifier calls «готов», «запущен»,
+  «включён» ok, so every ordinary line was coloured and the one red line was lost among
+  them. Only the bad news is coloured now, with a bar down the left edge so it is findable
+  while scrolling past.
+
+What a static reading can keep honest is pinned in `tests/test_panel_web.py`: the viewport
+and the safe area, no `:hover` anywhere (a phone has no cursor, so a rule that only shows
+on hover never shows), a 44 px floor on every declared control height, 16 px on every
+field (or iOS zooms the page on focus), every media query WIDENING rather than narrowing,
+and no fixed width above 360. The engine run stays outside the repository — there is no
+node in this project and there should not be one for this.
 
 ## 4. What was left out, and why
 
