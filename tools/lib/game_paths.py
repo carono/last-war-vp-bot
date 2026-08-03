@@ -20,7 +20,6 @@ that sets none of them.
     LW_WIN_PYTHON    the Windows interpreter child processes are started with
     LW_WEB_PORT      the port the panel's web front-end listens on (a profile may
                      override it; this is the machine's answer)
-    LW_CLOUDFLARED   the Cloudflare tunnel binary, when it is not on the PATH
 
 **Nothing here has to be set.** A second account is a tick and a login: the launcher in
 *that* account's profile is found by looking its profile directory up in the registry
@@ -75,11 +74,6 @@ GAME_EXE_SUBDIR = "Game"
 #: already moved once — a capture pinned to 17935 went quietly empty against a client
 #: that had connected out on 10012, which reads exactly like «nothing is happening».
 DEFAULT_GAME_PORT = 17935
-
-#: The Cloudflare tunnel binary, by name. NOT a dependency of this project and never
-#: installed by it: it is a separate executable a person chooses to have, and the panel
-#: refuses to switch the tunnel on rather than fetching a binary behind their back.
-DEFAULT_CLOUDFLARED = "cloudflared"
 
 #: The port the panel's web front-end listens on (`panel/web/`, #1221). High, in no
 #: registry, and easy to type on a phone — but not everybody's to have: a machine
@@ -262,29 +256,6 @@ def web_port() -> int:
     except ValueError:
         return DEFAULT_WEB_PORT
     return port if 1 <= port <= 65535 else DEFAULT_WEB_PORT
-
-
-def cloudflared() -> str:
-    """The Cloudflare tunnel binary: `LW_CLOUDFLARED`, else whatever is on the PATH.
-
-    Only a NAME when there is nothing on the path — so the caller can tell «not
-    installed» from «installed somewhere odd» by asking whether the answer is absolute.
-    `winget install --id Cloudflare.cloudflared` puts it on the path, which is why the
-    ordinary machine needs no variable at all.
-
-    It is deliberately not bundled, downloaded or auto-installed: it is somebody else's
-    signed executable, and a bot that fetches one on its own is a bot nobody can audit.
-    """
-    forced = (os.environ.get("LW_CLOUDFLARED") or "").strip()
-    if forced:
-        return forced
-    import shutil                       # noqa: PLC0415 — only this resolver needs it
-    return shutil.which(DEFAULT_CLOUDFLARED) or DEFAULT_CLOUDFLARED
-
-
-def cloudflared_installed() -> bool:
-    """Is there a tunnel binary to run? (An absolute answer means yes.)"""
-    return os.path.isabs(cloudflared())
 
 
 def wireshark_dirs() -> tuple[str, ...]:

@@ -103,15 +103,20 @@ somebody standing at the machine.
 
 ### 3.2a Reaching it from outside the home network
 
-Three ways, and the panel takes no view on which is right for a given house:
+**Forward the port on the router.** That is the whole of it: the server already listens
+on every interface, so nothing in the panel has to change, and WHO may connect is the
+filter on the router — which is where that question belongs and where the operator
+already answers it. A VPN in front is better still and is not this repository's to
+configure.
 
-* **Forward the port on the router.** The simplest, and the one this panel is built to
-  survive: it already listens on every interface. The traffic is not encrypted, so the
-  token is readable along the way — which is why the tab says, in one line and without a
-  lecture, that it is worth limiting who may connect. An address filter on the router
-  does that, and a person who has one has already answered the objection.
-* **A VPN**, which is the best answer and is not this repository's to configure.
-* **The tunnel** (§3.2b) — outbound, HTTPS, no port opened, optional and off.
+An outbound tunnel was built here for a while and **taken out again** (`cloudflared`, a
+free Cloudflare quick tunnel). It worked, and the reasons it went are worth keeping: it
+put somebody else's infrastructure in the path to a game account, it made the panel
+depend on a service nobody here controls, and the free tier hands out a different
+address every time it starts. A person who has a filter on their router has already
+solved the problem it was solving. If it is ever wanted back, it was one small module
+and a switch — but it should stay out until somebody has a house it is genuinely the
+answer for.
 
 **TLS is available and is nobody's default.** Point the two knobs at a certificate and
 its key in PEM and the server speaks HTTPS instead of HTTP; the address the tab shows
@@ -121,21 +126,6 @@ falling back to plain HTTP — believing you have TLS and not having it is the o
 worse than having none. The panel does not generate one: that needs a library this
 project does not depend on, and a self-signed certificate warns in every browser once
 per device anyway. The tab prints the `openssl` line that makes one.
-
-### 3.2b The tunnel, kept optional
-
-`cloudflared tunnel --url http://127.0.0.1:<port>` opens a connection OUT to Cloudflare
-and is handed a public `https://…trycloudflare.com` address proxied back down it: no
-account, no domain, no port opened, and it works behind carrier-grade NAT. It is a
-switch on the tab, off by default, and the binary is neither bundled nor downloaded —
-the panel looks for one on the PATH and, finding none, refuses and says what to install.
-
-It is NOT the recommended path for somebody who already filters addresses on their
-router: forwarding the port is simpler and the filter is the same protection. The tunnel
-earns its keep where there is no control of the perimeter at all — a rented flat's
-router, a mobile connection, an address that changes weekly. The free quick tunnel also
-hands out a NEW address every time it starts and throttles after a few restarts in a
-row, which is the price of needing no account.
 
 ### 3.3 The token, and what it is not
 
@@ -226,6 +216,8 @@ node in this project and there should not be one for this.
 * **An Android application.** The original idea, dropped: `tkinter` does not exist on
   Android, the game does not run there either, and a browser page reaches iOS as well
   for nothing.
+* **A tunnel to the outside** — see §3.2a: built, live-tested and removed. External
+  access is a forwarded port and the router's own address filter.
 * **Server push (websockets, SSE).** A poll every 2.5 seconds is a handful of bytes and
   survives a phone that sleeps, a Wi-Fi handover and a proxy. The notification the person
   actually wants — «something failed» — is raised by the browser off the poll that found

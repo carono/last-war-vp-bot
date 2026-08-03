@@ -16,11 +16,12 @@ It travels either as a cookie (set once, by the login box) or as `?token=…` on
 which is what makes the link the tab shows work in one tap from a phone. Compared with
 `hmac.compare_digest`, so the comparison does not leak how much of it was right.
 
-THIS IS NOT AN INTERNET SERVER. It is meant for the phone in the same flat as the
-machine that farms — a home network, behind a router that forwards nothing. It has no
-TLS, and a token in a URL is a token in a browser history; anyone who wants it reachable
-from outside should put it behind something that does TLS properly rather than open the
-port. The tab says as much, in every locale.
+REACHING IT FROM OUTSIDE is the router's business: this listens on every interface, so
+a forwarded port is all it takes, and who may connect is the filter on the router. The
+traffic is plain HTTP unless a certificate is named on the tab — a token in a URL is a
+token in a browser history and in every hop along the way — so the guessing is bounded
+here instead: wrong tokens are counted per address and a sign-in from a new one is said
+out loud in the log.
 """
 from __future__ import annotations
 
@@ -65,9 +66,9 @@ COOKIE = "lwvp_web"
 
 #: How long a signed-in browser stays signed in. A session cookie (forgotten when the
 #: browser closes) was the right answer while this only ever answered on the home
-#: network; over a tunnel the cookie IS the token, on a phone that may be lost, so it
-#: expires on its own. A week is long enough that nobody re-types the token every day
-#: and short enough that a phone left behind stops being a key.
+#: network; behind a forwarded port the cookie IS the token, on a phone that may be
+#: lost, so it expires on its own. A week is long enough that nobody re-types the token
+#: every day and short enough that a phone left behind stops being a key.
 COOKIE_MAX_AGE_SEC = 7 * 24 * 3600
 
 #: HOW MANY WRONG TOKENS an address may present before it is shut out, and for how long.
@@ -339,7 +340,7 @@ def _make_handler(server: WebServer):
                 return
             if not self._authorised(query) and path not in PUBLIC:
                 # A wrong token on an API route counts too, not only on the login form:
-                # over a tunnel the guesser has no reason to use the form at all.
+                # somebody guessing from outside has no reason to use the form at all.
                 self._refuse(query)
                 return
             try:
@@ -351,24 +352,16 @@ def _make_handler(server: WebServer):
             self._json(status, payload)
 
         def _peer(self) -> str:
-            """WHO is asking — the visitor, not the tunnel that carried them.
+            """WHO is asking: the address the socket says, and nothing else.
 
-            Everything arriving through `cloudflared` connects to this server from
-            127.0.0.1, so without this the lockout counts every stranger on the internet
-            as the same peer (one guesser would shut the owner out) and the «signed in
-            from …» line names localhost, which tells nobody anything. Found live, on the
-            first request that came down a real tunnel.
-
-            The forwarded header is trusted ONLY when the socket really is loopback: a
-            phone on the home network connects directly and carries its own address, and
-            a header it sent itself must never be able to rename it.
+            A forwarded port keeps it honest — a router rewrites the DESTINATION, not
+            the source, so a visitor from the internet arrives with their own address
+            and the lockout counts them as themselves. A proxy in front would break
+            that, and the answer to a proxy is to trust the header it sets AND the
+            socket it sets it from; there is no proxy here and there is not going to
+            be one, so there is nothing to trust and nothing to spoof.
             """
-            addr = self.client_address[0]
-            if addr not in ("127.0.0.1", "::1"):
-                return addr
-            forwarded = (self.headers.get("CF-Connecting-IP")
-                         or self.headers.get("X-Forwarded-For", "").split(",")[0])
-            return forwarded.strip() or addr
+            return self.client_address[0]
 
         def _login(self, body: dict) -> None:
             peer = self._peer()
@@ -419,10 +412,9 @@ def _make_handler(server: WebServer):
         def _cookie_for(self, token: str) -> str:
             """The sign-in cookie: bounded, and `Secure` when the request came by HTTPS.
 
-            The tunnel terminates TLS at Cloudflare and forwards `X-Forwarded-Proto`, so
-            a browser that arrived over the internet gets a cookie its browser will
-            refuse to send in clear afterwards. A phone on the home network arrives over
-            plain HTTP and must NOT get `Secure`, or it could never sign in at all.
+            `Secure` when the connection really is TLS — a certificate named on the tab,
+            or something in front that says `X-Forwarded-Proto`. A phone on the home
+            network over plain HTTP must NOT get it, or it could never sign in at all.
             """
             https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https"
                      or isinstance(self.connection, ssl.SSLSocket))
