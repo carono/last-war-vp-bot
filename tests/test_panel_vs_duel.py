@@ -871,18 +871,90 @@ def test_the_text_wraps_to_the_column_it_is_drawn_in():
         assert styled and all(str(w.cget("style")) == s for w, s in styled)
 
         def wraps_at(width):
+            # Mapped as well as sized: a page nobody is looking at is not re-wrapped at
+            # all (see the test below), and a withdrawn window maps nothing.
             box.winfo_width = lambda w=width: w
+            box.winfo_ismapped = lambda: 1
             tab._rewrap(box)
             return dict(tab._wrap_at)
 
         narrow, wide = wraps_at(360), wraps_at(700)
         assert all(wide[k] > narrow[k] for k in narrow), f"{narrow} -> {wide}"
-        # The deeper a widget sits, the less room it has left.
-        assert (wide["VsDuelWrap24.TCheckbutton"]
-                < wide["VsDuelWrap0.TCheckbutton"])
+        # The deeper a widget sits, the less room it has left. The styles are named per
+        # tab and per day frame (#1211), so they are looked up by the indent they were
+        # registered with rather than by a name spelled out here.
+        by_indent = {indent: style for _w, indent, style in tab._wrapped[box] if style}
+        deep, shallow = max(by_indent), min(by_indent)
+        assert deep > shallow, "nothing in a day is indented under anything else"
+        assert wide[by_indent[deep]] < wide[by_indent[shallow]]
         # Below the floor the words would break one per line, which is worse than a
         # little clipping — so the wrap stops shrinking.
         assert set(wraps_at(60).values()) == {tab._WRAP_FLOOR}
+    finally:
+        root.destroy()
+
+
+def test_a_wrap_reaches_this_tab_only_and_this_day_only():
+    """A ttk style belongs to the INTERPRETER, so a shared style name is a shared
+    layout: while `VsDuelWrap<indent>` was the name, re-wrapping Monday re-laid Tuesday
+    out — and re-laid out the same tab in every other open profile, page not even on
+    screen, which is a switch that freezes for seconds (#1211).
+
+    Two things are asserted, and they are the whole of the fix: no two day frames share
+    a style, and no two tabs do either.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        from tkinter import ttk
+        import fake_runtime
+        from panel.tabs.vs_duel import VsDuelTab
+
+        per_box = {box: {s for _w, _i, s in items if s}
+                   for box, items in tab._wrapped.items()}
+        assert all(per_box.values()), "a day whose boxes carry no style at all"
+        for one, mine in per_box.items():
+            for other, theirs in per_box.items():
+                if one is not other:
+                    assert not (mine & theirs), f"two days share {mine & theirs}"
+
+        second = VsDuelTab(fake_runtime.cold_runtime(root), ttk.Frame(root))
+        second.build()
+        ours = {s for items in tab._wrapped.values() for _w, _i, s in items if s}
+        theirs = {s for items in second._wrapped.values() for _w, _i, s in items if s}
+        assert ours and theirs and not (ours & theirs), "two tabs share a wrap style"
+    finally:
+        root.destroy()
+
+
+def test_a_page_nobody_is_looking_at_is_not_re_wrapped():
+    """…and is wrapped the moment somebody does look.
+
+    A tab being built gets <Configure> for every width its column passes through, and
+    so does one belonging to a profile whose page is behind another. Answering them
+    re-lays out a page nobody can see — in the middle of building the page they can.
+    """
+    try:
+        root, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        box = list(tab._wrapped)[0]
+        box.winfo_width = lambda: 700
+        box.winfo_ismapped = lambda: 0
+        tab._wrap_at.clear()
+        tab._rewrap(box)
+        assert tab._wrap_at == {}, "an unseen page was re-wrapped anyway"
+
+        # `on_show` is the moment it becomes worth answering — and the moment the width
+        # is the real one rather than whatever the build was passing through.
+        box.winfo_ismapped = lambda: 1
+        tab.on_show()
+        assert tab._wrap_at, "showing the tab did not wrap it"
     finally:
         root.destroy()
 

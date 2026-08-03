@@ -56,11 +56,22 @@ which is why the tab needs no daemon, no client and no game.
 """
 from __future__ import annotations
 
+import itertools
 import tkinter as tk
 from tkinter import ttk
 
 from ..widgets import NumericEntry, ScrollableFrame, font as ui_font
 from .base import PanelTab
+
+#: One per tab EVER BUILT, and the reason is the freeze of #1211. A ttk style belongs to
+#: the interpreter, not to the widget that made it — so two open profiles showing this
+#: tab shared `VsDuelWrap<indent>` between them, and one page's re-wrap re-laid the
+#: other page out, whose <Configure> re-wrapped it back. Six day frames did the same to
+#: each other inside a single tab. Measured: one tab settled in 1.1 s, three took 5.0 s,
+#: and a single window resize with three of them open cost 4.4 seconds of re-wrapping —
+#: in pages nobody was looking at. Every day frame gets a namespace of its own here, so
+#: a wrap reaches exactly the widgets it is the wrap of.
+_WRAP_NS = itertools.count()
 
 
 class _Amount:
@@ -508,6 +519,11 @@ class VsDuelTab(PanelTab):
         #: fixed `wraplength` would be wrong at every width but the one it was measured
         #: at, so the wrapping follows the frame instead. See :meth:`_rewrap`.
         self._wrapped: dict = {}
+        #: This tab's own corner of the style database, and a number per day frame in
+        #: it (see :data:`_WRAP_NS`). Nothing this tab configures may be read by another
+        #: tab — or by another day of this one.
+        self._wrap_ns = f"VsDuel{next(_WRAP_NS)}"
+        self._box_no: dict = {}
         #: The wrap each of those styles is currently set to — what keeps :meth:`_rewrap`
         #: from configuring a style to the width it already has, and so from a
         #: <Configure> that feeds itself.
@@ -915,12 +931,19 @@ class VsDuelTab(PanelTab):
         A ttk Label takes `wraplength` as an option; a ttk Checkbutton and Radiobutton
         do NOT — the option exists only on the label ELEMENT inside them, reachable
         through a style. So a box is given a style of its own per indent, and the wrap
-        is set on the style rather than on the widget. Every day column is the same
-        width (`uniform`), so one style per indent serves all six days.
+        is set on the style rather than on the widget.
+
+        PER DAY FRAME AND PER TAB, not per indent (#1211). The six columns are the same
+        width (`uniform`), so one style each looked like waste — but a style is the
+        interpreter's, and configuring one re-lays out every widget wearing it. Sharing
+        it meant Monday's re-wrap moved Tuesday, whose <Configure> re-wrapped Monday,
+        across all six days AND across every open profile's copy of this tab. The waste
+        is a dozen style names; what it buys is a re-wrap that stops.
         """
         style = ""
         if not isinstance(widget, ttk.Label):
-            style = f"VsDuelWrap{indent}.{widget.winfo_class()}"
+            number = self._box_no.setdefault(day_box, len(self._box_no))
+            style = f"{self._wrap_ns}b{number}i{indent}.{widget.winfo_class()}"
             widget.configure(style=style)
         self._wrapped.setdefault(day_box, []).append((widget, indent, style))
 
@@ -940,14 +963,33 @@ class VsDuelTab(PanelTab):
         except tk.TclError:                 # the page went away mid-layout
             pass
 
+    def on_show(self) -> None:
+        """Somebody opened the duel: wrap the week to the width it is actually at.
+
+        This is where the wrap happens now, because :meth:`_rewrap` refuses to run on a
+        page nobody is looking at — and while the panel is building fifteen tabs, or
+        showing another profile, this one is exactly that.
+        """
+        for day_box in list(self._wrapped):
+            self._rewrap(day_box)
+
     def _rewrap(self, day_box) -> None:
         """The day's column changed width — re-wrap the text in it.
 
         Nothing is re-set to the value it already has: a wrap re-lays the frame out,
         which fires <Configure> again, and an unguarded handler would do that for ever.
+
+        AND NOTHING AT ALL while the page is off screen (#1211). A tab being built, or
+        one belonging to a profile whose page is behind another, still gets <Configure>
+        for every width its column passes through — and answering them re-laid out a
+        page nobody could see, in the middle of the build of the page they COULD. The
+        width is read again in :meth:`on_show`, which is the first moment the answer
+        matters and the first moment it is right.
         """
         self._rewrap_due.pop(day_box, None)
         try:
+            if not day_box.winfo_ismapped():
+                return
             width = day_box.winfo_width()
         except tk.TclError:
             return
