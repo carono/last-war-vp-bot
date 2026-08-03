@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Listen",
   "cmdpost.shared.rob": "Rob on sight",
   "cmdpost.shared.stars_only": "Starred only",
+  "cmdpost.shared.skip_own": "Not on my own server",
   "cmdpost.shared.level_from": "level from",
   "cmdpost.shared.level_to": "to",
   "cmdpost.shared.clear": "Clear",

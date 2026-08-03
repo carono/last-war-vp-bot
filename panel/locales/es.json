@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Escuchar",
   "cmdpost.shared.rob": "Robar en cuanto se vea",
   "cmdpost.shared.stars_only": "Solo con estrella",
+  "cmdpost.shared.skip_own": "En mi servidor no",
   "cmdpost.shared.level_from": "nivel desde",
   "cmdpost.shared.level_to": "hasta",
   "cmdpost.shared.clear": "Vaciar",

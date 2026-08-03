@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Dengarkan",
   "cmdpost.shared.rob": "Rampok begitu terlihat",
   "cmdpost.shared.stars_only": "Hanya yang berbintang",
+  "cmdpost.shared.skip_own": "Bukan di server sendiri",
   "cmdpost.shared.level_from": "level dari",
   "cmdpost.shared.level_to": "sampai",
   "cmdpost.shared.clear": "Bersihkan",

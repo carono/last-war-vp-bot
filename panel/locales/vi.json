@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Nghe",
   "cmdpost.shared.rob": "Cướp ngay khi thấy",
   "cmdpost.shared.stars_only": "Chỉ loại có sao",
+  "cmdpost.shared.skip_own": "Không trên máy chủ của mình",
   "cmdpost.shared.level_from": "cấp từ",
   "cmdpost.shared.level_to": "đến",
   "cmdpost.shared.clear": "Xóa sạch",

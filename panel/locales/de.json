@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Lauschen",
   "cmdpost.shared.rob": "Sofort plündern",
   "cmdpost.shared.stars_only": "Nur mit Stern",
+  "cmdpost.shared.skip_own": "Nicht auf dem eigenen Server",
   "cmdpost.shared.level_from": "Level ab",
   "cmdpost.shared.level_to": "bis",
   "cmdpost.shared.clear": "Leeren",

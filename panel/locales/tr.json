@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Dinle",
   "cmdpost.shared.rob": "Görür görmez soy",
   "cmdpost.shared.stars_only": "Yalnız yıldızlılar",
+  "cmdpost.shared.skip_own": "Kendi sunucumda yok",
   "cmdpost.shared.level_from": "seviye alt",
   "cmdpost.shared.level_to": "üst",
   "cmdpost.shared.clear": "Temizle",

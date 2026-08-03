@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Ascolta",
   "cmdpost.shared.rob": "Deruba a vista",
   "cmdpost.shared.stars_only": "Solo con la stella",
+  "cmdpost.shared.skip_own": "Non sul mio server",
   "cmdpost.shared.level_from": "livello da",
   "cmdpost.shared.level_to": "a",
   "cmdpost.shared.clear": "Svuota",

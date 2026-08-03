@@ -253,12 +253,18 @@ def test_tab_builds_and_drives_its_controls():
         # a junk block cannot smuggle in a bound or a squad the page would not offer.
         shared._rob_var.set(True)
         shared._star_var.set(False)
+        shared._skip_own_var.set(True)
         saved = tab.config()
         assert saved["pages"]["shared"] == {"rob": True, "stars_only": False,
+                                            "skip_own_server": True,
                                             "level_from": "3", "level_to": "7"}
         assert saved["pages"]["treasure"] == {"squad": 3}
         tab.apply_config({})
+        # «Не грабить на своём сервере» comes back OFF from an empty block: the page has
+        # always robbed whatever was shared, and a prohibition nobody asked for would be
+        # a silent change of what the listener does.
         assert tab.config()["pages"]["shared"] == {"rob": False, "stars_only": True,
+                                                   "skip_own_server": False,
                                                    "level_from": "", "level_to": ""}
         assert tab.config()["pages"]["treasure"] == {"squad": cp.TREASURE_SQUADS[0]}
         tab.apply_config(saved)
@@ -436,6 +442,59 @@ def test_a_missing_checkpoint_is_no_rows_not_a_crash():
     tpane = cp.TreasuresPane.__new__(cp.TreasuresPane)
     tpane.app = App()
     assert tpane._scanned_targets(set(), home=0) == []
+
+
+def test_the_wire_listener_is_told_about_the_own_server_prohibition():
+    """The page robs secret tasks by its own child, so the box has to reach that child.
+
+    «Не грабить на своём сервере» lives on the «Секретки» tab too (#1209); a listener
+    spawned here that was never told about it would happily raid the neighbours the
+    operator ticked the box to protect.
+    """
+    cp = _module()
+    if cp is None:
+        return
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:            # noqa: BLE001
+        return _skip(exc)
+    try:
+        app = tk.Tk()
+    except Exception as exc:            # noqa: BLE001 — headless box
+        return _skip(exc)
+    try:
+        app.withdraw()
+        rt = fake_runtime.cold_runtime(app)
+        tab = cp.CommandPostTab(rt, ttk.Frame(app))
+        tab.build()
+        shared = next(p for p in tab._pages.values()
+                      if isinstance(p, cp.SharedMissionsPane))
+
+        spawned = []
+
+        class _Child:
+            def __init__(self, cmd):
+                spawned.append(cmd)
+
+            def start(self):
+                return True
+
+            def stop(self):
+                pass
+
+        rt.children.spawn = lambda tag, cmd, **kw: _Child(cmd)
+
+        shared._start_listener()
+        assert spawned and "--skip-own-server" not in spawned[0], spawned
+        shared._stop_listener()
+        shared._child = None
+        shared._skip_own_var.set(True)
+        shared._start_listener()
+        assert "--skip-own-server" in spawned[-1], spawned[-1]
+        shared._stop_listener()
+    finally:
+        app.destroy()
 
 
 def test_the_scan_children_are_the_two_map_scanners():

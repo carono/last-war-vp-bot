@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Слушать эфир",
   "cmdpost.shared.rob": "Грабить сразу",
   "cmdpost.shared.stars_only": "Только звёздные",
+  "cmdpost.shared.skip_own": "Не грабить на своём сервере",
   "cmdpost.shared.level_from": "уровень от",
   "cmdpost.shared.level_to": "до",
   "cmdpost.shared.clear": "Очистить",

@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Nasłuchuj",
   "cmdpost.shared.rob": "Grabić od razu",
   "cmdpost.shared.stars_only": "Tylko z gwiazdką",
+  "cmdpost.shared.skip_own": "Nie na własnym serwerze",
   "cmdpost.shared.level_from": "poziom od",
   "cmdpost.shared.level_to": "do",
   "cmdpost.shared.clear": "Wyczyść",

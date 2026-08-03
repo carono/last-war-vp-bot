@@ -607,6 +607,14 @@ class SharedMissionsPane(_Pane):
                                 command=self._on_rule_change),
                 "cmdpost.shared.stars_only").pack(side="left", padx=(12, 0))
 
+        # The same prohibition the «Секретки» tab carries (#1209), and it has to be here
+        # too: this page robs secret tasks by its own listener, so a box ticked only over
+        # there would leave this one raiding the neighbours it was ticked to protect.
+        self._skip_own_var = tk.BooleanVar(master=self.rt.root, value=False)
+        self.rt.tr(ttk.Checkbutton(row1, variable=self._skip_own_var,
+                                   command=self._on_rule_change),
+                   "cmdpost.shared.skip_own").pack(side="left", padx=(12, 0))
+
         row2 = ttk.Frame(box)
         row2.pack(fill="x", pady=(6, 0))
         self.rt.tr(ttk.Label(row2), "cmdpost.shared.level_from").pack(side="left")
@@ -647,6 +655,8 @@ class SharedMissionsPane(_Pane):
             cmd += ["--level-min", str(lo)]
         if hi is not None:
             cmd += ["--level-max", str(hi)]
+        if self._skip_own_var.get():
+            cmd.append("--skip-own-server")
         child = self.rt.children.spawn("autoloot", cmd, on_line=self._on_line,
                                 on_exit=self._on_child_exit)
         if not child.start():
@@ -782,6 +792,7 @@ class SharedMissionsPane(_Pane):
         return {
             "rob": bool(self._rob_var.get()),
             "stars_only": bool(self._star_var.get()),
+            "skip_own_server": bool(self._skip_own_var.get()),
             "level_from": "" if lo is None else str(lo),
             "level_to": "" if hi is None else str(hi),
         }
@@ -791,12 +802,14 @@ class SharedMissionsPane(_Pane):
         raw = raw if isinstance(raw, dict) else {}
         self._rob_var.set(bool(raw.get("rob", False)))
         self._star_var.set(bool(raw.get("stars_only", True)))
+        self._skip_own_var.set(bool(raw.get("skip_own_server", False)))
         for key, var in (("level_from", self._from_var), ("level_to", self._to_var)):
             var.set(_level_text(raw.get(key)))
 
     def persist_vars(self) -> list:
         """The controls a change of has to be written to the profile."""
-        return [self._rob_var, self._star_var, self._from_var, self._to_var]
+        return [self._rob_var, self._star_var, self._skip_own_var,
+                self._from_var, self._to_var]
 
     def _steal(self, mission: dict) -> None:
         """Rob one shared mission by hand — `hero.dispatch.steal {uuid, targetServer}`.

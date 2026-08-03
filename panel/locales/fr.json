@@ -679,6 +679,7 @@
   "cmdpost.shared.listen": "Écouter",
   "cmdpost.shared.rob": "Piller à vue",
   "cmdpost.shared.stars_only": "Étoilées seulement",
+  "cmdpost.shared.skip_own": "Pas sur mon serveur",
   "cmdpost.shared.level_from": "niveau depuis",
   "cmdpost.shared.level_to": "à",
   "cmdpost.shared.clear": "Vider",
