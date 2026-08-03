@@ -103,14 +103,10 @@ class Daemon:
         if not pinned:
             return
         try:
-            import psutil
-            if psutil.pid_exists(int(pinned)):
+            import game_client
+            if game_client.alive(int(pinned)):
                 return                                # still there — nothing to do
-            import il2cpp_probe as probe
-            mine = probe._session_of(os.getpid())
-            same = [p.pid for p in psutil.process_iter(["name"])
-                    if (p.info["name"] or "").lower() == "lastwar.exe"
-                    and probe._session_of(p.pid) == mine]
+            same = game_client.session_pids()
         except BaseException as exc:                  # noqa: BLE001 — a best effort
             print(f"[daemon] could not re-aim the pinned pid: {exc}", flush=True)
             return

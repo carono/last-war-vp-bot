@@ -60,20 +60,62 @@ def attached_pid(port: "int | None" = None) -> "int | None":
 
 
 def running_pid(game_exe: str = GAME_EXE) -> "int | None":
-    """The client process to drive right now, by the ordinary rules.
+    """The client of THIS Windows session — never another session's.
 
-    ``LW_GAME_PID`` first, then the client in this Windows session, then any client.
-    That is `il2cpp_probe.find_game_pid`, which is what a fresh `LuaEval` would pick —
-    so a restart waits for exactly the process the next action will attach to.
+    ``LW_GAME_PID`` still wins, because that is somebody saying which client they
+    mean. What is deliberately NOT here is `find_game_pid`'s last resort, "any
+    client at all": that fallback is right for a reader (better the wrong client
+    than no client) and catastrophic for a restart, which does not read a process
+    but ENDS it. Proven the hard way — with the client of this session killed, the
+    ordinary lookup answered with the second account's client, running in another
+    Windows session. One more step down that path is a closed session for an
+    account nobody asked about.
+
+    A process this token cannot open its session id for is not ours: being unable
+    to ask is itself the answer, and it is the answer a foreign session gives.
     """
+    forced = os.environ.get("LW_GAME_PID")
+    if forced:
+        try:
+            pid = int(forced)
+        except (TypeError, ValueError):
+            return None
+        return pid if alive(pid) else None
+    pids = session_pids(game_exe)
+    return pids[0] if pids else None
+
+
+def session_pids(game_exe: str = GAME_EXE) -> list:
+    """Every client running in the caller's own Windows session (usually one)."""
     try:
-        import il2cpp_probe
-    except Exception:                        # noqa: BLE001 — not on Windows, no probe
-        return _first_pid_by_name(game_exe)
+        import psutil
+    except Exception:                        # noqa: BLE001
+        return []
+    probe, mine = None, None
     try:
-        return int(il2cpp_probe.find_game_pid())
-    except BaseException:                    # noqa: BLE001 — SystemExit("not running")
-        return None
+        # The one implementation of the session lookup in the repo — a ctypes call
+        # around ProcessIdToSessionId. Duplicating it here would be a second thing
+        # to keep right.
+        import il2cpp_probe as probe        # noqa: PLC0415
+        mine = probe._session_of(os.getpid())
+    except Exception:                        # noqa: BLE001 — not Windows: no sessions
+        probe = None
+    out = []
+    try:
+        for proc in psutil.process_iter(["name"]):
+            if (proc.info["name"] or "").lower() != game_exe.lower():
+                continue
+            if probe is None:                # nothing to filter by — every client is ours
+                out.append(proc.pid)
+                continue
+            try:
+                if probe._session_of(proc.pid) == mine:
+                    out.append(proc.pid)
+            except Exception:                # noqa: BLE001 — cannot ask ⇒ not ours
+                continue
+    except Exception:                        # noqa: BLE001
+        return out
+    return out
 
 
 def target_pid(port: "int | None" = None, game_exe: str = GAME_EXE) -> "int | None":
@@ -134,20 +176,6 @@ def wait_gone(pid: "int | None", timeout: float = CLOSE_TIMEOUT_SEC) -> bool:
 
 
 # -- fallbacks ---------------------------------------------------------------
-
-def _first_pid_by_name(game_exe: str) -> "int | None":
-    try:
-        import psutil
-    except Exception:                        # noqa: BLE001
-        return None
-    try:
-        for proc in psutil.process_iter(["name"]):
-            if (proc.info["name"] or "").lower() == game_exe.lower():
-                return proc.pid
-    except Exception:                        # noqa: BLE001
-        return None
-    return None
-
 
 def _taskkill(pid: int, timeout: float) -> bool:
     """Windows without psutil: end one PID (never an image name — see the header)."""

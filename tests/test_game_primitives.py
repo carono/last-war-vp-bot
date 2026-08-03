@@ -898,6 +898,63 @@ def test_attach_fails_in_words_when_the_client_never_came_back():
     assert "no client is running" in ctx.fail_reason, ctx.fail_reason
 
 
+def test_attach_believes_the_daemon_over_a_local_pid_lookup():
+    """A profile whose client lives in ANOTHER Windows session is still driven from
+    this one, over a port. Nothing here can see that client in a process list, so a
+    restart that checked the daemon's pid against a locally-found one would fail a
+    handover that in fact worked. The daemon knows which client it drives; that is
+    the answer."""
+    client = FakeClient(pid=None, attached=None)   # nothing visible in THIS session
+    client.reload = lambda: (setattr(client, "attached", 31337),
+                             {"ok": True, "warm": True})[1]
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval())
+    with _fakes(client):
+        se.Interpreter(ctx)._run_block(se.parse_text("ATTACH_GAME WITHIN 5s"))
+    assert client.attached == 31337, client.attached
+
+
+def test_a_restart_never_reaches_another_windows_session():
+    """The bug this cost a live run to find: with the client of this session killed,
+    the ordinary lookup answered with the SECOND account's client, in another
+    session — and the next step of a restart is not a read but a kill."""
+    import game_client
+
+    class _Proc:
+        def __init__(self, pid, name):
+            self.pid, self.info = pid, {"name": name}
+
+    class _FakePsutil:
+        @staticmethod
+        def process_iter(_fields=None):
+            return [_Proc(111, "LastWar.exe"),      # ours, session 1
+                    _Proc(222, "LastWar.exe"),      # the other account, session 3
+                    _Proc(333, "chrome.exe")]
+
+    class _FakeProbe:
+        SESSIONS = {111: 1, 222: 3}
+
+        @staticmethod
+        def _session_of(pid):
+            if pid in (222,):
+                raise OSError("access denied")      # what a foreign session really gives
+            return _FakeProbe.SESSIONS.get(pid, 1)  # this process, and ours
+
+    saved = {n: sys.modules.get(n) for n in ("psutil", "il2cpp_probe")}
+    sys.modules["psutil"], sys.modules["il2cpp_probe"] = _FakePsutil, _FakeProbe
+    try:
+        assert game_client.session_pids() == [111], game_client.session_pids()
+        assert game_client.running_pid() == 111
+        # …and with ours gone, the honest answer is "none", never the neighbour's.
+        _FakePsutil.process_iter = staticmethod(lambda _f=None: [_Proc(222, "LastWar.exe")])
+        assert game_client.running_pid() is None, "a foreign session's client was offered"
+    finally:
+        for name, mod in saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+
 def test_attach_without_a_daemon_waits_for_the_client_and_stops_there():
     """With nothing warm to re-point, the next primitive resolves its own link."""
     client = FakeClient(pid=7777)

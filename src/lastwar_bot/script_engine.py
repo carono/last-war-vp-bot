@@ -1573,9 +1573,17 @@ class Interpreter:
         belongs, and gives the recipe something to fail on if the client never came
         back.
 
+        THE DAEMON IS THE AUTHORITY on which client it drives, and the wait is for
+        ITS answer rather than for a pid found here. That is not a nicety: a profile
+        whose client lives in another Windows session is driven from this one over a
+        port, so the panel's process and the client are not even in the same session
+        — and checking the daemon's pid against a locally-discovered one would then
+        never match, failing a restart that in fact worked.
+
         With no daemon there is nothing warm to re-point: the next game primitive
-        builds a fresh local `LuaEval`, which resolves the live client by itself. So
-        the wait is for the CLIENT, and the reload is best-effort on top of it.
+        builds a fresh local `LuaEval`, which resolves the live client by itself. Only
+        then does a local reading make sense — and it is a same-session one, because
+        a client in somebody else's session is not this profile's to report as up.
         """
         self._tools_lib_on_path()
         import game_client
@@ -1584,27 +1592,30 @@ class Interpreter:
         self._detach()
         port = self._game_port()
         deadline = time.time() + float(stmt.timeout)
-        pid = None
+        seen = None
         while True:
-            pid = game_client.running_pid()
-            if pid is not None:
-                if not lua_client.is_running(port=port):
-                    self._log(f"ATTACH_GAME -> client pid {pid} (no daemon to re-point)")
-                    return
+            if lua_client.is_running(port=port):
                 try:
                     lua_client.DaemonClient(port=port, token="").reload()
                 except Exception:             # noqa: BLE001 — not warm yet; try again
                     pass
-                if game_client.attached_pid(port) == pid:
+                pid = game_client.attached_pid(port)
+                if pid:
                     self._log(f"ATTACH_GAME -> daemon attached to client pid {pid}")
                     return
+            else:
+                pid = game_client.running_pid()
+                if pid:
+                    self._log(f"ATTACH_GAME -> client pid {pid} (no daemon to re-point)")
+                    return
+            seen = seen or game_client.running_pid()
             if time.time() >= deadline:
                 break
             time.sleep(2.0)
         self._fail(
             f"the game link did not come back within {stmt.timeout:g}s"
-            + (f" — the client (pid {pid}) is up, but the daemon would not attach to it"
-               if pid else " — no client is running"))
+            + (f" — a client (pid {seen}) is up, but the daemon would not attach to it"
+               if seen else " — no client is running"))
 
     def _do_wait(self, stmt: WaitStmt) -> None:
         # Special case: "WAIT N" or "WAIT Ns" → fixed sleep.
