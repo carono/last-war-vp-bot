@@ -23,7 +23,7 @@ python tools/lastwar_proto.py capture.pcapng --json out.json    # full transcrip
 The client keeps **two** chat-carrying sockets alive at once:
 
 **A. Game gateway — `…:17935`, plain TCP, the `lastwar_proto.py` binary protocol.**
-The accelerator IP varies per session (`<server-ip>`, `15.197.233.176`, … —
+The accelerator IP varies per session (`<server-ip>`, `<server-ip4>`, … —
 dialled bare, no DNS). This connection carries chat **control and low-rate**
 traffic only:
 - `common.chat.room.id` — the room registry (returns `country_<server>`,
@@ -44,7 +44,7 @@ proven by elimination (see below).
 **The decisive evidence:** during ~3 min with the world-chat ticker visibly
 scrolling fast, the `:17935` stream carried **zero** broadcast `push.chat`
 frames — only the DM send/ack and room registry. Meanwhile the WSS
-(`34.149.98.177:443`, `…-gcp-ali`) was established at login and streamed
+(`<server-ip6>:443`, `…-gcp-ali`) was established at login and streamed
 steadily the whole time (a ~55 KB burst when chat tabs were opened = history
 load, then a continuous ~2–4 KB / 15 s live trickle). The client was clearly
 receiving world chat, and it was **not** arriving on `:17935` → it arrives on
@@ -52,7 +52,7 @@ the WSS.
 
 **Why it "drops while the game runs":** the WSS is multi-cloud and the client
 **fails over** between providers. In the capture the Alibaba endpoint
-(`47.90.174.119`, `…-us-ali`) was dropped after ~17 s and the client settled on
+(`<server-ip7>`, `…-us-ali`) was dropped after ~17 s and the client settled on
 the GCP one — a chat socket dying independently of the game socket is exactly
 the behaviour the task premise described. The old note blaming only a
 "translation service" was wrong; the real separate connection is the chat WSS.
@@ -67,7 +67,7 @@ in-band binary protocol, all TLS):
 | `lastwar-fight-report.akamaized.net:443` | Battle-report / news images CDN (Akamai) |
 | `lw-c-log.lastwarapp.net:443` | Client log/telemetry upload (Cloudflare) |
 | `te-receiver.lastwar.com:443` | Telemetry event receiver (ThinkingData-style) |
-| `101.32.143.x` / `129.226.x` on `:10012` / `:443` / `:80` | Tencent Cloud SDK stubs — connect at login, then idle (~300 B); **not** chat |
+| `<server-ip11>` / `129.226.x` on `:10012` / `:443` / `:80` | Tencent Cloud SDK stubs — connect at login, then idle (~300 B); **not** chat |
 
 ## 2. Rooms and chat types
 

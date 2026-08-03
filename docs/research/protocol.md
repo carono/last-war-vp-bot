@@ -43,9 +43,9 @@ main connection still dials a bare IP.
 | Flow | Volume | What it is |
 |---|---|---|
 | **TCP `<server-ip>:17935`** | 23 KB up / 388 KB down | **The game.** Everything below decodes from this one connection. |
-| TCP `129.226.1.157:80` | 14 KB up, 0 down | Tencent Cloud. Custom framing on port 80, not HTTP. Telemetry/SDK — undecoded, and it never gets a reply. |
+| TCP `<server-ip10>:80` | 14 KB up, 0 down | Tencent Cloud. Custom framing on port 80, not HTTP. Telemetry/SDK — undecoded, and it never gets a reply. |
 | UDP `129.226.1.x:8081` | ~7 KB | Tencent Cloud SDK. High-entropy, undecoded. |
-| UDP `129.226.1.157:137`, `101.32.143.x:137` | ~1.6 KB | NetBIOS-shaped `CKAAAA…` wildcard queries — SDK NAT-type probing. |
+| UDP `<server-ip10>:137`, `<server-ip11>:137` | ~1.6 KB | NetBIOS-shaped `CKAAAA…` wildcard queries — SDK NAT-type probing. |
 | UDP `<server-ip3>:50080` | 21 892 pkts, 10.9 MB | **Not the game.** Header `48000001` + counter + max-entropy body, 1444 B MTU cap — reads as a VPN/tunnel. See open questions. |
 | UDP `192.168.1.x` | ~450 KB | LAN traffic, not the game. Their first byte is `0x80` by coincidence, which is why `classify()` refuses to call UDP "GAME". |
 | TCP `lastwar-cdn.lastwarapp.net:443`, `lastwar-cdn.akamaized.net:443` | 55 KB / 53 KB down (B) | Asset CDN. TLS, not decoded, no gameplay. |
@@ -472,12 +472,12 @@ fastest; the losers get one handshake and are dropped. Observed in capture C:
 
 | Gateway | Provider | Role |
 |---|---|---|
-| `15.197.233.176:17935` | AWS Global Accelerator | winner — carried the whole session |
+| `<server-ip4>:17935` | AWS Global Accelerator | winner — carried the whole session |
 | `<server-ip2>:17935` | Cloudflare | probed, 1 frame, dropped |
-| `34.145.128.94:17935` | Google Cloud | probed, 1 frame, dropped |
+| `<server-ip5>:17935` | Google Cloud | probed, 1 frame, dropped |
 
 **The game IP is not stable.** Capture A used `<server-ip>`, capture C used
-`15.197.233.176`, and in C the old address served plain TLS instead. Never
+`<server-ip4>`, and in C the old address served plain TLS instead. Never
 hard-code it — match on the frame shape.
 
 The opening frame is the keepalive envelope carrying a device fingerprint:

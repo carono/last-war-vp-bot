@@ -30,7 +30,7 @@ analysis half of §8 — §8.0 and §8.4-§8.11 — is in `sniff.md`; the two sh
 | **Interpreter for capture** | `/mnt/c/Python312/python.exe` — the **Windows** Python. Sees `C:` and `D:`, has scapy + npcap. |
 | **Never** use for capture | The WSL `python3`. WSL2 is a NAT'd VM; its sockets **cannot see** the Windows game's packets — it captures nothing, silently. |
 | **Capture interface** | `#13 "vEthernet (Создать виртуальный коммутатор)"` — the Hyper-V virtual-switch adapter. Confirm with `--list-ifaces`; the number can shift, the name is the anchor. |
-| **Game endpoint** | TCP `34.145.128.94:17935` (server IP changes per session — match by **port 17935**, not IP). |
+| **Game endpoint** | TCP `<server-ip5>:17935` (server IP changes per session — match by **port 17935**, not IP). |
 | **Game running?** | The game process holds an **ESTABLISHED** connection to `:17935` (`netstat -ano | findstr 17935`). No such line = not logged in = nothing to capture. |
 
 One-time on the Windows interpreter:

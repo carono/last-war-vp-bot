@@ -17,7 +17,7 @@ the genuine world cold-load. Decoded offline with `tools/lastwar_proto.py`. Also
 
 ## Finding 1 — nothing monster-shaped loads at world entry
 
-The first-world-enter capture (fresh login, server `34.145.128.94`, 134 down msgs) contained
+The first-world-enter capture (fresh login, server `<server-ip5>`, 134 down msgs) contained
 **no** `push.running.boss.*`, **no** `monster.invasion.boss.detail`, **no** bulk monster list.
 The single `world.get.block` had only `f2 ∈ {6 base, 7 mine, 17 secret_task}` and empty
 `triggers`. The 29 `push.world.march.new` are **player marches** (e.g. `<player>`

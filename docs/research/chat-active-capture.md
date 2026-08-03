@@ -27,12 +27,12 @@ credential material and account identifiers; do not commit).
 ## All sockets of LastWar.exe at login
 
 ```
-:17935  15.197.233.176          game gateway (plain TCP, lastwar_proto)
-:443    15.197.233.176          lastwar-chat-wss-us-aws-ali / serverlist   (TLS)
-:443    34.149.98.177  (GCP)    lastwar-chat-wss-us-gcp-ali / serverlist   (TLS)  <- live chat
-:443    47.90.174.119  (Ali)    lastwar-chat-wss-us-ali                    (TLS)  dropped ~17s
-:443    128.75.238.186 (x4)     lastwar-fight-report.akamaized.net         (TLS)  CDN
-:443    104.17.132.15  (CF)     lw-c-log.lastwarapp.net                    (TLS)  telemetry
+:17935  <server-ip4>          game gateway (plain TCP, lastwar_proto)
+:443    <server-ip4>          lastwar-chat-wss-us-aws-ali / serverlist   (TLS)
+:443    <server-ip6>  (GCP)    lastwar-chat-wss-us-gcp-ali / serverlist   (TLS)  <- live chat
+:443    <server-ip7>  (Ali)    lastwar-chat-wss-us-ali                    (TLS)  dropped ~17s
+:443    <server-ip9> (x4)     lastwar-fight-report.akamaized.net         (TLS)  CDN
+:443    <server-ip8>  (CF)     lw-c-log.lastwarapp.net                    (TLS)  telemetry
 :443    198.19.223.146          te-receiver.lastwar.com                    (TLS)  telemetry
 :80     198.18.55.8             (VPN-range HTTP)
 10012/443/80  101.32.143.{247,64,142}, 129.226.{1.157,2.37}  Tencent SDK stubs (idle)
@@ -44,9 +44,9 @@ credential material and account identifiers; do not commit).
 | Flow | Pkts | Bytes | Dur | Note |
 |---|---|---|---|---|
 | `…:17935` (game) | 1195 | **471 KB** | 184 s | main gateway, full session |
-| `104.17.132.15:443` (lw-c-log) | 403 | 234 KB | 180 s | telemetry/log upload |
-| `34.149.98.177:443` (**chat-wss-gcp**) | 409 | 81 KB | 180 s | **live chat WebSocket** |
-| `128.75.238.186:443` ×4 (fight-report) | ~55 | ~35 KB ea | ~26 s | battle-report CDN burst |
+| `<server-ip8>:443` (lw-c-log) | 403 | 234 KB | 180 s | telemetry/log upload |
+| `<server-ip6>:443` (**chat-wss-gcp**) | 409 | 81 KB | 180 s | **live chat WebSocket** |
+| `<server-ip9>:443` ×4 (fight-report) | ~55 | ~35 KB ea | ~26 s | battle-report CDN burst |
 | `198.19.223.146:443` (te-receiver) | 138 | 54 KB | 179 s | telemetry |
 | Tencent `:10012` / `:443` / `:80` (×15) | 5 ea | ~294 B ea | idle | SDK stubs, no chat |
 
@@ -70,7 +70,7 @@ push.all.notice / push.new.news / push.al.help.new
 ticker was scrolling continuously the whole time, so the client was receiving
 world chat — just not here.
 
-## Chat WebSocket timeline (tshark `-z io,stat`, `34.149.98.177:443`)
+## Chat WebSocket timeline (tshark `-z io,stat`, `<server-ip6>:443`)
 
 ```
 Interval (s)  frames  bytes      <- 15s buckets
