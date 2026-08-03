@@ -143,8 +143,11 @@ class PanelTab:
                  "rows":  [{"label": "res.food",        # a KEY …
                             "value": "1 234"}],         # … and DATA, never translated
                  "items": [{"text": "Иванов",           # data: a name, a number, a time
-                            "detail": "ур. 30 · 12 М",
-                            "pill": "web.ui.queued",    # a KEY, or absent
+                            "detail": "30 · 12 480 000",
+                            "facts": [{"label": "secrettasks.col.level",
+                                       "value": "12"}],   # KEY + DATA, side by side
+                            "until": 1785776747.0,        # epoch: the phone counts down
+                            "pill": "web.ui.queued",      # a KEY, or absent
                             "actions": [{"id": "join", "label": "rally.join"}]}],
                  "empty": "alliance.empty"}],           # a KEY, shown for no items
              "actions": [{"id": "refresh", "label": "tabx.refresh"}]}

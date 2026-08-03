@@ -1033,6 +1033,60 @@ class SecretTasksTab(PanelTab):
         self._update_status()
         self._maybe_start_poll()
 
+    # -- the phone ---------------------------------------------------------------
+    #
+    # READING ONLY, and that is a decision rather than an omission. The robbery on this
+    # tab spawns its own tool because the recipe only spends a queue that tool fills
+    # (`CLAUDE.md`, task #1188) — a «Ограбить» button on the phone would be a SECOND
+    # copy of that debt, in a second place, reached from outside the house. The tiles,
+    # their countdowns and how many robberies are left is what somebody away from the
+    # machine actually needs: it is what decides whether to go home and press it.
+    WEB_SCREEN = True
+
+    def web_view(self) -> "dict | None":
+        """The starred tiles as cards, newest deadline first. Reads nothing.
+
+        The rows are already in memory — the capture fills them and the table draws
+        them — so this is a dictionary walk, which is what `web_view` is contracted to
+        be (panel/tabs/base.py).
+        """
+        # Both imported here rather than at the top: `coords` lives in tools/lib, which
+        # is only on the path once `panel.runtime.paths` has run, and this module is
+        # imported before that in a standalone tab.
+        import time as _time
+
+        import coords
+
+        now = _time.time()
+        items = []
+        for row in sorted(self._rows.values(),
+                          key=lambda r: (not r.get("ready"),
+                                         r.get("expires_at") or float("inf"))):
+            if not self._in_range(row.get("level")):
+                continue
+            facts = [{"label": "secrettasks.col.level", "value": str(row.get("level"))},
+                     {"label": "secrettasks.col.slots",
+                      "value": f"{row.get('loot_count')}/3"}]
+            done, exp = row.get("completed_at"), row.get("expires_at")
+            items.append({
+                "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
+                "facts": facts,
+                # Ready: how long is left to take it. Not ready: when it becomes one.
+                "until": (exp if row.get("ready") else done) or None,
+                "pill": "secrettasks.ready" if row.get("ready") else None,
+            })
+        return {"cards": [{"title": None, "items": items,
+                           "empty": "secrettasks.empty"}],
+                "now": now,
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """«Обновить» only — see the note above about the robbery."""
+        if action != "refresh":
+            return {"error": "unknown"}
+        self.refresh()
+        return {"ok": True}
+
     # -- drawing ---------------------------------------------------------------
     def _render(self) -> None:
         """Rebuild the table from the current rows, in the order the headings ask for.

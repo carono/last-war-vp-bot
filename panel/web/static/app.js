@@ -27,6 +27,7 @@ let RUNNING = '';              // the scenario the panel is playing, off /api/st
 let PROFILE = '';              // which account is being looked at ('' = the server's own)
 let SCREENS = [];              // the tabs of this profile that have a phone screen
 let SCREEN = null;             // the one being looked at, or null
+let SCREEN_NOW = 0;            // the PANEL's clock when the screen was read
 let NOTIFY = false;
 let POLLING = null;
 
@@ -329,6 +330,7 @@ async function drawScreen() {
   try {
     view = await get('/api/screen?id=' + encodeURIComponent(SCREEN));
   } catch (err) { return; }
+  SCREEN_NOW = view.now || 0;
   $('screen-title').textContent = T(view.title || '');
   const body = $('screen-body');
   body.textContent = '';
@@ -426,6 +428,16 @@ function renderItem(item) {
     note.className = 'muted small';
     note.textContent = item.note;
     line.appendChild(note);
+  }
+  /* Facts are a KEY and a value side by side — «Уровень 12 · Слоты 0/3» — so the words
+   * stay in the locale table and only the numbers come off the panel. */
+  if ((item.facts || []).length || item.until) {
+    const facts = document.createElement('p');
+    facts.className = 'muted small';
+    const bits = (item.facts || []).map((f) => T(f.label) + ' ' + f.value);
+    if (item.until) bits.push(when(item.until, SCREEN_NOW || item.until));
+    facts.textContent = bits.join(' · ');
+    line.appendChild(facts);
   }
   if (item.pill || (item.actions || []).length) {
     const foot = document.createElement('div');
