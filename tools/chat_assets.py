@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
@@ -29,11 +30,14 @@ _MAP_PATH = os.path.join(_HERE, "data", "chat_assets_map.json")
 
 # Chat photos are downloaded by the client into its persistentDataPath, keyed
 # deterministically -- no CDN URL / native call needed (verified live 2026-07-27):
-#   <LocalLow>/FunFly/Last War-Survival Game/ChatPhotos/<uid[-6:]>/<md5(f"{uid}_{picVer}")>.jpg
+#   <LocalLow>/<game folder>/ChatPhotos/<uid[-6:]>/<md5(f"{uid}_{picVer}")>.jpg
 # and "..._big.jpg" for the full-size copy (only present once opened fullscreen).
-PHOTOS_DIR = os.environ.get("LASTWAR_CHATPHOTOS") or os.path.join(
-    os.path.expanduser("~"), "AppData", "LocalLow",
-    "FunFly", "Last War-Survival Game", "ChatPhotos")
+# Where that tree is, is game_paths' business, not this module's.
+sys.path.insert(0, os.path.join(_HERE, "lib"))
+
+import game_paths  # noqa: E402
+
+PHOTOS_DIR = game_paths.chat_photos_dir()
 
 
 def photo_path(uid, pic_ver, big: bool = False) -> str | None:

@@ -52,6 +52,8 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "lib"))
 
+import game_paths  # noqa: E402  (the game's window title — LW_WINDOW_TITLE)
+
 # ---------------------------------------------------------------------------
 # Lua meta layer (event state, launch, attempt count)
 # ---------------------------------------------------------------------------
@@ -209,7 +211,7 @@ def find_win(pid: int | None = None):
                 r = win32gui.GetWindowRect(h)
                 if r[2] - r[0] > 200 and r[3] - r[1] > 200:
                     hs.append((h, r))
-                elif win32gui.GetWindowText(h) == "Last War-Survival Game":
+                elif win32gui.GetWindowText(h) == game_paths.window_title():
                     minimized.append(h)
         return True
 

@@ -993,7 +993,7 @@ class Interpreter:
         # window appears; each WAIT iteration re-tries find_window.
         if not self.ctx.hwnd:
             try:
-                info = find_window("Last War-Survival Game", "LastWar.exe")
+                info = find_window()
                 self.ctx.hwnd = info.hwnd
             except WindowNotFoundError:
                 self._log("(window not running)")
@@ -1023,7 +1023,7 @@ class Interpreter:
         if not self.ctx.hwnd:
             from .perception.capture import WindowNotFoundError, find_window
             try:
-                self.ctx.hwnd = find_window("Last War-Survival Game", "LastWar.exe").hwnd
+                self.ctx.hwnd = find_window().hwnd
             except WindowNotFoundError as exc:
                 raise ScriptRuntimeError(f"game window not found: {exc}") from exc
         return self.ctx.hwnd
@@ -1575,7 +1575,7 @@ class Interpreter:
 
         WHICH client is the whole difficulty, and it is answered in
         tools/lib/game_client.py: with two accounts on one box there are two clients,
-        each in its own Windows session with its own daemon, and closing "LastWar.exe"
+        each in its own Windows session with its own daemon, and closing «the client»
         by name would end the other account's session as well.
 
         A client that is already gone is not an error — the recipe's job is to get

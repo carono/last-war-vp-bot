@@ -16,7 +16,7 @@ Run by hand only from an already-SYSTEM shell:
     C:\Python312\python.exe tools\session_launch.py --session 3 --game
     C:\Python312\python.exe tools\session_launch.py --list
 
-`--session` accepts a session id or a user name (`--session casper`). The process is
+`--session` accepts a session id or a user name (`--session <login>`). The process is
 started on ``WinSta0\Default`` *of that session* — the desktop the session owns,
 whether it is on the console, on an RDP connection, or disconnected. A disconnected
 session still has a desktop; nothing about the launch requires anyone to be watching.

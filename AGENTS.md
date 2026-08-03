@@ -380,8 +380,14 @@ over guesswork.
   | `LW_GAME_FOLDER` | `FunFly\Last War-Survival Game` | the same, *relative to a user's Local AppData* — the only form that can name ANOTHER account's copy |
   | `LW_LAUNCHER_EXE` | `LastWarLauncher.exe` | the launcher's filename |
   | `LW_GAME_EXE` | `LastWar.exe` | the client's process name |
+  | `LW_WINDOW_TITLE` | `Last War-Survival Game` | what a window search matches on |
   | `LW_WIN_PYTHON` | `C:\Python312\python.exe` | the interpreter child processes are started with |
   | `LW_PLAYER_LOG` | `…\AppData\LocalLow\<game folder>\Player.log` | where Lua results are read back from |
+  | `LW_LOCALLOW` | `…\AppData\LocalLow` | Unity's `persistentDataPath` root |
+  | `LW_GAME_DATA_DIR` | `<LocalLow>\<game folder>` | what the client **downloads** — a different tree from the install |
+  | `LW_CHAT_PHOTOS` | `<data dir>\ChatPhotos` | the chat photo / avatar cache |
+  | `LW_GAMERES` | `<install>\…\AssetBundles\gameres` | the asset index |
+  | `LW_ASSET_CACHE` | `<install>\Cache\AssetBundles` | the downloaded-bundle cache |
 
   **Nothing here has to be set**, and adding a second account must never
   need it: the login names the session, the session's profile directory
@@ -397,6 +403,25 @@ over guesswork.
   `tests/test_game_paths.py` fails on a module that spells any of it out
   for itself again — which is how the panel's «launcher» default came to
   say `C:\Program Files\LastWar` while the shell said something else.
+
+- **Never ship a personal value at all** — and a login is the worst of
+  them. The project is public and gets installed on other people's
+  machines, so a Windows account, a session, a home server or a squad
+  UUID is **asked or registered, never defaulted**: `--user` /
+  `LW_SECOND_USER` for a second client, `tools/data/instances.json` for
+  a second instance, `.env` (`tools/lib/tool_config.py`) for the
+  player's own numbers, with empty defaults so an unset value fails
+  loudly rather than acting on somebody else's.
+
+  A default naming the machine this was written on is worse than a wrong
+  one: it does not say «not configured», it goes looking for a folder or
+  a session that cannot exist and reports the ordinary «no client
+  running».
+
+  `tests/test_no_hardcoded_values.py` enforces both halves — quoted
+  literals of the install, and personal logins anywhere in a tracked
+  file. The full rule is in `CLAUDE.md`, «Nothing about one machine is
+  written into the code».
 
 ---
 

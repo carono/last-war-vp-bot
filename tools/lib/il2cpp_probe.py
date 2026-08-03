@@ -23,6 +23,8 @@ import struct
 import sys
 from ctypes import wintypes
 
+import game_paths  # the client's process name — LW_GAME_EXE, not a literal
+
 MODULE = "GameAssembly.dll"
 
 k32 = C.WinDLL("kernel32", use_last_error=True)
@@ -113,9 +115,9 @@ def find_game_pid() -> int:
     mine = _session_of(k32.GetCurrentProcessId())
     others = []
     for p in psutil.process_iter(["name"]):
-        # The client itself — not LastWarLauncher.exe / LastWarSync.exe, which share the
-        # prefix, have no il2cpp in them, and disappear once the client is up.
-        if (p.info["name"] or "").lower() == "lastwar.exe":
+        # The client itself — not the launcher / the updater, which share the prefix,
+        # have no il2cpp in them, and disappear once the client is up.
+        if (p.info["name"] or "").lower() == game_paths.game_exe().lower():
             if _session_of(p.pid) == mine:
                 return p.pid
             others.append(p.pid)

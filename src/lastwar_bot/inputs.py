@@ -149,8 +149,10 @@ def _main() -> int:
     p.add_argument("x", type=int, help="Client X coordinate")
     p.add_argument("y", type=int, help="Client Y coordinate")
     p.add_argument("--mode", choices=["foreground", "background"], default="background")
-    p.add_argument("--title", default="Last War-Survival Game")
-    p.add_argument("--process", default="LastWar.exe")
+    # Unset means «the game», as find_window resolves it (LW_WINDOW_TITLE / LW_GAME_EXE);
+    # an empty --process searches by title alone.
+    p.add_argument("--title", default=None)
+    p.add_argument("--process", default=None)
     p.add_argument("--no-verify", action="store_true", help="Skip the before/after diff")
     p.add_argument(
         "--wait", type=float, default=1.0,
@@ -158,7 +160,7 @@ def _main() -> int:
     )
     args = p.parse_args()
 
-    info = find_window(args.title, args.process or None)
+    info = find_window(args.title, args.process)
     print(f"Window: hwnd=0x{info.hwnd:x} {info.title!r}")
 
     if args.no_verify:

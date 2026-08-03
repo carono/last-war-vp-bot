@@ -1,4 +1,4 @@
-r"""Named game instances — "main" and "casper" instead of 47654 and 47655.
+r"""Named game instances — "main" and "second" instead of 47654 and 47655.
 
 One client per Windows session, one Lua daemon per client, one port per daemon
 (docs/research/multi-instance-rdp.md). Ports are machine-wide, so every instance is
@@ -7,14 +7,19 @@ reachable from every session; what a caller wants is a *name*, not a port number
     from instance_manager import get_instance, status
 
     ev = get_instance()            # the client in this session
-    ev = get_instance("casper")    # the second account, in its own session
+    ev = get_instance("second")    # another account, in its own Windows session
     ev.run("CS.UnityEngine.Debug.LogError('MARK hi')", marker="MARK")
 
-The registry is a two-entry default — `main` (this session, :47654) and `casper`
-(:47655) — overridden by ``tools/data/instances.json`` when it exists:
+The registry defaults to the one instance every machine has — `main`, this session,
+on `lua_client`'s port — and is replaced wholesale by ``tools/data/instances.json``
+when that file exists. A second client is registered there, named and with the Windows
+account it runs as, because both are answers only this machine can give:
 
     [{"name": "main", "port": 47654},
-     {"name": "casper", "port": 47655, "user": "casper"}]
+     {"name": "second", "port": 47655, "user": "<a Windows login>"}]
+
+``tools/data/instances.example.json`` is a copy to start from; the real file is
+git-ignored.
 
 `user` is the Windows account the instance runs as; it is what `tools/rdp_instance.py`
 needs to bring that instance up, and it is empty for the one in this session.
@@ -36,9 +41,11 @@ import lua_client  # noqa: E402
 REGISTRY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              os.pardir, "data", "instances.json")
 
+#: The registry when there is no `instances.json`: this session and nothing else.
+#: A second entry would have to name a Windows account, and there is no account name
+#: that is right on somebody else's machine — so it is registered, not guessed.
 DEFAULT_INSTANCES = [
     {"name": "main", "port": lua_client.DEFAULT_PORT, "user": ""},
-    {"name": "casper", "port": 47655, "user": "casper"},
 ]
 
 
@@ -71,7 +78,8 @@ def resolve(name: str | None = None) -> dict:
         if entry["name"].lower() == name.lower():
             return entry
     known = ", ".join(e["name"] for e in instances())
-    raise SystemExit(f"unknown instance {name!r} — known: {known}")
+    raise SystemExit(f"unknown instance {name!r} — known: {known}. Register another\n"
+                     f"in {REGISTRY_FILE} (see instances.example.json beside it).")
 
 
 def port_of(name: str | None = None) -> int:

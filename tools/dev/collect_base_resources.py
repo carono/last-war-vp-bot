@@ -13,10 +13,12 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 # Repo root derived from this file's location (tools/dev/…) — no hardcoded machine path.
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOLS = os.path.join(REPO, 'tools')
+sys.path.insert(0, os.path.join(TOOLS, 'lib'))
+import game_paths
 RESULTS = os.path.join(REPO, 'results')
-# Windows Python (has scapy/npcap/win32); override with LW_WIN_PYTHON if installed elsewhere.
-WIN_PYTHON = os.environ.get('LW_WIN_PYTHON', r'C:\Python312\python.exe')
-GAME_TITLE = 'Last War-Survival Game'
+# Windows Python (has scapy/npcap/win32) — LW_WIN_PYTHON if installed elsewhere.
+WIN_PYTHON = game_paths.win_python()
+GAME_TITLE = game_paths.window_title()
 
 import win32api, win32con, win32gui, win32ui
 import numpy as np

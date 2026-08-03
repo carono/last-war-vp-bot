@@ -13,8 +13,8 @@ It is not out of reach of the Lua daemon. Everything headless — the whole
 answers on a TCP port. TCP is machine-wide, not session-bound, so a daemon in session 3
 is reachable from session 1 exactly like a local one:
 
-    session 1 (spame, console)          session 4 (casper, disconnected)
-    ├─ LastWar.exe  ── daemon :47654    ├─ LastWar.exe  ── daemon :47655
+    session 1 (you, console)            session 4 (2nd user, disconnected)
+    ├─ the client   ── daemon :47654    ├─ the client   ── daemon :47655
     └─ this script  ────────────────────────── TCP ───────────┘
 
 so any existing tool drives the second client with one environment variable:
@@ -83,13 +83,23 @@ sys.path.insert(0, os.path.join(REPO, "tools", "lib"))
 
 import game_paths  # noqa: E402
 
-DEFAULT_USER = "casper"
-DEFAULT_PORT = 47655
+import lua_client  # noqa: E402
+
+#: The Windows account the second client runs as. **No default on purpose** — it is a
+#: login on THIS machine and nobody else's, so `--user` (or `LW_SECOND_USER`) has to
+#: say it. The name that stood here was one developer's account, which every other
+#: install then had to notice and override.
+DEFAULT_USER = (os.environ.get("LW_SECOND_USER") or "").strip()
+#: Its Lua daemon port: the next one up from the first client's, so two clients need
+#: no configuration at all. `LW_SECOND_DAEMON_PORT` moves it.
+DEFAULT_PORT = int((os.environ.get("LW_SECOND_DAEMON_PORT") or "").strip()
+                   or lua_client.DEFAULT_PORT + 1)
 # NOT "localhost": mstsc recognises its own machine and hangs up before the server ever
 # sees the connection (RDPClient event 1024 -> 1026 "reason 1800", nothing at all in the
 # server logs). Any *other* address of the same machine goes through — 127.0.0.2 is the
-# one that needs no adapter and no name resolution.
-DEFAULT_SERVER = "127.0.0.2"
+# one that needs no adapter and no name resolution. A loopback alias, not an address of
+# anybody's: `LW_RDP_HOST` is there for a machine whose loopback range is spoken for.
+DEFAULT_SERVER = (os.environ.get("LW_RDP_HOST") or "").strip() or "127.0.0.2"
 CRED_PREFIX = "LastWarVpBot"          # shared with tools/launch_as_user.py
 RDP_CRED_TARGET = "TERMSRV/{server}"  # where mstsc looks for saved credentials
 
@@ -620,7 +630,8 @@ def stop(user: str, port: int, logoff: bool = False) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--user", default=DEFAULT_USER, help="the second client's Windows user")
+    ap.add_argument("--user", default=DEFAULT_USER,
+                    help="the second client's Windows user (or set LW_SECOND_USER)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="its Lua daemon port")
     ap.add_argument("--server", default=DEFAULT_SERVER,
                     help=f"RDP target — this machine by another loopback address "
@@ -647,10 +658,20 @@ def main() -> int:
         raise SystemExit(r"run under the Windows Python: C:\Python312\python.exe "
                          r"tools\rdp_instance.py --status")
 
+    # The operations that name a Windows account ask for it here. There is no sensible
+    # default on somebody else's machine, so an unset --user is a plain question, not a
+    # hunt for a login that only ever existed on the machine this was written on. The
+    # port-only ones (--ping, --lua, --restore-console) never come this way.
+    def user_or_ask() -> str:
+        if not a.user:
+            raise SystemExit("which Windows account is the second client? pass "
+                             "--user NAME (or set LW_SECOND_USER)")
+        return a.user
+
     if a.restore_console:
         return 0 if restore_console() else 1
     if a.stop or a.logoff:
-        return stop(a.user, a.port, logoff=a.logoff)
+        return stop(user_or_ask(), a.port, logoff=a.logoff)
     if a.lua:
         r = daemon_rpc({"op": "run", "chunk": a.lua, "marker": a.marker, "settle": 1.5},
                        a.port, timeout=90)
@@ -665,9 +686,9 @@ def main() -> int:
         log(f"daemon :{a.port} {st}")
         return 0 if st.get("warm") else 1
     if a.bring_up:
-        return bring_up(a.user, a.port, a.server, a.width, a.height,
+        return bring_up(user_or_ask(), a.port, a.server, a.width, a.height,
                         use_rdp=not a.no_rdp, restore=not a.no_restore)
-    status(a.user, a.port)
+    status(user_or_ask(), a.port)
     return 0
 
 

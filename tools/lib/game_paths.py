@@ -11,7 +11,7 @@ So: one module, read by the panel, the tools and the DSL alike, and every value 
 environment variable with the old literal as its default. Nothing changes for a machine
 that sets none of them.
 
-    LW_LAUNCHER      the launcher — an override for an install that is not ordinary
+    LW_LAUNCHER      the launcher, absolute. THE one most people would ever set.
     LW_GAME_DIR      the installation folder (the launcher's parent)
     LW_GAME_FOLDER   where the game sits under a user's Local AppData — relative, and
                      the only form that works for ANOTHER account's copy
@@ -49,9 +49,23 @@ DEFAULT_GAME_EXE = "LastWar.exe"
 #: `install.bat` puts Python 3.12 here precisely so this answers itself.
 DEFAULT_WIN_PYTHON = r"C:\Python312\python.exe"
 
+#: The client's window title — what a window search matches on, as a substring. Not a
+#: locale question: the client names its window the same in every language it ships.
+DEFAULT_WINDOW_TITLE = "Last War-Survival Game"
+
 #: Where Local AppData sits inside a user profile — the fixed half of the path to
 #: another account's install (`<profile>\AppData\Local\<game folder>`).
 LOCAL_APPDATA_SUBDIR = os.path.join("AppData", "Local")
+#: Unity's `persistentDataPath` root. What the client DOWNLOADS (chat photos, avatars)
+#: lands under `<LocalLow>\<game folder>`, which is a different tree from the install.
+LOCAL_LOW_SUBDIR = os.path.join("AppData", "LocalLow")
+
+#: The asset index and the bundle cache, relative to the installation folder.
+GAMERES_SUBPATH = os.path.join("Game", "LastWar_Data", "StreamingAssets",
+                               "AssetBundles", "gameres")
+ASSET_CACHE_SUBPATH = os.path.join("Cache", "AssetBundles")
+#: The client itself, relative to the installation folder (the launcher's sibling).
+GAME_EXE_SUBDIR = "Game"
 
 
 def _env(name: str, fallback: str) -> str:
@@ -72,6 +86,17 @@ def launcher_exe() -> str:
 def game_exe() -> str:
     """The client's process name — what a process list is searched for."""
     return _env("LW_GAME_EXE", DEFAULT_GAME_EXE)
+
+
+def window_title() -> str:
+    """The client's window title — matched as a case-insensitive substring.
+
+    Together with :func:`game_exe` this is the whole of «which window is the game»,
+    and it used to be a literal pair repeated at seven call sites across the bot,
+    the vision tools and the panel. A client that names its window otherwise — a
+    re-skinned or regional build — is now one variable, not seven edits.
+    """
+    return _env("LW_WINDOW_TITLE", DEFAULT_WINDOW_TITLE)
 
 
 def win_python() -> str:
@@ -97,8 +122,7 @@ def launcher() -> str:
     """The launcher on THIS desktop, absolute.
 
     `LW_LAUNCHER` wins outright, and setting it is the one thing an install somewhere
-    else needs. THIS desktop's answer only: a second account's launcher is resolved
-    inside that account's session, from the string passed down unexpanded.
+    else needs: being absolute, it also travels to another account's session.
     """
     return _env("LW_LAUNCHER", os.path.join(game_dir(), launcher_exe()))
 
@@ -106,7 +130,7 @@ def launcher() -> str:
 def launcher_in_profile(profile_dir: str) -> str:
     """The launcher inside somebody ELSE's user profile.
 
-    `profile_dir` is that account's profile directory (`C:\\Users\\casper`), which only
+    `profile_dir` is that account's profile directory (`C:\\Users\\<login>`), which only
     SYSTEM can look up out of the registry — so this is the shape
     `tools/session_launch.py` needs, and the one `%LOCALAPPDATA%` cannot express from
     outside. **This is what makes adding an account free:** tick the box, type the
@@ -119,3 +143,58 @@ def launcher_in_profile(profile_dir: str) -> str:
     """
     return os.path.join(profile_dir, LOCAL_APPDATA_SUBDIR, game_folder(),
                         launcher_exe())
+
+
+def game_exe_path() -> str:
+    """The client executable on THIS desktop, absolute — the launcher's child."""
+    return os.path.join(game_dir(), GAME_EXE_SUBDIR, game_exe())
+
+
+def paths_in_profile(profile_dir: str) -> tuple[str, str]:
+    """``(launcher, client)`` inside somebody ELSE's user profile.
+
+    The pair `tools/launch_as_user.py` needs, built the same way and from the same
+    values as :func:`launcher_in_profile` — see its note on why nothing here reads
+    `LW_LAUNCHER`.
+    """
+    root = os.path.join(profile_dir, LOCAL_APPDATA_SUBDIR, game_folder())
+    return (os.path.join(root, launcher_exe()),
+            os.path.join(root, GAME_EXE_SUBDIR, game_exe()))
+
+
+# --- what the client keeps on disk -------------------------------------------------
+#
+# Two separate trees, and confusing them costs an afternoon: the INSTALL sits under
+# Local AppData (the bundles it shipped with), while everything the client DOWNLOADS
+# lands under LocalLow, Unity's `persistentDataPath`. Chat photos are the second kind.
+
+
+def local_low() -> str:
+    """This account's LocalLow, with the fallback Windows itself would use."""
+    return _env("LW_LOCALLOW", os.path.expanduser(os.path.join("~", LOCAL_LOW_SUBDIR)))
+
+
+def data_dir() -> str:
+    """The client's `persistentDataPath` on THIS desktop — its download tree."""
+    return _env("LW_GAME_DATA_DIR", os.path.join(local_low(), game_folder()))
+
+
+def chat_photos_dir() -> str:
+    """Where the client caches chat photos and avatars it has downloaded.
+
+    `LASTWAR_CHATPHOTOS` is still honoured: it is what the panel's own machines were
+    told to set before there was a resolver, and breaking a live install to tidy a
+    name is not a trade worth making.
+    """
+    return _env("LW_CHAT_PHOTOS", _env("LASTWAR_CHATPHOTOS",
+                                       os.path.join(data_dir(), "ChatPhotos")))
+
+
+def gameres() -> str:
+    """The text index of the shipped asset bundles."""
+    return _env("LW_GAMERES", os.path.join(game_dir(), GAMERES_SUBPATH))
+
+
+def asset_cache() -> str:
+    """The downloaded-bundle cache. Machine-specific: it can sit on any drive."""
+    return _env("LW_ASSET_CACHE", os.path.join(game_dir(), ASSET_CACHE_SUBPATH))

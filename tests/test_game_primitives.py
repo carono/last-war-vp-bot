@@ -1038,10 +1038,10 @@ def test_start_game_goes_to_the_windows_session_the_profile_names():
     """
     client = FakeClient(pid=None, attached=None)
     ctx = se.Context(hwnd=0, on_event=lambda _m: None,
-                     game_port=47655, game_user="casper")
+                     game_port=47655, game_user="player2")
     with _fakes(client):
         assert se.run_text("START_GAME WITHIN 60s", ctx=ctx) is True
-    assert client.started == [{"launcher": None, "user": "casper",
+    assert client.started == [{"launcher": None, "user": "player2",
                                "timeout": 60.0}], client.started
 
 
@@ -1052,17 +1052,17 @@ def test_start_game_fails_in_words_when_nobody_is_logged_on():
     `ctx.fail_reason` verbatim and a timer retries rather than counting the errand done.
     """
     client = FakeClient(pid=None, attached=None)
-    client.start_error = LookupError("nobody is logged on as casper")
-    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    client.start_error = LookupError("nobody is logged on as player2")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="player2")
     with _fakes(client):
         assert se.run_text("START_GAME", ctx=ctx) is False
-    assert ctx.failed and "casper" in ctx.fail_reason, ctx.fail_reason
+    assert ctx.failed and "player2" in ctx.fail_reason, ctx.fail_reason
 
 
 def test_start_game_fails_in_words_when_the_client_never_appeared():
     client = FakeClient(pid=None, attached=None)
-    client.start_error = TimeoutError("no client in casper's session after 300s")
-    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    client.start_error = TimeoutError("no client in player2's session after 300s")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="player2")
     with _fakes(client):
         assert se.run_text("START_GAME", ctx=ctx) is False
     assert ctx.failed and "no client" in ctx.fail_reason, ctx.fail_reason
@@ -1106,19 +1106,19 @@ def test_quit_carries_the_session_to_the_closer():
     """
     client = FakeClient(pid=4242)
     ctx = se.Context(hwnd=0, on_event=lambda _m: None, evaluator=FakeEval(),
-                     game_port=47655, game_user="casper")
+                     game_port=47655, game_user="player2")
     with _fakes(client):
         se.Interpreter(ctx)._run_block(se.parse_text("QUIT_GAME"))
-    assert client.closed == [{"pid": 4242, "user": "casper"}], client.closed
+    assert client.closed == [{"pid": 4242, "user": "player2"}], client.closed
     # …and the LOOKUP is narrowed by it too, which matters more: without the session
     # both routes fall back to the client of this desktop — the neighbour's game.
-    assert client.asked_for == ["casper"], client.asked_for
+    assert client.asked_for == ["player2"], client.asked_for
 
 
 def test_a_client_that_would_not_close_fails_the_recipe_in_words():
     client = FakeClient(pid=4242)
     client.close_ok = False
-    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="casper")
+    ctx = se.Context(hwnd=0, on_event=lambda _m: None, game_user="player2")
     with _fakes(client):
         assert se.run_text("QUIT_GAME", ctx=ctx) is False
     assert ctx.failed and "4242" in ctx.fail_reason, ctx.fail_reason
@@ -1141,12 +1141,12 @@ def test_the_elevated_kill_is_only_for_a_client_in_another_session():
         assert game_client.close(11, user=None) is False
         assert calls == ["here"], calls
         calls.clear()
-        assert game_client.close(11, user="casper") is True
+        assert game_client.close(11, user="player2") is True
         assert calls == ["here", "elevated"], calls
         # …and a client that is already gone is never killed twice.
         calls.clear()
         game_client.alive = lambda pid: False
-        assert game_client.close(11, user="casper") is True
+        assert game_client.close(11, user="player2") is True
         assert calls == [], calls
     finally:
         game_client._close_here, game_client._close_elevated, game_client.alive = saved
@@ -1169,15 +1169,15 @@ def test_a_daemon_pointing_at_the_wrong_session_is_not_believed():
     game_client.session_pids_of = lambda session, game_exe=None: [777]
     try:
         game_client.attached_pid = lambda port=None: 777          # the right client
-        assert game_client.target_pid(port=47655, user="casper", log=said.append) == 777
+        assert game_client.target_pid(port=47655, user="player2", log=said.append) == 777
         assert said == [], said
         game_client.attached_pid = lambda port=None: 153576       # this desktop's
-        assert game_client.target_pid(port=47655, user="casper", log=said.append) == 777
-        assert said and "NOT in casper's session" in said[0], said
+        assert game_client.target_pid(port=47655, user="player2", log=said.append) == 777
+        assert said and "NOT in player2's session" in said[0], said
         # …and with nothing of this profile's running, the honest answer is none —
         # never the client that happens to be in front of the person.
         game_client.session_pids_of = lambda session, game_exe=None: []
-        assert game_client.target_pid(port=47655, user="casper") is None
+        assert game_client.target_pid(port=47655, user="player2") is None
     finally:
         (game_client.attached_pid, game_client.session_of,
          game_client.session_pids_of) = saved
@@ -1213,7 +1213,7 @@ def test_a_configured_launcher_reaches_the_other_session_UNEXPANDED():
         raw = r"%LOCALAPPDATA%\Acme\Custom.exe"
         game_client.session_pids_of = lambda session, game_exe=None: []
         try:
-            game_client.start(raw, user="casper", timeout=0)
+            game_client.start(raw, user="player2", timeout=0)
         except TimeoutError:
             pass                          # no client ever appears in a test
         assert "--exe" in sent["args"], sent["args"]
@@ -1250,7 +1250,7 @@ def test_with_nothing_configured_the_other_session_resolves_its_own_install():
     os.environ.pop("LW_LAUNCHER", None)
     try:
         try:
-            game_client.start(None, user="casper", timeout=0)
+            game_client.start(None, user="player2", timeout=0)
         except TimeoutError:
             pass
         args = sent["args"]

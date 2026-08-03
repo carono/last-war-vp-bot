@@ -20,8 +20,8 @@ account/state under that same profile. A second account therefore needs a second
 Windows user — its own ``%LOCALAPPDATA%``, its own install, its own client data.
 
 The obvious way to get there is a second logon session (a second RDP session, or
-fast user switching). That is what this machine did before: session 1 = ``spame``,
-session 3 = ``casper``, one client each. It works, but the two clients then live on
+fast user switching). That is what this machine did before: one session
+per Windows user, one client each. It works, but the two clients then live on
 *different desktops*, and this bot drives the game with **foreground** input
 (``pydirectinput`` — see the input-model note in the repo memory): a window on a
 desktop that is not the one attached to the physical console cannot be focused,
@@ -68,13 +68,13 @@ Usage (Windows Python — pywin32 lives there, not in WSL's python3)::
 
     C:\Python312\python.exe tools\launch_as_user.py --check
     C:\Python312\python.exe tools\launch_as_user.py --list-users
-    C:\Python312\python.exe tools\launch_as_user.py --user casper --dry-run
-    C:\Python312\python.exe tools\launch_as_user.py --user casper --save-credential
-    C:\Python312\python.exe tools\launch_as_user.py --user casper --test    # charmap, not the game
-    C:\Python312\python.exe tools\launch_as_user.py --user casper
+    C:\Python312\python.exe tools\launch_as_user.py --user user2 --dry-run
+    C:\Python312\python.exe tools\launch_as_user.py --user user2 --save-credential
+    C:\Python312\python.exe tools\launch_as_user.py --user user2 --test    # charmap, not the game
+    C:\Python312\python.exe tools\launch_as_user.py --user user2
     C:\Python312\python.exe tools\launch_as_user.py --config accounts.json --all --stagger 60
     C:\Python312\python.exe tools\launch_as_user.py --config accounts.json --user user3
-    C:\Python312\python.exe tools\launch_as_user.py --user casper --revoke  # take the grants back
+    C:\Python312\python.exe tools\launch_as_user.py --user user2 --revoke  # take the grants back
 
 The accounts file is a list of ``{"user", "exe"?, "password"?, "domain"?, "args"?,
 "cwd"?}`` — see ``tools/data/accounts.example.json``. Leave ``password`` out and it
@@ -134,6 +134,10 @@ import win32profile  # noqa: E402
 import win32security  # noqa: E402
 import win32service  # noqa: E402
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+import game_paths as _game_paths  # noqa: E402  (where the game is — LW_LAUNCHER & co)
+
 # ---------------------------------------------------------------- constants --
 
 # Window-station / desktop rights. WINSTA_ALL_ACCESS and the desktop rights are
@@ -158,7 +162,6 @@ CREATE_NEW_CONSOLE = 0x00000010
 
 DEFAULT_DESKTOP = r"WinSta0\Default"
 CRED_PREFIX = "LastWarVpBot"
-GAME_SUBDIR = os.path.join("AppData", "Local", "FunFly", "Last War-Survival Game")
 PROFILE_LIST = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
 
 advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -261,10 +264,12 @@ def profile_path(sid) -> str | None:
 
 
 def game_paths(profile: str) -> tuple[str, str]:
-    """(launcher, game exe) inside a given profile directory."""
-    root = os.path.join(profile, GAME_SUBDIR)
-    return (os.path.join(root, "LastWarLauncher.exe"),
-            os.path.join(root, "Game", "LastWar.exe"))
+    """(launcher, game exe) inside a given profile directory.
+
+    The layout itself is `tools/lib/game_paths.py`'s to know, so an install that is
+    not in the ordinary place is one environment variable rather than an edit here.
+    """
+    return _game_paths.paths_in_profile(profile)
 
 
 def readable(path: str) -> bool | None:
@@ -291,7 +296,8 @@ def lastwar_pids() -> set[int]:
     """PIDs of every running LastWar.exe, regardless of owner."""
     try:
         raw = subprocess.run(
-            ["tasklist.exe", "/FI", "IMAGENAME eq LastWar.exe", "/FO", "CSV", "/NH"],
+            ["tasklist.exe", "/FI", f"IMAGENAME eq {_game_paths.game_exe()}",
+             "/FO", "CSV", "/NH"],
             capture_output=True, timeout=30,
         ).stdout
     except (OSError, subprocess.SubprocessError):
@@ -299,7 +305,7 @@ def lastwar_pids() -> set[int]:
     pids = set()
     for line in _oem(raw).splitlines():
         parts = [p.strip('" ') for p in line.split('","')]
-        if len(parts) >= 2 and parts[0].lower() == "lastwar.exe":
+        if len(parts) >= 2 and parts[0].lower() == _game_paths.game_exe().lower():
             try:
                 pids.add(int(parts[1]))
             except ValueError:
@@ -311,7 +317,8 @@ def running_clients() -> list[tuple[str, ...]]:
     """Verbose tasklist rows for LastWar.exe (image, pid, winstation, session, ..., user)."""
     try:
         raw = subprocess.run(
-            ["tasklist.exe", "/FI", "IMAGENAME eq LastWar.exe", "/V", "/FO", "CSV", "/NH"],
+            ["tasklist.exe", "/FI", f"IMAGENAME eq {_game_paths.game_exe()}",
+             "/V", "/FO", "CSV", "/NH"],
             capture_output=True, timeout=30,
         ).stdout
     except (OSError, subprocess.SubprocessError):
@@ -777,7 +784,8 @@ def report_users(log) -> None:
             except Exception:  # noqa: BLE001
                 name, dom = "(orphaned)", "?"
             profile = profile_path(sid) or ""
-            state = readable(os.path.join(profile, GAME_SUBDIR)) if profile else False
+            installed = os.path.dirname(_game_paths.launcher_in_profile(profile))
+            state = readable(installed) if profile else False
             mark = {True: "game installed", False: "no game",
                     None: "private (cannot tell)"}[state]
             log(f"  {dom}\\{name:<16} {mark:<24} {profile}")
@@ -791,7 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Start Last War as another Windows user on the current desktop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("Usage")[-1])
-    p.add_argument("--user", help="target Windows account (e.g. casper)")
+    p.add_argument("--user", help="target Windows account (a login on THIS machine)")
     p.add_argument("--domain", default=".",
                    help="account domain; '.' (default) means this machine")
     p.add_argument("--exe", help="override the executable to start")

@@ -102,7 +102,73 @@ tracker — until:
 - everything the panel does with it goes through `run_action`;
 - any primitive added along the way is documented in `docs/dsl.md`;
 - every string it shows is a locale key, present in **all** the shipped locales;
+- nothing it adds is true of this machine only (below);
 - and, once the user has confirmed it live, both farming files say so (below).
+
+## Nothing about one machine is written into the code
+
+**Also binding, on every agent, with no exceptions.** This repository is public and it
+gets installed on other people's computers. **Anything that has a different answer on a
+different machine is asked, never assumed** — where the game is installed, what its
+window and its process are called, which Windows account a second client runs as, which
+port a daemon listens on, where the Python that drives it lives, which server the player
+is on.
+
+The answer lives in exactly one place and every caller asks it there:
+
+1. **Paths and names of the game — [`tools/lib/game_paths.py`](tools/lib/game_paths.py).**
+   The launcher, the install folder, the publisher\product folder, the launcher and
+   client filenames, the window title, the asset index, the bundle cache, the download
+   tree, the Windows interpreter. Every one is a function with an environment variable
+   in front of a default, so a machine that is not ordinary sets a variable instead of
+   editing code. **Need a new one? Add it there and use it — never re-spell it.**
+2. **The player's own values — [`tools/lib/tool_config.py`](tools/lib/tool_config.py)
+   and `.env`.** Home server, squad formations, and anything else that belongs to an
+   account rather than to a machine. Defaults are empty on purpose: the live game VM is
+   the authority, and an empty default fails loudly instead of acting on somebody
+   else's number.
+3. **A login, a session, an instance — asked, or registered.** A Windows account name
+   has no sensible default at all, so a tool that needs one says so
+   (`tools/rdp_instance.py --user`, `LW_SECOND_USER`) and a second client is an entry
+   in `tools/data/instances.json`, not a line in `instance_manager.py`.
+
+**A personal value is worse than a wrong one, because it looks right.** A default
+naming the machine this was written on does not fail with «not configured» — it goes
+looking for a folder or a session that cannot exist and reports the ordinary «no client
+running», and the person who installed the bot has no way to tell the two apart.
+
+### What that looks like
+
+```python
+# ❌ every one of these is one machine's answer, written down as everyone's
+info = find_window("Last War-Survival Game", "LastWar.exe")
+cache = Path(home) / "FunFly" / "Last War-Survival Game" / "Cache" / "AssetBundles"
+DEFAULT_USER = "casper"
+WIN_PYTHON = r"C:\Python312\python.exe"
+```
+
+```python
+# ✅ ask the one place that can answer differently per machine
+info = find_window()                       # title + process from game_paths
+cache = Path(game_paths.asset_cache())     # LW_ASSET_CACHE, or the ordinary install
+DEFAULT_USER = (os.environ.get("LW_SECOND_USER") or "").strip()   # and ask if empty
+WIN_PYTHON = game_paths.win_python()
+```
+
+Prose is not a value: a comment or a docstring may name the game, the launcher or a
+«run it like this» line, and should. What may not come back is a **quoted literal being
+used** — to build a path, filter a process list or match a window.
+
+Every new variable is added to [`.env.example`](.env.example) in the same commit, with
+a line saying what it is for and that it is optional.
+
+`tests/test_no_hardcoded_values.py` enforces all of it — the quoted literals, the
+personal logins, and the «one place decides the interpreter» rule. Run it before you
+call this kind of work done:
+
+```
+C:\Python312\python.exe tests\test_no_hardcoded_values.py
+```
 
 ## Not one word of the panel is written in the panel
 

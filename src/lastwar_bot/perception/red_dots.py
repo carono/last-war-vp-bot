@@ -119,8 +119,10 @@ def _main() -> int:
     parser = argparse.ArgumentParser(description="Detect red notification dots.")
     parser.add_argument("--source", help="PNG file instead of live capture", default=None)
     parser.add_argument("--out", default="screenshots/red_dots.png", help="Annotated output path")
-    parser.add_argument("--title", default="Last War-Survival Game")
-    parser.add_argument("--process", default="LastWar.exe")
+    # Unset means «the game», as find_window resolves it (LW_WINDOW_TITLE / LW_GAME_EXE);
+    # an empty --process searches by title alone.
+    parser.add_argument("--title", default=None)
+    parser.add_argument("--process", default=None)
     parser.add_argument("--min-area", type=float, default=60.0)
     parser.add_argument("--max-area", type=float, default=200.0)
     parser.add_argument("--min-circ", type=float, default=0.85)
@@ -138,7 +140,7 @@ def _main() -> int:
             return 2
         src_label = args.source
     else:
-        info = find_window(args.title, args.process or None)
+        info = find_window(args.title, args.process)
         img = grab(info.hwnd)
         src_label = f"live capture ({info.title!r}, hwnd=0x{info.hwnd:x})"
 

@@ -18,6 +18,15 @@ from pathlib import Path
 
 import numpy as np
 
+# Which window is the game — one answer for the whole repo, and an environment
+# variable rather than a literal (`tools/lib/game_paths.py`). tools/lib is not an
+# installed package, so the path is wired up the way script_engine does it.
+_LIB = Path(__file__).resolve().parents[3] / "tools" / "lib"
+if str(_LIB) not in sys.path:
+    sys.path.insert(0, str(_LIB))
+
+import game_paths  # noqa: E402
+
 # Minimum client-area size at which SIFT-based UI detection reliably works.
 # Below this, icons rasterise too small for SIFT to extract enough keypoints.
 MIN_CLIENT_WIDTH = 1638
@@ -39,13 +48,24 @@ class WindowNotFoundError(LookupError):
     """No matching window found."""
 
 
-def find_window(title_substring: str, process_name: str | None = None) -> WindowInfo:
+def find_window(title_substring: str | None = None,
+                process_name: str | None = None) -> WindowInfo:
     """Find a visible top-level window matching title and (optionally) process.
 
     The title check is a case-insensitive substring match. If `process_name`
     is given, the owning process's executable name must also match
     (case-insensitive, exact filename).
+
+    **Left unsaid, both mean the game** — `game_paths.window_title()` and
+    `game_paths.game_exe()`, so `find_window()` with no arguments is the call every
+    caller in this repo actually wants, and no caller has to repeat the pair. Pass
+    `process_name=""` to search by title alone.
     """
+    if title_substring is None:
+        title_substring = game_paths.window_title()
+    if process_name is None:
+        process_name = game_paths.game_exe()
+
     if sys.platform != "win32":
         raise RuntimeError("Window capture is Windows-only")
 
@@ -199,12 +219,12 @@ def _main() -> int:
     parser = argparse.ArgumentParser(description="Capture a window screenshot to PNG.")
     parser.add_argument(
         "--title",
-        default="Last War-Survival Game",
+        default=game_paths.window_title(),
         help="Window title substring (default: %(default)r)",
     )
     parser.add_argument(
         "--process",
-        default="LastWar.exe",
+        default=game_paths.game_exe(),
         help="Process name filter; pass an empty string to disable (default: %(default)r)",
     )
     parser.add_argument(
@@ -215,9 +235,10 @@ def _main() -> int:
     )
     args = parser.parse_args()
 
-    proc_filter = args.process if args.process else None
+    # Straight through: an empty --process is «title alone», which find_window reads
+    # as such. Mapping it to None would ask for the default and filter after all.
     try:
-        info = find_window(args.title, proc_filter)
+        info = find_window(args.title, args.process)
     except WindowNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

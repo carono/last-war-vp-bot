@@ -30,6 +30,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+import game_paths  # noqa: E402  (where the game is — LW_GAMERES & co)
+
 try:
     import UnityPy
 except ImportError:  # pragma: no cover
@@ -117,14 +121,11 @@ def build_targets(sections, categories):
 
 
 def main() -> int:
-    # No hardcoded username: derive %LOCALAPPDATA% (or the running user's home).
-    home = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    default_gameres = os.environ.get("LW_GAMERES") or Path(home) / "FunFly" / \
-        "Last War-Survival Game" / "Game" / "LastWar_Data" / "StreamingAssets" / \
-        "AssetBundles" / "gameres"
-    # Cache dir is machine-specific (any drive) — override with --cache or LW_ASSET_CACHE.
-    default_cache = os.environ.get("LW_ASSET_CACHE") or \
-        Path(home) / "FunFly" / "Last War-Survival Game" / "Cache" / "AssetBundles"
+    # Where the game keeps its assets is game_paths' business — nothing about the
+    # install (drive, publisher folder, username) is spelled out here. Both honour
+    # an override: LW_GAMERES and LW_ASSET_CACHE, or --gameres / --cache.
+    default_gameres = Path(game_paths.gameres())
+    default_cache = Path(game_paths.asset_cache())
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

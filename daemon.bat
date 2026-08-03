@@ -19,6 +19,8 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "PY=%LW_PYTHON%"
+if not defined PY if defined LW_WIN_PYTHON set "PY=%LW_WIN_PYTHON%"
+if not defined PY if defined LW_PY_DIR if exist "%LW_PY_DIR%\python.exe" set "PY=%LW_PY_DIR%\python.exe"
 if not defined PY if exist "C:\Python312\python.exe" set "PY=C:\Python312\python.exe"
 if not defined PY if exist "%~dp0.venv\Scripts\python.exe" set "PY=%~dp0.venv\Scripts\python.exe"
 if not defined PY set "PY=python"

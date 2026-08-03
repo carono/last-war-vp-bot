@@ -32,6 +32,10 @@ except ImportError:  # pragma: no cover
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
+sys.path.insert(0, os.path.join(_HERE, "lib"))
+
+import game_paths  # noqa: E402  (where the game is — LW_GAMERES & co)
+
 from extract_hero_icons import read_sections, build_targets, sanitize  # noqa: E402
 
 UnityPy.config.FALLBACK_UNITY_VERSION = "2019.4.40f1"
@@ -176,14 +180,11 @@ def extract_emoji_from_tmp(sections, cache: Path, out_dir: Path) -> int:
 
 
 def main() -> int:
-    # No hardcoded username: derive %LOCALAPPDATA% (or the running user's home).
-    home = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    default_gameres = os.environ.get("LW_GAMERES") or Path(home) / "FunFly" / \
-        "Last War-Survival Game" / "Game" / "LastWar_Data" / "StreamingAssets" / \
-        "AssetBundles" / "gameres"
-    # Cache dir is machine-specific (any drive) — override with --cache or LW_ASSET_CACHE.
-    default_cache = os.environ.get("LW_ASSET_CACHE") or \
-        Path(home) / "FunFly" / "Last War-Survival Game" / "Cache" / "AssetBundles"
+    # Where the game keeps its assets is game_paths' business — nothing about the
+    # install (drive, publisher folder, username) is spelled out here. Both honour
+    # an override: LW_GAMERES and LW_ASSET_CACHE, or --gameres / --cache.
+    default_gameres = Path(game_paths.gameres())
+    default_cache = Path(game_paths.asset_cache())
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

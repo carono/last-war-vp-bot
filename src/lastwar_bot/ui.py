@@ -28,8 +28,10 @@ from .runner import BotRunner
 from .script_engine import run_action
 from .ui_region import RegionPickerWindow
 
-WINDOW_TITLE = "Last War-Survival Game"
-PROCESS_NAME = "LastWar.exe"
+
+# Which window is the game is `find_window`'s own business (it asks
+# `tools/lib/game_paths.py`, which asks the environment), so every call below passes
+# nothing at all. The title/process pair this module used to hold is gone with it.
 
 
 class BotWindow(tk.Tk):
@@ -257,7 +259,7 @@ class BotWindow(tk.Tk):
 
     def _do_detect(self) -> None:
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
         except WindowNotFoundError as exc:
             self._enqueue(f"Detect: window not found — {exc}")
             self.after(0, lambda: self._set_debug_buttons(True))
@@ -282,7 +284,7 @@ class BotWindow(tk.Tk):
         the orchestration is now declarative.
         """
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
         except WindowNotFoundError as exc:
             self._enqueue(f"Navigate->{target}: window not found — {exc}")
             self.after(0, lambda: self._set_debug_buttons(True))
@@ -304,7 +306,7 @@ class BotWindow(tk.Tk):
 
     def _do_fix_size(self) -> None:
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
         except WindowNotFoundError as exc:
             self._enqueue(f"Fix size: window not found — {exc}")
             self.after(0, lambda: self._set_debug_buttons(True))
@@ -335,7 +337,7 @@ class BotWindow(tk.Tk):
         # Find the window if it's already up; otherwise pass hwnd=0 and
         # let the script engine lazy-discover after LAUNCH succeeds.
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
             hwnd = info.hwnd
             self._enqueue(f"Launch game: window already open (hwnd=0x{hwnd:x})")
         except WindowNotFoundError:
@@ -347,7 +349,7 @@ class BotWindow(tk.Tk):
     def _on_pick_region(self) -> None:
         """Grab one frame and open the region-picker window over it."""
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
         except WindowNotFoundError as exc:
             self._enqueue(f"Pick region: window not found — {exc}")
             return
@@ -365,7 +367,7 @@ class BotWindow(tk.Tk):
 
     def _do_capture_profile(self) -> None:
         try:
-            info = find_window(WINDOW_TITLE, PROCESS_NAME)
+            info = find_window()
         except WindowNotFoundError as exc:
             self._enqueue(f"Capture profile: window not found — {exc}")
             self.after(0, lambda: self._set_debug_buttons(True))

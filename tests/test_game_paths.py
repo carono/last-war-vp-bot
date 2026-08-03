@@ -108,7 +108,7 @@ def test_the_launcher_variable_wins_outright():
 def test_another_accounts_copy_is_named_relative_to_ITS_profile():
     """`%LOCALAPPDATA%` is per user, so the other session's install is built from the
     profile directory SYSTEM looked up — never from ours."""
-    profile = os.path.join("C:", os.sep, "Users", "casper")
+    profile = os.path.join("C:", os.sep, "Users", "player2")
     with _env(**_CLEAR):
         assert gp.launcher_in_profile(profile) == os.path.join(
             profile, "AppData", "Local", "FunFly", "Last War-Survival Game",
@@ -128,7 +128,7 @@ def test_another_accounts_launcher_is_never_read_out_of_OUR_environment():
     that variable is nobody's game. An earlier version let it win and made the
     resolver's answer depend on who happened to be running it.
     """
-    profile = os.path.join("C:", os.sep, "Users", "casper")
+    profile = os.path.join("C:", os.sep, "Users", "player2")
     plain = gp.launcher_in_profile(profile)
     for value in (os.path.join("D:", os.sep, "Games", "LW", "LastWarLauncher.exe"),
                   r"%LOCALAPPDATA%\LW\LastWarLauncher.exe"):
@@ -157,19 +157,19 @@ def test_a_variable_is_expanded_against_the_TARGET_sessions_environment():
     exec(compile("import re\n" + body, "session_launch", "exec"), mod.__dict__)
     expand_for = mod.expand_for
 
-    casper = {"LOCALAPPDATA": r"C:\Users\casper\AppData\Local",
-              "USERPROFILE": r"C:\Users\casper"}
-    assert expand_for(r"%LOCALAPPDATA%\Acme\Custom.exe", casper) == \
-        r"C:\Users\casper\AppData\Local\Acme\Custom.exe"
+    player2 = {"LOCALAPPDATA": r"C:\Users\player2\AppData\Local",
+              "USERPROFILE": r"C:\Users\player2"}
+    assert expand_for(r"%LOCALAPPDATA%\Acme\Custom.exe", player2) == \
+        r"C:\Users\player2\AppData\Local\Acme\Custom.exe"
     # Case-insensitive, as Windows is.
-    assert expand_for(r"%localappdata%\x.exe", casper) == \
-        r"C:\Users\casper\AppData\Local\x.exe"
+    assert expand_for(r"%localappdata%\x.exe", player2) == \
+        r"C:\Users\player2\AppData\Local\x.exe"
     # An absolute path is untouched, so the ordinary case pays nothing.
-    assert expand_for(r"D:\Games\LW\Boot.exe", casper) == r"D:\Games\LW\Boot.exe"
+    assert expand_for(r"D:\Games\LW\Boot.exe", player2) == r"D:\Games\LW\Boot.exe"
     # An unknown name is LEFT STANDING: a path with %TYPO% in it is a mistake somebody
     # can read, one silently missing a segment is not.
-    assert expand_for(r"%NOPE%\x.exe", casper) == r"%NOPE%\x.exe"
-    assert expand_for("", casper) == ""
+    assert expand_for(r"%NOPE%\x.exe", player2) == r"%NOPE%\x.exe"
+    assert expand_for("", player2) == ""
 
 
 def test_the_launch_path_asks_this_one_and_not_a_copy():

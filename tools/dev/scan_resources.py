@@ -170,7 +170,7 @@ def main() -> int:
         print("Connecting to game window …")
         t0 = time.perf_counter()
         try:
-            info = find_window("Last War-Survival Game", "LastWar.exe")
+            info = find_window()
         except WindowNotFoundError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 2

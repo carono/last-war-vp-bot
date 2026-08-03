@@ -33,8 +33,10 @@ class BotRunner:
     def __init__(
         self,
         *,
-        window_title: str = "Last War-Survival Game",
-        process_name: str = "LastWar.exe",
+        # Unset means «the game»: `find_window` resolves both from the environment
+        # via tools/lib/game_paths.py rather than from a literal repeated here.
+        window_title: str | None = None,
+        process_name: str | None = None,
         tick_interval: float = 5.0,
         screenshot_dir: Path | str = "screenshots",
         watchdog_action: str | None = DEFAULT_WATCHDOG_ACTION,

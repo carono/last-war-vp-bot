@@ -16,7 +16,7 @@ counts only the clients inside that session.
 **Every answer names itself.** What comes back is shown in the status strip, so it is a
 :class:`panel.i18n.Message`: the English sentence and its locale key in one value. This
 module has no translator and must not grow one (the very same reason `panel/profile.py`
-gives), and «no session for casper» in a Russian panel is the message not being
+gives), and «no session for <that user>» in a Russian panel is the message not being
 translated at all.
 """
 from __future__ import annotations
@@ -144,7 +144,8 @@ def pids(game_exe: str = GAME_EXE, user: str | None = None) -> list[int]:
     No user named does not mean "any client on the machine". It means **this desktop's**
     — the session the panel itself is in — and the difference only shows up once there
     really are two clients, which is exactly what #1206 is for: with the second account
-    up in session 4, a profile that named no session reported casper's pid as its own,
+    up in its own session, a profile that named no session reported the OTHER
+    account's pid as its own,
     so both profiles' status strips pointed at one client and the console one would
     never have noticed its own dying.
 
