@@ -78,9 +78,15 @@ def test_fmt_left_clock():
     assert st._fmt_left(-5_000) == "00:00"          # already gone floors at zero
 
 
-def test_short_uuid_keeps_the_distinguishing_tail():
-    assert st.SecretTasksTab._short_uuid(1697234600000972) == "…00000972"
-    assert st.SecretTasksTab._short_uuid(123) == "123"
+def test_the_uuid_is_carried_but_not_shown():
+    """The table names a tile by coordinate and server; the uuid is what is SENT.
+
+    It had a column of its own for one commit and went with the redraw (#1209) — an
+    18-digit id nobody can read out loud was taking the width the countdown needed.
+    """
+    assert not hasattr(st.SecretTasksTab, "_short_uuid"), "the uuid column is back"
+    assert "uuid" not in {c[0] for c in st.COLUMNS}, st.COLUMNS
+    assert "uuid" in _row(1, 7, 0, 0), "the row stopped carrying the uuid"
 
 
 class _Var:
@@ -211,26 +217,33 @@ def test_auto_loot_skips_out_of_range_and_when_unticked():
     assert robbed == []
 
 
-def test_the_table_has_one_cell_per_column_and_a_link_column():
+def test_the_table_has_one_cell_per_column_and_the_two_live_ones():
     """The list is a grid now (#1209): a row is exactly as wide as the headings."""
     tab = _make_tab({})
     row = _row(1697234600000972, 7, 120_000, 600_000)
     row["timer"].set("готово через 02:00")
     row["server"], row["x"], row["y"], row["loot_count"] = 534, 568, 371, 1
-    values = st.SecretTasksTab._row_values(tab, row)
-    assert len(values) == len(st.COLUMNS), (values, st.COLUMNS)
-    assert "⭐×7" in values[0] and st.TYPE_GLYPH in values[0]
-    assert values[1] == "#534 X:568 Y:371", values          # the clickable cell
-    assert values[2] == "готово через 02:00", values
-    assert values[3] == "1/3", values
-    assert values[4] == "…00000972", values
+    cells = dict(zip([c[0] for c in st.COLUMNS],
+                     st.SecretTasksTab._row_values(tab, row)))
+    assert len(cells) == len(st.COLUMNS), cells
+    assert cells["coords"] == "X:568 Y:371", cells      # the clickable cell, no server
+    assert cells["server"] == "#534", cells             # …which has a column of its own
+    assert "⭐×7" in cells["lvl"] and st.TYPE_GLYPH in cells["lvl"], cells
+    assert cells["state"] == "готово через 02:00", cells
+    assert cells["slots"] == "1/3", cells
+    # A tile still counting down offers no action: collecting it early is a robbery the
+    # server would refuse.
+    assert cells["action"] == "", cells
 
-    # A ready tile swaps the glyph — the colour is the tag, the glyph is the text.
+    # A ready tile swaps the glyph and grows its button.
     row["ready"] = True
-    assert st.READY_GLYPH in st.SecretTasksTab._row_values(tab, row)[0]
+    ready = dict(zip([c[0] for c in st.COLUMNS],
+                     st.SecretTasksTab._row_values(tab, row)))
+    assert st.READY_GLYPH in ready["lvl"], ready
+    assert ready["action"] == tab.t("secrettasks.collect"), ready
 
-    # …and the column a click walks to the tile is a column that exists.
-    assert st.LINK_COLUMN in [c[0] for c in st.COLUMNS]
+    # …and both columns a click acts in are columns that exist.
+    assert {st.LINK_COLUMN, st.ACTION_COLUMN} <= {c[0] for c in st.COLUMNS}
 
 
 def test_the_table_sorts_by_the_heading_and_falls_back_to_the_best_raid():
@@ -253,8 +266,8 @@ def test_the_table_sorts_by_the_heading_and_falls_back_to_the_best_raid():
     # «Состояние» sorts by attention needed: the ready rows first, soonest to expire.
     tab._sort = ("state", False)
     assert [r["uuid"] for r in st.SecretTasksTab._sorted_rows(tab, rows)] == [2, 1, 3]
-    # Every column the table draws knows how to sort itself.
-    assert set(st.SecretTasksTab.SORT_KEYS) == {c[0] for c in st.COLUMNS}
+    # Every column but the action one sorts; the action column is a button, not an order.
+    assert set(st.SecretTasksTab.SORT_KEYS) == {c[0] for c in st.COLUMNS} - {st.ACTION_COLUMN}
 
 
 class _FakeTree:
@@ -277,36 +290,98 @@ class _FakeTree:
         self.cursor = cursor
 
 
-def test_only_the_coordinate_cell_is_a_link():
-    """A click walks the camera from the coordinate column and from nowhere else."""
+def _column_at(name: str) -> str:
+    """The Treeview's «#N» for a column id, as `identify_column` would answer."""
+    return "#%d" % (1 + [c[0] for c in st.COLUMNS].index(name))
+
+
+def test_the_coordinate_cell_jumps_and_the_action_cell_collects():
+    """The two live cells of the table, and the many that only select the row."""
     tab = object.__new__(st.SecretTasksTab)
     tab._rows = {"11": _row(11, 7, -5_000, 600_000)}
-    walked = []
+    walked, robbed = [], []
     tab._jump_to_row = lambda row: walked.append(row["uuid"])
-
-    link_at = "#%d" % (1 + [c[0] for c in st.COLUMNS].index(st.LINK_COLUMN))
-    tab._tree = _FakeTree(column=link_at)
+    tab._collect = lambda row: robbed.append(row["uuid"])
     event = __import__("types").SimpleNamespace(x=10, y=10)
+
+    tab._tree = _FakeTree(column=_column_at(st.LINK_COLUMN))
     assert st.SecretTasksTab._column_at(tab, event) == st.LINK_COLUMN
     st.SecretTasksTab._on_click(tab, event)
-    assert walked == [11], walked
+    assert walked == [11] and robbed == [], (walked, robbed)
 
-    # …the level column is not a link, and neither is the empty space under the rows.
-    tab._tree = _FakeTree(column="#1")
+    # The action cell is the row's «Собрать» — but only once the tile is raidable.
+    tab._tree = _FakeTree(column=_column_at(st.ACTION_COLUMN))
+    st.SecretTasksTab._on_click(tab, event)
+    assert robbed == [], "collected a tile that was still counting down"
+    tab._rows["11"]["ready"] = True
+    st.SecretTasksTab._on_click(tab, event)
+    assert robbed == [11], robbed
+
+    # …a plain column is not a link, and neither is the empty space under the rows.
+    tab._tree = _FakeTree(column=_column_at("lvl"))
     st.SecretTasksTab._on_click(tab, event)
     assert walked == [11], "a click outside the coordinate column jumped"
-    tab._tree = _FakeTree(region="nothing", column=link_at)
+    tab._tree = _FakeTree(region="nothing", column=_column_at(st.LINK_COLUMN))
     assert st.SecretTasksTab._column_at(tab, event) == ""
     st.SecretTasksTab._on_click(tab, event)
     assert walked == [11], "a click below the last row jumped"
 
-    # The pointer says so before the click: a hand over the link, nothing elsewhere.
-    tab._tree = _FakeTree(column=link_at)
-    st.SecretTasksTab._on_motion(tab, event)
-    assert tab._tree.cursor == "hand2", tab._tree.cursor
-    tab._tree = _FakeTree(column="#1")
-    st.SecretTasksTab._on_motion(tab, event)
-    assert tab._tree.cursor == "", tab._tree.cursor
+    # The pointer says so before the click: a hand over a cell that acts, nothing over
+    # one that does not — including the action cell of a row with no action on it.
+    for column, ready, want in ((st.LINK_COLUMN, True, "hand2"),
+                                (st.ACTION_COLUMN, True, "hand2"),
+                                (st.ACTION_COLUMN, False, ""),
+                                ("lvl", True, "")):
+        tab._rows["11"]["ready"] = ready
+        tab._tree = _FakeTree(column=_column_at(column))
+        st.SecretTasksTab._on_motion(tab, event)
+        assert tab._tree.cursor == want, (column, ready, tab._tree.cursor)
+
+
+class _FakeBox:
+    """A ttk.Checkbutton reduced to what greying it out touches."""
+
+    def __init__(self):
+        self.states = []
+
+    def state(self, spec):
+        self.states.append(tuple(spec))
+
+
+def test_the_prohibition_is_lit_only_while_auto_loot_can_rob():
+    """«Не грабить на своём сервере» greys out with «Автолут ★», and keeps its value.
+
+    With nothing robbing by itself the prohibition has nothing to forbid, and a live
+    box that changes nothing is how a person concludes the panel ignored them.
+    """
+    tab = object.__new__(st.SecretTasksTab)
+    tab.autoloot_var = _Var(False)
+    tab.skip_own_var = _Var(True)
+    tab._skip_own_box = _FakeBox()
+
+    st.SecretTasksTab._sync_autoloot_controls(tab)
+    assert tab._skip_own_box.states[-1] == ("disabled",), tab._skip_own_box.states
+    tab.autoloot_var.set(True)
+    st.SecretTasksTab._sync_autoloot_controls(tab)
+    assert tab._skip_own_box.states[-1] == ("!disabled",), tab._skip_own_box.states
+    # Greying it never changes what it says — ticking auto-loot back on brings the
+    # prohibition back exactly as it was left.
+    assert tab.skip_own_var.get() is True
+
+    # Toggling auto-loot itself does both things: the standing order, then the box.
+    toggled = []
+    tab.autoloot = __import__("types").SimpleNamespace(
+        toggle=lambda: toggled.append(1))
+    tab.autoloot_var.set(False)
+    st.SecretTasksTab._on_autoloot_toggle(tab)
+    assert toggled == [1], toggled
+    assert tab._skip_own_box.states[-1] == ("disabled",), tab._skip_own_box.states
+
+    # A tab whose widgets are not built yet must survive the same call — «Стоп всё» and
+    # `apply_config` both reach it before there is a checkbox to grey.
+    bare = object.__new__(st.SecretTasksTab)
+    bare.autoloot_var = _Var(False)
+    st.SecretTasksTab._sync_autoloot_controls(bare)
 
 
 def test_the_own_server_is_read_once_and_an_unreadable_one_is_zero():

@@ -74,17 +74,22 @@ READY_COLOR = "#4fe08a"
 # The table's columns: (id, locale key of the heading, width in px, anchor, stretch).
 # The state column is the one that takes the slack — it carries the longest sentence
 # («готово к сбору · истекает через 1:02:03») and the one that varies most by language.
+# The server has a column of its own rather than a `#534` glued to the coordinate: it is
+# what tells a neighbour's tile from a stranger's at a glance, and it is what «не грабить
+# на своём сервере» is about.
 COLUMNS = (
+    ("coords", "secrettasks.col.coords", 150, "w", False),
+    ("server", "secrettasks.col.server", 90, "w", False),
     ("lvl", "secrettasks.col.level", 110, "w", False),
-    ("coords", "secrettasks.col.coords", 190, "w", False),
-    ("state", "secrettasks.col.state", 260, "w", True),
-    ("slots", "secrettasks.col.slots", 80, "center", False),
-    ("uuid", "secrettasks.col.uuid", 110, "w", False),
+    ("state", "secrettasks.col.state", 250, "w", True),
+    ("slots", "secrettasks.col.slots", 90, "center", False),
+    ("action", "secrettasks.col.action", 110, "center", False),
 )
 
-# The one column a click walks to the tile (task #1209). Named rather than indexed, so
-# re-ordering COLUMNS cannot silently make «Слоты» the link.
+# The two columns a click DOES something in (task #1209). Named rather than indexed, so
+# re-ordering COLUMNS cannot silently make «Ограблено» the link.
 LINK_COLUMN = "coords"
+ACTION_COLUMN = "action"
 
 # How many jumps the «куда ходил» list remembers. One account's tiles are not another's,
 # so it belongs to the profile like every other setting here.
@@ -276,6 +281,7 @@ class SecretTasksTab(PanelTab):
                            (self.sweep_var, self.sweep)):
             var.set(False)
             order.stop()
+        self._sync_autoloot_controls()
 
     def shutdown(self) -> None:
         self.capture.stop()
@@ -344,6 +350,7 @@ class SecretTasksTab(PanelTab):
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
         self._refresh_rule_hints()
+        self._sync_autoloot_controls()
 
     def persist_vars(self) -> list:
         return [self.monitor_var, self.interval_var, self.star_var, self.pending_var,
@@ -478,16 +485,19 @@ class SecretTasksTab(PanelTab):
         bar = ttk.Frame(frame)
         bar.pack(fill="x")
         self.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
-                                command=self.autoloot.toggle),
+                                command=self._on_autoloot_toggle),
                 "secret.autoloot").pack(side="left")
         self.tr(ttk.Label(bar), "secret.autoloot.level_from").pack(
             side="left", padx=(12, 2))
         NumericEntry(bar, textvariable=self.level_from_var, width=4).pack(side="left")
         self.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
         NumericEntry(bar, textvariable=self.level_to_var, width=4).pack(side="left")
-        self.tr(ttk.Checkbutton(bar, variable=self.skip_own_var,
-                                command=self._on_skip_own_change),
-                "secret.autoloot.skip_own").pack(side="left", padx=(16, 0))
+        self._skip_own_box = self.tr(
+            ttk.Checkbutton(bar, variable=self.skip_own_var,
+                            command=self._on_skip_own_change),
+            "secret.autoloot.skip_own")
+        self._skip_own_box.pack(side="left", padx=(16, 0))
+        self._sync_autoloot_controls()
         self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=760,
                                    justify="left")
         self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
@@ -561,13 +571,18 @@ class SecretTasksTab(PanelTab):
         self._sync_actions()
 
     def _retranslate_headings(self) -> None:
-        """(Re)write the column headings and re-arm their sort commands."""
+        """(Re)write the column headings and re-arm their sort commands.
+
+        A heading with no entry in :data:`SORT_KEYS` — the action column — gets no
+        command: clicking it must not look like it did something.
+        """
         if self._tree is None:
             return
         for col, key, _w, _a, _s in COLUMNS:
             try:
                 self._tree.heading(col, text=self.t(key),
-                                   command=lambda c=col: self._sort_by(c))
+                                   command=(lambda c=col: self._sort_by(c))
+                                   if col in self.SORT_KEYS else "")
             except tk.TclError:
                 return
 
@@ -581,15 +596,16 @@ class SecretTasksTab(PanelTab):
 
     #: How each column orders. `state` sorts by "how soon this row wants attention" —
     #: the ready ones first, then the shortest countdown — which is what the eye is
-    #: after, rather than the alphabet of a translated sentence.
+    #: after, rather than the alphabet of a translated sentence. The action column is
+    #: not in here: a button is not an order, so its heading does not sort.
     SORT_KEYS = {
+        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0)),
+        "server": lambda r: int(r["server"] or 0),
         "lvl": lambda r: int(r["level"] or 0),
-        "coords": lambda r: (int(r["server"] or 0), int(r["x"] or 0), int(r["y"] or 0)),
         "state": lambda r: (0 if r.get("ready") else 1,
                             (r["expires_at"] if r.get("ready")
                              else r["completed_at"]) or 0),
         "slots": lambda r: int(r["loot_count"] or 0),
-        "uuid": lambda r: str(r["uuid"]),
     }
 
     def _sorted_rows(self, rows) -> list:
@@ -609,15 +625,21 @@ class SecretTasksTab(PanelTab):
         return sorted(rows, key=key, reverse=backwards)
 
     def _row_values(self, row) -> tuple:
-        """One row as the five cells of the table."""
+        """One row as the cells of the table, in the order COLUMNS declares.
+
+        The coordinate cell is the canonical `X:.. Y:..` token — the same one the log
+        prints and `coords.parse` reads back — with the server standing in its own column
+        beside it rather than glued to the front of it.
+        """
         import coords as coords_fmt
         ready = bool(row.get("ready"))
-        return ("%s %s" % (READY_GLYPH if ready else TYPE_GLYPH,
+        return (coords_fmt.fmt(row["x"], row["y"]),
+                self.t("secrettasks.server", srv=row["server"]),
+                "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH,
                            self.t("secrettasks.stars", n=int(row["level"] or 0))),
-                coords_fmt.fmt(row["x"], row["y"], row["server"]),
                 row["timer"].get(),
                 self.t("secrettasks.slots", n=int(row["loot_count"] or 0)),
-                self._short_uuid(row["uuid"]))
+                self.t("secrettasks.collect") if ready else "")
 
     def _show_empty(self, empty: bool) -> None:
         """Say «нет звёздных секреток» above the table, or take the line away."""
@@ -647,22 +669,36 @@ class SecretTasksTab(PanelTab):
         return self._rows.get(self._tree.identify_row(event.y)) if self._tree else None
 
     def _on_click(self, event) -> None:
-        """A coordinate is a place you can go: clicking one walks the camera there.
+        """Two cells do something when clicked; every other one only selects.
 
-        Not bound with a `break` — the click still selects the row, so the strip's
-        buttons are aimed at the tile that was just jumped to.
+        A coordinate is a place you can go, so clicking it walks the camera there. The
+        action cell is the row's own «Собрать» — a Treeview cannot hold a button, so the
+        cell IS the button, and it is only there on a row the server would let us rob.
+
+        Not bound with a `break`: the click still selects the row, so the strip below
+        stays aimed at the tile that was just acted on.
         """
-        if self._column_at(event) != LINK_COLUMN:
-            return
+        where = self._column_at(event)
         row = self._row_at(event)
-        if row is not None:
+        if row is None:
+            return
+        if where == LINK_COLUMN:
             self._jump_to_row(row)
+        elif where == ACTION_COLUMN and row.get("ready"):
+            self._collect(row)
+
+    def _live_cell(self, event) -> bool:
+        """Whether the cell under the pointer is one a click would act on."""
+        where = self._column_at(event)
+        if where == LINK_COLUMN:
+            return True
+        row = self._row_at(event)
+        return where == ACTION_COLUMN and bool(row and row.get("ready"))
 
     def _on_motion(self, event) -> None:
-        """The link cursor over the coordinate column, the ordinary one everywhere else."""
+        """The link cursor over a cell that acts, the ordinary one everywhere else."""
         try:
-            self._tree.configure(
-                cursor="hand2" if self._column_at(event) == LINK_COLUMN else "")
+            self._tree.configure(cursor="hand2" if self._live_cell(event) else "")
         except tk.TclError:
             pass
 
@@ -756,6 +792,27 @@ class SecretTasksTab(PanelTab):
     def _on_interval_change(self) -> None:
         if not self.rt.settings.loading and self.capture.running:
             self.capture.restart()
+
+    def _on_autoloot_toggle(self) -> None:
+        """«Автолут ★» was ticked or cleared: start/stop it, and grey what it owns."""
+        self.autoloot.toggle()
+        self._sync_autoloot_controls()
+
+    def _sync_autoloot_controls(self) -> None:
+        """«Не грабить на своём сервере» is lit only while there are robberies to gate.
+
+        With auto-loot off nothing robs by itself, so the prohibition has nothing to
+        forbid — a live-looking box that changes nothing is how a person concludes the
+        panel ignored them. The VALUE is kept: ticking auto-loot back on brings the
+        prohibition back exactly as it was left.
+        """
+        box = getattr(self, "_skip_own_box", None)
+        if box is None:
+            return
+        try:
+            box.state(("!disabled",) if self.autoloot_var.get() else ("disabled",))
+        except tk.TclError:
+            pass
 
     def _on_skip_own_change(self) -> None:
         """«Не грабить на своём сервере» was ticked or cleared.
@@ -1043,12 +1100,11 @@ class SecretTasksTab(PanelTab):
         n = len(self._visible_rows())
         self._status_var.set(self.t("secrettasks.count", n=n) if n else "")
 
-    @staticmethod
-    def _short_uuid(uuid) -> str:
-        """The last 8 digits of a uuid — the full value is 18+ digits and only its tail
-        tells two tiles apart on screen."""
-        s = str(uuid)
-        return "…" + s[-8:] if len(s) > 8 else s
+    # The uuid tail used to have a column of its own. It is gone with the table (#1209):
+    # a tile is named by its coordinate and its server everywhere else in the panel — the
+    # log line, the chat share, the jump — and an 18-digit id nobody can read out loud
+    # was taking the width the countdown needed. The uuid still travels with the row and
+    # is what the robbery is sent with; it is simply not what a person is shown.
 
     # -- the countdown ---------------------------------------------------------
     def _start_ticking(self) -> None:
