@@ -2914,8 +2914,50 @@ def main(argv: list[str] | None = None) -> int:
     for tool in ("lua_daemon.py", "lua_client.py", "lua_actions.py", "coords.py"):
         if not any(os.path.isfile(os.path.join(d, tool)) for d in (TOOLS, TOOLS_LIB)):
             print(f"tool not found: {tool}", file=sys.stderr)
+    if _already_open(args.profile):
+        return 0
     Panel(active_profile=args.profile).mainloop()
     return 0
+
+
+def _already_open(profile: str | None) -> bool:
+    """Is this profile open in another panel? Then say so and open nothing.
+
+    ONE PANEL PER PROFILE — not one per machine. Two windows on two profiles is a way
+    people work: a second account, or an instance of one's own inside an RDP session,
+    and neither is touched by this. Two windows on the SAME profile is the one that
+    breaks, quietly and later: both write that profile's `config.json` over each other
+    and both drive its daemon.
+
+    Before this, the second one opened, said one line into its own log, and left the
+    person with two identical windows and no idea which was which.
+
+    Said BEFORE anything is built — no window, no runtime, no daemon, no captures — and
+    the window they already have is brought to the front, because that is what clicking
+    a shortcut twice is asking for. In the profile's own language: there is no panel yet
+    to ask, so the translator is built from what that profile saved.
+    """
+    profiles = profilemod.ProfileManager()
+    name = profilemod.sanitize(profile or "") or profiles.active
+    if not autostartmod.locked(profiles, name):
+        return False
+
+    say = i18nmod.I18n(profiles.load(name).get("language")).t
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showwarning(say("panel.busy.title"), say("panel.busy", profile=name))
+    except Exception:                          # noqa: BLE001 — no display: the print stands
+        print(say("panel.busy", profile=name), file=sys.stderr)
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+    autostartmod.focus_panel(profiles, name)
+    return True
 
 
 if __name__ == "__main__":

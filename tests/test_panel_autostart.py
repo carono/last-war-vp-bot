@@ -181,6 +181,47 @@ def test_the_instance_lock_is_exclusive_and_dies_with_its_holder():
             == str(os.getpid())
 
 
+def test_one_panel_per_profile_not_one_per_machine():
+    """The rule, both halves — and the second half is a FEATURE, not a leftover.
+
+    A second window on a second profile is how people work: another account, or an
+    instance of one's own inside an RDP session. Only the SAME profile twice is the
+    thing that breaks, because both write that profile's settings file over each other
+    and both drive its daemon. So the guard is per profile directory and must never
+    grow into «one panel on this machine».
+    """
+    with _profiles_in_tmp() as profiles:
+        profiles.create("second")
+        held = autostartmod.take_lock(profiles, "main" if profiles.active == "main"
+                                      else profiles.active)
+        try:
+            here = profiles.active
+            assert autostartmod.locked(profiles, here) is True
+            assert autostartmod.holder(profiles, here) is None or isinstance(
+                autostartmod.holder(profiles, here), int)
+            # …and the other profile is completely unaffected: a panel opens there.
+            assert autostartmod.locked(profiles, "second") is False
+            other = autostartmod.take_lock(profiles, "second")
+            assert other is not None, "a second profile must be free to open"
+            autostartmod.drop_lock(other)
+        finally:
+            autostartmod.drop_lock(held)
+
+
+def test_the_holder_is_named_so_the_refusal_can_be_worded():
+    """`holder` answers «who has it» — `None` when nobody does, a pid when the panel
+    that took it has also beaten. The lock decides; the pid is for the message."""
+    with _profiles_in_tmp() as profiles:
+        assert autostartmod.holder(profiles) is None
+        held = autostartmod.take_lock(profiles)
+        try:
+            autostartmod.beat(profiles)
+            assert autostartmod.holder(profiles) == os.getpid()
+        finally:
+            autostartmod.drop_lock(held)
+        assert autostartmod.holder(profiles) is None
+
+
 def test_a_held_profile_is_never_opened_a_second_time():
     """The lock has the last word when the beat says nothing — no file, no psutil."""
     with _profiles_in_tmp() as profiles:

@@ -593,6 +593,8 @@
   "profile.res.metal": "Metallo",
   "profile.res.oil": "Petrolio",
   "profile.res.gold": "Oro",
+  "panel.busy.title": "Il profilo è già aperto",
+  "panel.busy": "Un pannello per il profilo «{profile}» è già aperto. Due pannelli sullo stesso profilo si sovrascrivono lo stesso file di impostazioni e pilotano lo stesso demone, quindi questo non si aprirà. Usi la finestra che ha già, oppure avvii un pannello su un altro profilo: questo si può fare.",
   "inventory.search": "Cerca:",
   "inventory.count": "{n} oggetti",
   "inventory.empty": "vuoto — premi Aggiorna (il gioco deve essere in funzione)",

@@ -593,6 +593,8 @@
   "profile.res.metal": "Metal",
   "profile.res.oil": "Ropa",
   "profile.res.gold": "Złoto",
+  "panel.busy.title": "Profil jest już otwarty",
+  "panel.busy": "Panel dla profilu «{profile}» jest już otwarty. Dwa panele na jednym profilu nadpisują sobie ten sam plik ustawień i sterują tym samym demonem, więc ten się nie otworzy. Skorzystaj z okna, które już masz — albo uruchom panel na innym profilu, tak można.",
   "inventory.search": "Szukaj:",
   "inventory.count": "{n} przedmiotów",
   "inventory.empty": "pusto — naciśnij Odśwież (gra musi działać)",

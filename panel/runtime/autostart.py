@@ -231,6 +231,65 @@ def locked(profiles, name: str | None = None) -> bool:
     return False
 
 
+def holder(profiles, name: str | None = None) -> "int | None":
+    """The pid of the panel holding this profile, or ``None`` if nobody holds it.
+
+    ONE PANEL PER PROFILE, not one panel per machine. Two windows on two profiles are a
+    supported way to work — a second account, or an instance of one's own inside an RDP
+    session — and nothing here stands in their way: the lock is per profile directory.
+    Two windows on the SAME profile are the thing that breaks, because they write one
+    `config.json` over each other and both drive one daemon.
+
+    The pid comes from the heartbeat, which is a nicety for the log; the LOCK is what
+    decides. A profile held by a panel that has not beaten yet is still held.
+    """
+    if not locked(profiles, name):
+        return None
+    saved = _read_json(profiles.heartbeat(name))
+    try:
+        return int(saved.get("pid"))
+    except (TypeError, ValueError):
+        return None
+
+
+def focus_panel(profiles, name: str | None = None) -> bool:
+    """Bring the panel that holds this profile to the front. Best-effort.
+
+    What a person expects from clicking a shortcut twice: not a second window and not
+    only a refusal, but the window they already have. Never the reason a launch fails —
+    every part of it is optional and any of it may be missing.
+    """
+    pid = holder(profiles, name)
+    if not pid or not WINDOWS:
+        return False
+    try:
+        import win32con
+        import win32gui
+        import win32process
+    except Exception:                         # noqa: BLE001 — no pywin32 here
+        return False
+    found = []
+
+    def visit(hwnd, _):
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        _tid, owner = win32process.GetWindowThreadProcessId(hwnd)
+        if owner == pid and win32gui.GetWindowText(hwnd):
+            found.append(hwnd)
+
+    try:
+        win32gui.EnumWindows(visit, None)
+        if not found:
+            return False
+        hwnd = found[0]
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+        return True
+    except Exception:                         # noqa: BLE001 — a courtesy, not a step
+        return False
+
+
 def clear(profiles, name: str | None = None) -> None:
     """Drop the heartbeat — the panel is closing on purpose."""
     try:

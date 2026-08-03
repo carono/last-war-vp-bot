@@ -593,6 +593,8 @@
   "profile.res.metal": "Metal",
   "profile.res.oil": "Petróleo",
   "profile.res.gold": "Ouro",
+  "panel.busy.title": "O perfil já está aberto",
+  "panel.busy": "Já há um painel aberto para o perfil «{profile}». Dois painéis no mesmo perfil escrevem o mesmo ficheiro de definições um por cima do outro e conduzem o mesmo daemon, por isso este não abre. Use a janela que já tem — ou abra um painel noutro perfil, isso pode.",
   "inventory.search": "Buscar:",
   "inventory.count": "{n} itens",
   "inventory.empty": "vazio — aperte Atualizar (o jogo precisa estar rodando)",

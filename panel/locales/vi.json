@@ -593,6 +593,8 @@
   "profile.res.metal": "Sắt",
   "profile.res.oil": "Dầu Mỏ",
   "profile.res.gold": "Vàng",
+  "panel.busy.title": "Hồ sơ đã được mở",
+  "panel.busy": "Đã có một bảng điều khiển mở cho hồ sơ «{profile}». Hai bảng trên cùng một hồ sơ sẽ ghi đè lên cùng một tệp cài đặt và điều khiển cùng một daemon, nên bảng này sẽ không mở. Hãy dùng cửa sổ bạn đang có — hoặc mở bảng trên một hồ sơ khác, điều đó hoàn toàn được.",
   "inventory.search": "Tìm:",
   "inventory.count": "{n} vật phẩm",
   "inventory.empty": "trống — hãy bấm Làm mới (trò chơi phải đang chạy)",

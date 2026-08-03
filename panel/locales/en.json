@@ -593,6 +593,8 @@
   "profile.res.metal": "Metal",
   "profile.res.oil": "Oil",
   "profile.res.gold": "Gold",
+  "panel.busy.title": "The profile is already open",
+  "panel.busy": "A panel for profile «{profile}» is already open. Two panels on one profile write the same settings file over each other and drive the same daemon, so this one will not open. Use the window you already have — or start a panel on a different profile, which is perfectly fine.",
   "inventory.search": "Search:",
   "inventory.count": "{n} items",
   "inventory.empty": "empty — press Refresh (needs the game running)",

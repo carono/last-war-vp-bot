@@ -593,6 +593,8 @@
   "profile.res.metal": "Logam",
   "profile.res.oil": "Minyak",
   "profile.res.gold": "Emas",
+  "panel.busy.title": "Profil sudah terbuka",
+  "panel.busy": "Panel untuk profil «{profile}» sudah terbuka. Dua panel pada satu profil saling menimpa berkas pengaturan yang sama dan mengendalikan daemon yang sama, jadi panel ini tidak akan dibuka. Gunakan jendela yang sudah ada — atau buka panel pada profil lain, itu tidak masalah.",
   "inventory.search": "Cari:",
   "inventory.count": "{n} barang",
   "inventory.empty": "kosong — tekan Segarkan (permainan harus berjalan)",

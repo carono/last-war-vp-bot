@@ -593,6 +593,8 @@
   "profile.res.metal": "Metal",
   "profile.res.oil": "Petrol",
   "profile.res.gold": "Altın",
+  "panel.busy.title": "Profil zaten açık",
+  "panel.busy": "«{profile}» profili için bir panel zaten açık. Aynı profildeki iki panel aynı ayar dosyasını birbirinin üzerine yazar ve aynı arka plan sürecini sürer, bu yüzden bu panel açılmayacak. Halihazırda açık olan pencereyi kullanın — ya da başka bir profilde panel açın, buna izin var.",
   "inventory.search": "Ara:",
   "inventory.count": "{n} eşya",
   "inventory.empty": "boş — Tazele'ye bas (oyunun çalışıyor olması gerekir)",

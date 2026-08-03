@@ -593,6 +593,8 @@
   "profile.res.metal": "Métal",
   "profile.res.oil": "Pétrole",
   "profile.res.gold": "Or",
+  "panel.busy.title": "Le profil est déjà ouvert",
+  "panel.busy": "Un panneau pour le profil « {profile} » est déjà ouvert. Deux panneaux sur un même profil écrasent le même fichier de réglages et pilotent le même démon, celui-ci ne s'ouvrira donc pas. Utilisez la fenêtre que vous avez déjà — ou lancez un panneau sur un autre profil, ce qui est tout à fait possible.",
   "inventory.search": "Recherche :",
   "inventory.count": "{n} objets",
   "inventory.empty": "vide — appuie sur Rafraîchir (le jeu doit tourner)",

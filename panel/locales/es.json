@@ -593,6 +593,8 @@
   "profile.res.metal": "Metal",
   "profile.res.oil": "Petróleo",
   "profile.res.gold": "Oro",
+  "panel.busy.title": "El perfil ya está abierto",
+  "panel.busy": "Ya hay un panel abierto para el perfil «{profile}». Dos paneles en un mismo perfil se sobrescriben el mismo archivo de ajustes y manejan el mismo demonio, así que este no se abrirá. Use la ventana que ya tiene, o abra un panel en otro perfil, que sí se puede.",
   "inventory.search": "Buscar:",
   "inventory.count": "{n} objetos",
   "inventory.empty": "vacío — pulsa Refrescar (el juego tiene que estar en marcha)",
