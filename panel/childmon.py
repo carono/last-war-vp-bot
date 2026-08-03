@@ -143,7 +143,31 @@ class ChildMonitor:
             return                    # asked for, or already replaced: not news
         self.proc = None
         if self._on_exit is not None:
+            self._announce_exit()
+
+    def _announce_exit(self) -> None:
+        """Run ``on_exit``, on the Tk thread if there is one to get onto.
+
+        `after()` is itself a Tk call, and calling it from this thread while the main
+        thread is NOT inside the event loop raises «main thread is not in main loop» —
+        which is most of a panel's boot, because the window pumps `update()` by hand
+        until every profile is up. A child that ends during those seconds therefore
+        killed this thread with a traceback on stderr and its `on_exit` never ran: the
+        checkbox stayed ticked for a monitor that had gone, and the line it owed the log
+        was never said (#1212, seen at every start once the sweep — a child that always
+        ends a few seconds after the boot begins — existed).
+
+        So the hand-over is attempted and, failing that, done here. Running it on this
+        thread is the lesser evil: the callbacks are a log line and a Tk variable, and
+        the alternative is not running them at all.
+        """
+        try:
             if self._schedule is not None:
                 self._schedule(0, self._on_exit)
-            else:
-                self._on_exit()
+                return
+        except Exception:             # noqa: BLE001 — no event loop to hand it to (yet)
+            pass
+        try:
+            self._on_exit()
+        except Exception:             # noqa: BLE001 — a child's death is not the panel's
+            pass

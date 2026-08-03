@@ -352,6 +352,31 @@ def test_the_sweep_runs_in_a_process_of_its_own() -> None:
             orphan.kill()
 
 
+def test_a_child_that_ends_during_the_boot_still_reports_it() -> None:
+    """`after()` from the reader thread raises while the window is still booting.
+
+    The panel pumps `update()` by hand until every profile is up, and a Tk call from
+    another thread during those seconds raises «main thread is not in main loop». It
+    killed the reader thread with a traceback on stderr and lost the callback — which,
+    for a capture, is the checkbox that says it is still running (#1212).
+    """
+    from panel import childmon as childmonmod
+
+    def refuses(_delay, _func):
+        raise RuntimeError("main thread is not in main loop")
+
+    done: list = []
+    mon = childmonmod.ChildMonitor(
+        [sys.executable, "-c", "pass"], "boot", log=lambda _l: None, cwd=str(_REPO),
+        on_exit=lambda: done.append(1), schedule=refuses)
+    assert mon.start()
+    for _ in range(100):
+        if done:
+            break
+        time.sleep(0.05)
+    assert done, "the child ended and nobody was told"
+
+
 def test_the_factory_stamps_its_children_and_the_daemons_environment_stays_clean() -> None:
     factory = _factory(None)
     assert factory.child_env()[childrenmod.OWNER_VAR] == str(os.getpid())
