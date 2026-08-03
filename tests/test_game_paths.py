@@ -119,21 +119,57 @@ def test_another_accounts_copy_is_named_relative_to_ITS_profile():
             profile, "AppData", "Local", "Acme", "LW", "LastWarLauncher.exe")
 
 
-def test_an_absolute_launcher_travels_but_a_per_user_one_stays_home():
-    """The distinction the whole RDP launch turns on.
+def test_another_accounts_launcher_is_never_read_out_of_OUR_environment():
+    """`launcher_in_profile` answers for an account that is not this process's.
 
-    An absolute path is one file for every account on the machine, so it is handed
-    straight to the other session. Anything still holding a variable is this desktop's
-    alone — expanding it here would name the PANEL user's install and start it from
-    the other account's token.
+    So it must ignore `LW_LAUNCHER` entirely, whatever it says. The variable is read
+    where a usable environment exists — in the panel, which passes the string down
+    verbatim — and never here: this function's callers run as SYSTEM, whose copy of
+    that variable is nobody's game. An earlier version let it win and made the
+    resolver's answer depend on who happened to be running it.
     """
     profile = os.path.join("C:", os.sep, "Users", "casper")
-    forced = os.path.join("D:", os.sep, "Games", "LW", "LastWarLauncher.exe")
-    with _env(**{**_CLEAR, "LW_LAUNCHER": forced}):
-        assert gp.launcher_in_profile(profile) == forced
-    with _env(**{**_CLEAR, "LW_LAUNCHER": r"%LOCALAPPDATA%\LW\LastWarLauncher.exe"}):
-        assert gp.launcher_in_profile(profile).startswith(profile), \
-            "a per-user path must not be handed to another account's token"
+    plain = gp.launcher_in_profile(profile)
+    for value in (os.path.join("D:", os.sep, "Games", "LW", "LastWarLauncher.exe"),
+                  r"%LOCALAPPDATA%\LW\LastWarLauncher.exe"):
+        with _env(**{**_CLEAR, "LW_LAUNCHER": value}):
+            assert gp.launcher_in_profile(profile) == plain
+    assert plain.startswith(profile), plain
+
+
+def test_a_variable_is_expanded_against_the_TARGET_sessions_environment():
+    """The whole point of the correction, and it cannot be done anywhere else.
+
+    `session_launch.expand_for` is handed the environment block `CreateEnvironmentBlock`
+    built from the target account's token — the one place on the machine where that
+    account's `%LOCALAPPDATA%` is correct. Expanding in the caller (a panel running as
+    somebody else, or the SYSTEM task that carries the request) names the wrong profile
+    and starts nothing.
+
+    Imported by source rather than as a module: `tools/session_launch.py` needs pywin32
+    and exits at import off Windows, while this function is pure text handling.
+    """
+    import types
+
+    src = (_REPO / "tools" / "session_launch.py").read_text(encoding="utf-8")
+    body = src[src.index("def expand_for("):src.index("def game_launcher(")]
+    mod = types.ModuleType("_expand_probe")
+    exec(compile("import re\n" + body, "session_launch", "exec"), mod.__dict__)
+    expand_for = mod.expand_for
+
+    casper = {"LOCALAPPDATA": r"C:\Users\casper\AppData\Local",
+              "USERPROFILE": r"C:\Users\casper"}
+    assert expand_for(r"%LOCALAPPDATA%\Acme\Custom.exe", casper) == \
+        r"C:\Users\casper\AppData\Local\Acme\Custom.exe"
+    # Case-insensitive, as Windows is.
+    assert expand_for(r"%localappdata%\x.exe", casper) == \
+        r"C:\Users\casper\AppData\Local\x.exe"
+    # An absolute path is untouched, so the ordinary case pays nothing.
+    assert expand_for(r"D:\Games\LW\Boot.exe", casper) == r"D:\Games\LW\Boot.exe"
+    # An unknown name is LEFT STANDING: a path with %TYPO% in it is a mistake somebody
+    # can read, one silently missing a segment is not.
+    assert expand_for(r"%NOPE%\x.exe", casper) == r"%NOPE%\x.exe"
+    assert expand_for("", casper) == ""
 
 
 def test_the_launch_path_asks_this_one_and_not_a_copy():

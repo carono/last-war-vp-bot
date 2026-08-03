@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -103,6 +104,25 @@ def profile_of(session: int) -> str:
     return win32api.ExpandEnvironmentStrings(path)
 
 
+def expand_for(text: str, env) -> str:
+    """Expand ``%VAR%`` against ``env`` — the TARGET session's variables, not ours.
+
+    `os.path.expandvars` would use this process's environment, which under a SYSTEM
+    scheduled task is SYSTEM's: ``%LOCALAPPDATA%`` there is
+    ``C:\\Windows\\system32\\config\\systemprofile\\AppData\\Local``, and the launch
+    would go looking for the game inside a service account's profile.
+
+    Names are matched case-insensitively, as Windows does. An unknown variable is left
+    standing rather than replaced with nothing — a path with ``%TYPO%`` still in it is
+    a mistake somebody can read, whereas one silently missing a segment is not.
+    """
+    if not text or "%" not in text:
+        return text
+    lookup = {str(k).upper(): str(v) for k, v in dict(env).items()}
+    return re.sub(r"%([^%]+)%",
+                  lambda m: lookup.get(m.group(1).upper(), m.group(0)), text)
+
+
 def game_launcher(session: int) -> str:
     """That session's own copy of the launcher, under that account's profile.
 
@@ -116,8 +136,7 @@ def game_launcher(session: int) -> str:
     why `game_client` passes them. The environment is still read when nothing is
     passed, for a hand-run from a SYSTEM shell.
     """
-    return os.path.join(profile_of(session), game_paths.LOCAL_APPDATA_SUBDIR,
-                        game_paths.game_folder(), game_paths.launcher_exe())
+    return game_paths.launcher_in_profile(profile_of(session))
 
 
 # -------------------------------------------------------------------- launch --
@@ -130,6 +149,17 @@ def launch_in_session(session: int, exe: str, args: str = "", cwd: str | None = 
     Requires SeTcbPrivilege (SYSTEM). The child gets the session user's environment
     block, so ``%LOCALAPPDATA%`` and friends point at *that* user's profile — which is
     the whole point when the second client lives in a second profile.
+
+    **And so does the path to `exe` itself.** That block is the only place on the
+    machine where the target account's variables are correct, so `%VAR%` in `exe` and
+    `cwd` is expanded against IT rather than against the caller's environment. It
+    matters because the caller cannot do this: a panel expanding ``%LOCALAPPDATA%``
+    would name the PANEL user's folder and then start it from the other account's
+    token. Passing the string through unexpanded and resolving it here is what lets a
+    profile say "the game is where it normally is" and mean it per account.
+
+    An absolute path with nothing to expand is untouched, so this costs the ordinary
+    case nothing.
     """
     token = win32ts.WTSQueryUserToken(session)
     try:
@@ -143,6 +173,16 @@ def launch_in_session(session: int, exe: str, args: str = "", cwd: str | None = 
     if env_extra:
         env = dict(env)
         env.update(env_extra)
+
+    exe = expand_for(exe, env)
+    cwd = expand_for(cwd, env) if cwd else cwd
+    if not os.path.exists(exe):
+        # Said before the launch rather than after: `CreateProcessAsUser` fails with a
+        # bare error code, and "the file is not there" and "the token was refused" read
+        # identically in it. SYSTEM can see any account's folders, so this check is
+        # meaningful here even though the caller could not have made it.
+        raise SystemExit(f"nothing at {exe} in session {session} "
+                         f"({session_user(session)})")
 
     si = win32process.STARTUPINFO()
     si.lpDesktop = desktop

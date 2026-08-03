@@ -328,24 +328,30 @@ copy — `tools/lib/game_paths.py`, which reads the environment first:
 
 | variable | default | what it is |
 |---|---|---|
-| `LW_LAUNCHER` | *(built below)* | the launcher, absolute — **the one knob most people need** |
+| `LW_LAUNCHER` | *(built below)* | the launcher — an override for an install that is not ordinary |
 | `LW_GAME_DIR` | `%LOCALAPPDATA%\FunFly\Last War-Survival Game` | the install folder |
 | `LW_GAME_FOLDER` | `FunFly\Last War-Survival Game` | the same folder *relative to a user's Local AppData* |
 | `LW_LAUNCHER_EXE` | `LastWarLauncher.exe` | the launcher's filename |
 | `LW_GAME_EXE` | `LastWar.exe` | the client's process name |
 
-Prefer `LW_LAUNCHER`, and prefer it absolute, because that is the form
-that travels: `%LOCALAPPDATA%` names a different folder for every
-account, so a path built from it is this desktop's alone and cannot be
-handed to another session's token. An absolute path has nothing left to
-expand, is the same file for everybody, and is therefore used for either
-session. With only the folder knobs set, this desktop expands its own
-and the other session is told the *relative* form and expands its own —
-on the command line, not through the environment, because the SYSTEM hop
-inherits nothing from the panel.
+**None of it has to be set.** Adding a second account is a tick and a
+login: the session names the account, the account's profile directory is
+a registry lookup, and the ordinary install joins onto it. A path typed
+by hand is never required, and `--game-folder` / `--launcher-exe` carry
+the pieces over the SYSTEM hop because that hop inherits nothing from
+the panel.
 
-The optional quoted path still overrides all of it, and follows exactly
-the same rule about which form travels.
+**A configured path is expanded where it means something.** `LW_LAUNCHER`
+travels to the other session **verbatim**, and is expanded there against
+that session's own environment block — the one place on the machine
+where the target account's `%LOCALAPPDATA%` is correct. So
+`%LOCALAPPDATA%\Acme\Custom.exe` names *each* account's own copy, and
+`D:\Games\LW\Boot.exe` names one file for all of them; both work, and
+neither is expanded in the panel, which would name the panel user's
+folder and then start it from somebody else's token.
+
+The optional quoted path overrides the variable and follows the same
+rule.
 
 A launcher that is not where the path says is a blow-up (a configuration
 mistake). Nobody logged on as that user, or a client that never

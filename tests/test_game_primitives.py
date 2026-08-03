@@ -11,6 +11,7 @@ Exit codes (standalone): 0 = passed, 1 = failed.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -1182,27 +1183,87 @@ def test_a_daemon_pointing_at_the_wrong_session_is_not_believed():
          game_client.session_pids_of) = saved
 
 
-def test_a_per_user_launcher_path_does_not_travel_to_another_session():
-    """`%LOCALAPPDATA%` names a different folder for every account.
+def test_a_configured_launcher_reaches_the_other_session_UNEXPANDED():
+    """The correction (#1218): the path is not ours to expand, or to judge.
 
-    Expanding it here and handing the result to the other session's token would start
-    the PANEL user's installation from that account — so a path with anything left to
-    expand stays home, and the session resolves its own install instead. An absolute
-    path with nothing to expand is the same file for everybody and travels.
+    An earlier version asked "does this mean the same file in any session?" and threw
+    away everything that did not — so `%LOCALAPPDATA%\\…\\Custom.exe` was silently
+    replaced by the default install, and giving an account a custom path meant typing
+    an absolute one by hand. `%LOCALAPPDATA%` belongs to the account that will RUN the
+    game; expanding it in the panel names the panel user's folder. So it travels
+    verbatim and `session_launch` expands it against that session's own environment.
     """
-    import os
-
     import game_client
 
-    assert game_client._shared_path(
-        r"%LOCALAPPDATA%\FunFly\Last War-Survival Game\LastWarLauncher.exe") is None
-    assert game_client._shared_path(None) is None
-    assert game_client._shared_path("LastWarLauncher.exe") is None, "not absolute"
-    # Absolute means absolute HERE, so the test says it in the running platform's
-    # words; the answer this asserts is the same one either way.
-    shared = (r"D:\Games\LastWarLauncher.exe" if os.name == "nt"
-              else "/opt/lastwar/LastWarLauncher.exe")
-    assert game_client._shared_path(shared) == shared
+    sent: dict = {}
+
+    class _Rdp:
+        @staticmethod
+        def system_python(args, tag=None, timeout=None):
+            sent["args"] = list(args)
+            return 0, "started"
+
+    saved = (game_client.session_of, game_client.session_pids_of,
+             sys.modules.get("rdp_instance"))
+    game_client.session_of = lambda user: 4
+    sys.modules["rdp_instance"] = _Rdp
+    try:
+        # A per-user path: handed on as it was written, not expanded and not dropped.
+        game_client.session_pids_of = lambda session, game_exe=None: [7]
+        raw = r"%LOCALAPPDATA%\Acme\Custom.exe"
+        game_client.session_pids_of = lambda session, game_exe=None: []
+        try:
+            game_client.start(raw, user="casper", timeout=0)
+        except TimeoutError:
+            pass                          # no client ever appears in a test
+        assert "--exe" in sent["args"], sent["args"]
+        assert sent["args"][sent["args"].index("--exe") + 1] == raw, sent["args"]
+    finally:
+        (game_client.session_of, game_client.session_pids_of) = saved[:2]
+        if saved[2] is None:
+            sys.modules.pop("rdp_instance", None)
+        else:
+            sys.modules["rdp_instance"] = saved[2]
+
+
+def test_with_nothing_configured_the_other_session_resolves_its_own_install():
+    """Adding an account must be a tick and a login — never a path typed by hand.
+
+    Nothing configured means the far side is told the install in PARTS and joins them
+    onto the profile directory it looks up in the registry for that account.
+    """
+    import game_client
+
+    sent: dict = {}
+
+    class _Rdp:
+        @staticmethod
+        def system_python(args, tag=None, timeout=None):
+            sent["args"] = list(args)
+            return 0, "started"
+
+    saved = (game_client.session_of, game_client.session_pids_of,
+             sys.modules.get("rdp_instance"), os.environ.get("LW_LAUNCHER"))
+    game_client.session_of = lambda user: 4
+    game_client.session_pids_of = lambda session, game_exe=None: []
+    sys.modules["rdp_instance"] = _Rdp
+    os.environ.pop("LW_LAUNCHER", None)
+    try:
+        try:
+            game_client.start(None, user="casper", timeout=0)
+        except TimeoutError:
+            pass
+        args = sent["args"]
+        assert "--game" in args and "--exe" not in args, args
+        assert "--game-folder" in args and "--launcher-exe" in args, args
+    finally:
+        (game_client.session_of, game_client.session_pids_of) = saved[:2]
+        if saved[2] is None:
+            sys.modules.pop("rdp_instance", None)
+        else:
+            sys.modules["rdp_instance"] = saved[2]
+        if saved[3] is not None:
+            os.environ["LW_LAUNCHER"] = saved[3]
 
 
 def _main() -> int:

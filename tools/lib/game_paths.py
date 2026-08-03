@@ -11,7 +11,7 @@ So: one module, read by the panel, the tools and the DSL alike, and every value 
 environment variable with the old literal as its default. Nothing changes for a machine
 that sets none of them.
 
-    LW_LAUNCHER      the launcher, absolute. THE one most people would ever set.
+    LW_LAUNCHER      the launcher — an override for an install that is not ordinary
     LW_GAME_DIR      the installation folder (the launcher's parent)
     LW_GAME_FOLDER   where the game sits under a user's Local AppData — relative, and
                      the only form that works for ANOTHER account's copy
@@ -19,12 +19,18 @@ that sets none of them.
     LW_GAME_EXE      the client's process name
     LW_WIN_PYTHON    the Windows interpreter child processes are started with
 
-**Absolute beats per-user.** ``%LOCALAPPDATA%`` names a different folder for every
-account, so a path built from it is this desktop's alone and cannot be handed to another
-session's token (`game_client._shared_path` is where that is enforced). An absolute
-``LW_LAUNCHER`` has nothing left to expand, so it is the same file for everybody and
-reaches a second account's session unchanged — which is why it is the recommended knob
-rather than the folder ones.
+**Nothing here has to be set.** A second account is a tick and a login: the launcher in
+*that* account's profile is found by looking its profile directory up in the registry
+(:func:`launcher_in_profile`) and joining the ordinary install onto it. The variables
+are for installs that are not ordinary.
+
+**A per-user path is expanded where it means something.** ``%LOCALAPPDATA%`` names a
+different folder for every account, so expanding it in the panel would name the PANEL
+user's install and then hand that to the other account's token. A configured launcher
+therefore travels to a second session **verbatim**, and
+`tools/session_launch.py::expand_for` resolves it against that session's own environment
+block — the one place on the machine where those variables are the target account's.
+An absolute path is simply unaffected by that step.
 
 Functions, not constants, so a value can be changed in the environment and read back
 without re-importing the world. Callers that want a constant snapshot one at import (as
@@ -91,7 +97,8 @@ def launcher() -> str:
     """The launcher on THIS desktop, absolute.
 
     `LW_LAUNCHER` wins outright, and setting it is the one thing an install somewhere
-    else needs: being absolute, it also travels to another account's session.
+    else needs. THIS desktop's answer only: a second account's launcher is resolved
+    inside that account's session, from the string passed down unexpanded.
     """
     return _env("LW_LAUNCHER", os.path.join(game_dir(), launcher_exe()))
 
@@ -100,12 +107,15 @@ def launcher_in_profile(profile_dir: str) -> str:
     """The launcher inside somebody ELSE's user profile.
 
     `profile_dir` is that account's profile directory (`C:\\Users\\casper`), which only
-    SYSTEM can look up — so this is the shape `tools/session_launch.py` needs and the
-    one `%LOCALAPPDATA%` cannot express. `LW_LAUNCHER` still wins when it is absolute,
-    because then it names one file for every account on the machine.
+    SYSTEM can look up out of the registry — so this is the shape
+    `tools/session_launch.py` needs, and the one `%LOCALAPPDATA%` cannot express from
+    outside. **This is what makes adding an account free:** tick the box, type the
+    login, and the path is a lookup rather than something typed by hand.
+
+    Deliberately no `LW_LAUNCHER` branch. A configured launcher is applied by the
+    caller that still has a usable environment, and is passed down verbatim so the far
+    side can expand it against the target session's own variables; reading the variable
+    *here* would read SYSTEM's copy of it, which is nobody's game.
     """
-    forced = (os.environ.get("LW_LAUNCHER") or "").strip()
-    if forced and os.path.isabs(forced) and forced == os.path.expandvars(forced):
-        return forced
     return os.path.join(profile_dir, LOCAL_APPDATA_SUBDIR, game_folder(),
                         launcher_exe())

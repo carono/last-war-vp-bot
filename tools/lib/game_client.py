@@ -47,15 +47,6 @@ GAME_EXE = game_paths.game_exe()
 #: window at all.
 CLOSE_TIMEOUT_SEC = 30.0
 
-def default_launcher() -> str:
-    """The launcher on THIS desktop — `LW_LAUNCHER`, or the ordinary install.
-
-    Resolved on every call rather than frozen at import, so setting the variable and
-    running is enough; and returned already absolute, which is what lets the same
-    answer reach a second account's session (`_shared_path`).
-    """
-    return game_paths.launcher()
-
 #: How long a launch into another session waits for the client to appear. Generous on
 #: purpose: a cold start behind a launcher update is minutes, and the alternative to
 #: waiting is reporting a failure over a client that is on its way up.
@@ -71,6 +62,16 @@ _POLL_SEC = 3.0
 
 # Windows: no console window for the taskkill fallback.
 _NO_WINDOW = 0x08000000
+
+
+def default_launcher() -> str:
+    """The launcher on THIS desktop — `LW_LAUNCHER`, or the ordinary install.
+
+    Resolved on every call rather than frozen at import, so setting the variable and
+    running is enough. THIS desktop's, and only this desktop's: a second account's
+    launcher is resolved inside that account's session, not here.
+    """
+    return game_paths.launcher()
 
 
 def attached_pid(port: "int | None" = None) -> "int | None":
@@ -331,21 +332,12 @@ def session_pids_of(session: int, game_exe: str = GAME_EXE) -> list:
             if int(sid) == int(session) and (name or "").lower() == game_exe.lower()]
 
 
-def _shared_path(launcher: "str | None") -> "str | None":
-    """A launcher path that means the same file in any session, or ``None``.
-
-    ``%LOCALAPPDATA%\\…`` is per USER by construction: expanding it here would name the
-    PANEL user's installation and hand that path to the other account's token. An
-    absolute path with nothing left to expand is the same file for everybody, so it
-    travels — which is how a custom install (another drive, a portable copy) still
-    reaches a session that is not ours.
-    """
-    if not launcher:
-        return None
-    expanded = os.path.expanduser(os.path.expandvars(launcher))
-    if expanded != launcher or not os.path.isabs(expanded):
-        return None
-    return expanded
+# There WAS a `_shared_path()` here, and it was the wrong shape of answer. It asked
+# "does this path mean the same file in any session?" and threw away everything that
+# did not — so a per-user launcher was silently replaced by the default install, and
+# an account could only be given a custom path in absolute form. The path is not ours
+# to judge: it is expanded in the session that will run it, where its variables are
+# correct (`tools/session_launch.py::expand_for`), and here it is passed on untouched.
 
 
 def start(launcher: "str | None" = None, user: "str | None" = None,
@@ -400,16 +392,26 @@ def _start_in_session(user: str, launcher: "str | None", timeout: float,
     _tools_on_path()
     import rdp_instance                       # noqa: PLC0415 — Windows-only
 
-    # WHICH launcher, said in whichever of the two forms can survive the trip. The hop
-    # below runs as SYSTEM out of a scheduled task and inherits NOTHING from here — not
-    # the environment, not the caller's account — so anything the answer depends on
-    # travels on the command line or does not travel at all.
-    exe = _shared_path(launcher or os.environ.get("LW_LAUNCHER"))
+    # WHICH launcher, said in a form that survives the trip. The hop below runs as
+    # SYSTEM out of a scheduled task and inherits NOTHING from here — not the
+    # environment, not the caller's account — so anything the answer depends on travels
+    # on the command line or does not travel at all.
+    #
+    # A configured path goes VERBATIM, unexpanded. `%LOCALAPPDATA%` in it belongs to the
+    # account that will run the game, not to us: expanding it here would name the PANEL
+    # user's folder and hand that to the other account's token. `session_launch` expands
+    # it against the target session's own environment block, which is the one place on
+    # the machine where those variables are right.
+    raw = (launcher or os.environ.get("LW_LAUNCHER") or "").strip() or None
     args = ["tools\\session_launch.py", "--session", str(session)]
-    if exe:
-        args += ["--exe", exe]           # one file for every account on the machine
+    if raw:
+        args += ["--exe", raw]
     else:
-        args += ["--game",               # …or that account's own copy, named in parts
+        # Nothing configured, which is the case that has to work by itself: the account
+        # is named, so its profile directory is a registry lookup on the far side and
+        # the rest is the ordinary install. Adding a second account is a tick and a
+        # login, never a path typed by hand.
+        args += ["--game",
                  "--game-folder", game_paths.game_folder(),
                  "--launcher-exe", game_paths.launcher_exe()]
     say(f"starting the launcher in {user}'s session ({session}) through SYSTEM")
