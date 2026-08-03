@@ -884,7 +884,7 @@
   "web.log.error": "error del control remoto: {error}",
   "web.log.token": "token nuevo — todos los móviles con el anterior quedan fuera",
   "web.log.copied": "enlace copiado",
-  "web.log.refused": "token incorrecto desde {peer}",
+  "web.log.refused": "token incorrecto desde {peer} (intento {count})",
   "web.ui.title": "Panel de Last War",
   "web.ui.login.hint": "Escribe el token de la pestaña «Web» del panel.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "no cambió: {reason}",
   "graphics.state.noreason": "el escenario no dio ninguna razón",
   "graphics.state.busy": "ahora mismo otra cosa está controlando el juego — inténtalo de nuevo en un momento.",
-  "graphics.state.lapsed": "el juego se ha reiniciado: la ventana sigue en {width}×{height}, pero la cadencia y la calidad han vuelto a {fps}/s y {quality} — pulsa «{mode}» otra vez."
+  "graphics.state.lapsed": "el juego se ha reiniciado: la ventana sigue en {width}×{height}, pero la cadencia y la calidad han vuelto a {fps}/s y {quality} — pulsa «{mode}» otra vez.",
+  "web.tunnel": "Accesible desde internet (túnel de Cloudflare)",
+  "web.tunnel.on": "La dirección de arriba funciona desde cualquier sitio, por HTTPS. Cambia cada vez que arranca el túnel.",
+  "web.tunnel.off": "Solo la red doméstica llega al panel.",
+  "web.tunnel.waiting": "pidiendo una dirección a Cloudflare…",
+  "web.tunnel.needs_server": "Enciende antes el control remoto — un túnel a nada responde con un error.",
+  "web.tunnel.missing": "«{binary}» no está instalado. Instálalo y vuelve a encenderlo: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "túnel levantado — el panel es accesible desde internet",
+  "web.log.tunnel_off": "túnel apagado — solo la red doméstica",
+  "web.log.tunnel_died": "el túnel se detuvo por su cuenta",
+  "web.log.tunnel_failed": "el túnel no arrancó",
+  "web.log.no_cloudflared": "cloudflared no está instalado — no hay con qué hacer un túnel",
+  "web.log.signed_in": "entrada desde {peer}"
 }

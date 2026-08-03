@@ -884,7 +884,7 @@
   "web.log.error": "lỗi điều khiển từ xa: {error}",
   "web.log.token": "đã tạo mã khoá mới — mọi điện thoại dùng mã cũ đều bị đăng xuất",
   "web.log.copied": "đã chép liên kết",
-  "web.log.refused": "mã khoá sai từ {peer}",
+  "web.log.refused": "mã khoá sai từ {peer} (lần thử {count})",
   "web.ui.title": "Bảng điều khiển Last War",
   "web.ui.login.hint": "Nhập mã khoá ở thẻ «Web» của bảng điều khiển.",
   "web.ui.login.token": "Mã khoá",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "không chuyển được: {reason}",
   "graphics.state.noreason": "kịch bản không nêu lý do",
   "graphics.state.busy": "hiện có thứ khác đang điều khiển trò chơi — hãy thử lại sau giây lát.",
-  "graphics.state.lapsed": "trò chơi đã khởi động lại: cửa sổ vẫn {width}×{height}, nhưng tốc độ khung hình và chất lượng đã trở về {fps}/giây và {quality} — hãy nhấn «{mode}» lần nữa."
+  "graphics.state.lapsed": "trò chơi đã khởi động lại: cửa sổ vẫn {width}×{height}, nhưng tốc độ khung hình và chất lượng đã trở về {fps}/giây và {quality} — hãy nhấn «{mode}» lần nữa.",
+  "web.tunnel": "Truy cập từ internet (đường hầm Cloudflare)",
+  "web.tunnel.on": "Địa chỉ ở trên dùng được từ bất cứ đâu, qua HTTPS. Mỗi lần bật đường hầm nó lại khác.",
+  "web.tunnel.off": "Chỉ mạng nhà mới tới được bảng điều khiển.",
+  "web.tunnel.waiting": "đang xin địa chỉ từ Cloudflare…",
+  "web.tunnel.needs_server": "Hãy bật điều khiển từ xa trước — đường hầm dẫn tới hư không sẽ trả về lỗi.",
+  "web.tunnel.missing": "«{binary}» chưa được cài. Cài rồi bật lại: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "đường hầm đã mở — bảng điều khiển truy cập được từ internet",
+  "web.log.tunnel_off": "đường hầm đã tắt — chỉ còn mạng nhà",
+  "web.log.tunnel_died": "đường hầm tự dừng",
+  "web.log.tunnel_failed": "đường hầm không khởi động được",
+  "web.log.no_cloudflared": "chưa cài cloudflared — không có gì để mở đường hầm",
+  "web.log.signed_in": "đăng nhập từ {peer}"
 }

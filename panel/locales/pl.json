@@ -884,7 +884,7 @@
   "web.log.error": "błąd zdalnego sterowania: {error}",
   "web.log.token": "nowy token — każdy telefon ze starym został wylogowany",
   "web.log.copied": "odnośnik skopiowany",
-  "web.log.refused": "błędny token z {peer}",
+  "web.log.refused": "błędny token z {peer} (próba {count})",
   "web.ui.title": "Panel Last War",
   "web.ui.login.hint": "Wpisz token z zakładki «Sieć» w panelu.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "nie przełączono: {reason}",
   "graphics.state.noreason": "scenariusz nie podał powodu",
   "graphics.state.busy": "w tej chwili grą steruje coś innego — spróbuj za chwilę.",
-  "graphics.state.lapsed": "gra została zrestartowana: okno nadal ma {width}×{height}, ale liczba klatek i jakość wróciły do {fps}/s i {quality} — naciśnij «{mode}» ponownie."
+  "graphics.state.lapsed": "gra została zrestartowana: okno nadal ma {width}×{height}, ale liczba klatek i jakość wróciły do {fps}/s i {quality} — naciśnij «{mode}» ponownie.",
+  "web.tunnel": "Dostęp z internetu (tunel Cloudflare)",
+  "web.tunnel.on": "Adres powyżej działa zewsząd, po HTTPS. Przy każdym starcie tunelu jest inny.",
+  "web.tunnel.off": "Do panelu można się dostać tylko z sieci domowej.",
+  "web.tunnel.waiting": "proszę Cloudflare o adres…",
+  "web.tunnel.needs_server": "Najpierw włącz zdalne sterowanie — tunel donikąd odpowiada błędem.",
+  "web.tunnel.missing": "«{binary}» nie jest zainstalowany. Zainstaluj i włącz ponownie: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "tunel działa — panel jest dostępny z internetu",
+  "web.log.tunnel_off": "tunel wyłączony — tylko sieć domowa",
+  "web.log.tunnel_died": "tunel zatrzymał się sam",
+  "web.log.tunnel_failed": "tunel nie wystartował",
+  "web.log.no_cloudflared": "cloudflared nie jest zainstalowany — nie ma czym zrobić tunelu",
+  "web.log.signed_in": "logowanie z {peer}"
 }

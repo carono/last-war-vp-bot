@@ -884,7 +884,7 @@
   "web.log.error": "kesalahan kendali jarak jauh: {error}",
   "web.log.token": "token baru dibuat — setiap ponsel dengan token lama keluar",
   "web.log.copied": "tautan disalin",
-  "web.log.refused": "token salah dari {peer}",
+  "web.log.refused": "token salah dari {peer} (percobaan ke-{count})",
   "web.ui.title": "Panel Last War",
   "web.ui.login.hint": "Ketik token dari tab «Web» di panel.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "tidak beralih: {reason}",
   "graphics.state.noreason": "skenario tidak menyebutkan alasan",
   "graphics.state.busy": "saat ini ada hal lain yang sedang mengendalikan permainan — coba lagi sebentar.",
-  "graphics.state.lapsed": "permainan dimulai ulang: jendela masih {width}×{height}, tetapi laju bingkai dan kualitas kembali ke {fps}/dtk dan {quality} — tekan «{mode}» lagi."
+  "graphics.state.lapsed": "permainan dimulai ulang: jendela masih {width}×{height}, tetapi laju bingkai dan kualitas kembali ke {fps}/dtk dan {quality} — tekan «{mode}» lagi.",
+  "web.tunnel": "Bisa dijangkau dari internet (terowongan Cloudflare)",
+  "web.tunnel.on": "Alamat di atas bekerja dari mana saja, lewat HTTPS. Berubah setiap kali terowongan dinyalakan.",
+  "web.tunnel.off": "Hanya jaringan rumah yang bisa menjangkau panel.",
+  "web.tunnel.waiting": "meminta alamat ke Cloudflare…",
+  "web.tunnel.needs_server": "Nyalakan dulu kendali jarak jauhnya — terowongan ke ruang kosong menjawab dengan kesalahan.",
+  "web.tunnel.missing": "«{binary}» belum terpasang. Pasang lalu nyalakan lagi: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "terowongan menyala — panel bisa dijangkau dari internet",
+  "web.log.tunnel_off": "terowongan mati — hanya jaringan rumah",
+  "web.log.tunnel_died": "terowongan berhenti sendiri",
+  "web.log.tunnel_failed": "terowongan tidak mau jalan",
+  "web.log.no_cloudflared": "cloudflared belum terpasang — tidak ada yang bisa membuat terowongan",
+  "web.log.signed_in": "masuk dari {peer}"
 }

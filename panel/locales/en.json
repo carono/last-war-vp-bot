@@ -884,7 +884,7 @@
   "web.log.error": "remote control error: {error}",
   "web.log.token": "new token made — every phone signed in with the old one is signed out",
   "web.log.copied": "link copied",
-  "web.log.refused": "wrong token from {peer}",
+  "web.log.refused": "wrong token from {peer} (attempt {count})",
   "web.ui.title": "Last War panel",
   "web.ui.login.hint": "Type the token from the panel's «Web» tab.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "did not switch: {reason}",
   "graphics.state.noreason": "the scenario gave no reason",
   "graphics.state.busy": "something else is driving the game right now — try again in a moment.",
-  "graphics.state.lapsed": "the game has restarted: the window is still {width}×{height}, but the frame rate and the quality are back to {fps}/s and {quality} — press «{mode}» again to put them back."
+  "graphics.state.lapsed": "the game has restarted: the window is still {width}×{height}, but the frame rate and the quality are back to {fps}/s and {quality} — press «{mode}» again to put them back.",
+  "web.tunnel": "Reach it from the internet (Cloudflare tunnel)",
+  "web.tunnel.on": "The public address above works from anywhere, over HTTPS. It changes every time the tunnel starts.",
+  "web.tunnel.off": "Only the home network can reach the panel.",
+  "web.tunnel.waiting": "asking Cloudflare for an address…",
+  "web.tunnel.needs_server": "Switch the remote control on first — a tunnel to nothing answers with an error.",
+  "web.tunnel.missing": "«{binary}» is not installed. Install it and switch this on again: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "the tunnel is up — the panel is reachable from the internet",
+  "web.log.tunnel_off": "the tunnel is down — the home network only",
+  "web.log.tunnel_died": "the tunnel stopped on its own",
+  "web.log.tunnel_failed": "the tunnel would not start",
+  "web.log.no_cloudflared": "cloudflared is not installed — nothing to make a tunnel with",
+  "web.log.signed_in": "signed in from {peer}"
 }

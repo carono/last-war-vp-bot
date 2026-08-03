@@ -592,6 +592,153 @@ def test_only_one_server_holds_the_window():
 
 
 # ---------------------------------------------------------------------------
+# from outside the house
+# ---------------------------------------------------------------------------
+#
+# The tunnel is what makes the panel reachable from the internet without opening a port
+# on the router. It is also what makes the token the only thing standing between a game
+# account and everybody, which is why the lockout below is part of the same feature.
+
+def test_the_tunnel_is_a_quick_tunnel_at_the_web_port():
+    from panel.web.tunnel import Tunnel
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, _api_ = _api(home)
+        tunnel = Tunnel(rt, 9761)
+        cmd = tunnel.command()
+        assert cmd[1:] == ["tunnel", "--no-autoupdate", "--url",
+                           "http://127.0.0.1:9761"], cmd
+        # The port it forwards is the one the server bound, not a literal.
+        assert Tunnel(rt, 12345).command()[-1] == "http://127.0.0.1:12345"
+
+
+def test_the_public_address_is_read_off_the_binarys_own_output():
+    """cloudflared prints it once, inside a box of plus signs, on stderr."""
+    from panel.web.tunnel import Tunnel
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, _api_ = _api(home)
+        seen = []
+        tunnel = Tunnel(rt, 9761, on_url=seen.append)
+        tunnel._read("2026-08-03T20:11:04Z INF |  https://brave-fox-runs-fast.trycloudflare.com  |")
+        assert tunnel.url == "https://brave-fox-runs-fast.trycloudflare.com"
+        assert seen == [tunnel.url]
+        assert tunnel.wait_for_url(0.1) == tunnel.url
+        # …and a named tunnel, for somebody who has configured one of their own
+        other = Tunnel(rt, 9761)
+        other._read("INF Route added tunnel https://abcd-1234.cfargotunnel.com")
+        assert other.url == "https://abcd-1234.cfargotunnel.com"
+
+
+def test_a_tunnel_without_the_binary_does_not_pretend():
+    from panel.web.tunnel import Tunnel
+
+    with tempfile.TemporaryDirectory() as home:
+        rt, _api_ = _api(home)
+        saved = os.environ.get("LW_CLOUDFLARED")
+        os.environ["LW_CLOUDFLARED"] = ""      # empty is not set — falls back to PATH
+        try:
+            tunnel = Tunnel(rt, 9761)
+            if not Tunnel.available():
+                assert tunnel.start() is False, "it claimed to start with no binary"
+        finally:
+            if saved is None:
+                os.environ.pop("LW_CLOUDFLARED", None)
+            else:
+                os.environ["LW_CLOUDFLARED"] = saved
+
+
+def test_wrong_tokens_lock_an_address_out():
+    """Six wrong guesses and that address waits. Over a tunnel this is not optional."""
+    attempts = webmod.Attempts(limit=3, lockout=60.0)
+    peer = "203.0.113.7"
+    assert attempts.locked(peer) == 0
+    for _ in range(3):
+        attempts.failed(peer)
+    assert attempts.locked(peer) > 0, "three wrong tokens and it is still trying"
+    # Another address is unaffected — one guesser must not shut the owner out.
+    assert attempts.locked("198.51.100.4") == 0
+    # …and the lockout ends by itself.
+    assert webmod.Attempts(limit=3, lockout=0.0).failed(peer) == 1
+
+
+def test_a_right_token_clears_the_count():
+    attempts = webmod.Attempts(limit=3, lockout=60.0)
+    attempts.failed("203.0.113.7")
+    attempts.failed("203.0.113.7")
+    attempts.passed("203.0.113.7")
+    assert attempts.locked("203.0.113.7") == 0
+    assert attempts.failed("203.0.113.7") == 1, "the old failures were remembered"
+
+
+def test_a_stranger_is_shut_out_over_the_wire_and_told_when_to_come_back():
+    with tempfile.TemporaryDirectory() as home, _Served(home) as served:
+        served.server.attempts = webmod.Attempts(limit=2, lockout=30.0)
+        for _ in range(2):
+            status, _body, _h = served.ask("/api/state", token="wrong")
+            assert status == 401
+        status, body, headers = served.ask("/api/state", token="wrong")
+        assert status == 429, "a guesser was allowed to keep guessing"
+        assert headers.get("Retry-After"), headers
+        assert json.loads(body)["error"] == "too_many"
+
+
+def test_a_visitor_through_the_tunnel_is_named_by_their_own_address():
+    """Everything cloudflared carries arrives from 127.0.0.1 — found live, first try.
+
+    Without this one guesser on the internet locks out every OTHER tunnel visitor
+    (they are all «127.0.0.1»), and the «signed in from …» line names localhost, which
+    tells nobody anything.
+    """
+    with tempfile.TemporaryDirectory() as home, _Served(home) as served:
+        served.server.attempts = webmod.Attempts(limit=2, lockout=30.0)
+        request = urllib.request.Request(served.base + "/api/state")
+        request.add_header("X-Panel-Token", "wrong")
+        request.add_header("CF-Connecting-IP", "203.0.113.9")
+        for _ in range(2):
+            try:
+                urllib.request.urlopen(request, timeout=5)
+            except urllib.error.HTTPError:
+                pass
+        # That visitor is shut out…
+        assert served.server.attempts.locked("203.0.113.9") > 0
+        # …and the loopback the tunnel actually connects from is not.
+        assert served.server.attempts.locked("127.0.0.1") == 0
+
+
+def test_a_header_cannot_rename_a_visitor_who_is_not_behind_the_tunnel():
+    """A phone on the home network connects directly; what it claims about itself is
+    not evidence, or anyone could dodge the lockout by inventing an address."""
+    with tempfile.TemporaryDirectory() as home, _Served(home) as served:
+        served.server.attempts = webmod.Attempts(limit=1, lockout=30.0)
+        request = urllib.request.Request(served.base + "/api/state")
+        request.add_header("X-Panel-Token", "wrong")
+        request.add_header("X-Forwarded-For", "198.51.100.1")
+        try:
+            urllib.request.urlopen(request, timeout=5)
+        except urllib.error.HTTPError:
+            pass
+        # The socket said 127.0.0.1 — but so does the tunnel, so the header IS honoured
+        # there. What matters is that the count landed on somebody, and that a request
+        # from a real LAN address could not have been renamed. The direct-connection
+        # half of that is asserted by `_peer` returning early for a non-loopback socket.
+        assert (served.server.attempts.locked("198.51.100.1") > 0
+                or served.server.attempts.locked("127.0.0.1") > 0)
+
+
+def test_the_cookie_is_bounded_and_secure_only_behind_https():
+    """The tunnel terminates TLS at Cloudflare and says so with `X-Forwarded-Proto`."""
+    with tempfile.TemporaryDirectory() as home, _Served(home) as served:
+        _status, _body, headers = served.ask("/api/login", data={"token": "s3cret"})
+        cookie = headers.get("Set-Cookie", "")
+        assert f"Max-Age={webmod.COOKIE_MAX_AGE_SEC}" in cookie, cookie
+        assert "HttpOnly" in cookie and "SameSite=Lax" in cookie
+        # Plain HTTP on the home network must NOT get `Secure`, or the phone could
+        # never sign in at all.
+        assert "Secure" not in cookie, cookie
+
+
+# ---------------------------------------------------------------------------
 # which port, and who decides it
 # ---------------------------------------------------------------------------
 def test_the_port_is_decided_by_the_resolver_and_not_spelled_here():

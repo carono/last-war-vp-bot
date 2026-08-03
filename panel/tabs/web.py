@@ -31,12 +31,16 @@ import webbrowser
 from tkinter import ttk
 
 from ..web import server as webmod
+from ..web.tunnel import Tunnel
 from .base import PanelTab
 
 #: How many characters of randomness the generated token carries. Nine bytes is twelve
 #: URL-safe characters — long enough that guessing it over a home network is hopeless,
 #: short enough to be typed on a phone by somebody who cannot copy and paste.
-TOKEN_BYTES = 9
+#: The panel's own address is a home network, where twelve characters typed by hand are
+#: plenty. A tunnel puts the same door on the open internet, and the extra eight
+#: characters cost nothing because the link carries them.
+TOKEN_BYTES = 16
 
 
 class WebTab(PanelTab):
@@ -64,7 +68,11 @@ class WebTab(PanelTab):
         self._token = None              # StringVar
         self._state = None              # the label saying what it is doing
         self._link = None               # the address, selectable
+        self._tunnel_on = None          # BooleanVar: reach it from the internet
+        self._tunnel_link = None        # the public address, selectable
+        self._tunnel_note = None        # …or why there is not one
         self._server = None
+        self._tunnel = None
 
     # -- the window ---------------------------------------------------------
     def build(self) -> None:
@@ -112,6 +120,19 @@ class WebTab(PanelTab):
         # machine where the clipboard button is not what the person reaches for.
         self._link = ttk.Entry(self.parent)
         self._link.pack(fill="x", padx=10)
+        # -- from outside the house -------------------------------------------
+        outside = ttk.Frame(self.parent)
+        outside.pack(fill="x", padx=10, pady=(12, 0))
+        self._tunnel_on = tk.BooleanVar(value=False)
+        self.tr(ttk.Checkbutton(outside, variable=self._tunnel_on,
+                                command=self._tunnel_toggled),
+                "web.tunnel").pack(anchor="w")
+        self._tunnel_link = ttk.Entry(self.parent)
+        self._tunnel_link.pack(fill="x", padx=10, pady=(4, 0))
+        self._tunnel_note = ttk.Label(self.parent, wraplength=520, justify="left",
+                                      text="")
+        self._tunnel_note.pack(anchor="w", padx=10, pady=(4, 0))
+
         self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
                 "web.hint").pack(anchor="w", padx=10, pady=(10, 0))
         self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
@@ -120,8 +141,14 @@ class WebTab(PanelTab):
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
-        """Bring the server up if this profile asked for it. Idempotent, no game."""
+        """Bring the server — and the tunnel — up if this profile asked for them.
+
+        Idempotent and touches no game. This is also what makes «reachable from outside»
+        survive a reboot without a service of its own: the panel is started by its own
+        autostart task, and the tunnel is one of its children.
+        """
         self._apply()
+        self._apply_tunnel()
 
     def on_show(self) -> None:
         """Repaint: the profile that was serving may have been closed since.
@@ -149,6 +176,7 @@ class WebTab(PanelTab):
         """
 
     def shutdown(self) -> None:
+        self._stop_tunnel()
         self._stop()
 
     # -- persistence --------------------------------------------------------
@@ -156,7 +184,9 @@ class WebTab(PanelTab):
         return {"enabled": bool(self._on.get()) if self._on is not None else False,
                 "port": self._port.get() if self._port is not None else "",
                 "host": self._host.get() if self._host is not None else "",
-                "token": self._token.get() if self._token is not None else ""}
+                "token": self._token.get() if self._token is not None else "",
+                "tunnel": bool(self._tunnel_on.get())
+                if self._tunnel_on is not None else False}
 
     def apply_config(self, raw: dict) -> None:
         raw = raw if isinstance(raw, dict) else {}
@@ -166,11 +196,13 @@ class WebTab(PanelTab):
         self._port.set(str(raw.get("port") or webmod.default_port()))
         self._host.set(str(raw.get("host") or webmod.DEFAULT_HOST))
         self._token.set(str(raw.get("token") or ""))
+        if self._tunnel_on is not None:
+            self._tunnel_on.set(bool(raw.get("tunnel")))
         self._paint()
 
     def persist_vars(self) -> list:
-        return [v for v in (self._on, self._port, self._host, self._token)
-                if v is not None]
+        return [v for v in (self._on, self._port, self._host, self._token,
+                            self._tunnel_on) if v is not None]
 
     # -- the switch ---------------------------------------------------------
     def _toggled(self) -> None:
@@ -230,6 +262,64 @@ class WebTab(PanelTab):
         server.stop()
         self.say("web", "web.log.stopped")
 
+    # -- from outside the house ---------------------------------------------
+    def _tunnel_toggled(self) -> None:
+        self._apply_tunnel()
+
+    def _apply_tunnel(self) -> None:
+        """Make the tunnel match its switch. The one place that starts or stops it.
+
+        Only ever alongside a running server: a tunnel to a port nothing is listening on
+        is a public address that answers 502, which is a worse thing to hand somebody
+        than no address at all.
+        """
+        if self._tunnel_on is None:
+            return
+        want = bool(self._tunnel_on.get()) and self._serving() is not None
+        if not want:
+            self._stop_tunnel()
+            self._paint()
+            return
+        if self._tunnel is not None and self._tunnel.running:
+            self._paint()
+            return
+        if not Tunnel.available():
+            # Nothing is installed and nothing will be installed on somebody's behalf —
+            # the note under the switch says what to run.
+            self._tunnel_on.set(False)
+            self.say("web", "web.log.no_cloudflared")
+            self._paint()
+            return
+        server = self._serving()
+        self._tunnel = Tunnel(self.rt, server.bound_port(), on_url=self._tunnel_up)
+        if not self._tunnel.start():
+            self._tunnel = None
+            self._tunnel_on.set(False)
+            self.say("web", "web.log.tunnel_failed")
+        self._paint()
+
+    def _tunnel_up(self, url: str) -> None:
+        """The address arrived — on the child's reader thread, so hop to Tk to draw it."""
+        self.say("web", "web.log.tunnel_up")
+        try:
+            self.rt.root.after(0, self._paint)
+        except Exception:                    # noqa: BLE001 — the window is gone
+            pass
+
+    def _stop_tunnel(self) -> None:
+        tunnel, self._tunnel = self._tunnel, None
+        if tunnel is None:
+            return
+        tunnel.stop()
+        self.say("web", "web.log.tunnel_off")
+
+    def _tunnel_address(self) -> str:
+        """The public link, token and all — empty until Cloudflare has answered."""
+        if self._tunnel is None or not self._tunnel.url:
+            return ""
+        token = self._token.get().strip()
+        return self._tunnel.url + (f"/?token={token}" if token else "/")
+
     def _port_number(self) -> int:
         try:
             return max(1, min(65535, int(str(self._port.get()).strip())))
@@ -285,6 +375,26 @@ class WebTab(PanelTab):
         if self._link is not None:
             self._link.delete(0, "end")
             self._link.insert(0, self._address() if server is not None else "")
+        self._paint_tunnel(server)
+
+    def _paint_tunnel(self, server) -> None:
+        """The public address, or the one sentence saying why there is not one."""
+        if self._tunnel_link is None:
+            return
+        url = self._tunnel_address()
+        self._tunnel_link.delete(0, "end")
+        self._tunnel_link.insert(0, url)
+        if not Tunnel.available():
+            note = self.t("web.tunnel.missing", binary=Tunnel.binary())
+        elif server is None:
+            note = self.t("web.tunnel.needs_server")
+        elif not bool(self._tunnel_on.get()):
+            note = self.t("web.tunnel.off")
+        elif url:
+            note = self.t("web.tunnel.on")
+        else:
+            note = self.t("web.tunnel.waiting")
+        self._tunnel_note.configure(text=note)
 
     def _copy(self) -> None:
         try:

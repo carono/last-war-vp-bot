@@ -884,7 +884,7 @@
   "web.log.error": "uzaktan kumanda hatası: {error}",
   "web.log.token": "yeni jeton üretildi — eskisiyle giren her telefonun oturumu kapandı",
   "web.log.copied": "bağlantı kopyalandı",
-  "web.log.refused": "{peer} adresinden yanlış jeton",
+  "web.log.refused": "{peer} adresinden yanlış jeton ({count}. deneme)",
   "web.ui.title": "Last War paneli",
   "web.ui.login.hint": "Panelin «Web» sekmesindeki jetonu yazın.",
   "web.ui.login.token": "Jeton",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "geçilmedi: {reason}",
   "graphics.state.noreason": "senaryo bir sebep belirtmedi",
   "graphics.state.busy": "şu anda oyunu başka bir şey yönetiyor — birazdan tekrar deneyin.",
-  "graphics.state.lapsed": "oyun yeniden başladı: pencere hâlâ {width}×{height}, ama kare hızı ve kalite {fps}/s ve {quality} değerlerine döndü — «{mode}» düğmesine tekrar basın."
+  "graphics.state.lapsed": "oyun yeniden başladı: pencere hâlâ {width}×{height}, ama kare hızı ve kalite {fps}/s ve {quality} değerlerine döndü — «{mode}» düğmesine tekrar basın.",
+  "web.tunnel": "İnternetten erişim (Cloudflare tüneli)",
+  "web.tunnel.on": "Yukarıdaki adres her yerden çalışır, HTTPS üzerinden. Tünel her başladığında değişir.",
+  "web.tunnel.off": "Panele yalnızca ev ağından erişilebilir.",
+  "web.tunnel.waiting": "Cloudflare'den adres isteniyor…",
+  "web.tunnel.needs_server": "Önce uzaktan kumandayı açın — hiçbir yere giden tünel hata döndürür.",
+  "web.tunnel.missing": "«{binary}» kurulu değil. Kurun ve yeniden açın: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "tünel açık — panele internetten erişilebiliyor",
+  "web.log.tunnel_off": "tünel kapalı — yalnızca ev ağı",
+  "web.log.tunnel_died": "tünel kendiliğinden durdu",
+  "web.log.tunnel_failed": "tünel başlamadı",
+  "web.log.no_cloudflared": "cloudflared kurulu değil — tüneli yapacak bir şey yok",
+  "web.log.signed_in": "{peer} adresinden giriş"
 }

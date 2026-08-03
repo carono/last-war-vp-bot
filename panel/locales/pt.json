@@ -884,7 +884,7 @@
   "web.log.error": "erro do controlo remoto: {error}",
   "web.log.token": "novo token criado — todos os telemóveis com o antigo ficam de fora",
   "web.log.copied": "ligação copiada",
-  "web.log.refused": "token errado de {peer}",
+  "web.log.refused": "token errado de {peer} (tentativa {count})",
   "web.ui.title": "Painel do Last War",
   "web.ui.login.hint": "Escreva o token do separador «Web» do painel.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "não mudou: {reason}",
   "graphics.state.noreason": "o cenário não deu nenhuma razão",
   "graphics.state.busy": "neste momento outra coisa está a conduzir o jogo — tente novamente daqui a pouco.",
-  "graphics.state.lapsed": "o jogo reiniciou: a janela continua {width}×{height}, mas a cadência e a qualidade voltaram a {fps}/s e {quality} — carregue outra vez em «{mode}»."
+  "graphics.state.lapsed": "o jogo reiniciou: a janela continua {width}×{height}, mas a cadência e a qualidade voltaram a {fps}/s e {quality} — carregue outra vez em «{mode}».",
+  "web.tunnel": "Acessível pela internet (túnel Cloudflare)",
+  "web.tunnel.on": "O endereço acima funciona de qualquer lado, por HTTPS. Muda sempre que o túnel arranca.",
+  "web.tunnel.off": "Só a rede doméstica chega ao painel.",
+  "web.tunnel.waiting": "a pedir um endereço à Cloudflare…",
+  "web.tunnel.needs_server": "Ligue primeiro o controlo remoto — um túnel para nada responde com um erro.",
+  "web.tunnel.missing": "«{binary}» não está instalado. Instale-o e ligue outra vez: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "túnel aberto — o painel está acessível pela internet",
+  "web.log.tunnel_off": "túnel fechado — apenas a rede doméstica",
+  "web.log.tunnel_died": "o túnel parou sozinho",
+  "web.log.tunnel_failed": "o túnel não arrancou",
+  "web.log.no_cloudflared": "cloudflared não está instalado — não há com que fazer um túnel",
+  "web.log.signed_in": "entrada a partir de {peer}"
 }

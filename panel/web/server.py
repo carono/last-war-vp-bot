@@ -30,6 +30,7 @@ import mimetypes
 import os
 import socket
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -58,9 +59,22 @@ def default_port() -> int:
 #: profile that wants it local-only sets the host knob to `127.0.0.1`.
 DEFAULT_HOST = "0.0.0.0"
 
-#: The cookie the login box sets. Session-scoped: closing the browser forgets it, which
-#: is the right default for a phone that leaves the flat.
+#: The cookie the login box sets.
 COOKIE = "lwvp_web"
+
+#: How long a signed-in browser stays signed in. A session cookie (forgotten when the
+#: browser closes) was the right answer while this only ever answered on the home
+#: network; over a tunnel the cookie IS the token, on a phone that may be lost, so it
+#: expires on its own. A week is long enough that nobody re-types the token every day
+#: and short enough that a phone left behind stops being a key.
+COOKIE_MAX_AGE_SEC = 7 * 24 * 3600
+
+#: HOW MANY WRONG TOKENS an address may present before it is shut out, and for how long.
+#: The token is 72 bits of randomness, so this is not what makes guessing hopeless — it
+#: is what stops a machine on the open internet from trying at all, and what makes the
+#: attempt visible in the log instead of drowning it.
+MAX_ATTEMPTS = 6
+LOCKOUT_SEC = 300.0
 
 #: The biggest body a request may carry. Every POST here is `{"name": "...", …}`.
 MAX_BODY = 64 * 1024
@@ -99,8 +113,51 @@ def serving_any():
         return next(iter(_SERVING.values()), None)
 
 
+class Attempts:
+    """Wrong tokens, per address — the thing that makes an open address survivable.
+
+    Deliberately tiny: a count and a time per peer, forgotten when it succeeds and
+    forgotten wholesale when the map grows past a sane size (an address is four dozen
+    bytes and nobody is going to fill memory with them faster than the panel restarts).
+    """
+
+    def __init__(self, limit: int = MAX_ATTEMPTS, lockout: float = LOCKOUT_SEC) -> None:
+        self.limit, self.lockout = int(limit), float(lockout)
+        self._by_peer: dict = {}
+        self._lock = threading.Lock()
+
+    def locked(self, peer: str, now: float | None = None) -> float:
+        """Seconds this peer is still shut out for; ``0`` when it may try."""
+        now = time.time() if now is None else now
+        with self._lock:
+            count, when = self._by_peer.get(peer, (0, 0.0))
+        if count < self.limit:
+            return 0.0
+        left = self.lockout - (now - when)
+        return left if left > 0 else 0.0
+
+    def failed(self, peer: str, now: float | None = None) -> int:
+        """Record a wrong token. Returns how many this peer has now made."""
+        now = time.time() if now is None else now
+        with self._lock:
+            count, when = self._by_peer.get(peer, (0, 0.0))
+            # A lockout that has run out starts the count again rather than leaving the
+            # peer one attempt away from another one for ever.
+            if count >= self.limit and now - when >= self.lockout:
+                count = 0
+            count += 1
+            if len(self._by_peer) > 4096:
+                self._by_peer.clear()
+            self._by_peer[peer] = (count, now)
+            return count
+
+    def passed(self, peer: str) -> None:
+        with self._lock:
+            self._by_peer.pop(peer, None)
+
+
 class WebServer:
-    """One profile's remote control: a thread, a socket, and the API behind it."""
+    """One window's remote control: a thread, a socket, and the API behind it."""
 
     def __init__(self, rt, *, host: str = DEFAULT_HOST, port: int | None = None,
                  token: str = "", api: "WebApi | None" = None) -> None:
@@ -115,6 +172,11 @@ class WebServer:
         #: Which profile started it. Shown by a sibling session's tab, which has to be
         #: able to say WHOSE window is answering on that address.
         self.owner = str(getattr(getattr(rt, "profiles", None), "active", "") or "")
+        #: Wrong tokens, per address (:class:`Attempts`).
+        self.attempts = Attempts()
+        #: Addresses that have signed in during this run, so the log says «somebody new
+        #: came in» once rather than on every poll.
+        self._seen: set = set()
         self._httpd = None
         self._thread = None
 
@@ -246,7 +308,9 @@ def _make_handler(server: WebServer):
                 self._json(200, {"ok": True, "authorised": self._authorised(query)})
                 return
             if not self._authorised(query) and path not in PUBLIC:
-                self._json(401, {"error": "unauthorised"})
+                # A wrong token on an API route counts too, not only on the login form:
+                # over a tunnel the guesser has no reason to use the form at all.
+                self._refuse(query)
                 return
             try:
                 status, payload = server.api.dispatch(method, path, query, body)
@@ -256,15 +320,86 @@ def _make_handler(server: WebServer):
                 return
             self._json(status, payload)
 
+        def _peer(self) -> str:
+            """WHO is asking — the visitor, not the tunnel that carried them.
+
+            Everything arriving through `cloudflared` connects to this server from
+            127.0.0.1, so without this the lockout counts every stranger on the internet
+            as the same peer (one guesser would shut the owner out) and the «signed in
+            from …» line names localhost, which tells nobody anything. Found live, on the
+            first request that came down a real tunnel.
+
+            The forwarded header is trusted ONLY when the socket really is loopback: a
+            phone on the home network connects directly and carries its own address, and
+            a header it sent itself must never be able to rename it.
+            """
+            addr = self.client_address[0]
+            if addr not in ("127.0.0.1", "::1"):
+                return addr
+            forwarded = (self.headers.get("CF-Connecting-IP")
+                         or self.headers.get("X-Forwarded-For", "").split(",")[0])
+            return forwarded.strip() or addr
+
         def _login(self, body: dict) -> None:
+            peer = self._peer()
+            left = server.attempts.locked(peer)
+            if left > 0:
+                self._json(429, {"error": "too_many", "retry_after": int(left)},
+                           headers=[("Retry-After", str(int(left)))])
+                return
             presented = str(body.get("token") or "")
             if not server.accepts(presented):
-                server.rt.say("web", "web.log.refused", peer=self.client_address[0])
+                count = server.attempts.failed(peer)
+                server.rt.say("web", "web.log.refused", peer=peer, count=count)
                 self._json(403, {"error": "bad_token"})
                 return
+            server.attempts.passed(peer)
+            self._welcome(peer)
             self._json(200, {"ok": True},
-                       headers=[("Set-Cookie", f"{COOKIE}={presented}; Path=/; "
-                                               "SameSite=Lax; HttpOnly")])
+                       headers=[("Set-Cookie", self._cookie_for(presented))])
+
+        def _refuse(self, query: dict) -> None:
+            """A request with no valid token: count it, and shut the peer out if it keeps
+            coming. 429 rather than 401 once locked, so the page stops re-asking."""
+            peer = self._peer()
+            left = server.attempts.locked(peer)
+            if left > 0:
+                self._json(429, {"error": "too_many", "retry_after": int(left)},
+                           headers=[("Retry-After", str(int(left)))])
+                return
+            # A browser that simply has no cookie yet is not an attempt — only a token
+            # that was PRESENTED and wrong is.
+            if self._presented(query):
+                count = server.attempts.failed(peer)
+                server.rt.say("web", "web.log.refused", peer=peer, count=count)
+            self._json(401, {"error": "unauthorised"})
+
+        def _welcome(self, peer: str) -> None:
+            """Say, once per address per run, that somebody signed in.
+
+            The point is not bookkeeping: it is that a person watching the log — in the
+            window or on their own phone — sees an address they do not recognise the
+            moment it happens, rather than never.
+            """
+            if peer in server._seen:
+                return
+            server._seen.add(peer)
+            server.rt.say("web", "web.log.signed_in", peer=peer)
+
+        def _cookie_for(self, token: str) -> str:
+            """The sign-in cookie: bounded, and `Secure` when the request came by HTTPS.
+
+            The tunnel terminates TLS at Cloudflare and forwards `X-Forwarded-Proto`, so
+            a browser that arrived over the internet gets a cookie its browser will
+            refuse to send in clear afterwards. A phone on the home network arrives over
+            plain HTTP and must NOT get `Secure`, or it could never sign in at all.
+            """
+            https = (self.headers.get("X-Forwarded-Proto", "").lower() == "https")
+            bits = [f"{COOKIE}={token}", "Path=/", "SameSite=Lax", "HttpOnly",
+                    f"Max-Age={COOKIE_MAX_AGE_SEC}"]
+            if https:
+                bits.append("Secure")
+            return "; ".join(bits)
 
         # -- the page -------------------------------------------------------
         def _page(self, path: str, query: dict) -> None:
@@ -276,9 +411,11 @@ def _make_handler(server: WebServer):
             """
             token = _one(query.get("token"))
             if token and server.accepts(token):
+                server.attempts.passed(self._peer())
+                self._welcome(self._peer())
                 self._send(303, b"", "text/plain", headers=[
                     ("Location", path or "/"),
-                    ("Set-Cookie", f"{COOKIE}={token}; Path=/; SameSite=Lax; HttpOnly")])
+                    ("Set-Cookie", self._cookie_for(token))])
                 return
             name = "index.html" if path in ("", "/") else path.lstrip("/")
             root = static_dir()
@@ -298,12 +435,19 @@ def _make_handler(server: WebServer):
 
         # -- plumbing -------------------------------------------------------
         def _authorised(self, query: dict) -> bool:
-            for presented in (self.headers.get("X-Panel-Token", ""),
-                              _cookie(self.headers.get("Cookie", "")),
-                              _one(query.get("token"))):
+            for presented in self._offered(query):
                 if server.accepts(presented):
                     return True
             return False
+
+        def _offered(self, query: dict) -> tuple:
+            return (self.headers.get("X-Panel-Token", ""),
+                    _cookie(self.headers.get("Cookie", "")),
+                    _one(query.get("token")))
+
+        def _presented(self, query: dict) -> bool:
+            """Did this request carry a token at all? (A wrong one counts; none does not.)"""
+            return any(bool(x) for x in self._offered(query))
 
         def _body(self) -> dict:
             try:

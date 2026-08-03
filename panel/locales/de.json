@@ -884,7 +884,7 @@
   "web.log.error": "Fehler der Fernsteuerung: {error}",
   "web.log.token": "neues Token erzeugt — jedes Telefon mit dem alten ist abgemeldet",
   "web.log.copied": "Link kopiert",
-  "web.log.refused": "falsches Token von {peer}",
+  "web.log.refused": "falsches Token von {peer} (Versuch {count})",
   "web.ui.title": "Last-War-Panel",
   "web.ui.login.hint": "Das Token vom Reiter «Web» des Panels eingeben.",
   "web.ui.login.token": "Token",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "nicht umgeschaltet: {reason}",
   "graphics.state.noreason": "Das Szenario nannte keinen Grund",
   "graphics.state.busy": "Gerade steuert etwas anderes das Spiel — versuche es gleich noch einmal.",
-  "graphics.state.lapsed": "Das Spiel wurde neu gestartet: das Fenster ist weiterhin {width}×{height}, aber Bildrate und Qualität stehen wieder auf {fps}/s und {quality} — drücke «{mode}» erneut."
+  "graphics.state.lapsed": "Das Spiel wurde neu gestartet: das Fenster ist weiterhin {width}×{height}, aber Bildrate und Qualität stehen wieder auf {fps}/s und {quality} — drücke «{mode}» erneut.",
+  "web.tunnel": "Aus dem Internet erreichbar (Cloudflare-Tunnel)",
+  "web.tunnel.on": "Die Adresse oben funktioniert von überall, über HTTPS. Bei jedem Start des Tunnels ist sie neu.",
+  "web.tunnel.off": "Nur das Heimnetz erreicht das Panel.",
+  "web.tunnel.waiting": "frage Cloudflare nach einer Adresse…",
+  "web.tunnel.needs_server": "Erst die Fernsteuerung einschalten — ein Tunnel ins Leere antwortet mit einem Fehler.",
+  "web.tunnel.missing": "«{binary}» ist nicht installiert. Installieren und erneut einschalten: winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "Tunnel steht — das Panel ist aus dem Internet erreichbar",
+  "web.log.tunnel_off": "Tunnel aus — nur das Heimnetz",
+  "web.log.tunnel_died": "der Tunnel hat von selbst aufgehört",
+  "web.log.tunnel_failed": "der Tunnel startete nicht",
+  "web.log.no_cloudflared": "cloudflared ist nicht installiert — womit sollte ein Tunnel entstehen",
+  "web.log.signed_in": "Anmeldung von {peer}"
 }

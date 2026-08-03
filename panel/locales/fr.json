@@ -884,7 +884,7 @@
   "web.log.error": "erreur de la commande à distance : {error}",
   "web.log.token": "nouveau jeton créé — tout téléphone connecté avec l'ancien est déconnecté",
   "web.log.copied": "lien copié",
-  "web.log.refused": "jeton incorrect depuis {peer}",
+  "web.log.refused": "jeton incorrect depuis {peer} (tentative {count})",
   "web.ui.title": "Panneau Last War",
   "web.ui.login.hint": "Saisissez le jeton de l'onglet « Web » du panneau.",
   "web.ui.login.token": "Jeton",
@@ -947,5 +947,17 @@
   "graphics.state.failed": "pas de bascule : {reason}",
   "graphics.state.noreason": "le scénario n'a donné aucune raison",
   "graphics.state.busy": "quelque chose d'autre pilote le jeu en ce moment — réessayez dans un instant.",
-  "graphics.state.lapsed": "le jeu a redémarré : la fenêtre fait toujours {width}×{height}, mais la cadence et la qualité sont revenues à {fps}/s et {quality} — appuyez de nouveau sur «{mode}»."
+  "graphics.state.lapsed": "le jeu a redémarré : la fenêtre fait toujours {width}×{height}, mais la cadence et la qualité sont revenues à {fps}/s et {quality} — appuyez de nouveau sur «{mode}».",
+  "web.tunnel": "Accessible depuis Internet (tunnel Cloudflare)",
+  "web.tunnel.on": "L'adresse ci-dessus fonctionne de partout, en HTTPS. Elle change à chaque démarrage du tunnel.",
+  "web.tunnel.off": "Seul le réseau domestique atteint le panneau.",
+  "web.tunnel.waiting": "demande d'une adresse à Cloudflare…",
+  "web.tunnel.needs_server": "Activez d'abord la commande à distance — un tunnel vers rien répond par une erreur.",
+  "web.tunnel.missing": "« {binary} » n'est pas installé. Installez-le puis réactivez : winget install --id Cloudflare.cloudflared",
+  "web.log.tunnel_up": "tunnel ouvert — le panneau est accessible depuis Internet",
+  "web.log.tunnel_off": "tunnel fermé — réseau domestique seulement",
+  "web.log.tunnel_died": "le tunnel s'est arrêté tout seul",
+  "web.log.tunnel_failed": "le tunnel n'a pas démarré",
+  "web.log.no_cloudflared": "cloudflared n'est pas installé — rien pour faire un tunnel",
+  "web.log.signed_in": "connexion depuis {peer}"
 }
