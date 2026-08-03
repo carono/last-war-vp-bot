@@ -960,5 +960,7 @@
   "web.ui.done": "tamam",
   "cmdpost.col.level": "seviye",
   "cmdpost.col.robbed": "soyuldu",
-  "cmdpost.shared.matched": "hazır"
+  "cmdpost.shared.matched": "hazır",
+  "rally_tab.soldiers": "asker",
+  "rally_tab.stamina": "Dayanıklılık"
 }

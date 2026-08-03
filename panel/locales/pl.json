@@ -960,5 +960,7 @@
   "web.ui.done": "gotowe",
   "cmdpost.col.level": "poziom",
   "cmdpost.col.robbed": "obrabowane",
-  "cmdpost.shared.matched": "gotowe"
+  "cmdpost.shared.matched": "gotowe",
+  "rally_tab.soldiers": "żołnierzy",
+  "rally_tab.stamina": "Wytrzymałość"
 }

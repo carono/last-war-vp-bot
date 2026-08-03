@@ -322,6 +322,49 @@ class RallyTab(PanelTab):
         if off is not None:
             off()
 
+    # -- the phone ------------------------------------------------------------
+    #
+    # A rally happens while you are away — that is the whole reason this screen exists.
+    # It shows where the squads are and how much stamina is left, which is what decides
+    # whether joining is even possible, and it offers the one press that is already a
+    # scenario. Nothing here reads the game: the squad state is the runtime's own
+    # reading (panel/runtime/squads.py), polled by the service and handed over as it is.
+    WEB_SCREEN = True
+
+    def web_view(self) -> "dict | None":
+        state = self.rt.squads.latest()
+        squads = []
+        for squad in getattr(state, "squads", ()) or ():
+            squads.append({
+                "text": str(squad.index),
+                "pill": f"squads.kind.{squad.kind}",
+                "facts": ([{"label": "rally_tab.soldiers",
+                            "value": str(squad.soldiers)}] if squad.soldiers else []),
+                # A squad that has somewhere to be says when it gets there.
+                "until": (squad.arrive_ms / 1000.0) if squad.arrive_ms else None,
+            })
+        cards = [{"title": "squads.title", "items": squads,
+                  "empty": "squads.unread"}]
+        if getattr(state, "stamina", -1) >= 0:
+            cards.append({"title": None, "rows": [
+                {"label": "rally_tab.stamina",
+                 "value": f"{state.stamina}/{state.stamina_max}"}]})
+        return {"cards": cards, "now": __import__("time").time(),
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """«Обновить» — the squad reader's own asynchronous read, nothing else.
+
+        Joining a rally from the phone is deliberately NOT here yet: the join is a
+        send with squads chosen for it, and choosing them is the settings page's list.
+        A wrong squad sent from a bus is a squad that is not home when the next rally
+        lands.
+        """
+        if action != "refresh":
+            return {"error": "unknown"}
+        self.rt.squads.refresh_async()
+        return {"ok": True}
+
     def refresh_squads(self) -> None:
         """The «squad_state» trigger fired: read the squads again, off the Tk thread.
 

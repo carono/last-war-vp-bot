@@ -960,5 +960,7 @@
   "web.ui.done": "hecho",
   "cmdpost.col.level": "nivel",
   "cmdpost.col.robbed": "robado",
-  "cmdpost.shared.matched": "listo"
+  "cmdpost.shared.matched": "listo",
+  "rally_tab.soldiers": "soldados",
+  "rally_tab.stamina": "Vigor"
 }

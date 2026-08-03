@@ -960,5 +960,7 @@
   "web.ui.done": "selesai",
   "cmdpost.col.level": "level",
   "cmdpost.col.robbed": "dirampok",
-  "cmdpost.shared.matched": "siap"
+  "cmdpost.shared.matched": "siap",
+  "rally_tab.soldiers": "prajurit",
+  "rally_tab.stamina": "Stamina"
 }

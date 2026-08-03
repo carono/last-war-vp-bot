@@ -960,5 +960,7 @@
   "web.ui.done": "xong",
   "cmdpost.col.level": "cấp",
   "cmdpost.col.robbed": "đã cướp",
-  "cmdpost.shared.matched": "sẵn sàng"
+  "cmdpost.shared.matched": "sẵn sàng",
+  "rally_tab.soldiers": "lính",
+  "rally_tab.stamina": "Thể lực"
 }

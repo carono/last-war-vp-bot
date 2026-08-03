@@ -960,5 +960,7 @@
   "web.ui.done": "готово",
   "cmdpost.col.level": "уровень",
   "cmdpost.col.robbed": "ограблено",
-  "cmdpost.shared.matched": "готово"
+  "cmdpost.shared.matched": "готово",
+  "rally_tab.soldiers": "солдат",
+  "rally_tab.stamina": "Стамина"
 }

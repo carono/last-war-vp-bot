@@ -960,5 +960,7 @@
   "web.ui.done": "fertig",
   "cmdpost.col.level": "Stufe",
   "cmdpost.col.robbed": "ausgeraubt",
-  "cmdpost.shared.matched": "bereit"
+  "cmdpost.shared.matched": "bereit",
+  "rally_tab.soldiers": "Soldaten",
+  "rally_tab.stamina": "Ausdauer"
 }
