@@ -33,10 +33,25 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .api import WebApi, static_dir
+# FIRST, and for its side effect: it is what puts the repository's `tools/lib` on the
+# path, so `game_paths` below resolves whichever way this module was reached.
+from ..runtime import paths as _paths  # noqa: F401
 
-#: The port a fresh profile listens on. High, unassigned, and easy to type on a phone.
-DEFAULT_PORT = 9761
+import game_paths                      # noqa: E402  (needs the bootstrap above)
+
+from .api import WebApi, static_dir    # noqa: E402
+
+
+def default_port() -> int:
+    """The port to listen on when the profile has not named one.
+
+    Asked of `tools/lib/game_paths.py` and never spelled here: `LW_WEB_PORT` is the
+    machine's answer, 9761 is everybody's, and the profile's own knob beats both
+    (`CLAUDE.md`, «Nothing about one machine is written into the code»). A function
+    rather than a constant, so a variable set after this module was imported still
+    counts — the panel imports early and is configured late.
+    """
+    return game_paths.web_port()
 
 #: Every interface by default: the point of it is a DIFFERENT machine reaching this one,
 #: so `127.0.0.1` would be a remote control that only works where nobody needs it. A
@@ -60,11 +75,14 @@ PUBLIC = frozenset({"/api/i18n"})
 class WebServer:
     """One profile's remote control: a thread, a socket, and the API behind it."""
 
-    def __init__(self, rt, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
+    def __init__(self, rt, *, host: str = DEFAULT_HOST, port: int | None = None,
                  token: str = "", api: "WebApi | None" = None) -> None:
         self.rt = rt
         self.host = host or DEFAULT_HOST
-        self.port = int(port)
+        # `None` is «whatever this machine says» — not 9761, which would be this file
+        # spelling the number a second time. `0` is kept as itself: the tests bind an
+        # ephemeral port with it.
+        self.port = default_port() if port is None else int(port)
         self.token = str(token or "")
         self.api = api if api is not None else WebApi(rt)
         self._httpd = None

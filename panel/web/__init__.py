@@ -25,7 +25,7 @@ are two panels' worth of state and two ports. Switch the tab off and there is no
 from __future__ import annotations
 
 from .api import TAIL_LINES, WebApi, static_dir
-from .server import COOKIE, DEFAULT_HOST, DEFAULT_PORT, WebServer, addresses
+from .server import COOKIE, DEFAULT_HOST, WebServer, addresses, default_port
 
-__all__ = ["WebApi", "WebServer", "addresses", "static_dir",
-           "COOKIE", "DEFAULT_HOST", "DEFAULT_PORT", "TAIL_LINES"]
+__all__ = ["WebApi", "WebServer", "addresses", "static_dir", "default_port",
+           "COOKIE", "DEFAULT_HOST", "TAIL_LINES"]

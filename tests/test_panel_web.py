@@ -447,6 +447,54 @@ def test_the_pages_placeholders_match_the_english_ones():
 
 
 # ---------------------------------------------------------------------------
+# which port, and who decides it
+# ---------------------------------------------------------------------------
+def test_the_port_is_decided_by_the_resolver_and_not_spelled_here():
+    """9761 lives in `tools/lib/game_paths.py` and nowhere else (`CLAUDE.md`).
+
+    A literal in `panel/web/` would be the same number written twice, and the two would
+    drift the first time somebody changed one — which is the exact history that made the
+    resolver exist (a launcher path said one thing in the panel and another in a tool).
+    """
+    import game_paths
+
+    saved = os.environ.pop("LW_WEB_PORT", None)
+    try:
+        assert webmod.default_port() == game_paths.DEFAULT_WEB_PORT == 9761
+        os.environ["LW_WEB_PORT"] = "9999"
+        assert webmod.default_port() == 9999, "LW_WEB_PORT is not read"
+        for nonsense in ("0", "-1", "70000", "nine thousand"):
+            os.environ["LW_WEB_PORT"] = nonsense
+            assert webmod.default_port() == 9761, (
+                f"{nonsense!r} was obeyed — a port nobody can reach is worse than "
+                f"the default")
+    finally:
+        os.environ.pop("LW_WEB_PORT", None)
+        if saved is not None:
+            os.environ["LW_WEB_PORT"] = saved
+
+
+def test_the_variable_is_written_down_where_a_person_would_look():
+    """Every new variable goes into `.env.example` in the same change (`CLAUDE.md`)."""
+    text = (_REPO / ".env.example").read_text(encoding="utf-8")
+    assert "LW_WEB_PORT=" in text, ".env.example does not mention LW_WEB_PORT"
+
+
+def test_a_profile_that_named_a_port_beats_the_machines_answer():
+    """Three layers: the profile, then `LW_WEB_PORT`, then 9761. The top one wins."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        os.environ["LW_WEB_PORT"] = "9999"
+        try:
+            server = webmod.WebServer(rt, host="127.0.0.1", port=9123, token="t",
+                                      api=api)
+            assert server.port == 9123, "the profile's own port was ignored"
+            assert webmod.WebServer(rt, host="127.0.0.1", token="t", api=api).port == 9999
+        finally:
+            os.environ.pop("LW_WEB_PORT", None)
+
+
+# ---------------------------------------------------------------------------
 # the phone it is actually held on
 # ---------------------------------------------------------------------------
 #

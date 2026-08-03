@@ -62,7 +62,7 @@ class WebTab(PanelTab):
     # -- the window ---------------------------------------------------------
     def build(self) -> None:
         self._on = tk.BooleanVar(value=False)
-        self._port = tk.StringVar(value=str(webmod.DEFAULT_PORT))
+        self._port = tk.StringVar(value=str(webmod.default_port()))
         self._host = tk.StringVar(value=webmod.DEFAULT_HOST)
         self._token = tk.StringVar(value="")
 
@@ -148,7 +148,7 @@ class WebTab(PanelTab):
         if self._on is None:
             return
         self._on.set(bool(raw.get("enabled")))
-        self._port.set(str(raw.get("port") or webmod.DEFAULT_PORT))
+        self._port.set(str(raw.get("port") or webmod.default_port()))
         self._host.set(str(raw.get("host") or webmod.DEFAULT_HOST))
         self._token.set(str(raw.get("token") or ""))
         self._paint()
@@ -211,7 +211,7 @@ class WebTab(PanelTab):
         try:
             return max(1, min(65535, int(str(self._port.get()).strip())))
         except (TypeError, ValueError):
-            return webmod.DEFAULT_PORT
+            return webmod.default_port()
 
     # -- the token ----------------------------------------------------------
     def _new_token(self, quiet: bool = False) -> str:

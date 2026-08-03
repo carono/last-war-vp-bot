@@ -18,6 +18,8 @@ that sets none of them.
     LW_LAUNCHER_EXE  the launcher's filename
     LW_GAME_EXE      the client's process name
     LW_WIN_PYTHON    the Windows interpreter child processes are started with
+    LW_WEB_PORT      the port the panel's web front-end listens on (a profile may
+                     override it; this is the machine's answer)
 
 **Nothing here has to be set.** A second account is a tick and a login: the launcher in
 *that* account's profile is found by looking its profile directory up in the registry
@@ -72,6 +74,13 @@ GAME_EXE_SUBDIR = "Game"
 #: already moved once — a capture pinned to 17935 went quietly empty against a client
 #: that had connected out on 10012, which reads exactly like «nothing is happening».
 DEFAULT_GAME_PORT = 17935
+
+#: The port the panel's web front-end listens on (`panel/web/`, #1221). High, in no
+#: registry, and easy to type on a phone — but not everybody's to have: a machine
+#: already running something there needs another one, and a person who has forwarded a
+#: port on their router has a number they must use. A profile's own knob overrides this;
+#: this is the answer for a profile that has never been asked.
+DEFAULT_WEB_PORT = 9761
 
 #: Where Wireshark's `tshark` lives, seen from WSL. Two guesses at the ordinary Windows
 #: install under the ordinary mount point — neither of which is a given: a machine may
@@ -229,6 +238,24 @@ def game_port() -> int:
         return int(raw) if raw else DEFAULT_GAME_PORT
     except ValueError:
         return DEFAULT_GAME_PORT
+
+
+def web_port() -> int:
+    """The port the panel's web front-end listens on when a profile has not said.
+
+    `LW_WEB_PORT` moves it, for the machine where 9761 is taken or where a router
+    forwards something else. THREE LAYERS, and this is the bottom one: the profile's own
+    knob wins (a second account wants a second port), the variable is the machine's
+    answer, and 9761 is everybody's. Out-of-range or unreadable falls back rather than
+    binding something absurd — a port of 0 would listen on whatever the OS handed out,
+    which is a remote control nobody can find.
+    """
+    raw = (os.environ.get("LW_WEB_PORT") or "").strip()
+    try:
+        port = int(raw) if raw else DEFAULT_WEB_PORT
+    except ValueError:
+        return DEFAULT_WEB_PORT
+    return port if 1 <= port <= 65535 else DEFAULT_WEB_PORT
 
 
 def wireshark_dirs() -> tuple[str, ...]:
