@@ -2503,23 +2503,28 @@ class Panel(tk.Tk):
         self._rt.play_async("launch_game")
 
     def _restart_game(self) -> None:
+        # The ability is actions/restart_game.md and this button only plays it. That
+        # is CLAUDE.md's rule, and by the time it was applied here it was a bug fix
+        # rather than tidying: what stood here was `taskkill /F /IM LastWar.exe`,
+        # which names an IMAGE. On a machine farming two accounts — one client per
+        # Windows session — that closes BOTH, and the second belongs to a profile
+        # nobody pressed anything for.
+        #
+        # The recipe ends the client THIS profile drives (the process its own daemon
+        # is attached to), waits for the base to be in play again, and re-points the
+        # game link at the new process. A kill and a sleep could not do any of it:
+        # the link is bound to a process id, so everything that read the game
+        # afterwards was reading a pid that no longer existed.
+        #
+        # `play_async` rather than `actions.play` for the same reason «Запустить» on
+        # the Scenarios tab uses it: it is the one place the claim, the worker thread
+        # and the log line are spelled out together, so a restart cannot overlap a
+        # timer errand and a 35-second run cannot freeze the window. The scenario's
+        # own words — why it failed, if it did — reach the log through it either way.
         if self._elsewhere():
             return
-        exe = self._game_exe()
-
-        def work() -> None:
-            self._say("game", "log.game.killing", exe=exe)
-            try:
-                r = subprocess.run(["taskkill", "/F", "/IM", exe],
-                                   capture_output=True, text=True, creationflags=NO_WINDOW)
-                self._log_put(f"[game] taskkill: {(r.stdout or r.stderr).strip() or 'ok'}")
-            except Exception as exc:
-                self._say("game", "log.game.kill_failed", error=exc)
-            time.sleep(1.0)
-            # Relaunch via the recipe (waits for the base screen, then daemon
-            # re-initialises on the next action).
-            self._rt.play_async("launch_game")
-        threading.Thread(target=work, daemon=True).start()
+        self._say("game", "log.game.restarting")
+        self._rt.play_async("restart_game", tag="game")
 
     # -- the map sweep: walk the camera so the passive scan sees something ----
     #

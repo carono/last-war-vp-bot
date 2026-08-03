@@ -198,6 +198,7 @@
   "log.game.killing": "arrêt de {exe}…",
   "log.game.launching": "démarrage du jeu par la recette launch_game…",
   "log.game.other_session": "le client de ce profil vit dans la session Windows de {user} — c'est là qu'on le démarre et qu'on l'arrête ; le panneau ne fait que le piloter, par son propre port de démon",
+  "log.game.restarting": "redémarrage du client par la recette restart_game…",
   "log.game.watchdog_hold": "gardien : le dernier relancement date de {mins} min — j'attends",
   "log.game.watchdog_relaunch": "gardien : je relance le jeu",
   "log.ghost.error": "l'interrogation a échoué : {error}",

@@ -198,6 +198,7 @@
   "log.game.killing": "đang giết {exe}…",
   "log.game.launching": "khởi động trò chơi theo công thức launch_game…",
   "log.game.other_session": "client của hồ sơ này sống trong phiên Windows của {user} — nó được bật và tắt ở đó; bảng chỉ điều khiển nó, qua cổng daemon riêng của mình",
+  "log.game.restarting": "khởi động lại ứng dụng khách theo công thức restart_game…",
   "log.game.watchdog_hold": "người gác: lần khởi động lại gần nhất cách đây {mins} phút — tôi chờ",
   "log.game.watchdog_relaunch": "người gác: khởi động trò chơi lần nữa",
   "log.ghost.error": "việc hỏi đã thất bại: {error}",

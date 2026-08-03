@@ -198,6 +198,7 @@
   "log.game.killing": "matando {exe}…",
   "log.game.launching": "arrancando el juego con la receta launch_game…",
   "log.game.other_session": "el cliente de este perfil vive en la sesión de Windows de {user} — allí se arranca y se para; el panel solo lo gobierna, por su propio puerto de demonio",
+  "log.game.restarting": "reiniciando el cliente con la receta restart_game…",
   "log.game.watchdog_hold": "vigía: el último reinicio fue hace {mins} min — espero",
   "log.game.watchdog_relaunch": "vigía: arranco el juego otra vez",
   "log.ghost.error": "la consulta falló: {error}",

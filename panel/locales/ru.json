@@ -198,6 +198,7 @@
   "log.game.killing": "снимаю {exe}…",
   "log.game.launching": "запускаю игру рецептом launch_game…",
   "log.game.other_session": "клиент этого профиля живёт в сессии Windows пользователя {user} — запускают и останавливают его там; панель только управляет им через свой порт демона",
+  "log.game.restarting": "перезапускаю клиент рецептом restart_game…",
   "log.game.watchdog_hold": "вотчдог: перезапуск был {mins} мин назад — жду",
   "log.game.watchdog_relaunch": "вотчдог: поднимаю игру заново",
   "log.ghost.error": "ошибка опроса: {error}",
