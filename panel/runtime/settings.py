@@ -102,6 +102,21 @@ DEFAULTS: dict = {
     # while `rdp_session` is off (panel/runtime/game_process.py reads the pair).
     "rdp_session": False,
     "rdp_user": "",
+    # How hard this profile's client is asked to DRAW. The bot reads the game out of the
+    # Lua VM and never looks at the picture, so a client left at the settings it ships
+    # with spends a quarter of the video card on frames nobody sees — and a client in a
+    # session nobody is connected to spends more than that, because vSync has no display
+    # to pace it (docs/research/headless-gpu.md). "low" is the economy profile,
+    # "standard" is the picture as the person had it.
+    #
+    # Per profile on purpose: the second account, headless in its own Windows session, is
+    # exactly the one that should be economising while the client somebody is watching is
+    # not. `graphics_stock` is bookkeeping rather than a knob — it remembers what the
+    # picture WAS, the first time economy is switched on, so «стандартное» puts back that
+    # person's settings and not a guess. `fps/vsync/quality/width/height`, slash-separated;
+    # empty until economy has been switched on once.
+    "graphics_mode": "standard",
+    "graphics_stock": "",
     "sweep_radius": mapsweepmod.DEFAULT_RADIUS,
     "sweep_step": mapsweepmod.DEFAULT_STEP,
     "sweep_dwell": mapsweepmod.DEFAULT_DWELL,

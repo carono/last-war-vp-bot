@@ -555,10 +555,13 @@ class SettingsTab(PanelTab):
             return
         if not self.rt.game.up():
             self._say_graphics("graphics.state.offline",
-                               mode=self.t(f"graphics.mode."
-                                           f"{self.rt.settings.opt_str('graphics_mode')}"))
+                               mode=self._graphics_mode_word())
             return
         self._read_graphics()
+
+    def _graphics_mode_word(self) -> str:
+        """The mode this profile is set to, in the language on the screen."""
+        return self.t(f"graphics.mode.{self.rt.settings.opt_str('graphics_mode')}")
 
     def _say_graphics(self, key: str, **fmt) -> None:
         label = getattr(self, "_graphics_state", None)
@@ -619,8 +622,7 @@ class SettingsTab(PanelTab):
         """Ask the client what it is actually drawing, and say so."""
         if not self.rt.game.up():
             self._say_graphics("graphics.state.offline",
-                               mode=self.t(f"graphics.mode."
-                                           f"{self.rt.settings.opt_str('graphics_mode')}"))
+                               mode=self._graphics_mode_word())
             return
         self._say_graphics("graphics.state.reading")
         if not self.rt.play_async(

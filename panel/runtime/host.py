@@ -15,7 +15,7 @@ from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
 from .. import profile as profilemod
 from . import game_process
-from .actions import ActionRunner
+from .actions import ActionRunner, Outcome
 from .activity import Activity
 from .bus import EventBus
 from .children import ChildFactory
@@ -198,7 +198,7 @@ class PanelRuntime:
 
     # -- pressing a scenario in the background ------------------------------
     def play_async(self, name: str, args: dict | None = None, *, tag: str = "action",
-                   cancel=None, on_start=None, on_done=None) -> bool:
+                   cancel=None, on_start=None, on_done=None, on_result=None) -> bool:
         """Run one scenario on a worker thread, under the game claim.
 
         ``False`` when the claim was refused — something else is driving the game — and
@@ -206,9 +206,17 @@ class PanelRuntime:
         calling thread, ``on_done`` on the TK thread, because the things it undoes (a
         button's state, a row's marker) are widget state.
 
-        Here rather than on a tab because two callers need exactly this: the Scenarios
-        tab's «Запустить» and the shell relaunching the client. It is the only place
-        the claim, the thread and the log line are spelled out together.
+        ``on_result`` is for the caller that wants what the scenario *found*, not just
+        that it finished: it is handed the :class:`~panel.runtime.actions.Outcome`, on
+        the TK thread, before ``on_done``. A scenario built out of ``READ_LUA … INTO x``
+        leaves its readings in ``outcome.ctx.vars``, which is how a tab shows a value off
+        the live game without assembling one line of Lua of its own — the rule in
+        `CLAUDE.md` that the panel plays scenarios and does not write them.
+
+        Here rather than on a tab because three callers need exactly this: the Scenarios
+        tab's «Запустить», the shell relaunching the client, and the graphics switch
+        reading back what it just set. It is the only place the claim, the thread and the
+        log line are spelled out together.
         """
         import threading
 
@@ -219,23 +227,46 @@ class PanelRuntime:
             on_start()
 
         def work() -> None:
+            outcome = None
+            raised = ""
             try:
-                self.actions.run(name, args, hwnd=0,
-                                 on_event=lambda msg: self.log.put(f"[{tag}] {msg}"),
-                                 profile=None, cancel=cancel)
+                on_event = lambda msg: self.log.put(f"[{tag}] {msg}")   # noqa: E731
+                if on_result is None:
+                    self.actions.run(name, args, hwnd=0, on_event=on_event,
+                                     profile=None, cancel=cancel)
+                else:
+                    outcome = self.actions.play(name, args, hwnd=0, on_event=on_event,
+                                                profile=None, cancel=cancel)
             except Exception as exc:                   # noqa: BLE001 — never the panel
+                raised = str(exc)
                 self.log.put(f"[{tag}] {name}: error: {exc}")
             finally:
+                # RELEASE FIRST, then hand the result over. A callback's whole point is
+                # often to start the NEXT scenario off what this one found — the graphics
+                # switch reads the picture and then changes it — and a result delivered
+                # while this run still holds the claim gets that second scenario refused
+                # as "занят", from inside the very run that is holding it.
                 self.game.release()
+                # A run that RAISED has no Outcome — and the exception is the only
+                # account of what went wrong, so it becomes the reason rather than being
+                # dropped. Losing the lease to another profile reads as «the game was
+                # taken», not as «the scenario gave no reason».
+                if on_result is not None:
+                    result = outcome if outcome is not None else Outcome(False, raised)
+                    self._on_tk(lambda: on_result(result))
                 if on_done is not None:
-                    try:
-                        self.root.after(0, on_done)
-                    except Exception:                  # noqa: BLE001 — the window is gone
-                        pass
+                    self._on_tk(on_done)
                 self.game.on_settled()
 
         threading.Thread(target=work, daemon=True).start()
         return True
+
+    def _on_tk(self, call) -> None:
+        """Run ``call`` on the Tk thread, or drop it if the window has gone."""
+        try:
+            self.root.after(0, call)
+        except Exception:                              # noqa: BLE001 — the window is gone
+            pass
 
     def daemon_port(self) -> int:
         """The daemon this profile drives — a non-default port is another session's."""

@@ -291,9 +291,24 @@ Proven live on the second client: 10 fps, quality Low, shadows off, anti-aliasin
 
 ### Turning it on from the panel
 
-**Today, with no code at all — a timer.** The Timers tab already edits scenario, period
-and args (`panel/timers.py`), and `set_graphics_load` shows up in its scenario catalogue
-like any other action. Add:
+**A switch on «Настройки → Игра», under «Windows-сессия».** Two states — «Стандартное»
+and «Низкое (беречь видеокарту)» — and a line saying what the client is actually drawing,
+read back out of the game rather than trusted from what the panel last wrote. It is a
+per-profile setting, which is the granularity that matters: the second account's client,
+headless in a session nobody is connected to, is exactly the one that should be
+economising while the client somebody is watching is not.
+
+Switching to economy reads the picture **first** and remembers it, so «Стандартное» puts
+back that person's own settings rather than a constant — worth having because
+`SetResolution` is clamped to what fits on the desktop (1700 × 1065 asked for, 1608 × 768
+given), so there is no size a panel could hard-code that is right on two machines.
+
+Everything it knows about the game is two scenario names and a dict of arguments:
+`actions/set_graphics_load.md` to change it, `actions/read_graphics_load.md` to read it.
+
+**And a timer, for the half that dies on a restart.** The Timers tab already edits
+scenario, period and args (`panel/timers.py`), and `set_graphics_load` shows up in its
+catalogue like any other action. Add:
 
 ```jsonc
 { "scenario": ["set_graphics_load"],
@@ -306,20 +321,17 @@ client restart, so *something* has to re-apply it; a timer that re-applies every
 minutes covers restarts, crashes and the watchdog's relaunches without anybody thinking
 about it. Re-applying is free — the calls are idempotent and cost one Lua round trip.
 
-The timer belongs to the profile, which is exactly the granularity wanted: the second
-account's client — headless, in a session nobody looks at, and the one that pays the §4
-penalty — gets it, and the console client a person actually watches does not.
+The timer belongs to the profile, like the switch does.
 
 **Not recommended: hanging it off `launch_game`.** One `CALL set_graphics_load` at the end
 of that scenario would cover the restart case, but `CALL` takes no arguments, so every
 profile on every machine would get the same hard-coded low-power picture — including the
-client someone is sitting in front of. The setting is per-profile by nature; the timer
-already is.
+client someone is sitting in front of.
 
-**Later, if it earns it: a checkbox.** A per-profile «экономить видеокарту» switch that
-applies the profile after each launch is the tidy version, and it is a panel change with
-eleven locale keys, so it should wait until the timer has proved the profile is worth
-having.
+**Still open: the switch does not re-assert itself after a restart.** It applies when a
+person presses it, and the client that comes back from a crash comes back at full
+quality with the radio still saying «Низкое». The timer covers that; making the switch
+itself follow a launch is the tidier answer and is not written.
 
 **Left open.** Nothing here has run through a whole session — the numbers are windows of
 seconds to minutes, not a night. And no measurement was made of what the profile does to
