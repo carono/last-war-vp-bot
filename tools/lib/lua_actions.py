@@ -139,7 +139,7 @@ def back_home() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Chat send (DM / room). Reverse-engineered live from a PM trace to EleNita
+# Chat send (DM / room). Reverse-engineered live from a PM trace to <Player9>
 # (task #1085): text, inline emoji and stickers. See docs/research/chat-send.md.
 #
 # Every chat send funnels through ONE choke point in the client:
@@ -199,7 +199,7 @@ def chat_send_sticker(room_id: str, sticker_id: int) -> str:
 
 # ---------------------------------------------------------------------------
 # Coordinate ("point") share. Reverse-engineered live for task #1089 from a PM
-# trace to EleNita — see docs/research/chat-coord-share.md.
+# trace to <Player9> — see docs/research/chat-coord-share.md.
 #
 # A shared coordinate is NOT text: it is `post = 13` (PostType.Text_PointShare)
 # plus an `attachmentId` JSON blob describing the map object. The base `msg` is

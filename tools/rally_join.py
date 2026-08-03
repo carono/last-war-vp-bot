@@ -50,7 +50,7 @@ Notes:
     closed with GoToUtil.CloseAllWindows(). A normal (already-warm) join opens NO UI.
   * DECLINE sends `alliance.team.retreat` directly. MarchUtil.CancelRallyByMember only pops a
     confirm dialog; the retreat message is what OK sends, so we send it straight (no popup).
-  * ``--me`` matches your handle as a substring (names carry tags, e.g. "8888 Rock 8888").
+  * ``--me`` matches your handle as a substring (names carry tags, e.g. "<Player3>").
 """
 import argparse
 import sys
@@ -195,7 +195,7 @@ while e:MoveNext() do local mo=e.Current.Value if mo==nil then mo=e.Current end
   end
 end
 for ts,info in pairs(leaders) do
-  -- leader name is emitted LAST because it can contain spaces (e.g. "8888 Rock 8888").
+  -- leader name is emitted LAST because it can contain spaces (e.g. "<Player3>").
   CS.UnityEngine.Debug.LogError('RALLY team='..ts..' point='..info.point
     ..' server='..info.srv..' members='..tostring(counts[ts])..' leader='..info.owner)
 end
@@ -209,7 +209,7 @@ CS.UnityEngine.Debug.LogError('RALLY end')''',
         for part in ("team", "point", "server", "members"):
             if part + "=" in ln:
                 d[part] = ln.split(part + "=")[1].split()[0]
-        # leader is last so it keeps spaces (names like "8888 Rock 8888")
+        # leader is last so it keeps spaces (names like "<Player3>")
         if "leader=" in ln:
             d["leader"] = ln.split("leader=", 1)[1].strip()
         out.append(d)

@@ -220,7 +220,7 @@ def test_auto_loot_skips_out_of_range_and_when_unticked():
 def test_the_table_has_one_cell_per_column_and_the_two_live_ones():
     """The list is a grid now (#1209): a row is exactly as wide as the headings."""
     tab = _make_tab({})
-    row = _row(1697234600000972, 7, 120_000, 600_000)
+    row = _row(1000000000014972, 7, 120_000, 600_000)
     row["timer"].set("готово через 02:00")
     row["server"], row["x"], row["y"], row["loot_count"] = 534, 568, 371, 1
     cells = dict(zip([c[0] for c in st.COLUMNS],

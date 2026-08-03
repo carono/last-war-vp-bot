@@ -220,10 +220,10 @@ def test_chat_db_path_is_per_character():
         try:
             pm = prof.ProfileManager()
             active = pm.active
-            a = pm.chat_db("1697234600000972")
-            b = pm.chat_db("1697234600000999")
-            assert os.path.basename(a) == "chat_history_1697234600000972.db", a
-            assert os.path.basename(b) == "chat_history_1697234600000999.db", b
+            a = pm.chat_db("1000000000014972")
+            b = pm.chat_db("1000000000014999")
+            assert os.path.basename(a) == "chat_history_1000000000014972.db", a
+            assert os.path.basename(b) == "chat_history_1000000000014999.db", b
             assert a != b                                   # two chars → two files
             assert os.path.dirname(a).endswith(active)      # under the profile dir
             # No uid → the legacy account-wide name (backward compatible fallback).

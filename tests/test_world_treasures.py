@@ -46,7 +46,7 @@ def test_a_treasure_point_decodes_whole():
     assert t.point_id == 500553
     assert t.name == "Uzilla"
     assert t.alliance_abbr == "ALLY"
-    assert t.owner_uid == "1527794448000935"
+    assert t.owner_uid == "1000000000015935"
     # The coordinates are unpacked the way every other tile in the module is; the
     # game's own IndexToTilePos answers one lower on x (see the module comment), so
     # this is pinned deliberately rather than left to drift.

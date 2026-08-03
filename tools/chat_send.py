@@ -1,6 +1,6 @@
 r"""Send a chat message (DM / world / national / alliance) from inside the game.
 
-Reverse-engineered live from PM traces to the player "EleNita": plain text,
+Reverse-engineered live from PM traces to the player "<Player9>": plain text,
 inline emoji and stickers (task #1085), then map coordinates (task #1089).
 Everything runs inside the game's own Lua VM through the warm daemon
 (tools/lua_daemon.py) -- no screen reading, no foreground input, no raw wire
@@ -44,7 +44,7 @@ plus their own fields through `--coord-extra`; `tools/dispatch_tasks.py
 
 Usage (run under the Windows Python so it can reach the daemon)
 --------------------------------------------------------------
-    C:\Python312\python.exe tools\chat_send.py --to 1697234600000972 --text "Тест"
+    C:\Python312\python.exe tools\chat_send.py --to 1000000000014972 --text "Тест"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --text "hi {e:101}{e:106}"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --sticker 35
     C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "567,471"

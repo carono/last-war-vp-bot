@@ -14,15 +14,15 @@ import chat_share, lua_client
 
 ev = lua_client.get_evaluator()
 me = chat_share.self_profile(ev)                       # uid / srv / x / y / name / abbr
-room = chat_share.dm_room("1697234600000972", me["uid"])
+room = chat_share.dm_room("1000000000014972", me["uid"])
 
 # a bare pin
 chat_share.share_point(ev, room, chat_share.point_attachment(615, 493, 935),
-                       peer_uid="1697234600000972")
+                       peer_uid="1000000000014972")
 
 # your own base, exactly like the in-game "share my position" button
 chat_share.share_point(ev, room, chat_share.base_attachment(me),
-                       peer_uid="1697234600000972")
+                       peer_uid="1000000000014972")
 ```
 
 Model (full write-up: docs/research/chat-coord-share.md)

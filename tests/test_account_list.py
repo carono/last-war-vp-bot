@@ -59,17 +59,17 @@ _ROLES = [
     "ACT cur=935",
     _role(935, "1000000000000935", 35, "Player2", 241514404, "ALLY",
           273, "00000000-0000-4000-8000-000000000000_n0000000000000000"),
-    _role(509, "2146058428000509", 21, "Игрок 3464d509", 4185296, "RBs"),
+    _role(509, "1000000000013509", 21, "Игрок 00000509", 4185296, "<ALLY3>"),
 ]
 
 # What the client had cached at the same moment: six logins for those two.
 _CACHE = [
     "ACT cur=935",
-    _cached(1, 2105, "1092741133002105", 0, "Игрок 1aada2105", "Online: 0"),
+    _cached(1, 2105, "1000000000016105", 0, "Игрок 00002105", "Online: 0"),
     _cached(2, 1012, "1000000000000935", 35, "Player2"),
     _cached(3, 972, "1000000000000935", 35, "Player2"),
     _cached(4, 8118, "1000000000000935", 35, "Player2"),
-    _cached(5, 509, "2146058428000509", 21, "Игрок 3464d509"),
+    _cached(5, 509, "1000000000013509", 21, "Игрок 00000509"),
     _cached(6, 935, "1000000000000935", 35, "Player2"),
 ]
 
@@ -103,7 +103,7 @@ def test_every_field_the_tab_draws_survives_the_read():
     assert by_server[935]["alliance"] == "ALLY"
     assert by_server[935]["picVer"] == 273
     assert by_server[935]["uuid"].endswith("_n0000000000000000")
-    assert by_server[509]["nickname"] == "Игрок 3464d509"
+    assert by_server[509]["nickname"] == "Игрок 00000509"
 
 
 def test_an_empty_roles_list_asks_the_server_then_reads_again():
