@@ -15,6 +15,14 @@ that a windowed panel does not have — so the environment silences every prompt
 (:data:`_ENV`) and every call carries a timeout. A checkout that cannot reach `origin`
 reports :data:`OFFLINE` and the panel stays usable.
 
+**An SSH `origin` is read over HTTPS instead.** `install.bat` attaches every installed
+copy to `https://github.com/…`, which needs no key and no account; a checkout somebody
+cloned themselves usually says `git@github.com:…`, and on a machine without that key
+every check would fail with «Permission denied (publickey)» for ever. So when a fetch
+against an SSH remote fails, the same branch is fetched once more from the HTTPS form of
+that URL (:func:`https_url`) into the same tracking ref. Reading is all this needs — the
+push URL is never touched, and a remote that is already HTTPS is never fetched twice.
+
 **Nothing here ever loses work.** The only way forward is a fast-forward:
 
 * uncommitted changes to *tracked* files → :data:`DIRTY`, no pull offered;
@@ -155,6 +163,70 @@ def _first_line(text: str) -> str:
     return ""
 
 
+def https_url(url: str) -> str:
+    """The anonymous-HTTPS form of an SSH remote URL, or ``""`` when there is none.
+
+    Both spellings git accepts are the same repository::
+
+        git@github.com:carono/last-war-vp-bot.git   -> https://github.com/carono/…
+        ssh://git@github.com:22/carono/…            -> https://github.com/carono/…
+
+    Anything already fetchable without a key — `https://`, `http://`, `file://`, a plain
+    path — returns ``""``: there is nothing to fall back to and trying would only cost a
+    second timeout.
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+    rest = ""
+    if url.startswith("ssh://"):
+        rest = url[len("ssh://"):]
+    elif "://" not in url and ":" in url:
+        # The scp-like form, `[user@]host:path`. A Windows drive letter (`C:\…`) and a
+        # path with no colon at all are not remotes of this shape.
+        host, _sep, path = url.partition(":")
+        if len(host) < 2 or "/" in host or "\\" in path[:1]:
+            return ""
+        rest = f"{host}/{path}"
+    else:
+        return ""
+    rest = rest.split("@", 1)[-1]           # drop the `git@` login
+    host, _slash, path = rest.partition("/")
+    host = host.split(":", 1)[0]            # …and the `:22`, which HTTPS does not want
+    if not host or not path:
+        return ""
+    return f"https://{host}/{path.lstrip('/')}"
+
+
+def _remote_url(repo: str, remote: str) -> str:
+    """Where ``remote`` fetches from, or ``""`` if git cannot say."""
+    rc, out, _err = _git("remote", "get-url", remote, repo=repo)
+    return out if rc == 0 else ""
+
+
+def _fetch(repo: str, remote: str, branch: str, timeout: float) -> str:
+    """Bring ``remote``'s ``branch`` up to date. Returns ``""`` on success, else why not.
+
+    One branch, not every ref the remote has: a full fetch on this repo pulls tags and
+    every other branch for a question about one. A failure against an SSH remote is
+    retried over HTTPS (see the module docstring) — with an explicit refspec, because a
+    fetch by URL updates no tracking ref of its own and the comparison that follows reads
+    exactly that ref.
+    """
+    rc, _out, err = _git("fetch", "--quiet", remote, branch, repo=repo, timeout=timeout)
+    if rc == 0:
+        return ""
+    said = _first_line(err) or "fetch failed"
+
+    over_https = https_url(_remote_url(repo, remote))
+    if not over_https:
+        return said
+    rc, _out, err2 = _git("fetch", "--quiet", over_https,
+                          f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+                          repo=repo, timeout=timeout)
+    return "" if rc == 0 else (_first_line(err2) or said)
+
+
 def _named_files(text: str) -> tuple:
     """The file names git listed in a refusal.
 
@@ -258,18 +330,15 @@ def check(repo: str = REPO, fetch: bool = True,
                            detail=_first_line(err))
 
     if fetch:
-        # Fetch the one branch that matters, not every ref the remote has: a full fetch
-        # on this repo pulls tags and every other branch for a question about one.
         remote = upstream.split("/", 1)[0]
-        rc, _out, err = _git("fetch", "--quiet", remote, branch,
-                             repo=repo, timeout=timeout)
-        if rc != 0:
+        failed = _fetch(repo, remote, branch, timeout)
+        if failed:
             state = _compare(repo, branch, upstream, dirty)
             # Keep whatever the stale tracking ref knows — it may already be behind from
             # an earlier fetch — but say plainly that this reading is not fresh.
             return UpdateState(OFFLINE, branch=branch, local=local, remote=state.remote,
                                upstream=upstream, behind=state.behind, ahead=state.ahead,
-                               dirty=dirty, detail=_first_line(err) or "fetch failed")
+                               dirty=dirty, detail=failed)
 
     return _compare(repo, branch, upstream, dirty)
 
@@ -293,9 +362,7 @@ def pull(repo: str = REPO, timeout: float = FETCH_TIMEOUT) -> PullResult:
         return PullResult(FAIL_DIRTY, state=before)
 
     remote = before.upstream.split("/", 1)[0]
-    rc, _out, err = _git("fetch", "--quiet", remote, before.branch,
-                         repo=repo, timeout=timeout)
-    fetch_err = _first_line(err) if rc != 0 else ""
+    fetch_err = _fetch(repo, remote, before.branch, timeout)
 
     now = check(repo, fetch=False)
     if now.state == CURRENT:

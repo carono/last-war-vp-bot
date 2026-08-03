@@ -268,6 +268,76 @@ def test_an_unreachable_remote_is_offline_not_an_error():
         w.close()
 
 
+# -- an SSH origin on a machine with no key ------------------------------------
+#
+# `install.bat` attaches an installed copy to `https://github.com/…`, but a checkout
+# somebody cloned themselves says `git@github.com:…` — and on a box without that key
+# every check failed with «Permission denied (publickey)». The fetch now falls back to
+# the HTTPS form of the same URL, which needs no key at all.
+def test_an_ssh_url_is_read_over_https():
+    assert updates.https_url("git@github.com:carono/last-war-vp-bot.git") == \
+        "https://github.com/carono/last-war-vp-bot.git"
+    assert updates.https_url("ssh://git@github.com/carono/last-war-vp-bot.git") == \
+        "https://github.com/carono/last-war-vp-bot.git"
+    # The port SSH needs is not one HTTPS wants.
+    assert updates.https_url("ssh://git@github.com:22/carono/repo.git") == \
+        "https://github.com/carono/repo.git"
+
+
+def test_a_url_that_already_needs_no_key_has_no_fallback():
+    # Nothing to fall back TO — and an attempt would only cost a second timeout.
+    for url in ("https://github.com/carono/repo.git",
+                "http://example.invalid/repo.git",
+                "file:///srv/git/repo.git",
+                "/srv/git/repo.git",
+                r"C:\repos\repo.git",
+                ""):
+        assert updates.https_url(url) == "", url
+
+
+def test_a_failing_ssh_remote_is_fetched_the_other_way():
+    w = _world()
+    if w is None:
+        print("  SKIP no git")
+        return
+    over_https = updates.https_url                     # restored in `finally`
+    try:
+        theirs = w.they_push()
+        # An origin no key on this machine can reach, exactly as the panel's own checkout
+        # had it. The fallback URL is the only thing stubbed — where a real one resolves
+        # to github, this one resolves to the bare repo next door, so everything after it
+        # (the refspec, the tracking ref, the comparison) is the real code path.
+        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:carono/x.git")
+        updates.https_url = lambda url: w.origin if url.startswith("git@") else ""
+        state = updates.check(w.work)
+        assert state.state == updates.BEHIND, state
+        assert state.behind == 1 and state.remote == theirs, state
+        # …and the tracking ref really moved, so «Обновить» has something to merge.
+        assert _git(w.work, "rev-parse", "--short", "origin/main") == theirs
+        res = updates.pull(w.work)
+        assert res.ok, (res.reason, res.detail)
+    finally:
+        updates.https_url = over_https
+        w.close()
+
+
+def test_an_ssh_remote_with_nowhere_to_fall_back_to_is_still_offline():
+    w = _world()
+    if w is None:
+        print("  SKIP no git")
+        return
+    over_https = updates.https_url
+    try:
+        _git(w.work, "remote", "set-url", "origin", "git@nowhere.invalid:carono/x.git")
+        updates.https_url = lambda url: ""             # no HTTPS form of this remote
+        state = updates.check(w.work)
+        assert state.state == updates.OFFLINE, state
+        assert state.detail, "an offline reading must say why"
+    finally:
+        updates.https_url = over_https
+        w.close()
+
+
 # -- the pull ------------------------------------------------------------------
 def test_pull_fast_forwards_and_leaves_the_file_behind():
     w = _world()

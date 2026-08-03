@@ -200,7 +200,10 @@ UPDATE_COLOURS = {
     runtime.updates.BEHIND: "#e8c069",
     runtime.updates.AHEAD: "#888",
     runtime.updates.DIVERGED: "#e8c069",
-    runtime.updates.OFFLINE: "#c33",
+    # Grey, not red: an origin that could not be reached is «не знаю», the same weight
+    # as «нечего предлагать» — the panel works exactly as well either way. Red is kept
+    # for ERROR, which is git itself refusing and worth a person's attention.
+    runtime.updates.OFFLINE: "#888",
     runtime.updates.ERROR: "#c33",
 }
 
@@ -2494,7 +2497,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
         elif state.state == upd.CURRENT and manual:
             self._say("panel", "log.update.current", local=state.local)
         elif state.state == upd.OFFLINE:
-            self._say("panel", "log.update.offline", detail=state.detail)
+            # NOT in the log unless the operator asked. An origin that cannot be reached
+            # is nothing they can act on — a home connection that was not up yet when the
+            # panel started says it every start — and git's own words for it («Permission
+            # denied (publickey)», «Could not resolve host») read as something broke. The
+            # block on «Главная» already shows the state, and the debug log keeps the
+            # detail for whoever is looking for it.
+            self._dbg.info("update check offline: %s", state.detail)
+            if manual:
+                self._say("panel", "log.update.offline", detail=state.detail)
         elif state.state == upd.ERROR:
             self._say("panel", "log.update.error", detail=state.detail)
         elif state.state == upd.DIVERGED:
