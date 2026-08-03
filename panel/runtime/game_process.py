@@ -1,4 +1,18 @@
-"""Is the client running, and what is it talking to?
+"""Is the client running, and is it still talking to the server?
+
+**A live process is not a live account.** A client that has been up since yesterday can
+lose its server session and never say so: the window still draws, every Lua getter still
+answers — with yesterday's numbers — and requests come back `true` while nothing happens.
+An hour went into "the event has no attempts today" before anybody looked at the sockets
+(docs/research/server-link-status.md). The only tell from outside is there: a healthy client
+holds an ESTABLISHED connection to the game server, a stranded one holds sockets in
+`CLOSE_WAIT` — the far end hung up and the client has not noticed.
+
+So the answer this module gives is not a boolean. It is one of four
+(:func:`probe`, :data:`ONLINE` / :data:`LOST` / :data:`UNKNOWN` / :data:`OFFLINE`), and
+the difference between the middle two is the difference between "I know the link is
+broken" and "I cannot see this client's sockets at all" — which is the ordinary state of
+a client in somebody else's Windows session and must never be painted as a fault.
 
 A `psutil` probe, no Tk and no game link — the panel's status strip asks it, and so does
 the ghost-recon watcher before it spends a robbery on a client that is not there. It was
@@ -21,6 +35,8 @@ translated at all.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import game_paths
 
 from ..i18n import Message
@@ -32,6 +48,32 @@ from ..i18n import Message
 GAME_EXE = game_paths.game_exe()
 
 _NON_GAME_PORTS = frozenset({80, 443})
+
+#: The four things this module can honestly say about a client. They are ids, not
+#: words — the words are locale keys, and the colour each is painted in belongs to
+#: whoever is drawing (the status strip, the phone's pill).
+#:
+#: * ``ONLINE`` — an ESTABLISHED connection to the game server. The only green one.
+#: * ``LOST`` — the process is alive and its sockets say the server hung up. This is
+#:   the state that used to read as "running": everything answers, nothing arrives.
+#: * ``UNKNOWN`` — the process is alive and its sockets cannot be seen or make no
+#:   verdict: a client in another Windows session (the sockets come back with no pid),
+#:   or one still starting up. NOT a fault, and never to be painted as one.
+#: * ``OFFLINE`` — no client process at all, whatever the reason.
+ONLINE = "online"
+LOST = "lost"
+UNKNOWN = "unknown"
+OFFLINE = "offline"
+
+#: The TCP states a socket sits in once the far end has closed and this one has not.
+#: `CLOSE_WAIT` is the one a stranded client is found in — the server said goodbye, the
+#: client never read it, and it will sit there until the process dies. The rest are the
+#: same half of a handshake seen from a different moment. `TIME_WAIT` is deliberately
+#: NOT here: it is what an ordinary, cleanly closed connection leaves behind, and a
+#: client that reconnects every few hours would otherwise look broken for a minute
+#: after every healthy reconnect.
+_HALF_CLOSED = frozenset({"CLOSE_WAIT", "CLOSING", "LAST_ACK",
+                          "FIN_WAIT1", "FIN_WAIT2"})
 
 #: The two session states worth a word of their own. A *disconnected* session is a fully
 #: working one — that is how the second client is meant to be left (docs/research/
@@ -172,15 +214,83 @@ def pids(game_exe: str = GAME_EXE, user: str | None = None) -> list[int]:
         return _pids_by_name(game_exe)   #                than nothing at all
 
 
+def _is_game_socket(c) -> bool:
+    """Could this row of the socket table be the connection to the game server?
+
+    Two things are excluded, and the SECOND one is the whole reason this is a function
+    rather than the one-line condition it used to be:
+
+    * the web ports. The client talks HTTP to a CDN all day, and the game port is not
+      stable across builds (:17935 historically, :10012 on the current client), so
+      "anything that is not 80 or 443" is the only port rule that survives an update.
+    * **the loopback.** A live client keeps a pair of ESTABLISHED sockets to ITSELF —
+      `127.0.0.1:63203 ↔ 127.0.0.1:63204`, both ends owned by the game — and those
+      survive the server hanging up, because nothing about them involves the server.
+      Counting one as proof of a live account is precisely the lie this module exists
+      to stop: the first live reading taken after it was written returned
+      `online -> 127.0.0.1:63203` over a client whose six sockets to the real server
+      were half of them CLOSE_WAIT.
+    """
+    if not c.raddr or c.raddr.port in _NON_GAME_PORTS:
+        return False
+    ip = c.raddr.ip or ""
+    return not (ip.startswith("127.") or ip in ("::1", "0.0.0.0", "::"))
+
+
 def _endpoint(found) -> str | None:
     """The first game-server TCP endpoint among ``found``, if one is established."""
     import psutil
     known = set(found)
     for c in psutil.net_connections(kind="tcp"):
-        if (c.pid in known and c.raddr and c.status == "ESTABLISHED"
-                and c.raddr.port not in _NON_GAME_PORTS):
+        if c.pid in known and c.status == "ESTABLISHED" and _is_game_socket(c):
             return f"{c.raddr.ip}:{c.raddr.port}"
     return None
+
+
+def _stale(found) -> int:
+    """How many of this client's game sockets the server has already hung up on.
+
+    Zero means "none seen", which covers both a healthy client and one whose sockets
+    this machine will not show us — the two are told apart by :func:`_endpoint`, not
+    here, because a count of nothing cannot say why it is nothing.
+
+    A COUNT ON ITS OWN PROVES NOTHING EITHER. A healthy client keeps a pile of these:
+    it greets several gateway addresses while logging in, keeps one and leaves the
+    losers half-closed for the rest of the session — the first live reading found six
+    of them beside one perfectly good connection. That is why :func:`link_of` asks for
+    an established socket FIRST and only falls back to this: half-closed sockets and
+    nothing else is the stranded client; half-closed sockets beside a live one are an
+    ordinary afternoon.
+
+    Same rules as :func:`_is_game_socket` about which sockets are the game's at all.
+    """
+    import psutil
+    known = set(found)
+    try:
+        conns = psutil.net_connections(kind="tcp")
+    except Exception:                        # noqa: BLE001 — a reading, never a crash
+        return 0
+    return sum(1 for c in conns
+               if c.pid in known and c.status in _HALF_CLOSED and _is_game_socket(c))
+
+
+def link_of(found) -> tuple:
+    """The link state of a client that IS running: ``(state, endpoint, dead)``.
+
+    Established first, because that is the only proof of a live account. Failing that,
+    a half-closed socket is proof of the opposite — :data:`LOST`. With neither, the
+    honest answer is :data:`UNKNOWN`: a client in another user's session shows no
+    sockets of its own at all, and one that is still logging in has not opened any yet.
+    Guessing "lost" there would cry wolf every start-up and on every second profile.
+    """
+    conn = _endpoint(found)
+    if conn:
+        return ONLINE, conn, 0
+    try:
+        dead = _stale(found)
+    except Exception:                        # noqa: BLE001 — no psutil, no verdict
+        dead = 0
+    return (LOST if dead else UNKNOWN), None, dead
 
 
 def server_connection(game_exe: str = GAME_EXE, user: str | None = None) -> str | None:
@@ -203,28 +313,51 @@ def server_connection(game_exe: str = GAME_EXE, user: str | None = None) -> str 
         return None
 
 
-def status(game_exe: str = GAME_EXE, user: str | None = None) -> tuple[bool, str]:
-    """Whether the game is running, detected by process name (and session) only.
+@dataclass(frozen=True)
+class Probe:
+    """One reading of a profile's client: is it there, and is it still connected.
 
-    Detection is deliberately independent of network state: the game is "found"
-    whenever its process exists, regardless of VPN presence or whether a TCP
-    connection to the game server is currently established. The connection state,
-    when available, is appended as supplementary detail.
+    ``running`` is the old boolean and keeps its old meaning exactly — the process
+    exists — because that is what the watchdog acts on and what the schedule gates on,
+    and a client that lost the server must NOT be relaunched behind the person's back.
+    ``link`` is the new half: the honest word for the strip and for the phone.
+    """
+
+    running: bool
+    link: str                    # ONLINE | LOST | UNKNOWN | OFFLINE
+    message: Message             # the sentence and its locale key, for whoever draws
+    pid: int | None = None
+    conn: str | None = None      # the server endpoint, when there is a live one
+    dead: int = 0                # half-closed game sockets behind a LOST verdict
+
+    @property
+    def online(self) -> bool:
+        return self.link == ONLINE
+
+
+def probe(game_exe: str = GAME_EXE, user: str | None = None) -> Probe:
+    """Everything this module can say about one client, in one reading.
+
+    Whether it is *running* is decided by the process list alone — deliberately, and
+    unchanged since #1204: a VPN dropping or a socket table this machine will not show
+    us is not the client being gone, and treating it as such would have the watchdog
+    kill and relaunch a healthy account.
+
+    Whether it is *connected* is then decided by that client's own sockets
+    (:func:`link_of`), and it is a separate question with a separate answer. The pair is
+    the point: "running but LOST" is a real state the panel had no way to say, and it is
+    exactly the state a client sits in overnight while every timer reports success and
+    nothing at all happens in the game.
 
     ``game_exe`` is a parameter because the executable is a profile setting (an
     install somewhere else); ``user`` is one because the session is
     (tools/rdp_instance.py). No user named means THIS desktop's client — see
     :func:`pids` for why that is not the same as "whichever client is on this machine".
-
-    The label is a :class:`Message` — the English sentence with its locale key — so the
-    strip showing it says it in the panel's language.
-
-    Returns ``(running, label)``.
     """
     try:
         import psutil  # noqa: F401 — every route below needs it
     except Exception:
-        return False, Message("game.st.no_psutil", "psutil missing")
+        return Probe(False, OFFLINE, Message("game.st.no_psutil", "psutil missing"))
 
     try:
         found = pids(game_exe, user)
@@ -232,40 +365,84 @@ def status(game_exe: str = GAME_EXE, user: str | None = None) -> tuple[bool, str
         # Not "no game": nobody is logged on to that session, so there is nowhere to
         # look. Saying it plainly is what stops the watchdog from starting a client
         # here instead (see `_watchdog_check`).
-        return False, Message("game.st.no_session",
-                              f"nobody is logged on as {user}", user=user)
+        return Probe(False, OFFLINE,
+                     Message("game.st.no_session",
+                             f"nobody is logged on as {user}", user=user))
     except Exception as exc:
-        return False, Message("game.st.probe_error", f"probe error: {exc}", error=exc)
+        return Probe(False, OFFLINE,
+                     Message("game.st.probe_error", f"probe error: {exc}", error=exc))
 
     if not found:
         if user:
-            return False, Message("game.st.session_not_found",
-                                  f"no client in {user}'s session", user=user)
-        return False, Message("game.st.not_found", "game not found")
+            return Probe(False, OFFLINE,
+                         Message("game.st.session_not_found",
+                                 f"no client in {user}'s session", user=user))
+        return Probe(False, OFFLINE, Message("game.st.not_found", "game not found"))
 
     pid = found[0]
-    conn = _endpoint(found)
-    if user and conn:
-        return True, Message("game.st.session_running_at",
-                             f"running in {user}'s session (pid {pid}) -> {conn}",
-                             user=user, pid=pid, conn=conn)
+    link, conn, dead = link_of(found)
+    message = _worded(link, pid, conn, user)
+    return Probe(True, link, message, pid=pid, conn=conn, dead=dead)
+
+
+#: link → the locale key of the sentence, with and without a Windows session named.
+#: One table rather than a ladder of ``if``s, so a state that grows a word cannot end
+#: up with one in the session half and none in the other.
+_WORDS = {
+    ONLINE: ("game.st.running_at", "game.st.session_running_at"),
+    LOST: ("game.st.lost", "game.st.session_lost"),
+    UNKNOWN: ("game.st.running", "game.st.session_running"),
+}
+
+
+def _worded(link: str, pid: int, conn: str | None, user: str | None) -> Message:
+    """The sentence for a client that IS running, in the state :func:`link_of` found.
+
+    Only what the sentence names goes into the values: a `user` of ``None`` handed to a
+    key that has no ``{user}`` in it is a placeholder waiting to print «None» the day
+    somebody words that key differently.
+    """
+    plain, in_session = _WORDS.get(link, _WORDS[UNKNOWN])
+    fmt = {"pid": pid}
     if user:
-        return True, Message("game.st.session_running",
-                             f"running in {user}'s session (pid {pid})",
-                             user=user, pid=pid)
-    if conn:
-        return True, Message("game.st.running_at", f"running (pid {pid}) -> {conn}",
-                             pid=pid, conn=conn)
-    return True, Message("game.st.running", f"running (pid {pid})", pid=pid)
+        fmt["user"] = user
+    if link == ONLINE:
+        fmt["conn"] = conn
+        english = (f"online in {user}'s session (pid {pid}) -> {conn}" if user
+                   else f"online (pid {pid}) -> {conn}")
+    elif link == LOST:
+        english = (f"the server connection is lost in {user}'s session (pid {pid})"
+                   if user else f"the server connection is lost (pid {pid})")
+    else:
+        english = (f"running in {user}'s session (pid {pid}), link unconfirmed" if user
+                   else f"running (pid {pid}), link unconfirmed")
+    return Message(in_session if user else plain, english, **fmt)
 
 
-def profile_status(settings) -> tuple[bool, str]:
-    """:func:`status` for the profile ``settings`` describes — its exe, its session.
+def status(game_exe: str = GAME_EXE, user: str | None = None) -> tuple[bool, str]:
+    """:func:`probe`, kept as the pair it always returned: ``(running, label)``.
+
+    Every caller that only asks "is there a client to press buttons in" — the schedule,
+    the ghost watcher, the watchdog — wants exactly this and nothing more. The ones that
+    draw the answer for a person (the status strip, the phone) call :func:`probe`
+    instead, because "running" is the half that was lying to them.
+    """
+    found = probe(game_exe, user)
+    return found.running, found.message
+
+
+def profile_probe(settings) -> Probe:
+    """:func:`probe` for the profile ``settings`` describes — its exe, its session.
 
     The one call a caller wants: the three knobs that decide *which* client is this
     profile's are read together, so no caller can honour the executable and forget
     the session.
     """
+    return probe(settings.opt_str("game_exe"), user=profile_user(settings))
+
+
+def profile_status(settings) -> tuple[bool, str]:
+    """:func:`status` for the profile ``settings`` describes — its exe, its session."""
     return status(settings.opt_str("game_exe"), user=profile_user(settings))
 
 

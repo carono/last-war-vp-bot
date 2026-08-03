@@ -125,7 +125,7 @@ class WebApi:
         self.rt = rt
         self._tail = tail
         self._feeds: dict = {}               # profile name -> _Feed
-        self._status: dict = {}              # profile name -> (read at, running, label)
+        self._status: dict = {}          # profile -> (read at, running, link, label)
         self._attached = False
 
     # -- which profiles there are -------------------------------------------
@@ -243,12 +243,15 @@ class WebApi:
         """One reading of everything the front page shows, for one profile."""
         rt = self._runtime(profile)
         name = self._name_of(rt)
-        running, label = self._client_status(name, rt)
+        running, link, label = self._client_status(name, rt)
         step = rt.activity.current()
         return {
             "profile": name,
             "lang": rt.i18n.lang,
-            "game": {"running": running, "text": label},
+            # `link` is the honest half and `running` the old one: a client that has
+            # lost the server is still running, and the phone paints the LINK
+            # (panel/runtime/game_process.py — online | lost | unknown | offline).
+            "game": {"running": running, "link": link, "text": label},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a
             # method on none of them — read it, never call it.
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
@@ -268,19 +271,28 @@ class WebApi:
         return str(rt.profiles.active)
 
     def _client_status(self, name: str, rt) -> tuple:
-        """Is this profile's client up — cached per profile for :data:`STATUS_TTL_SEC`."""
-        when, running, label = self._status.get(name, (0.0, False, ""))
+        """Is this profile's client up and CONNECTED — cached per profile for
+        :data:`STATUS_TTL_SEC`.
+
+        Three things come back, because two of them are different questions: the
+        process exists, and the server is still on the other end of its socket. The
+        phone shows the second one — the first is what it used to show, and a stranded
+        client answered it with a cheerful "работает" all night long.
+        """
+        when, running, link, label = self._status.get(
+            name, (0.0, False, game_process.OFFLINE, ""))
         now = time.time()
         if now - when < STATUS_TTL_SEC:
-            return running, label
+            return running, link, label
         exe, user = self._client_args(rt)
         try:
-            running, message = game_process.status(exe, user=user)
+            found = game_process.probe(exe, user=user)
+            running, link, message = found.running, found.link, found.message
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
-            running, message = False, str(exc)
+            running, link, message = False, game_process.UNKNOWN, str(exc)
         label = i18nmod.translated(rt.t, message)
-        self._status[name] = (now, bool(running), label)
-        return bool(running), label
+        self._status[name] = (now, bool(running), link, label)
+        return bool(running), link, label
 
     def _due(self, rt) -> dict:
         """How many errands are switched on, and when the next one is due."""

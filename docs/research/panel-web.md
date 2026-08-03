@@ -46,7 +46,7 @@ one call onto the runtime:
 | route | what it is |
 |---|---|
 | `/api/profiles` | `rt.workspace.sessions` — which accounts are open |
-| `/api/state` | `rt.game.up()`, `game_process.status(...)`, `rt.activity.current()` |
+| `/api/state` | `rt.game.up()`, `game_process.probe(...)`, `rt.activity.current()` |
 | `/api/timers` | `rt.schedule.timer_catalogue` + `timer_config()` + the last-run store |
 | `/api/timers/run` | `rt.schedule.timers.request(timer)` — the scheduler's own queue |
 | `/api/actions` | `panel.runtime.actions.list_actions()` |
@@ -159,10 +159,13 @@ loop, and a worker never is. So:
   while that tab exists its boxes ARE the configuration and a switch written straight to
   `timers.json` would be overwritten by the next save — from the phone that looks like a
   switch that does not stay;
-* the process scan (`game_process.status`) is done on the HTTP thread, never handed to
-  the drawing one, and cached for five seconds: it walks every process on the machine,
-  and a phone polling every two seconds must not repeat that (#1211 is what a frozen
-  window looks like).
+* the process scan (`game_process.probe`) is done on the HTTP thread, never handed to
+  the drawing one, and cached for five seconds: it walks every process on the machine
+  and its socket table too, and a phone polling every two seconds must not repeat that
+  (#1211 is what a frozen window looks like). What it caches is now the TRIPLE
+  `(running, link, label)` — the phone paints the link (`online` / `lost` / `unknown` /
+  `offline`, §3.8) and not the process, because a client that lost the server is running
+  and doing nothing at all.
 
 ### 3.6 Not one word of the page is written in the page
 
@@ -201,6 +204,28 @@ on hover never shows), a 44 px floor on every declared control height, 16 px on 
 field (or iOS zooms the page on focus), every media query WIDENING rather than narrowing,
 and no fixed width above 360. The engine run stays outside the repository — there is no
 node in this project and there should not be one for this.
+
+### 3.8 The pill says CONNECTED, never «the process is there» (#1223)
+
+The state page's first pill used to be `state.game.running` — the process list, in two
+colours. That is the reading a stranded client passes: it keeps its window, its pid and
+every number it read yesterday, so «работает» stayed green over an account that had not
+spoken to the server since the small hours, while every errand went on reporting success.
+
+`/api/state` now carries `game.link` beside `game.running`, and the page paints the link:
+
+| link | pill | what it means |
+|---|---|---|
+| `online` | green | an ESTABLISHED connection to the game server — the only green one |
+| `lost` | red | the client is up and its sockets are half-closed: the server hung up |
+| `unknown` | amber | the client is up and its sockets say nothing — the ordinary state of an account in a background Windows session, and NOT a fault |
+| `offline` | red | no client at all |
+
+`running` is left exactly as it was, because it is what the watchdog acts on: a client
+that lost the server must not be killed and relaunched from under the person. The word on
+the pill is `web.ui.link.*` in all eleven locales, and the window's own strip is coloured
+from the same four ids (`panel/__main__.py`, `LINK_COLOURS`) — the mirror rule, both ways,
+in one commit. The reasoning behind the four is `docs/research/server-link-status.md`.
 
 ## 4. What was left out, and why
 

@@ -103,6 +103,18 @@ function when(stamp, now) {
 
 /* -- the state page -------------------------------------------------------- */
 
+/* The four link states the panel can report, in the phone's two vocabularies: the word
+ * on the pill, and the colour it is worn in. Same four ids as
+ * panel/runtime/game_process.py and the same meaning of green — connected, and nothing
+ * else. */
+const LINK_WORDS = {
+  online: 'web.ui.link.online',
+  lost: 'web.ui.link.lost',
+  unknown: 'web.ui.link.unknown',
+  offline: 'web.ui.off',
+};
+const LINK_PILLS = { online: 'ok', lost: 'off', unknown: 'warn', offline: 'off' };
+
 function paintState(state) {
   if ($('profile-pick').hidden) $('profile').textContent = state.profile;
   // The scenario being played right now, by NAME — the id, not the sentence, because
@@ -111,9 +123,16 @@ function paintState(state) {
   RUNNING = (state.activity && state.activity.name) || '';
   if (RUNNING !== wasRunning && VIEW === 'actions') paintActions();
 
+  /* The LINK, not the process. A client that has lost the server keeps its window and
+   * its pid, so «работает» was green over an account that had been doing nothing since
+   * the small hours; only an established connection is green now. Amber is «не видно» —
+   * a second account's sockets cannot be read from here, which is normal and not a
+   * fault (panel/runtime/game_process.py). An old panel that sends no `link` still
+   * gets the running/not-running pair it always did. */
+  const link = state.game.link || (state.game.running ? 'unknown' : 'offline');
   const game = $('game-dot');
-  game.textContent = state.game.running ? T('web.ui.on') : T('web.ui.off');
-  game.className = 'pill ' + (state.game.running ? 'ok' : 'off');
+  game.textContent = T(LINK_WORDS[link] || 'web.ui.off');
+  game.className = 'pill ' + (LINK_PILLS[link] || 'off');
   $('game-text').textContent = state.game.text || '';
 
   const daemon = $('daemon-dot');

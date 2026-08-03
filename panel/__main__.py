@@ -216,6 +216,18 @@ UPDATE_COLOURS = {
 # without it the panel sat for an hour showing "running (pid …)" over a client
 # that had crashed, every timer tick failing into the retry hold.
 STATUS_POLL_MS = 8000
+# What each link state looks like on the strip (panel/runtime/game_process.py decides
+# which one it is). Green is the ONLY state that means the account is actually playing:
+# a client that lost the server keeps its window, its pid and every Lua getter, so
+# painting «работает» green over it is the whole bug this table exists to end. Amber is
+# «не знаю» — the sockets of a client in another Windows session cannot be seen from
+# here, and that is the ordinary, healthy state of a second account, never a fault.
+LINK_COLOURS = {
+    runtime.game_process.ONLINE: "#3c3",
+    runtime.game_process.LOST: "#c33",
+    runtime.game_process.UNKNOWN: "#e8c069",
+    runtime.game_process.OFFLINE: "#c33",
+}
 # How long the game must read as gone before the watchdog relaunches it. Two
 # polls, so a single scan that raced the process table (or a client restarting
 # itself after the first login — it does that once) is not a crash.
@@ -439,7 +451,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the map sweep
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
-        "_game_gone", "_game_was_up", "_watchdog_last",
+        "_game_gone", "_game_was_up", "_watchdog_last", "_link_gone",
         # the DSL command line
         "_cmd_var", "_cmd_at",
     })
@@ -921,6 +933,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._game_was_up = False
         self._watchdog_last = 0.0
         self._status_busy = False     # one status reading in flight at a time
+        # How many consecutive polls have found the server connection gone, so only
+        # the edges reach the log rather than every eight seconds of it
+        # (see `_announce_link`).
+        self._link_gone = 0
         # Account dashboard: the last readings and the poller's stop flag.
         self._dash_values: dict = {}
         self._dash_stop = None
@@ -1165,6 +1181,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _game_status(self) -> tuple:
         """`(running, label)` for THIS profile's client — its executable, its session."""
         return runtime.game_process.profile_status(self._binder)
+
+    def _game_probe(self):
+        """The same reading with the LINK in it — online, lost, unknown, offline.
+
+        What the strip and the phone show. `_game_status` is the half everything that
+        merely presses buttons still asks for: a client that lost the server is running,
+        and must not be relaunched from under the person.
+        """
+        return runtime.game_process.profile_probe(self._binder)
 
     def _launcher(self) -> str:
         return self._opt_str("launcher")
@@ -2732,17 +2757,48 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         def work() -> None:
             try:
-                ok, s = self._game_status()
+                found = self._game_probe()
                 warm = self._daemon_up()
             finally:
                 self._status_busy = False
+            ok = found.running
             self._later(0, lambda: (
-                self._set_status_msg(s),
-                self._status_lbl.configure(foreground="#3c3" if ok else "#c33"),
+                self._set_status_msg(found.message),
+                self._status_lbl.configure(
+                    foreground=LINK_COLOURS.get(found.link, "#888")),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
                 self._dbg_status(ok, warm),
+                self._announce_link(found),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
+
+    def _announce_link(self, found) -> None:
+        """Say it in the log the moment the server connection goes, and when it returns.
+
+        The strip is only true while somebody is looking at it, and this is the state
+        nobody looks for: the client is up, the daemon is warm, every errand reports
+        success, and the account has been doing nothing since some hour of the night.
+        A line in the log is what puts a time on it afterwards.
+
+        Only the edges are said — a lost link would otherwise repeat every eight seconds
+        until morning — and the loss only after WATCHDOG_STRIKES consecutive readings of
+        it, the same patience the crash gets and for the same reason: a client that is
+        reconnecting has, for a moment, exactly the sockets of one that has given up.
+        The recovery is said only after a loss was announced, so an ordinary start-up
+        does not announce a connection nobody watched go.
+        """
+        gp = runtime.game_process
+        if found.link != gp.LOST:
+            # …and only ONLINE is a recovery. A client that was killed and relaunched
+            # goes LOST → OFFLINE → ONLINE, and «клиент снова на связи» is the
+            # watchdog's line to say about that, not this one's.
+            if self._link_gone >= WATCHDOG_STRIKES and found.link == gp.ONLINE:
+                self._say("game", "log.game.link_back")
+            self._link_gone = 0
+            return
+        self._link_gone += 1
+        if self._link_gone == WATCHDOG_STRIKES:
+            self._say("game", "log.game.link_lost")
 
     def _set_status_msg(self, msg) -> None:
         """Show the probe's answer, in the panel's language, and keep it for a re-say."""
