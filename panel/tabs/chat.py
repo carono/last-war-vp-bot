@@ -156,6 +156,52 @@ class ChatTab(PanelTab):
         screen and re-open the store under the new character."""
         self._stop_chat()
         self._clear_chat()
+    # -- the phone ------------------------------------------------------------
+    #
+    # READING ONLY. Sending is `tools/chat_send.py` — a tool the tab spawns, not a DSL
+    # scenario — and the rule for this whole port is that a press goes through a
+    # scenario or does not go at all. Reading is the half that is useful away from the
+    # machine anyway: what the alliance is saying, and whether somebody wrote to you.
+    #
+    # It costs no game read at all: the messages are in this character's own SQLite
+    # history, which the reader child fills whether or not anybody is looking.
+    WEB_SCREEN = True
+
+    #: How many messages a phone is handed per chat type. A screenful and a bit — the
+    #: window pages further back, and a phone that wants the archive wants the window.
+    WEB_MESSAGES = 30
+
+    def web_view(self) -> "dict | None":
+        import time as _time
+
+        cards = []
+        for chat_type in CHAT_TABS:
+            rows = self._web_messages(chat_type)
+            if not rows and chat_type not in ("world", "alliance", "dm"):
+                continue                       # a quiet corner is not worth a card
+            cards.append({"title": f"chat.tab.{chat_type}", "items": rows,
+                          "empty": "chat.empty"})
+        return {"cards": cards, "now": _time.time(),
+                "actions": []}
+
+    def _web_messages(self, chat_type: str) -> list:
+        """The newest messages of one type, oldest first — as the window shows them."""
+        rows = list(self._chat_msgs.get(chat_type) or ())[-self.WEB_MESSAGES:]
+        if not rows and self._chat_store is not None:
+            try:
+                rows = self._chat_store.recent(chat_type, self.WEB_MESSAGES)
+            except Exception:                  # noqa: BLE001 — a closed store is empty
+                rows = []
+        out = []
+        for row in rows:
+            text = str(row.get("msg") or "").strip()
+            if not text:
+                continue                       # a sticker or a photo: the window's job
+            out.append({"text": str(row.get("sender_name") or "?"),
+                        "note": text,
+                        "until": None})
+        return out
+
         if self._chat_store is not None:
             self._chat_store.close()
             self._chat_store = None

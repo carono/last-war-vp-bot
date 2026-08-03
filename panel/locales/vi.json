@@ -962,5 +962,6 @@
   "cmdpost.col.robbed": "đã cướp",
   "cmdpost.shared.matched": "sẵn sàng",
   "rally_tab.soldiers": "lính",
-  "rally_tab.stamina": "Thể lực"
+  "rally_tab.stamina": "Thể lực",
+  "chat.empty": "chưa có tin nhắn nào"
 }

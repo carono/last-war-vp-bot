@@ -962,5 +962,6 @@
   "cmdpost.col.robbed": "pillé",
   "cmdpost.shared.matched": "prêt",
   "rally_tab.soldiers": "soldats",
-  "rally_tab.stamina": "Endurance"
+  "rally_tab.stamina": "Endurance",
+  "chat.empty": "pas encore de messages"
 }

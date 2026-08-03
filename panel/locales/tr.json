@@ -962,5 +962,6 @@
   "cmdpost.col.robbed": "soyuldu",
   "cmdpost.shared.matched": "hazır",
   "rally_tab.soldiers": "asker",
-  "rally_tab.stamina": "Dayanıklılık"
+  "rally_tab.stamina": "Dayanıklılık",
+  "chat.empty": "henüz mesaj yok"
 }

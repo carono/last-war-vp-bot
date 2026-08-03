@@ -962,5 +962,6 @@
   "cmdpost.col.robbed": "dirampok",
   "cmdpost.shared.matched": "siap",
   "rally_tab.soldiers": "prajurit",
-  "rally_tab.stamina": "Stamina"
+  "rally_tab.stamina": "Stamina",
+  "chat.empty": "belum ada pesan"
 }

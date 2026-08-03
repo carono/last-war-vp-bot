@@ -962,5 +962,6 @@
   "cmdpost.col.robbed": "derubato",
   "cmdpost.shared.matched": "pronto",
   "rally_tab.soldiers": "soldati",
-  "rally_tab.stamina": "Vigore"
+  "rally_tab.stamina": "Vigore",
+  "chat.empty": "ancora nessun messaggio"
 }
