@@ -15,6 +15,7 @@ from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
 from .. import profile as profilemod
 from .actions import ActionRunner
+from .activity import Activity
 from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
@@ -82,6 +83,12 @@ class PanelRuntime:
 
         self.tick = Ticker(root)
         self.bus = EventBus(root)
+        # WHAT THIS PROFILE IS DOING RIGHT NOW (panel/runtime/activity.py). Handed to
+        # the two things that block for whole seconds — bringing the daemon up and
+        # playing a scenario — so the strip along the bottom of the window says which
+        # of them the panel is inside, instead of the window simply going quiet. A
+        # standalone tab has nobody listening and pays a dict insert for it.
+        self.activity = Activity(name=self.profiles.active)
         # `token` and `target` are read lazily on purpose: both answer off `self.game`,
         # which is built on the next line. They are what makes this runtime's children
         # and this runtime's scenarios press THIS profile's client rather than whichever
@@ -101,8 +108,9 @@ class PanelRuntime:
             python=lambda: self.settings.opt_str("win_python"),
             log=self.log, env=self.children.env, cwd=REPO,
             daemon_script=LUA_DAEMON, on_state=daemon_state,
-            debug=self.dbg("daemon"))
-        self.actions = ActionRunner(log=self.log, target=self.game_target)
+            debug=self.dbg("daemon"), activity=self.activity)
+        self.actions = ActionRunner(log=self.log, target=self.game_target,
+                                    activity=self.activity)
         self._schedule = None           # built on first ask (see the property below)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open

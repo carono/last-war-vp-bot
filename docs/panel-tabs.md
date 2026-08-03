@@ -119,6 +119,7 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.children` | `spawn(...)` (a monitored child) / `spawn_raw(...)` (read it yourself) |
 | `rt.tick` | `arm(name, ms, fn)` / `disarm(name)` — **named**, so a loop started twice is started once |
 | `rt.bus` | `publish(topic, payload)` / `subscribe(topic, fn) -> unsubscribe` |
+| `rt.activity` | `with rt.activity.step("activity.x", **fmt):` — what the panel is doing right now, on the strip along the bottom of the window |
 | `rt.tabs.get(id)` | another tab, **or `None`** — it may not be in this window |
 | `rt.schedule` | the errands; built on first ask, started only by the shell |
 | `rt.root` | for `after()` / `bell()` — **not** to build into; build into `self.parent` |
@@ -303,6 +304,29 @@ if other is not None:
 If it is a fact rather than a call, publish it: `rt.bus.publish("inventory.changed")`.
 The bus is deliberately tiny — no wildcards, no ordering, no replay. `subscribe` returns
 the unsubscribe callable, and `shutdown()` must call it.
+
+---
+
+## Saying what you are doing
+
+Anything of yours that takes more than about a quarter of a second — a read of the game,
+a child being started, a list being rebuilt — says so while it runs:
+
+```python
+with self.rt.activity.step("mything.reading", n=len(rows)):
+    rows = self.fetch()
+```
+
+The shell paints the newest live step of every open profile on the strip along the
+bottom of its window; a tab launched on its own has nobody listening and pays a
+dictionary insert. **A step is a locale key and its arguments, never a sentence** — the
+words are said by whoever draws them, in whatever language that window is showing, which
+is also what lets a worker thread report without knowing the language at all. Several
+steps may be live at once and the newest wins; when it ends, whatever is still running
+underneath comes back into view.
+
+Use it for work, not for state: it is «reading the roster», never «12 members». What a
+tab has FOUND belongs on the tab, and what has HAPPENED belongs in the log.
 
 ---
 

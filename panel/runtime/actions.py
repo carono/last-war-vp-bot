@@ -18,6 +18,7 @@ from __future__ import annotations
 import glob
 import os
 
+from .activity import Activity
 from .paths import SRC
 
 #: Where the blessed (tested) scripts live; the experimental ones sit in `dev/` beside
@@ -58,13 +59,19 @@ class Outcome:
 class ActionRunner:
     """Runs scenarios, checks them, and reads them back for the editor."""
 
-    def __init__(self, log, claim=None, release=None, target=None) -> None:
+    def __init__(self, log, claim=None, release=None, target=None,
+                 activity=None) -> None:
         self._log = log                   # the LogBus
         self._claim = claim               # callable(owner) -> bool, or None
         self._release = release
         # callable() -> {"game_port": int, "game_token": str} — WHICH client this
         # runner's scenarios drive, and under whose lease. See :meth:`_target`.
         self._target = target
+        # What is being played, for the strip along the bottom of the window
+        # (panel/runtime/activity.py). A scenario is the longest thing the panel ever
+        # does — a recipe with a WAIT in it holds the game for minutes — and its name
+        # is the one word that says what the wait is FOR.
+        self._activity = activity if activity is not None else Activity()
 
     def _target_kw(self) -> dict:
         """The client this runner presses into, as keyword arguments for a context.
@@ -110,8 +117,9 @@ class ActionRunner:
                 kw.setdefault("on_event", on_event or self._log.put)
             for key, value in self._target_kw().items():
                 kw.setdefault(key, value)
-        return bool(script_engine.run_action(name, hwnd=hwnd,
-                                             variables=args or {}, **kw))
+        with self._activity.step("activity.action", name=name):
+            return bool(script_engine.run_action(name, hwnd=hwnd,
+                                                 variables=args or {}, **kw))
 
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
              on_event=None, cancel=None, **kw) -> Outcome:
@@ -137,7 +145,8 @@ class ActionRunner:
         from lastwar_bot import script_engine
         if ctx is None:
             ctx = self.context(on_event=on_event)
-        return bool(script_engine.run_text(text, ctx=ctx, label=label))
+        with self._activity.step("activity.cmd"):
+            return bool(script_engine.run_text(text, ctx=ctx, label=label))
 
     # -- reading and checking ------------------------------------------------
     def resolve(self, name: str):

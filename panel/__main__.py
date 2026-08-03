@@ -76,6 +76,7 @@ if not __package__:
     __package__ = "panel"
 
 import ctypes
+import functools
 import logging
 import os
 import queue
@@ -447,6 +448,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # attribute set between here and the first `_adopt` is plainly the window's.
         self._current_session = None
 
+        # WHAT THE PANEL IS DOING RIGHT NOW (#1208). The window's own steps — opening a
+        # profile, building a tab, pulling an update — live here; each open profile
+        # reports its own into `rt.activity`, and the strip along the bottom shows the
+        # newest of all of them (`_paint_activity`). Built first because everything
+        # below may already report into it.
+        self._activity = runtime.Activity()
+        self._activity_var = None
+        self._activity_lbl = None
+        self._activity_pending = False
+
         # THE WORKSPACE (panel/runtime/workspace.py): which profiles this window holds
         # open. `restore` opens whatever was open when it was last closed — for every
         # panel before #1206 that is exactly one, the profile the saved pointer names,
@@ -629,6 +640,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         try:
             self.title(self._t("app.title"))
             self._build_menu()
+            # The strip is said in the language of the page being looked at, and names
+            # a profile only while more than one is open — both change here.
+            self._paint_activity()
         except tk.TclError:                # the window is going away
             pass
 
@@ -638,9 +652,118 @@ class Panel(runtime.SessionScoped, tk.Tk):
         style = ttk.Style(self)
         style.layout(self._ONE_PAGE_STYLE, style.layout("TNotebook"))
         style.layout(f"{self._ONE_PAGE_STYLE}.Tab", [])       # no strip at all
+        # BEFORE the notebook, and along the bottom: packed first so the strip keeps
+        # its own two rows of pixels whatever the pages inside ask for.
+        self._build_status_line()
         self._outer = ttk.Notebook(self)
         self._outer.pack(fill="both", expand=True)
         self._outer.bind("<<NotebookTabChanged>>", self._on_session_tab_changed)
+
+    # -- the strip along the bottom: what the panel is doing right now --------
+    #
+    # THE WINDOW'S, not a page's (#1208). Everything that makes a panel sit there
+    # silently for seconds — building a profile's fifteen tabs, waiting on a daemon that
+    # takes half a minute, playing a scenario, pulling an update — happens somewhere
+    # this strip can see, and none of it happens where the operator can. A log line is
+    # written afterwards and says what HAPPENED; this says what is happening.
+    #
+    # It shows the newest live step of the window's own activity and of every open
+    # profile's (panel/runtime/activity.py), so a background profile bringing its daemon
+    # up is visible while another profile's page is the one on screen — named, in that
+    # case, because «поднимаю демон» is a different sentence when it is not this page's.
+    def _build_status_line(self) -> None:
+        ttk.Separator(self, orient="horizontal").pack(side="bottom", fill="x")
+        bar = ttk.Frame(self, padding=(8, 2))
+        bar.pack(side="bottom", fill="x")
+        self._activity_var = tk.StringVar(value=self._t("activity.idle"))
+        self._activity_lbl = ttk.Label(bar, textvariable=self._activity_var,
+                                       anchor="w", foreground="#888")
+        self._activity_lbl.pack(side="left", fill="x", expand=True)
+        # The words follow the language of whatever profile is being looked at, and the
+        # strip is a variable rather than a `tr`-registered widget — so it is re-said
+        # here instead of by the registry.
+        self._hook(self._paint_activity, "activity-line")
+        # The window's own steps. Each open profile's are added by `_watch_activity`
+        # as its page is built.
+        self._activity.listen(self._activity_changed)
+
+    def _watch_activity(self, session) -> None:
+        """Have one open profile's steps painted on the strip too.
+
+        No unsubscribe is kept: the listener is stopped by the runtime going away with
+        the session, and `_paint_activity` reads the workspace afresh every time — so a
+        step reported by a profile that has just been closed paints nothing at all.
+        """
+        try:
+            session.rt.activity.listen(self._activity_changed)
+        except Exception:                      # noqa: BLE001 — a strip, never the boot
+            self._dbg.error("activity listener failed", exc_info=True)
+
+    def _activity_changed(self) -> None:
+        """Something started or finished, on whatever thread started or finished it."""
+        if threading.current_thread() is threading.main_thread():
+            # ON THE TK THREAD the news is almost always «I am about to do the slow
+            # thing», and an `after` would deliver it once the slow thing is over —
+            # which is precisely too late to be worth saying. Paint it now, and force
+            # the one redraw that puts it on the glass before the loop is blocked.
+            self._paint_activity()
+            try:
+                self.update_idletasks()
+            except (tk.TclError, RuntimeError):
+                pass
+            return
+        if self._activity_pending:             # one repaint per turn, not per reporter
+            return
+        self._activity_pending = True
+        try:
+            self.after(0, self._paint_activity)
+        except (tk.TclError, RuntimeError):    # no loop to paint from (closing, a test)
+            self._activity_pending = False
+
+    def _paint_activity(self) -> None:
+        """Write the newest live step — of any open profile — onto the strip."""
+        self._activity_pending = False
+        var = getattr(self, "_activity_var", None)
+        if var is None:
+            return
+        try:
+            said = self._activity_text()
+            var.set(said)
+        except tk.TclError:                    # the window is going away
+            return
+        # While the window is still hidden the strip is behind a splash, and the same
+        # sentence is what the splash has room for: no progress, so no tween — one
+        # redraw, and the boot's «интерфейс» phase names the tab it is on.
+        splash = getattr(self, "_splash", None)
+        if splash is not None:
+            try:
+                splash.step(said)
+            except Exception:                  # noqa: BLE001 — never load-bearing
+                self._splash = None
+
+    def _activity_text(self) -> str:
+        newest, owner = None, None
+        for who, activity in self._activities():
+            step = activity.current()
+            if step is not None and (newest is None or step.seq > newest.seq):
+                newest, owner = step, who
+        if newest is None:
+            return self._t("activity.idle")
+        said = self._t(newest.key, **newest.fmt)
+        # Named only when the name adds something: one profile open, or the step is
+        # this window's own, and «who» is not in question.
+        if owner and len(self._workspace) > 1:
+            return self._t("activity.scoped", profile=owner, what=said)
+        return said
+
+    def _activities(self) -> list:
+        """``(profile name or None, Activity)`` for the window and every open profile."""
+        out = [(None, self._activity)]
+        for session in self._workspace.sessions:
+            activity = getattr(session.rt, "activity", None)
+            if activity is not None:
+                out.append((session.name, activity))
+        return out
 
     def _paint_outer(self) -> None:
         """Show the profile strip only once there is more than one page to pick from."""
@@ -661,18 +784,28 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._workspace.switch_to(session.name)
         self._show(session)
 
-    def _open_session_page(self, session) -> None:
+    def _open_session_page(self, session, staged: bool = False, done=None) -> None:
         """Build one open profile: its page, its tabs, its log, its strips.
 
         This is what the whole of `__init__` used to be, minus the window. It runs once
         per session, under that session, so every widget it makes and every callback it
         arms belongs to the profile it was made for.
+
+        ``staged`` spreads the plugin tabs over the event loop instead of building them
+        in one go — see `_stage`. It is what the window does once it is open and the
+        operator is looking at it; at boot the splash is up and there is no loop to
+        stay answerable to, so the boot builds straight through.
+
+        ``done`` is called once the page is complete, whichever way it was built: with
+        `staged` the method returns long before that, and what follows an open profile —
+        its start-up thread — must not begin against half a page.
         """
         page = ttk.Frame(self._outer)
         session.page = page
         self._outer.add(page, text=session.label())
         self._paint_outer()
         self._adopt(session)
+        self._watch_activity(session)
         self._binder.loading = True   # suppresses auto-save while we apply settings
         # Technical debug log (panel/debug_log.py): a rotating file, one per profile,
         # kept apart from panel.log and the UI widget. Pointed at this profile before
@@ -739,14 +872,77 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._bound(lambda spent, rt=self._rt: rallygate.record_joins(rt, spent)))
         self._schedule.register_args("rally_auto_join",
                                      self._bound(self._rally_join_args))
-        self._build_ui(page)
-        self._apply_settings_to_ui()  # restore this profile's saved values
-        self._loading = False
-        self._install_autosave()      # persist every subsequent change immediately
-        self._pump_log()
-        self._open_panel_log()
-        self._refresh_status()
-        self._poll_status()           # …and keep re-reading it: a crash is silent otherwise
+        self._build_ui(page, staged=staged,
+                       done=lambda: self._finish_session_page(session, done))
+
+    def _finish_session_page(self, session, done=None) -> None:
+        """The last of a page, once every tab on it has been built.
+
+        Split off `_open_session_page` because a staged build returns before the tabs
+        exist and every line here needs them: the saved values are pushed into the
+        tabs' own widgets, the auto-save traces the variables they made, and the status
+        poll paints a strip that is not there yet.
+        """
+        with self._on(session):
+            self._apply_settings_to_ui()  # restore this profile's saved values
+            self._loading = False
+            self._install_autosave()      # persist every subsequent change immediately
+            self._pump_log()
+            self._open_panel_log()
+            self._refresh_status()
+            self._poll_status()       # …and keep re-reading it: a crash is silent otherwise
+            # The notebook's own «this tab is showing» went out before there was a
+            # handler to hear it (the binding is made with `_lazy_tabs`, at the end of
+            # the build), so the tab in front is told once, here.
+            self._on_main_tab_changed()
+        if done is not None:
+            done()
+
+    # -- building a page a piece at a time -----------------------------------
+    def _stage(self, session, steps, staged: bool) -> None:
+        """Run ``steps`` — one per turn of the event loop when ``staged`` (#1208).
+
+        A profile's page is fifteen tabs, and building them is a second and a half of
+        Tk with nothing between the widgets for the loop to run in: the window went
+        white, the strip along the bottom could not be repainted, and every click
+        queued up until it was over. None of that work can leave the Tk thread — it IS
+        widgets — but it does not have to happen all at once. One step per turn keeps
+        the window answering and lets the strip say which tab it is on.
+
+        Every step re-enters its session, because the operator may well click back to
+        another profile while this one is filling in; and every step checks the session
+        is still open, because they may also close it, or the window.
+        """
+        if not staged:
+            for step in steps:
+                self._stage_one(session, step)
+            return
+
+        def turn(index: int = 0) -> None:
+            if index >= len(steps) or not self._session_alive(session):
+                return
+            self._stage_one(session, steps[index])
+            try:
+                self.after(1, lambda: turn(index + 1))
+            except (tk.TclError, RuntimeError):    # the window went away under us
+                pass
+        turn()
+
+    def _stage_one(self, session, step) -> None:
+        """One build step, under its session, and never fatal to the rest of the page."""
+        with self._on(session):
+            try:
+                step()
+            except Exception:                      # noqa: BLE001 — one step, not the page
+                self._dbg.error("build step %r failed", getattr(step, "__name__", step),
+                                exc_info=True)
+
+    def _session_alive(self, session) -> bool:
+        """Is this session still open, and still the one under that name?"""
+        try:
+            return self._workspace.get(session.name) is session
+        except Exception:                          # noqa: BLE001 — the window is going
+            return False
 
     def _startup_boot(self, session=None) -> None:
         """`_startup` for one session, with the splash told where it has got to.
@@ -949,6 +1145,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self.title(self._t("app.title"))
         self._i18n.retranslate()
         self._refresh_status()   # re-render translated daemon/status words
+        # The bottom strip belongs to the WINDOW, so it is not in the retranslate
+        # registry of whichever profile's translator was just switched.
+        self._paint_activity()
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self)
@@ -1198,18 +1397,34 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._open_profile(name)
 
     def _open_profile(self, name: str) -> None:
-        """Open one more profile beside the ones already open, and go to it."""
+        """Open one more profile beside the ones already open, and go to it.
+
+        The page is built A STEP AT A TIME (#1208). This used to be one straight call
+        that built fifteen tabs before it returned: some three seconds in which the
+        window did not redraw, did not answer a click and said nothing about what it
+        was doing — «переключение подвесило панель», which is exactly what it looked
+        like. Now the page appears at once, fills in tab by tab with the strip along
+        the bottom naming each, and what comes after it waits for `_opened`.
+        """
         if not self._profile_is_free(name):
             self._profile_held_elsewhere(name)
             messagebox.showwarning(self._t("panel.busy.title"),
                                    self._t("panel.busy", profile=name),
                                    parent=self._profile_dialog_parent())
             return
+        opening = self._activity.begin("activity.profile.open", name=name)
         session = self._workspace.open(name)
-        self._open_session_page(session)
+        self._open_session_page(
+            session, staged=True,
+            done=lambda: self._opened(session, opening))
         self._outer.select(session.page)
         self._show(session)
-        self._say("profile", "log.profile.opened", name=session.name)
+
+    def _opened(self, session, opening) -> None:
+        """One more profile is fully drawn: say so, and bring its systems up."""
+        self._activity.end(opening)
+        with self._on(session):
+            self._say("profile", "log.profile.opened", name=session.name)
         # Its systems come up on their own thread, exactly as they do at boot: the
         # daemon alone can block for half a minute and the window must stay answerable.
         threading.Thread(target=self._bound(self._startup, session),
@@ -1230,15 +1445,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._say("profile", "log.profile.last_one", name=name)
             return
         page = session.page
-        self._close_session(session)
-        if self._workspace.close(name) is None:
-            return
-        try:
-            if page is not None:
-                self._outer.forget(page)
-                page.destroy()
-        except tk.TclError:
-            pass
+        with self._activity.step("activity.profile.close", name=name):
+            self._close_session(session)
+            if self._workspace.close(name) is None:
+                return
+            try:
+                if page is not None:
+                    self._outer.forget(page)
+                    page.destroy()
+            except tk.TclError:
+                pass
         self._paint_outer()
         self._show(self._workspace.current)
         self._say("profile", "log.profile.closed", name=name)
@@ -1489,7 +1705,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # switch and on `on_profile_switch`.
 
     # -- UI -----------------------------------------------------------------
-    def _build_ui(self, parent=None) -> None:
+    def _build_ui(self, parent=None, staged: bool = False, done=None) -> None:
+        """Draw one profile's page: its notebook, «Главная», the log, and its tabs.
+
+        THE ORDER IS DELIBERATE (#1208). The shell's own half — the status strip, the
+        control blocks, the log pane, the command line — is built first and costs
+        milliseconds; the fifteen plugin tabs, which cost a second and a half between
+        them, follow one per turn of the event loop when ``staged``. So a profile being
+        opened shows a page one can already read and use while the rest of it fills in,
+        instead of a white rectangle and a window that answers nothing.
+        """
         # The selected timer row has to be visible: a checkbox has no "selected"
         # look of its own, and the four editor buttons act on whichever row that
         # is. Give that row a bold "Selected.TCheckbutton" style; every other row
@@ -1529,36 +1754,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._hook(key="tab-titles", func=lambda: [
             nb.tab(f, text=self._t(k)) for _i, f, k, _o in entries])
 
-        # THE PLUGIN TABS (panel/tabs/). Each is a class the registry names, built from
-        # the runtime and nothing else — the same six lines `run_tab` performs when one
-        # of them is launched on its own. A tab that fails to import or build is skipped
-        # with a line in the log; it used to take the whole boot down with it.
-        #
-        # BEFORE the Settings page, because a tab contributes its own page to it (§6)
-        # and the aggregator can only draw the tabs that exist by then.
+        # THE PLUGIN TABS (panel/tabs/) are built AFTER everything below — see the
+        # docstring. The dictionary is made here because a step of the staged build
+        # fills it in, and because `_apply_settings_to_ui` and `_install_autosave`
+        # already read it through `getattr(..., {})` while it is still empty.
         self._plugin_tabs: dict = {}
-        for spec in specs:
-            tab = self._build_plugin_tab(spec, frames[spec.id])
-            if tab is not None:
-                self._plugin_tabs[spec.id] = tab
-                self._rt.tabs.add(tab)
-                # What the tab brought with it: its wire-driven errands (§3.2). A tab
-                # that is not in this profile registers nothing, so its trigger is not
-                # offered and no listener is spawned for it.
-                self._schedule.register(tab)
-                # The Timers tab IS the switches while it is here: the schedule asks
-                # the rows, and falls back to the saved catalogue when it is not.
-                if tab.ID == "timers":
-                    self._schedule.timer_config_source = tab._timer_widget_config
-                    self._schedule.trigger_config_source = tab._trigger_widget_config
-        # The account summary strip goes into the «Аккаунты» tab, beside the list of
-        # characters it summarises — and only if this profile has that tab at all.
-        if "accounts" in frames:
-            self._build_dashboard(frames["accounts"])
-        # Lazily loaded on first show, by the frame the notebook reports as selected.
-        self._lazy_tabs = {str(frames[tab_id]): tab
-                           for tab_id, tab in self._plugin_tabs.items()}
-        nb.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
         # The «Сценарии» tab's `TAP` reference drops its choice into the DSL command
         # line, which lives here on «Главная» — so it asks rather than reaching (§7).
         self._rt.bus.subscribe("cmd.reference", lambda _p: self._show_button_reference())
@@ -1737,6 +1937,55 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._tr(ttk.Button(cmdrow, command=self._show_button_reference),
                  "cmd.reference").pack(side="left", padx=(4, 0))
 
+        # …and now the tabs themselves, a step each (see `_stage`). The last step is
+        # what depends on all of them having been built.
+        session = self._session()
+        steps = [functools.partial(self._build_one_tab, spec, frames[spec.id])
+                 for spec in specs]
+        steps.append(functools.partial(self._finish_tabs, nb, frames, done))
+        self._stage(session, steps, staged)
+
+    def _build_one_tab(self, spec, frame) -> None:
+        """One plugin tab: built, registered, and named on the strip while it is.
+
+        BEFORE the Settings page is drawn, because a tab contributes its own page to it
+        (§6) and the aggregator can only draw the tabs that exist by then — which is
+        why «settings» sits at order 40, after the tabs whose pages it collects.
+        """
+        with self._rt.activity.step("activity.tab.build",
+                                    tab=self._t(spec.title_key)):
+            tab = self._build_plugin_tab(spec, frame)
+        if tab is None:
+            return
+        self._plugin_tabs[spec.id] = tab
+        self._rt.tabs.add(tab)
+        # What the tab brought with it: its wire-driven errands (§3.2). A tab that is
+        # not in this profile registers nothing, so its trigger is not offered and no
+        # listener is spawned for it.
+        self._schedule.register(tab)
+        # The Timers tab IS the switches while it is here: the schedule asks the rows,
+        # and falls back to the saved catalogue when it is not.
+        if tab.ID == "timers":
+            self._schedule.timer_config_source = tab._timer_widget_config
+            self._schedule.trigger_config_source = tab._trigger_widget_config
+
+    def _finish_tabs(self, nb, frames: dict, done=None) -> None:
+        """Everything about the tabs that can only be done once they are all there."""
+        # The account summary strip goes into the «Аккаунты» tab, beside the list of
+        # characters it summarises — and only if this profile has that tab at all.
+        # AFTER that tab, so it sits under the list rather than above it.
+        if "accounts" in frames:
+            self._build_dashboard(frames["accounts"])
+        # Lazily loaded on first show, by the frame the notebook reports as selected.
+        self._lazy_tabs = {str(frames[tab_id]): tab
+                           for tab_id, tab in self._plugin_tabs.items()}
+        # BOUND: with several profiles open this fires for a page that may not be the
+        # one showing (a tab clicked, then a profile switched before the event is
+        # drained), and it acts on `self._main_nb` — which would be the wrong page's.
+        nb.bind("<<NotebookTabChanged>>", self._bound(self._on_main_tab_changed))
+        if done is not None:
+            done()
+
     def _build_plugin_tab(self, spec, frame):
         """Build one registry tab into ``frame``. ``None`` if it could not be built.
 
@@ -1835,8 +2084,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         running, _text = self._game_status()
         if not running:
             return
-        lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
-                                 settle=dashmod.SETTLE)
+        with self._rt.activity.step("activity.dashboard"):
+            lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
+                                     settle=dashmod.SETTLE)
         values = dashmod.parse(lines, debug=self._rt.dbg("dashboard"))
         self._dash_err = ""
         self._dash_values = values
@@ -2466,12 +2716,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._update_status_lbl.configure(foreground="#888")
 
         def work() -> None:
+            handle = self._activity.begin("activity.update.check")
             try:
                 state = runtime.updates.check()
             except Exception as exc:       # noqa: BLE001 — a broken probe is a label,
                 state = runtime.updates.UpdateState(   # not a dead panel
                     runtime.updates.ERROR, detail=str(exc))
             finally:
+                self._activity.end(handle)
                 self._update_busy = False
             self.after(0, lambda: self._show_update_state(state, manual))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -2585,12 +2837,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         before = state.local
 
         def work() -> None:
+            handle = self._activity.begin("activity.update.pull")
             try:
                 res = runtime.updates.pull()
             except Exception as exc:       # noqa: BLE001
                 res = runtime.updates.PullResult(runtime.updates.FAIL_ERROR,
                                                  detail=str(exc))
             finally:
+                self._activity.end(handle)
                 self._update_busy = False
             self.after(0, lambda: self._show_pull_result(res, before))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -2654,6 +2908,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                                    self._t("update.restart.body"), parent=self):
             return
         self._say("panel", "log.update.restarting")
+        self._activity.begin("activity.panel.restart")   # ended by the process ending
         try:
             self._on_close()
         except Exception:                  # noqa: BLE001 — a tab that fails to shut
@@ -2691,6 +2946,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             for tab in getattr(self, "_plugin_tabs", {}).values():
                 tab.panic()
             self._schedule.stop()
+            # Nothing is being done any more, so nothing may be left saying it is: a
+            # step whose thread was asked to stop mid-way would otherwise sit on the
+            # bottom strip for the rest of the session.
+            self._rt.activity.clear()
             self._say("panel", "panic.done")
 
     # -- one way to run a child ---------------------------------------------
@@ -3214,7 +3473,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
             previous.on_hide()
         tab = tabs.get(current)
         self._shown_tab = tab
-        if tab is not None:
+        if tab is None:
+            return
+        # BOTH of them under one step: a tab shown for the first time reads the game
+        # here, on the Tk thread, and that read is the longest freeze the panel has
+        # left in it. The strip is painted before the read starts (`_activity_changed`
+        # forces the redraw when it is reported from this thread), so the window says
+        # which tab it has gone quiet for instead of merely going quiet.
+        with self._rt.activity.step("activity.tab.load",
+                                    tab=self._t(type(tab).TITLE_KEY)):
             tab.ensure_loaded()
             tab.on_show()
 

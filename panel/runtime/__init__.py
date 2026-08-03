@@ -35,6 +35,7 @@ from . import paths  # noqa: F401  (imported for its side effect)
 # copies of a module holding a heartbeat file is not a thing to be casual about. Reach
 # for it as `from .runtime import autostart`, which imports it exactly once.
 from .actions import ACTIONS_DIR, ActionRunner, Outcome, action_titles, list_actions
+from .activity import Activity, Step
 from .bus import EventBus
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
@@ -54,7 +55,8 @@ from .workspace import Workspace
 from . import updates
 
 __all__ = ["paths", "reads", "diag", "game_process", "ACTIONS_DIR",
-           "action_titles", "list_actions", "ActionRunner", "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
+           "action_titles", "list_actions", "ActionRunner", "Activity", "Step",
+           "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "Translator",
            "updates", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE",
            "ProfileSession", "SessionScoped", "Workspace"]

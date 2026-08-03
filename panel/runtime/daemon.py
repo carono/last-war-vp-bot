@@ -46,6 +46,8 @@ import coords
 import lua_actions
 import lua_client
 
+from .activity import Activity
+
 #: The server a jump falls back to when the game cannot say which one it is on.
 DEFAULT_SERVER = str(lua_actions.HOME_SERVER)
 
@@ -69,7 +71,7 @@ class GameLink:
     """The warm daemon for one profile, plus the one-action-at-a-time claim."""
 
     def __init__(self, port, python, log, env, cwd: str, daemon_script: str,
-                 on_state=None, debug=None, on_settled=None) -> None:
+                 on_state=None, debug=None, on_settled=None, activity=None) -> None:
         self._port = port                 # callable: this profile's daemon port
         self._python = python             # callable: the interpreter to start it with
         self._log = log                   # the LogBus
@@ -84,6 +86,12 @@ class GameLink:
         #: there. A tab launched on its own has no strip and leaves it a no-op.
         self.on_settled = on_settled or (lambda: None)
         self._dbg = debug
+        #: What this link is doing, for the strip along the bottom of the window
+        #: (panel/runtime/activity.py). Everything here that blocks says so: starting
+        #: a daemon takes up to half a minute and a jump takes a round trip, and a
+        #: window that goes quiet for either of them looks exactly like one that hung.
+        #: Its own when nobody handed one over, so a link built bare still works.
+        self._activity = activity if activity is not None else Activity()
         self._busy = False
         self._busy_lock = threading.Lock()
         # `token=""` — explicitly unleased, rather than "whatever this process
@@ -138,24 +146,27 @@ class GameLink:
         self._log.say("daemon", "log.daemon.starting")
         self._note("starting on port %s", port)
         self.on_state("starting", None)
-        try:
-            subprocess.Popen(
-                [self._python(), self._script], cwd=self._cwd,
-                creationflags=NO_WINDOW | DETACHED, env=self._env(),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL)
-        except Exception as exc:                      # noqa: BLE001
-            self._log.say("daemon", "log.daemon.launch_failed", error=exc)
-            self._note_error("launch failed")
-            self.on_state("error", False)
-            return False
-        for _ in range(START_TRIES):
-            if self.up():
-                self._log.say("daemon", "log.daemon.ready")
-                self._note("ready on port %s", port)
-                self.on_state("warm", True)
-                return True
-            time.sleep(START_WAIT)
+        # Up to START_TRIES × START_WAIT of waiting — thirty seconds of a window with
+        # nothing to say for itself unless it says this.
+        with self._activity.step("activity.daemon.start", port=port):
+            try:
+                subprocess.Popen(
+                    [self._python(), self._script], cwd=self._cwd,
+                    creationflags=NO_WINDOW | DETACHED, env=self._env(),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL)
+            except Exception as exc:                  # noqa: BLE001
+                self._log.say("daemon", "log.daemon.launch_failed", error=exc)
+                self._note_error("launch failed")
+                self.on_state("error", False)
+                return False
+            for _ in range(START_TRIES):
+                if self.up():
+                    self._log.say("daemon", "log.daemon.ready")
+                    self._note("ready on port %s", port)
+                    self.on_state("warm", True)
+                    return True
+                time.sleep(START_WAIT)
         self._log.say("daemon", "log.daemon.timeout")
         self._note_warn("did not come up on port %s within timeout", port)
         self.on_state("none", False)
@@ -170,18 +181,20 @@ class GameLink:
         """
         self._log.say("daemon", "log.daemon.restarting")
         self.on_state("starting", None)
-        try:
-            self.client.shutdown()
-        except Exception as exc:                      # noqa: BLE001
-            self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
-        for _ in range(FREE_TRIES):                   # let the port come free
-            if not self.up():
-                break
-            time.sleep(FREE_WAIT)
-        # No token carried over: the daemon that granted it is gone, so the lease died
-        # with it. A fresh one starts unleased rather than waving a dead token about.
-        self.client = lua_client.DaemonClient(port=self.port(), token="")
-        return self.ensure()
+        with self._activity.step("activity.daemon.restart", port=self.port()):
+            try:
+                self.client.shutdown()
+            except Exception as exc:                  # noqa: BLE001
+                self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
+            for _ in range(FREE_TRIES):               # let the port come free
+                if not self.up():
+                    break
+                time.sleep(FREE_WAIT)
+            # No token carried over: the daemon that granted it is gone, so the lease
+            # died with it. A fresh one starts unleased rather than waving a dead token
+            # about.
+            self.client = lua_client.DaemonClient(port=self.port(), token="")
+            return self.ensure()
 
     # -- the claim ----------------------------------------------------------
     def claim(self, owner: str = "panel") -> bool:
@@ -272,6 +285,7 @@ class GameLink:
             return False
 
         def work() -> None:
+            handle = self._activity.begin("activity.game.jump", x=x, y=y)
             try:
                 if not self.up() and not self.ensure():
                     self._log.say("coord", "log.no_daemon")
@@ -288,6 +302,7 @@ class GameLink:
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("coord", "log.error", error=exc)
             finally:
+                self._activity.end(handle)
                 self.release()
                 self.on_settled()
 
