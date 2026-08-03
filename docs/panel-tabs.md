@@ -254,9 +254,9 @@ to a widget, a menu entry or a dialog anywhere under `panel/`.
 The fourth is the phone's copy: that the three exempt tabs still have no screen, that
 every word a screen names is a locale key that exists, that a screen is made of nothing
 the renderer cannot draw, and that a button offered on a screen has a `web_press` that
-answers for it. What it CANNOT check is «this tab was edited and its `web_view` was
-not» — that is a property of a diff, not of a snapshot, and it rests on the rule and on
-review.
+answers for it. What it CANNOT check is «one side was edited and the other was not», in
+either direction — that is a property of a diff, not of a snapshot, and it rests on the
+rule and on review.
 
 ---
 
@@ -345,23 +345,40 @@ own refresh, which the phone asks for by pressing «Обновить» — a pho
 not poll the client all day. The six `DataTab` tabs get this for free: the base class
 caches the last reading and only the mapping (`web_cards`) is each tab's own.
 
-### It travels in the same commit — this is binding
+### It travels in the same commit, in BOTH directions — this is binding
 
-**Any edit to a tab is mirrored here at once** (`CLAUDE.md`, «Every edit to a tab
-travels to the web at the same time»). A new button, field, reading or status line on
-the tab means an updated `web_view()` — and `web_press()` if it is a press — in the
-SAME change. Two front-ends that drift are worse than one, because the person reading
-the stale one has no way to know it is stale.
+`CLAUDE.md`, «An edit travels between the window and the web, in BOTH directions, at
+once». Two front-ends that drift are worse than one, because whoever is reading the
+stale one has no way to know that is what they are reading.
 
-Two things bound it:
+| you changed | you also change, in the same commit |
+|---|---|
+| `build()` — a button, a field, a reading, a status line | `web_view()`, and `web_press()` if it is a press |
+| `web_view()` — a card, a row, a fact, an action | `build()`, so the window has it too |
+
+The second row is the one people forget. A control that exists only on the phone is a
+control the person at the machine cannot find, and the next agent reading the tab has
+no idea it is there — the drift is simply pointing the other way.
+
+Three things bound it:
 
 * **A press travels only when the ability is a scenario.** `web_press` runs
   `rt.actions` / `rt.play_async` and nothing else. Where a tab still drives the game by
   hand (#1188 — the secret-task and ghost robberies spawn their tool because the recipe
   only spends a queue that tool fills), the web gets the reading and no button. First
   the scenario, then the button.
-* **Three tabs have no screen on purpose:** `settings`, `web`, `develop` — the reasons
-  are in `CLAUDE.md`, and the test fails if one of them grows one quietly.
+* **A DIVERGENCE IS NOT YOURS TO DECIDE.** When the two sides genuinely should differ —
+  something impossible on a phone, something pointless in a window — that is a
+  conversation with the person, not a judgement call. Ask, agree, then write the
+  exception with its reasoning into `CLAUDE.md` and into this file. Until it is written
+  down it does not exist, and the rule stands. What is forbidden is the silent version:
+  shipping one side, deciding alone that the other does not need it, leaving no trace —
+  after which nobody can tell an exception from an omission.
+* **Three tabs have no screen, and they are what a legal exception looks like:**
+  `settings`, `web`, `develop` were proposed, argued and agreed, and the reasons are
+  written in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows
+  a screen quietly — and a fourth exception is added the same way: ask, agree, write it
+  in both files, pin it in the test.
 
 ## Reaching another tab
 

@@ -93,20 +93,45 @@ Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, lo
 menu, «Главная». If a change needs something from it, move that something into
 `panel/runtime/` first and use it from there.
 
-## Every edit to a tab travels to the web at the same time
+## An edit travels between the window and the web, in BOTH directions, at once
 
 **Also binding, on every agent, with no exceptions.** The panel has two front-ends now:
 the Tk window and the web one a phone opens (`panel/web/`, #1221). They are not a
 product and a copy of it — they are two ways of drawing the same runtime, and the
-moment one of them is behind, the person away from the machine is being told something
-that is not true any more.
+moment one of them is behind, whoever is reading THAT one is being told something that
+is not true any more, with no way to know it.
 
-So: **a tab that grows a button, a field, a reading or a status line updates its
-`web_view()` — and `web_press()` if it is a press — in the SAME commit.** The web does
-not catch up with the panel once a quarter; it moves with it. A tab's screen is data
-(`docs/panel-tabs.md`, «The phone's copy of this tab»), so mirroring an addition is
-usually four lines, and that is the point: it is cheap while the change is in your head
-and expensive six months later when nobody remembers which of the two is right.
+So it travels **both ways, in the same commit**:
+
+* **Window → web.** A tab that grows a button, a field, a reading or a status line
+  updates its `web_view()` — and `web_press()` if it is a press.
+* **Web → window.** A screen, a card, a button or a fact added to `web_view()` gets its
+  counterpart in the tab's `build()`. The web does not run ahead of the window either:
+  a control that exists only on the phone is a control the person at the machine cannot
+  find, and the next agent reading the tab has no idea it is there.
+
+Neither side catches up with the other once a quarter; they move together. A tab's
+screen is data (`docs/panel-tabs.md`, «The phone's copy of this tab»), so mirroring an
+addition is usually four lines — and that is the point: it is cheap while the change is
+in your head and expensive six months later when nobody remembers which of the two is
+right.
+
+### A divergence is never an agent's decision
+
+Sometimes the two sides genuinely should differ — something is impossible on a phone,
+or pointless in a window. **That is a conversation with the person, not a judgement
+call.** Raise it, get an answer, and write the exception down with its reasoning where
+the next agent will read it (`CLAUDE.md` and `docs/panel-tabs.md`). Until it is written
+down, it does not exist and the rule stands.
+
+What is forbidden is the quiet version: shipping a change on one side, deciding by
+yourself that the other does not need it, and leaving no trace of the decision. Then
+there is no way to tell an exception from an omission — and six months on, neither is
+there any way to tell which side is the truth.
+
+The three tabs below are exactly what a legal divergence looks like: discussed,
+justified, written into both files, and pinned by a test. Any future one is expected to
+look the same.
 
 ### What that looks like
 
@@ -116,6 +141,13 @@ def build(self) -> None:
     ...
     self.tr(ttk.Button(bar, command=self._heal), "hospital.heal").pack()
     self._wounded = tk_stringvar(self.rt.root)      # a new reading on the tab
+```
+
+```python
+# ❌ …and the same mistake the other way round: a button only the phone has
+def web_view(self) -> dict:
+    return {"cards": [...],
+            "actions": [{"id": "heal", "label": "hospital.heal"}]}   # nothing in build()
 ```
 
 ```python
@@ -149,14 +181,21 @@ scenario, then the button appears in the web. A second copy of a hand-driven pre
 reachable from outside the house, is not an improvement — it is the same debt in two
 places.
 
-### Three tabs do not have a screen, and that is a decision
+### The three divergences there are, and how they got there
+
+They are the model for the paragraph above: each was **proposed, argued and agreed with
+the person**, and then written down here — not decided in passing by whoever was in the
+file at the time.
 
 `settings` — paths, interpreters and ports: breaking a profile with one thumb is easier
 than fixing it from a bus. `web` — the door the person came in through; managing it from
 the far side is how somebody locks themselves out. `develop` — two sniffers for working
-on the bot itself, switched off even in the window. They declare `WEB_SCREEN = False`
-and `tests/test_panel_web_screens.py` fails if one of them quietly grows a screen. What
-those three genuinely need on the move goes on «Состояние» as a switch, not as a page.
+on the bot itself, switched off even in the window.
+
+All three declare `WEB_SCREEN = False`, `tests/test_panel_web_screens.py` fails if one
+of them quietly grows a screen, and what those three genuinely need on the move goes on
+«Состояние» as a switch rather than as a page. A fourth exception is added the same way:
+ask, agree, write it in both files, pin it in the test.
 
 ### Definition of done
 
@@ -167,8 +206,10 @@ tracker — until:
 - everything the panel does with it goes through `run_action`;
 - any primitive added along the way is documented in `docs/dsl.md`;
 - every string it shows is a locale key, present in **all** the shipped locales;
-- **anything it changed on a tab is mirrored in that tab's `web_view()` / `web_press()`**
-  — a tab edit is not done while the phone still shows the old panel;
+- **anything it changed on ONE front-end is mirrored on the OTHER, whichever way round**
+  — a tab edit is not done while the phone still shows the old panel, and a `web_view`
+  edit is not done while the window is missing what the phone now has. A deliberate
+  difference is agreed with the person first and written down, never left silent;
 - nothing it adds is true of this machine only (below);
 - and, once the user has confirmed it live, both farming files say so (below).
 
