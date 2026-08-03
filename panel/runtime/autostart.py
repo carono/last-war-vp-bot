@@ -28,11 +28,26 @@ Every verdict is written to ``autostart.json`` in the same profile, which is wha
 Settings page shows: the scheduler's own «last run» column says a task ran, not what it
 made of what it found.
 
-WHAT GETS REGISTERED. One task per profile, ``Last War Bot\panel-<profile>``, whose
-action is *this* installation's interpreter running ``-m panel.runtime.autostart --profile
-<name>`` with the repository as its working directory. Nothing is guessed and nothing is
-hard-coded: the paths come from :data:`REPO` and `sys.executable`, so a panel that was
-copied elsewhere registers the copy, and a second install registers itself.
+WHAT GETS REGISTERED. **One task — ``Last War Bot\panel`` — for one panel**, whose
+action is *this* installation's interpreter running ``-m panel.runtime.autostart`` with
+the repository as its working directory. Nothing is guessed and nothing is hard-coded:
+the paths come from :data:`REPO` and `sys.executable`, so a panel that was copied
+elsewhere registers the copy, and a second install registers itself.
+
+ONE PANEL, SEVERAL PROFILES (#1207). It used to be a task per profile (#1203), and since
+#1206 that is the wrong shape: a panel holds a PAGE per open profile, so two tasks meant
+two windows — and on this machine that was two panels driving one game client through one
+daemon port. So the task names no profile at all. What it opens is read at the moment it
+fires, from the set the panel itself saved (`open_profiles` in `panel/settings.json`,
+:func:`open_set`), and one window comes up holding all of it. The set therefore follows
+the person: open a second profile, close one, and the next hourly look already knows.
+The liveness question is asked the same way — a panel is *there* if ANY of those profiles
+is beating, because they are pages of one window, and «one page is missing» is never
+answered by opening a second panel on top of the first.
+
+A per-profile task left over from #1203 is swept away when this one is registered, and is
+harmless in the meantime: it runs the same check, which sees the window that is up and
+leaves it alone.
 
 RIGHTS. The panel is normally started elevated — it reads another process' memory and
 npcap wants the rights too (`install.bat` sets the flag on the shortcut). A task that
@@ -47,7 +62,7 @@ decides what the answer is (`panel/runtime/updates.py` is the same shape). The h
 run is a headless `pythonw.exe` and must stay one.
 
     C:\Python312\python.exe -m panel.runtime.autostart --status
-    C:\Python312\python.exe -m panel.runtime.autostart --profile main
+    C:\Python312\python.exe -m panel.runtime.autostart
 """
 from __future__ import annotations
 
@@ -86,6 +101,11 @@ LAUNCH_WAIT_SEC = 45
 CHECK_EVERY = "PT1H"
 #: Where the tasks live, so all of them can be found (and removed) in one place.
 TASK_FOLDER = "Last War Bot"
+#: THE task. One panel, one task — the profiles it opens are read when it fires, not
+#: baked into its name (see the module docstring).
+TASK = f"{TASK_FOLDER}\\panel"
+#: What a task from #1203 was called. Only swept away now.
+LEGACY_PREFIX = f"{TASK_FOLDER}\\panel-"
 #: Cap on the launch log; it holds the stdout of every panel this ever started.
 LOG_MAX_BYTES = 512 * 1024
 
@@ -499,57 +519,101 @@ def open_panel(profiles, name: str) -> "subprocess.Popen | None":
 
 
 # --------------------------------------------------------- the hourly look --
+def open_set(profiles, first: str | None = None) -> list:
+    """The profiles ONE panel opens — the page that is on screen first.
+
+    Read from what the panel itself saved (`open_profiles`, `panel/runtime/workspace.py`)
+    rather than from anything this task remembers: a task that froze the list when it was
+    registered would go on opening yesterday's profiles for ever. An empty answer means
+    the active profile alone, which is every panel there was before #1206.
+
+    ``first`` is the `--profile` of a legacy task or of the CLI: it names the page to put
+    on top. A name no profile directory answers to is IGNORED here, unlike the panel's own
+    `--profile`, which creates it — a #1203 task left pointing at a deleted profile would
+    otherwise re-create it, empty, and open a panel on it every hour for ever.
+    """
+    wanted = [n for n in profiles.open_profiles()]
+    head = profilemod.sanitize(first or "")
+    if not head or not profiles.exists(head):
+        head = wanted[0] if wanted else profiles.active
+    return [head] + [n for n in wanted if n != head]
+
+
+def _pids_of(profiles, names) -> list:
+    """Every live panel process holding any of ``names`` — one window may hold several."""
+    found = []
+    for name in names:
+        for pid in panel_pids(profiles, name):
+            if pid not in found:
+                found.append(pid)
+    return found
+
+
 def check(profile: str | None = None, *, launch: bool = True) -> dict:
     """Look once: start the panel if it is not there, restart it if it is wedged.
 
-    Returns the record it wrote to the profile's ``autostart.json`` — ``state`` is one
-    of ``running`` / ``started`` / ``restarted`` / ``failed``, which is what the
-    Settings page reads back.
+    Returns the record it wrote to the ``autostart.json`` of every profile the panel
+    holds — ``state`` is one of ``running`` / ``started`` / ``restarted`` / ``failed``,
+    which is what the Settings page reads back.
 
-    NEVER two panels on one profile. They share a `config.json` and would write it over
-    each other, so the launch is gated three times: on the heartbeat, on this profile's
-    instance lock (the kernel's answer, which cannot go stale), and on a scan for a panel
-    process anyway. Only a verdict of «hung» opens one on top of something, and only
+    ONE PANEL FOR THE WHOLE SET (#1207). A panel is a window with a page per open profile,
+    so the question is not «is a panel on this profile» but «is the panel up»: ANY profile
+    of the set still beating means the window is there, and nothing is opened. The other
+    way round — one page missing while the window is up — is not something a second panel
+    could fix; it would fight the first for that profile's `config.json` and its daemon.
+
+    NEVER two panels on one profile, therefore, gated three times: on the heartbeat, on
+    the instance lock (the kernel's answer, which cannot go stale), and on a scan for a
+    panel process anyway. Only a verdict of «hung» opens one on top of something, and only
     after closing it: a beat that started and then stopped is proof of a wedge, where a
     beat that never existed is just as likely to be a deleted file.
     """
     profiles = profilemod.ProfileManager()
-    name = profilemod.sanitize(profile) if profile else profiles.active
-    live = probe(profiles, name)
-    record = {"ts": time.time(), "profile": name, "seen": live.state,
-              "pid": live.pid, "age": round(live.age or 0)}
+    wanted = open_set(profiles, profile)
+    head = wanted[0]
+    live = {name: probe(profiles, name) for name in wanted}
+    running = [n for n in wanted if live[n].running]
+    hung = [n for n in wanted if live[n].state == "hung"]
+    # Whose reading the record shows: the page that proves the window is up, then the one
+    # that proves it is wedged, and the head when neither says anything.
+    shown = live[running[0]] if running else live[hung[0]] if hung else live[head]
+    record = {"ts": time.time(), "profile": head, "profiles": list(wanted),
+              "seen": shown.state, "pid": shown.pid, "age": round(shown.age or 0)}
 
-    held = False if (live.running or not launch) else locked(profiles, name)
-    others = [] if (live.running or not launch) else panel_pids(profiles, name)
-    record["locked"] = held
+    held = [] if (running or not launch) else [n for n in wanted if locked(profiles, n)]
+    others = [] if (running or not launch) else _pids_of(profiles, wanted)
+    record["locked"] = bool(held)
 
-    if live.running:
+    if running:
         record["state"] = "running"
     elif not launch:
-        record["state"] = live.state
-    elif (held or others) and live.state != "hung":
+        record["state"] = shown.state
+    elif (held or others) and not hung:
         # A panel is there; it is simply not saying so. Leaving it alone is the whole
-        # point — a second one on this profile costs the profile itself.
-        _log(profiles, name, f"no beat, but the profile is held (lock={held}, "
+        # point — a second one on any of these profiles costs the profile itself.
+        _log(profiles, head, f"no beat, but the panel is held (lock={held}, "
                              f"pids={others}) — left alone")
         record.update(state="running", seen="lock" if held else "process",
                       pid=others[0] if others else None)
     else:
-        doomed = [live.pid] if (live.state == "hung" and live.pid) else []
+        doomed = [live[n].pid for n in hung if live[n].pid]
         doomed += [pid for pid in others if pid not in doomed]
         for pid in doomed:
-            _log(profiles, name, f"panel {pid} has not beaten for "
-                                 f"{int(live.age or 0)}s — stopping it")
+            _log(profiles, head, f"panel {pid} has not beaten for "
+                                 f"{int(shown.age or 0)}s — stopping it")
             stop(pid)
-        started = open_panel(profiles, name)
-        ok = started is not None and _await_beat(profiles, name)
-        record["state"] = ("restarted" if live.state == "hung" else "started") if ok \
-            else "failed"
+        # ONE window for the whole set: `--profile` only says which page is on top, and
+        # the panel opens the rest of `open_profiles` itself as it comes up.
+        started = open_panel(profiles, head)
+        ok = started is not None and _await_beat(profiles, head)
+        record["state"] = ("restarted" if hung else "started") if ok else "failed"
         if not ok:
             record["error"] = "no heartbeat after launch"
 
-    _log(profiles, name, f"check: seen={live.state} -> {record['state']}")
-    _write_json(profiles.autostart_state(name), record)
+    _log(profiles, head, f"check: {','.join(wanted)} seen={record['seen']} "
+                         f"-> {record['state']}")
+    for name in wanted:
+        _write_json(profiles.autostart_state(name), record)
     return record
 
 
@@ -564,9 +628,14 @@ def _await_beat(profiles, name: str) -> bool:
 
 
 # ------------------------------------------------- the Windows task itself --
-def task_name(profile: str) -> str:
-    """``Last War Bot\\panel-<profile>`` — one task per profile, all in one folder."""
-    return f"{TASK_FOLDER}\\panel-{profilemod.sanitize(profile) or 'default'}"
+def task_name() -> str:
+    """``Last War Bot\\panel`` — ONE task, because one panel holds every open profile."""
+    return TASK
+
+
+def legacy_task_name(profile: str) -> str:
+    """What #1203 called this profile's task, before one panel could hold several."""
+    return f"{LEGACY_PREFIX}{profilemod.sanitize(profile) or 'default'}"
 
 
 def elevated() -> bool:
@@ -658,10 +727,13 @@ TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
 """
 
 
-def task_xml(profile: str, *, python: str | None = None, repo: str | None = None,
+def task_xml(*, python: str | None = None, repo: str | None = None,
              account: str | None = None, run_level: str | None = None,
              start: str | None = None) -> str:
     """The task, as Task Scheduler XML.
+
+    It names NO profile (#1207). What one panel opens is the set the panel saved, read
+    when the task fires — see :func:`open_set` and the module docstring.
 
     Written out rather than assembled with `schtasks /Create /SC HOURLY` because the
     switches cannot say half of what this needs: a working directory, an interactive
@@ -680,21 +752,22 @@ def task_xml(profile: str, *, python: str | None = None, repo: str | None = None
     # A boundary in the past plus StartWhenAvailable means the first look happens now
     # rather than at the top of the next hour.
     return TASK_TEMPLATE.format(
-        description=escape(f"Checks once an hour that the Last War panel is running "
-                           f"on profile {profile!r} and opens it when it is not."),
+        description=escape("Checks once an hour that the Last War panel is running and "
+                           "opens it when it is not — one panel, holding whichever "
+                           "profiles were open in it."),
         every=CHECK_EVERY,
         begin=start or time.strftime("%Y-%m-%dT%H:%M:%S"),
         logon_user=user,
         principal_user=user,
         level=run_level or ("HighestAvailable" if elevated() else "LeastPrivilege"),
         exe=escape(python or panel_python()),
-        args=escape(f'-m panel.runtime.autostart --profile "{profile}"'),
+        args="-m panel.runtime.autostart",
         cwd=escape(repo or REPO),
     )
 
 
-def registered(profile: str) -> bool:
-    """Is there a task for this profile? Asked of Windows, never of the profile file.
+def registered() -> bool:
+    """Is the task there? Asked of Windows, never of a profile file.
 
     The scheduler is the truth: a task removed by hand in `taskschd.msc`, or one that
     survived a profile being deleted, must show as it is — a checkbox reading back its
@@ -702,29 +775,74 @@ def registered(profile: str) -> bool:
     """
     if not WINDOWS:
         return False
-    return _run("schtasks", "/Query", "/TN", task_name(profile))[0]
+    return _run("schtasks", "/Query", "/TN", TASK)[0]
 
 
-def register(profile: str, *, python: str | None = None) -> None:
-    """Create (or replace) this profile's hourly task. Raises with a translatable why."""
+def legacy_tasks() -> list:
+    """The per-profile tasks of #1203 that are still in the scheduler.
+
+    Found by asking Windows for its whole list rather than by guessing names from the
+    profiles that exist now: the one that matters most is a task whose profile has since
+    been deleted, and no profile file names that.
+    """
+    if not WINDOWS:
+        return []
+    ok, out = _run("schtasks", "/Query", "/FO", "CSV", "/NH")
+    if not ok:
+        return []
+    import csv
+    import io
+
+    found = []
+    for row in csv.reader(io.StringIO(out)):
+        name = (row[0] if row else "").strip().lstrip("\\")
+        if name.startswith(LEGACY_PREFIX) and name not in found:
+            found.append(name)
+    return found
+
+
+def drop_legacy(profile: str | None = None) -> list:
+    """Remove the #1203 task(s) — one profile's, or every one that is left.
+
+    Returns the names it could not remove, which is all the reporting this needs: a
+    leftover is harmless (it runs the same check, which sees the window that is up and
+    leaves it alone), so a scheduler that refuses is not worth failing a registration —
+    or a profile rename — over.
+    """
+    if not WINDOWS:
+        return []
+    names = [legacy_task_name(profile)] if profile else legacy_tasks()
+    left = []
+    for name in names:
+        if not _run("schtasks", "/Query", "/TN", name)[0]:
+            continue
+        if not _run("schtasks", "/Delete", "/TN", name, "/F")[0]:
+            left.append(name)
+    return left
+
+
+def register(*, python: str | None = None) -> None:
+    """Create (or replace) the hourly task. Raises with a translatable why."""
     if not WINDOWS:
         raise RuntimeError(Message("autostart.error.unsupported",
                                    "the task scheduler is Windows-only"))
-    xml = task_xml(profile, python=python)
+    xml = task_xml(python=python)
     handle, path = tempfile.mkstemp(suffix=".xml", prefix="lw-autostart-")
     os.close(handle)
     try:
         # UTF-16: schtasks refuses to read a task definition in anything else.
         with open(path, "w", encoding="utf-16") as fh:
             fh.write(xml)
-        ok, out = _run("schtasks", "/Create", "/TN", task_name(profile),
-                       "/XML", path, "/F")
+        ok, out = _run("schtasks", "/Create", "/TN", TASK, "/XML", path, "/F")
     finally:
         try:
             os.unlink(path)
         except OSError:
             pass
     if ok:
+        # …and the per-profile ones go, or the machine would keep both models and open a
+        # second window on a client the first one is already driving.
+        drop_legacy()
         return
     tail = " ".join(out.split())[-300:]
     if _denied(out):
@@ -734,11 +852,14 @@ def register(profile: str, *, python: str | None = None) -> None:
                                f"schtasks refused: {tail}", error=tail))
 
 
-def unregister(profile: str) -> None:
-    """Remove this profile's task. A task that is already gone is not an error."""
-    if not WINDOWS or not registered(profile):
+def unregister() -> None:
+    """Remove the task. One that is already gone is not an error."""
+    if not WINDOWS:
         return
-    ok, out = _run("schtasks", "/Delete", "/TN", task_name(profile), "/F")
+    drop_legacy()
+    if not registered():
+        return
+    ok, out = _run("schtasks", "/Delete", "/TN", TASK, "/F")
     if ok:
         return
     tail = " ".join(out.split())[-300:]
@@ -770,6 +891,8 @@ class Status:
     registered: bool
     elevated: bool
     task: str
+    #: Every profile the one task opens, the page on screen first (#1207).
+    profiles: tuple = ()
     last: dict = field(default_factory=dict)
 
 
@@ -810,36 +933,35 @@ def daemon_up(profiles, name: str | None = None) -> bool:
 
 
 def status(profiles, name: str | None = None) -> Status:
-    """What is set up for this profile, and what the last look made of it."""
+    """What is set up on this machine, and what the last look made of it.
+
+    ``name`` is only the page asking — the task is the same one whichever page's Settings
+    is open, and so is the verdict it wrote.
+    """
     profile = name or profiles.active
-    return Status(profile=profile, supported=WINDOWS, registered=registered(profile),
-                  elevated=elevated(), task=task_name(profile),
+    return Status(profile=profile, supported=WINDOWS, registered=registered(),
+                  elevated=elevated(), task=TASK,
+                  profiles=tuple(open_set(profiles)),
                   last=_read_json(profiles.autostart_state(profile)))
 
 
 def set_enabled(profiles, enabled: bool, name: str | None = None) -> Status:
-    """Turn the hourly check on or off for a profile, and report where that left it."""
-    profile = name or profiles.active
+    """Turn the hourly check on or off, and report where that left it."""
     if enabled:
-        register(profile)
+        register()
     else:
-        unregister(profile)
-    return status(profiles, profile)
+        unregister()
+    return status(profiles, name or profiles.active)
 
 
 def rename(old: str, new: str) -> None:
-    """Follow a profile that was renamed: the task names the profile it opens.
+    """A profile was renamed. Since #1207 there is nothing to re-point.
 
-    Silent about a profile that had no task — most do not, and «the rename worked but
-    said something about the scheduler» is worse than nothing.
+    The task names no profile, and the set it opens is read from the panel's own saved
+    list — which the rename has already updated. All that is left is a #1203 task named
+    after the profile that has just stopped existing.
     """
-    if not WINDOWS or not registered(old):
-        return
-    try:
-        register(new)
-        unregister(old)
-    except RuntimeError:
-        pass
+    drop_legacy(old)
 
 
 # ------------------------------------------------------------ the CLI half --
@@ -850,17 +972,19 @@ def main(argv: list[str] | None = None) -> int:
         prog="panel.runtime.autostart",
         description="Check that the Last War panel is running, and open it if not.")
     parser.add_argument("--profile", metavar="NAME", default=None,
-                        help="which profile to watch (default: the active one)")
+                        help="which page to put on top (default: the panel's own last "
+                             "one). The panel opens the whole saved set either way.")
     parser.add_argument("--status", action="store_true",
                         help="say what it sees and do nothing")
     parser.add_argument("--register", action="store_true",
-                        help="create the hourly task for this profile")
+                        help="create the hourly task")
     parser.add_argument("--unregister", action="store_true",
-                        help="remove the hourly task for this profile")
+                        help="remove the hourly task")
     args = parser.parse_args(argv)
 
     profiles = profilemod.ProfileManager()
-    name = profilemod.sanitize(args.profile) if args.profile else profiles.active
+    wanted = open_set(profiles, args.profile)
+    name = wanted[0]
 
     if args.register or args.unregister:
         try:
@@ -868,12 +992,14 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as exc:
             print(f"{name}: {exc}")
             return 1
-        print(f"{name}: {'registered' if args.register else 'removed'} {task_name(name)}")
+        print(f"{'registered' if args.register else 'removed'} {TASK}"
+              f" — profiles: {', '.join(wanted)}")
         return 0
 
     if args.status:
         info = status(profiles, name)
         live = probe(profiles, name)
+        print(f"profiles  : {', '.join(info.profiles)}")
         print(f"profile   : {info.profile}")
         print(f"task      : {info.task} "
               f"{'registered' if info.registered else 'not registered'}")

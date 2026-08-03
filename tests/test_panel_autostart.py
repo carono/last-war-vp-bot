@@ -9,9 +9,13 @@ Three things are worth pinning here, and all three are quiet when broken.
 * **A recycled pid is not a panel.** Windows hands the number out again within minutes,
   so the executable name travels with it; without that check «pid 8124 exists» is a
   claim made by whatever got the number next.
-* **The task names THIS install.** The interpreter, the working directory and the
-  profile all come from the panel doing the registering. A hard-coded path would work on
-  the machine it was written on and open the wrong panel — or none — everywhere else.
+* **The task names THIS install.** The interpreter and the working directory come from
+  the panel doing the registering. A hard-coded path would work on the machine it was
+  written on and open the wrong panel — or none — everywhere else.
+* **ONE task for ONE panel, whatever it has open (#1207).** A panel holds a page per open
+  profile since #1206, so a task per profile meant two windows on one game client. The
+  task names no profile; the set is read when it fires, and a panel is «there» if ANY of
+  those profiles is still beating.
 
 Touches no scheduler: `register` is never called, only the XML it would hand over. The
 profiles live in a temporary directory, so a real profile is neither read nor written.
@@ -327,8 +331,73 @@ def test_a_wedged_panel_is_closed_before_a_new_one_is_opened():
         assert record["seen"] == "hung"
 
 
+# -- one panel, several profiles (#1207) ---------------------------------------
+def test_the_set_it_opens_is_the_one_the_panel_saved():
+    """Read when the task fires, never frozen into it — the person opens and closes pages."""
+    with _profiles_in_tmp() as profiles:
+        assert autostartmod.open_set(profiles) == [profiles.active], "no set = the active one"
+        profiles.create("casper")
+        profiles.set_open_profiles([profiles.active, "casper"])
+        assert autostartmod.open_set(profiles) == [profiles.active, "casper"]
+        # `--profile` only says which page is on top; the rest still come up.
+        assert autostartmod.open_set(profiles, "casper") == ["casper", profiles.active]
+
+
+def test_a_legacy_task_pointing_at_a_deleted_profile_opens_the_saved_set_instead():
+    """#1203 left tasks named after profiles. One whose profile is gone must NOT re-create
+    it, empty, and open a panel on it every hour for ever."""
+    with _profiles_in_tmp() as profiles:
+        profiles.create("casper")
+        profiles.set_open_profiles([profiles.active, "casper"])
+        assert autostartmod.open_set(profiles, "deleted-long-ago") == \
+            [profiles.active, "casper"]
+
+
+def test_one_beating_page_means_the_panel_is_up_and_nothing_is_opened():
+    """The window is one. A profile of the set still beating IS the panel — opening a
+    second one for the page that is quiet would fight the first for its config.json."""
+    with _profiles_in_tmp() as profiles:
+        profiles.create("casper")
+        profiles.set_open_profiles([profiles.active, "casper"])
+        launched = []
+        real_open, real_pids = autostartmod.open_panel, autostartmod.panel_pids
+        autostartmod.open_panel = lambda p, n: launched.append(n)
+        autostartmod.panel_pids = lambda p, n=None: []
+        try:
+            autostartmod.beat(profiles, "casper")      # only the second page beats
+            record = autostartmod.check()
+        finally:
+            autostartmod.open_panel, autostartmod.panel_pids = real_open, real_pids
+        assert launched == [], "it opened a second panel over a running one"
+        assert record["state"] == "running", record
+        assert record["profiles"] == [profiles.active, "casper"], record
+        # …and every page's Settings reads the same verdict, whichever one is showing.
+        for name in (profiles.active, "casper"):
+            saved = json.loads(Path(profiles.autostart_state(name))
+                               .read_text(encoding="utf-8"))
+            assert saved["state"] == "running", name
+
+
+def test_nothing_beating_opens_ONE_panel_on_the_first_page():
+    """The whole set is dead — one window comes up, and it restores the rest itself."""
+    with _profiles_in_tmp() as profiles:
+        profiles.create("casper")
+        profiles.set_open_profiles([profiles.active, "casper"])
+        launched = []
+        real_open, real_pids = autostartmod.open_panel, autostartmod.panel_pids
+        autostartmod.open_panel = lambda p, n: launched.append(n)
+        autostartmod.panel_pids = lambda p, n=None: []
+        try:
+            record = autostartmod.check()
+        finally:
+            autostartmod.open_panel, autostartmod.panel_pids = real_open, real_pids
+        assert launched == [profiles.active], "one panel, on the page that was on top"
+        assert record["state"] == "failed"        # the stand-in never beats
+        assert record["profiles"] == [profiles.active, "casper"]
+
+
 def test_the_task_names_this_install_and_looks_once_an_hour():
-    xml = autostartmod.task_xml("main", python=r"C:\Python312\pythonw.exe",
+    xml = autostartmod.task_xml(python=r"C:\Python312\pythonw.exe",
                                 repo=r"C:\LastWar", account="PC\\player",
                                 run_level="HighestAvailable",
                                 start="2026-01-01T12:00:00")
@@ -336,9 +405,9 @@ def test_the_task_names_this_install_and_looks_once_an_hour():
     exec_node = root.find(".//t:Actions/t:Exec", NS)
     assert exec_node.find("t:Command", NS).text == r"C:\Python312\pythonw.exe"
     assert exec_node.find("t:WorkingDirectory", NS).text == r"C:\LastWar"
-    # `-m panel.runtime.autostart` with the profile quoted: a name with a space in it must not
-    # arrive as two arguments and check a profile nobody has.
-    assert exec_node.find("t:Arguments", NS).text == '-m panel.runtime.autostart --profile "main"'
+    # NO `--profile` (#1207): what one panel opens is read from the panel's own saved set
+    # when the task fires, so the task cannot go on opening yesterday's profiles.
+    assert exec_node.find("t:Arguments", NS).text == "-m panel.runtime.autostart"
 
     every = root.find(".//t:TimeTrigger/t:Repetition/t:Interval", NS)
     assert every.text == "PT1H", "the check is hourly — that is the whole feature"
@@ -358,35 +427,37 @@ def test_the_task_mirrors_the_rights_the_panel_has_now():
     """A panel running plain registers a plain task — asking for more is what needs an
     administrator, and refusing to register at all would be worse than a task that
     opens the panel exactly as the person runs it themselves."""
-    plain = ET.fromstring(autostartmod.task_xml("main", run_level="LeastPrivilege"))
+    plain = ET.fromstring(autostartmod.task_xml(run_level="LeastPrivilege"))
     assert plain.find(".//t:Principals/t:Principal/t:RunLevel", NS).text == "LeastPrivilege"
 
 
-def test_a_profile_name_needing_escaping_still_makes_valid_xml():
-    xml = autostartmod.task_xml('a & b <c>', python="py.exe", repo="C:\\x",
-                                account="", run_level="LeastPrivilege")
+def test_an_account_name_needing_escaping_still_makes_valid_xml():
+    xml = autostartmod.task_xml(python="py.exe", repo="C:\\x & <y>",
+                                account="PC\\a & b", run_level="LeastPrivilege")
     root = ET.fromstring(xml)                 # it parses, which is the assertion
-    assert 'a & b <c>' in root.find(".//t:Actions/t:Exec/t:Arguments", NS).text
-    assert root.find(".//t:Principals/t:Principal/t:UserId", NS) is None
+    assert root.find(".//t:Actions/t:Exec/t:WorkingDirectory", NS).text == "C:\\x & <y>"
+    assert root.find(".//t:Principals/t:Principal/t:UserId", NS).text == "PC\\a & b"
+    assert autostartmod.task_xml(account="", run_level="LeastPrivilege").count(
+        "<UserId>") == 0
 
 
-def test_one_task_per_profile_all_in_one_folder():
-    assert autostartmod.task_name("main") == r"Last War Bot\panel-main"
-    assert autostartmod.task_name("second") == r"Last War Bot\panel-second"
+def test_one_task_for_one_panel_and_the_old_per_profile_names_are_known():
+    """#1207: the task is `Last War Bot\\panel`, and #1203's names are only swept away."""
+    assert autostartmod.task_name() == r"Last War Bot\panel"
+    assert autostartmod.legacy_task_name("main") == r"Last War Bot\panel-main"
+    assert autostartmod.legacy_task_name("second") == r"Last War Bot\panel-second"
     # A name that sanitises to nothing must not make a task called `panel-`.
-    assert autostartmod.task_name("///") == r"Last War Bot\panel-default"
+    assert autostartmod.legacy_task_name("///") == r"Last War Bot\panel-default"
+    assert autostartmod.task_name().startswith(autostartmod.TASK_FOLDER)
 
 
-def test_a_cyrillic_profile_in_a_path_with_spaces_survives_the_xml():
-    """Both are ordinary here: the install is wherever it was unpacked (#1196), and a
-    profile is named by the person. The definition is written UTF-16 for exactly this."""
-    xml = autostartmod.task_xml("Основной", python=r"C:\Python312\pythonw.exe",
+def test_a_path_with_spaces_and_cyrillic_survives_the_xml():
+    """Ordinary here: the install is wherever it was unpacked (#1196), and the account is
+    the person's own. The definition is written UTF-16 for exactly this."""
+    xml = autostartmod.task_xml(python=r"C:\Python312\pythonw.exe",
                                 repo=r"P:\projects abandoned\карono\last-war-vp-bot",
                                 account="PC\\Игрок", run_level="LeastPrivilege")
     root = ET.fromstring(xml)
-    assert autostartmod.task_name("Основной") == "Last War Bot\\panel-Основной"
-    assert (root.find(".//t:Actions/t:Exec/t:Arguments", NS).text
-            == '-m panel.runtime.autostart --profile "Основной"')
     assert (root.find(".//t:Actions/t:Exec/t:WorkingDirectory", NS).text
             == r"P:\projects abandoned\карono\last-war-vp-bot")
     assert root.find(".//t:Principals/t:Principal/t:UserId", NS).text == "PC\\Игрок"
@@ -399,7 +470,8 @@ def test_the_status_is_asked_of_windows_not_of_the_profile():
     """Off this OS there is no scheduler, so nothing is registered and nothing pretends."""
     with _profiles_in_tmp() as profiles:
         info = autostartmod.status(profiles)
-        assert info.task == autostartmod.task_name(profiles.active)
+        assert info.task == autostartmod.TASK
+        assert info.profiles == (profiles.active,)
         assert info.supported is (os.name == "nt")
         if not info.supported:
             assert info.registered is False and info.elevated is False

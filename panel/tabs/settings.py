@@ -259,11 +259,13 @@ class SettingsTab(PanelTab):
             messagebox.showerror(self.t("autostart.frame"), said)
             self.say("autostart", "log.autostart.failed", error=said)
         else:
-            profile = self.rt.profiles.active
             if want:
-                self.say("autostart", "log.autostart.on", profile=profile)
+                # The task opens ONE panel with the whole set (#1207), so the set is what
+                # the line names — «для профиля X» would be a promise it does not make.
+                self.say("autostart", "log.autostart.on",
+                         profiles=", ".join(autostartmod.open_set(self.rt.profiles)))
             else:
-                self.say("autostart", "log.autostart.off", profile=profile)
+                self.say("autostart", "log.autostart.off")
         self._refresh_autostart()
 
     def _refresh_autostart(self) -> None:
@@ -283,6 +285,10 @@ class SettingsTab(PanelTab):
             lines.append(self.t("autostart.state.unsupported"))
         elif info.registered:
             lines.append(self.t("autostart.state.on", task=info.task))
+            # Which pages come up with it — the one thing a person cannot tell from the
+            # task's name, now that the name has no profile in it (#1207).
+            lines.append(self.t("autostart.state.profiles",
+                                profiles=", ".join(info.profiles)))
             if not info.elevated:
                 lines.append(self.t("autostart.state.limited"))
         else:
