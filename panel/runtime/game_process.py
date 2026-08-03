@@ -104,6 +104,23 @@ def _pids_by_name(game_exe: str) -> list[int]:
             if (p.info["name"] or "").lower() == game_exe.lower()]
 
 
+def own_session() -> int | None:
+    """The Windows session THIS process is in, or ``None`` if it cannot be asked.
+
+    ``None`` on anything that is not Windows-with-pywin32, which is what keeps the
+    fallback in :func:`pids` honest rather than silent. Asked about our OWN pid, so
+    `ProcessIdToSessionId` is enough — the query-rights problem `_pids_in_session`
+    documents only bites on somebody else's process.
+    """
+    try:
+        import os
+
+        import win32ts
+        return int(win32ts.ProcessIdToSessionId(os.getpid()))
+    except Exception:                    # noqa: BLE001 — not Windows, or no pywin32
+        return None
+
+
 def _pids_in_session(game_exe: str, session: int) -> list[int]:
     """The clients inside one Windows session.
 
@@ -118,18 +135,36 @@ def _pids_in_session(game_exe: str, session: int) -> list[int]:
 
 
 def pids(game_exe: str = GAME_EXE, user: str | None = None) -> list[int]:
-    """The client's PIDs — all of them, or only those in ``user``'s session.
+    """The client's PIDs: the ones in ``user``'s session, or the ones in OURS.
 
-    Raises ``LookupError`` when a session was asked for and could not be resolved: an
+    No user named does not mean "any client on the machine". It means **this desktop's**
+    — the session the panel itself is in — and the difference only shows up once there
+    really are two clients, which is exactly what #1206 is for: with the second account
+    up in session 4, a profile that named no session reported casper's pid as its own,
+    so both profiles' status strips pointed at one client and the console one would
+    never have noticed its own dying.
+
+    The fallback to a name-only search is for a machine that cannot be asked (not
+    Windows, no pywin32) — there, one session is the only session and the old answer is
+    the right one.
+
+    Raises ``LookupError`` when a session was NAMED and could not be resolved: an
     unanswerable question must not come back as an empty list, which reads as "the game
-    is not running" and would have the watchdog relaunch a client that is alive.
+    is not running" and would have the watchdog relaunch a client that is alive. Our own
+    session is not in that class — it is unanswerable only where sessions do not exist.
     """
-    if not user:
+    if user:
+        session = session_of(user)
+        if session is None:
+            raise LookupError(f"no session for {user}")
+        return _pids_in_session(game_exe, session)
+    here = own_session()
+    if here is None:
         return _pids_by_name(game_exe)
-    session = session_of(user)
-    if session is None:
-        raise LookupError(f"no session for {user}")
-    return _pids_in_session(game_exe, session)
+    try:
+        return _pids_in_session(game_exe, here)
+    except Exception:                    # noqa: BLE001 — WTS refused; a name is better
+        return _pids_by_name(game_exe)   #                than nothing at all
 
 
 def _endpoint(found) -> str | None:
@@ -173,8 +208,8 @@ def status(game_exe: str = GAME_EXE, user: str | None = None) -> tuple[bool, str
 
     ``game_exe`` is a parameter because the executable is a profile setting (an
     install somewhere else); ``user`` is one because the session is
-    (tools/rdp_instance.py). The defaults keep every existing caller — and the
-    tests — unchanged: no user named means "whichever client is on this machine".
+    (tools/rdp_instance.py). No user named means THIS desktop's client — see
+    :func:`pids` for why that is not the same as "whichever client is on this machine".
 
     The label is a :class:`Message` — the English sentence with its locale key — so the
     strip showing it says it in the panel's language.

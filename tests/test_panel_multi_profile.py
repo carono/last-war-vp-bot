@@ -17,7 +17,10 @@ be built silently redefines the first — so each is pinned here:
   * two debug-log scopes are two files, and an unscoped call still means the shared
     one;
   * a PINNED profile manager moves itself and never the panel's saved pointer;
-  * a translator built for one open profile does not rename the machine's language.
+  * a translator built for one open profile does not rename the machine's language;
+  * and, with two clients actually up, a profile that names no Windows session means
+    THIS desktop's client rather than whichever one the process list happened to list
+    first — which is what made both profiles' status strips point at one pid.
 
 Tk-free on purpose — none of this is about widgets. Runs anywhere:
 
@@ -42,6 +45,7 @@ from lastwar_bot import script_engine                      # noqa: E402
 from panel import debug_log as dbg                         # noqa: E402
 from panel import i18n as i18nmod                          # noqa: E402
 from panel import profile as profilemod                    # noqa: E402
+from panel.runtime import game_process as gp               # noqa: E402
 from panel.runtime.actions import ActionRunner             # noqa: E402
 from panel.runtime.children import ChildFactory, LEASE_VAR  # noqa: E402
 from panel.runtime.daemon import GameLink                  # noqa: E402
@@ -458,6 +462,79 @@ def test_a_non_persisting_translator_leaves_the_machine_wide_choice_alone() -> N
         assert written == [other], "the panel's own window still remembers"
     finally:
         i18nmod.I18n._save_pref = saved
+
+
+# ---------------------------------------------------------------------------
+# with two clients up, each profile must find ITS OWN
+# ---------------------------------------------------------------------------
+
+class _TwoClients:
+    """Session 1 holds this desktop's client, session 4 holds the second account's."""
+
+    def __init__(self, here=1) -> None:
+        self.here = here
+        self.procs = {1: [1001], 4: [4004]}
+
+    def __enter__(self):
+        self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
+                       gp._endpoint, gp.own_session)
+        gp.sessions = lambda: [{"id": 1, "user": "spame", "state": gp.WTS_ACTIVE},
+                               {"id": 4, "user": "casper",
+                                "state": gp.WTS_DISCONNECTED}]
+        gp._pids_in_session = lambda exe, session: list(self.procs.get(session, ()))
+        gp._pids_by_name = lambda exe: [p for ps in self.procs.values() for p in ps]
+        gp._endpoint = lambda found: None
+        gp.own_session = lambda: self.here
+        return self
+
+    def __exit__(self, *exc):
+        (gp.sessions, gp._pids_in_session, gp._pids_by_name,
+         gp._endpoint, gp.own_session) = self._saved
+        return False
+
+
+class _Knobs:
+    def __init__(self, **kw) -> None:
+        self._v = {"game_exe": "LastWar.exe", "rdp_session": False, "rdp_user": ""}
+        self._v.update(kw)
+
+    def opt_str(self, key):
+        return str(self._v.get(key, ""))
+
+    def opt_bool(self, key):
+        return bool(self._v.get(key))
+
+    def opt_int(self, key, low=None, high=None):
+        return int(self._v.get(key, 0))
+
+
+def test_a_profile_naming_no_session_means_THIS_desktop_not_any_client() -> None:
+    """The bug the second account made visible: both profiles reported one pid."""
+    with _TwoClients(here=1):
+        assert gp.pids("LastWar.exe") == [1001], "ours, not whichever came first"
+        assert gp.pids("LastWar.exe", user="casper") == [4004]
+
+        console = gp.profile_status(_Knobs())
+        second = gp.profile_status(_Knobs(rdp_session=True, rdp_user="casper"))
+        assert console[0] and second[0]
+        assert "1001" in str(console[1]) and "4004" in str(second[1])
+        assert str(console[1]) != str(second[1]), \
+            "two clients, two answers — this is the whole point"
+
+
+def test_a_machine_that_cannot_be_asked_falls_back_to_the_name() -> None:
+    """One session is the only session there; the old answer is the right one."""
+    with _TwoClients(here=None):
+        assert gp.pids("LastWar.exe") == [1001, 4004]
+
+
+def test_a_named_session_that_does_not_exist_is_still_an_error_not_an_empty_list() -> None:
+    with _TwoClients():
+        try:
+            gp.pids("LastWar.exe", user="nobody")
+        except LookupError:
+            return
+        raise AssertionError("an unanswerable question must not read as «not running»")
 
 
 def _main() -> int:
