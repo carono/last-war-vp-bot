@@ -7,7 +7,7 @@
 #     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "Тест"
 #     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "hi {e:101}{e:106}"
 #     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --sticker 35
-#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --coords "567,471"
+#     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --coords "600,400"
 #     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --my-base
 #     C:\Python312\python.exe tools\chat_send.py --room country_935 --text "hello world"
 #     C:\Python312\python.exe tools\chat_send.py --to <peerUid> --text "hi" --dry-run
@@ -27,7 +27,7 @@
 # Coordinates are NOT text: --coords "X,Y" shares a map pin (--coord-server /
 # --coord-label / --coord-type tune it) and --my-base shares the player's own base
 # the way the chat "share my position" button does. Accepted coordinate spellings are
-# whatever tools/lib/coords.py parses ("X:567 Y:471", "@[567,471|935]", "(567,471)").
+# whatever tools/lib/coords.py parses ("X:600 Y:400", "@[600,400|935]", "(600,400)").
 #
 # Everything runs inside the game's own Lua VM through the warm daemon (no pixels,
 # no foreground input). Text / emoji funnel through ChatManager2:__sendToRoom,

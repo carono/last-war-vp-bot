@@ -1,7 +1,7 @@
 # Sending chat messages (text, emoji, sticker)
 
-Reverse-engineered live for task #1085 from a PM trace to the player **EleNita**
-(`results/traces/20260728_220208_чат_EleNita_trace.log`). This is the write side of
+Reverse-engineered live for task #1085 from a PM trace to the player **<Player9>**
+(`results/traces/20260728_220208_чат_<Player9>_trace.log`). This is the write side of
 [`chat.md`](chat.md) (rooms/wire) and [`chat-lua-readout.md`](chat-lua-readout.md)
 (the read side).
 
@@ -31,7 +31,7 @@ read-only `debug.sethook` "call" probe.)
 
 | Param | Text send (from trace) | Meaning |
 |---|---|---|
-| `roomId` | `custom_1697234600000972_1522777203000972_v2` | target room (see below) |
+| `roomId` | `custom_1000000000014972_1522777203000972_v2` | target room (see below) |
 | `msg` | `123123` | the text; **inline emoji are PUA chars inside this string** |
 | `extra` | a table | optional `msgExtra` (srcLang, post, atUids, senderLevel, …) |
 | `reply` | `nil` | reply-to message |
@@ -70,7 +70,7 @@ Alliance  alliance_<serverId>_<allianceId>
 ```
 
 `selfUid` comes live from `ChatInterface.getPlayerUid()` (here <uid>,
-server 935). EleNita's uid is 1697234600000972.
+server 935). <Player9>'s uid is 1000000000014972.
 
 ## Emoji — inline PUA glyphs
 
@@ -109,8 +109,8 @@ sticker/zyf_shengdanjie_biaoqing_icon`).
 
 Sending does **not** need the chat UI. `ChatManager2` is an always-loaded
 singleton and `__sendToRoom` fires the wire commands directly, with no dependency
-on the `UIChatNew_v2` window. Verified live against EleNita
-(`custom_1697234600000972_1522777203000972_v2`):
+on the `UIChatNew_v2` window. Verified live against <Player9>
+(`custom_1000000000014972_1522777203000972_v2`):
 
 | Send | Chat window | Result (via `tools/chat_reader.py`) |
 |---|---|---|

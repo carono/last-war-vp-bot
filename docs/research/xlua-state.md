@@ -567,7 +567,7 @@ scene flags read back **from Lua through the same `LuaEnv.DoString`** (logged to
 |---|---|---|
 | before | `false` / `true` (base) | — |
 | `DoString("SceneUtils.ChangeToWorld()")` | `ret=0 exc=0` | — |
-| after | **`true` / `false`** (world) | **«База»** + world-map content (`БЗ #935 X:294 Y:636`) |
+| after | **`true` / `false`** (world) | **«База»** + world-map content (`БЗ #935 X:300 Y:600`) |
 
 `results/gw_after.png` shows the flipped **«База»** toggle and other-player world
 content — the same decisive visual as §12.2, reached this time through

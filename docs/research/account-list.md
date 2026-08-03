@@ -35,7 +35,7 @@ the whole list in `accountArr`:
 ```
 accountArr: 2 entries
   [1] id=935  gameUid=<uid>  gameUserName=<PlayerName>          gameUserLevel=35  zone=APS935  power=241514404  alAbbr=<ALLY>
-  [2] id=509  gameUid=2146058428000509  gameUserName=Игрок 3464d509  gameUserLevel=21  zone=APS509  power=4185296    alAbbr=RBs
+  [2] id=509  gameUid=1000000000013509  gameUserName=Игрок 00000509  gameUserLevel=21  zone=APS509  power=4185296    alAbbr=<ALLY3>
 ```
 
 **Two.** Not six. Per entry the server sends ~33 fields; the ones worth drawing are

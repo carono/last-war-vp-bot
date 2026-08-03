@@ -47,11 +47,11 @@ Usage (run under the Windows Python so it can reach the daemon)
     C:\Python312\python.exe tools\chat_send.py --to 1000000000014972 --text "Тест"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --text "hi {e:101}{e:106}"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --sticker 35
-    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "567,471"
-    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "X:567 Y:471" --coord-server 972
+    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "600,400"
+    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "X:600 Y:400" --coord-server 972
     C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "500,500" --coord-label "Сбор тут"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --my-base
-    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "615,493" --coord-type 22 \
+    C:\Python312\python.exe tools\chat_send.py --to <uid> --coords "610,490" --coord-type 22 \
         --coord-label "Секретное задание" --coord-extra '{"uuid":…,"cfgId":…,"uname":…,"abbr":…,"dispatch":1}'
     C:\Python312\python.exe tools\chat_send.py --room country_935 --text "hello world"
     C:\Python312\python.exe tools\chat_send.py --to <uid> --text "hi" --dry-run
@@ -202,9 +202,9 @@ def send(ev, room: str, text=None, sticker=None, dry=False) -> int:
 def parse_coords(text: str):
     """(x, y, server|None) from any coordinate spelling the project accepts.
 
-    Delegates to tools/lib/coords.py (the canonical parser: "X:567 Y:471",
-    "@[567,471|935]", "(567,471)", "567/471", ...) and additionally accepts the plain
-    "567,471" pair, which the shared parser deliberately ignores in prose.
+    Delegates to tools/lib/coords.py (the canonical parser: "X:600 Y:400",
+    "@[600,400|935]", "(600,400)", "600/400", ...) and additionally accepts the plain
+    "600,400" pair, which the shared parser deliberately ignores in prose.
     """
     hits = coords_fmt.parse(text)
     if hits:
@@ -241,7 +241,7 @@ def main() -> int:
     ap.add_argument("--text", help="message text; supports {e:<id>} emoji tokens")
     ap.add_argument("--sticker", type=int, help="sticker id to send (see --list-sticker)")
     ap.add_argument("--coords", metavar="X,Y",
-                    help='share a map pin; accepts "567,471", "X:567 Y:471", "@[567,471|935]"')
+                    help='share a map pin; accepts "600,400", "X:600 Y:400", "@[600,400|935]"')
     ap.add_argument("--coord-server", type=int,
                     help="server id for --coords (default: the coordinate's own, else self server)")
     ap.add_argument("--coord-label", help="text shown on the shared pin (attachment `oname`)")

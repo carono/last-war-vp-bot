@@ -1,6 +1,6 @@
 # Sharing coordinates in chat
 
-Reverse-engineered live for task #1089 from a PM run to **EleNita**
+Reverse-engineered live for task #1089 from a PM run to **<Player9>**
 (`results/traces/20260728_223330_sniff_sharing_cords_trace.log`, messages
 `seq 125…130` in that DM room). This is the coordinate half of
 [`chat-send.md`](chat-send.md) (text / emoji / stickers) and complements
@@ -22,7 +22,7 @@ A shared map point is an ordinary `ChatMessage` with three distinguishing fields
 
 The bubble the player sees is rendered client-side from the attachment —
 `ChatMessage:getMessageWithExtra()` turns it into e.g.
-`[<ALLY>] <PlayerName> (БЗ #935 X:567 Y:471)`. A consumer that only reads `getMsg()`
+`[<ALLY>] <PlayerName> (БЗ #935 X:600 Y:400)`. A consumer that only reads `getMsg()`
 sees `"?"`; `tools/chat_reader.py` already prefers `getMessageWithExtra()` for
 exactly this case.
 
@@ -40,7 +40,7 @@ live, one message per row:
 | **own base** ("share my position" button) | 13 | `{x, y, sid, worldId, worldType, oname:"[TAG] Name"}` — **no `posType`** |
 | **bare map tile** | 13 | `posType: 0`, `uid: "<sharer uid>"` |
 | **resource node** | 13 | `posType: 1`, `olv: 21`, `oname: "2000001"` (a template id, not a name) |
-| **node being gathered** | 13 | `posType: 6`, `olv: 10`, `oname: 129027`, `uname: "Добытчик: [WPBs]tonyv811976"` |
+| **node being gathered** | 13 | `posType: 6`, `olv: 10`, `oname: 129027`, `uname: "Добытчик: [<ALLY2>]<Player10>"` |
 | **secret task / hero dispatch** | 13 | `posType: 22`, `uuid`, `cfgId`, `dispatch: 1`, `uname`, `abbr`, `oname: "Секретное задание"` |
 | **own march** | **687** | `postType: 687`, `marchUuid`, `marchType: 15`, `key: "science_condition"`, `level`, `name`, `serverId`, `oname` |
 
@@ -120,12 +120,12 @@ visible to other players).
 
 ## 4. Verified live
 
-Three sends through the tool landed in the EleNita DM room:
+Three sends through the tool landed in the <Player9> DM room:
 
 | seq | what | rendered bubble |
 |---|---|---|
 | 132 | bare pin at 500,500 | ` (БЗ #935 X:500 Y:500)` |
-| 133 | `--my-base` | `[<ALLY>] <PlayerName> (БЗ #935 X:567 Y:471)` |
+| 133 | `--my-base` | `[<ALLY>] <PlayerName> (БЗ #935 X:600 Y:400)` |
 | 134 | `--coords "X:512 Y:498" --coord-label "Тест координат"` | `Тест координат (БЗ #935 X:512 Y:498)` |
 
 seq 133 is shape-identical to `seq 125`, which the player produced by pressing
@@ -166,13 +166,13 @@ dispatch-complete / not-expired gate the `can_loot` rule uses for tiles.
 ```bash
 C:\Python312\python.exe tools\dispatch_tasks.py --alliance --ready --nearest --share-args
 C:\Python312\python.exe tools\chat_send.py --to <peerUid> \
-    --coords "615,493" --coord-server 935 --coord-type 22 \
+    --coords "610,490" --coord-server 935 --coord-type 22 \
     --coord-label "Секретное задание" \
     --coord-extra '{"uuid":…,"cfgId":…,"uname":"<Player2>","abbr":"<ALLY>","dispatch":1}'
 ```
 
-Verified live: `seq 137` in the EleNita room rendered
-`Секретное задание [<ALLY>] <Player2> (БЗ #935 X:615 Y:493)` — field-for-field the same
+Verified live: `seq 137` in the <Player9> room rendered
+`Секретное задание [<ALLY>] <Player2> (БЗ #935 X:610 Y:490)` — field-for-field the same
 attachment shape the game's own tile-bubble share produced (`seq 126`, `seq 136`).
 
 `uuid` exceeds 2^53, so it must never be round-tripped through a float: it is read
@@ -193,7 +193,7 @@ ev = lua_client.get_evaluator()          # warm daemon, or a local LuaEval
 me = chat_share.self_profile(ev)         # {uid, srv, x, y, name, abbr}
 room = chat_share.dm_room(peer_uid, me["uid"])
 
-chat_share.share_point(ev, room, chat_share.point_attachment(615, 493, 935),
+chat_share.share_point(ev, room, chat_share.point_attachment(610,490, 935),
                        peer_uid=peer_uid)
 ```
 
@@ -242,8 +242,8 @@ Things worth knowing before you build on this:
 - `tools/dispatch_tasks.py` — list live secret tasks (`--own` / `--alliance`,
   `--ready`, `--nearest`, `--json`, `--share-args`).
 - `tools/chat_send.py`:
-  - `--coords "567,471"` — share a map pin (accepts every spelling
-    `tools/lib/coords.py` parses: `X:567 Y:471`, `@[567,471|935]`, `(567,471)`, …),
+  - `--coords "600,400"` — share a map pin (accepts every spelling
+    `tools/lib/coords.py` parses: `X:600 Y:400`, `@[600,400|935]`, `(600,400)`, …),
   - `--coord-server`, `--coord-label`, `--coord-type` (attachment `posType`),
   - `--coord-extra '<json>'` — kind-specific attachment fields (secret task, node, …),
   - `--my-base` — share own base like the in-game button,

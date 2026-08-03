@@ -244,7 +244,7 @@ class ChatTab(PanelTab):
         self.tr(ttk.Button(send, command=self._chat_send_text),
                  "chat.send").pack(side="left", padx=(4, 0))
         # The coordinate written in the box beside it, shared as a map pin — not as
-        # text. A pin is tappable in the game; "567,471" is not.
+        # text. A pin is tappable in the game; "600,400" is not.
         self.tr(ttk.Button(send, command=self._chat_send_coords),
                  "chat.send_coords").pack(side="left", padx=(4, 0))
 
