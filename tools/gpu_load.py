@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -106,6 +107,51 @@ def sample_engines(seconds: int, interval: float = 1.0) -> list[dict]:
     ]
 
 
+def sample_cpu(seconds: int, interval: float = 1.0) -> dict[int, float]:
+    r"""Average CPU per pid over a window, as a share of ONE core.
+
+    Read through WMI rather than through ``Get-Counter``. The counter *paths* are
+    localised — on a Russian Windows ``\Process(*)\% Processor Time`` does not resolve at
+    all ("объекты не найдены") — while ``Win32_PerfFormattedData_PerfProc_Process`` keeps
+    English property names on every locale and carries ``IDProcess``, so no instance-name
+    to pid mapping is needed either. (``\GPU Engine`` above survives only because it has
+    no localised name to be confused with.)
+
+    The value is Windows' own ``% Processor Time``: 100 means one core saturated, so on an
+    8-core machine a fully busy process reads 800. Divide by ``cpu_cores()`` for the
+    share-of-machine figure Task Manager shows.
+    """
+    script = (
+        "Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | "
+        "Where-Object { $_.IDProcess -gt 0 } | "
+        "ForEach-Object { $_.IDProcess.ToString() + '|' + $_.PercentProcessorTime }"
+    )
+    totals: dict[int, float] = {}
+    counts: dict[int, int] = {}
+    deadline = time.time() + seconds
+    first = True
+    while time.time() < deadline:
+        text = _run([POWERSHELL, "-NoProfile", "-Command", script], timeout=60)
+        # The formatted-data class needs two internal samples to have a rate at all, so
+        # the first reading of a run is all zeroes and would drag every average down.
+        if not first:
+            for line in text.splitlines():
+                pid_s, _, value = line.partition("|")
+                try:
+                    pid, pct = int(pid_s.strip()), float(value.strip().replace(",", "."))
+                except ValueError:
+                    continue
+                totals[pid] = totals.get(pid, 0.0) + pct
+                counts[pid] = counts.get(pid, 0) + 1
+        first = False
+        time.sleep(interval)
+    return {pid: totals[pid] / counts[pid] for pid in totals if counts.get(pid)}
+
+
+def cpu_cores() -> int:
+    return os.cpu_count() or 1
+
+
 def sample_card(seconds: int, interval: float = 1.0) -> dict:
     """Whole-card utilisation, power and clock, averaged over the same window."""
     rows: list[tuple[float, float, float, float]] = []
@@ -151,6 +197,7 @@ def main() -> int:
     )
     ap.add_argument("--label", default="", help="echoed into the output")
     ap.add_argument("--all", action="store_true", help="report every process, not just the game")
+    ap.add_argument("--no-cpu", action="store_true", help="skip the CPU pass (it costs a window)")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     args = ap.parse_args()
 
@@ -165,16 +212,32 @@ def main() -> int:
     # measurable load of its own inside the nvidia-smi window.
     card = sample_card(args.seconds)
     engines = sample_engines(args.seconds)
+    cpu = sample_cpu(args.seconds) if not args.no_cpu else {}
 
     per_pid: dict[int, dict] = {}
+
+    def entry_for(pid: int) -> dict:
+        return per_pid.setdefault(
+            pid,
+            {"pid": pid, "session": games.get(pid, "?"), "engines": {}, "total": 0.0,
+             "cpu_percent_of_core": None, "cpu_percent_of_machine": None},
+        )
+
     for row in engines:
         if not args.all and row["pid"] not in wanted:
             continue
-        entry = per_pid.setdefault(
-            row["pid"], {"pid": row["pid"], "session": games.get(row["pid"], "?"), "engines": {}, "total": 0.0}
-        )
+        entry = entry_for(row["pid"])
         entry["engines"][row["engtype"]] = round(row["percent"], 2)
         entry["total"] += row["percent"]
+
+    # A process that draws nothing at all still has a CPU row, and that is exactly the
+    # case worth seeing, so the CPU pass may add pids the GPU pass never mentioned.
+    for pid, value in cpu.items():
+        if not args.all and pid not in wanted:
+            continue
+        entry = entry_for(pid)
+        entry["cpu_percent_of_core"] = round(value, 2)
+        entry["cpu_percent_of_machine"] = round(value / cpu_cores(), 2)
 
     result = {
         "label": args.label,
@@ -199,8 +262,13 @@ def main() -> int:
         print("no GPU activity recorded for the requested processes")
     for entry in result["processes"]:
         engines_text = "  ".join(f"{k}={v:.2f}%" for k, v in sorted(entry["engines"].items()))
+        cpu_text = ""
+        if entry["cpu_percent_of_core"] is not None:
+            cpu_text = (f"   cpu {entry['cpu_percent_of_core']:6.2f}% of a core "
+                        f"({entry['cpu_percent_of_machine']:.2f}% of {cpu_cores()})")
         print(
-            f"pid {entry['pid']:>7} [{entry['session']}]  total {entry['total']:6.2f}%   {engines_text}"
+            f"pid {entry['pid']:>7} [{entry['session']}]  gpu {entry['total']:6.2f}%   "
+            f"{engines_text}{cpu_text}"
         )
     return 0
 

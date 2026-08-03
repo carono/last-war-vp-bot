@@ -7,10 +7,16 @@
 # to draw ten frames a second at the lowest quality it costs a twelfth of that, and
 # nothing the bot does gets slower (docs/research/headless-gpu.md).
 #
-# The settings do NOT survive a restart — the client comes back at full quality every
-# time, and its own launcher throws away any command line you give it. So this belongs
-# after every launch: run it from the same schedule that starts the game, or right after
-# `launch_game`.
+# The settings do NOT survive a restart — the client comes back at 60 frames a second and
+# full quality every time — so this belongs after every launch. A timer is the easy way:
+# re-applying costs one round trip and is idempotent, so a period of a quarter of an hour
+# covers restarts, crashes and the watchdog without anybody thinking about it.
+#
+# The render size is the exception and does not need this script at all: Unity keeps it in
+# the registry (`Screenmanager Resolution Width` / `Height` under
+# `HKCU\Software\FunFly\Last War-Survival Game`), where it survives every restart and
+# every launch route. Setting it there once is better than setting it here every time —
+# docs/research/headless-gpu.md §3.6. The width/height below are for changing it live.
 #
 #   fps      frames per second to allow. 10 is the floor that costs nothing: below it
 #            the Lua round trip starts to stretch (5 → ~1.2 s, 1 → ~2.8 s) because a
