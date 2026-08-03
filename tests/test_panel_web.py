@@ -640,7 +640,8 @@ def test_a_certificate_that_will_not_load_refuses_to_serve():
 # signed in for ever.
 
 def test_wrong_tokens_lock_an_address_out():
-    """Six wrong guesses and that address waits. Over a tunnel this is not optional."""
+    """Six wrong guesses and that address waits. Behind a forwarded port that is not
+    optional: the guessing may then be done from anywhere, at any rate, all night."""
     attempts = webmod.Attempts(limit=3, lockout=60.0)
     peer = "203.0.113.7"
     assert attempts.locked(peer) == 0

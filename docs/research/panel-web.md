@@ -109,15 +109,6 @@ filter on the router — which is where that question belongs and where the oper
 already answers it. A VPN in front is better still and is not this repository's to
 configure.
 
-An outbound tunnel was built here for a while and **taken out again** (`cloudflared`, a
-free Cloudflare quick tunnel). It worked, and the reasons it went are worth keeping: it
-put somebody else's infrastructure in the path to a game account, it made the panel
-depend on a service nobody here controls, and the free tier hands out a different
-address every time it starts. A person who has a filter on their router has already
-solved the problem it was solving. If it is ever wanted back, it was one small module
-and a switch — but it should stay out until somebody has a house it is genuinely the
-answer for.
-
 **TLS is available and is nobody's default.** Point the two knobs at a certificate and
 its key in PEM and the server speaks HTTPS instead of HTTP; the address the tab shows
 follows the scheme, because an `http://` link to a TLS-only server fails in a way nobody
@@ -216,8 +207,10 @@ node in this project and there should not be one for this.
 * **An Android application.** The original idea, dropped: `tkinter` does not exist on
   Android, the game does not run there either, and a browser page reaches iOS as well
   for nothing.
-* **A tunnel to the outside** — see §3.2a: built, live-tested and removed. External
-  access is a forwarded port and the router's own address filter.
+* **Anything that reaches the panel through a third party.** No service outside this
+  machine belongs in the path to a game account, whatever it is called and however free
+  it is. Reaching it from elsewhere is the router's job: a forwarded port, and the
+  filter on the router deciding who may.
 * **Server push (websockets, SSE).** A poll every 2.5 seconds is a handful of bytes and
   survives a phone that sleeps, a Wi-Fi handover and a proxy. The notification the person
   actually wants — «something failed» — is raised by the browser off the poll that found
