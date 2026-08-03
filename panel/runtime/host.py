@@ -102,7 +102,11 @@ class PanelRuntime:
             # this was the one line that did not.
             port=self.daemon_port,
             schedule=root.after if root is not None else None,
-            token=lambda: self.game.token)
+            token=lambda: self.game.token,
+            # Where this profile's children are written down, so a run that was killed
+            # rather than closed does not leave its monitors sniffing for ever (#1212).
+            # A callable, like the port and the lease: it has to follow a profile switch.
+            registry=lambda: self.profiles.dir())
         self.game = GameLink(
             port=self.daemon_port,
             python=lambda: self.settings.opt_str("win_python"),
@@ -120,6 +124,14 @@ class PanelRuntime:
         # for "not in this window", in the shell and standalone alike.
         from ..tabs import TabRegistry
         self.tabs = TabRegistry()
+        # WHAT THE LAST RUN LEFT BEHIND (#1212). A panel that was killed rather than
+        # closed — the task manager, a crash, the machine going down — leaves its
+        # monitors running, and they go on spending the day's robberies beside the new
+        # ones. Here rather than in the shell so a standalone tab cleans up too, and
+        # before anything of this runtime's own is started so the log line reads in
+        # order. Only children of a DEAD owner are touched: a panel open beside this one
+        # keeps its own (panel/runtime/children.py).
+        self.children.reap()
 
     @property
     def schedule(self):
@@ -276,6 +288,14 @@ class PanelRuntime:
     def shutdown(self) -> None:
         self.stop_heartbeat()
         self.tick.disarm_all()
+        # EVERY child, not just the ones a tab remembered to stop. A tab's own
+        # `shutdown` still runs first and still knows what its checkbox means; this is
+        # the floor under it, and the only thing that catches a child whose tab was
+        # never built, or whose stop was forgotten (#1212). Before the lease is let go,
+        # so nothing that inherited it is still holding the game afterwards.
+        stopped = self.children.stop_all()
+        if stopped:
+            self.log.say("panel", "log.children.stopped", count=stopped)
         self.game.release()
         self.log.close_file()
 

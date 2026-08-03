@@ -2976,6 +2976,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
             for tab in getattr(self, "_plugin_tabs", {}).values():
                 tab.panic()
             self._schedule.stop()
+            # …and then whatever is STILL running, whoever started it. Each tab has just
+            # stopped what it holds, but «Стоп всё» is pressed when something has gone
+            # wrong, and that is precisely when a child nobody is holding any more is
+            # the one still sniffing (#1212).
+            stopped = self._rt.children.stop_all()
+            if stopped:
+                self._say("panel", "log.children.stopped", count=stopped)
             # Nothing is being done any more, so nothing may be left saying it is: a
             # step whose thread was asked to stop mid-way would otherwise sit on the
             # bottom strip for the rest of the session.

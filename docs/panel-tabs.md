@@ -116,7 +116,7 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.game` | `evaluator()`, `client`, `up()`, `claim()` / `release()`, `jump()`, `port()` |
 | `rt.actions` | `run(name, args)`, `play(...) -> Outcome`, `run_text`, `resolve`, `problem` |
 | `rt.play_async(name, args, …)` | run a scenario on a worker under the claim |
-| `rt.children` | `spawn(...)` (a monitored child) / `spawn_raw(...)` (read it yourself) |
+| `rt.children` | `spawn(...)` (a monitored child) / `spawn_raw(...)` (read it yourself). Both are **owned**: the runtime ends every child it started when the window closes, and a run that was killed rather than closed has its leftovers ended on the next start (#1212). Stop yours in `shutdown` anyway — that is what unticks the box and says so in the log; this is only the floor under it. |
 | `rt.tick` | `arm(name, ms, fn)` / `disarm(name)` — **named**, so a loop started twice is started once |
 | `rt.bus` | `publish(topic, payload)` / `subscribe(topic, fn) -> unsubscribe` |
 | `rt.activity` | `with rt.activity.step("activity.x", **fmt):` — what the panel is doing right now, on the strip along the bottom of the window |

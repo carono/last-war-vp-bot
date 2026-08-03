@@ -19,6 +19,10 @@ arguments:
                    dealt with); returning ``None``/``True`` logs it as usual.
   * ``on_exit``  — run when the child has gone *on its own* (not via :meth:`stop`),
                    which is what unticks the checkbox.
+  * ``on_spawn`` — run the moment the child exists, with this monitor. The factory
+                   (`panel/runtime/children.py`) uses it to take ownership: the process
+                   only has a pid once it has started, and something has to know the
+                   pid for the panel to be able to end it at shutdown (#1212).
 
 The child is always launched the same way, and that is the point: unbuffered, utf-8
 forced on the pipe (a Windows child's piped stdout otherwise falls back to the ANSI
@@ -51,7 +55,7 @@ class ChildMonitor:
 
     def __init__(self, cmd: list, tag: str, *, log, cwd: str,
                  on_line=None, on_exit=None, schedule=None, env=None,
-                 capture_stderr: bool = True) -> None:
+                 capture_stderr: bool = True, on_spawn=None) -> None:
         self.cmd = list(cmd)
         self.tag = tag
         self.proc: "subprocess.Popen | None" = None
@@ -59,6 +63,7 @@ class ChildMonitor:
         self._cwd = cwd
         self._on_line = on_line
         self._on_exit = on_exit
+        self._on_spawn = on_spawn
         self._schedule = schedule
         # The panel supplies this (it carries LW_DAEMON_PORT, so a child drives the
         # same client the panel does). The fallback keeps a bare ChildMonitor usable.
@@ -84,6 +89,13 @@ class ChildMonitor:
             self._log(f"[{self.tag}] ошибка запуска: {exc}")
             self.proc = None
             return False
+        # Owned before it is read: a child the panel does not know about is a child the
+        # panel cannot stop, and it would go on sniffing after the window is gone.
+        if self._on_spawn is not None:
+            try:
+                self._on_spawn(self)
+            except Exception:         # noqa: BLE001 — bookkeeping, not the child
+                pass
         self._thread = threading.Thread(target=self._read, daemon=True,
                                         name=f"panel-{self.tag}")
         self._thread.start()
