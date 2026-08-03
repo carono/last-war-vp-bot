@@ -524,6 +524,11 @@ class VsDuelTab(PanelTab):
         #: tab — or by another day of this one.
         self._wrap_ns = f"VsDuel{next(_WRAP_NS)}"
         self._box_no: dict = {}
+        #: The week is drawn on first show, not at build time (see :meth:`build`), and
+        #: this says whether it has been. Everything a set, a plan or a saved profile
+        #: needs exists whatever it says: the variables are made below, in `__init__`.
+        self._week = None
+        self._week_built = False
         #: The wrap each of those styles is currently set to — what keeps :meth:`_rewrap`
         #: from configuring a style to the width it already has, and so from a
         #: <Configure> that feeds itself.
@@ -585,6 +590,20 @@ class VsDuelTab(PanelTab):
 
     # -- UI -------------------------------------------------------------------
     def build(self) -> None:
+        """The tab's frame and its top row — NOT the week (#1211).
+
+        The six day frames are some two hundred widgets that lay out against each other
+        in two uniform columns, and building them cost **2.3 seconds of the page build**
+        against 67–210 ms for every other tab in the panel. A profile's page is built
+        when the panel opens and when a profile is switched to for the first time, so
+        that was two and a half seconds of a window that answered nothing, for a tab
+        nobody had asked to see.
+
+        Nothing but the widgets waits: every variable, every default and every key of
+        the week is made in `__init__`, so the plan the duel scenarios read, the
+        settings the profile saves and the sets they live in all answer exactly the same
+        before the week is drawn as after it. :meth:`on_show` draws it, once.
+        """
         bar = ttk.Frame(self.parent)
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
@@ -596,8 +615,19 @@ class VsDuelTab(PanelTab):
 
         self._build_sets_bar()
 
-        scroll = ScrollableFrame(self.parent)
-        scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._week = ScrollableFrame(self.parent)
+        self._week.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self._refresh_set_lists()
+        self._load_all_days()
+        self._retranslate_choices()
+        self._sync_dependents()
+
+    def _build_week(self) -> None:
+        """The six day frames, drawn once — the first time somebody looks at the tab."""
+        if self._week_built or getattr(self, "_week", None) is None:
+            return
+        self._week_built = True
+        scroll = self._week
         # `uniform` is what keeps the columns the same width whatever is inside them:
         # without it Friday's six one-line boxes would squeeze the column Monday's
         # ceilings are in, and the week would look ragged.
@@ -612,6 +642,8 @@ class VsDuelTab(PanelTab):
             self._build_day_set(box, day)
             self._build_items(box, day, items, day_box=box)
             box.bind("<Configure>", lambda _e, b=box: self._rewrap_soon(b))
+        # The widgets are a VIEW of the sets, so they are filled from them here — the
+        # values themselves have been right since `apply_config`, whenever that was.
         self._refresh_set_lists()
         self._load_all_days()
         self._retranslate_choices()
@@ -964,12 +996,14 @@ class VsDuelTab(PanelTab):
             pass
 
     def on_show(self) -> None:
-        """Somebody opened the duel: wrap the week to the width it is actually at.
+        """Somebody opened the duel: draw the week if it is not drawn, then wrap it.
 
-        This is where the wrap happens now, because :meth:`_rewrap` refuses to run on a
-        page nobody is looking at — and while the panel is building fifteen tabs, or
-        showing another profile, this one is exactly that.
+        Both halves are here for the same reason — the week is the expensive thing in
+        this tab and nothing that is not being looked at should pay for it (#1211). The
+        wrap in particular refuses to run on a page nobody is looking at, and while the
+        panel is building its tabs, or showing another profile, this one is exactly that.
         """
+        self._build_week()
         for day_box in list(self._wrapped):
             self._rewrap(day_box)
 

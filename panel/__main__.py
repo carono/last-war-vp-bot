@@ -803,8 +803,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
         session = next((s for s in self._workspace.sessions if s.page is page), None)
         if session is None or session is self._current_session:
             return
+        # Timed, because «переключение подвесило панель» has to be answerable with a
+        # number and a name rather than a guess (#1211). DEBUG, so it costs a line in
+        # the rotating log and nothing on screen.
+        started = time.perf_counter()
         self._workspace.switch_to(session.name)
+        moved = time.perf_counter()
         self._show(session)
+        dbg = getattr(self, "_dbg", None)
+        if dbg is not None:
+            dbg.debug("switched to %r: workspace %d ms, page %d ms",
+                      session.name, (moved - started) * 1000,
+                      (time.perf_counter() - moved) * 1000)
 
     def _open_session_page(self, session, staged: bool = False, done=None) -> None:
         """Build one open profile: its page, its tabs, its log, its strips.
@@ -3471,6 +3481,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if size == self._resize_size:
             return
         self._resize_size = size
+        self._paint_sizes = getattr(self, "_paint_sizes", []) + [size] if self._paint_off \
+            else [size]
         # Order matters: the timer that puts painting back is armed even if
         # cancelling the old one goes wrong, because a window left with its
         # painting switched off and no timer to switch it back is a frozen panel.
@@ -3512,6 +3524,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except Exception:            # noqa: BLE001 — never break a resize over this
             return
         self._paint_off = True
+        self._paint_off_at = time.time()
 
     def _resume_painting(self) -> None:
         """Paint again, and repaint everything once — the window is out of date."""
@@ -3524,6 +3537,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
             ctypes.windll.user32.RedrawWindow(hwnd, None, None, RDW_REPAINT_ALL)
         except Exception:            # noqa: BLE001
             pass
+        # A window that is not painting IS a frozen panel as far as anybody looking at
+        # it is concerned, and it leaves no other trace — the Tk thread is answering
+        # the whole time, so a stall sampler sees nothing (#1211). This is the trace.
+        held = time.time() - getattr(self, "_paint_off_at", 0.0)
+        dbg = getattr(self, "_dbg", None)
+        if dbg is not None and held > 0.3:
+            dbg.debug("window painted nothing for %d ms (resize damper, sizes %s)",
+                      held * 1000, getattr(self, "_paint_sizes", [])[:6])
 
     # -- scenarios tab (run .md action scripts) -----------------------------
 
@@ -3588,8 +3609,16 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # which tab it has gone quiet for instead of merely going quiet.
         with self._rt.activity.step("activity.tab.load",
                                     tab=self._t(type(tab).TITLE_KEY)):
+            started = time.perf_counter()
             tab.ensure_loaded()
+            loaded = time.perf_counter()
             tab.on_show()
+        # The two of them separately: they are allowed to cost very different things
+        # and the difference is the one the contract is about (§3).
+        dbg = getattr(self, "_dbg", None)
+        if dbg is not None:
+            dbg.debug("tab %r shown: ensure_loaded %d ms, on_show %d ms", tab.ID,
+                      (loaded - started) * 1000, (time.perf_counter() - loaded) * 1000)
 
     # -- «Настройки» is a plugin tab now (panel/tabs/settings.py) ------------
     #

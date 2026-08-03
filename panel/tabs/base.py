@@ -194,6 +194,11 @@ def run_tab(cls, argv=None) -> int:
         tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
     finally:
         rt.settings.loading = False
+    # A window holding one tab IS somebody looking at it, so it hears `on_show` exactly
+    # as it would in the panel. A tab that draws part of itself on first show — the
+    # duel's week does, because building it cost the page two and a half seconds
+    # (#1211) — would otherwise come up empty here and nowhere else.
+    tab.on_show()
 
     # A choice made in a standalone window belongs to the profile just as much as one
     # made in the shell — this is a tab of the panel, not a preview of it. Only THIS

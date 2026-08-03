@@ -73,6 +73,11 @@ def _tab(blank=True):
     tab = VsDuelTab(rt, ttk.Frame(root))
     rt.tabs.add(tab)
     tab.build()
+    # …and shown, because that is when the week is drawn (#1211). Everything below is
+    # about a tab somebody is looking at; the one test about the OTHER state — a built
+    # but never-shown tab, which is every tab of a page that has just been opened —
+    # builds its own.
+    tab.on_show()
     if blank:
         tab.apply_config({"presets": [{"id": "blank", "name": "Blank", "values": {}}],
                           "days": {}})
@@ -923,9 +928,52 @@ def test_a_wrap_reaches_this_tab_only_and_this_day_only():
 
         second = VsDuelTab(fake_runtime.cold_runtime(root), ttk.Frame(root))
         second.build()
+        second.on_show()                       # its week is drawn on show, as ours was
         ours = {s for items in tab._wrapped.values() for _w, _i, s in items if s}
         theirs = {s for items in second._wrapped.values() for _w, _i, s in items if s}
         assert ours and theirs and not (ours & theirs), "two tabs share a wrap style"
+    finally:
+        root.destroy()
+
+
+def test_the_week_is_drawn_on_first_show_and_not_before():
+    """Building the week cost the PAGE 2.3 seconds against 67–210 ms for every other
+    tab (#1211), and a page is built when the panel opens and when a profile is switched
+    to for the first time. So `build()` leaves it undrawn — and everything that is not
+    the widgets must answer exactly the same meanwhile: the plan the scenarios read, the
+    settings the profile saves, the sets those live in.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+        import fake_runtime
+        from panel.tabs.vs_duel import VsDuelTab, DAYS
+
+        root = tk.Tk(); root.withdraw()
+        rt = fake_runtime.cold_runtime(root)
+        tab = VsDuelTab(rt, ttk.Frame(root))
+        tab.build()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        assert not tab._week_built, "the week was drawn at build time"
+        assert tab._wrapped == {}, "a day frame exists before anybody looked"
+
+        # …and the tab answers for its whole week regardless.
+        day = DAYS[0][0]
+        tab.apply_config({"presets": [{"id": "s", "name": "S",
+                                       "values": {f"{day}.hero_level": True}}],
+                          "days": {day: "s"}})
+        assert tab.plan(day).get("hero_level") is not None, "an undrawn week has no plan"
+        assert tab.config()["presets"], "an undrawn week saves nothing"
+        assert tab.persist_vars(), "an undrawn week binds no variables"
+
+        tab.on_show()
+        assert tab._week_built and len(tab._wrapped) == len(DAYS)
+        shown = tab.plan(day)
+        tab.on_show()                                   # idempotent: no second week
+        assert len(tab._wrapped) == len(DAYS) and tab.plan(day) == shown
     finally:
         root.destroy()
 

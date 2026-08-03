@@ -82,6 +82,16 @@ def main(argv: list | None = None) -> int:
                     help="seconds to let the panel run before the first switch — a "
                          "freeze an operator meets is met by a panel that has been "
                          "open a while, not one three seconds old")
+    ap.add_argument("--enable-tabs", default="",
+                    help="write this tab set into the COPIED profile before opening it "
+                         "(comma-separated ids) — the knob a bisection turns")
+    ap.add_argument("--tab-loop", type=int, default=0,
+                    help="switch back and forth between the profile's first two tabs "
+                         "this many times and report the times: the cheapest possible "
+                         "interaction, so whatever it costs is the page's own weight")
+    ap.add_argument("--tabs", action="store_true",
+                    help="after each switch, click through that profile's own tabs and "
+                         "time every show — the other half of «переключение вкладок»")
     ap.add_argument("--open-only", default="",
                     help="comma-separated: open ONLY these at boot, so a switch to any "
                          "of the others has to BUILD its page — which is what a switch "
@@ -131,6 +141,21 @@ def main(argv: list | None = None) -> int:
         (tmp / "settings.json").write_text(
             json.dumps({"active_profile": opened[0], "open_profiles": opened}),
             encoding="utf-8")
+
+    if tmp is not None and args.enable_tabs:
+        import json as _json
+        wanted = [t.strip() for t in args.enable_tabs.split(",") if t.strip()]
+        for name in names:
+            path = tmp / name / "config.json"
+            try:
+                raw = _json.loads(path.read_text(encoding="utf-8"))
+            except Exception:                # noqa: BLE001 — a profile with no config yet
+                raw = {}
+            block = raw.setdefault("tabs", {})
+            block["enabled"] = wanted
+            path.write_text(_json.dumps(raw, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        print(f"tabs enabled: {wanted}")
 
     from panel import __main__ as pm
 
@@ -186,6 +211,7 @@ def main(argv: list | None = None) -> int:
     watch = getattr(app, "_stall", None)
 
     rows: list = []
+    tabs: list = []
 
     def pump(seconds: float) -> None:
         end = time.perf_counter() + seconds
@@ -203,8 +229,57 @@ def main(argv: list | None = None) -> int:
                 break
         return time.perf_counter() - t0
 
+    def walk_tabs(where: str) -> None:
+        """Click through the profile's own tabs, timing each show.
+
+        «Переключение вкладок» is the other half of the complaint and a different code
+        path: the outer notebook moves a whole page, this one runs `on_hide`,
+        `ensure_loaded` and `on_show` — where a tab is allowed to read the game, on the
+        Tk thread, with the daemon of a profile that may live in another Windows
+        session on the other end of it.
+        """
+        nb = getattr(app, "_main_nb", None)
+        if nb is None:
+            return
+        for tab_id in nb.tabs():
+            label = str(nb.tab(tab_id, "text"))
+            if watch is not None:
+                watch.note(f"tab {label} ({where})")
+            t0 = time.perf_counter()
+            try:
+                nb.select(tab_id)
+            except Exception:                    # noqa: BLE001 — a tab that went away
+                continue
+            app.update()                         # …and the queued <<NotebookTabChanged>>
+            held = time.perf_counter() - t0
+            tabs.append((where, label, held))
+            print(f"      tab {label:<22} {int(held * 1000):5d} ms", flush=True)
+            pump(0.3)
+
+    def tab_loop(times: int) -> None:
+        """Bounce between two tabs, timing each show. The page's own weight, nothing else."""
+        nb = getattr(app, "_main_nb", None)
+        if nb is None:
+            return
+        ids = list(nb.tabs())[:2]
+        if len(ids) < 2:
+            return
+        held = []
+        for i in range(times):
+            t0 = time.perf_counter()
+            nb.select(ids[i % 2])
+            app.update()
+            held.append(time.perf_counter() - t0)
+            time.sleep(0.05)
+        held.sort()
+        print(f"  tab bounce x{times}: median {int(held[len(held)//2]*1000)} ms, "
+              f"worst {int(held[-1]*1000)} ms, best {int(held[0]*1000)} ms", flush=True)
+
     def bench() -> None:
         try:
+            if args.tab_loop:
+                pump(1.0)
+                tab_loop(args.tab_loop)
             if args.warmup:
                 if watch is not None:
                     watch.note(f"warm-up ({args.warmup:.0f}s)")
@@ -230,6 +305,8 @@ def main(argv: list | None = None) -> int:
                              f"   BUILT in {int(whole * 1000):6d} ms"),
                           flush=True)
                     pump(args.settle)        # …and what the switch set off behind it
+                    if args.tabs:
+                        walk_tabs(f"{name} r{round_no + 1}")
         finally:
             app.after(0, app._on_close)
 
@@ -240,6 +317,10 @@ def main(argv: list | None = None) -> int:
     for round_no, name, call, settle, whole, how in rows:
         print(f"  {round_no}  {name:<20} {how:<6} call {int(call * 1000):5d} ms   "
               f"settle {int(settle * 1000):5d} ms   whole {int(whole * 1000):6d} ms")
+    if tabs:
+        print("\n== tab shows (slowest first) ==")
+        for where, label, held in sorted(tabs, key=lambda r: -r[2])[:20]:
+            print(f"  {int(held * 1000):6d} ms  {label:<24} {where}")
     if watch is not None:
         print(f"\n== stalls over {args.threshold} ms: {len(watch.stalls)} ==")
         for stall in watch.stalls:
