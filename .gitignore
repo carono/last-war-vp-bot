@@ -59,6 +59,16 @@ sslkeys.log
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/
 
+# tools/archive/ — superseded approaches and one-off probes from past RE sessions.
+# Untracked as of #1220: they are not part of the bot, nothing imports them, and each
+# was written against whatever machine and whatever client version was in front of
+# somebody on the day — which in a public repository is just a pile of stale paths for
+# a reader to mistake for current. They stay ON DISK for whoever has them; anything
+# that turns out to still be wanted comes back to tools/ (as trap_command.py and
+# trap_resource_collect.py did, both of which were being called from their old
+# tools/ path all along).
+tools/archive/
+
 # Multi-instance account lists (tools/launch_as_user.py --config). They name real
 # Windows accounts and MAY carry a password, so no real one belongs in git — only
 # tools/data/accounts.example.json is tracked.

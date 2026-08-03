@@ -57,24 +57,39 @@ The directory is split by role. **Run every script from the repo root** (paths l
   (`cross_server.py`, `city_click.py`, `solo_attack_direct.py`,
   `ghost_recon_tile_dump.py`, `collect_base_resources.py`, `gather*.py`) and scanners
   (`scan_resources.py`, `scan_trucks.py`). Promote to `tools/` once verified live.
-- **`tools/archive/`** — superseded approaches, one-offs, tests, old probes. Kept for
-  reference; not part of the bot.
+- **`tools/archive/`** — superseded approaches, one-offs, old probes. **Git-ignored
+  since #1220**: not part of the bot, imported by nothing, and each one written
+  against whatever machine and client version was in front of somebody that day. See
+  the note below before reaching for one.
 - **`tools/scratch/`** — throwaway RE probes (git-ignored).
+
+> **The archived tools are not in a fresh clone.** Several rows in the table below are
+> marked *(archived)* — they document how a piece of research was done, and the method
+> is worth keeping even though the script is not shipped. If you have an older checkout
+> they are still on disk under `tools/archive/`; otherwise `git log --diff-filter=D
+> --name-only -- tools/archive/` finds the commit that removed them and
+> `git show <commit>^:tools/archive/<file>` prints one back.
+>
+> Two were **not** archived, because they were being called all along and their callers
+> had simply gone stale: `trap_command.py` (from the sniff skill,
+> [`../docs/skills/sniff.md`](../docs/skills/sniff.md)) and `trap_resource_collect.py`
+> (from `tools/dev/collect_base_resources.py`). Both are back in `tools/`, which is the
+> path those callers already used.
 
 ## Which side runs what
 
 | Script | Side | Purpose |
 |---|---|---|
-| `find_lastwar_connections.ps1` | **Windows** (PowerShell) | find the game PID + its TCP endpoints/ports |
-| `lastwar_dissector.lua` | **Windows** (Wireshark) | decode custom length-prefixed TCP frames |
-| `lastwar_mitm_addon.py` | either (mitmproxy) | log + protobuf-decode HTTP/WS via MITM |
-| `unity_ssl_unpin.js` | **Windows** (Frida) | dump TLS plaintext from Unity BoringSSL |
-| `analyze_pcap.py` | **WSL** (Python) | superseded — use `lastwar_proto.py` |
+| `find_lastwar_connections.ps1` | **Windows** (PowerShell) | *(archived)* find the game PID + its TCP endpoints/ports |
+| `lastwar_dissector.lua` | **Windows** (Wireshark) | *(archived)* decode custom length-prefixed TCP frames |
+| `lastwar_mitm_addon.py` | either (mitmproxy) | *(archived)* log + protobuf-decode HTTP/WS via MITM |
+| `unity_ssl_unpin.js` | **Windows** (Frida) | *(archived)* dump TLS plaintext from Unity BoringSSL |
+| `analyze_pcap.py` | **WSL** (Python) | *(archived)* superseded — use `lastwar_proto.py` |
 | `lastwar_proto.py` | **WSL** (Python) | decode a saved `.pcapng` — the reference decoder |
 | `lastwar_encode.py` | **WSL** (Python) | build client frames — the mirror of the decoder |
 | `trap_command.py` | **WSL** (Python) | record a command the captures have never shown |
 | `steal_via_socket.py` | **Windows** (Python) | feasibility harness for duplicating the client socket — see [`../docs/research/socket-duplication.md`](../docs/research/socket-duplication.md) |
-| `relay.py` | **Windows** (Python) or **Linux/emulator** | userland asyncio MITM relay — inject a command and see its reply, see [`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md) |
+| `relay.py` | **Windows** (Python) or **Linux/emulator** | *(archived)* userland asyncio MITM relay — inject a command and see its reply, see [`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md) |
 | `live_sniffer.py` | **Windows** (Python, admin) | decode live via scapy — see caveat below |
 | `live_tshark.py` | **WSL** (Python) | decode live by driving Wireshark's `dumpcap.exe` — **preferred** |
 | `secret_task_capture.py` | **Windows** (Python) | stream secret tasks (raidable map tiles) live via scapy/npcap, no Wireshark binaries spawned |
@@ -85,7 +100,7 @@ The directory is split by role. **Run every script from the repo root** (paths l
 | `scan_trucks.py` | **Windows** (Python) | index the trucks moving on the map (type / level / position / cargo / robbed count) |
 | `map_capture.py` | **Windows** (Python) | shared capture + which-server-is-on-screen logic behind the scanners |
 | `sniff_runs.py` | **WSL** or **Windows** (Python) | list the recorded sniffer sessions — both files of each run and the operator's description of what was done in the game (the `_desc.txt` the panel writes when a run is kept). **Read this before analysing a trace**; `--describe "…"` attaches a description to a headless run. See [`../docs/skills/sniff.md`](../docs/skills/sniff.md) §8.4 (analysis) and [`../docs/skills/sniff-capture.md`](../docs/skills/sniff-capture.md) §8.3 (recording) |
-| `watch_captures.sh` | **WSL** (bash) | auto-decode captures dropped into `results/` |
+| `watch_captures.sh` | **WSL** (bash) | *(archived)* auto-decode captures dropped into `results/` |
 | `attack.py` | **Windows** (Python, Lua daemon) | attack (`ATTACK_CITY`) or scout (`SCOUT_CITY`) an enemy base without clicking, and read back the scout report — see [`../docs/research/attack-and-scout.md`](../docs/research/attack-and-scout.md) |
 | `chat_reader.py` | **Windows** (Python, Lua daemon) | read world / national / alliance chat live off the Lua VM (no sniffing, chat window need not be open) — see [`../docs/research/chat-lua-readout.md`](../docs/research/chat-lua-readout.md) |
 | `chat_send.py` | **Windows** (Python, Lua daemon) | send a DM / channel message: text, inline emoji, stickers — see [`../docs/research/chat-send.md`](../docs/research/chat-send.md) — and map coordinates (`--coords` / `--my-base` / `--coord-extra`) — see [`../docs/research/chat-coord-share.md`](../docs/research/chat-coord-share.md) |

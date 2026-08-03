@@ -35,11 +35,16 @@ sys.path.insert(0, str(_REPO / "tools" / "lib"))
 import game_paths as gp  # noqa: E402
 
 
-# `tools/archive/` and `tools/scratch/` are kept experiments, not shipped code — they
-# name a client that was running on the day they were written and are not run again.
 # `docs/` is prose by definition. `tests/` writes literals on purpose: it is what a
-# test asserts against.
-SKIP_PREFIXES = ("tools/archive/", "tools/scratch/", "docs/", "tests/")
+# test asserts against — though NOT personal data, which is checked everywhere (see
+# `test_no_personal_identity_is_shipped`).
+#
+# `tools/archive/` and `tools/scratch/` used to be named here as well. They are not any
+# more, and not because the rule stopped applying to them: they are git-ignored, so
+# `git ls-files` never offers them and there is nothing left to exclude. A list of
+# exceptions that no longer excludes anything is worse than no list — it reads as
+# though those paths are still shipped and still forgiven.
+SKIP_PREFIXES = ("docs/", "tests/")
 
 #: Where each value is allowed to be spelled out — the resolver, plus the files that
 #: legitimately show it to a person rather than use it.
@@ -197,9 +202,8 @@ def test_no_personal_identity_is_shipped():
     for rel in everything:
         # `docs/` is prose, and prose the author signs: a name under a README is
         # authorship, not a value the code acts on. Everything executable, and every
-        # fixture, is in scope.
-        if not rel or rel in PERSONAL_ALLOWED or rel.startswith(
-                ("tools/archive/", "tools/scratch/", "docs/")):
+        # fixture, is in scope — the untracked directories simply never appear.
+        if not rel or rel in PERSONAL_ALLOWED or rel.startswith("docs/"):
             continue
         for i, line in enumerate(_read(rel).splitlines(), 1):
             if REPO_URL.search(line):
