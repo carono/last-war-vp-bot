@@ -82,10 +82,30 @@ class NavigateResult:
     success: bool = False
 
 
+#: Said once per process when a template is missing. The templates are NOT shipped —
+#: see the note in :data:`TEMPLATES_DIR`'s directory README — so «missing» is the
+#: ordinary state of a fresh clone, not a corrupted install.
+_warned_missing: set[str] = set()
+
+
 def _best_of(scene: features.SceneIndex, paths: Iterable[Path]) -> features.SiftMatch | None:
-    """Highest-inliers SIFT match across multiple template variants."""
+    """Highest-inliers SIFT match across multiple template variants.
+
+    **A template that is not on disk is skipped, not raised on.** The cropped UI
+    images are git-ignored (they are screenshots of somebody's game), so a fresh
+    clone has none of them and every vision path here has to degrade to «I cannot
+    tell» rather than to a `FileNotFoundError` from three frames down. The
+    difference matters: the first is a feature the user has not set up, the second
+    looks like the bot is broken.
+    """
     best: features.SiftMatch | None = None
     for path in paths:
+        if not path.exists():
+            if str(path) not in _warned_missing:
+                _warned_missing.add(str(path))
+                print(f"[navigate] no template {path.name} — screen detection is off "
+                      f"until it is cropped; see {TEMPLATES_DIR / 'README.md'}")
+            continue
         m = scene.find_sift(path)
         if m is None:
             continue

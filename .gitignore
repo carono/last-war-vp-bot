@@ -56,6 +56,21 @@ sslkeys.log
 /players.json
 /result/
 
+# Every image, everywhere. Untracked as of #1220: each one is a crop of a running
+# game client — a screenshot of somebody's screen — and this repository is public.
+# The UI templates the vision paths match against live on the machine that runs the
+# bot and are cropped there with `python -m lastwar_bot.ui_region`; how, and what
+# depends on each, is in src/lastwar_bot/game/templates/README.md. Nothing fails
+# silently without them: FIND/CLICK raise a message that points at that file, and
+# screen detection answers «I cannot tell» instead of raising.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.ico
+
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/
 

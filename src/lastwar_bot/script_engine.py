@@ -387,6 +387,19 @@ class ScriptRuntimeError(Exception):
     pass
 
 
+def _no_template(name: str) -> str:
+    """Why a template is missing, and what to do — not just that it is missing.
+
+    The cropped UI images are screenshots of a running game and are git-ignored, so
+    on a fresh clone they are all absent. «template not found: x.png» would read as a
+    bug in the scenario; it is a step of setting the bot up that nobody has done yet.
+    """
+    return (f"template not found: {name}. The UI templates are not shipped with the "
+            f"repository — crop it from your own client with "
+            f"`python -m lastwar_bot.ui_region`, or see "
+            f"src/lastwar_bot/game/templates/README.md")
+
+
 # ---- Parser ----------------------------------------------------------------
 
 
@@ -971,7 +984,7 @@ class Interpreter:
 
         path = TEMPLATES_DIR / template_name
         if not path.exists():
-            raise ScriptRuntimeError(f"template not found: {template_name}")
+            raise ScriptRuntimeError(_no_template(template_name))
         scene = features.SceneIndex(grab(self._ensure_hwnd()))
         match = scene.find_sift(path)
         if match is None or match.inliers < 4:
@@ -1044,8 +1057,7 @@ class Interpreter:
         path = TEMPLATES_DIR / stmt.template_name
         if not path.exists():
             raise ScriptRuntimeError(
-                f"line {stmt.line_no}: template not found: {stmt.template_name}"
-            )
+                f"line {stmt.line_no}: {_no_template(stmt.template_name)}")
 
         hwnd = self._ensure_hwnd()
         match = None
