@@ -103,6 +103,7 @@ from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
 from . import runtime
+from .runtime import stall as stallmod
 from . import debug_sender as dbgsender
 from . import profile as profilemod
 from . import tabs as tabsreg
@@ -447,6 +448,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # session, and there is no session until the workspace has built one — so every
         # attribute set between here and the first `_adopt` is plainly the window's.
         self._current_session = None
+
+        # WHAT IS HOLDING THE TK THREAD, when it is held (panel/runtime/stall.py).
+        # Off unless `LW_PANEL_STALL_MS` asks for it, because a sampler that runs
+        # always is a sampler nobody reads; on, it is the only thing in the panel that
+        # can say what a freeze consisted of — everything else lives on the thread the
+        # freeze has stopped. Reports go to stderr and to the debug log, never to the
+        # log widget: a diagnostic that draws changes what it is measuring.
+        self._stall = stallmod.from_env(self, report=self._stall_report)
 
         # WHAT THE PANEL IS DOING RIGHT NOW (#1208). The window's own steps — opening a
         # profile, building a tab, pulling an update — live here; each open profile
@@ -2235,6 +2244,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         dbgmod.configure(self._profiles.debug_log(), scope=self._rt.scope)
 
+    def _stall_report(self, text: str) -> None:
+        """One recorded freeze, from the sampler's thread. stderr and the debug log.
+
+        Deliberately NOT the log widget and not `say`: writing a stall report onto the
+        Tk thread would queue work behind the very freeze it describes, and a person
+        watching the panel is not who this is for.
+        """
+        print(text, file=sys.stderr, flush=True)
+        dbg = getattr(self, "_dbg", None)
+        if dbg is not None:
+            try:
+                dbg.warning("%s", text)
+            except Exception:            # noqa: BLE001 — a diagnostic, never the panel
+                pass
+
     def _install_exception_logging(self) -> None:
         """Route uncaught errors — Tk callbacks and worker threads — into the debug log.
 
@@ -3269,6 +3293,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         `each`, so a profile that throws on the way out cannot leave the others running
         behind a window that is gone.
         """
+        if self._stall is not None:
+            self._stall.stop()
         self._workspace.each(self._close_session)
         self._workspace.shutdown()
         self.destroy()
