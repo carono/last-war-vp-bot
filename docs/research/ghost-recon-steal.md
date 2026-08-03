@@ -145,7 +145,7 @@ The remaining conditions are read straight off the manager:
 * `IsOpenDay()` — the event runs one day a week; off-day, everything is dark;
 * `stealTimes` vs `GetNowSettingCfg().stealCount` — the daily budget;
 * `dispatchStealRange[server]` — the set of servers the event lets you rob
-  (live: 421–676 plus 8053–8084; the account's own server 509 is in it). This is
+  (live: 421–676 plus 8053–8084; the account's own server is in it). This is
   the ghost-recon analogue of the secret task's "not in the same sector" refusal;
 * `ownerId ~= my uid` — robbing my own squad is not a thing.
 

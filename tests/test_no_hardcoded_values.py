@@ -194,6 +194,10 @@ PERSONAL = re.compile(
     r"\b(casper|spame"                        # Windows logins
     r"|Carono|DeadMorozzz"                    # game nicknames — the author's and others'
     r"|Iwabo|mdw88|Korive|armaca|ofbi"        # …more players caught in recordings
+    r"|EleNita|tonyv811976"                   # …and the two a chat trace was run against
+    r"|WPBs|RBs"                              # their alliance tags
+    r"|1697234600000972|1527794448000935"     # their uids
+    r"|2146058428000509|1092741133002105"     # the author's second character
     r"|TLou"                                  # an alliance tag
     r"|1522777203000972|1371213785000935)\b", # live game uids
     re.IGNORECASE)
