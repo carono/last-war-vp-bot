@@ -197,7 +197,7 @@ UIManager.Instance:OpenWindow(UIWindowNames.UILWTruckRecord)           -- rob / 
 ```
 
 - **`TradeStationCity`** — the trade-post overview: **«Ваш торговый пост: 0/5»**, a grid of
-  posts by coordinate (`#935 X:49 Y:349`, «Ещё не открыт», «Ур.1…4»).
+  posts by coordinate (`#100 X:49 Y:349`, «Ещё не открыт», «Ур.1…4»).
 - **`UILWTruckSuperDeparture`** — the truck-dispatch panel: tabs **«Супер режим / Супер
   обновление / Супер отправка»**, the truck fleet as `No.1 … No.4` each with a countdown
   and a haul value. (Renders "super" mode when a super buff is active.)

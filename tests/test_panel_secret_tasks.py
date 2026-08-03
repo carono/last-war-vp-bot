@@ -436,8 +436,8 @@ def test_the_jump_history_remembers_the_newest_first_and_is_capped():
 
 def test_room_ids_from_cached_self_ids():
     tab = object.__new__(st.SecretTasksTab)         # no Tk build
-    tab._ids = ("935", "3d4b9dee")
-    assert tab._room_id(None, st.SHARE_WORLD) == "country_935"
+    tab._ids = ("100", "3d4b9dee")
+    assert tab._room_id(None, st.SHARE_WORLD) == "country_100"
     assert tab._room_id(None, st.SHARE_ALLIANCE) == "alliance_935_3d4b9dee"
     tab._ids = ("", "")                             # nothing read -> no room, no send
     assert tab._room_id(None, st.SHARE_WORLD) == ""

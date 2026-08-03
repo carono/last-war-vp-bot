@@ -55,7 +55,7 @@ class SettingsTab(PanelTab):
     TITLE_KEY = "tab.settings"
     ORDER = 40
     PREFERRED_SIZE = "820x640"
-    LOCALE_NS = ("settings", "opt", "debug", "session", "autostart")
+    LOCALE_NS = ("settings", "opt", "debug", "session", "autostart", "graphics")
     NEEDS = frozenset()
 
     # -- «Вкладки»: which of them this profile shows --------------------------
@@ -357,6 +357,7 @@ class SettingsTab(PanelTab):
             self._opt_row(grid, row, key, **kwargs)
 
         self._build_session_settings(parent)
+        self._build_graphics_settings(parent)
         sweep = self.tr(ttk.LabelFrame(parent, padding=8), "sweep.frame")
         sweep.pack(fill="x", pady=(12, 0))
         sweep.columnconfigure(2, weight=1)
@@ -476,6 +477,188 @@ class SettingsTab(PanelTab):
         if state == gp.WTS_DISCONNECTED:
             return self.t("session.state.disconnected")
         return self.t("session.state.other", code=state)
+
+    # -- «Качество графики» --------------------------------------------------
+    #
+    # It lives on «Игра», under «Windows-сессия», because that block is the one that
+    # answers *which client this profile drives* — and how hard that client draws is a
+    # property of it, not of the panel. The pairing is not decorative: the client that
+    # most wants economising is the second account's, headless in a session nobody is
+    # connected to, and that is the client the block above is there to name. «Главная»
+    # was the other candidate and is the wrong one — it is a status strip, and a
+    # remembered per-profile choice put there would need a second persistence path and
+    # would end up written in two places.
+    #
+    # Nothing here knows what "economy" means to the game. The two settings below are
+    # arguments to `actions/set_graphics_load.md`, which is where the ability lives, and
+    # the reading comes back from `actions/read_graphics_load.md` (`CLAUDE.md`: the panel
+    # plays scenarios, it does not write them).
+
+    #: The economy profile, in the scenario's own arguments. Measured at −82 % of the
+    #: video card with no cost to anything the bot does (docs/research/headless-gpu.md).
+    LOW_GRAPHICS = {"fps": 10, "quality": 0, "width": 320, "height": 200}
+
+    #: What to put back when nothing was ever remembered — the client's own shipped
+    #: settings. Only reached for a profile that arrives already switched to economy,
+    #: which cannot happen through this page but can through a hand-edited profile.
+    STOCK_GRAPHICS = {"fps": 60, "quality": 2, "width": 1700, "height": 1065}
+
+    def _build_graphics_settings(self, parent: ttk.Frame) -> None:
+        """Two states — economy and the picture as the person had it — and what is on."""
+        frame = self.tr(ttk.LabelFrame(parent, padding=8), "graphics.frame")
+        frame.pack(fill="x", pady=(12, 0))
+        frame.columnconfigure(2, weight=1)
+
+        var = self.rt.settings.vars["graphics_mode"]
+        row = ttk.Frame(frame)
+        row.grid(row=0, column=0, columnspan=3, sticky="w")
+        # `command` and not a trace on the variable: a trace also fires when a profile
+        # is loaded into the widget, and the panel would drive the game every time
+        # somebody switched profile. This way only a person's click applies anything.
+        for column, mode in enumerate(("standard", "low")):
+            self.tr(ttk.Radiobutton(row, variable=var, value=mode,
+                                    command=lambda m=mode: self._apply_graphics(m)),
+                    f"graphics.mode.{mode}").grid(row=0, column=column, sticky="w",
+                                                  padx=(0, 16))
+
+        self.tr(ttk.Label(frame, foreground="#888", wraplength=560, justify="left"),
+                "graphics.hint").grid(row=1, column=0, columnspan=3, sticky="w",
+                                      pady=(8, 0))
+
+        # What the CLIENT says, not what the panel last asked for. The two part company
+        # the moment the game restarts — it comes back at full quality without telling
+        # anybody — and on this page the truth is the useful one.
+        self._graphics_state = ttk.Label(frame, foreground="#888", wraplength=560,
+                                         justify="left")
+        self._graphics_state.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._graphics_refresh_btn = self.tr(
+            ttk.Button(frame, command=self._read_graphics), "graphics.refresh")
+        self._graphics_refresh_btn.grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self._graphics_read_at = 0.0
+        self._say_graphics("graphics.state.idle")
+
+    #: How stale a reading may be before opening the page asks the client again. The
+    #: read is five Lua round trips — cheap, but not free enough to spend every time
+    #: somebody clicks through the Settings pages looking for something else.
+    GRAPHICS_READ_TTL = 60.0
+
+    def on_show(self) -> None:
+        """Somebody is looking: refresh what the client says it is drawing.
+
+        `on_show` and not `ensure_loaded` on purpose — this is a read that only feeds the
+        screen, and putting it in `ensure_loaded` would spend it at every start-up for
+        every profile whether or not anybody opens Settings (`docs/panel-tabs.md`).
+        """
+        if getattr(self, "_graphics_state", None) is None:
+            return
+        if time.time() - getattr(self, "_graphics_read_at", 0.0) < self.GRAPHICS_READ_TTL:
+            return
+        if not self.rt.game.up():
+            self._say_graphics("graphics.state.offline",
+                               mode=self.t(f"graphics.mode."
+                                           f"{self.rt.settings.opt_str('graphics_mode')}"))
+            return
+        self._read_graphics()
+
+    def _say_graphics(self, key: str, **fmt) -> None:
+        label = getattr(self, "_graphics_state", None)
+        if label is None:
+            return
+        try:
+            label.configure(text=self.t(key, **fmt))
+        except tk.TclError:
+            pass
+
+    def _graphics_args(self, mode: str) -> dict:
+        """The arguments to hand the scenario for the mode being switched to."""
+        if mode == "low":
+            return dict(self.LOW_GRAPHICS)
+        saved = self.rt.settings.opt_str("graphics_stock")
+        parts = [p for p in saved.split("/") if p.strip()]
+        if len(parts) == 5:
+            try:
+                fps, _vsync, quality, width, height = (int(float(p)) for p in parts)
+                return {"fps": fps, "quality": quality, "width": width, "height": height}
+            except ValueError:
+                pass
+        return dict(self.STOCK_GRAPHICS)
+
+    def _apply_graphics(self, mode: str) -> None:
+        """Switch the client, remembering the picture on the way out of standard."""
+        if not self.rt.game.up():
+            # The choice is still the profile's — it just cannot reach a client yet, and
+            # saying "saved, not applied" beats a switch that silently did nothing.
+            self._say_graphics("graphics.state.offline",
+                               mode=self.t(f"graphics.mode.{mode}"))
+            return
+        if mode == "low" and not self.rt.settings.opt_str("graphics_stock"):
+            # Remember what to come back to BEFORE changing it. Without this
+            # «стандартное» would restore a guess rather than this person's picture.
+            self._read_graphics(then=lambda: self._start_graphics(mode), remember=True)
+            return
+        self._start_graphics(mode)
+
+    def _start_graphics(self, mode: str) -> None:
+        self._say_graphics("graphics.state.applying",
+                           mode=self.t(f"graphics.mode.{mode}"))
+        # A refused claim means nothing was started and no callback will ever come, so
+        # the «…» line has to be taken back here or it stays on screen for ever.
+        if not self.rt.play_async("set_graphics_load", self._graphics_args(mode),
+                                  tag="graphics",
+                                  on_result=lambda out: self._graphics_done(out)):
+            self._say_graphics("graphics.state.busy")
+
+    def _graphics_done(self, outcome) -> None:
+        if not outcome:
+            self._say_graphics("graphics.state.failed",
+                               reason=outcome.reason or self.t("graphics.state.noreason"))
+            return
+        self._read_graphics()
+
+    def _read_graphics(self, then=None, remember: bool = False) -> None:
+        """Ask the client what it is actually drawing, and say so."""
+        if not self.rt.game.up():
+            self._say_graphics("graphics.state.offline",
+                               mode=self.t(f"graphics.mode."
+                                           f"{self.rt.settings.opt_str('graphics_mode')}"))
+            return
+        self._say_graphics("graphics.state.reading")
+        if not self.rt.play_async(
+                "read_graphics_load", tag="graphics",
+                on_result=lambda out: self._graphics_read(out, then, remember)):
+            self._say_graphics("graphics.state.busy")
+
+    def _graphics_read(self, outcome, then=None, remember: bool = False) -> None:
+        values = dict(getattr(getattr(outcome, "ctx", None), "vars", {}) or {})
+        try:
+            fps, vsync, quality, width, height = (
+                int(float(values[key]))
+                for key in ("fps", "vsync", "quality", "width", "height"))
+        except (KeyError, TypeError, ValueError):
+            # A switch that was waiting on this still goes ahead: what could not be
+            # remembered simply is not, and «стандартное» falls back to the client's own
+            # shipped picture. Refusing to switch would leave the radio saying one thing
+            # and the client doing another, which is worse than an approximate restore.
+            self._say_graphics("graphics.state.unreadable")
+            if then is not None:
+                then()
+            return
+        # `remember` and not "are we in standard?": by the time a click reaches here the
+        # radio has ALREADY moved to the mode being switched to, so asking the setting
+        # would record the economy picture as the one to come back to. Only the one call
+        # that runs before the switch is allowed to write it, and only once.
+        if remember and not self.rt.settings.opt_str("graphics_stock"):
+            self.rt.settings.vars["graphics_stock"].set(
+                "/".join(str(v) for v in (fps, vsync, quality, width, height)))
+        self._graphics_read_at = time.time()
+        # vSync makes the frame cap a number the engine is ignoring, so the cap is only
+        # quoted when it is actually in force; otherwise the display is what paces it.
+        self._say_graphics(
+            "graphics.state.now" if not vsync else "graphics.state.now_vsync",
+            fps=fps, quality=self.t(f"graphics.quality.{min(max(quality, 0), 2)}"),
+            width=width, height=height)
+        if then is not None:
+            then()
 
     def _refresh_sweep_settings_hint(self) -> None:
         hint = getattr(self, "_sweep_settings_hint", None)

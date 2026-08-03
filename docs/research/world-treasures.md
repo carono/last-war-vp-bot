@@ -53,7 +53,7 @@ f11 = {                          -- the treasure record
 ```
 
 **Position** = `f1` (pointId) → `SceneUtils.IndexToTilePos(pointId)` → `(x,y)`.
-The server id is the `…935` suffix on the ids (here server **935**). Same
+The server id is the `…100` suffix on the ids (here server **100**). Same
 `tools/lib/coords.py` / `SceneUtils.IndexToTilePos` used everywhere else applies.
 
 Two ways to enumerate treasures already known to the client, no capture needed:
@@ -79,7 +79,7 @@ Two steps, both seen in the capture:
    ```
    SFSNetwork.SendMessage("detect.event.claim.treasure",
        uuid         = 1397117530950313784,   -- PutLong  "uuid"  = f11.1 above
-       targetServer = 935)                    -- PutInt   "targetServer"
+       targetServer = 100)                    -- PutInt   "targetServer"
    ```
 
    i.e. command **`detect.event.claim.treasure`**, body **`{uuid:<long>,

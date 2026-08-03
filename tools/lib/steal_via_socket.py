@@ -479,13 +479,13 @@ def probe_access(pid: int) -> int:
     This DOES open a handle to the protected process. It is the single
     ACE-relevant action here, and it is the cheapest way to answer question (3)
     empirically rather than from theory — but it is still active work against
-    #972, so it lives behind --probe-access and prints a warning first.
+    #300, so it lives behind --probe-access and prints a warning first.
     """
     if not _is_windows():
         print(f"{C_ERR}--probe-access needs the Windows Python.{C_RESET}")
         return 2
     print(f"{C_WARN}probe: opening a handle to the ACE-protected game process. "
-          f"This is active work; on #972 it may be logged/flagged.{C_RESET}")
+          f"This is active work; on #300 it may be logged/flagged.{C_RESET}")
     k32 = _win()["k32"]
     for want in (PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_DUP_HANDLE):
         handle = k32.OpenProcess(want, False, pid)
@@ -1735,7 +1735,7 @@ def main() -> int:
     ap.add_argument("--force", action="store_true",
                     help="required by --send and --sniff-and-inject")
     ap.add_argument("--i-understand-ban-risk", action="store_true",
-                    help="required by --send steal; you accept the #972 ban risk")
+                    help="required by --send steal; you accept the #300 ban risk")
     ap.add_argument("--uuid", type=_int_auto, help="task uuid (tile field f100)")
     ap.add_argument("--uuid-arr", type=lambda s: [int(x) for x in s.split(",")],
                     dest="uuid_arr",

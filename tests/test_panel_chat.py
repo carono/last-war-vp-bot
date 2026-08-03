@@ -52,7 +52,7 @@ import chat_history       # noqa: E402  (panel/chat_history.py — pure sqlite3)
 
 def test_parse_captures_avatar_version():
     line = ("ACT R roomId=alliance_935 seqId=42 st=1785000000000 post=0 type=1 "
-            "uid=1234567 lang=ru gm=0 srv=935 hp=100 hpv=7 ismy=false alliance="
+            "uid=1234567 lang=ru gm=0 srv=100 hp=100 hpv=7 ismy=false alliance="
             + b"ABC".hex() + " sender=" + "Ник".encode().hex()
             + " msg=" + "привет".encode().hex() + " we=")
     rec = chat_reader._parse_record_line(line)

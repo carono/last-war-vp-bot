@@ -87,7 +87,7 @@ class FakeEv:
             if not self.panel_open:
                 return ["EL panel waiting win=UIWorldPoint"]
             return ["EL panel win=UIFormationSelectListV2 targetType=7 point=7 uuid=77 "
-                    "server=935 timeIndex=5 sel=0"]
+                    "server=100 timeIndex=5 sel=0"]
         if "OnSelectClick" in chunk:                                  # _PICK_SQUAD
             if not self.panel_open:
                 return ["EL squad nopanel win=nil"]
@@ -119,15 +119,15 @@ class FakeEv:
 
 
 def _elite(**over):
-    e = {"pid": "7", "uuid": "77", "server": "935", "level": 3, "canAttack": 0}
+    e = {"pid": "7", "uuid": "77", "server": "100", "level": 3, "canAttack": 0}
     e.update(over)
     return e
 
 
 def test_parse_popup_reads_the_fields():
     got = rc._parse_popup(
-        "EL popup pid=505599 uuid=139711 server=935 level=5 canAttack=0 btn=RallyBoss")
-    assert got == {"pid": "505599", "uuid": "139711", "server": "935",
+        "EL popup pid=505599 uuid=139711 server=100 level=5 canAttack=0 btn=RallyBoss")
+    assert got == {"pid": "505599", "uuid": "139711", "server": "100",
                    "level": 5, "canAttack": 0, "btn": "RallyBoss"}, got
     # A malformed line (no pid/uuid) is rejected, not a crash.
     assert rc._parse_popup("EL popup none") is None
@@ -161,7 +161,7 @@ def test_create_on_level_raises_a_rally_when_a_target_is_found():
     ev = FakeEv(_elite())
     res = rc.create_on_level(ev, level=3, squad=1)
     assert res["ok"] is True and res["reason"] == "launched", res
-    assert res["pid"] == "7" and res["server"] == "935"
+    assert res["pid"] == "7" and res["server"] == "100"
     assert ev.launched and ev.rallies == 1, "a rally must have gone out"
     assert ev.selected == "F123", "the launch must ride the picked squad"
 

@@ -75,11 +75,11 @@ example values (server IDs / coords are from this account's session):
 | command | fields (example values) | notes |
 |---|---|---|
 | `(keepalive)` | `clientTime` (ms, monotonic) | ~every 4 s, action 29/13 |
-| `user.leave.world` | `serverId=935, worldId=0, _id` | fired on World→City |
+| `user.leave.world` | `serverId=100, worldId=0, _id` | fired on World→City |
 | `go.to.world` | `_id` | world-entry handshake |
-| `world.get.block` | `bigMap=1, x=2561, y=2492, serverId=935, worldId=0, type=0, viewLvl=0, timeStamp, blockSize=10, index=[74354,74355,…], clearUuidSet=1, leftBottom=7412541, rightTop=7532581, _id` | **world-map tile query** — `index[]` is the list of tile IDs in the viewport; `leftBottom`/`rightTop` bound the block; `blockSize=10` tiles/side. This is the map-scan request `secret_task_capture` etc. rely on. |
+| `world.get.block` | `bigMap=1, x=2561, y=2492, serverId=100, worldId=0, type=0, viewLvl=0, timeStamp, blockSize=10, index=[74354,74355,…], clearUuidSet=1, leftBottom=7412541, rightTop=7532581, _id` | **world-map tile query** — `index[]` is the list of tile IDs in the viewport; `leftBottom`/`rightTop` bound the block; `blockSize=10` tiles/side. This is the map-scan request `secret_task_capture` etc. rely on. |
 | `world.get.march.infos` | `x=561, y=492, needCross=true, _id` | march/troop info at a world coord (the closest thing to "troops" seen, but world-side, not base) |
-| `meteorite.enter.world` | `targetServerId=935, _id` | server/event enter |
+| `meteorite.enter.world` | `targetServerId=100, _id` | server/event enter |
 | `world.flag.get.can.effect` | `worldId=0, _id` | alliance flag effect check |
 | `surprise.point.get.info` | `_id` | world event point |
 | `get.world.news.info` | `_id` | world news feed |

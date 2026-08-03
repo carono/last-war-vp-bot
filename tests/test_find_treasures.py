@@ -46,7 +46,7 @@ class FakeEval:
             self.asked = [int(x) for x in ids.split(",") if x.strip()]
             return ["ACT treasure_ask id=%d ok=true err=nil" % i for i in self.asked]
         if "treasure_parked" in chunk:
-            return (["ACT treasure_target pid=500553 uuid=1 srv=935 dug=false"] * self.parked
+            return (["ACT treasure_target pid=500553 uuid=1 srv=100 dug=false"] * self.parked
                     + ["ACT treasure_parked %d" % self.parked])
         # the state read
         out = ["ACT treasures_num=%d" % self.num]
@@ -216,12 +216,12 @@ def test_state_read_reports_count_dict_and_daily():
 
 
 def test_park_probes_several_field_spellings():
-    chunk = lua_actions.park_treasures(935)
+    chunk = lua_actions.park_treasures(100)
     for needle in ("'pointId','point_id','pid'", "'uuid','treasureUuid'",
                    "'targetServer','serverId','srcServer'", "'operatorUid','operator'"):
         _check("park probes %s" % needle, needle in chunk)
     _check("park writes the recipe's queue", "DataCenter.__lw_treasure_queue=q" in chunk)
-    _check("cross is home-server relative", "tonumber(srv)~=935" in chunk)
+    _check("cross is home-server relative", "tonumber(srv)~=100" in chunk)
 
 
 if __name__ == "__main__":

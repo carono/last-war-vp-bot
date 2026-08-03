@@ -34,7 +34,7 @@ uses `x = pointId % 1000`, `y = pointId // 1000` (as for all world points).
 
 | message | monster data (concrete example) |
 |---|---|
-| **`alliance.boss.act.info`** | an alliance world boss: `bossType=2`, **level** `difficultyLevel=100`, **coord** `bossPointId=480565 → (565,480)` on `bossServerId=935`, `bossUuid=1397117482397050809`, **time** `battleStartTime=1784833203021` / `battleEndTime=1784835003021`, `totalDamage=819837555936`, `mvpDamage=105633102555`, `isAutoRally=1` |
+| **`alliance.boss.act.info`** | an alliance world boss: `bossType=2`, **level** `difficultyLevel=100`, **coord** `bossPointId=480565 → (565,480)` on `bossServerId=100`, `bossUuid=1397117482397050809`, **time** `battleStartTime=1784833203021` / `battleEndTime=1784835003021`, `totalDamage=819837555936`, `mvpDamage=105633102555`, `isAutoRally=1` |
 | **`monster.invasion.act.info`** | the Monster Invasion event: `invasionId=5`, `bossStatus=2`, `stage=1`, `attackNum`, `refreshTime`, `planTime`, reward list, and the monster arrays **`selfMonsters[]` / `aliMonsters[]`** (empty when no invasion is live — these hold the per-monster entries when one is) |
 | **`zombie.rush.act.info`** | alliance Zombie Rush: `maxDifficultyId=1012`, `round=20`, `state=3`, `selectDifficultyId=1012`, `actStartTime`/`actEndTime`, `pointId` |
 | **`berserk.boss.hit.base.gain.info`**, **`act.boss.get.achievement.info`**, **`monster.shop.info`** | berserk-boss, act-boss, and the monster-kill reward shop (`buyRecords` per difficulty) |
@@ -54,7 +54,7 @@ play, not a bulk load (observed across the earlier world captures):
 | `monster.invasion.boss.detail` | **on-demand** query when you tap a boss → `{uuid, ownerName:"<Player7>", allianceUid, allianceAbbr:"<ALLY>", isProtected:true}` |
 | `push.running.boss.del` (and `.new`/`.add`) | roaming-boss lifecycle → `{uuid}` (spawn / move / death) |
 | `push.al.zombieRushPoint.change` | alliance zombie-rush spawn point → `{zombieRushPoint:5486330, allianceId}` |
-| chat/world ticker | e.g. `Ур. 130 Зомби-Босс (БЗ #935 X:519 Y:554)` — a lvl-130 Zombie-Boss at `(519,554)` (point `554519`) |
+| chat/world ticker | e.g. `Ур. 130 Зомби-Босс (БЗ #100 X:519 Y:554)` — a lvl-130 Zombie-Boss at `(519,554)` (point `554519`) |
 
 `DataCenter` managers back these: `MonsterManager` (kill counters, `GetCurCanAttackMaxLevel`,
 `find_monster_max_level`), `MonsterTemplateManager` (level→attributes config),
@@ -483,7 +483,7 @@ which returns a stub **`{canAttack=0}`** (1 field). Passing the monster's uuid �
 
 ```
 canAttack=1  level=19  recommend_power="…1,084,500"  marchType=2  monsterType=2
-srcServer=935  restNum=20  attackMaxLv=35  needArmyDesc="Требуется юнитов 4 ур.: 700"
+srcServer=100  restNum=20  attackMaxLv=35  needArmyDesc="Требуется юнитов 4 ур.: 700"
 name=2000003  point=507599  special=0  refreshTime=…  createTime=…  (20+ fields)
 ```
 
@@ -507,7 +507,7 @@ selection + solo/rally classification of an **arbitrary chosen monster** is full
   targetServerId, targetWorldId, monsterSpecialType, ignoreNotice)` — called with
   `targetType = MarchTargetType.ATTACK_MONSTER (=1)`, `pointIndex=pid`, `uuid`, opens the troop
   UI **`UIFormationSelectListV2`** with everything pre-set: `targetPoint`, `targetUuid`,
-  `targetType=1`, `targetServerId=935`, **`selectFormationUuid` already chosen**, `timeIndex=1`,
+  `targetType=1`, `targetServerId=100`, **`selectFormationUuid` already chosen**, `timeIndex=1`,
   `autoBackHome=1`. No tap needed to reach the dispatch screen.
 - The dispatch-confirm handlers on that window's Ctrl are **`OnAtkClick`** and **`OnCreateClick`**
   (also `OnEditClick`, `StartInvestigate`). Direct-send primitives exist too:
@@ -679,14 +679,14 @@ MarchUtil.TryStartMarch(
   true,                             -- backHome
   needSoldier,                      -- e.g. totalSoldierNum 3123
   0,                                -- destroyTimeIndex
-  targetServerId)                   -- e.g. 935
+  targetServerId)                   -- e.g. 100
 ```
 
 Signature (via `debug.getlocal`): `TryStartMarch(selfMarchUuid, theMarchTargetType, curStamina,
 isFormation, targetUuid, pointId, backHome, needSoldier, destroyTimeIndex, targetServerId)`.
 
 **Proven live, no physical clicks at all:** monster selected via `TouchObjectEventTrigger:OnClick()`
-(Finding 10), then `TryStartMarch(<formationUuid>, 1, 10, true, uuid, pid, true, 3123, 0, 935)`
+(Finding 10), then `TryStartMarch(<formationUuid>, 1, 10, true, uuid, pid, true, 3123, 0, 100)`
 → `ok=true`, **`IsHaveMarchInWorld()==true`, `GetOwnerMarches()==1`**, and ~50 s later the march
 returned (`true→false`) with the monster killed. This is the complete end-to-end no-click solo
 attack — `TouchObjectEventTrigger:OnClick()` (select) + `MarchUtil.TryStartMarch(...)` (launch),
@@ -778,7 +778,7 @@ Ctrl:OnCreateClick()
 
 **Exact `SendCreateMarchMessage` args** (args-logger on the wrapper, from a real «Марш»):
 `n=9 [formationUuid=<formationUuid> | targetType=1 | targetPoint | targetUuid | timeIndex=1 |
-autoBackHome=1 | needSoldier=false | targetServerId=935 | destroyTimeIndex=nil]`. Note
+autoBackHome=1 | needSoldier=false | targetServerId=100 | destroyTimeIndex=nil]`. Note
 **`needSoldier=false`** (boolean, not a soldier count) and **`destroyTimeIndex=nil`** — the values
 earlier guesses got wrong.
 
@@ -801,14 +801,14 @@ hybrid drops to a single physical «Атаковать» tap + Lua `OnCreateClic
 Re-ran the trace (task #1032) with a complementary instrument: `tools/_march_trace.py` wraps every
 `MarchUtil.*` (args-logging, marker `MTR`/`MDUMP A`) **and** arms a gated `debug.sethook(fn,'c')`
 call-hook (marker `MDUMP B`) filtered to march keywords, then fired **one physical** «Атаковать»→«Марш»
-on a solo monster («Скупой» pid=502558 type=1 srv=935 canAttack=1, launched successfully — both army
+on a solo monster («Скупой» pid=502558 type=1 srv=100 canAttack=1, launched successfully — both army
 formations visibly marched out). Captured 814 wrapped calls + 313 hook frames. The hook exposes the
 **real Lua source paths** (`…/aps_client/…/Assets/Main/LuaScripts/UI/UIFormation/UIFormationSelectListV2/…`).
 
 **The two taps, exactly:**
 - **«Атаковать»** (round red crossed-swords on `UIWorldPoint`) →
-  `MarchUtil.OnClickStartMarch(1, pointId, uuid, -1, 1, nil, 935, nil, 0)` — arg #1 = `MarchTargetType.ATTACK_MONSTER`,
-  #4 `ownerUid=-1`, #5 `type=1`, #7 `srcServer=935`. This opens **and fully initialises**
+  `MarchUtil.OnClickStartMarch(1, pointId, uuid, -1, 1, nil, 100, nil, 0)` — arg #1 = `MarchTargetType.ATTACK_MONSTER`,
+  #4 `ownerUid=-1`, #5 `type=1`, #7 `srcServer=100`. This opens **and fully initialises**
   `UIFormationSelectListV2` (`Ctrl:InitData → RefreshTargetPoint → BestSelect → SetSelectFormationUuid`,
   loads the formation, computes `CheckBattleState`/`RefreshStaminaState`, `CalcMarchSpeedByConfig`).
 - **«Марж»** (blue confirm on the selected formation cell) → hook caught

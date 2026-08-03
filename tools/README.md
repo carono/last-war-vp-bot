@@ -461,12 +461,12 @@ a request:
 
 ```python
 from lastwar_encode import build_request
-frame = build_request("hero.dispatch.list", {}, server_id=935, k1=0x5a, k2=0x00)
+frame = build_request("hero.dispatch.list", {}, server_id=100, k1=0x5a, k2=0x00)
 ```
 
 `k1`/`k2` are free choices — they vary per frame in every capture (30 distinct
 pairs in 113 frames) and ship in the clear. The header's `serverId` is the
-account's **home** server (935 throughout), not the server being acted on.
+account's **home** server (100 throughout), not the server being acted on.
 
 **This module only builds bytes; nothing here opens a socket.** Sending is
 active protocol work — see the warning at the top of this file and

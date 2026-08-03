@@ -70,7 +70,7 @@ Alliance  alliance_<serverId>_<allianceId>
 ```
 
 `selfUid` comes live from `ChatInterface.getPlayerUid()` (here <uid>,
-server 935). <Player9>'s uid is 1000000000014972.
+server 100). <Player9>'s uid is 1000000000014972.
 
 ## Emoji — inline PUA glyphs
 

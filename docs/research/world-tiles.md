@@ -21,7 +21,7 @@ differently.
 |---|---|
 | `f1` | packed world point id (the map coordinate; `x = p % 1000`, `y = p // 1000` per `lastwar_proto`) |
 | `f2` | **tile kind** (see table) |
-| `f102`, `f103` | serverId (935 here) |
+| `f102`, `f103` | serverId (100 here) |
 | kind-specific sub-message | the entity's attributes — **`f3` (base) / `f6` (mine) / `f10` (task) / `f101` (city)**, not a fixed `f14` |
 
 There is **no top-level `f14`**; the "attributes in `f14`" are inside the kind's
@@ -41,8 +41,8 @@ Example new-kind tile:
 ```json
 {"f1":499600,"f2":25,"f100":1356530359877216252,
  "f101":{"f1":1670,"f4":1779285600,"f5":"CIan","f7":"c14a…","f10":"The New Dawn",
-         "f15":935,"f19":{"f1":"1356530359877216252","f3":499600,"f4":3,"f9":1},"f20":"6"},
- "f102":935,"f103":935}
+         "f15":100,"f19":{"f1":"1356530359877216252","f3":499600,"f4":3,"f9":1},"f20":"6"},
+ "f102":100,"f103":100}
 ```
 
 ## Monsters are a separate system (not block tiles)
@@ -169,8 +169,8 @@ the tile, then `OnClickWorldPoint` with its real `(type, uuid)`.
 `tools/lib/lua_actions.py` (`move_to_coord`, `click_world_point`).
 
 **Cross-server (different `serverId`) — camera moves but world data does NOT load.** On the home
-server the jump loads the map fully (jumping to (563,508) on server 935 → 93 world clones appear:
-bases/mines). Passing a foreign `serverId` (500, 972) moves the camera but the world stays empty
+server the jump loads the map fully (jumping to (563,508) on server 100 → 93 world clones appear:
+bases/mines). Passing a foreign `serverId` (500, 300) moves the camera but the world stays empty
 (~17 stale clones) — the client cannot fetch another server's `world.get.block` in the normal world
 scene. None of these repopulate it: `SceneUtils.WorldSendGetALPointsRequest()` (+ its throttle reset
 `SceneUtils.ClearLastRequestALPointsTime()`), `GoToUtil.GotoServerZone(serverId, isInMoveToState)`,
@@ -178,7 +178,7 @@ scene. None of these repopulate it: `SceneUtils.WorldSendGetALPointsRequest()` (
 serverId, seasonType)`, `GoToUtil.GoToServerPreCheck(serverId)`. So `serverId` in `GotoPos` only tags
 the request; it does not enter a cross-server context. The real standard cross-server switch is a
 different API — `CrossServerUtil.JumpToServerByServerId(...)` — see the section below.
-**Discipline for further probing: return to the home server 935 before each new hypothesis** (a
+**Discipline for further probing: return to the home server 100 before each new hypothesis** (a
 foreign-server `GotoPos` view is a stuck/empty state).
 
 ## Switching to another server the clean in-game way (tools/goto_server.py)
@@ -205,7 +205,7 @@ authorization; inside an active event group `GotoServerZone` is exactly what the
 
 ## Viewing another server's world — full load, no teleport UI (tools/dev/cross_server.py)
 
-Goal: browse a foreign server's map (e.g. 972) programmatically, with the map fully populated and
+Goal: browse a foreign server's map (e.g. 300) programmatically, with the map fully populated and
 **without** the base-relocation ("teleport") UI. Solved live — recipe below, confirmed repeatedly
 (~340-390 world clones load, `UIMoveCity` closed, HUD intact).
 
@@ -257,7 +257,7 @@ the outbound view and `JumpToServerByServerId(homeServer, BackToSrcServer, pos)`
 
 ### Near vs far / cross-season servers
 
-A **near, same-season** server (e.g. 972 relative to home 935) loads stable and full — ~340-390 world
+A **near, same-season** server (e.g. 300 relative to home 100) loads stable and full — ~340-390 world
 clones, `IsInOther=true`.
 
 A **very far / different-season** server (tested: server 5) is still reachable — the same recipe sets

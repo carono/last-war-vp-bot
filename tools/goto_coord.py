@@ -15,7 +15,7 @@ Entry points:
 
     C:\Python312\python.exe tools\goto_coord.py <X> <Y> [SERVER]        # jump (real, GotoWorldPos)
     C:\Python312\python.exe tools\goto_coord.py 650 480                 # -> home server (650,480)
-    C:\Python312\python.exe tools\goto_coord.py 499 499 972             # -> server 972 (499,499)
+    C:\Python312\python.exe tools\goto_coord.py 499 499 300             # -> server 300 (499,499)
     C:\Python312\python.exe tools\goto_coord.py 576 492 --click 2 <uuid>   # navigate + select
 """
 import sys

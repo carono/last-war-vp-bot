@@ -34,7 +34,7 @@ ARGS server = 0
 # and its base is up, so a switch that stalls halfway is a failure and not a false
 # "done".
 #
-# Proven live 2026-08-02 (#1192): 935 -> 509 and back, both directions from a cold
+# Proven live 2026-08-02 (#1192): 100 -> 200 and back, both directions from a cold
 # session that had never asked for the character list.
 #
 # NOT for a timer. This ends the session it was started in — anything else the panel

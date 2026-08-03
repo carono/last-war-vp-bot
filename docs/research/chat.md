@@ -78,8 +78,8 @@ game UI exposes map to id shapes as follows:
 
 | UI chat type | `roomId` shape | Example |
 |---|---|---|
-| **World / cross-server** | `country_<server>` | `country_935` |
-| **National / language** | `custom_lang_<lang>_<server>` | `custom_lang_ru_935` |
+| **World / cross-server** | `country_<server>` | `country_100` |
+| **National / language** | `custom_lang_<lang>_<server>` | `custom_lang_ru_100` |
 | **Alliance (clan)** | `alliance_<serverId>_<allianceId>` | `alliance_935_3d4b9dee…` |
 | **Personal (DM)** | `custom_<peerUid>_<selfUid>_v2` | `custom_1640…_1595…_v2` |
 

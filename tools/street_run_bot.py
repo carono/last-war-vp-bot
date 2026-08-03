@@ -38,7 +38,7 @@ revives per run to extend it (0..3, default 0 — revives cost 100/1000/2000+ co
 (up|down|none, default up) is the action taken when boxed in with a LOW obstacle ahead
 (jumping a tall barrier is fatal, so ↑ is height-gated; ↓ slide is untested).
 
-Realistic ceiling (proven live, server 935): the vision reflex dodges ~100-160 m per
+Realistic ceiling (proven live, server 100): the vision reflex dodges ~100-160 m per
 life; with 3 revives a run reaches ~440-600 m per attempt (deterministic, not luck). The
 human record 8185 m — let alone 20000 m — is NOT reachable by this pipeline: at ~15 fps
 the loop cannot thread the fast obstacle spawns reliably, and the cartoon palette makes
@@ -282,7 +282,7 @@ def press(key: str):
 #   2. Differential decide() — the game always leaves a passable lane, so an obstacle
 #      manifests as ONE lane much more blocked than a neighbour. A row that blocks all
 #      three lanes equally is a ground marking (crosswalk) or noise, not a wall: hold.
-# Calibration facts (rec_*.png, server 935): avatar wears a saturated BLUE helmet,
+# Calibration facts (rec_*.png, server 100): avatar wears a saturated BLUE helmet,
 # sits centre (x≈0.49·W, y≈0.62·H); asphalt is H≈15 S≈75 V≈140; concrete barriers are
 # brighter + desaturated (V≈170 S≈50); trucks are vivid off-brown hues; barrels are
 # muted brown with dark banding; coins are bright gold (S>180 V>180).

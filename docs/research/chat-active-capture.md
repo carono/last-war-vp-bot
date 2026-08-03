@@ -58,7 +58,7 @@ each exchanges ~2 up / 3 down packets (~300 B) then sits idle for 3 minutes.
 `python tools/lastwar_proto.py results/chat/game_17935.pcapng --timeline`:
 
 ```
-common.chat.room.id      -> allRooms = [country_935, custom_lang_ru_935]
+common.chat.room.id      -> allRooms = [country_100, custom_lang_ru_100]
 chat.get.system.mails    -> push.chat.get.system.mails
 lw.user.push.chat.msg  x4 (DM room custom_1697…_1522…_v2): '', 'hhhhh'  + acks
 chat.stat              x4 (roomId=…_v2, type=1, msgExtra.srcLang=ru)

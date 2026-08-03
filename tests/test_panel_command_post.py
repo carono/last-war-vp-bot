@@ -100,10 +100,10 @@ def test_marker_fields_are_read_off_a_log_line():
     cp = _module()
     if cp is None:
         return
-    line = ("ACT TQ i=2 pid=500553 uuid=1397117530950313784 srv=935 dug=1 "
+    line = ("ACT TQ i=2 pid=500553 uuid=1397117530950313784 srv=100 dug=1 "
             "x=552 y=500")
     got = cp._fields(line, " TQ ")
-    assert got["pid"] == "500553" and got["srv"] == "935" and got["dug"] == "1"
+    assert got["pid"] == "500553" and got["srv"] == "100" and got["dug"] == "1"
     assert got["x"] == "552" and got["y"] == "500"
     assert cp._fields(line, " NOPE ") == {}
 
@@ -386,8 +386,8 @@ def test_the_scan_checkpoints_feed_the_two_lists():
 
     now = int(time.time())
     mission = proto.GhostReconMission(
-        uuid=111, cfg_id=60302, family="6", level=5, state=3, target_server=1006,
-        owner_id="someone", owner_server=1006, alliance_id=None, alliance_show=True,
+        uuid=111, cfg_id=60302, family="6", level=5, state=3, target_server=700,
+        owner_id="someone", owner_server=700, alliance_id=None, alliance_show=True,
         point_id=500553, x=553, y=500, member_count=1, steal_count=0,
         team_start_time=None, completion_time=1, expire_time=None)
     known = proto.GhostReconMission(**{**mission.as_dict(), "uuid": 222})
@@ -400,7 +400,7 @@ def test_the_scan_checkpoints_feed_the_two_lists():
     rows = pane._scanned_targets({"222"})
     assert [r["uuid"] for r in rows] == ["111"], rows
     assert rows[0]["scanned"] is True and rows[0]["state"] is None
-    assert rows[0]["srv"] == 1006 and (rows[0]["x"], rows[0]["y"]) == (553, 500)
+    assert rows[0]["srv"] == 700 and (rows[0]["x"], rows[0]["y"]) == (553, 500)
 
     # The treasure half, off the recorded live chest.
     fixture = _json.loads((ROOT / "tests" / "fixtures" /
@@ -413,12 +413,12 @@ def test_the_scan_checkpoints_feed_the_two_lists():
 
     tpane = cp.TreasuresPane.__new__(cp.TreasuresPane)
     tpane.rt = Rt()
-    trows = tpane._scanned_targets(set(), home=935)
+    trows = tpane._scanned_targets(set(), home=100)
     assert len(trows) == 1, trows
     assert trows[0]["uuid"] == str(chest.uuid) and trows[0]["dug"] is True
     assert trows[0]["cross"] is False        # same server as home
     # …and one the list already carries is not added twice.
-    assert tpane._scanned_targets({str(chest.uuid)}, home=935) == []
+    assert tpane._scanned_targets({str(chest.uuid)}, home=100) == []
 
 
 def test_a_missing_checkpoint_is_no_rows_not_a_crash():

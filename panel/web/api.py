@@ -3,26 +3,36 @@
 The web front-end is the same kind of thing every tab is: it SHOWS what the runtime
 holds and PRESSES what the runtime already presses. It runs no scenario of its own, it
 assembles no Lua, it holds no gate — `CLAUDE.md` is binding on that, and the shape of
-this file is what keeps it honest. Every route below is one call onto
+this file is what keeps it honest. Every route below is one call onto a
 :class:`~panel.runtime.host.PanelRuntime`:
 
-    /api/state      what this profile is doing right now      rt.game, rt.activity
-    /api/timers     the errands, their switches, when next    rt.schedule
-    /api/actions    the scenarios that exist                  rt.actions
-    /api/log        what has been said                        rt.log (tapped)
-    /api/i18n       the words to say it in                    panel/locales
+    /api/profiles   which accounts this window has open      rt.workspace
+    /api/state      what one profile is doing right now      rt.game, rt.activity
+    /api/timers     the errands, their switches, when next   rt.schedule
+    /api/actions    the scenarios that exist                 rt.actions
+    /api/log        what has been said                       rt.log (tapped)
+    /api/i18n       the words to say it in                   panel/locales
+
+ONE SERVER, EVERY PROFILE. A window may hold two accounts open at once (#1206) and it
+is the ordinary way this bot is run, so the front-end that shows one of them and does
+not say which is worse than no front-end at all — that exact confusion cost a live
+session once, when one profile was reading the other's client and looked perfectly
+healthy doing it. So every route takes `?profile=<name>`, `/api/profiles` lists what
+there is, and anything not named falls back to the session the server was started from.
+A runtime with no workspace behind it — a tab launched on its own, a test — answers for
+itself and lists exactly one profile, which is the same code path with one session in it.
 
 WHICH THREAD. Everything here is called from an HTTP worker thread, and two things in
-the panel may not be touched from one: a Tk variable and a widget. So a knob is read
-through :meth:`_setting` (which hops onto the Tk thread and falls back to the profile's
-file when nobody is pumping), a timer's switch is moved through the Timers tab on the Tk
-thread when that tab is in this window, and the process scan — which takes long enough
-to be felt — is done HERE and cached, never on the thread that draws.
+the panel may not be touched from one: a Tk variable and a widget. So a knob is read by
+handing the read to the Tk thread (falling back to the profile's file when nobody is
+pumping), a timer's switch is moved through the Timers tab on the Tk thread when that
+tab is in this window, and the process scan — which takes long enough to be felt — is
+done HERE and cached per profile, never on the thread that draws.
 
 NOTHING IS TRANSLATED INTO THE PAGE. `/api/i18n` hands over the whole locale table and
 the browser says the words, exactly as a tab does: the panel's language is the phone's
 language, and a key added to `panel/locales/` reaches both without a line of JavaScript
-changing. The two exceptions are the strings that are already sentences by the time this
+changing. The exceptions are the strings that are already sentences by the time this
 sees them — a log line, a scenario's own failure reason, the client-status label the
 process probe builds — and those are translated here because the key is gone by then.
 """
@@ -42,11 +52,12 @@ from ..runtime.log import severity_of, strip_ansi, tag_of
 #: How long one answer of the process probe is reused. The scan walks every process on
 #: the machine, which is tens of milliseconds of cold psutil and has already cost this
 #: panel a visibly frozen window once (#1211); a phone polling every two seconds must
-#: not repeat it. Well under the time anything it reports actually changes.
+#: not repeat it, and with two profiles open it would otherwise do it twice. Well under
+#: the time anything it reports actually changes.
 STATUS_TTL_SEC = 5.0
 
-#: How many log lines are held for a phone that connects late. The window keeps four
-#: thousand; this is a phone screen and a poll every couple of seconds.
+#: How many log lines are held PER PROFILE for a phone that connects late. The window
+#: keeps four thousand; this is a phone screen and a poll every couple of seconds.
 TAIL_LINES = 400
 
 #: How long to wait for the Tk thread when reading a knob off its widget. Short: the
@@ -55,63 +66,149 @@ TAIL_LINES = 400
 TK_TIMEOUT_SEC = 1.5
 
 
-class WebApi:
-    """The JSON surface of one open profile. One of these per running server."""
+class _Feed:
+    """One profile's log: a ring of numbered lines, and the tap filling it.
 
-    def __init__(self, rt, *, tail: int = TAIL_LINES) -> None:
+    A ring per profile rather than one shared: two accounts write into two different
+    `LogBus`es (each session has its own), and a phone looking at one account must not
+    be shown the other's lines with no way to tell them apart.
+    """
+
+    def __init__(self, rt, tail: int) -> None:
         self.rt = rt
-        self._lock = threading.Lock()
-        self._lines: collections.deque = collections.deque(maxlen=tail)
-        self._seq = 0                    # the number of the newest line held
-        self._untap = None
-        self._status: tuple = (0.0, False, "")   # (read at, running, label)
+        self.lock = threading.Lock()
+        self.lines: collections.deque = collections.deque(maxlen=tail)
+        self.seq = 0
+        self.untap = None
 
-    # -- the log ------------------------------------------------------------
     def attach(self) -> None:
-        """Start collecting log lines. Idempotent.
-
-        Seeded from the profile's `panel.log` so a phone that connects after an hour of
-        farming sees the hour, not a blank screen — the file is the record, the queue is
-        only what has not been drawn yet.
-        """
-        if self._untap is not None:
+        if self.untap is not None:
             return
         self._seed()
-        self._untap = self.rt.log.tap(self._take)
+        self.untap = self.rt.log.tap(self.take)
 
     def detach(self) -> None:
-        untap, self._untap = self._untap, None
+        untap, self.untap = self.untap, None
         if untap is not None:
             untap()
 
-    def _take(self, line: str) -> None:
+    def take(self, line: str) -> None:
         """One line, on whoever's thread produced it. Cheap on purpose."""
-        with self._lock:
-            self._seq += 1
-            self._lines.append((self._seq, strip_ansi(line)))
+        with self.lock:
+            self.seq += 1
+            self.lines.append((self.seq, strip_ansi(line)))
 
     def _seed(self) -> None:
+        """Start from the tail of the profile's `panel.log`.
+
+        A phone that connects after an hour of farming sees the hour, not a blank screen:
+        the file is the record, the queue is only what has not been drawn yet.
+        """
         try:
-            path = self.rt.profiles.panel_log()
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                tail = collections.deque(fh, maxlen=self._lines.maxlen)
+            with open(self.rt.profiles.panel_log(), encoding="utf-8",
+                      errors="replace") as fh:
+                tail = collections.deque(fh, maxlen=self.lines.maxlen)
         except OSError:
             return
-        with self._lock:
+        with self.lock:
             for raw in tail:
-                self._seq += 1
-                self._lines.append((self._seq, strip_ansi(raw.rstrip("\n"))))
+                self.seq += 1
+                self.lines.append((self.seq, strip_ansi(raw.rstrip("\n"))))
 
-    def log(self, since: int = 0) -> dict:
+
+class WebApi:
+    """The JSON surface of one WINDOW — every profile it has open."""
+
+    def __init__(self, rt, *, tail: int = TAIL_LINES) -> None:
+        #: The session the server was started from: the default answer, and the only one
+        #: when there is no workspace behind it.
+        self.rt = rt
+        self._tail = tail
+        self._feeds: dict = {}               # profile name -> _Feed
+        self._status: dict = {}              # profile name -> (read at, running, label)
+        self._attached = False
+
+    # -- which profiles there are -------------------------------------------
+    def sessions(self) -> list:
+        """``[(name, runtime)]`` for every open profile, the current one first.
+
+        The workspace when there is one, this runtime alone when there is not — the two
+        are the same shape on purpose, so nothing below has to ask which mode it is in.
+        """
+        workspace = getattr(self.rt, "workspace", None)
+        if workspace is None:
+            return [(self.rt.profiles.active, self.rt)]
+        out = []
+        for session in workspace.sessions:
+            out.append((session.name, session.rt))
+        return out or [(self.rt.profiles.active, self.rt)]
+
+    def profiles(self) -> dict:
+        """What the switcher at the top of the page is built from."""
+        workspace = getattr(self.rt, "workspace", None)
+        current = getattr(getattr(workspace, "current", None), "name", None)
+        names = [name for name, _rt in self.sessions()]
+        return {"profiles": names,
+                "home": self.rt.profiles.active,
+                # Which one the WINDOW is looking at. Shown so a person driving both can
+                # see, from the phone, which account is on screen at the machine.
+                "showing": current or self.rt.profiles.active}
+
+    def _runtime(self, profile: str | None):
+        """The runtime for ``profile`` — or the server's own when it names nothing.
+
+        An unknown name falls back rather than 404s: a phone that has the second profile
+        selected when that profile is closed at the machine should go on working, showing
+        the one that is left, not go blank until somebody clears its address bar.
+        """
+        if profile:
+            for name, rt in self.sessions():
+                if name == profile:
+                    return rt
+        return self.rt
+
+    def _feed(self, name: str, rt) -> _Feed:
+        feed = self._feeds.get(name)
+        if feed is None or feed.rt is not rt:
+            if feed is not None:
+                feed.detach()
+            feed = _Feed(rt, self._tail)
+            self._feeds[name] = feed
+        if self._attached:
+            feed.attach()                    # a profile opened after the server started
+        return feed
+
+    # -- the log ------------------------------------------------------------
+    def attach(self) -> None:
+        """Start collecting log lines, from every profile open now. Idempotent.
+
+        A profile opened LATER is picked up on the first request that mentions it
+        (:meth:`_feed`) — the workspace has no event to subscribe to, and a poll every
+        couple of seconds is a perfectly good moment to notice.
+        """
+        self._attached = True
+        for name, rt in self.sessions():
+            self._feed(name, rt).attach()
+
+    def detach(self) -> None:
+        self._attached = False
+        for feed in list(self._feeds.values()):
+            feed.detach()
+        self._feeds.clear()
+
+    def log(self, since: int = 0, profile: str | None = None) -> dict:
         """The lines newer than ``since``, with the number to ask for next time.
 
         A caller that has fallen behind the ring (a phone in a pocket for an hour) is
         told so rather than silently handed a gap: ``reset`` means "what you had is no
-        longer the beginning of this".
+        longer the beginning of this". The numbering is PER PROFILE, so switching the
+        selector at the top of the page starts that profile's own sequence.
         """
-        with self._lock:
-            held = list(self._lines)
-            newest = self._seq
+        rt = self._runtime(profile)
+        feed = self._feed(profile or self.rt.profiles.active, rt)
+        with feed.lock:
+            held = list(feed.lines)
+            newest = feed.seq
         oldest = held[0][0] if held else newest + 1
         reset = bool(since) and since < oldest - 1
         rows = [self._line(n, text) for n, text in held if n > since or reset]
@@ -123,49 +220,53 @@ class WebApi:
                 "sev": severity_of(text)}
 
     # -- what the profile is doing ------------------------------------------
-    def state(self) -> dict:
-        """One reading of everything the front page shows."""
-        running, label = self._client_status()
-        step = self.rt.activity.current()
-        due = self._due()
+    def state(self, profile: str | None = None) -> dict:
+        """One reading of everything the front page shows, for one profile."""
+        rt = self._runtime(profile)
+        name = self._name_of(rt)
+        running, label = self._client_status(name, rt)
+        step = rt.activity.current()
         return {
-            "profile": self.rt.profiles.active,
-            "lang": self.rt.i18n.lang,
+            "profile": name,
+            "lang": rt.i18n.lang,
             "game": {"running": running, "text": label},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a
             # method on none of them — read it, never call it.
-            "daemon": {"up": self.rt.game.up(), "port": self._port(),
-                       "busy": bool(self.rt.game.busy)},
+            "daemon": {"up": rt.game.up(), "port": self._port(rt),
+                       "busy": bool(rt.game.busy)},
             # `name` is passed through raw beside the sentence: the page marks the
             # scenario card that is running with it, and matching on the translated
             # sentence would be matching on a language.
             "activity": ({"key": step.key,
                           "name": str(step.fmt.get("name") or ""),
-                          "text": self.rt.t(step.key, **step.fmt)}
+                          "text": rt.t(step.key, **step.fmt)}
                          if step is not None else None),
-            "timers": due,
+            "timers": self._due(rt),
             "time": time.time(),
         }
 
-    def _client_status(self) -> tuple:
-        """Is this profile's client up — cached for :data:`STATUS_TTL_SEC`."""
-        when, running, label = self._status
+    def _name_of(self, rt) -> str:
+        return str(rt.profiles.active)
+
+    def _client_status(self, name: str, rt) -> tuple:
+        """Is this profile's client up — cached per profile for :data:`STATUS_TTL_SEC`."""
+        when, running, label = self._status.get(name, (0.0, False, ""))
         now = time.time()
         if now - when < STATUS_TTL_SEC:
             return running, label
-        exe, user = self._client_args()
+        exe, user = self._client_args(rt)
         try:
             running, message = game_process.status(exe, user=user)
         except Exception as exc:             # noqa: BLE001 — a reading, never the server
             running, message = False, str(exc)
-        label = i18nmod.translated(self.rt.t, message)
-        self._status = (now, bool(running), label)
+        label = i18nmod.translated(rt.t, message)
+        self._status[name] = (now, bool(running), label)
         return bool(running), label
 
-    def _due(self) -> dict:
+    def _due(self, rt) -> dict:
         """How many errands are switched on, and when the next one is due."""
         try:
-            schedule = self.rt.schedule
+            schedule = rt.schedule
             config = schedule.timer_config()
             records = schedule.store.records()
             catalogue = schedule.timer_catalogue
@@ -183,15 +284,16 @@ class WebApi:
                 # The TITLE, not the id: what the front page said until now was
                 # «ближайший: alliance_upkeep», which is the key the file is keyed by
                 # and not a thing anybody calls it (the tab has never shown it either).
-                soonest, whose = when, self._timer_title(timer)
+                soonest, whose = when, self._timer_title(rt, timer)
         # `running` is a property on the scheduler, like `busy` on the game link.
         return {"on": on, "next": soonest, "next_name": whose,
                 "running": bool(getattr(schedule.timers, "running", False))}
 
     # -- the errands ---------------------------------------------------------
-    def timers(self) -> dict:
+    def timers(self, profile: str | None = None) -> dict:
         """Every configured errand: its switch, its period, and how it last ended."""
-        schedule = self.rt.schedule
+        rt = self._runtime(profile)
+        schedule = rt.schedule
         config = schedule.timer_config()
         records = schedule.store.records()
         catalogue = schedule.timer_catalogue
@@ -202,7 +304,7 @@ class WebApi:
             state, when = timersmod.last_attempt(records, timer.name)
             rows.append({
                 "name": timer.name,
-                "title": self._timer_title(timer),
+                "title": self._timer_title(rt, timer),
                 "enabled": bool(item.get("enabled")),
                 "interval_sec": int(item.get("interval_sec") or timer.interval_sec),
                 "next": catalogue.next_due(timer, config, records),
@@ -211,19 +313,21 @@ class WebApi:
                 "queued": timer.name in pending,
                 "steps": list(timer.scenario),
             })
-        return {"timers": rows, "running": bool(schedule.timers.running),
+        return {"timers": rows, "profile": self._name_of(rt),
+                "running": bool(getattr(schedule.timers, "running", False)),
                 "time": time.time()}
 
-    def _timer_title(self, timer) -> str:
+    def _timer_title(self, rt, timer) -> str:
         """What the row is called — the operator's own words, or the built-in key."""
         if timer.title:
             return timer.title
         if timer.label_key:
-            return self.rt.t(timer.label_key)
+            return rt.t(timer.label_key)
         return timer.name
 
-    def set_timer(self, name: str, enabled: bool) -> dict:
-        """Tick or untick one errand — through the Timers tab when this window has one.
+    def set_timer(self, name: str, enabled: bool,
+                  profile: str | None = None) -> dict:
+        """Tick or untick one errand — through the Timers tab when that profile has one.
 
         THE TAB'S BOXES WIN. `Schedule.timer_config` reads the widgets whenever they
         exist (panel/tabs/timers.py), so writing the file behind a live tab's back would
@@ -231,63 +335,73 @@ class WebApi:
         stay. With no such tab in this profile the file IS the configuration, and that
         is the branch below.
         """
-        timer = self.rt.schedule.timer_catalogue.by_name(name)
+        rt = self._runtime(profile)
+        timer = rt.schedule.timer_catalogue.by_name(name)
         if timer is None:
             return {"error": "unknown"}
-        tab = self.rt.tabs.get("timers")
+        tab = rt.tabs.get("timers")
         if tab is not None and hasattr(tab, "set_enabled"):
             done: dict = {}
-            self._on_tk(lambda: done.update(ok=bool(tab.set_enabled(name, enabled))))
+            self._on_tk(rt, lambda: done.update(ok=bool(tab.set_enabled(name, enabled))))
             if done.get("ok"):
                 return {"ok": True, "name": name, "enabled": bool(enabled)}
-        schedule = self.rt.schedule
+        schedule = rt.schedule
         config = dict(schedule.timer_config())
         item = dict(config.get(name) or {})
         item["enabled"] = bool(enabled)
         config[name] = item
         schedule.timer_catalogue = schedule.timer_catalogue.with_settings(config)
-        timersmod.save_catalogue(schedule.timer_catalogue,
-                                 self.rt.profiles.timers_json())
+        timersmod.save_catalogue(schedule.timer_catalogue, rt.profiles.timers_json())
         return {"ok": True, "name": name, "enabled": bool(enabled)}
 
-    def run_timer(self, name: str) -> dict:
+    def run_timer(self, name: str, profile: str | None = None) -> dict:
         """«Запустить сейчас» — onto the schedule's own queue, never a thread of its own.
 
         The same call the row's button makes, for the same reason: every errand runs
         single-file on the one worker, so a press from the phone while something else is
         running waits its turn instead of driving the game beside it.
         """
-        timer = self.rt.schedule.timer_catalogue.by_name(name)
+        rt = self._runtime(profile)
+        timer = rt.schedule.timer_catalogue.by_name(name)
         if timer is None:
             return {"error": "unknown"}
-        queued = bool(self.rt.schedule.timers.request(timer))
+        queued = bool(rt.schedule.timers.request(timer))
         return {"ok": queued, "queued": queued, "name": name}
 
     # -- the scenarios -------------------------------------------------------
-    def actions(self) -> dict:
-        """Every scenario the panel can play, titled in the panel's language."""
-        return {"actions": list_actions(lang=self.rt.i18n.lang)}
+    def actions(self, profile: str | None = None) -> dict:
+        """Every scenario the panel can play, titled in the panel's language.
 
-    def run_action(self, name: str) -> dict:
-        """Play one scenario under the game claim — `rt.play_async`, and nothing else.
+        The LIST is the same for every profile — scenarios belong to the bot, not to an
+        account — but the titles follow the language of the profile being asked about.
+        """
+        rt = self._runtime(profile)
+        return {"actions": list_actions(lang=rt.i18n.lang)}
+
+    def run_action(self, name: str, profile: str | None = None) -> dict:
+        """Play one scenario under that profile's game claim — `rt.play_async`, no more.
 
         ``busy`` is not a failure: it means something else is driving this client right
-        now, which is the one answer a remote press must never override.
+        now, which is the one answer a remote press must never override. And it is per
+        profile, which is the point of naming one — a press meant for the second account
+        must not land on the first one's client.
         """
-        if self.rt.actions.resolve(name) is None:
+        rt = self._runtime(profile)
+        if rt.actions.resolve(name) is None:
             return {"error": "unknown"}
-        started = self.rt.play_async(name, tag="web")
+        started = rt.play_async(name, tag="web")
         return {"ok": bool(started), "busy": not started, "name": name}
 
     # -- the words -----------------------------------------------------------
-    def words(self) -> dict:
+    def words(self, profile: str | None = None) -> dict:
         """The whole locale table the page draws itself with.
 
         English underneath whatever the panel is set to, which is the same fallback
         `Translator.t` applies — so a locale that is behind shows English for the keys
         it lacks and its own words for the rest, on the phone exactly as in the window.
         """
-        lang = self.rt.i18n.lang
+        rt = self._runtime(profile)
+        lang = rt.i18n.lang
         table = dict(i18nmod.load_locale(i18nmod.DEFAULT_LANG))
         if lang != i18nmod.DEFAULT_LANG:
             table.update(i18nmod.load_locale(lang))
@@ -300,36 +414,44 @@ class WebApi:
         Split out from the handler so the whole surface can be exercised without a
         socket — tests/test_panel_web.py drives this directly and the live server only
         has to prove that a request reaches it.
+
+        WHICH PROFILE travels the way each verb already carries things: a query parameter
+        on a GET, a field on a POST body. Absent means the session the server belongs to.
         """
         if method == "GET":
+            who = str(query.get("profile") or "") or None
+            if path == "/api/profiles":
+                return 200, self.profiles()
             if path == "/api/state":
-                return 200, self.state()
+                return 200, self.state(who)
             if path == "/api/timers":
-                return 200, self.timers()
+                return 200, self.timers(who)
             if path == "/api/actions":
-                return 200, self.actions()
+                return 200, self.actions(who)
             if path == "/api/i18n":
-                return 200, self.words()
+                return 200, self.words(who)
             if path == "/api/log":
-                return 200, self.log(_int(query.get("since"), 0))
+                return 200, self.log(_int(query.get("since"), 0), who)
         elif method == "POST":
+            who = str(body.get("profile") or "") or None
             name = str(body.get("name") or "")
             if path == "/api/timers/set":
-                return _answer(self.set_timer(name, bool(body.get("enabled"))))
+                return _answer(self.set_timer(name, bool(body.get("enabled")), who))
             if path == "/api/timers/run":
-                return _answer(self.run_timer(name))
+                return _answer(self.run_timer(name, who))
             if path == "/api/actions/run":
-                return _answer(self.run_action(name))
+                return _answer(self.run_action(name, who))
         return 404, {"error": "not_found"}
 
     # -- reaching the panel safely -------------------------------------------
-    def _port(self) -> int:
+    @staticmethod
+    def _port(rt) -> int:
         try:
-            return int(self.rt.daemon_port())
+            return int(rt.daemon_port())
         except Exception:                    # noqa: BLE001 — a half-typed port box
             return 0
 
-    def _client_args(self) -> tuple:
+    def _client_args(self, rt) -> tuple:
         """Which executable to look for, and in whose Windows session.
 
         Read from the WIDGETS when there is a Tk thread to ask: a Tk variable read off
@@ -345,18 +467,19 @@ class WebApi:
         box: dict = {}
 
         def read() -> None:
-            box["exe"] = self.rt.settings.opt_str("game_exe")
-            box["user"] = game_process.profile_user(self.rt.settings)
+            box["exe"] = rt.settings.opt_str("game_exe")
+            box["user"] = game_process.profile_user(rt.settings)
 
-        self._on_tk(read)
+        self._on_tk(rt, read)
         if "exe" in box:
             return box["exe"], box.get("user")
-        saved = _Saved(self.rt.settings)
+        saved = _Saved(rt.settings)
         return saved.opt_str("game_exe"), game_process.profile_user(saved)
 
-    def _on_tk(self, func) -> None:
+    @staticmethod
+    def _on_tk(rt, func) -> None:
         """Run ``func`` on the Tk thread and wait, or run it here if there is none."""
-        root = getattr(self.rt, "root", None)
+        root = getattr(rt, "root", None)
         if root is None or threading.current_thread() is threading.main_thread():
             try:
                 func()
@@ -364,7 +487,7 @@ class WebApi:
                 pass
             return
         try:
-            self.rt.tick.on_tk(func, timeout=TK_TIMEOUT_SEC)
+            rt.tick.on_tk(func, timeout=TK_TIMEOUT_SEC)
         except Exception:                    # noqa: BLE001 — the window is going away
             pass
 

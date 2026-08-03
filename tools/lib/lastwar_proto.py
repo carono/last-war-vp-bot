@@ -434,7 +434,7 @@ SPECIAL_TASK_LEVEL = 99
 #   * an unstarred task at (469, 659) matched a tile with `cfgId 50000704`
 #     — family "5000". From a dataset outside this repo, not reproduced here;
 #   * across 271 live tiles nothing contradicted the reading.
-#   * a 2026-07-19 live run (`--tasks --families`, server 935, 32 tasks) re-
+#   * a 2026-07-19 live run (`--tasks --families`, server 100, 32 tasks) re-
 #     captured `cfgId 60000701` — the exact family-"6000" cfgId the maintainer
 #     had confirmed starred by hand — and never split a family across the star.
 #
@@ -1379,7 +1379,7 @@ def load_fresh_ghost_recon(path, max_age_seconds: float = TASK_FRESH_SECONDS,
 #     f1   500553                 packed pointId
 #     f2   21                     WorldPointType.TREASURE
 #     f100 1397117530950313784    uuid — what `detect.event.claim.treasure` takes
-#     f102/f103 935               the server the chest sits on
+#     f102/f103 100               the server the chest sits on
 #     f11  the treasure record:
 #          f1  uuid (again)       f9  placed-at
 #          f2  owner uid          f12 name          ("Uzilla")

@@ -22,7 +22,7 @@ A shared map point is an ordinary `ChatMessage` with three distinguishing fields
 
 The bubble the player sees is rendered client-side from the attachment —
 `ChatMessage:getMessageWithExtra()` turns it into e.g.
-`[<ALLY>] <PlayerName> (БЗ #935 X:600 Y:400)`. A consumer that only reads `getMsg()`
+`[<ALLY>] <PlayerName> (БЗ #100 X:600 Y:400)`. A consumer that only reads `getMsg()`
 sees `"?"`; `tools/chat_reader.py` already prefers `getMessageWithExtra()` for
 exactly this case.
 
@@ -124,9 +124,9 @@ Three sends through the tool landed in the <Player9> DM room:
 
 | seq | what | rendered bubble |
 |---|---|---|
-| 132 | bare pin at 500,500 | ` (БЗ #935 X:500 Y:500)` |
-| 133 | `--my-base` | `[<ALLY>] <PlayerName> (БЗ #935 X:600 Y:400)` |
-| 134 | `--coords "X:512 Y:498" --coord-label "Тест координат"` | `Тест координат (БЗ #935 X:512 Y:498)` |
+| 132 | bare pin at 500,500 | ` (БЗ #100 X:500 Y:500)` |
+| 133 | `--my-base` | `[<ALLY>] <PlayerName> (БЗ #100 X:600 Y:400)` |
+| 134 | `--coords "X:512 Y:498" --coord-label "Тест координат"` | `Тест координат (БЗ #100 X:512 Y:498)` |
 
 seq 133 is shape-identical to `seq 125`, which the player produced by pressing
 the game's own "share my position" button — so the tool reproduces the client
@@ -166,13 +166,13 @@ dispatch-complete / not-expired gate the `can_loot` rule uses for tiles.
 ```bash
 C:\Python312\python.exe tools\dispatch_tasks.py --alliance --ready --nearest --share-args
 C:\Python312\python.exe tools\chat_send.py --to <peerUid> \
-    --coords "610,490" --coord-server 935 --coord-type 22 \
+    --coords "610,490" --coord-server 100 --coord-type 22 \
     --coord-label "Секретное задание" \
     --coord-extra '{"uuid":…,"cfgId":…,"uname":"<Player2>","abbr":"<ALLY>","dispatch":1}'
 ```
 
 Verified live: `seq 137` in the <Player9> room rendered
-`Секретное задание [<ALLY>] <Player2> (БЗ #935 X:610 Y:490)` — field-for-field the same
+`Секретное задание [<ALLY>] <Player2> (БЗ #100 X:610 Y:490)` — field-for-field the same
 attachment shape the game's own tile-bubble share produced (`seq 126`, `seq 136`).
 
 `uuid` exceeds 2^53, so it must never be round-tripped through a float: it is read
@@ -193,7 +193,7 @@ ev = lua_client.get_evaluator()          # warm daemon, or a local LuaEval
 me = chat_share.self_profile(ev)         # {uid, srv, x, y, name, abbr}
 room = chat_share.dm_room(peer_uid, me["uid"])
 
-chat_share.share_point(ev, room, chat_share.point_attachment(610,490, 935),
+chat_share.share_point(ev, room, chat_share.point_attachment(610,490, 100),
                        peer_uid=peer_uid)
 ```
 
@@ -243,7 +243,7 @@ Things worth knowing before you build on this:
   `--ready`, `--nearest`, `--json`, `--share-args`).
 - `tools/chat_send.py`:
   - `--coords "600,400"` — share a map pin (accepts every spelling
-    `tools/lib/coords.py` parses: `X:600 Y:400`, `@[600,400|935]`, `(600,400)`, …),
+    `tools/lib/coords.py` parses: `X:600 Y:400`, `@[600,400|100]`, `(600,400)`, …),
   - `--coord-server`, `--coord-label`, `--coord-type` (attachment `posType`),
   - `--coord-extra '<json>'` — kind-specific attachment fields (secret task, node, …),
   - `--my-base` — share own base like the in-game button,

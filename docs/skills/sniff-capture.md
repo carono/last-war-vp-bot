@@ -260,7 +260,7 @@ CS.UnityEngine.Debug.LogError('MP armed')"
 argument list is still logged. To capture a **table argument's contents** (only
 its address prints otherwise), store it and dump it in the shim:
 `_G.__CAP = arg` + a small `dump(t,depth)` walker that recurses to depth ~3 —
-this is how the `{[0]={935},[1]={972}}` shape of the enable list was recovered.
+this is how the `{[0]={100},[1]={300}}` shape of the enable list was recovered.
 
 **Read** the trace — the game appends to `Player.log`:
 ```bash

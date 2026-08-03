@@ -48,7 +48,7 @@ def jump_to_coord(x: int, y: int, server: int) -> str:
     enters that server's world (`IsInOtherServer` -> true), the home `server` returns to /
     centres on it (`IsInOtherServer` -> false). No `UIMoveCity` teleport window, no
     authorize-list dance, no forced mid-switch window-close — so map input stays alive
-    afterwards. Verified live: srv 972 -> inOther, srv 935 -> home, UIMoveCity never opens.
+    afterwards. Verified live: srv 300 -> inOther, srv 100 -> home, UIMoveCity never opens.
 
     Replaces the removed `GotoPos` camera crutch and the `JumpToServerByServerId` move-city
     hack (which popped `UIMoveCity`, force-closed it mid-switch, and left map taps dead).
@@ -2709,7 +2709,7 @@ def decorations_window() -> str:
 # and watched for 14 s across three sends and never fired, while the client sat on the
 # old character. So the press makes the same call itself, right after the send.
 #
-# Proven live (#1192, 2026-08-02): 935 -> 509 and back, in-process — the game keeps
+# Proven live (#1192, 2026-08-02): 100 -> 200 and back, in-process — the game keeps
 # its pid, so the Lua daemon survives the relog and the panel needs no reattach. The
 # client comes back on the new character's base about ten seconds later.
 

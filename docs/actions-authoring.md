@@ -100,7 +100,7 @@ Full reference: [`docs/dsl.md`](dsl.md). Quick cheatsheet:
 | `<var> <op> <number>` | `WHILE attempts > 0 LIMIT 40` | Numeric condition on a READ_LUA variable. |
 | `ARGS <name> = <default>` | `ARGS squads = [1, 2, 3]` | Declare a parameter. The caller's value wins; `{name}` is substituted into the script text before parsing, and the value is also a variable conditions can test. |
 | `GAME WORLD` / `GAME CITY` | `GAME WORLD` | **Game-VM.** Single-call sugar: switch scene. |
-| `JUMP x, y [, server]` | `JUMP 512, 640, 972` | **Game-VM.** Single-call sugar: coordinate jump. |
+| `JUMP x, y [, server]` | `JUMP 512, 640, 300` | **Game-VM.** Single-call sugar: coordinate jump. |
 
 **Two backends, one grammar.** The vision primitives (FIND/CLICK/READ_TEXT/PRESS)
 read the screen and click through a window handle; the **game primitives**

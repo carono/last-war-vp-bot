@@ -73,7 +73,7 @@ local function record(a)
   rec.uid    = tostring(pg("senderUid"))
   -- getMsg() is the base text. getMessageWithExtra() renders attachment/interactive
   -- posts (coord shares, etc.) whose base text is just a "?" placeholder into a full
-  -- string ("[ALLY] Name (BZ #935 X:.. Y:..)"). Emit both; Python picks the display.
+  -- string ("[ALLY] Name (BZ #100 X:.. Y:..)"). Emit both; Python picks the display.
   rec.msg    = hex(tostring(mg("getMsg")))
   rec.we     = hex(tostring(mg("getMessageWithExtra")))
   rec.ismy   = tostring(mg("isMySendChat"))
@@ -215,7 +215,7 @@ def _parse_record_line(line: str) -> dict | None:
     with_extra = _hexdec(fields.get("we", ""))     # getMessageWithExtra()
     # Attachment / interactive posts (coord shares, invites, ...) leave getMsg() as
     # a bare "?" placeholder; getMessageWithExtra() renders the real content
-    # ("[ALLY] Name (BZ #935 X:.. Y:..)"). Prefer it only when the base is empty.
+    # ("[ALLY] Name (BZ #100 X:.. Y:..)"). Prefer it only when the base is empty.
     display = with_extra if (base.strip() in _PLACEHOLDER and with_extra) else base
     # Timestamp the record with the message's own serverTime (epoch ms), NOT the
     # parse time: when the user scrolls up, the client re-parses old history through

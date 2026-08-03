@@ -90,7 +90,7 @@ recorder, always call the original.
 - **`getMsg()`** is the base text. For attachment / interactive posts (coord
   shares `post=404`/`13`, invites, …) it is just a `"?"` placeholder. **Use
   `getMessageWithExtra()`** as the fallback there — it renders the full string,
-  e.g. `[<ALLY>] <Player3> (BZ #935 X:602 Y:404)` — author, alliance and
+  e.g. `[<ALLY>] <Player3> (BZ #100 X:602 Y:404)` — author, alliance and
   coordinates already formatted. (There is no `attachmentMsg` data field; the old
   code read it and always got empty.)
 - **Local emoji** are Private Use Area glyphs (U+E000–U+F8FF) sitting inline in

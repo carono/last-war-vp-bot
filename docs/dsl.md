@@ -627,7 +627,7 @@ coordinate-jump, `GoToUtil.GotoWorldPos`.
 
 ```
 JUMP 512, 640
-JUMP 512, 640, 972
+JUMP 512, 640, 300
 ```
 
 ## Conditions
@@ -664,7 +664,7 @@ Allowed in `IF` and `WAIT`:
   comparison against a field of the active profile. Missing field is
   treated as the empty string.
   ```
-  IF profile.server == "972"
+  IF profile.server == "300"
       CALL alliance_specific_thing
   ```
 - `missions.count <op> <n>` where `<op>` is `==`, `!=`, `>`, `<`, `>=`
@@ -712,7 +712,7 @@ server number into the profile. Other actions can then branch on the
 captured values:
 
 ```
-IF profile.server == "972"
+IF profile.server == "300"
     CALL alliance_972_routine
 ```
 

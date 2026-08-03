@@ -111,7 +111,7 @@ self-delimiting and defines the frame boundary:
 c4  <uint16 serverId>  K2  K1   <masked TLV body>
 ```
 
-Bytes 1–2 are the **serverId** (observed `0x03a7` = 935), not a length. `K1`
+Bytes 1–2 are the **serverId** (observed `0x03a7` = 100), not a length. `K1`
 and `K2` are the XOR mask key bytes, transmitted in the clear.
 
 ### The XOR mask
@@ -147,7 +147,7 @@ zlib output is compressor-dependent). That check needs the *tags*, which
 decoding strings lossily, so the module carries its own tag-preserving reader.
 
 `K1`/`K2` are free: 30 distinct pairs across 113 frames, so the client picks
-them per frame and they carry no state. The header's `serverId` stayed 935 in
+them per frame and they carry no state. The header's `serverId` stayed 100 in
 every frame of both captures — it is the account's **home** server, not the
 server being acted on; a cross-server action puts its target in the params.
 
@@ -497,7 +497,7 @@ Ordering (t+ from the first frame):
 0.51  <-- init                                 445 KB, 243 top-level keys
 0.68  <-- push.formation.preset, push.utc.time, push.off.season.skip.cd
 0.86  --> check.device.change
-1.36  --> common.chat.room.id                  -> country_935, custom_lang_ru_935
+1.36  --> common.chat.room.id                  -> country_100, custom_lang_ru_100
 1.49  --> login.other {alliance}               -> full alliance record
 1.58  --> login.ext   {hardware fingerprint}   -> {success: true}
 1.49-2.5 ~90 parallel UI-population calls (activities, shops, heroes, season…)
@@ -557,7 +557,7 @@ Common fields: `x`, `y`, `sid` (server), `olv` (object level), `oname`,
 
 ```json
 // monster, level 6
-{"posType":2, "oname":"300602", "olv":6, "x":636, "y":547, "sid":935}
+{"posType":2, "oname":"300602", "olv":6, "x":636, "y":547, "sid":100}
 
 // gold mine, level 4
 {"posType":5, "oname":129027, "olv":4, "x":189, "y":597, "sid":1038}
@@ -607,7 +607,7 @@ target.
 
 `meteorite.enter.world` is the exception, and an earlier revision of this
 section wrongly lumped it in with the rest. Re-checked across every capture on
-disk it names **one** server per jump — 935×3, 1003×2 (the same value sent
+disk it names **one** server per jump — 100×3, 1003×2 (the same value sent
 twice), 1035×1, never two different ones — and that server is the one every
 following `world.get.block` request then asks for. The off-target ids in the
 burst ride on `center.throne.activity.info`, `get.all.server.trade` and
@@ -1058,8 +1058,8 @@ Afterwards the client fires `hero.dispatch.share.chat` on its own to post the
 task into alliance chat. That is a client-side courtesy, not part of the steal.
 
 One coordinate note, consistent with the off-by-one already recorded above:
-the steal was at `point 509552` → `(552, 509)` server-local, while the chat
-attachment the client generated for the same task said `x: 551, y: 509`.
+the steal was at `point 509552` → `(552, 200)` server-local, while the chat
+attachment the client generated for the same task said `x: 551, y: 200`.
 
 #### Shared secret missions — `alliance.share.mission.*`
 
@@ -1324,7 +1324,7 @@ that capture has since been taken (below).
 #### Live-confirmed rally structure (task #995)
 
 A live 120 s passive capture (`tools/live_tshark.py` / raw `dumpcap` against
-`<server-ip>:17935`, world 935, alliance <ALLY>) caught a full alliance rally
+`<server-ip>:17935`, world 100, alliance <ALLY>) caught a full alliance rally
 lifecycle. Raw pcap + decoded extract: `results/rally/rally_live.pcapng`,
 `results/rally/rally_structure.json`.
 
@@ -1386,7 +1386,7 @@ response:   user.leave.world  {success:True, _id:N}
 ```
 
 `worldId` is always `0` for the home server. `serverId` is the home server
-(935). The reply carries a direct `success=True`, unlike `go.to.world` which
+(100). The reply carries a direct `success=True`, unlike `go.to.world` which
 triggers a world-init stream with no echo.
 
 Orchestrator: `tools/run_leave_world_inject.py`

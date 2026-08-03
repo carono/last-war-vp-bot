@@ -37,9 +37,9 @@ The scout **report** arrives asynchronously as a **battle-report mail**
 35741  SeasonUtil.OnClickWorldTile   <- 252825, 0, nil, <table>      -- tap the enemy tile (pId)
 35742  UIManager.OpenWindow          <- UIWorldBlackTile, ..., 252825 -- select highlight
 ...    WorldPointDetailData.New / __init / ParseData                   -- parse world.get.detail.new (the base detail popup: power, troops, shield)
-41402  MarchUtil.OnClickStartMarch   <- 11, 249828, 1153754361273489578, -1, 1, nil, 935
+41402  MarchUtil.OnClickStartMarch   <- 11, 249828, 1153754361273489578, -1, 1, nil, 100
                                        -- tap «Attack»: targetType=ATTACK_CITY(11), pid, targetUuid, -1, 1, nil, serverId
-41502  GoToUtil.GotoWorldPos         <- ..., -1, 0.2, <fn>, 935, 0    -- camera flies to target
+41502  GoToUtil.GotoWorldPos         <- ..., -1, 0.2, <fn>, 100, 0    -- camera flies to target
 47127  MarchUtil.OnAttackOtherCity   <- 1397117525879400249, BuildPointInfo, 52
                                        -- march resolves onto the enemy city (ownMarchUuid, buildPoint, ...)
 50392  MarchUtil.LaunchScout         <- 17, 249828, 1153754361273489578
@@ -71,7 +71,7 @@ For both the attack and the scout the two identifiers are the same pair:
   The base does not expose its uuid client-side until the server sends it; a
   single tile select (`OnClickWorldTile` → `world.get.detail.new`) fetches it
   (mirrors the monster MODE‑1 `OnClick` uuid fetch).
-- **`serverId`** — target server (`935`; may differ for cross-server targets).
+- **`serverId`** — target server (`100`; may differ for cross-server targets).
 
 > The `252825` in `OnClickWorldTile` vs `249828` in the march is the dedup pass
 > catching a *different* earlier tile select; within one attack the select pid

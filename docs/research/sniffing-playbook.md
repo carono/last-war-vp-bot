@@ -3,7 +3,7 @@
 Companion to [`network-protocol-sniffing.md`](network-protocol-sniffing.md).
 That doc says *whether* to do this (short answer: passive-only on the official
 client; anything active only on an emulator + throwaway account, never the main
-account on server #972). **This doc is the *how* — the concrete commands.**
+account on server #300). **This doc is the *how* — the concrete commands.**
 
 ---
 
@@ -271,4 +271,4 @@ point it at your `.proto` search paths, then map the custom port's body to
 3. §2 MITM (+ §4 Frida if pinned) on the emulator → decrypted HTTP/WS.
 4. §5 protobuf decode; if bodies are still encrypted, §3/RE for the app cipher.
 5. Only after the schema is understood: prototype a request-replay client in a
-   throwaway account. Keep it far away from server #972.
+   throwaway account. Keep it far away from server #300.

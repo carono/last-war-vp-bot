@@ -89,8 +89,8 @@ def test_parse_lua_and_readlua():
     (rl,) = se.parse_text("READ_LUA Foo:Bar() INTO attempts")
     assert isinstance(rl, se.ReadLuaStmt)
     assert rl.expr == "Foo:Bar()" and rl.var == "attempts"
-    (jump,) = se.parse_text("JUMP 512, 640, 972")
-    assert (jump.x, jump.y, jump.server) == (512, 640, 972)
+    (jump,) = se.parse_text("JUMP 512, 640, 300")
+    assert (jump.x, jump.y, jump.server) == (512, 640, 300)
 
 
 def test_parse_tap():
@@ -277,9 +277,9 @@ def test_game_scene_and_jump_sugar():
     _run("GAME WORLD", ev)
     assert any("ChangeToWorld" in c for c in ev.chunks)
     ev2 = FakeEval()
-    _run("JUMP 100, 200, 972", ev2)
+    _run("JUMP 100, 200, 300", ev2)
     joined = "\n".join(ev2.chunks)
-    assert "GotoWorldPos" in joined and "972" in joined
+    assert "GotoWorldPos" in joined and "300" in joined
 
 
 def test_occupation_skills_recipe_walks_the_ready_set():

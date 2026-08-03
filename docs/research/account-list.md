@@ -34,8 +34,8 @@ the whole list in `accountArr`:
 
 ```
 accountArr: 2 entries
-  [1] id=935  gameUid=<uid>  gameUserName=<PlayerName>          gameUserLevel=35  zone=APS935  power=241514404  alAbbr=<ALLY>
-  [2] id=509  gameUid=1000000000013509  gameUserName=Игрок 00000509  gameUserLevel=21  zone=APS509  power=4185296    alAbbr=<ALLY3>
+  [1] id=100  gameUid=<uid>  gameUserName=<PlayerName>          gameUserLevel=35  zone=APS100  power=241514404  alAbbr=<ALLY>
+  [2] id=200  gameUid=1000000000013509  gameUserName=Игрок 00000509  gameUserLevel=21  zone=APS200  power=4185296    alAbbr=<ALLY3>
 ```
 
 **Two.** Not six. Per entry the server sends ~33 fields; the ones worth drawing are
@@ -80,12 +80,12 @@ What it held at the same moment the server said "two":
 
 | server | gameUid | HQ | what it really is |
 |--------|---------|----|-------------------|
-| 935 | …000972 | 35 | <PlayerName>, in play |
-| 972 | …000972 | 35 | the server it was created on (the uid ends in it) |
-| 1012 | …000972 | 35 | a server it passed through |
-| 8118 | …000972 | 35 | a cross-server event server |
-| 509 | …000509 | 21 | the second character |
-| 2105 | …002105 | 0 | made, never played |
+| 100 | …000972 | 35 | <PlayerName>, in play |
+| 300 | …000972 | 35 | the server it was created on (the uid ends in it) |
+| 400 | …000972 | 35 | a server it passed through |
+| 500 | …000972 | 35 | a cross-server event server |
+| 200 | …000509 | 21 | the second character |
+| 600 | …002105 | 0 | made, never played |
 
 Nothing removes those rows; `DeleteAcountInfo` exists and the client never calls
 it. Drawing this table is the bug.
@@ -198,7 +198,7 @@ the list first if the session never has (`rolesList` is empty until something se
 comes back on the new server and then waits for its base — a switch that stalls
 mid-relog is a failure, not a false "done".
 
-Proven live on 2026-08-02: 935 → 509 and back, twice, both directions starting from a
+Proven live on 2026-08-02: 100 → 200 and back, twice, both directions starting from a
 session that had never asked for the character list.
 
 ## 5. Capture notes (worth keeping)

@@ -105,7 +105,7 @@ def test_ghost_alliance_command_routes_same():
 def test_ghost_roundtrip_and_from_dict():
     m = proto.GhostReconMission(
         uuid=7, cfg_id=60306, family="6", level=5, state=3, target_server=991,
-        owner_id="o", owner_server=935, alliance_id="a", alliance_show=True,
+        owner_id="o", owner_server=100, alliance_id="a", alliance_show=True,
         point_id=989166, x=166, y=989, member_count=5, steal_count=2,
         team_start_time=1, completion_time=2, expire_time=3)
     assert proto.GhostReconMission.from_dict(m.as_dict()) == m

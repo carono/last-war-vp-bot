@@ -76,7 +76,7 @@ for the other callers:
 |---|---|
 | `targetType` | `7` (RALLY_FOR_BOSS) |
 | `targetPoint` / `targetUuid` | the monster's tile and uuid |
-| `targetServerId` | `935` — filled in by the screen, not by the press |
+| `targetServerId` | `100` — filled in by the screen, not by the press |
 | `timeIndex` | `5` — the rally wait, via `ServerIndex2Time` (`{[5]=1, [1]=5, [2]=10, [3]=30}` minutes) |
 | `autoBackHome` | `1` |
 | `selectFormationUuid` | the squad last used, remembered in `FORMATION_SELECT_HISTORY` |

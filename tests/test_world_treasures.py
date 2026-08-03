@@ -42,7 +42,7 @@ def test_a_treasure_point_decodes_whole():
     t = got[0]
     assert t.uuid == 1397117530950313784
     assert t.cfg_id == "25193"
-    assert t.server_id == 935
+    assert t.server_id == 100
     assert t.point_id == 500553
     assert t.name == "Uzilla"
     assert t.alliance_abbr == "ALLY"

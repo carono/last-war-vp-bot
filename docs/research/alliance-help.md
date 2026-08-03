@@ -276,7 +276,7 @@ no game, no capture).
 
 ### Acceptance of the auto-helper
 
-Live, 2026-07-29, alliance server 935. The push payload in full (this is what
+Live, 2026-07-29, alliance server 100. The push payload in full (this is what
 `push.al.help.new` carries — `senderId` is the requester, `content` the queue id):
 
 ```

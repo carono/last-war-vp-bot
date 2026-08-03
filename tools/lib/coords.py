@@ -3,7 +3,7 @@ r"""Canonical world-coordinate format + a tolerant parser (single source of trut
 To make every script emit coordinates the same way, format them with `fmt()`:
 
     coords.fmt(561, 492)        -> "X:561 Y:492"          (current server)
-    coords.fmt(561, 492, 972)   -> "#972 X:561 Y:492"     (explicit server)
+    coords.fmt(561, 492, 300)   -> "#300 X:561 Y:492"     (explicit server)
 
 The format is human-readable on purpose: a `#server` prefix and labelled `X:`/`Y:` fields.
 The panel turns that token — and, tolerantly, a few other formats seen in the wild
@@ -27,11 +27,11 @@ def fmt(x: int, y: int, server=None) -> str:
     return core if server in (None, "") else f"#{server} {core}"
 
 
-# Optional trailing server: "|972", "@972", "server 972", "сервер 972".
+# Optional trailing server: "|300", "@300", "server 300", "сервер 300".
 _SRV = r"(?:\s*(?:\||@|(?:server|сервер)\s+)\s*(?P<srv>\d{1,5}))?"
 
 _PATTERNS = [
-    # canonical, human-readable: #972 X:561 Y:492  (leading #server, labelled fields)
+    # canonical, human-readable: #300 X:561 Y:492  (leading #server, labelled fields)
     re.compile(r"#\s*(?P<srv>\d{1,5})\s+[XxХх]\s*[:=]?\s*(?P<x>-?\d{1,4})\s*[,; ]{0,3}\s*[YyУуy]\s*[:=]?\s*(?P<y>-?\d{1,4})"),
     # labelled without a server: X:123 Y:456  /  Х=123 У=456  (optional trailing server)
     re.compile(r"[XxХх]\s*[:=]?\s*(?P<x>-?\d{1,4})\s*[,; ]{0,3}\s*[YyУуy]\s*[:=]?\s*(?P<y>-?\d{1,4})" + _SRV),
@@ -77,10 +77,10 @@ def parse(text: str):
 
 if __name__ == "__main__":  # quick self-check
     samples = [
-        fmt(561, 492), fmt(561, 492, 972),          # canonical: "X:561 Y:492" / "#972 X:561 Y:492"
-        "@[561,492]", "@[561,492|972]",             # legacy still parses
+        fmt(561, 492), fmt(561, 492, 300),          # canonical: "X:561 Y:492" / "#300 X:561 Y:492"
+        "@[561,492]", "@[561,492|300]",             # legacy still parses
         "X:123 Y:456", "(123,456)", "123/456",
-        "координаты 123 456", "lvl 12 (561,492)  server 935  steal 0/3", "rc=1 done",
+        "координаты 123 456", "lvl 12 (561,492)  server 100  steal 0/3", "rc=1 done",
         # the reported false positive: must NOT produce a link
         "…running — server 1045, 408 map response(s), 12 tile(s)",
     ]

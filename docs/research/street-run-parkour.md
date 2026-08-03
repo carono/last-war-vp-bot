@@ -2,7 +2,7 @@
 
 Reconnaissance for task #1101 — a Subway-Surfers-style 3-lane endless runner event:
 run as far as possible, dodge obstacles, limited attempts. Findings are **proven by
-live inspection of the client** (server **935**, 2026-07-29); open items are called out.
+live inspection of the client** (server **100**, 2026-07-29); open items are called out.
 
 > **Correction (2026-07-29).** Earlier sessions mapped this to *Ghost Parkour*
 > (`LWGhostParkourDataManager`) — **wrong**. That manager reports `nil` even while the
@@ -156,7 +156,7 @@ makes the bot think it is boxed when a lane was actually passable.
 
 Task #1103 replaced the vision detector with a programmatic read of the Unity scene via
 the xLua daemon. Reader: `tools/lib/surfing_reader.py`; bot commands `readtest` (observe)
-and `runlua` (autopilot). **Proven live, server 935, 2026-07-29.**
+and `runlua` (autopilot). **Proven live, server 100, 2026-07-29.**
 
 **Where the state lives.** During a run the loaded modules include
 `DataCenter.LWBattle.Logic.Surfing.SurfingLogic` (the per-run logic) and
@@ -365,7 +365,7 @@ Testing the two candidate explanations against the record:
 - ✅ **Launch/loop proven live** — `ReqFightStartCheck(false)` starts a run,
   `GoBackToActivityPanel()` clears the result popup between attempts.
 - ✅ **Track model** — bands, patterns and collider extents dumped and measured.
-- 🟡 **Route planning beats the reflex by ~7×** — live (server 935, 2026-07-30) single
+- 🟡 **Route planning beats the reflex by ~7×** — live (server 100, 2026-07-30) single
   lives of **720–1377 m** against ~132 m for the one-step reflex and ~88 m with no control;
   attempts with revives (`logic:RebirthGame()`, which does work, unlike the data manager's
   `ReqRebirthGame`) reached **1685 and 2700 m**. Reviving that way sends the right server

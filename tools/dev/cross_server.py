@@ -20,8 +20,8 @@ Recipe:
 Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServer()
 
     C:\Python312\python.exe tools\cross_server.py <serverId> [X Y]
-    C:\Python312\python.exe tools\cross_server.py 972
-    C:\Python312\python.exe tools\cross_server.py 972 561 492
+    C:\Python312\python.exe tools\cross_server.py 300
+    C:\Python312\python.exe tools\cross_server.py 300 561 492
     C:\Python312\python.exe tools\cross_server.py --home        # return to the home server
 """
 import sys, time

@@ -9,7 +9,7 @@ Windows, drop the file into `results/`, and WSL analyses it offline.
 Read `sniffing-playbook.md` for the full reasoning; this page is the short
 checklist. **Anti-cheat rule stands:** passive capture (steps 1–2) is safe on
 the official client; anything active (MITM/Frida, steps 3–4) is emulator +
-throwaway account only — never server #972.
+throwaway account only — never server #300.
 
 ---
 

@@ -59,7 +59,7 @@ retry in the handle enumeration never fired.
 `--command steal`, the exact `hero.dispatch.steal` trapped on 2026-07-19). Fed
 back through the reference decoder it round-trips byte-for-byte. `--sniff-id`
 reads the next `_id` (and `server_id`) passively off the wire — confirmed live,
-returning `next _id = 14208, server_id = 935` while the map was panned.
+returning `next _id = 14208, server_id = 100` while the map was panned.
 
 ## What blocks a clean end-to-end send here — all environmental
 

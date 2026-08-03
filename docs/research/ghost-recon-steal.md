@@ -28,7 +28,7 @@ repo keeps them apart: separate primitives, separate buttons, separate queues
 `results/ghost1005/steal.json` holds the real exchange:
 
 ```
---> ghost.recon.steal  {uuid: 1397117098857328280, ownerServer: 1006, _id}
+--> ghost.recon.steal  {uuid: 1397117098857328280, ownerServer: 700, _id}
 <-- ghost.recon.steal  {reward[], recordUuid, stealTimes: 2, ownerInfo{uid, name,
                         country, abbr, ...}, cfgId: "60302", ownerUid,
                         ownerServer, uuid}
@@ -178,7 +178,7 @@ Confirmed live (event **closed** — this is the honest limit of this session):
 | `GetPointStealType` finished vs running | 2 vs 4, as tabulated |
 | non-empty `stealList` | reproducible client-side error (§4) |
 | budget / open-day reads | `stealCount` 5, `stealTimes` 0, `IsOpenDay()` false |
-| `dispatchStealRange` covers the account's server | true (509) |
+| `dispatchStealRange` covers the account's server | true (200) |
 | a queued target while the event is closed | `steals_pending` 0, the press sends **nothing** |
 | `actions/steal_ghost_recon.md` end to end | runs, 0 presses, no error |
 

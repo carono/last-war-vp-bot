@@ -48,7 +48,7 @@ Usage (run under the Windows Python so it can reach the daemon)
     C:\Python312\python.exe tools\account_switch.py                 # list
     C:\Python312\python.exe tools\account_switch.py --cache         # the login cache instead
     C:\Python312\python.exe tools\account_switch.py --json          # list as JSON
-    C:\Python312\python.exe tools\account_switch.py --switch 2105   # switch to server 2105
+    C:\Python312\python.exe tools\account_switch.py --switch 600   # switch to server 600
 """
 from __future__ import annotations
 

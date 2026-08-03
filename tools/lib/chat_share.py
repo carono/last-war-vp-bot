@@ -17,7 +17,7 @@ me = chat_share.self_profile(ev)                       # uid / srv / x / y / nam
 room = chat_share.dm_room("1000000000014972", me["uid"])
 
 # a bare pin
-chat_share.share_point(ev, room, chat_share.point_attachment(610,490, 935),
+chat_share.share_point(ev, room, chat_share.point_attachment(610,490, 100),
                        peer_uid="1000000000014972")
 
 # your own base, exactly like the in-game "share my position" button

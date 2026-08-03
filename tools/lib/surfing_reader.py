@@ -3,7 +3,7 @@ r"""Street Run («Уличный забег» / Surfing) obstacle reader — the
 
 During a run the game holds every obstacle as a monster object in
 ``SurfingMonsterManager.showList`` and the avatar as ``SurfingLogic.player``. Each
-monster object exposes, as plain Lua fields (dumped live, server 935, 2026-07-29):
+monster object exposes, as plain Lua fields (dumped live, server 100, 2026-07-29):
 
     .x        lane centre — one of {32, 36, 40} (centre lane = 36, lanes 4 units apart)
     .dataZ    world Z (distance along the track; grows forward)
