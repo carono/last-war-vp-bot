@@ -25,6 +25,8 @@ let TIMER_ROWS = [];
 let ACTIONS = [];
 let RUNNING = '';              // the scenario the panel is playing, off /api/state
 let PROFILE = '';              // which account is being looked at ('' = the server's own)
+let SCREENS = [];              // the tabs of this profile that have a phone screen
+let SCREEN = null;             // the one being looked at, or null
 let NOTIFY = false;
 let POLLING = null;
 
@@ -170,6 +172,8 @@ async function switchProfile(name) {
   // titles follow that profile's language) and another everything.
   LOG_AT = 0;
   ACTIONS = [];
+  SCREENS = [];
+  SCREEN = null;
   RUNNING = '';
   $('log-list').textContent = '';
   await tick();
@@ -287,6 +291,170 @@ function paintActions() {
   }
 }
 
+/* -- the panel's other tabs, drawn by one renderer -------------------------- */
+
+/* «Ещё»: the list of screens this profile's tabs offer. A tab switched off in the
+ * profile is not built and therefore not here — the phone shows what this profile HAS,
+ * exactly as the window does. */
+function paintMore() {
+  const list = $('more-list');
+  list.textContent = '';
+  $('more-empty').hidden = SCREENS.length > 0;
+  for (const screen of SCREENS) {
+    const item = document.createElement('button');
+    item.className = 'item act row';
+    item.style.width = '100%';
+    item.textContent = T(screen.title);
+    item.addEventListener('click', () => openScreen(screen.id));
+    list.appendChild(item);
+  }
+}
+
+async function refreshScreens() {
+  try {
+    SCREENS = (await get('/api/screens')).screens || [];
+    paintMore();
+  } catch (err) { /* the tick says so */ }
+}
+
+async function openScreen(id) {
+  SCREEN = id;
+  showView('screen');
+  await drawScreen();
+}
+
+async function drawScreen() {
+  if (!SCREEN) return;
+  let view;
+  try {
+    view = await get('/api/screen?id=' + encodeURIComponent(SCREEN));
+  } catch (err) { return; }
+  $('screen-title').textContent = T(view.title || '');
+  const body = $('screen-body');
+  body.textContent = '';
+  const searchable = (view.cards || []).some((c) => c.search);
+  $('screen-filter').hidden = !searchable;
+  const needle = searchable ? ($('screen-filter').value || '').toLowerCase() : '';
+  for (const card of view.cards || []) {
+    // A card titled the same as the screen it is on says it twice — «Альянс» over
+    // «Альянс». One card, one heading, and the screen's own is the one that stays.
+    const solo = (view.cards || []).length === 1 && card.title === view.title;
+    body.appendChild(renderCard(solo ? Object.assign({}, card, { title: null }) : card,
+                                needle));
+  }
+  for (const action of view.actions || []) {
+    const button = document.createElement('button');
+    button.className = 'go';
+    button.style.width = '100%';
+    button.textContent = T(action.label);
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        await post('/api/screen/press', { id: SCREEN, action: action.id });
+        setTimeout(drawScreen, 900);      // the tab reads on its own thread
+      } finally { button.disabled = false; }
+    });
+    body.appendChild(button);
+  }
+}
+
+/* ONE renderer for every tab's screen. `title`, `label`, `empty` and `pill` are locale
+ * KEYS and go through T(); `head`, `text`, `value`, `detail` and `note` are DATA — a
+ * player's name, a count, a date — and are shown as they are (panel/tabs/base.py). */
+function renderCard(card, needle) {
+  const box = document.createElement('div');
+  box.className = 'card';
+  if (card.title) {
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.textContent = T(card.title);
+    box.appendChild(head);
+  }
+  if (card.head) {
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.textContent = card.head;
+    box.appendChild(head);
+  }
+  for (const row of card.rows || []) {
+    const line = document.createElement('div');
+    line.className = 'kv';
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = T(row.label);
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = row.value;
+    line.append(k, v);
+    box.appendChild(line);
+  }
+  let shown = 0;
+  for (const item of card.items || []) {
+    const hay = ((item.text || '') + ' ' + (item.detail || '') + ' ' +
+                 (item.note || '')).toLowerCase();
+    if (needle && !hay.includes(needle)) continue;
+    shown += 1;
+    box.appendChild(renderItem(item));
+  }
+  if (!shown && !(card.rows || []).length && card.empty) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = T(card.empty);
+    box.appendChild(empty);
+  }
+  return box;
+}
+
+function renderItem(item) {
+  const line = document.createElement('div');
+  line.className = 'item';
+  const head = document.createElement('div');
+  head.className = 'row';
+  const title = document.createElement('span');
+  title.className = 'title';
+  title.textContent = item.text || '';
+  head.appendChild(title);
+  if (item.detail) {
+    const detail = document.createElement('span');
+    detail.className = 'muted small';
+    detail.textContent = item.detail;
+    head.appendChild(detail);
+  }
+  line.appendChild(head);
+  if (item.note) {
+    const note = document.createElement('p');
+    note.className = 'muted small';
+    note.textContent = item.note;
+    line.appendChild(note);
+  }
+  if (item.pill || (item.actions || []).length) {
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = item.pill ? T(item.pill) : '';
+    foot.appendChild(pill);
+    for (const action of item.actions || []) {
+      const button = document.createElement('button');
+      button.className = 'go';
+      button.textContent = T(action.label);
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const answer = await post('/api/screen/press',
+                                    { id: SCREEN, action: action.id,
+                                      args: action.args || {} });
+          toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
+          setTimeout(drawScreen, 900);
+        } finally { button.disabled = false; }
+      });
+      foot.appendChild(button);
+    }
+    line.appendChild(foot);
+  }
+  return line;
+}
+
 /* -- the log --------------------------------------------------------------- */
 
 function paintLog(data) {
@@ -336,6 +504,7 @@ function showView(name) {
   }
   if (name === 'timers') refreshTimers();
   if (name === 'actions') refreshActions();
+  if (name === 'more') refreshScreens();
 }
 
 function showLogin() {
@@ -391,6 +560,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   $('actions-filter').addEventListener('input', paintActions);
   $('profile-pick').addEventListener('change', (e) => switchProfile(e.target.value));
+  $('screen-back').addEventListener('click', () => { SCREEN = null; showView('more'); });
+  $('screen-filter').addEventListener('input', drawScreen);
   $('login-go').addEventListener('click', async () => {
     const token = $('login-token').value.trim();
     const answer = await post('/api/login', { token: token });

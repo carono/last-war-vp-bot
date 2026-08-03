@@ -952,5 +952,10 @@
   "web.cert": "Сертификат (PEM)",
   "web.key": "Ключ (PEM)",
   "web.https": "По желанию: укажите здесь сертификат и ключ — и панель будет отдавать HTTPS вместо HTTP. Самоподписанный годится: каждое устройство один раз предупредит и запомнит. Сделать так: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "сертификат не загрузился: {error}"
+  "web.log.cert_error": "сертификат не загрузился: {error}",
+  "web.ui.nav.more": "Ещё",
+  "web.ui.more.empty": "У этого профиля других экранов нет.",
+  "web.ui.back": "Назад",
+  "web.ui.not_read": "ещё ничего не прочитано — нажмите «Обновить»",
+  "web.ui.done": "готово"
 }

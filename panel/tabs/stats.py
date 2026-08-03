@@ -109,6 +109,38 @@ class StatsTab(PanelTab):
             self._unsubscribe = None
 
     # -- drawing ------------------------------------------------------------
+    # -- the phone -----------------------------------------------------------
+    WEB_SCREEN = True
+
+    def web_view(self) -> "dict | None":
+        """A day per card — because a five-column table on a 360-wide screen is a
+        table nobody can read, and the columns here are exactly what a card's rows are.
+
+        No reading of the game: the tally is a file this profile owns, and it is
+        already in memory.
+        """
+        stats = self._stats
+        dates = stats.dates() if stats is not None else []
+        cards = []
+        for date in dates:
+            row = stats.on(date)
+            cards.append({
+                "title": None,
+                "head": date,
+                "rows": [{"label": f"stats.res.{key}", "value": f"{row[key]:,}"}
+                         for key in resourcestatsmod.RESOURCES],
+            })
+        if not cards:
+            cards = [{"title": "stats.frame", "empty": "stats.empty"}]
+        return {"cards": cards,
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def web_press(self, action: str, args: dict) -> dict:
+        if action != "refresh":
+            return {"error": "unknown"}
+        self.refresh()
+        return {"ok": True}
+
     def redraw(self) -> None:
         """Repaint the per-day table from the tally."""
         grid = self._grid

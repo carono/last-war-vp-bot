@@ -81,11 +81,20 @@ class DataTab(PanelTab):
     with no daemon at all.
     """
 
+    #: These tabs all have a phone screen: they are a reading and a «Обновить», which
+    #: is exactly what the web front-end draws with one renderer.
+    WEB_SCREEN = True
+
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
         self._loaded = False
         self._busy = False
         self._status_var = None
+        #: The last reading, kept so the phone can be handed what the tab ALREADY has.
+        #: Before this, the data went straight into widgets and was gone — and a phone
+        #: opening a screen would have had to read the game to see anything, on every
+        #: open, for every screen. Now the game is read when somebody asks for it.
+        self._last_data = None
 
     # -- lifecycle ----------------------------------------------------------
     def ensure_loaded(self) -> None:
@@ -119,6 +128,7 @@ class DataTab(PanelTab):
 
     def _finish_ok(self, data) -> None:
         self._busy = False
+        self._last_data = data
         try:
             self.render(data)
         except Exception:               # noqa: BLE001 — a render slip must not wedge the tab
@@ -146,6 +156,37 @@ class DataTab(PanelTab):
         body = ttk.Frame(self.parent)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         return body
+
+    # -- the phone ----------------------------------------------------------
+    def web_view(self) -> "dict | None":
+        """The tab's last reading, as cards. Never reads the game (see `PanelTab`).
+
+        The CARDS are the subclass's — :meth:`web_cards` maps its own `fetch()` shape,
+        which is the only part that differs between these six tabs. Everything around
+        them is here: the «Обновить» action, the «nothing read yet» state, and the
+        «reading…» one, so no tab spells those three out again.
+        """
+        cards = []
+        if self._last_data is None:
+            cards = [{"empty": "tabx.loading" if self._busy else "web.ui.not_read"}]
+        else:
+            try:
+                cards = self.web_cards(self._last_data) or []
+            except Exception:            # noqa: BLE001 — a screen, never the panel
+                cards = [{"empty": "tabx.error"}]
+        return {"cards": cards,
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """«Обновить» — the tab's own button, on the tab's own background thread."""
+        if action != "refresh":
+            return {"error": "unknown"}
+        self.refresh()
+        return {"ok": True, "busy": True}
+
+    def web_cards(self, data) -> list:
+        """This tab's reading as cards. Overridden by each of the six."""
+        return []
 
     # subclasses override these
     def build(self) -> None: ...

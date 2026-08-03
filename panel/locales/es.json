@@ -952,5 +952,10 @@
   "web.cert": "Certificado (PEM)",
   "web.key": "Clave (PEM)",
   "web.https": "Opcional: indica aquí un certificado y su clave y el panel servirá HTTPS en vez de HTTP. Uno autofirmado sirve — cada dispositivo avisará una vez y lo recordará. Para crearlo: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "el certificado no se pudo cargar: {error}"
+  "web.log.cert_error": "el certificado no se pudo cargar: {error}",
+  "web.ui.nav.more": "Más",
+  "web.ui.more.empty": "Este perfil no tiene más pantallas.",
+  "web.ui.back": "Atrás",
+  "web.ui.not_read": "aún no se ha leído nada — pulsa «Actualizar»",
+  "web.ui.done": "hecho"
 }

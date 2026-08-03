@@ -59,6 +59,17 @@ class AllianceTab(DataTab):
                 rows.append(parts[:5])
         return rows
 
+    def web_cards(self, rows) -> list:
+        """One card, one item per member: who, and when they were last seen."""
+        items = []
+        for row in rows or ():
+            items.append({
+                "text": str(row.get("name") or "?"),
+                "detail": f"{row.get('level') or '?'} · {_group(row.get('power'))}",
+                "pill": "alliance.online" if row.get("online") else None,
+            })
+        return [{"title": "tab.alliance", "items": items, "empty": "tabx.no_game"}]
+
     def render(self, rows) -> None:
         for child in self._scroll.winfo_children():
             child.destroy()

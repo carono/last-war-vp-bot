@@ -952,5 +952,10 @@
   "web.cert": "Sertifika (PEM)",
   "web.key": "Anahtar (PEM)",
   "web.https": "İsteğe bağlı: buraya bir sertifika ve anahtarını yazın, panel HTTP yerine HTTPS versin. Kendi imzalı olanı yeter — her cihaz bir kez uyarır, sonra hatırlar. Oluşturmak için: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "sertifika yüklenmedi: {error}"
+  "web.log.cert_error": "sertifika yüklenmedi: {error}",
+  "web.ui.nav.more": "Daha",
+  "web.ui.more.empty": "Bu profilin başka ekranı yok.",
+  "web.ui.back": "Geri",
+  "web.ui.not_read": "henüz bir şey okunmadı — «Yenile»ye basın",
+  "web.ui.done": "tamam"
 }

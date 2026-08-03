@@ -411,6 +411,66 @@ class WebApi:
         started = rt.play_async(name, tag="web")
         return {"ok": bool(started), "busy": not started, "name": name}
 
+    # -- the tabs' own screens ------------------------------------------------
+    def screens(self, profile: str | None = None) -> dict:
+        """Which of this profile's tabs offer a phone screen, in the window's order.
+
+        A tab switched off in the profile is not built, so it is not here either —
+        the phone shows what this profile HAS, exactly as the window does.
+        """
+        rt = self._runtime(profile)
+        out = []
+        for tab in rt.tabs.live:
+            if not getattr(type(tab), "WEB_SCREEN", False):
+                continue
+            out.append({"id": tab.ID, "title": type(tab).TITLE_KEY})
+        return {"screens": out}
+
+    def screen(self, screen_id: str, profile: str | None = None) -> dict:
+        """One tab's screen as data — built ON THE TK THREAD, where its widgets live.
+
+        `web_view` is contracted to be cheap and to read no game (panel/tabs/base.py),
+        so this costs a hop and a dictionary. What it must NOT do is read the client:
+        a phone left on a screen would then poll the game for as long as it is awake.
+        """
+        rt = self._runtime(profile)
+        tab = rt.tabs.get(screen_id)
+        if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
+            return {"error": "unknown"}
+        box: dict = {}
+
+        def build() -> None:
+            try:
+                box["view"] = tab.web_view()
+            except Exception as exc:     # noqa: BLE001 — one screen, never the panel
+                box["error"] = str(exc)
+
+        self._on_tk(rt, build)
+        view = box.get("view")
+        if view is None:
+            return {"error": "empty", "detail": box.get("error", "")}
+        view["id"] = screen_id
+        view["title"] = view.get("title") or type(tab).TITLE_KEY
+        return view
+
+    def press(self, screen_id: str, action: str, args: dict,
+              profile: str | None = None) -> dict:
+        """One press on a tab's screen, on the Tk thread — the tab's own handler."""
+        rt = self._runtime(profile)
+        tab = rt.tabs.get(screen_id)
+        if tab is None or not getattr(type(tab), "WEB_SCREEN", False):
+            return {"error": "unknown"}
+        box: dict = {}
+
+        def go() -> None:
+            try:
+                box["result"] = tab.web_press(action, args or {})
+            except Exception as exc:     # noqa: BLE001
+                box["result"] = {"error": "failed", "detail": str(exc)}
+
+        self._on_tk(rt, go)
+        return box.get("result") or {"error": "unknown"}
+
     # -- the words -----------------------------------------------------------
     def words(self, profile: str | None = None) -> dict:
         """The whole locale table the page draws itself with.
@@ -451,6 +511,10 @@ class WebApi:
                 return 200, self.words(who)
             if path == "/api/log":
                 return 200, self.log(_int(query.get("since"), 0), who)
+            if path == "/api/screens":
+                return 200, self.screens(who)
+            if path == "/api/screen":
+                return _answer(self.screen(str(query.get("id") or ""), who))
         elif method == "POST":
             who = str(body.get("profile") or "") or None
             name = str(body.get("name") or "")
@@ -460,6 +524,10 @@ class WebApi:
                 return _answer(self.run_timer(name, who))
             if path == "/api/actions/run":
                 return _answer(self.run_action(name, who))
+            if path == "/api/screen/press":
+                return _answer(self.press(str(body.get("id") or ""),
+                                          str(body.get("action") or ""),
+                                          body.get("args") or {}, who))
         return 404, {"error": "not_found"}
 
     # -- reaching the panel safely -------------------------------------------

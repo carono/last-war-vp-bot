@@ -104,7 +104,10 @@ nav {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Five now, and 360/5 = 72 px each — still twice the 44 px floor, and the labels
+     are one word apiece by design. A sixth would want a different shape, not a
+     narrower column. */
+  grid-template-columns: repeat(5, 1fr);
   gap: 1px;
   background: var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -114,9 +117,12 @@ nav {
   border: 0;
   background: var(--card);
   color: var(--muted);
-  padding: 14px 4px;
-  font-size: 13px;
+  padding: 14px 2px;
+  font-size: 12px;
   border-radius: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav.on { color: var(--ink); box-shadow: inset 0 2px 0 var(--accent); }
 
@@ -265,6 +271,27 @@ input[type=checkbox]:disabled { opacity: .5; }
   background: var(--accent);
   vertical-align: middle;
 }
+
+/* --- a tab's own screen -------------------------------------------------- */
+.screen-head { margin-bottom: 10px; gap: 10px; justify-content: flex-start; }
+.screen-head b { font-size: 17px; overflow-wrap: anywhere; }
+.back {
+  padding: 10px 14px;
+  min-width: 44px;
+  flex: none;
+}
+/* A key/value row: the label wraps, the value never does and stays on the right. */
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(42, 51, 65, .5);
+}
+.kv:last-child { border-bottom: 0; }
+.kv .k { color: var(--muted); }
+.kv .v { font-weight: 600; white-space: nowrap; }
+.card .head { font-weight: 600; margin-bottom: 6px; }
 
 /* --- the log ------------------------------------------------------------ */
 /* 13px rather than 12: this is read on a phone, at arm's length, and a monospace

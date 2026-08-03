@@ -952,5 +952,10 @@
   "web.cert": "Zertifikat (PEM)",
   "web.key": "Schlüssel (PEM)",
   "web.https": "Optional: hier ein Zertifikat und seinen Schlüssel angeben, dann liefert das Panel HTTPS statt HTTP. Ein selbstsigniertes genügt — jedes Gerät warnt einmal und merkt es sich. Erzeugen mit: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "das Zertifikat ließ sich nicht laden: {error}"
+  "web.log.cert_error": "das Zertifikat ließ sich nicht laden: {error}",
+  "web.ui.nav.more": "Mehr",
+  "web.ui.more.empty": "Dieses Profil hat keine weiteren Ansichten.",
+  "web.ui.back": "Zurück",
+  "web.ui.not_read": "noch nichts gelesen — «Auffrischen» drücken",
+  "web.ui.done": "fertig"
 }

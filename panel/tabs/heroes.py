@@ -95,6 +95,19 @@ class HeroesTab(DataTab):
                                    -h["stars"], -h["level"]))
         return heroes
 
+    def web_cards(self, heroes) -> list:
+        """The roster. No icons on the phone yet — they are files the page cannot
+        reach without a route of their own, and a name and a level answer the question
+        somebody actually asks away from the machine."""
+        items = []
+        for hero in heroes or ():
+            items.append({"text": str(hero.get("name") or "?"),
+                          "detail": " · ".join(x for x in (
+                              str(hero.get("level") or ""),
+                              _group(hero.get("power")) or "") if x)})
+        return [{"title": "tab.heroes", "items": items, "search": True,
+                 "empty": "tabx.no_game"}]
+
     def render(self, heroes) -> None:
         for child in self._scroll.winfo_children():
             child.destroy()

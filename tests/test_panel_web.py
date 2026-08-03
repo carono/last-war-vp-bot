@@ -128,6 +128,8 @@ class _Schedule:
 
 
 class _Tabs:
+    live: list = []
+
     def get(self, tab_id: str):
         return None
 
@@ -760,6 +762,56 @@ def test_a_profile_that_named_a_port_beats_the_machines_answer():
             assert webmod.WebServer(rt, host="127.0.0.1", token="t", api=api).port == 9999
         finally:
             os.environ.pop("LW_WEB_PORT", None)
+
+
+# ---------------------------------------------------------------------------
+# the tabs' own screens
+# ---------------------------------------------------------------------------
+class _Screen:
+    """A tab with a phone screen, as far as the API is concerned."""
+
+    ID = "demo"
+    TITLE_KEY = "tab.demo"
+    WEB_SCREEN = True
+
+    def __init__(self) -> None:
+        self.pressed: list = []
+
+    def web_view(self) -> dict:
+        return {"cards": [{"title": "tab.demo",
+                           "rows": [{"label": "profile.nick", "value": "Somebody"}]}],
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def web_press(self, action, args) -> dict:
+        self.pressed.append((action, args))
+        return {"ok": True}
+
+
+def test_only_the_tabs_this_profile_built_offer_a_screen():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert api.screens()["screens"] == [], "a profile with no tabs offered one"
+        screen = _Screen()
+        rt.tabs.live = [screen]
+        rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
+        assert api.screens()["screens"] == [{"id": "demo", "title": "tab.demo"}]
+
+
+def test_a_screen_is_handed_over_as_data_and_a_press_reaches_the_tab():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        screen = _Screen()
+        rt.tabs.live = [screen]
+        rt.tabs.get = lambda tab_id: screen if tab_id == "demo" else None
+        view = api.screen("demo")
+        assert view["id"] == "demo" and view["title"] == "tab.demo"
+        assert view["cards"][0]["rows"][0]["value"] == "Somebody"
+        assert api.press("demo", "refresh", {})["ok"] is True
+        assert screen.pressed == [("refresh", {})]
+        # …and a screen this profile does not have is a 404, not an empty page.
+        assert api.screen("nope") == {"error": "unknown"}
+        status, _payload = api.dispatch("GET", "/api/screen", {"id": "nope"}, {})
+        assert status == 404
 
 
 # ---------------------------------------------------------------------------

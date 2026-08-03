@@ -952,5 +952,10 @@
   "web.cert": "Certyfikat (PEM)",
   "web.key": "Klucz (PEM)",
   "web.https": "Opcjonalnie: wskaż tu certyfikat i jego klucz, a panel poda HTTPS zamiast HTTP. Samopodpisany wystarczy — każde urządzenie ostrzeże raz i zapamięta. Utworzyć: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "certyfikat nie wczytał się: {error}"
+  "web.log.cert_error": "certyfikat nie wczytał się: {error}",
+  "web.ui.nav.more": "Więcej",
+  "web.ui.more.empty": "Ten profil nie ma innych ekranów.",
+  "web.ui.back": "Wstecz",
+  "web.ui.not_read": "nic jeszcze nie odczytano — naciśnij «Odśwież»",
+  "web.ui.done": "gotowe"
 }

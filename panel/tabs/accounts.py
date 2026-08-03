@@ -60,6 +60,16 @@ class AccountsTab(DataTab):
         except Exception:              # noqa: BLE001 — a failed read is an empty tab
             return []
 
+    def web_cards(self, rows) -> list:
+        """Every character this login has. The switch itself stays in the window —
+        moving the client to another account is not a thumb-sized decision, and it is
+        one of the few presses that cannot be undone from a bus."""
+        items = []
+        for row in rows or ():
+            items.append({"text": str(row.get("name") or row.get("nick") or "?"),
+                          "detail": str(row.get("server") or row.get("serverId") or "")})
+        return [{"title": "tab.accounts", "items": items, "empty": "tabx.no_game"}]
+
     def render(self, rows) -> None:
         for child in self._scroll.winfo_children():
             child.destroy()

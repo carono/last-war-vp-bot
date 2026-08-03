@@ -952,5 +952,10 @@
   "web.cert": "Chứng chỉ (PEM)",
   "web.key": "Khoá (PEM)",
   "web.https": "Tuỳ chọn: trỏ vào chứng chỉ và khoá của nó, bảng điều khiển sẽ chạy HTTPS thay cho HTTP. Chứng chỉ tự ký cũng được — mỗi thiết bị cảnh báo một lần rồi nhớ. Tạo bằng: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "không nạp được chứng chỉ: {error}"
+  "web.log.cert_error": "không nạp được chứng chỉ: {error}",
+  "web.ui.nav.more": "Thêm",
+  "web.ui.more.empty": "Hồ sơ này không có màn hình nào khác.",
+  "web.ui.back": "Quay lại",
+  "web.ui.not_read": "chưa đọc được gì — hãy bấm «Làm mới»",
+  "web.ui.done": "xong"
 }

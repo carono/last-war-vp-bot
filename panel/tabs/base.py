@@ -82,6 +82,17 @@ class PanelTab:
     # -- the settings page it contributes, if any ---------------------------
     SETTINGS_PAGE_KEY: str = ""
 
+    # -- and what it looks like on a phone ----------------------------------
+    #: Does this tab offer a screen to the web front-end (`panel/web/`)? A tab that
+    #: says yes implements :meth:`web_view`, and the phone lists it under «Ещё».
+    #:
+    #: NOT every tab should. «Настройки» is paths, interpreters and ports — breaking a
+    #: profile with one thumb is easier than fixing it from a bus; «Веб» is the door the
+    #: person came in through and managing it from the far side is how you lock yourself
+    #: out; «Develop» is two sniffers for working on the bot itself. Those three say no
+    #: on purpose (docs/research/panel-web.md §4).
+    WEB_SCREEN: bool = False
+
     def __init__(self, rt, parent) -> None:
         self.rt = rt
         self.parent = parent
@@ -119,6 +130,52 @@ class PanelTab:
 
     def shutdown(self) -> None:
         """The window is closing: children, listeners, subscriptions."""
+
+    # -- the phone's copy of this tab ---------------------------------------
+    def web_view(self) -> "dict | None":
+        """This tab as DATA, for the web front-end to draw. ``None`` = no screen.
+
+        THE SHAPE, and it is deliberately small — the phone has one renderer and every
+        screen is made of the same four things (`panel/web/static/app.js`)::
+
+            {"cards": [
+                {"title": "profile.balance",            # a LOCALE KEY
+                 "rows":  [{"label": "res.food",        # a KEY …
+                            "value": "1 234"}],         # … and DATA, never translated
+                 "items": [{"text": "Иванов",           # data: a name, a number, a time
+                            "detail": "ур. 30 · 12 М",
+                            "pill": "web.ui.queued",    # a KEY, or absent
+                            "actions": [{"id": "join", "label": "rally.join"}]}],
+                 "empty": "alliance.empty"}],           # a KEY, shown for no items
+             "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+        WHICH FIELDS ARE WORDS AND WHICH ARE DATA is fixed and not negotiable, because
+        it is what keeps the eleven languages honest: `title`, `label`, `empty` and
+        `pill` are **locale keys** and are said by the browser out of the panel's own
+        table; `text`, `value` and `detail` are **data** — a player's name, a count, a
+        clock — and are shown as they are. A sentence built here in Russian would reach
+        a person who has the panel in Turkish and could never be reviewed beside its
+        siblings (`CLAUDE.md`). `tests/test_panel_web_screens.py` fails on a `label`
+        that is not a key.
+
+        CHEAP, ALWAYS. This is called on the Tk thread whenever a phone opens the
+        screen, so it returns what the tab ALREADY HAS. Reading the game belongs in
+        the tab's own refresh, which the phone asks for by pressing «Обновить» — a
+        phone in a pocket must not poll the game all day (docs/research/panel-web.md).
+        """
+        return None
+
+    def web_press(self, action: str, args: dict) -> dict:
+        """One press from the phone. ``{"ok": True}``, or ``{"error": "unknown"}``.
+
+        The same rule as everywhere else in the panel: what it presses is a scenario
+        (`rt.actions` / `rt.play_async`) or something the tab already does for its own
+        button. A tab that drives the game by hand today (the secret tasks and the
+        command post do, and it is written down as debt in `CLAUDE.md`) offers the
+        phone the READING and not the press until that ability is a scenario — a second
+        copy of the debt is not an improvement.
+        """
+        return {"error": "unknown"}
 
     # -- persistence --------------------------------------------------------
     def config(self) -> dict:

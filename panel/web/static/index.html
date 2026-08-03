@@ -72,6 +72,22 @@
       <p id="actions-empty" class="muted" data-i18n="web.ui.actions.none" hidden></p>
     </section>
 
+    <!-- everything else the panel has: one list, then one generic screen -->
+    <section id="view-more" class="view" hidden>
+      <div id="more-list"></div>
+      <p id="more-empty" class="muted" data-i18n="web.ui.more.empty" hidden></p>
+    </section>
+
+    <section id="view-screen" class="view" hidden>
+      <div class="row screen-head">
+        <button id="screen-back" class="back" data-i18n="web.ui.back"></button>
+        <b id="screen-title"></b>
+      </div>
+      <input id="screen-filter" type="search" autocomplete="off" hidden
+             data-i18n-placeholder="web.ui.search">
+      <div id="screen-body"></div>
+    </section>
+
     <!-- what has been said -->
     <section id="view-log" class="view" hidden>
       <label class="row switch">
@@ -91,6 +107,7 @@
     <button class="nav"     data-view="timers" data-i18n="web.ui.nav.timers"></button>
     <button class="nav"     data-view="actions" data-i18n="web.ui.nav.actions"></button>
     <button class="nav"     data-view="log"    data-i18n="web.ui.nav.log"></button>
+    <button class="nav"     data-view="more"   data-i18n="web.ui.nav.more"></button>
   </nav>
 </div>
 

@@ -952,5 +952,10 @@
   "web.cert": "Certificate (PEM)",
   "web.key": "Key (PEM)",
   "web.https": "Optional: point those two at a certificate and its key and the panel serves HTTPS instead of HTTP. A self-signed one is fine — every device will warn once and remember. Make one with: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "the certificate would not load: {error}"
+  "web.log.cert_error": "the certificate would not load: {error}",
+  "web.ui.nav.more": "More",
+  "web.ui.more.empty": "This profile has no other screens.",
+  "web.ui.back": "Back",
+  "web.ui.not_read": "nothing read yet — press «Refresh»",
+  "web.ui.done": "done"
 }

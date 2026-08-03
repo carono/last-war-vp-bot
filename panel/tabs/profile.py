@@ -81,6 +81,21 @@ class ProfileTab(DataTab):
             break
         return data
 
+    def web_cards(self, data) -> list:
+        """Who this character is, and what is in the bank."""
+        who = [("profile.nick", data.get("nick")),
+               ("profile.level", data.get("level")),
+               ("profile.power", _group(data.get("power")))]
+        balance = data.get("resources") or {}
+        return [
+            {"title": "tab.profile",
+             "rows": [{"label": key, "value": str(value or "—")} for key, value in who]},
+            {"title": "profile.resources",
+             "rows": [{"label": f"profile.res.{name}",
+                       "value": _group(balance.get(name)) if name in balance else "—"}
+                      for name in RESOURCE_ORDER]},
+        ]
+
     def render(self, data) -> None:
         self._rows["profile.nick"].set(data.get("nick") or "—")
         self._rows["profile.level"].set(data.get("level") or "—")

@@ -952,5 +952,10 @@
   "web.cert": "Sertifikat (PEM)",
   "web.key": "Kunci (PEM)",
   "web.https": "Opsional: tunjuk sertifikat dan kuncinya di sini, lalu panel menyajikan HTTPS alih-alih HTTP. Yang ditandatangani sendiri pun cukup — tiap perangkat memperingatkan sekali lalu mengingatnya. Membuatnya: openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -keyout key.pem -out cert.pem -subj \"/CN=panel\"",
-  "web.log.cert_error": "sertifikat tidak bisa dimuat: {error}"
+  "web.log.cert_error": "sertifikat tidak bisa dimuat: {error}",
+  "web.ui.nav.more": "Lainnya",
+  "web.ui.more.empty": "Profil ini tidak punya layar lain.",
+  "web.ui.back": "Kembali",
+  "web.ui.not_read": "belum ada yang dibaca — tekan «Segarkan»",
+  "web.ui.done": "selesai"
 }

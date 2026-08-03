@@ -77,6 +77,14 @@ class InventoryTab(DataTab):
                 })
         return items
 
+    def web_cards(self, items) -> list:
+        """The bag. Searchable on the phone by the renderer, not by this tab."""
+        rows = [{"text": str(it.get("name") or "?"),
+                 "detail": _group(it.get("count")),
+                 "note": str(it.get("desc") or "")} for it in items or ()]
+        return [{"title": "tab.inventory", "items": rows, "search": True,
+                 "empty": "tabx.no_game"}]
+
     def render(self, items) -> None:
         self._items = items
         self._status_var.set(self.rt.t("inventory.count", n=len(items)) if items
