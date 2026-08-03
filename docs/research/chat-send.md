@@ -31,7 +31,7 @@ read-only `debug.sethook` "call" probe.)
 
 | Param | Text send (from trace) | Meaning |
 |---|---|---|
-| `roomId` | `custom_1000000000014972_1522777203000972_v2` | target room (see below) |
+| `roomId` | `custom_1000000000014972_1000000000000100_v2` | target room (see below) |
 | `msg` | `123123` | the text; **inline emoji are PUA chars inside this string** |
 | `extra` | a table | optional `msgExtra` (srcLang, post, atUids, senderLevel, …) |
 | `reply` | `nil` | reply-to message |
@@ -110,7 +110,7 @@ sticker/zyf_shengdanjie_biaoqing_icon`).
 Sending does **not** need the chat UI. `ChatManager2` is an always-loaded
 singleton and `__sendToRoom` fires the wire commands directly, with no dependency
 on the `UIChatNew_v2` window. Verified live against <Player9>
-(`custom_1000000000014972_1522777203000972_v2`):
+(`custom_1000000000014972_1000000000000100_v2`):
 
 | Send | Chat window | Result (via `tools/chat_reader.py`) |
 |---|---|---|

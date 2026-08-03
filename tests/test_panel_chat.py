@@ -51,7 +51,7 @@ import chat_history       # noqa: E402  (panel/chat_history.py — pure sqlite3)
 # --- the reader captures the avatar version --------------------------------
 
 def test_parse_captures_avatar_version():
-    line = ("ACT R roomId=alliance_935 seqId=42 st=1785000000000 post=0 type=1 "
+    line = ("ACT R roomId=alliance_100 seqId=42 st=1785000000000 post=0 type=1 "
             "uid=1234567 lang=ru gm=0 srv=100 hp=100 hpv=7 ismy=false alliance="
             + b"ABC".hex() + " sender=" + "Ник".encode().hex()
             + " msg=" + "привет".encode().hex() + " we=")
@@ -108,7 +108,7 @@ def test_emoji_and_sticker_catalogues():
 
 # --- the SQLite store ------------------------------------------------------
 
-def _rec(i, room="alliance_935"):
+def _rec(i, room="alliance_100"):
     return {"ts": float(i), "sender_uid": f"u{i}", "sender_name": f"n{i}",
             "msg": f"m{i}", "room_id": room, "seq_id": str(i),
             "chat_type": chat_history.classify_room(room)}

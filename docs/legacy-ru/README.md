@@ -16,7 +16,7 @@
 2. Скачайте и распакуйте этот скрипт https://github.com/carono/last-war-vp-bot/archive/refs/heads/master.zip
 
 ## Запуск
-![UOPilot](https://github.com/carono/last-war-vp-bot/blob/f20acd34993135de2ea5cdc4b19c9dcd3be0f2fd/img/uopilot.png)
+*(Здесь был скриншот окна UOPilot — убран вместе с остальными изображениями: нужные кнопки названы в шагах ниже.)*
 1. Запустите uopilot242.exe
 2. Откройте скрипт в приложении (Скрипт > Открыть)
 3. Нажмите выполнить

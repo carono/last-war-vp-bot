@@ -929,7 +929,6 @@
   "web.ui.unit.min": "{n} min",
   "web.ui.unit.hour": "{n} godz.",
   "web.ui.unit.day": "{n} dni",
-  "web.state.elsewhere": "obsługuje ją profil «{profile}», port {port}",
   "graphics.frame": "Jakość obrazu",
   "graphics.mode.standard": "Standardowa",
   "graphics.mode.low": "Niska (oszczędzaj kartę graficzną)",

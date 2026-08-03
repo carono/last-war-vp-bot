@@ -929,7 +929,6 @@
   "web.ui.unit.min": "{n} dk",
   "web.ui.unit.hour": "{n} sa",
   "web.ui.unit.day": "{n} g",
-  "web.state.elsewhere": "«{profile}» profili yanıtlıyor, bağlantı noktası {port}",
   "graphics.frame": "Görüntü kalitesi",
   "graphics.mode.standard": "Standart",
   "graphics.mode.low": "Düşük (ekran kartını koru)",

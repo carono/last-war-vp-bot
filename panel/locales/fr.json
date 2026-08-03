@@ -929,7 +929,6 @@
   "web.ui.unit.min": "{n} min",
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} j",
-  "web.state.elsewhere": "le profil « {profile} » s'en charge, port {port}",
   "graphics.frame": "Qualité de l'image",
   "graphics.mode.standard": "Standard",
   "graphics.mode.low": "Basse (ménager la carte graphique)",

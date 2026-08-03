@@ -929,7 +929,6 @@
   "web.ui.unit.min": "{n} min",
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} d",
-  "web.state.elsewhere": "está a servi-lo o perfil «{profile}», porta {port}",
   "graphics.frame": "Qualidade da imagem",
   "graphics.mode.standard": "Padrão",
   "graphics.mode.low": "Baixa (poupar a placa de vídeo)",

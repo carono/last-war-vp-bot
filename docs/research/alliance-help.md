@@ -281,9 +281,9 @@ Live, 2026-07-29, alliance server 100. The push payload in full (this is what
 
 ```
 15:45:09 <-- push.al.help.new
-  {"helpId":"cbc455…","senderId":"1297450549001027","name":"GenX 77","level":1,
+  {"helpId":"cbc455…","senderId":"1000000000017100","name":"<Player11>","level":1,
    "itemId":"1","queueType":3,"content":1163779272759051027,"nowcount":0,"maxcount":40,
-   "allianceId":"3d4b9dee…","updateTime":1785322740079,"helpType":1,"picVer":4,"pic":""}
+   "allianceId":"<alliance-id>","updateTime":1785322740079,"helpType":1,"picVer":4,"pic":""}
    +0.1s … +6.0s   pushed helpId in GetAllianceHelpList(): no, every sample
                    list stays 6 entries, all isSelf; helpNum 5
 ```

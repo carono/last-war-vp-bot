@@ -80,7 +80,7 @@ game UI exposes map to id shapes as follows:
 |---|---|---|
 | **World / cross-server** | `country_<server>` | `country_100` |
 | **National / language** | `custom_lang_<lang>_<server>` | `custom_lang_ru_100` |
-| **Alliance (clan)** | `alliance_<serverId>_<allianceId>` | `alliance_935_3d4b9dee…` |
+| **Alliance (clan)** | `alliance_<serverId>_<allianceId>` | `alliance_100_<alliance-id>` |
 | **Personal (DM)** | `custom_<peerUid>_<selfUid>_v2` | `custom_1640…_1595…_v2` |
 
 `chat.stat` also carries a numeric `type` field that mirrors the channel, but

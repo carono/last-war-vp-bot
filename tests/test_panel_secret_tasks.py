@@ -438,7 +438,7 @@ def test_room_ids_from_cached_self_ids():
     tab = object.__new__(st.SecretTasksTab)         # no Tk build
     tab._ids = ("100", "3d4b9dee")
     assert tab._room_id(None, st.SHARE_WORLD) == "country_100"
-    assert tab._room_id(None, st.SHARE_ALLIANCE) == "alliance_935_3d4b9dee"
+    assert tab._room_id(None, st.SHARE_ALLIANCE) == "alliance_100_3d4b9dee"
     tab._ids = ("", "")                             # nothing read -> no room, no send
     assert tab._room_id(None, st.SHARE_WORLD) == ""
     assert tab._room_id(None, st.SHARE_ALLIANCE) == ""
