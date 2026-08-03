@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} godz.",
   "web.ui.unit.day": "{n} dni",
   "graphics.frame": "Jakość obrazu",
-  "graphics.mode.standard": "Standardowa",
-  "graphics.mode.low": "Niska (oszczędzaj kartę graficzną)",
-  "graphics.hint": "Bot czyta grę, a nie ogląda ją — na ten obraz i tak nikt nie patrzy. Przy «Niskiej» klient rysuje 10 klatek na sekundę w najniższej jakości w małym oknie: to około jednej piątej zwykłego obciążenia karty graficznej, a nic, co robi bot, nie zwalnia. Dotyczy tylko klienta tego profilu i NIE przetrwa restartu gry: gdy klient wróci, przełącz ponownie (albo nadaj okres zleceniu «set_graphics_load»).",
+  "graphics.mode.standard": "Zwykła",
+  "graphics.mode.low": "Uproszczona (oszczędzaj kartę graficzną)",
+  "graphics.hint": "Bot czyta grę, a nie ogląda ją — na ten obraz nikt nie musi patrzeć. W trybie «Uproszczona» klient rysuje 10 klatek na sekundę w najniższej jakości w oknie 640×480: ułamek procenta karty graficznej wobec jednej czwartej u klienta pozostawionego samemu sobie, a nic, co robi bot, nie zwalnia. Działa od razu i tylko na klienta TEGO profilu, więc konto grające w tle może oszczędzać, podczas gdy to, na które patrzysz — nie. Restart gry tryb przetrwa w połowie: rozmiar okna wraca sam, liczba klatek i jakość nie — po awarii lub restarcie naciśnij ponownie.",
   "graphics.refresh": "Odśwież",
   "graphics.quality.0": "niska",
   "graphics.quality.1": "średnia",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "klient nie odpowiedział, co rysuje.",
   "graphics.state.failed": "nie przełączono: {reason}",
   "graphics.state.noreason": "scenariusz nie podał powodu",
-  "graphics.state.busy": "w tej chwili grą steruje coś innego — spróbuj za chwilę."
+  "graphics.state.busy": "w tej chwili grą steruje coś innego — spróbuj za chwilę.",
+  "graphics.state.lapsed": "gra została zrestartowana: okno nadal ma {width}×{height}, ale liczba klatek i jakość wróciły do {fps}/s i {quality} — naciśnij «{mode}» ponownie."
 }

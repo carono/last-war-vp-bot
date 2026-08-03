@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} jam",
   "web.ui.unit.day": "{n} hr",
   "graphics.frame": "Kualitas gambar",
-  "graphics.mode.standard": "Standar",
-  "graphics.mode.low": "Rendah (hemat kartu grafis)",
-  "graphics.hint": "Bot membaca permainan, bukan menontonnya — gambar ini toh tidak dilihat siapa pun. Pada «Rendah» klien menggambar 10 bingkai per detik pada kualitas terendah di jendela kecil: sekitar seperlima beban biasa pada kartu grafis, dan tidak ada yang dilakukan bot menjadi lebih lambat. Hanya berlaku untuk klien profil ini dan TIDAK bertahan setelah permainan dimulai ulang: saat klien kembali, alihkan lagi (atau beri periode pada tugas «set_graphics_load»).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Disederhanakan (hemat kartu grafis)",
+  "graphics.hint": "Bot membaca permainan, bukan menontonnya — tidak ada yang perlu melihat gambar ini. Pada «Disederhanakan» klien menggambar 10 bingkai per detik pada kualitas terendah di jendela 640×480: sepersekian persen kartu grafis, dibanding seperempat pada klien yang dibiarkan saja, dan tidak ada yang dilakukan bot menjadi lebih lambat. Berlaku seketika dan hanya untuk klien profil INI, sehingga akun yang bermain di latar belakang bisa berhemat sementara yang Anda tonton tidak. Mode ini bertahan separuh setelah permainan dimulai ulang: ukuran jendela kembali sendiri, laju bingkai dan kualitas tidak — setelah crash atau mulai ulang, tekan lagi.",
   "graphics.refresh": "Segarkan",
   "graphics.quality.0": "rendah",
   "graphics.quality.1": "sedang",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "klien tidak menjawab apa yang sedang digambarnya.",
   "graphics.state.failed": "tidak beralih: {reason}",
   "graphics.state.noreason": "skenario tidak menyebutkan alasan",
-  "graphics.state.busy": "saat ini ada hal lain yang sedang mengendalikan permainan — coba lagi sebentar."
+  "graphics.state.busy": "saat ini ada hal lain yang sedang mengendalikan permainan — coba lagi sebentar.",
+  "graphics.state.lapsed": "permainan dimulai ulang: jendela masih {width}×{height}, tetapi laju bingkai dan kualitas kembali ke {fps}/dtk dan {quality} — tekan «{mode}» lagi."
 }

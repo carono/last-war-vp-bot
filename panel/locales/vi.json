@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} giờ",
   "web.ui.unit.day": "{n} ngày",
   "graphics.frame": "Chất lượng hình ảnh",
-  "graphics.mode.standard": "Tiêu chuẩn",
-  "graphics.mode.low": "Thấp (tiết kiệm card đồ họa)",
-  "graphics.hint": "Bot đọc trò chơi chứ không nhìn nó — dù sao cũng không ai nhìn hình này. Ở mức «Thấp», client vẽ 10 khung hình mỗi giây ở chất lượng thấp nhất trong một cửa sổ nhỏ: khoảng một phần năm tải thông thường lên card đồ họa, và không có thao tác nào của bot bị chậm đi. Chỉ áp dụng cho client của hồ sơ này và KHÔNG tồn tại sau khi khởi động lại trò chơi: khi client quay lại, hãy chuyển lại (hoặc đặt chu kỳ cho tác vụ «set_graphics_load»).",
+  "graphics.mode.standard": "Thông thường",
+  "graphics.mode.low": "Rút gọn (tiết kiệm card đồ họa)",
+  "graphics.hint": "Bot đọc trò chơi chứ không nhìn nó — không ai cần xem hình này. Ở chế độ «Rút gọn», client vẽ 10 khung hình mỗi giây ở chất lượng thấp nhất trong cửa sổ 640×480: một phần nhỏ của một phần trăm card đồ họa, so với một phần tư ở client để nguyên, và không thao tác nào của bot bị chậm đi. Có hiệu lực ngay và chỉ với client của hồ sơ NÀY, nên tài khoản chạy nền có thể tiết kiệm trong khi tài khoản bạn đang xem thì không. Chế độ này chỉ trụ được một nửa qua lần khởi động lại trò chơi: kích thước cửa sổ tự quay lại, còn tốc độ khung hình và chất lượng thì không — sau khi sập hoặc khởi động lại, hãy nhấn lần nữa.",
   "graphics.refresh": "Làm mới",
   "graphics.quality.0": "thấp",
   "graphics.quality.1": "trung bình",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "client không trả lời nó đang vẽ gì.",
   "graphics.state.failed": "không chuyển được: {reason}",
   "graphics.state.noreason": "kịch bản không nêu lý do",
-  "graphics.state.busy": "hiện có thứ khác đang điều khiển trò chơi — hãy thử lại sau giây lát."
+  "graphics.state.busy": "hiện có thứ khác đang điều khiển trò chơi — hãy thử lại sau giây lát.",
+  "graphics.state.lapsed": "trò chơi đã khởi động lại: cửa sổ vẫn {width}×{height}, nhưng tốc độ khung hình và chất lượng đã trở về {fps}/giây và {quality} — hãy nhấn «{mode}» lần nữa."
 }

@@ -291,17 +291,41 @@ Proven live on the second client: 10 fps, quality Low, shadows off, anti-aliasin
 
 ### Turning it on from the panel
 
-**A switch on «Настройки → Игра», under «Windows-сессия».** Two states — «Стандартное»
-and «Низкое (беречь видеокарту)» — and a line saying what the client is actually drawing,
-read back out of the game rather than trusted from what the panel last wrote. It is a
-per-profile setting, which is the granularity that matters: the second account's client,
-headless in a session nobody is connected to, is exactly the one that should be
-economising while the client somebody is watching is not.
+**A switch on «Настройки → Игра», under «Windows-сессия».** Two states — «Обычный» and
+«Упрощённый (беречь видеокарту)», the economy one being 10 fps + quality Low + 640 × 480 —
+and a line saying what the client is actually drawing, read back out of the game rather
+than trusted from what the panel last wrote. It is a per-profile setting, which is the
+granularity that matters: the second account's client, headless in a session nobody is
+connected to, is exactly the one that should be economising while the client somebody is
+watching is not.
 
-Switching to economy reads the picture **first** and remembers it, so «Стандартное» puts
-back that person's own settings rather than a constant — worth having because
-`SetResolution` is clamped to what fits on the desktop (1700 × 1065 asked for, 1608 × 768
-given), so there is no size a panel could hard-code that is right on two machines.
+Switching to economy reads the picture **first** and remembers it, so «Обычный» puts back
+that person's own settings rather than a constant — worth having because the size asked
+for is only a request: `SetResolution` is clamped to what fits, and to the window's own
+shape. Measured asks and answers: 1700 × 1065 → 1608 × 768, 640 × 480 → 600 × 480. There
+is no size a panel could hard-code that is right on two machines, or even on one twice.
+
+**Nothing here waits for a restart.** Every part of the switch — cap, quality and size —
+is in force the moment it is pressed; `Screen.SetResolution` at runtime is immediate, and
+the read in the same run comes back with the new size. (The thing that needs a restart is
+the *launch flag* `-screen-width`, §3.6 — a different mechanism, and easy to confuse with
+this one.)
+
+**What a restart does is take half of it away, and the half that stays is the misleading
+one.** Measured on a real stop-and-start of the second client, with the economy mode on
+beforehand:
+
+| | before the restart | after |
+|---|---|---|
+| render size | 640 × 480 | **640 × 480** — survives (Unity keeps it, §3.6) |
+| frame cap | 10 fps, vSync off | **60 fps, vSync on** — gone |
+| quality | Low | **High** — gone |
+
+So a lapsed client still *looks* economised — small window — while costing what an
+untouched one costs. The switch therefore judges the mode by the cap and the quality and
+never by the size, and when the profile says economy and the client does not, the line
+under it says so in as many words and asks for another press. Offering to restart the
+client at that point would be exactly backwards: a restart is what *loses* the mode.
 
 Everything it knows about the game is two scenario names and a dict of arguments:
 `actions/set_graphics_load.md` to change it, `actions/read_graphics_load.md` to read it.
@@ -328,10 +352,16 @@ of that scenario would cover the restart case, but `CALL` takes no arguments, so
 profile on every machine would get the same hard-coded low-power picture — including the
 client someone is sitting in front of.
 
-**Still open: the switch does not re-assert itself after a restart.** It applies when a
-person presses it, and the client that comes back from a crash comes back at full
-quality with the radio still saying «Низкое». The timer covers that; making the switch
-itself follow a launch is the tidier answer and is not written.
+**Still open: the switch NOTICES a restart but does not undo one.** It says the mode has
+lapsed and asks for a press; it does not re-apply by itself. The timer covers that, and
+making the switch follow a launch is the tidier answer and is not written.
+
+**Also open: what «Обычный» means for a client that was already economised.** The picture
+is remembered on the first switch into economy, so a person whose very first press happens
+while the client is already small records that small window as their normal. It has not
+bitten — a restarted client comes back at full quality, which is when the reading is
+taken — but nothing prevents it, and there is no way to know a size the client has never
+been at.
 
 **Left open.** Nothing here has run through a whole session — the numbers are windows of
 seconds to minutes, not a night. And no measurement was made of what the profile does to

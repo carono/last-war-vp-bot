@@ -42,8 +42,8 @@
 
 ARGS fps = 10
 ARGS quality = 0
-ARGS width = 320
-ARGS height = 200
+ARGS width = 640
+ARGS height = 480
 
 # --- 1. The frame cap ----------------------------------------------------------
 # vSync first, and in the same chunk: the cap does nothing until it is cleared.

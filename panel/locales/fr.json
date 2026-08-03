@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} j",
   "graphics.frame": "Qualité de l'image",
-  "graphics.mode.standard": "Standard",
-  "graphics.mode.low": "Basse (ménager la carte graphique)",
-  "graphics.hint": "Le bot lit le jeu au lieu de le regarder — personne ne regarde cette image de toute façon. En «Basse», le client dessine 10 images par seconde à la qualité la plus basse dans une petite fenêtre : environ un cinquième de la charge habituelle sur la carte graphique, et rien de ce que fait le bot n'est ralenti. Ne concerne que le client de ce profil et ne survit PAS à un redémarrage du jeu : une fois le client revenu, rebasculez (ou donnez une période à la tâche «set_graphics_load»).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Simplifié (ménager la carte graphique)",
+  "graphics.hint": "Le bot lit le jeu au lieu de le regarder — personne n'a besoin de voir cette image. En «Simplifié», le client dessine 10 images par seconde à la qualité la plus basse dans une fenêtre 640×480 : une fraction de pour cent de la carte graphique, contre un quart pour un client laissé tel quel, et rien de ce que fait le bot n'est ralenti. Cela s'applique immédiatement et seulement au client de CE profil, si bien que le compte qui joue en arrière-plan peut économiser pendant que celui que vous regardez ne le fait pas. Le mode survit à moitié au redémarrage du jeu : la taille de la fenêtre revient d'elle-même, la cadence et la qualité non — après un plantage ou un redémarrage, appuyez de nouveau.",
   "graphics.refresh": "Actualiser",
   "graphics.quality.0": "basse",
   "graphics.quality.1": "moyenne",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "le client n'a pas répondu sur ce qu'il dessine.",
   "graphics.state.failed": "pas de bascule : {reason}",
   "graphics.state.noreason": "le scénario n'a donné aucune raison",
-  "graphics.state.busy": "quelque chose d'autre pilote le jeu en ce moment — réessayez dans un instant."
+  "graphics.state.busy": "quelque chose d'autre pilote le jeu en ce moment — réessayez dans un instant.",
+  "graphics.state.lapsed": "le jeu a redémarré : la fenêtre fait toujours {width}×{height}, mais la cadence et la qualité sont revenues à {fps}/s et {quality} — appuyez de nouveau sur «{mode}»."
 }

@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} Std.",
   "web.ui.unit.day": "{n} T.",
   "graphics.frame": "Bildqualität",
-  "graphics.mode.standard": "Standard",
-  "graphics.mode.low": "Niedrig (Grafikkarte schonen)",
-  "graphics.hint": "Der Bot liest das Spiel, statt es anzuschauen — auf dieses Bild sieht ohnehin niemand. Bei «Niedrig» zeichnet der Client 10 Bilder pro Sekunde in niedrigster Qualität in einem kleinen Fenster: etwa ein Fünftel der sonstigen Grafikkartenlast, und nichts, was der Bot tut, wird langsamer. Gilt nur für den Client dieses Profils und überlebt einen Neustart des Spiels NICHT: wenn der Client zurück ist, erneut umschalten (oder dem Auftrag «set_graphics_load» eine Periode geben).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Vereinfacht (Grafikkarte schonen)",
+  "graphics.hint": "Der Bot liest das Spiel, statt es anzusehen — auf dieses Bild muss niemand schauen. Bei «Vereinfacht» zeichnet der Client 10 Bilder pro Sekunde in niedrigster Qualität in einem 640×480-Fenster: gemessen ein Bruchteil eines Prozents der Grafikkarte gegenüber einem Viertel bei einem unberührten Client, und nichts, was der Bot tut, wird langsamer. Es wirkt sofort und nur für den Client DIESES Profils, sodass das im Hintergrund spielende Konto sparen kann, während das beobachtete es nicht tut. Einen Neustart des Spiels übersteht der Modus zur Hälfte: die Fenstergröße kommt von selbst zurück, Bildrate und Qualität nicht — nach einem Absturz oder Neustart also erneut drücken.",
   "graphics.refresh": "Aktualisieren",
   "graphics.quality.0": "niedrig",
   "graphics.quality.1": "mittel",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "Der Client hat nicht geantwortet, was er zeichnet.",
   "graphics.state.failed": "nicht umgeschaltet: {reason}",
   "graphics.state.noreason": "Das Szenario nannte keinen Grund",
-  "graphics.state.busy": "Gerade steuert etwas anderes das Spiel — versuche es gleich noch einmal."
+  "graphics.state.busy": "Gerade steuert etwas anderes das Spiel — versuche es gleich noch einmal.",
+  "graphics.state.lapsed": "Das Spiel wurde neu gestartet: das Fenster ist weiterhin {width}×{height}, aber Bildrate und Qualität stehen wieder auf {fps}/s und {quality} — drücke «{mode}» erneut."
 }

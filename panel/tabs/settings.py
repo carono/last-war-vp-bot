@@ -494,9 +494,12 @@ class SettingsTab(PanelTab):
     # the reading comes back from `actions/read_graphics_load.md` (`CLAUDE.md`: the panel
     # plays scenarios, it does not write them).
 
-    #: The economy profile, in the scenario's own arguments. Measured at −82 % of the
-    #: video card with no cost to anything the bot does (docs/research/headless-gpu.md).
-    LOW_GRAPHICS = {"fps": 10, "quality": 0, "width": 320, "height": 200}
+    #: The economy profile, in the scenario's own arguments. This combination measured
+    #: 0.06 % of the video card and 0.67 % of one core, against a quarter of the card for
+    #: a client left alone (docs/research/headless-gpu.md). 640 × 480 rather than
+    #: something smaller because the saving below it is a rounding error and the picture
+    #: stays large enough to glance at when a person wants to see what the bot is doing.
+    LOW_GRAPHICS = {"fps": 10, "quality": 0, "width": 640, "height": 480}
 
     #: What to put back when nothing was ever remembered — the client's own shipped
     #: settings. Only reached for a profile that arrives already switched to economy,
@@ -655,12 +658,30 @@ class SettingsTab(PanelTab):
         self._graphics_read_at = time.time()
         # vSync makes the frame cap a number the engine is ignoring, so the cap is only
         # quoted when it is actually in force; otherwise the display is what paces it.
+        key = "graphics.state.now" if not vsync else "graphics.state.now_vsync"
+        # …and the case worth catching: the profile says economy and the client is not in
+        # it. That is what a restart looks like — measured on a real one, the render size
+        # came back at 640 × 480 (Unity keeps it) while the cap and the quality were back
+        # at 60 and High. Half a mode in force is exactly the state nobody notices, so it
+        # is named rather than left for the person to spot in the numbers.
+        if self.rt.settings.opt_str("graphics_mode") == "low" and not self._is_low(
+                fps, vsync, quality):
+            key = "graphics.state.lapsed"
         self._say_graphics(
-            "graphics.state.now" if not vsync else "graphics.state.now_vsync",
-            fps=fps, quality=self.t(f"graphics.quality.{min(max(quality, 0), 2)}"),
-            width=width, height=height)
+            key, fps=fps, quality=self.t(f"graphics.quality.{min(max(quality, 0), 2)}"),
+            width=width, height=height, mode=self.t("graphics.mode.low"))
         if then is not None:
             then()
+
+    def _is_low(self, fps: int, vsync: int, quality: int) -> bool:
+        """Is the frame cap this switch asks for actually in force?
+
+        The render size is deliberately not part of the answer. It survives a restart on
+        its own — Unity writes it where it reads it back from — so a client that lost the
+        mode still looks small, and judging by the size would call a lapsed mode fine.
+        """
+        return (not vsync and fps <= self.LOW_GRAPHICS["fps"]
+                and quality <= self.LOW_GRAPHICS["quality"])
 
     def _refresh_sweep_settings_hint(self) -> None:
         hint = getattr(self, "_sweep_settings_hint", None)

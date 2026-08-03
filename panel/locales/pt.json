@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} d",
   "graphics.frame": "Qualidade da imagem",
-  "graphics.mode.standard": "Padrão",
-  "graphics.mode.low": "Baixa (poupar a placa de vídeo)",
-  "graphics.hint": "O bot lê o jogo em vez de olhar para ele — ninguém olha para esta imagem de qualquer forma. Em «Baixa» o cliente desenha 10 quadros por segundo na qualidade mais baixa numa janela pequena: cerca de um quinto da carga habitual sobre a placa de vídeo, e nada do que o bot faz fica mais lento. Vale apenas para o cliente deste perfil e NÃO sobrevive a um reinício do jogo: quando o cliente voltar, alterne de novo (ou dê um período à tarefa «set_graphics_load»).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Simplificado (poupar a placa de vídeo)",
+  "graphics.hint": "O bot lê o jogo em vez de olhar para ele — ninguém precisa de ver esta imagem. Em «Simplificado» o cliente desenha 10 quadros por segundo na qualidade mais baixa numa janela de 640×480: uma fração de por cento da placa de vídeo, contra um quarto num cliente deixado em paz, e nada do que o bot faz fica mais lento. Aplica-se de imediato e apenas ao cliente DESTE perfil, por isso a conta que joga em segundo plano pode poupar enquanto a que está a ver não. O modo sobrevive a meio ao reinício do jogo: o tamanho da janela volta sozinho, a cadência e a qualidade não — depois de uma falha ou reinício, carregue outra vez.",
   "graphics.refresh": "Atualizar",
   "graphics.quality.0": "baixa",
   "graphics.quality.1": "média",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "o cliente não respondeu o que está a desenhar.",
   "graphics.state.failed": "não mudou: {reason}",
   "graphics.state.noreason": "o cenário não deu nenhuma razão",
-  "graphics.state.busy": "neste momento outra coisa está a conduzir o jogo — tente novamente daqui a pouco."
+  "graphics.state.busy": "neste momento outra coisa está a conduzir o jogo — tente novamente daqui a pouco.",
+  "graphics.state.lapsed": "o jogo reiniciou: a janela continua {width}×{height}, mas a cadência e a qualidade voltaram a {fps}/s e {quality} — carregue outra vez em «{mode}»."
 }

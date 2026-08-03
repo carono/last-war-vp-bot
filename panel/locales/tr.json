@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} sa",
   "web.ui.unit.day": "{n} g",
   "graphics.frame": "Görüntü kalitesi",
-  "graphics.mode.standard": "Standart",
-  "graphics.mode.low": "Düşük (ekran kartını koru)",
-  "graphics.hint": "Bot oyuna bakmak yerine onu okur — bu görüntüye zaten kimse bakmıyor. «Düşük» seçildiğinde istemci küçük bir pencerede, en düşük kalitede, saniyede 10 kare çizer: ekran kartına binen olağan yükün yaklaşık beşte biri, ve botun yaptığı hiçbir şey yavaşlamaz. Yalnızca bu profilin istemcisi için geçerlidir ve oyunun yeniden başlatılmasından sonra KALMAZ: istemci geri geldiğinde yeniden değiştirin (ya da «set_graphics_load» görevine bir periyot verin).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Sadeleştirilmiş (ekran kartını koru)",
+  "graphics.hint": "Bot oyuna bakmak yerine onu okur — bu görüntüye kimsenin bakması gerekmiyor. «Sadeleştirilmiş» seçildiğinde istemci 640×480 bir pencerede, en düşük kalitede, saniyede 10 kare çizer: hiç dokunulmamış bir istemcinin ekran kartına bindirdiği dörtte bire karşılık yüzde birin çok altı, ve botun yaptığı hiçbir şey yavaşlamaz. Anında ve yalnızca BU profilin istemcisi için geçerlidir; böylece arka planda oynayan hesap tasarruf ederken izlediğiniz hesap etmez. Mod, oyunun yeniden başlatılmasını yarı yarıya atlatır: pencere boyutu kendiliğinden geri gelir, kare hızı ve kalite gelmez — çökme veya yeniden başlatmadan sonra tekrar basın.",
   "graphics.refresh": "Yenile",
   "graphics.quality.0": "düşük",
   "graphics.quality.1": "orta",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "istemci ne çizdiğini yanıtlamadı.",
   "graphics.state.failed": "geçilmedi: {reason}",
   "graphics.state.noreason": "senaryo bir sebep belirtmedi",
-  "graphics.state.busy": "şu anda oyunu başka bir şey yönetiyor — birazdan tekrar deneyin."
+  "graphics.state.busy": "şu anda oyunu başka bir şey yönetiyor — birazdan tekrar deneyin.",
+  "graphics.state.lapsed": "oyun yeniden başladı: pencere hâlâ {width}×{height}, ama kare hızı ve kalite {fps}/s ve {quality} değerlerine döndü — «{mode}» düğmesine tekrar basın."
 }

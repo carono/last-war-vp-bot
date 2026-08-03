@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} g",
   "graphics.frame": "Qualità dell'immagine",
-  "graphics.mode.standard": "Standard",
-  "graphics.mode.low": "Bassa (risparmia la scheda video)",
-  "graphics.hint": "Il bot legge il gioco invece di guardarlo: questa immagine non la guarda nessuno. Con «Bassa» il client disegna 10 fotogrammi al secondo alla qualità più bassa in una finestra piccola: circa un quinto del carico abituale sulla scheda video, e nulla di ciò che fa il bot rallenta. Vale solo per il client di questo profilo e NON sopravvive a un riavvio del gioco: quando il client torna, cambia di nuovo (oppure dai un periodo all'incarico «set_graphics_load»).",
+  "graphics.mode.standard": "Normale",
+  "graphics.mode.low": "Semplificato (risparmia la scheda video)",
+  "graphics.hint": "Il bot legge il gioco invece di guardarlo: questa immagine non deve vederla nessuno. Con «Semplificato» il client disegna 10 fotogrammi al secondo alla qualità più bassa in una finestra 640×480: una frazione di percento della scheda video, contro un quarto per un client lasciato stare, e nulla di ciò che fa il bot rallenta. Ha effetto subito e solo sul client di QUESTO profilo, così l'account che gioca in secondo piano può risparmiare mentre quello che stai guardando no. Il riavvio del gioco il modo lo sopravvive a metà: la dimensione della finestra torna da sola, la frequenza e la qualità no — dopo un crash o un riavvio premilo di nuovo.",
   "graphics.refresh": "Aggiorna",
   "graphics.quality.0": "bassa",
   "graphics.quality.1": "media",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "il client non ha risposto su cosa sta disegnando.",
   "graphics.state.failed": "non è cambiato: {reason}",
   "graphics.state.noreason": "lo scenario non ha dato una ragione",
-  "graphics.state.busy": "in questo momento il gioco è guidato da qualcos'altro — riprova tra un istante."
+  "graphics.state.busy": "in questo momento il gioco è guidato da qualcos'altro — riprova tra un istante.",
+  "graphics.state.lapsed": "il gioco è stato riavviato: la finestra è ancora {width}×{height}, ma frequenza e qualità sono tornate a {fps}/s e {quality} — premi di nuovo «{mode}»."
 }

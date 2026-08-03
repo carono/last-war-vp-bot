@@ -355,6 +355,77 @@ def test_a_result_callback_can_start_the_next_scenario():
         root.destroy()
 
 
+def test_a_restart_that_dropped_half_the_mode_is_named():
+    """The state a person would otherwise never notice.
+
+    Measured on a real restart of the second client: the render size came back on its own
+    (Unity keeps it where it reads it from) while the frame cap and the quality were back
+    at 60 and High. So a lapsed mode still LOOKS right — small window — and only the two
+    numbers that matter have gone. Judging by the size would call this fine.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        root, page, rt, _calls = _page(
+            settings={"graphics_mode": "low", "graphics_stock": "60/1/2/1920/1080"},
+            replies={"read_graphics_load": _Outcome(values={
+                # exactly what the live restart came back with
+                "fps": 60, "vsync": 1, "quality": 2, "width": 640, "height": 480})})
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        page._read_graphics()
+        expected = page.t("graphics.state.lapsed", fps=60,
+                          quality=page.t("graphics.quality.2"),
+                          width=640, height=480, mode=page.t("graphics.mode.low"))
+        assert _state(page) == expected, _state(page)
+    finally:
+        root.destroy()
+
+
+def test_a_mode_that_is_still_in_force_is_not_called_lapsed():
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        root, page, rt, _calls = _page(
+            settings={"graphics_mode": "low"},
+            replies={"read_graphics_load": _Outcome(values={
+                "fps": 10, "vsync": 0, "quality": 0, "width": 640, "height": 480})})
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        page._read_graphics()
+        assert _state(page) == page.t(
+            "graphics.state.now", fps=10, quality=page.t("graphics.quality.0"),
+            width=640, height=480), _state(page)
+    finally:
+        root.destroy()
+
+
+def test_the_size_alone_does_not_count_as_the_mode_being_on():
+    """The size survives a restart by itself, so it cannot be the evidence."""
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        root, page, _rt, _calls = _page()
+    except Exception as exc:                # noqa: BLE001
+        return _skip(exc)
+    try:
+        low = page.LOW_GRAPHICS
+        assert page._is_low(low["fps"], 0, low["quality"])
+        assert not page._is_low(60, 1, 2), "a stock client read as economising"
+        assert not page._is_low(low["fps"], 1, low["quality"]), \
+            "vSync on means the cap is ignored — that is not the mode being in force"
+    finally:
+        root.destroy()
+
+
 def test_a_run_that_raised_reports_what_raised():
     """The exception is the only account of the failure — it must reach the person.
 

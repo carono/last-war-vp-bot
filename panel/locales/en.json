@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} d",
   "graphics.frame": "Picture quality",
-  "graphics.mode.standard": "Standard",
-  "graphics.mode.low": "Low (save the video card)",
-  "graphics.hint": "The bot reads the game rather than watching it, so nobody looks at this picture. On «Low» the client draws 10 frames a second at the lowest quality in a small window — about a fifth of the video card it costs otherwise, and nothing the bot does gets slower. Applies to this profile's client only, and it does NOT survive a restart of the game: after the client comes back, switch it again (or give the errand «set_graphics_load» a period).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Simplified (save the video card)",
+  "graphics.hint": "The bot reads the game rather than watching it, so nobody has to look at this picture. On «Simplified» the client draws 10 frames a second at the lowest quality in a 640×480 window — measured at a fraction of a percent of the video card, against a quarter of it for a client left alone, and nothing the bot does gets slower. It applies at once, and it applies to THIS profile's client only, so the account playing in the background can be economising while the one you are watching is not. Half of it survives the game restarting and half does not: the window size comes back by itself, the frame rate and the quality do not — so after a crash or a restart, press it again.",
   "graphics.refresh": "Refresh",
   "graphics.quality.0": "low",
   "graphics.quality.1": "medium",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "the client did not answer what it is drawing.",
   "graphics.state.failed": "did not switch: {reason}",
   "graphics.state.noreason": "the scenario gave no reason",
-  "graphics.state.busy": "something else is driving the game right now — try again in a moment."
+  "graphics.state.busy": "something else is driving the game right now — try again in a moment.",
+  "graphics.state.lapsed": "the game has restarted: the window is still {width}×{height}, but the frame rate and the quality are back to {fps}/s and {quality} — press «{mode}» again to put them back."
 }

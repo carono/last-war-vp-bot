@@ -930,9 +930,9 @@
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} d",
   "graphics.frame": "Calidad de imagen",
-  "graphics.mode.standard": "Estándar",
-  "graphics.mode.low": "Baja (cuidar la tarjeta gráfica)",
-  "graphics.hint": "El bot lee el juego en lugar de mirarlo: nadie mira esta imagen de todos modos. En «Baja» el cliente dibuja 10 fotogramas por segundo con la calidad más baja en una ventana pequeña: alrededor de una quinta parte de la carga habitual sobre la tarjeta gráfica, y nada de lo que hace el bot se vuelve más lento. Solo afecta al cliente de este perfil y NO sobrevive a un reinicio del juego: cuando el cliente vuelva, cambia de nuevo (o dale un periodo a la tarea «set_graphics_load»).",
+  "graphics.mode.standard": "Normal",
+  "graphics.mode.low": "Simplificado (cuidar la tarjeta gráfica)",
+  "graphics.hint": "El bot lee el juego en lugar de mirarlo: nadie necesita ver esta imagen. En «Simplificado» el cliente dibuja 10 fotogramas por segundo con la calidad más baja en una ventana de 640×480: una fracción de por ciento de la tarjeta gráfica, frente a una cuarta parte con un cliente sin tocar, y nada de lo que hace el bot se vuelve más lento. Se aplica al instante y solo al cliente de ESTE perfil, así que la cuenta que juega en segundo plano puede ahorrar mientras la que miras no lo hace. El modo sobrevive a medias al reinicio del juego: el tamaño de la ventana vuelve solo, la cadencia y la calidad no; tras un fallo o un reinicio, púlsalo otra vez.",
   "graphics.refresh": "Actualizar",
   "graphics.quality.0": "baja",
   "graphics.quality.1": "media",
@@ -946,5 +946,6 @@
   "graphics.state.unreadable": "el cliente no respondió qué está dibujando.",
   "graphics.state.failed": "no cambió: {reason}",
   "graphics.state.noreason": "el escenario no dio ninguna razón",
-  "graphics.state.busy": "ahora mismo otra cosa está controlando el juego — inténtalo de nuevo en un momento."
+  "graphics.state.busy": "ahora mismo otra cosa está controlando el juego — inténtalo de nuevo en un momento.",
+  "graphics.state.lapsed": "el juego se ha reiniciado: la ventana sigue en {width}×{height}, pero la cadencia y la calidad han vuelto a {fps}/s y {quality} — pulsa «{mode}» otra vez."
 }
