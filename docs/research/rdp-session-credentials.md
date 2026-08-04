@@ -20,6 +20,36 @@ Two questions, and they have different answers:
 > form** (§3A). Unattended and unreadable are not available together here. What is
 > available is the choice in §3B, and one mitigation worth more than either (§5).
 
+## 0a. Where the password lives, and what to do on a new machine
+
+Short version, for somebody who has just installed this and wants the second instance:
+
+* **The password is in Windows' Credential Manager**, under the target
+  `TERMSRV/<the address the tool connects to>`, encrypted by DPAPI to *this* Windows
+  account on *this* machine. It is not in this repository, not in a config file, not in
+  an environment variable, and not in any file the bot writes.
+* **This repository never receives it.** `--save-credential` hands the typing to
+  `cmdkey`, Windows' own tool, which prompts on its own console; `--ask` hands it to
+  mstsc's own dialog. In both routes the password goes from the person to Windows, and
+  no code here is on that path. (`tests/test_no_hardcoded_values.py` fails the build on
+  a Windows login committed anywhere, prose included — a password would have to survive
+  that guard *and* a review to get in.)
+* **On a new machine**, one of two one-time acts, and nothing after that:
+
+  ```
+  # unattended for ever after — Windows keeps it, and it survives reboots
+  C:\Python312\python.exe tools\rdp_instance.py --user <the second account> --save-credential
+
+  # or store nothing at all, and type it once per reboot when the panel asks
+  C:\Python312\python.exe tools\rdp_instance.py --user <the second account> --bring-up --ask
+  ```
+
+  `--credentials` says which of the two states the machine is in. The panel says the
+  same thing in its log the moment it needs a password and has none.
+* **Give that account no more rights than it needs** (§5): it wants membership in
+  **Remote Desktop Users** — that is what permits the logon — and nothing else.
+  Administrator is not required for any part of this.
+
 ## 0. The mechanism is already Windows' own — that part was never in doubt
 
 Worth saying first, because it is easy to read the rest as though the bot invented a
@@ -323,13 +353,32 @@ farming.
 Whichever is chosen, **the mitigation is not optional**, and under B′ it is the thing
 that decides whether the stored credential matters at all:
 
-> **The second Windows account does not need to be an Administrator.** It runs one game
-> client in a session nobody looks at. On the machine this was written for it is in
-> Administrators, which means what a readable credential exposes is an admin password.
-> Demote it to a standard user and the same exposure buys an attacker a game profile.
+> **The second Windows account must not be an Administrator.** It runs one game client
+> in a session nobody looks at. While it is in Administrators, what a readable
+> credential exposes is an *administrator's* password; once it is not, the same exposure
+> buys a game profile.
 
-That single change is worth more than anything the credential form could have bought,
-and — unlike option A — it is available on every configuration.
+**Done, and measured — none of it needs administrator rights.** The account was taken
+out of Administrators, then out of Users as well, and left in **Guests** plus **Remote
+Desktop Users**. After each change the session was logged off and brought up from cold:
+
+| step | RDP logon | client starts | daemon warm | live game read | panel's `--stop` |
+|---|---|---|---|---|---|
+| Administrators removed (Users + RDU) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Users removed too (**Guests** + RDU) | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+The live read is the one that counts — a full alliance dispatch-task list out of the
+second account, which only exists after the client has logged into the game.
+
+Two things make that work, and both are worth knowing before copying this elsewhere:
+
+* **The logon right comes from Remote Desktop Users, not from Administrators.** That is
+  why the demotion does not lock the account out. An account in neither group cannot
+  open the session at all, whatever its password.
+* **Nothing in the sequence needs the *account* to be privileged.** The two privileged
+  acts belong to the panel's side of the machine: the SYSTEM hop that starts the client
+  and the daemon inside the session (`WTSQueryUserToken`), and the elevated `taskkill`
+  that closes the client. Both run as the desktop user, not as this one.
 
 ## 6. What is true afterwards
 
@@ -338,5 +387,7 @@ and — unlike option A — it is available on every configuration.
   has been told plainly that it is readable.
 * Nothing in this repository logs or prints a password, and the only code path that
   holds one at all is the opt-in `--seal` migration.
+* The second account is a **guest** with a remote-desktop logon right and nothing else,
+  so the credential that is stored is worth a game profile rather than a machine.
 * Steps 2–4 (client, daemon, console) remain what they always were: no credential
   anywhere near them (`docs/research/multi-instance-rdp.md` §1).

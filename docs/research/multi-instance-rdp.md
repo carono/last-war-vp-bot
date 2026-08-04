@@ -261,7 +261,14 @@ With nothing stored, `--bring-up` lets mstsc ask instead and keeps none of it â€
 prompt per reboot. The stored entry **is readable** by anything running as the desktop
 user: the unreadable credential type exists, but this logon was measured refusing to
 spend it, so the choice is between a prompt and that exposure rather than between forms
-of storage. Either way, demote the second account out of Administrators.
+of storage.
+
+**The second account needs no privileges.** It runs as a member of **Guests** and
+**Remote Desktop Users** and nothing else â€” measured from cold: the RDP logon, the
+client, the daemon and a live game read all work, because the logon right comes from
+Remote Desktop Users and the two privileged acts (the SYSTEM hop, the `taskkill`) belong
+to the desktop side. That is what keeps the stored credential worth a game profile
+instead of a machine.
 
 The tool also sets the policy that lets an unsigned `.rdp` open without a prompt
 (`AllowUnsignedFiles`); a dialog watcher clicks anything that still appears (it ticks
