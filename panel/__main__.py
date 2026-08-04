@@ -99,6 +99,7 @@ from . import widgets
 from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
 from .runtime import autostart as autostartmod
+from .runtime import game_control as gamectl
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -453,6 +454,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_sweep_stop", "_sweep_at", "_sweep_pass",
         # liveness and the watchdog
         "_game_gone", "_game_was_up", "_watchdog_last", "_link_gone",
+        # the three lifecycle buttons, greyed off this profile's own client
+        "_game_buttons",
         # the DSL command line
         "_cmd_var", "_cmd_at",
     })
@@ -1948,10 +1951,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         game = self._tr(ttk.LabelFrame(main, padding=8), "game.frame")
         game.pack(fill="x", padx=8, pady=(0, 6))
-        self._tr(ttk.Button(game, command=self._launch_game),
-                 "game.launch").pack(side="left", padx=4, ipady=3)
-        self._tr(ttk.Button(game, command=self._restart_game),
-                 "game.restart").pack(side="left", padx=4, ipady=3)
+        # The client's whole life, from one table (panel/runtime/game_control.py): the
+        # same three presses the phone draws, playing the same three scenarios, said in
+        # the log with the same words. The phone's copy is `/api/state` → `game.controls`
+        # and `/api/game`; keeping the pair in step is what that module is for.
+        self._game_buttons = {}
+        for control in gamectl.CONTROLS:
+            button = self._tr(ttk.Button(game, command=self._presser(control)),
+                              control.label)
+            button.pack(side="left", padx=4, ipady=3)
+            self._game_buttons[control.id] = button
+        # Until the first probe answers (a second, at most eight), assume there is no
+        # client: «Запустить» is the one press that is harmless when the belief is
+        # wrong, and «Закрыть» the one that is not.
+        self._paint_game_buttons(runtime.game_process.OFFLINE)
         self._tr(ttk.Label(game, foreground="#888"),
                  "game.launcher_hint").pack(side="left", padx=10)
         # The watchdog: the client is crash-prone (that is why launch_game exists),
@@ -2775,6 +2788,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                     foreground=LINK_COLOURS.get(found.link, "#888")),
                 self._set_daemon(self._t("daemon.warm") if warm else self._t("daemon.none"), warm),
                 self._dbg_status(ok, warm, found.link),
+                self._paint_game_buttons(found.link),
                 self._announce_link(found),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -3275,42 +3289,55 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # did nothing. #1218 moved both ends into the recipes (`START_GAME`, and `QUIT_GAME`
     # carrying the session), so neither button needs a guard any more: they play the
     # same scenario for every profile and the scenario knows where the client is.
-    def _launch_game(self) -> None:
-        # Launch through the same DSL recipe the bot uses: actions/launch_game.md
-        # (START_GAME, then WAIT for the base screen). One source of truth for "start
-        # the game", shared by the panel and any scripted run — and the recipe is what
-        # knows WHERE this profile's client lives, so a profile farming a second account
-        # in its own Windows session presses the same button as everybody else.
-        self._say("game", "log.game.launching")
-        self._rt.play_async("launch_game")
+    # Every one of the three plays a recipe and does nothing else, which is CLAUDE.md's
+    # rule and, for the restart, was a bug fix rather than tidying: what stood here was
+    # `taskkill /F /IM LastWar.exe`, and `/IM` names an IMAGE. On a machine farming two
+    # accounts — one client per Windows session — that closed BOTH, and the second
+    # belonged to a profile nobody pressed anything for (#1205).
+    #
+    # The recipes end the client THIS profile drives (the process its own daemon is
+    # attached to), wait for the base to be in play again, and re-point the game link at
+    # the new process. A kill and a sleep could not do any of it: the link is bound to a
+    # process id, so everything that read the game afterwards was reading a pid that no
+    # longer existed. A second account's client is ended the same way as this one's, and
+    # the only difference is who is allowed to — `TerminateProcess` on another account's
+    # process comes back ACCESS_DENIED for an unelevated panel, so `QUIT_GAME` falls back
+    # to one elevated taskkill BY PID, never by image name (#1218).
+    #
+    # `play_async` rather than `actions.play`, for the same reason «Запустить» on the
+    # Scenarios tab uses it: it is the one place the claim, the worker thread and the log
+    # line are spelled out together, so a restart cannot overlap a timer errand and a
+    # 35-second run cannot freeze the window.
+    def _presser(self, control):
+        """The command behind one lifecycle button — asks first when the table says to."""
+        return lambda: self._press_game(control)
 
-    def _restart_game(self) -> None:
-        # The ability is actions/restart_game.md and this button only plays it. That
-        # is CLAUDE.md's rule, and by the time it was applied here it was a bug fix
-        # rather than tidying: what stood here was `taskkill /F /IM LastWar.exe`,
-        # which names an IMAGE. On a machine farming two accounts — one client per
-        # Windows session — that closes BOTH, and the second belongs to a profile
-        # nobody pressed anything for.
-        #
-        # The recipe ends the client THIS profile drives (the process its own daemon
-        # is attached to), waits for the base to be in play again, and re-points the
-        # game link at the new process. A kill and a sleep could not do any of it:
-        # the link is bound to a process id, so everything that read the game
-        # afterwards was reading a pid that no longer existed.
-        #
-        # `play_async` rather than `actions.play` for the same reason «Запустить» on
-        # the Scenarios tab uses it: it is the one place the claim, the worker thread
-        # and the log line are spelled out together, so a restart cannot overlap a
-        # timer errand and a 35-second run cannot freeze the window. The scenario's
-        # own words — why it failed, if it did — reach the log through it either way.
-        #
-        # A second account's client is ended the same way as this one's, and the only
-        # difference is who is allowed to: `TerminateProcess` on another account's
-        # process comes back ACCESS_DENIED for an unelevated panel, so the recipe
-        # falls back to one elevated taskkill by PID. By PID, never by image name —
-        # that was the original bug here and it would be the same bug again.
-        self._say("game", "log.game.restarting")
-        self._rt.play_async("restart_game", tag="game")
+    def _press_game(self, control) -> None:
+        # The question is the table's, not this button's: the phone asks the very same
+        # one, out of the same key, before the very same scenario. Closing a client and
+        # replacing one are both a minute of an account's evening if they were a slip.
+        if control.confirm and not messagebox.askyesno(
+                self._t("game.frame"), self._t(control.confirm)):
+            return
+        gamectl.play(self._rt, control.id)
+
+    def _paint_game_buttons(self, link: str) -> None:
+        """Grey the presses that would mean nothing — off the SAME reading the phone gets.
+
+        Runs on the Tk thread from the status poll, so «Закрыть игру» goes flat within
+        eight seconds of the client going away and «Запустить игру» comes back at the
+        same moment. Both front-ends decide this in `panel/runtime/game_control.py`, so
+        a button the window greys is a button the phone greys.
+        """
+        for control in gamectl.CONTROLS:
+            button = (getattr(self, "_game_buttons", None) or {}).get(control.id)
+            if button is None:
+                continue
+            try:
+                button.configure(state=("normal" if gamectl.available(control, link)
+                                        else "disabled"))
+            except tk.TclError:              # the page is going away under us
+                return
 
     # -- the map sweep: walk the camera so the passive scan sees something ----
     #

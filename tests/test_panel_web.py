@@ -37,6 +37,7 @@ if str(_REPO) not in sys.path:
 
 from panel import i18n as i18nmod          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
+from panel.runtime import game_control as gamectl   # noqa: E402
 from panel.runtime.log import LogBus       # noqa: E402
 from panel.web import api as apimod        # noqa: E402
 from panel.web import server as webmod     # noqa: E402
@@ -631,6 +632,131 @@ def test_a_certificate_that_will_not_load_refuses_to_serve():
         finally:
             server.stop()
         raise AssertionError("it served without the certificate it was told to use")
+
+
+# ---------------------------------------------------------------------------
+# the client's life: start it, close it, put it back
+# ---------------------------------------------------------------------------
+#
+# The three presses the window has, on the phone (#1221). What is pinned here is that
+# the phone can press exactly them, that it presses them by playing the scenarios the
+# window plays, and that the two front-ends decide availability out of the ONE table —
+# a phone offering «Стоп» that the window greys out is the divergence CLAUDE.md forbids
+# and the reason `panel/runtime/game_control.py` exists at all.
+def _link_is(api, rt, link: str) -> None:
+    """Pretend the probe found the client in this state, without a process to find."""
+    api._status[rt.profiles.active] = (time.time(), link != gamectl.game_process.OFFLINE,
+                                       link, "")
+
+
+def test_the_state_page_carries_the_three_presses():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        _link_is(api, rt, gamectl.game_process.ONLINE)
+        controls = api.state()["game"]["controls"]
+        assert [c["id"] for c in controls] == ["launch", "quit", "restart"]
+        # The words are locale KEYS the browser says out of the same table the window
+        # uses — the very same keys, which is what makes the two buttons one button.
+        english = i18nmod.load_locale("en")
+        for control in controls:
+            assert control["label"] in english, control
+            assert not control["confirm"] or control["confirm"] in english, control
+
+
+def test_a_press_that_would_mean_nothing_is_not_offered():
+    """«Стоп» with no client, «Запуск» with one — the same rule the window greys by."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        _link_is(api, rt, gamectl.game_process.OFFLINE)
+        off = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
+        assert off == {"launch": True, "quit": False, "restart": False}
+        _link_is(api, rt, gamectl.game_process.ONLINE)
+        on = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
+        assert on == {"launch": False, "quit": True, "restart": True}
+
+
+def test_a_stranded_client_may_still_be_stopped_and_restarted():
+    """`lost` is a client — the one most worth restarting — and `unknown` is one too.
+
+    A second account's sockets cannot always be read from here, and answering "no
+    client" to that would take the two presses away from the account most likely to
+    need them from a phone.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        for link in (gamectl.game_process.LOST, gamectl.game_process.UNKNOWN):
+            _link_is(api, rt, link)
+            row = {c["id"]: c["enabled"] for c in api.state()["game"]["controls"]}
+            assert row == {"launch": False, "quit": True, "restart": True}, link
+
+
+def test_pressing_one_plays_the_scenario_and_says_so():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        _link_is(api, rt, gamectl.game_process.ONLINE)
+        answer = api.game("restart")
+        assert answer["ok"] and rt.played == ["restart_game"]
+        # …under the game tag, so the log does not file it as a scenario somebody ran
+        # by hand — and it is said BEFORE the run, so a failure inside the recipe still
+        # leaves the intent on the record.
+        assert any("[game] log.game.restarting" in line for line in rt.log.drain())
+
+
+def test_pressing_the_one_that_no_longer_applies_runs_nothing():
+    """A phone out of a pocket is showing a minute-old page, and a thumb is faster."""
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        _link_is(api, rt, gamectl.game_process.OFFLINE)
+        answer = api.game("quit")
+        assert answer["unavailable"] and not answer["ok"]
+        assert rt.played == [], "a recipe ran for a client that is not there"
+
+
+def test_a_press_refused_by_the_claim_is_busy_and_not_an_error():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        _link_is(api, rt, gamectl.game_process.ONLINE)
+        rt.busy_next = True
+        answer = api.game("quit")
+        assert answer["busy"] and not answer["ok"]
+
+
+def test_the_phone_cannot_invent_a_fourth_press():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        assert api.dispatch("POST", "/api/game", {},
+                            {"action": "uninstall"})[0] == 404
+        assert rt.played == []
+
+
+def test_a_press_lands_on_the_account_it_names():
+    """Two profiles, two clients — the one that closes is the one that was named."""
+    with tempfile.TemporaryDirectory() as home:
+        first, second, _ws = _two_profiles(home)
+        api = apimod.WebApi(first)
+        _link_is(api, second, gamectl.game_process.ONLINE)
+        api.game("quit", "second")
+        assert second.played == ["quit_game"] and first.played == []
+
+
+def test_the_window_and_the_phone_draw_the_same_three():
+    """The mirror, as a test rather than as a promise.
+
+    Both front-ends build their row by walking `game_control.CONTROLS`: the window in
+    `panel/__main__.py` (one button per entry, greyed through `available`), the page in
+    `app.js` (one button per entry of `game.controls`). Neither may name a press of its
+    own — that is how one front-end ends up with a button the other has never heard of.
+    """
+    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "gamectl.CONTROLS" in shell, "the window no longer builds its row from the table"
+    assert "gamectl.available" in shell, "the window greys its buttons by some other rule"
+    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    # The browser is handed `enabled` and obeys it; a page computing it from the link
+    # itself would be the second opinion this table exists to prevent.
+    assert "control.enabled" in script
+    for name in ("launch_game", "quit_game", "restart_game"):
+        assert name not in script, \
+            f"app.js names the scenario {name} — a press travels as an id, not a recipe"
 
 
 # ---------------------------------------------------------------------------

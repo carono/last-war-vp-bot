@@ -216,6 +216,43 @@ def test_a_page_built_in_one_go_is_whole() -> None:
         harness.close()
 
 
+def test_the_game_row_is_the_three_presses_and_they_grey_themselves() -> None:
+    """The window's half of the client's lifecycle (#1221), against real widgets.
+
+    The phone's half is `/api/state` → `game.controls` and is pinned in
+    tests/test_panel_web.py. Both are built by walking the same table, and this is
+    where that stops being a promise: three buttons in the order the table gives, and
+    each of them greyed by the SAME rule the phone greys by — «Закрыть» with no client
+    is not a press, and neither is «Запустить» with one already up.
+    """
+    from panel.runtime import game_control as gamectl
+    from panel.runtime import game_process as gp
+
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app, session = harness.app, harness.session
+        with app._on(session):
+            row = app._game_buttons
+            assert list(row) == [c.id for c in gamectl.CONTROLS], list(row)
+            # A fresh page has not probed yet and assumes no client: the one press that
+            # is harmless when that belief is wrong is the only one offered.
+            assert str(row["launch"]["state"]) == "normal"
+            assert str(row["quit"]["state"]) == "disabled"
+            for link, expected in ((gp.ONLINE, {"launch": "disabled", "quit": "normal",
+                                                "restart": "normal"}),
+                                   (gp.LOST, {"launch": "disabled", "quit": "normal",
+                                              "restart": "normal"}),
+                                   (gp.OFFLINE, {"launch": "normal", "quit": "disabled",
+                                                 "restart": "disabled"})):
+                app._paint_game_buttons(link)
+                got = {i: str(b["state"]) for i, b in row.items()}
+                assert got == expected, (link, got)
+    finally:
+        harness.close()
+
+
 def test_a_staged_page_reaches_exactly_the_same_place() -> None:
     harness = _open(staged=True)
     if harness is None:

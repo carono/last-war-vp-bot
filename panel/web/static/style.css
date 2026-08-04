@@ -176,6 +176,35 @@ button:active { background: #2f3b4f; }
 button[disabled] { opacity: .5; }
 button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* THE CLIENT'S LIFE: three buttons under the game card. They wrap rather than shrink —
+   «Перезапустить игру» is a long word in most of the eleven languages and a row that
+   squeezed them would end in three buttons of clipped text. Each keeps its 44 px and
+   takes what width it needs; a narrow phone gets two lines and reads them both. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.controls button { flex: 1 1 auto; padding: 10px 12px; }
+/* A press that does not apply reads as INERT, not as a faded press. The shared
+   `opacity: .5` leaves an accent-filled button looking like something to try, and the
+   whole point of greying «Закрыть игру» is that there is nothing there to close. */
+.controls button[disabled] {
+  background: #212936;
+  border-color: var(--line);
+  color: var(--muted);
+  opacity: 1;
+}
+/* The one being played says so: a restart is half a minute of nothing visibly
+   happening, and the activity line is a card away on this screen. Last, so it wins
+   over the greying above — it is disabled too, and for a different reason. */
+.controls button.running {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 input[type=password], input[type=search], input[type=text] {
   font: inherit;
   color: var(--ink);

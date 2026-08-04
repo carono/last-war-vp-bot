@@ -26,10 +26,11 @@ panel/tabs/web.py       «Веб»: the switch, the address, the token
 ```
 
 The page has four screens of its own: **state** (is the client on the line, is the daemon
-up, what is the panel doing, what is due next), **timers** (every errand with its switch,
-its period, when it last ran and a «run now»), **scenarios** (all of `actions/*.md`,
-searchable, one press each) and **log** (the panel's own lines, coloured by severity, with
-a browser notification when one of them is an error).
+up, what is the panel doing, what is due next — and the client's own lifecycle, §3.10:
+start it, close it, put it back), **timers** (every errand with its switch, its period,
+when it last ran and a «run now»), **scenarios** (all of `actions/*.md`, searchable, one
+press each) and **log** (the panel's own lines, coloured by severity, with a browser
+notification when one of them is an error).
 
 Everything past those four comes from the TABS, which hand the phone their own screens
 (§3.9) — the profile and its resources, the accounts, the alliance, the heroes, the
@@ -57,6 +58,7 @@ one call onto the runtime:
 | `/api/timers/run` | `rt.schedule.timers.request(timer)` — the scheduler's own queue |
 | `/api/actions` | `panel.runtime.actions.list_actions()` |
 | `/api/actions/run` | `rt.play_async(name)` — under the claim, on a worker thread |
+| `/api/game` | the client's lifecycle — `runtime/game_control.py`, which is `rt.play_async` of one of three recipes |
 | `/api/log` | the log bus, tapped |
 | `/api/i18n` | `panel/locales/` |
 
@@ -286,6 +288,61 @@ work, not an exemption: the ability becomes a scenario first, and the button fol
 
 The contract a tab author writes against is `docs/panel-tabs.md`, «The phone's copy of
 this tab, and keeping it in step».
+
+### 3.10 The client's life, from the phone — and the table that keeps the two in step
+
+The state screen's first card ends in three buttons: **«Запустить игру»**, **«Закрыть
+игру»**, **«Перезапустить игру»**. They are the window's own three, and the reason they
+are worth a section is not that they exist but *how* they were made to be the same three.
+
+**All three are scenarios.** `launch_game.md`, `quit_game.md`, `restart_game.md` — the
+last of which is the first two with an `ATTACH_GAME` between them. So a press from the
+phone is `rt.play_async(<recipe>)` and nothing else, which is the only reason a remote
+button of this weight is allowed at all (`CLAUDE.md`: an ability is a scenario and a
+front-end plays it). «Закрыть игру» is the newcomer — until it there was a button to
+start a client and a button to replace one, and the only way to *stop* one was the Task
+Manager.
+
+**Four things had to agree between the window and the browser**, and every one of them
+would have been written down twice: which scenario each press plays, what the log says
+before it starts, the word on the button, and when the press is meaningless. So they are
+written down once, in `panel/runtime/game_control.py`, and both front-ends read it —
+the window builds its row by walking `CONTROLS` and greys each button through
+`available()`, the page draws `game.controls` off `/api/state` and obeys the `enabled` it
+is handed. `tests/test_panel_web.py` fails if `app.js` so much as names one of the three
+recipes: a press travels as an id, and the table resolves it.
+
+**Availability is decided on the LINK, not on `running`.** The interesting client is the
+stranded one — the process is there, the server has hung up (§3.8) — and it is exactly
+the client somebody reaches for a phone about. So `lost` and `unknown` are both "there is
+a client": «Закрыть» and «Перезапустить» are live, «Запустить» is not. Only `offline`
+flips that round.
+
+**The press is re-checked when it lands.** A phone out of a pocket is showing a
+minute-old page, and a thumb is faster than the next poll — so `/api/game` reads the
+client's state again and answers `unavailable` rather than running a recipe to no
+purpose. The other two answers a press can get are `busy` (the claim is held: a timer
+errand is mid-run, and a remote press must never cut in front of one) and plain `ok`.
+
+**Two of the three ask first**, out of the same locale key in both front-ends: closing a
+client and replacing one are each a minute of an account's evening if the thumb slipped.
+The browser uses its own `confirm()` — the one dialog that is already the right size for
+a thumb on every phone and cannot be mis-tapped through. «Запустить» asks nothing; the
+worst it can do is start a client.
+
+**The one thing the phone draws that the window does not** is a mark on the press that is
+being played right now. That is presentation, not a control (`CLAUDE.md` gives each
+front-end how a thing is *drawn*): the window says the same thing on its activity strip
+and in its log, both of which are on screen the whole time, and a phone showing one card
+at a time has neither in view — a restart is half a minute in which nothing else appears
+to happen.
+
+Measured live at 360×640 (Chromium mobile) and 393×852 (WebKit, iPhone 15), against the
+running panel rather than a stub: no horizontal overflow, three buttons of 44 px, 16 px
+type, nothing clipped in Russian — which is the longest of the eleven for these three
+words. They stack rather than share a row: «Перезапустить игру» at 16 px does not fit
+beside anything on a 360-wide screen, and a row that squeezed them would have ended in
+three buttons of clipped text.
 
 ## 4. What was left out, and why
 

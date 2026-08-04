@@ -1,10 +1,11 @@
 /* The remote control, in about three hundred lines of plain browser JavaScript.
  *
- * It draws four things and presses three: the profile's state, its errands, its
- * scenarios and its log; a timer's switch, a timer's «run now» and a scenario's «run».
- * Every one of those is one request to panel/web/api.py, which is one call onto the
- * runtime — there is no logic here that the panel does not already have, and none may
- * be added: an ability is a scenario and this plays it (CLAUDE.md).
+ * It draws four things and presses four: the profile's state, its errands, its
+ * scenarios and its log; a timer's switch, a timer's «run now», a scenario's «run» and
+ * the client's own life — start it, close it, put it back. Every one of those is one
+ * request to panel/web/api.py, which is one call onto the runtime — there is no logic
+ * here that the panel does not already have, and none may be added: an ability is a
+ * scenario and this plays it (CLAUDE.md).
  *
  * NOT ONE WORD IS WRITTEN IN THIS FILE. `T(key)` looks the words up in the table
  * /api/i18n hands over, which IS panel/locales — so the phone speaks the language the
@@ -134,6 +135,7 @@ function paintState(state) {
   game.textContent = T(LINK_WORDS[link] || 'web.ui.off');
   game.className = 'pill ' + (LINK_PILLS[link] || 'off');
   $('game-text').textContent = state.game.text || '';
+  paintGameControls(state.game.controls || []);
 
   const daemon = $('daemon-dot');
   daemon.textContent = state.daemon.up ? T('web.ui.on') : T('web.ui.off');
@@ -154,6 +156,51 @@ function paintState(state) {
     ? T('web.ui.timers.next', { name: state.timers.next_name,
                                 when: when(state.timers.next, state.time) })
     : T('web.ui.timers.none');
+}
+
+/* The client's life: start it, close it, put it back — the same three the window has
+ * (panel/runtime/game_control.py). Everything about them comes off /api/state: the word
+ * on each, the question it asks first, and whether it applies to the client as it is
+ * right now. Nothing is decided here — a phone that worked out for itself when «Стоп»
+ * makes sense is a phone that will one day disagree with the window about it.
+ *
+ * Rebuilt only when the row actually changes, so a button does not vanish from under a
+ * thumb every 2.5 seconds when the poll comes back saying the same thing. */
+let GAME_ROW = '';
+
+function paintGameControls(controls) {
+  const stamp = JSON.stringify(controls);
+  if (stamp === GAME_ROW) return;
+  GAME_ROW = stamp;
+  const box = $('game-controls');
+  box.textContent = '';
+  for (const control of controls) {
+    const button = document.createElement('button');
+    button.className = 'go' + (control.running ? ' running' : '');
+    button.textContent = T(control.label);
+    button.disabled = !control.enabled || !!control.running;
+    button.addEventListener('click', () => pressGame(control, button));
+    box.appendChild(button);
+  }
+}
+
+async function pressGame(control, button) {
+  // The question is the panel's own words, asked by the browser: closing a client or
+  // replacing one is a minute of an account's evening if the thumb slipped. `confirm`
+  // rather than something drawn here — it is the one dialog that is already the right
+  // size for a thumb on every phone, and it cannot be mis-tapped through.
+  if (control.confirm && !window.confirm(T(control.confirm))) return;
+  button.disabled = true;
+  try {
+    const answer = await post('/api/game', { action: control.id });
+    if (answer.ok) toast(T('web.ui.started', { name: T(control.label) }));
+    else if (answer.unavailable) toast(T('web.ui.game.gone'));
+    else toast(T('web.ui.refused'));
+    // Repaint at once rather than at the next poll: a restart takes half a minute and
+    // the person needs to see it took.
+    GAME_ROW = '';
+    tick();
+  } finally { button.disabled = false; }
 }
 
 /* -- which account ---------------------------------------------------------- */

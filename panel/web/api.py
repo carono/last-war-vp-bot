@@ -8,6 +8,8 @@ this file is what keeps it honest. Every route below is one call onto a
 
     /api/profiles   which accounts this window has open      rt.workspace
     /api/state      what one profile is doing right now      rt.game, rt.activity
+    /api/game       start / close / restart the client       rt.play_async, via
+                                                             runtime/game_control.py
     /api/timers     the errands, their switches, when next   rt.schedule
     /api/actions    the scenarios that exist                 rt.actions
     /api/log        what has been said                       rt.log (tapped)
@@ -45,7 +47,7 @@ import time
 
 from .. import i18n as i18nmod
 from .. import timers as timersmod
-from ..runtime import game_process
+from ..runtime import game_control, game_process
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
 
@@ -251,7 +253,15 @@ class WebApi:
             # `link` is the honest half and `running` the old one: a client that has
             # lost the server is still running, and the phone paints the LINK
             # (panel/runtime/game_process.py — online | lost | unknown | offline).
-            "game": {"running": running, "link": link, "text": label},
+            #
+            # `controls` is the client's whole life — start it, close it, put it back —
+            # and it is computed HERE rather than in the browser on purpose: the window
+            # greys the same three buttons off the same table
+            # (panel/runtime/game_control.py), and a phone deciding for itself when a
+            # press applies is how the two front-ends start disagreeing about it.
+            "game": {"running": running, "link": link, "text": label,
+                     "controls": game_control.state(
+                         link, str((step.fmt.get("name") if step else "") or ""))},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a
             # method on none of them — read it, never call it.
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
@@ -423,6 +433,26 @@ class WebApi:
         started = rt.play_async(name, tag="web")
         return {"ok": bool(started), "busy": not started, "name": name}
 
+    # -- the client's life ----------------------------------------------------
+    def game(self, action: str, profile: str | None = None) -> dict:
+        """Start the client, close it, or put it back — the window's three buttons.
+
+        The same call the window makes and the same three scenarios, because both go
+        through `panel/runtime/game_control.py`: the phone cannot press anything the
+        person at the machine cannot, and neither can press a fourth thing.
+
+        The press is checked against the client as it is RIGHT NOW rather than against
+        whatever the page was showing when the thumb landed. A phone that has been in a
+        pocket may be offering «Стоп» for a client that died two minutes ago, and the
+        answer to that is `unavailable`, not a recipe run to no purpose. The reading is
+        the cached probe every other route uses, so this costs nothing extra.
+        """
+        rt = self._runtime(profile)
+        if game_control.get(action) is None:
+            return {"error": "unknown"}
+        _running, link, _label = self._client_status(self._name_of(rt), rt)
+        return game_control.play(rt, action, link)
+
     # -- the tabs' own screens ------------------------------------------------
     def screens(self, profile: str | None = None) -> dict:
         """Which of this profile's tabs offer a phone screen, in the window's order.
@@ -536,6 +566,8 @@ class WebApi:
                 return _answer(self.run_timer(name, who))
             if path == "/api/actions/run":
                 return _answer(self.run_action(name, who))
+            if path == "/api/game":
+                return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/screen/press":
                 return _answer(self.press(str(body.get("id") or ""),
                                           str(body.get("action") or ""),
