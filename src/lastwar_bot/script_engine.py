@@ -76,6 +76,31 @@ DEV_ACTIONS_DIR = ACTIONS_DIR / "dev"
 EventCallback = Callable[[str], None]
 
 
+def gated_chunk(btn, cap: int) -> str:
+    """The Lua a gated press sends: read the button's count, and press if it is above zero.
+
+    Out here rather than inside the interpreter so that it can be built — and compiled
+    against the game's own Lua — without pressing anything
+    (`tools/dev/check_gated_chunks.py`). See `Interpreter._press_gated` for why the two
+    halves travel together.
+    """
+    if btn.batch_lua:
+        body = ('local n = math.min(math.floor(tonumber(left) or 0), %d) '
+                'if n > 0 then local ok2, e2 = pcall(function() %s end) '
+                'if not ok2 then CS.UnityEngine.Debug.LogError('
+                '"ACT fired=ERR:"..tostring(e2)) end end' % (int(cap), btn.batch_lua))
+    else:
+        body = ('local ok2, e2 = pcall(function() %s end) '
+                'CS.UnityEngine.Debug.LogError("ACT fired="'
+                '..(ok2 and "1" or ("ERR:"..tostring(e2))))' % btn.lua)
+    return ('local left = nil '
+            'local okc = pcall(function() left = %s end) '
+            'CS.UnityEngine.Debug.LogError("ACT gate left="'
+            '..(okc and tostring(left) or "ERR")) '
+            'if okc and (tonumber(left) or 0) > 0 then %s end'
+            % (btn.count_lua, body))
+
+
 def resolve_action(name: str) -> Path | None:
     """Locate an action script by name: blessed `actions/` first, then `actions/dev/`."""
     for base in (ACTIONS_DIR, DEV_ACTIONS_DIR):
@@ -1317,6 +1342,45 @@ class Interpreter:
             if "ERR:" in out:
                 self._log(f"TAP {btn.label} error: {out.split('tap=', 1)[-1]}")
 
+    def _press_gated(self, btn, cap: int) -> tuple:
+        """Read the button's own count AND press, in ONE call. -> ``(left, fired)``.
+
+        `left` is what the count said BEFORE the press (``None`` if it could not be
+        read), `fired` how many presses went in — 0 when the count was already zero, so
+        a caller can tell "nothing to do" from "it would not press".
+
+        WHY IT IS ONE CALL. `xall` used to read the count, get the answer back, and only
+        then press: two trips through the game VM, and the FIRST thing a person's press
+        did was a reading. Every trip is two of the client's frames plus the ~120 ms its
+        answer costs (docs/research/game-call-latency.md), so the game did not visibly
+        do anything for a third of a second after a button that should have moved at
+        once. Reading and pressing in the same chunk is also more honest than it was:
+        the gate is checked and spent in the same instant, on the same thread, with
+        nothing able to change the count in between (#1230).
+
+        The gate itself is unchanged — the count decides, not a guess — and so is the
+        loop's confirming re-read afterwards: the next round's call reads before it
+        presses, which is what quietly recovers a press the client's throttle dropped.
+        """
+        left, fired = None, 0
+        for out in self._run_lua(gated_chunk(btn, cap), settle=0.35):
+            if "gate left=" in out:
+                raw = out.split("gate left=", 1)[1].split()[0]
+                try:
+                    left = float(raw)
+                except ValueError:
+                    left = None
+            elif "fired=" in out:
+                raw = out.split("fired=", 1)[1].split()[0]
+                if raw.startswith("ERR"):
+                    self._log(f"TAP {btn.label} error: {raw}")
+                    continue
+                try:
+                    fired = int(float(raw))
+                except ValueError:
+                    fired = 0
+        return left, fired
+
     def _press_batch(self, btn, n: int) -> int:
         """Fire `n` presses in ONE game-VM call; returns how many the chunk really fired.
 
@@ -1346,10 +1410,12 @@ class Interpreter:
     def _tap_all(self, stmt: TapStmt, btn) -> None:
         """`TAP <button> xall`: press while the button's count_lua stays above zero.
 
-        One press per call for an ordinary button; for one with a `batch_lua`, a whole
-        round of presses per call — read the count, spend exactly that many in a single
-        chunk, re-read to confirm. Either way the count, not a guess, says when to stop,
-        and a round that presses nothing ends the loop.
+        One round is ONE call — the count and the press travel together
+        (:meth:`_press_gated`) — and a round that presses nothing ends the loop. A
+        button with a `batch_lua` spends its whole quota inside that one call; an
+        ordinary one goes a press at a time, with the button's own pause between them.
+        Either way the count, not a guess, says when to stop, and the next round reads
+        before it presses, which is what recovers a press the client's throttle dropped.
         """
         if not btn.count_lua:
             raise ScriptRuntimeError(
@@ -1359,22 +1425,16 @@ class Interpreter:
         pressed = 0
         while pressed < btn.max_taps:
             self._check_cancel()
-            remaining = self._eval_number(btn.count_lua)
+            remaining, fired = self._press_gated(btn, cap=btn.max_taps - pressed)
             if remaining is None:
                 self._log(f"TAP {btn.label} xall — count unavailable, stopping")
                 break
-            if remaining <= 0:
+            if remaining <= 0 or not fired:
                 break
+            pressed += fired
             if btn.batch_lua:
-                want = int(min(remaining, btn.max_taps - pressed))
-                fired = self._press_batch(btn, want)
-                if not fired:
-                    break
-                pressed += fired
                 self._log(f"TAP {btn.label} ({pressed}; {int(remaining) - fired} left)")
             else:
-                self._press_button(btn)
-                pressed += 1
                 self._log(f"TAP {btn.label} ({pressed}; {int(remaining)} available)")
             time.sleep(btn.wait)
         self._log(f"TAP {btn.label} xall -> {pressed} press(es)")

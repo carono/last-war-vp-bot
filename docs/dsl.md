@@ -544,12 +544,15 @@ TAP close x3                # pop 3 windows off the stack
 ```
 
 `xall` presses **as many times as the button reports it still can** — its `count_lua`
-in the catalogue (for `donate_1000`, the remaining-donations count). The real number
-is read at run time and substituted for you, and the loop re-reads it and stops at
-zero, so it spends exactly what is available and recovers any press the client's
-long-press throttle dropped. (There is no single "donate all" call in the game — the
-in-game *hold* just repeats the click at an interval; `xall` reproduces that, fast.)
-A button with no `count_lua` cannot be `xall`'d (clear runtime error).
+in the catalogue (for `donate_1000`, the remaining-donations count). The count and the
+press travel in ONE call: the chunk reads the number and presses only if it came back
+above zero, so the gate is checked and spent in the same instant and the FIRST call of
+a press is a press (it used to read first and press on the next trip, which is a third
+of a second of a button doing nothing visible — #1230). The loop then re-reads and
+stops at zero, so it spends exactly what is available and recovers any press the
+client's long-press throttle dropped. (There is no single "donate all" call in the
+game — the in-game *hold* just repeats the click at an interval; `xall` reproduces
+that, fast.) A button with no `count_lua` cannot be `xall`'d (clear runtime error).
 
 **Repeats are batched where the button allows it.** A call into the game VM costs
 ~0.15 s and the Lua loop inside it is free, so a button may declare a `batch_lua` —

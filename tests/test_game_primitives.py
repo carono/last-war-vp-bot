@@ -12,6 +12,7 @@ Exit codes (standalone): 0 = passed, 1 = failed.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -28,46 +29,85 @@ class FakeEval:
 
     `rluas` is a list of values returned, in order, to successive READ_LUA (marker
     "RLUA") chunks — so a test can drive a countdown loop deterministically.
+
+    It also plays the GATED chunk `xall` sends (`_press_gated`): one chunk that reads
+    the count and presses only if it came back above zero. The fake answers it the way
+    the game does — the count first, then a `fired=` line only when there was something
+    to press — so `presses` counts what the GAME was made to do rather than what was
+    sent to it. Since #1230 the press Lua is inside every round's chunk, including the
+    last one that only reads, so counting chunks would count one press too many.
     """
 
     def __init__(self, rluas=None) -> None:
         self.chunks: list[str] = []
         self._rluas = list(rluas or [])
+        self.presses = 0
+
+    def _next_count(self):
+        return self._rluas.pop(0) if self._rluas else "nil"
 
     def run(self, chunk, marker=None, settle=1.4, early=False):
         self.chunks.append(chunk)
         if marker == "RLUA":
-            val = self._rluas.pop(0) if self._rluas else "nil"
-            return [f"RLUA {val}"]
+            return [f"RLUA {self._next_count()}"]
+        if "ACT gate left=" in chunk:
+            val = self._next_count()
+            out = [f"ACT gate left={val}"]
+            try:
+                left = float(val)
+            except (TypeError, ValueError):
+                left = 0.0
+            if left > 0:
+                self.presses += 1
+                out.append("ACT fired=1")
+            return out
         return []
+
+
+#: The cap a gated batch sizes itself by, as `_press_gated` writes it into the chunk.
+_BATCH_CAP = re.compile(r"math\.min\(math\.floor\(tonumber\(left\) or 0\), (\d+)\)")
 
 
 class FakeGame(FakeEval):
     """A fake that donates for real: a batched press spends attempts, a read reports them.
 
-    Batched buttons send ONE chunk carrying `local n=<k>` and get back the tally the
-    real chunk logs (`ACT fired=<k>`), so a test sees the same feedback loop the game
-    gives — including a batch that asks for more than is banked.
+    A batched `xall` is ONE chunk that reads the quota and spends it in the same breath,
+    and it gets back the tally the real chunk logs (`ACT fired=<k>`) — so a test sees the
+    same feedback loop the game gives, including a batch that asks for more than is
+    banked. `local n=<k>` is still the shape of a FIXED-count `TAP … xN`, and that path
+    is answered here too.
     """
 
     def __init__(self, banked: int) -> None:
         super().__init__()
         self.rest = banked
+        self.batches = 0                    # rounds in which the batch body ran
+
+    def _batch(self, chunk: str) -> int:
+        """Spend what a batch of this chunk's size would spend, and say how much."""
+        cap = _BATCH_CAP.search(chunk)
+        want = min(int(cap.group(1)), self.rest) if cap else self.rest
+        self.batches += 1
+        fired = min(want, self.rest)
+        self.rest -= fired
+        return fired
 
     def run(self, chunk, marker=None, settle=1.4, early=False):
         self.chunks.append(chunk)
         if marker == "RLUA":
             return [f"RLUA {self.rest}"]
+        if "ACT gate left=" in chunk:
+            out = [f"ACT gate left={self.rest}"]
+            if self.rest > 0:
+                out.append(f"ACT fired={self._batch(chunk)}")
+            return out
         if chunk.startswith("local n="):
             want = int(chunk.split("local n=", 1)[1].split()[0])
             fired = min(want, self.rest)
             self.rest -= fired
+            self.batches += 1
             return [f"ACT fired={fired}"]
         return []
-
-    @property
-    def batches(self) -> int:
-        return sum(1 for c in self.chunks if c.startswith("local n="))
 
     @property
     def reads(self) -> int:
@@ -125,8 +165,33 @@ def test_tap_all_presses_until_count_zero():
     # A button with no batch form presses once per non-zero read: 3, 2, 1, 0 -> 3 presses.
     ev = FakeEval(rluas=["3", "2", "1", "0"])
     _run("TAP help_ally_all xall", ev)
-    presses = sum(1 for c in ev.chunks if "AlHelpAll" in c)
-    assert presses == 3, f"expected 3 presses for xall over 3->0, got {presses}"
+    assert ev.presses == 3, f"expected 3 presses for xall over 3->0, got {ev.presses}"
+    assert all("AlHelpAll" in c for c in ev.chunks), "every round carries the press"
+
+
+def test_tap_all_reads_and_presses_in_the_same_call():
+    """The press is in the FIRST call, not the second (#1230).
+
+    `xall` used to read the button's count, wait for the answer, and press on the next
+    trip — two round trips per press, and the first thing a person's press did was a
+    reading. Each trip is two of the client's frames plus what its answer costs, so a
+    button that should have moved at once did nothing visible for a third of a second.
+
+    One round is one call now, and the count still decides: the chunk presses only if
+    the number it just read came back above zero. The LAST call is the confirming read,
+    which is what recovers a press the client's long-press throttle dropped.
+    """
+    import game_buttons as gb
+    button = gb.get("help_ally_all")
+    ev = FakeEval(rluas=["2", "1", "0"])
+    _run("TAP help_ally_all xall", ev)
+    assert ev.presses == 2, f"expected two presses, got {ev.presses}"
+    assert len(ev.chunks) == 3, f"expected 2 pressing rounds + 1 confirming read, got {len(ev.chunks)}"
+    first = ev.chunks[0]
+    assert button.count_lua in first, "the count must travel in the same chunk"
+    assert button.lua in first, "…and so must the press"
+    assert first.index(button.count_lua) < first.index(button.lua), \
+        "the count is read BEFORE the press it gates, inside the one chunk"
 
 
 def test_tap_all_spends_the_whole_quota_in_one_call():
@@ -154,6 +219,9 @@ def test_tap_all_gives_up_when_a_batch_fires_nothing():
             self.chunks.append(chunk)
             if marker == "RLUA":
                 return [f"RLUA {self.rest}"]
+            if "ACT gate left=" in chunk:
+                self.batches += 1
+                return [f"ACT gate left={self.rest}", "ACT fired=0"]
             return ["ACT fired=0"] if chunk.startswith("local n=") else []
 
     ev = Stuck(banked=5)
@@ -304,9 +372,9 @@ def test_occupation_skills_recipe_walks_the_ready_set():
     # Two ready skills, then none -> exactly two presses.
     ev = FakeEval(rluas=[2, 1, 0])
     _run("TAP use_profession_skill xall", ev)
-    presses = [c for c in ev.chunks if "UseSkill" in c]
-    assert len(presses) == 2, presses
-    assert all("__lw_fired" in c for c in presses), "presses must stamp the re-fire guard"
+    assert ev.presses == 2, f"expected two skills used, got {ev.presses}"
+    sent = [c for c in ev.chunks if "UseSkill" in c]
+    assert all("__lw_fired" in c for c in sent), "presses must stamp the re-fire guard"
 
 
 def test_occupation_skill_cooldown_is_server_clocked_and_state_aware():
@@ -366,9 +434,10 @@ def test_steal_recipe_spends_the_queue_and_stops_at_the_budget():
     # Two robberies available, then none -> exactly two presses.
     ev = FakeEval(rluas=[2, 1, 0])
     _run("TAP steal_secret_task xall", ev)
-    presses = [c for c in ev.chunks if "MsgDefines.DispatchSteal" in c]
-    assert len(presses) == 2, presses
-    assert all("table.remove" in c for c in presses), "a press must consume its target"
+    assert ev.presses == 2, f"expected two robberies, got {ev.presses}"
+    sent = [c for c in ev.chunks if "MsgDefines.DispatchSteal" in c]
+    assert len(sent) == 3, sent          # two that robbed, and the round that found none
+    assert all("table.remove" in c for c in sent), "a press must consume its target"
 
 
 def test_steal_is_gated_on_the_daily_budget():
@@ -420,12 +489,13 @@ def test_ghost_recon_recipe_is_a_noop_while_the_event_is_closed():
     # Two squads available, then none -> exactly two presses.
     ev = FakeEval(rluas=[2, 1, 0])
     _run("TAP steal_ghost_recon xall", ev)
-    presses = [c for c in ev.chunks if "MsgDefines.GhostReconSteal" in c]
-    assert len(presses) == 2, presses
-    # Nothing available -> no press at all.
+    assert ev.presses == 2, f"expected two robberies, got {ev.presses}"
+    # Nothing available -> no press at all. The chunk still CARRIES the send (the count
+    # and the press travel together since #1230); what must not happen is the game
+    # running it, and the count is what decides that, inside the chunk.
     idle = FakeEval(rluas=[0])
     _run("TAP steal_ghost_recon xall", idle)
-    assert not [c for c in idle.chunks if "MsgDefines.GhostReconSteal" in c]
+    assert idle.presses == 0, "an off-day count must press nothing"
 
 
 def test_ghost_recon_and_secret_task_robberies_never_share_state():
@@ -556,9 +626,9 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     # clean no-op rather than a press that goes nowhere.
     ev = FakeEval(rluas=[2, 1, 0])
     _run("TAP join_rally xall", ev)
-    presses = [c for c in ev.chunks if "SendCreateMarchMessage" in c]
-    assert len(presses) == 2, presses
-    assert all("__lw_rally_joined" in c for c in presses), "each press must claim its rally"
+    assert ev.presses == 2, f"expected two rallies joined, got {ev.presses}"
+    sent = [c for c in ev.chunks if "SendCreateMarchMessage" in c]
+    assert all("__lw_rally_joined" in c for c in sent), "each press must claim its rally"
 
 
 def test_visitor_presses_key_on_the_kind_not_the_arrival_number():

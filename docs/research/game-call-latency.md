@@ -22,17 +22,34 @@ the game reacted: the chunk ends with `Debug.LogError("ACT …")`, so a watcher 
 `Player.log` from a second thread times the reaction independently of whatever the
 caller is doing.
 
-## The chain, and where the second was
+## The chain, link by link, with a number on each
+
+Measured, not guessed at — the panel's own links against a live daemon
+(`results/perf1230/panel_chain.py`), the rest as above:
 
 | stage | cost |
 | --- | --- |
-| Tk handler → claim → worker thread | ~1 ms (the daemon's lease is one round trip on a loopback socket) |
+| `needs_foreground` — does this scenario click at the screen? (reads the file) | 0.19 ms |
+| `resolve_action` — find `actions/<name>.md` | 0.07 ms |
+| read + `prepare_source` + `parse_text` — the whole interpreter front end | 0.15 ms |
+| `new_context` | 0.001 ms |
+| `up()` — is this profile's daemon there? (loopback connect) | 0.33 ms |
+| `claim` — acquire + release of the game lease | 1.8 ms |
 | daemon protocol (connect + JSON + reply) | 0.7 ms |
 | **the hijack: park the main thread, run the call** | **~1 frame, TWICE per chunk** |
 | the game runs the chunk and writes its line | included in the above |
 | **`settle` — a fixed `time.sleep` after the call** | **0.1 – 1.6 s, always paid in full** |
+| **a chunk the panel ran only to decide what to press** | **a whole extra call** |
 
-Two of those five are worth anything, and they are the two in bold.
+Everything the panel does before it reaches the game adds up to under three
+milliseconds, and that includes the parser and the lease. Nothing there was ever the
+problem — which is worth writing down, because it is where one would naturally look.
+
+The lease deserves its own line, because it HAD been the problem three days earlier: a
+connect to a daemon that is not there is DROPPED rather than refused, so it used to sit
+out its whole timeout on the Tk thread, once per press (#1226). Against a daemon that
+IS there it is 1.8 ms, and against one that is not it is now the cached
+`UP_TIMEOUT_SEC`. Nothing left to take.
 
 ### 1. The pre-read in front of the jump (~600 ms of the second)
 
@@ -63,7 +80,47 @@ tenths of a second in front of whatever the person pressed next; and the panel's
 is held for the whole of an action, so a jump left the button «занято» for 2.2–3.0 s
 after the game had already moved.
 
-### 3. The floor: a call costs two of the client's frames
+### 3. The interpreter: a press that began with a reading
+
+`script_engine` itself is not slow — the whole front end (find the file, apply `ARGS`,
+substitute, tokenise, build the context) is **0.4 ms**, and a scenario run against a
+game that answers instantly costs 1.3–1.8 ms of Python. What it DID cost was round
+trips and pauses:
+
+```
+run_action(help_ally)                  7 calls into the VM   (4 readings, 3 presses)
+run_action(heal_units)                 6 calls               (3 readings, 3 presses)
+```
+
+`TAP <button> xall` read the button's own count, waited for the answer, and only then
+pressed — two trips through the VM per press, and **the first thing a person's press did
+was a reading**. So the game did nothing visible for the length of two calls, which is
+exactly the shape of the complaint.
+
+The count and the press travel in ONE chunk now (`script_engine.gated_chunk`): the gate
+is checked and spent in the same instant, on the same thread, with nothing able to
+change the count in between.
+
+```
+run_action(help_ally)                  4 calls into the VM   (3 presses, then the confirming read)
+run_action(heal_units)                 3 calls
+TAP steal_secret_task xall, nothing to rob, live:   191 ms, one call, no press
+TAP call_help xall, one press to make, live:       1228 ms — 1000 of them the button's own pause
+```
+
+The loop's LAST reading stays: it is what quietly recovers a press the client's
+long-press throttle dropped, and reading the count straight after a press — before the
+game has applied it — would spend a quota twice. That is also what the per-button
+`wait` protects, and those pauses are NOT ours to cut: they are the game's own settling
+times, per button (`tools/lib/game_buttons.py`), and a recipe like the alliance gifts is
+6 presses × 0.5–1.5 s of window-opening. With an instant game underneath,
+`collect_alliance_gifts` is 4.3 s of pauses and 4 ms of interpreter.
+
+Every gated chunk is checked against the game's own Lua before it is ever run — the
+client compiles all 23 of them with `load` and throws the result away
+(`tools/dev/check_gated_chunks.py`); the client's Lua is 5.3, so `loadstring` is gone.
+
+### 4. The floor: a call costs two of the client's frames
 
 This is the part that cannot be argued away, and it is the answer to "why is it not
 instant". A chunk reaches the Lua VM in TWO thread hijacks — one to build the managed
@@ -110,6 +167,9 @@ read a byte out of our own region while the game runs freely, and cost it nothin
   every chunk it builds ends by logging its own marker, and waiting for the GAME rather
   than for the answer is what the DSL's own `WAIT` is for — which is what the recipes
   already do after a scene switch.
+* **`TAP … xall` reads and presses in one chunk** (`gated_chunk` / `_press_gated`), so
+  the first call of a press is a press. The gate, the cap and the confirming re-read are
+  unchanged.
 
 ## Afterwards, on the same client at the same frame rate
 
@@ -119,10 +179,18 @@ one chunk, before                  p50  30 ms                p50 1700 ms  (settl
 one chunk, after                   p50  33 ms                p50   65 ms
 the jump, before                   650 – 1400 ms             2200 – 3000 ms
 the jump, after                    p50  33 ms                p50   63 ms
+a gated press (TAP … xall), before ~2 calls before it pressed
+a gated press, after               the first call presses    191 ms for a whole no-op round
 ```
 
 The reaction is unchanged and always was the frame floor; what went away is everything
 that was in front of it and everything that was sitting behind it.
+
+**The limit, plainly.** A press cannot beat two of the client's frames — 33 ms at 60
+fps, 75 at 21, and the client's frame rate is a `READ_LUA` away
+(`CS.UnityEngine.Time.deltaTime`) when a day feels slower than another. Halving that is
+possible and is written up below; nothing else in the chain is worth more than a
+millisecond.
 
 ## The next big one: the answer channel costs the game 120 ms a call
 
