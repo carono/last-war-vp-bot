@@ -26,15 +26,30 @@ def scene_city() -> str:
     return 'pcall(function() SceneUtils.ChangeToCity() end) CS.UnityEngine.Debug.LogError("ACT scene=city")'
 
 
+def current_server_expr() -> str:
+    """Lua EXPRESSION for the server the client is looking at (HOME_SERVER if it will not say).
+
+    An expression rather than only a chunk, because the answer is worth more inside
+    another chunk than as a round trip of its own: reading it first and then acting on
+    it cost a whole extra call to the VM — measured at 570-1300 ms in front of every
+    coordinate jump, which was the second the panel felt slower than the game (#1230).
+    """
+    # `tonumber(tostring(…))` because the id is read off a C# field and is passed on to
+    # a call that wants a number: it was a Python `int()` of the logged text before this
+    # was ever a Lua expression, and the coercion has to survive the move.
+    return ('(tonumber(tostring('
+            '(DataCenter.WorldFavoDataManager and DataCenter.WorldFavoDataManager.curServerId) or '
+            '(DataCenter.WarFlagDataManager and DataCenter.WarFlagDataManager.curServerId) or %d)) or %d)'
+            % (HOME_SERVER, HOME_SERVER))
+
+
 def current_server() -> str:
     """Log `ACT curserver=<id>` — the viewed world server (falls back to HOME_SERVER)."""
-    return ('CS.UnityEngine.Debug.LogError("ACT curserver="..tostring('
-            '(DataCenter.WorldFavoDataManager and DataCenter.WorldFavoDataManager.curServerId) or '
-            '(DataCenter.WarFlagDataManager and DataCenter.WarFlagDataManager.curServerId) or %d))'
-            % HOME_SERVER)
+    return ('CS.UnityEngine.Debug.LogError("ACT curserver="..tostring(%s))'
+            % current_server_expr())
 
 
-def jump_to_coord(x: int, y: int, server: int) -> str:
+def jump_to_coord(x: int, y: int, server: "int | None" = None) -> str:
     """Jump to tile (x, y) on `server` — the game's OWN coordinate navigation.
 
     Reproduces exactly what the in-game "go to coordinate on server" flow does (open the
@@ -52,12 +67,18 @@ def jump_to_coord(x: int, y: int, server: int) -> str:
 
     Replaces the removed `GotoPos` camera crutch and the `JumpToServerByServerId` move-city
     hack (which popped `UIMoveCity`, force-closed it mid-switch, and left map taps dead).
+
+    ``server=None`` means "the one being looked at", and the chunk asks the game for it
+    ITSELF (`current_server_expr`). A coordinate without a server is the ordinary case —
+    a link clicked in the log, a row in «Командный пункт» — and the panel used to answer
+    it with a separate read before the jump: one more trip through the Lua VM, one more
+    settle, and the game only started moving after both (#1230).
     """
-    sid = int(server)
-    return ('pcall(function() GoToUtil.GotoWorldPos('
-            'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,%d) end) '
-            'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv=%d")'
-            % (x, y, sid, x, y, sid))
+    sid = str(int(server)) if server is not None else current_server_expr()
+    return ('local srv=%s pcall(function() GoToUtil.GotoWorldPos('
+            'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,srv) end) '
+            'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv="..tostring(srv))'
+            % (sid, x, y, x, y))
 
 
 def _pid(x: int, y: int) -> str:

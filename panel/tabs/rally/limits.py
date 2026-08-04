@@ -49,7 +49,8 @@ def types_out(rt) -> list:
     if not rt.game.up():
         return []
     try:
-        lines = rt.game.evaluator().run(TYPES_CHUNK, marker="RTYPE", settle=0.8)
+        lines = rt.game.evaluator().run(TYPES_CHUNK, marker="RTYPE", settle=0.8,
+                                        early=True)
     except Exception:                        # noqa: BLE001 — a bad read is not a cap
         return []
     out = []

@@ -69,7 +69,7 @@ class FakeRallyGame:
         self.answers = {k: list(v) if isinstance(v, list) else [v]
                         for k, v in answers.items()}
 
-    def run(self, chunk, marker=None, settle=1.4):
+    def run(self, chunk, marker=None, settle=1.4, early=False):
         self.chunks.append(chunk)
         if marker == "RLUA":
             kind = _classify(chunk, _READS)

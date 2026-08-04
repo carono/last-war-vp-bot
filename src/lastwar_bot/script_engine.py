@@ -1239,8 +1239,18 @@ class Interpreter:
             self.ctx.evaluator = lua_client.get_evaluator(**opts)
         return self.ctx.evaluator
 
-    def _run_lua(self, chunk: str, marker: str = "ACT", settle: float = 1.2) -> list:
-        return self._evaluator().run(chunk, marker, settle)
+    def _run_lua(self, chunk: str, marker: str = "ACT", settle: float = 1.2,
+                 early: bool = True) -> list:
+        """Run one chunk in the game VM and hand back its marker lines.
+
+        `settle` is a DEADLINE here, not a pause (`early`, see tools/lib/lua_eval.py):
+        every chunk the interpreter builds ends by logging its own marker, so the answer
+        is complete the moment that line lands — measured at ~30 ms, against the second
+        and a half a step used to sit out (#1230). Waiting for the GAME rather than for
+        the answer is the DSL's own job and always has been: that is what `WAIT` is for,
+        and what the recipes already use after a scene switch or a request.
+        """
+        return self._evaluator().run(chunk, marker, settle, early=early)
 
     def _do_game_scene(self, stmt: GameSceneStmt) -> None:
         self._tools_lib_on_path()
@@ -1252,9 +1262,11 @@ class Interpreter:
     def _do_jump(self, stmt: JumpStmt) -> None:
         self._tools_lib_on_path()
         import lua_actions
-        # No explicit server → home/current server (HOME_SERVER fallback in lua_actions).
-        server = stmt.server if stmt.server is not None else lua_actions.HOME_SERVER
-        self._run_lua(lua_actions.jump_to_coord(stmt.x, stmt.y, server))
+        # No explicit server → the one the client is looking at, resolved INSIDE the
+        # chunk (lua_actions.jump_to_coord). It used to fall back to `HOME_SERVER`,
+        # which is 0 unless the machine sets it — a jump to a server that does not
+        # exist, where the live answer was one Lua expression away.
+        self._run_lua(lua_actions.jump_to_coord(stmt.x, stmt.y, stmt.server))
         where = f"{stmt.x},{stmt.y}" + (f" srv {stmt.server}" if stmt.server is not None else "")
         self._log(f"JUMP -> {where}")
 

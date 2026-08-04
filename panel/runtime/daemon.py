@@ -486,7 +486,7 @@ class GameLink:
         """
         try:
             for line in self.client.run(lua_actions.current_server(),
-                                        marker="ACT", settle=0.5):
+                                        marker="ACT", settle=0.5, early=True):
                 if "curserver=" in line:
                     return line.split("curserver=")[1].split()[0]
         except Exception as exc:                      # noqa: BLE001
@@ -518,12 +518,17 @@ class GameLink:
                 if not self.up() and not self.ensure():
                     self._log.say("coord", "log.no_daemon")
                     return
-                target = int(server) if server is not None else int(self.current_server())
+                # ONE trip to the VM, not two. A coordinate with no server used to be
+                # answered by reading `current_server()` first — a whole call, and its
+                # settle, in front of a jump the game itself does the instant it is
+                # asked. The chunk resolves it now (`lua_actions.jump_to_coord`), and
+                # the line it logs says which server it landed on (#1230).
+                target = int(server) if server is not None else None
                 if not quiet:
                     self._log.say("coord", "log.coord.jumping",
                                   where=coords.fmt(x, y, target))
                 for line in self.client.run(lua_actions.jump_to_coord(x, y, target),
-                                            marker="ACT", settle=1.6):
+                                            marker="ACT", settle=1.6, early=True):
                     self._log.put(f"[coord] {line}")
                 if not quiet:
                     self._log.say("coord", "log.done")

@@ -34,7 +34,7 @@ class FakeEval:
         self.chunks: list[str] = []
         self._rluas = list(rluas or [])
 
-    def run(self, chunk, marker=None, settle=1.4):
+    def run(self, chunk, marker=None, settle=1.4, early=False):
         self.chunks.append(chunk)
         if marker == "RLUA":
             val = self._rluas.pop(0) if self._rluas else "nil"
@@ -54,7 +54,7 @@ class FakeGame(FakeEval):
         super().__init__()
         self.rest = banked
 
-    def run(self, chunk, marker=None, settle=1.4):
+    def run(self, chunk, marker=None, settle=1.4, early=False):
         self.chunks.append(chunk)
         if marker == "RLUA":
             return [f"RLUA {self.rest}"]
@@ -150,7 +150,7 @@ def test_tap_all_spends_the_whole_quota_in_one_call():
 def test_tap_all_gives_up_when_a_batch_fires_nothing():
     """A count that will not fall must end the loop instead of spinning on it."""
     class Stuck(FakeGame):
-        def run(self, chunk, marker=None, settle=1.4):
+        def run(self, chunk, marker=None, settle=1.4, early=False):
             self.chunks.append(chunk)
             if marker == "RLUA":
                 return [f"RLUA {self.rest}"]

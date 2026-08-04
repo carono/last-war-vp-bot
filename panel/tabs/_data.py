@@ -28,9 +28,16 @@ RESOURCE_ORDER = ("food", "wood", "metal", "oil", "gold")
 
 def _run_lua(rt, chunk: str, marker: str, settle: float = 0.6):
     """Run ``chunk`` through the warm daemon and return the Player.log lines that carry
-    ``marker``. Returns ``[]`` on any failure (no daemon / no game / error)."""
+    ``marker``. Returns ``[]`` on any failure (no daemon / no game / error).
+
+    `settle` is a deadline, not a pause (`early`): these are readings of what the game
+    already knows, they answer in one call, and the daemon serialises every chunk — so a
+    tab refreshing itself used to hold the game for six tenths of a second in front of
+    whatever the person pressed next (#1230).
+    """
     try:
-        return rt.game.evaluator().run(chunk, marker=marker, settle=settle) or []
+        return rt.game.evaluator().run(chunk, marker=marker, settle=settle,
+                                       early=True) or []
     except Exception:       # noqa: BLE001 — a failed read is an empty tab, never a crash
         return []
 

@@ -621,8 +621,9 @@ fits — the Lua path is layout-proof, the vision path needs no daemon.
 
 ### `JUMP x, y [, server]`
 
-Jump the camera to tile `(x, y)`. With no server it stays on the current/home server;
-with a third number it enters that server (cross-server jump). Wraps the game's own
+Jump the camera to tile `(x, y)`. With no server it stays on the one the client is
+looking at — the chunk asks the game itself, so this costs no extra call — and with a
+third number it enters that server (cross-server jump). Wraps the game's own
 coordinate-jump, `GoToUtil.GotoWorldPos`.
 
 ```

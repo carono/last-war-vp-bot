@@ -142,7 +142,7 @@ class _FakeEval:
     def __init__(self):
         self.chunks = []
 
-    def run(self, chunk, marker=None, settle=1.2):
+    def run(self, chunk, marker=None, settle=1.2, early=False):
         self.chunks.append(chunk)
         return [f"{marker or 'X'} ok"]
 

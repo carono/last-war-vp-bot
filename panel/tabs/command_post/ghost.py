@@ -103,7 +103,8 @@ class GhostOrder:
                  '.. " left=" .. tostring(%s))'
                  % (lua_actions.ghost_recon_is_open(),
                     lua_actions.ghost_recon_steals_left()))
-        text = " ".join(self.rt.game.client.run(chunk, marker="GHOST", settle=0.6))
+        text = " ".join(self.rt.game.client.run(chunk, marker="GHOST", settle=0.6,
+                                                early=True))
         if "open=1" not in text:
             return CLOSED_PAUSE
         left = 0

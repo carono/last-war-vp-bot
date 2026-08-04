@@ -135,7 +135,7 @@ class _Game:
 
         class _Ev:
             @staticmethod
-            def run(chunk, marker=None, settle=None):
+            def run(chunk, marker=None, settle=None, early=False):
                 assert marker == "RTYPE", marker
                 return ["RTYPE=%s" % t for t in types] + ["RTYPE end"]
         return _Ev()

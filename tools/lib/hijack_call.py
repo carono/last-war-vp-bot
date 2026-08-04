@@ -75,6 +75,29 @@ OFF_FLAGS = 0x30
 OFF_RSP = 0x98
 OFF_RIP = 0xF8
 
+# How often each of the three waits looks again.
+#
+# WHAT A CALL ACTUALLY COSTS, measured live (#1230, results in
+# docs/research/game-call-latency.md): a chunk reaches the game's Lua VM in TWO hijacks
+# (make the string, then invoke), and each one waits for the main thread to reach the
+# safe park — which it does once a frame. The reaction of the game came out at 2.06x the
+# client's own `Time.deltaTime` across a run of samples: 32 ms at 60 fps, 75 ms at 21.
+# The frame is the floor, and nothing here can go under it.
+#
+# So PARK_POLL is deliberately NOT tightened. Sampling the park costs the game something
+# — every sample suspends and resumes the render thread — and sampling it five times
+# faster measured exactly the same 2.06 frames, because the wait is for the frame and
+# not for us to look. The two flag waits are the opposite: they read a byte out of our
+# own region with the game running freely, so they cost the game nothing and their old
+# 10/20 ms granularity was pure sitting about.
+#
+# The call wait starts tight and backs off: a managed call that returns in a millisecond
+# should not be found 20 ms later, and one that runs for eight seconds should not be
+# polled five thousand times to find that out.
+PARK_POLL = 0.01
+START_POLL = 0.001
+CALL_POLL_FAST, CALL_POLL_SLOW, CALL_FAST_FOR = 0.001, 0.02, 0.1
+
 
 def _aligned_context():
     """Return (buffer, base_addr) for a 16-aligned CONTEXT."""
@@ -289,7 +312,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 if not _in_region(rip):
                     P.VirtualFreeEx(hproc, C.c_void_p(region), 0, 0x8000)
                     return
-            time.sleep(0.03)
+            time.sleep(PARK_POLL)
         print(f"[{label}] WARN: RIP still inside shellcode region — leaking it "
               f"(cannot free safely)")
 
@@ -323,7 +346,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
                 break
             if _byte(started_abs) == 1:
                 break
-            time.sleep(0.01)
+            time.sleep(START_POLL)
 
         started, done = _byte(started_abs), _byte(flag_abs)
         if not started and not done:
@@ -344,11 +367,12 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
         print(f"[{label}] hijacking tid={tid}, orig RIP=0x{orig_rip:x} "
               f"(in ntdll{gate})")
         cdl = time.time() + call_timeout
+        fast_until = time.time() + CALL_FAST_FOR
         while time.time() < cdl:
             if _byte(flag_abs) == 1:
                 done = 1
                 break
-            time.sleep(0.02)
+            time.sleep(CALL_POLL_FAST if time.time() < fast_until else CALL_POLL_SLOW)
         if not done:
             print(f"[{label}] slow call — extending wait {extend_timeout:.0f}s "
                   f"(NOT restoring RIP: would wedge the runtime)")
@@ -409,7 +433,7 @@ def hijack_call(hproc, pid: int, func: int, args: list[int], label: str,
             # not_started: this thread won't run our code — try the next one
 
         if only_tid and time.time() < park_deadline:
-            time.sleep(0.01)  # let the target thread reach the safe park
+            time.sleep(PARK_POLL)  # let the target thread reach the safe park
             continue
         if not only_tid and tried_this_pass:
             # some threads were parked but none ran our code; one more sweep

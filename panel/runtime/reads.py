@@ -43,7 +43,8 @@ def resource_balance(game) -> dict:
     if not game.up():
         return {}
     try:
-        lines = game.evaluator().run(_BALANCE_CHUNK, marker="RB", settle=0.6)
+        lines = game.evaluator().run(_BALANCE_CHUNK, marker="RB", settle=0.6,
+                                     early=True)
     except Exception:                    # noqa: BLE001 — a bad read is not a gain
         return {}
     out: dict = {}

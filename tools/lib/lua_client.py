@@ -99,8 +99,15 @@ class DaemonClient:
         finally:
             s.close()
 
-    def run(self, chunk: str, marker=None, settle: float = 1.2):
+    def run(self, chunk: str, marker=None, settle: float = 1.2, early: bool = False):
+        """Run a chunk. ``early`` makes `settle` a deadline — see `lua_eval.collect`.
+
+        Sent only when asked for, so a daemon started before this existed simply
+        ignores an unknown key and waits the way it always did.
+        """
         req = {"op": "run", "chunk": chunk, "marker": marker, "settle": settle}
+        if early:
+            req["early"] = True
         if self.token:
             req["token"] = self.token      # …which also renews the lease
         r = self._rpc(req)

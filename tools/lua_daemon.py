@@ -7,6 +7,8 @@ time of a single SafeDoString invoke.
 
 Protocol — newline-delimited JSON on 127.0.0.1:47654 (see tools/lua_client.py):
     {"op":"run","chunk":"<lua>","marker":"X","settle":1.2}  -> {"ok":true,"lines":[...]}
+    …plus optional "early":true — `settle` becomes a DEADLINE and the answer comes
+    back as soon as the marker has landed (tools/lib/lua_eval.py `collect`)
     {"op":"ping"}     -> {"ok":true,"warm":<bool>}
     {"op":"reload"}   -> rebuild the LuaEval (after a game restart) -> {"ok":true}
     {"op":"shutdown"} -> {"ok":true} then exit
@@ -138,11 +140,12 @@ class Daemon:
         """Which client this daemon is attached to — the thing to check when two run."""
         return getattr(getattr(self._ev, "x", None), "pid", None)
 
-    def run(self, chunk: str, marker, settle: float):
+    def run(self, chunk: str, marker, settle: float, early: bool = False):
         with self._lock:
             for attempt in (1, 2):
                 try:
-                    return self._ensure().run(chunk, marker=marker, settle=settle)
+                    return self._ensure().run(chunk, marker=marker, settle=settle,
+                                              early=early)
                 except BaseException:
                     # Stale handle (game restarted?) or transient hijack failure —
                     # drop the warm state and rebuild once before giving up.
@@ -178,7 +181,8 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
                         resp = {"ok": False, "error": refused, "lease_lost": True}
                     else:
                         lines = daemon.run(req.get("chunk", ""), req.get("marker"),
-                                           float(req.get("settle", 1.2)))
+                                           float(req.get("settle", 1.2)),
+                                           early=bool(req.get("early")))
                         resp = {"ok": True, "lines": lines}
                 elif op == "acquire":
                     resp = daemon.lease.acquire(req.get("owner", "?"),
