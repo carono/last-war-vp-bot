@@ -649,3 +649,64 @@ def check(settings) -> dict:
     if not here:
         return {**out, "kind": "no_client"}
     return {**out, "kind": "ok", "pid": here[0]}
+
+
+# -- «Поднять сессию»: the fix beside the diagnosis (#1231) -------------------
+
+def credential_state(settings) -> dict | None:
+    """What Windows holds for logging this profile's session in, or ``None``.
+
+    ``None`` where the question does not arise — no session named, or a machine that
+    cannot be asked. The shape otherwise is `rdp_instance.credential_state`'s, and the
+    only part the panel draws is whether a password is stored at all: a person who has
+    never saved one is about to be asked for it by Windows, and being told so before
+    the dialog appears is the difference between a prompt and a surprise.
+    """
+    user = profile_user(settings)
+    if not user:
+        return None
+    try:
+        import rdp_instance                # noqa: PLC0415 — Windows-only, pywin32
+        return rdp_instance.credential_state(user)
+    except Exception:                      # noqa: BLE001 — a reading, not the page
+        return None
+
+
+def bring_up(settings, say=None) -> int:
+    """Create this profile's Windows session and start its client and daemon in it.
+
+    The panel used to refuse this and print a command line for the person to run
+    (#1231). It refused for no better reason than that nobody had wired the call: the
+    whole sequence is `tools/rdp_instance.py`'s and it has always run unattended —
+    session, client, daemon, console back where it was.
+
+    **Blocks for minutes.** An RDP logon, a game launcher that may decide to update, and
+    a daemon that waits for the client to finish loading; call it off the Tk thread and
+    hand in ``say`` so the person can watch it happen in the log.
+
+    Where the password comes from is not decided here and deliberately so: a *sealed*
+    credential is used silently, a *readable* one is sealed on the way past, and with
+    neither, Windows itself asks and nothing is stored
+    (docs/research/rdp-session-credentials.md). The panel never sees a password in any
+    of the three.
+
+    Returns `rdp_instance.bring_up`'s exit code — ``0`` when the second instance
+    answered a Lua chunk at the end of it, which is the only proof worth having.
+    """
+    user = profile_user(settings)
+    if not user:
+        raise LookupError("this profile's client is the one on this desktop")
+    import rdp_instance                    # noqa: PLC0415 — Windows-only, pywin32
+    port = settings.opt_int("daemon_port", low=1, high=65535)
+    try:
+        return rdp_instance.bring_up(user, port, say=say)
+    except SystemExit as exc:
+        # A command-line tool says "this cannot go on" by leaving; in a panel thread
+        # that is a thread that stops with nothing said, because SystemExit is not an
+        # Exception and no `except` above catches it.
+        raise RuntimeError(str(exc) or "the session could not be brought up") from exc
+    finally:
+        # The session, the client and the process list have all just changed; the
+        # shared reading is up to two seconds old and would tell the person nothing
+        # happened (:data:`MACHINE_TTL_SEC`).
+        forget_machine_state()

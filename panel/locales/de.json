@@ -450,7 +450,7 @@
   "session.check": "Prüfen",
   "session.check.no_client": "Sitzung {session} ({state}) läuft, aber kein {exe} darin — «{button}» startet einen dort.",
   "session.check.no_login": "Das Häkchen ist gesetzt, aber kein Anmeldename eingetragen — es gibt keine Sitzung zum Nachsehen.",
-  "session.check.no_session": "Niemand ist als {user} angemeldet. Die Sitzung zuerst hochfahren — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "niemand ist als {user} angemeldet — «{up}» legt die Sitzung an, startet den Client darin und lässt sie getrennt.",
   "session.check.off": "Das Häkchen fehlt: Der Client dieses Profils ist der auf diesem Desktop.",
   "session.check.ok": "Sitzung {session} ({state}): {exe} läuft, pid {pid}.",
   "session.check.probe_error": "Die Sitzung ließ sich nicht lesen: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "Soldaten",
   "rally_tab.stamina": "Ausdauer",
   "chat.empty": "noch keine Nachrichten",
+  "log.session.bringing_up": "die Windows-Sitzung von {user} wird gestartet — das dauert einige Minuten",
+  "log.session.up_failed": "die Sitzung ließ sich nicht starten: {error}",
+  "log.session.up_ok": "Sitzung, Client und Daemon laufen",
+  "log.session.up_partial": "die Sitzung kam nicht vollständig hoch (Code {code}) — die Zeilen oben sagen, wo es stehen blieb",
+  "log.session.will_ask": "für dieses Konto ist kein Passwort gespeichert — Windows fragt gleich selbst danach und behält nichts",
+  "session.bring_up": "Sitzung starten",
   "vsduel.empty": "für heute ist nichts angehakt",
   "vsduel.day.off": "heute ist ausgeschaltet"
 }

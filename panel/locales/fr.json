@@ -450,7 +450,7 @@
   "session.check": "Vérifier",
   "session.check.no_client": "la session {session} ({state}) est ouverte, mais aucun {exe} n'y tourne — «{button}» en démarre un là-bas.",
   "session.check.no_login": "la case est cochée, mais aucun identifiant n'est saisi — il n'y a pas de session où regarder.",
-  "session.check.no_session": "personne n'est connecté en tant que {user}. Ouvre d'abord la session — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "personne n'est connecté en tant que {user} — «{up}» crée la session, y lance le client et la laisse déconnectée.",
   "session.check.off": "la case n'est pas cochée : le client de ce profil est celui de ce bureau.",
   "session.check.ok": "session {session} ({state}) : {exe} tourne, pid {pid}.",
   "session.check.probe_error": "la session n'a pas pu être lue : {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "soldats",
   "rally_tab.stamina": "Endurance",
   "chat.empty": "pas encore de messages",
+  "log.session.bringing_up": "ouverture de la session Windows de {user} — cela prend quelques minutes",
+  "log.session.up_failed": "impossible d'ouvrir la session : {error}",
+  "log.session.up_ok": "la session, le client et le démon sont en place",
+  "log.session.up_partial": "la session n'est pas allée jusqu'au bout (code {code}) — les lignes ci-dessus disent où cela s'est arrêté",
+  "log.session.will_ask": "aucun mot de passe n'est enregistré pour ce compte — Windows va le demander lui-même et n'en gardera rien",
+  "session.bring_up": "Ouvrir la session",
   "vsduel.empty": "rien de coché pour aujourd'hui",
   "vsduel.day.off": "aujourd'hui est désactivé"
 }

@@ -450,7 +450,7 @@
   "session.check": "Denetle",
   "session.check.no_client": "{session} oturumu ({state}) ayakta, ama içinde çalışan bir {exe} yok — «{button}» orada bir tane başlatır.",
   "session.check.no_login": "kutu işaretli, ama bir kullanıcı yazılmamış — bakılacak bir oturum yok.",
-  "session.check.no_session": "{user} olarak oturum açan yok. Önce oturumu ayağa kaldır — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "{user} olarak oturum açan yok — «{up}» oturumu oluşturur, istemciyi içinde başlatır ve bağlantısı kesilmiş hâlde bırakır.",
   "session.check.off": "kutu işaretli değil: bu profilin istemcisi bu masaüstündeki.",
   "session.check.ok": "oturum {session} ({state}): {exe} çalışıyor, pid {pid}.",
   "session.check.probe_error": "oturum okunamadı: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "asker",
   "rally_tab.stamina": "Dayanıklılık",
   "chat.empty": "henüz mesaj yok",
+  "log.session.bringing_up": "{user} kullanıcısının Windows oturumu başlatılıyor — birkaç dakika sürer",
+  "log.session.up_failed": "oturum başlatılamadı: {error}",
+  "log.session.up_ok": "oturum, istemci ve daemon çalışıyor",
+  "log.session.up_partial": "oturum sonuna kadar açılmadı (kod {code}) — nerede durduğunu yukarıdaki satırlar söylüyor",
+  "log.session.will_ask": "bu hesap için kayıtlı parola yok — birazdan Windows'un kendisi soracak ve hiçbir şey saklamayacak",
+  "session.bring_up": "Oturumu başlat",
   "vsduel.empty": "bugün için hiçbir şey işaretlenmedi",
   "vsduel.day.off": "bugün kapalı"
 }

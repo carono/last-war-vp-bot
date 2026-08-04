@@ -450,7 +450,7 @@
   "session.check": "Проверить",
   "session.check.no_client": "сессия {session} ({state}) поднята, но {exe} в ней не запущен — «{button}» запустит его там.",
   "session.check.no_login": "галочка стоит, но логин не введён — искать не в чем.",
-  "session.check.no_session": "пользователь {user} не залогинен. Сначала подними сессию — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "пользователь {user} не залогинен — «{up}» создаст сессию, запустит в ней клиента и оставит её отключённой.",
   "session.check.off": "галочка снята: клиент этого профиля — тот, что на этом рабочем столе.",
   "session.check.ok": "сессия {session} ({state}): {exe} работает, pid {pid}.",
   "session.check.probe_error": "сессию не прочитать: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "солдат",
   "rally_tab.stamina": "Стамина",
   "chat.empty": "сообщений пока нет",
+  "log.session.bringing_up": "поднимаю сессию Windows пользователя {user} — это займёт несколько минут",
+  "log.session.up_failed": "не удалось поднять сессию: {error}",
+  "log.session.up_ok": "сессия, клиент и демон подняты",
+  "log.session.up_partial": "сессия поднялась не до конца (код {code}) — где остановилось, видно в строках выше",
+  "log.session.will_ask": "пароль этой учётной записи нигде не сохранён — сейчас его спросит сам Windows и нигде не сохранит",
+  "session.bring_up": "Поднять сессию",
   "vsduel.empty": "на сегодня ничего не отмечено",
   "vsduel.day.off": "сегодняшний день выключен"
 }

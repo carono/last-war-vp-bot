@@ -450,7 +450,7 @@
   "session.check": "Controlla",
   "session.check.no_client": "la sessione {session} ({state}) è aperta, ma non ci gira nessun {exe} — «{button}» ne avvia uno lì.",
   "session.check.no_login": "la casella è spuntata, ma non è scritto nessun utente — non c'è una sessione in cui guardare.",
-  "session.check.no_session": "nessuno è collegato come {user}. Apri prima la sessione — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "nessuno ha effettuato l'accesso come {user} — «{up}» crea la sessione, ci avvia il client e la lascia disconnessa.",
   "session.check.off": "la casella non è spuntata: il client di questo profilo è quello di questa scrivania.",
   "session.check.ok": "sessione {session} ({state}): {exe} è in funzione, pid {pid}.",
   "session.check.probe_error": "non è stato possibile leggere la sessione: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "soldati",
   "rally_tab.stamina": "Vigore",
   "chat.empty": "ancora nessun messaggio",
+  "log.session.bringing_up": "avvio della sessione Windows di {user} — richiede qualche minuto",
+  "log.session.up_failed": "non è stato possibile avviare la sessione: {error}",
+  "log.session.up_ok": "sessione, client e daemon sono attivi",
+  "log.session.up_partial": "la sessione non è salita fino in fondo (codice {code}) — le righe sopra dicono dove si è fermata",
+  "log.session.will_ask": "per quell'account non è salvata alcuna password — Windows la chiederà tra poco e non conserverà nulla",
+  "session.bring_up": "Avvia la sessione",
   "vsduel.empty": "niente spuntato per oggi",
   "vsduel.day.off": "oggi è spento"
 }

@@ -191,7 +191,8 @@ So the profile also names the session, on **Настройки → Игра → 
 
 …and **«Проверить»** beside them answers, in one line, which of the four states the
 profile is actually in: the box unticked (this desktop), ticked with no login, nobody
-logged on as that login (the session is not up — `--bring-up`), the session up and
+logged on as that login (the session is not up — «Поднять сессию», the button beside the
+verdict, creates it and everything in it), the session up and
 holding no client (start it inside that session), or the whole of it in place with the
 pid. A *disconnected* session is reported as disconnected and normal, because that is
 how the second instance is meant to be left (§3.3).
@@ -240,23 +241,36 @@ C:\Python312\python.exe tools\rdp_instance.py --logoff          # …and end the
 C:\Python312\python.exe tools\rdp_instance.py --restore-console # panic button
 ```
 
-The password for the second Windows account is stored once, by #1105's tool, and never
-appears in the repo:
+The password for the second Windows account never appears in the repo, and since #1231
+it is not readable on the machine either — the full account is in
+[`rdp-session-credentials.md`](rdp-session-credentials.md). The short version:
 
 ```bash
-C:\Python312\python.exe tools\launch_as_user.py --user <user2> --save-credential
+C:\Python312\python.exe tools\rdp_instance.py --user <user2> --save-credential  # once, ever
+C:\Python312\python.exe tools\rdp_instance.py --user <user2> --credentials      # what is stored
+C:\Python312\python.exe tools\rdp_instance.py --user <user2> --bring-up --ask   # store nothing
 ```
 
-`rdp_instance.py` copies it from there into the `TERMSRV/<server>` credential that mstsc
-reads, and sets the policy that lets an unsigned `.rdp` open without a prompt
+`--save-credential` writes a `TERMSRV/<server>` credential of type
+`CRED_TYPE_DOMAIN_PASSWORD` — the one mstsc's own «remember me» writes, which LSA uses
+and hands back to nobody. With nothing stored, `--bring-up` lets mstsc ask, and keeps
+none of it. The old *generic* credentials from #1105/#1106 gave their plaintext to any
+process running as the desktop user; one left over is sealed on first use and removed
+with `--forget-credential`.
+
+The tool also sets the policy that lets an unsigned `.rdp` open without a prompt
 (`AllowUnsignedFiles`); a dialog watcher clicks anything that still appears (it ticks
-"do not ask again" first, so it stops appearing).
+"do not ask again" first, so it stops appearing) — but never a dialog with somewhere to
+type in it, which is what the credential prompt is.
 
 ## 6. Limits
 
 * **Headless only.** Clicks, screenshots and the vision DSL cannot reach the second
   session. Everything through `SafeDoString` can.
-* **The session does not survive a reboot or a logoff** — re-run `--bring-up`.
+* **The session does not survive a reboot or a logoff** — re-run `--bring-up`, or press
+  «Поднять сессию» on **Настройки → Игра**, which runs the same sequence from the panel
+  (#1231). Nothing else about the second instance needs re-doing: the credential and the
+  profile survive, only the session does not.
 * **One game account per Windows user**, unchanged: the client keeps its account under
   `%LOCALAPPDATA%`, so a third account needs a third Windows user.
 * **The second client is not watched.** Nothing restarts it if it crashes; `--status`

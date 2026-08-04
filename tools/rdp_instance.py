@@ -28,9 +28,9 @@ docs/research/multi-instance-rdp.md.
 How the session is built
 ------------------------
 1. **The session.** If the target user has no session, one is created by connecting to
-   this machine's own RDP listener with credentials taken from Credential Manager.
-   Not to `localhost` — mstsc recognises its own machine and hangs up before the server
-   sees anything; `127.0.0.2` is the same machine by another name and goes through.
+   this machine's own RDP listener. Not to `localhost` — mstsc recognises its own
+   machine and hangs up before the server sees anything; `127.0.0.2` is the same machine
+   by another name and goes through. Where the password comes from is §Credentials.
 2. **The client.** Started by `tools/session_launch.py` from a throwaway SYSTEM
    scheduled task: `WTSQueryUserToken(session)` hands over the token that already *is*
    that session's interactive logon, so the client runs as the session's own user, with
@@ -52,10 +52,36 @@ How the session is built
 > **Headless only.** Foreground input and screenshots reach the console desktop, never
 > the second session. The second instance is driven through the Lua daemon or not at all.
 
+Credentials (#1231)
+-------------------
+Only step 1 needs the account's password at all, and **this tool never holds one**.
+Creating a Windows session is an authentication: `WTSQueryUserToken` (steps 2–3) hands
+over a logon that already exists, and no Windows API manufactures a new interactive
+session without one — so the password goes to Windows, in one of two shapes, and never
+through this process:
+
+* **sealed** — a `TERMSRV/<server>` credential of type `CRED_TYPE_DOMAIN_PASSWORD`: the
+  same one mstsc's own «remember me» writes. LSA hands it to the connection and hands it
+  back to *nobody*: `CredRead` on it returns an empty blob. `--save-credential` asks for
+  the password once and writes that; nothing else on this machine can read it out again.
+* **asked** — nothing stored at all. `--ask` (and the panel, when there is no sealed
+  credential) opens mstsc with its own credential prompt, the person types the password
+  into Windows' dialog, and the session then lasts until the machine reboots.
+
+What this replaced: the password used to be kept as a *generic* credential
+(`LastWarVpBot/<domain>\<user>`) and copied, still generic, into `TERMSRV/<server>`.
+Generic credentials give their plaintext back to any process running as that user, so an
+admin password sat in reach of everything on the desktop. Such a credential is migrated
+to the sealed form on first use and can then be deleted with `--forget-credential`.
+
 Usage (Windows Python — pywin32 lives there, not in WSL's python3)::
 
     C:\Python312\python.exe tools\rdp_instance.py --status
+    C:\Python312\python.exe tools\rdp_instance.py --credentials         # what is stored, in what form
+    C:\Python312\python.exe tools\rdp_instance.py --save-credential     # asks once, seals it
+    C:\Python312\python.exe tools\rdp_instance.py --forget-credential   # drop the readable copy
     C:\Python312\python.exe tools\rdp_instance.py --bring-up            # the whole sequence
+    C:\Python312\python.exe tools\rdp_instance.py --bring-up --ask      # …asking, storing nothing
     C:\Python312\python.exe tools\rdp_instance.py --bring-up --no-rdp   # session already exists
     C:\Python312\python.exe tools\rdp_instance.py --ping
     C:\Python312\python.exe tools\rdp_instance.py --lua "print(1+1)"
@@ -70,6 +96,8 @@ created, run and deleted in the same breath.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import getpass
 import json
 import os
 import socket
@@ -116,8 +144,37 @@ WORK = os.path.join(tempfile.gettempdir(), "lwbot")
 LOGDIR = os.path.join(REPO, "results", "logs")
 
 
+#: Where the running commentary goes. ``None`` is this tool's own stdout, which is right
+#: for a command line and useless to the panel — a windowed panel has no console, so a
+#: caller that wants these lines in its log wraps the call in :func:`spoken_to`.
+_SAY = None
+
+
 def log(msg: str) -> None:
-    print(f"[rdp] {msg}", flush=True)
+    line = f"[rdp] {msg}"
+    if _SAY is not None:
+        try:
+            _SAY(line)
+            return
+        except Exception:      # noqa: BLE001 — a log sink must never fell the bring-up
+            pass
+    print(line, flush=True)
+
+
+@contextlib.contextmanager
+def spoken_to(say):
+    """Send everything :func:`log` says to ``say`` for the duration of the block.
+
+    A sink rather than a ``say=`` parameter on each function: the bring-up talks from
+    six places, and a parameter threaded through five of them is one that the sixth
+    eventually forgets — which reads to the person as the panel going silent half way.
+    """
+    global _SAY                                    # noqa: PLW0603 — one process-wide sink
+    prev, _SAY = _SAY, say
+    try:
+        yield
+    finally:
+        _SAY = prev
 
 
 # ------------------------------------------------------------ elevation/SYSTEM --
@@ -317,19 +374,132 @@ def status(user: str, port: int) -> dict:
 
 # ------------------------------------------------------------------ the RDP --
 
-def rdp_credential(user: str, server: str) -> str:
-    """Copy the stored account password into the credential mstsc reads. Returns target."""
-    import win32cred
+def _account(user: str) -> tuple[object, str, str]:
+    """The launcher module and the account, resolved: ``(module, domain, name)``."""
     sys.path.insert(0, os.path.join(REPO, "tools"))
     import launch_as_user as LAU
     dom, name, _sid = LAU.resolve_account(user, None)
+    return LAU, dom, name
+
+
+def _cred_read(target: str, kind: int):
+    import win32cred
+    try:
+        return win32cred.CredRead(target, kind)
+    except Exception:            # noqa: BLE001 — pywintypes.error when there is none
+        return None
+
+
+def credential_state(user: str, server: str = DEFAULT_SERVER) -> dict:
+    """What Windows holds for logging ``user`` into ``server``, and in what shape.
+
+    Three answers, and they are the whole of this tool's password story:
+
+    ``sealed``    a ``TERMSRV/<server>`` credential of type ``CRED_TYPE_DOMAIN_PASSWORD``
+                  — usable by the connection, unreadable by anything else, including us.
+    ``readable``  the old generic copies (``LastWarVpBot/<dom>\\<user>`` and a generic
+                  ``TERMSRV/<server>``), which hand their plaintext to any process that
+                  runs as this account. They are what #1231 is here to retire.
+    ``none``      neither, so the session can only be brought up by asking a person.
+    """
+    import win32cred
+    _LAU, dom, name = _account(user)
+    qualified = f"{dom}\\{name}"
+    target = RDP_CRED_TARGET.format(server=server)
+    sealed = _cred_read(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD)
+    return {
+        "user": qualified, "server": server, "target": target,
+        # A sealed credential for somebody else is not this account's credential.
+        "sealed": bool(sealed) and (sealed.get("UserName") or "").lower() == qualified.lower(),
+        "readable_rdp": _cred_read(target, win32cred.CRED_TYPE_GENERIC) is not None,
+        "readable_store": _cred_read(f"{CRED_PREFIX}/{qualified}",
+                                     win32cred.CRED_TYPE_GENERIC) is not None,
+    }
+
+
+def seal_credential(user: str, password: str, server: str = DEFAULT_SERVER) -> str:
+    """Write ``password`` where Windows keeps RDP passwords, in the unreadable form.
+
+    ``CRED_TYPE_DOMAIN_PASSWORD`` is what mstsc's own «remember me» writes: LSA gives it
+    to the connection and gives it back to no caller — ``CredRead`` on one returns an
+    empty blob (measured, #1231). That is the difference from what this used to do, and
+    it is the whole of the hardening: the secret still exists, but nothing running as
+    this account can read it, print it, or copy it somewhere worse.
+    """
+    import win32cred
+    _LAU, dom, name = _account(user)
+    qualified = f"{dom}\\{name}"
+    target = RDP_CRED_TARGET.format(server=server)
+    win32cred.CredWrite({
+        "Type": win32cred.CRED_TYPE_DOMAIN_PASSWORD,
+        "TargetName": target,
+        "UserName": qualified,
+        "CredentialBlob": password,
+        "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
+        "Comment": "last-war-vp-bot second instance over RDP (#1106, sealed #1231)",
+    }, 0)
+    log(f"credential {target} sealed for {qualified} — usable, not readable")
+    return qualified
+
+
+def forget_credential(user: str, server: str = DEFAULT_SERVER, sealed: bool = False) -> None:
+    """Delete the readable copies of the password — and the sealed one with ``sealed``."""
+    import win32cred
+    _LAU, dom, name = _account(user)
+    qualified = f"{dom}\\{name}"
+    target = RDP_CRED_TARGET.format(server=server)
+    drop = [(f"{CRED_PREFIX}/{qualified}", win32cred.CRED_TYPE_GENERIC),
+            (target, win32cred.CRED_TYPE_GENERIC)]
+    if sealed:
+        drop.append((target, win32cred.CRED_TYPE_DOMAIN_PASSWORD))
+    for name_, kind in drop:
+        try:
+            win32cred.CredDelete(name_, kind)
+            log(f"credential {name_} deleted")
+        except Exception:        # noqa: BLE001 — deleting one that is not there is the goal
+            pass
+
+
+def migrate_credential(user: str, server: str = DEFAULT_SERVER) -> bool:
+    """Turn a readable stored password into the sealed one. ``True`` if it moved.
+
+    Reading the plaintext is the one moment this process holds it, and it happens once,
+    to get rid of the copy that made it holdable. The generic ``LastWarVpBot`` entry is
+    deliberately **left standing**: until a bring-up has proven the sealed credential is
+    consumed, it is the way back (:func:`rdp_connect` falls back to it), and
+    ``--forget-credential`` is how the person says they are done with it.
+    """
+    import win32cred
+    LAU, dom, name = _account(user)
     password = LAU.cred_read(dom, name)
     if password is None:
-        raise SystemExit(
-            f"no stored password for {dom}\\{name}. Save it once:\n"
-            rf"    C:\Python312\python.exe tools\launch_as_user.py --user {name} "
-            "--save-credential")
+        cred = _cred_read(RDP_CRED_TARGET.format(server=server), win32cred.CRED_TYPE_GENERIC)
+        blob = (cred or {}).get("CredentialBlob") or b""
+        password = blob.decode("utf-16-le", "replace") if blob else None
+    if not password:
+        return False
+    seal_credential(user, password, server)
+    del password
+    return True
+
+
+def unseal_fallback(user: str, server: str = DEFAULT_SERVER) -> bool:
+    """Put the old generic ``TERMSRV`` credential back. The way home from a failed seal.
+
+    Only reached when a connect with the sealed credential produced no session and the
+    readable password is still on the machine: a hardening that quietly stops the second
+    instance coming up is worse than the thing it hardened.
+    """
+    import win32cred
+    LAU, dom, name = _account(user)
+    password = LAU.cred_read(dom, name)
+    if password is None:
+        return False
     target = RDP_CRED_TARGET.format(server=server)
+    try:
+        win32cred.CredDelete(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD)
+    except Exception:            # noqa: BLE001
+        pass
     win32cred.CredWrite({
         "Type": win32cred.CRED_TYPE_GENERIC,
         "TargetName": target,
@@ -338,18 +508,44 @@ def rdp_credential(user: str, server: str) -> str:
         "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
         "Comment": "last-war-vp-bot second instance over RDP (#1106)",
     }, 0)
-    log(f"credential {target} set for {dom}\\{name}")
-    return f"{dom}\\{name}"
+    del password
+    log(f"credential {target} put back in the old readable form (the sealed one did not "
+        f"take) — see docs/research/rdp-session-credentials.md")
+    return True
 
 
-def rdp_file(user_qualified: str, server: str, width: int, height: int) -> str:
-    """A .rdp that connects without asking anything — no cert prompt, no credential box."""
+def rdp_credential(user: str, server: str) -> tuple[str, bool]:
+    """Make sure mstsc can log ``user`` in. Returns ``(qualified name, will it ask)``.
+
+    Nothing here handles a password unless there is a readable one to retire. The order
+    is: a sealed credential is used as it stands; a readable one is sealed first; and
+    with neither, the connection is made with mstsc's own credential prompt, which
+    stores nothing anywhere and is the honest answer to "without storing a password".
+    """
+    state = credential_state(user, server)
+    if state["sealed"]:
+        log(f"credential {state['target']} is sealed for {state['user']}")
+        return state["user"], False
+    if (state["readable_store"] or state["readable_rdp"]) and migrate_credential(user, server):
+        return state["user"], False
+    log(f"no stored password for {state['user']} — mstsc will ask, and keep nothing")
+    return state["user"], True
+
+
+def rdp_file(user_qualified: str, server: str, width: int, height: int,
+             prompt: bool = False) -> str:
+    """A .rdp that connects without asking anything — no cert prompt, no credential box.
+
+    ``prompt`` puts the credential box back on purpose: it is the no-storage route, so
+    Windows itself asks and this tool never sees the answer. The login is still filled
+    in, because the person is being asked for a password, not for both.
+    """
     path = os.path.join(WORK, f"{user_qualified.split(chr(92))[-1]}.rdp")
     os.makedirs(WORK, exist_ok=True)
     body = [
         f"full address:s:{server}",
         f"username:s:{user_qualified}",
-        "prompt for credentials:i:0",
+        f"prompt for credentials:i:{1 if prompt else 0}",
         "promptcredentialonce:i:1",
         "authentication level:i:0",     # do not stop on the self-signed host cert
         "enablecredsspsupport:i:1",
@@ -420,6 +616,12 @@ def click_dialogs(seconds: float = 120.0, process: str = "mstsc.exe") -> None:
         for dlg in dialogs:
             buttons = []
             win32gui.EnumChildWindows(dlg, lambda h, a: a.append(h) or True, buttons)
+            # A dialog with somewhere to type is a dialog for the person — the credential
+            # prompt of the no-storage route is exactly that, and pressing its OK for them
+            # submits an empty password (#1231). Ticking boxes and pressing «Да» is only
+            # ever right on a dialog that asks nothing but yes or no.
+            if any("edit" in win32gui.GetClassName(h).lower() for h in buttons):
+                continue
             target = None
             for h in buttons:
                 if win32gui.GetClassName(h) != "Button":
@@ -437,13 +639,13 @@ def click_dialogs(seconds: float = 120.0, process: str = "mstsc.exe") -> None:
         time.sleep(0.7)
 
 
-def rdp_connect(user: str, server: str = DEFAULT_SERVER, width: int = 1600, height: int = 900,
-                wait: float = 180.0) -> dict:
-    """Create a session for `user` by connecting to this machine's own RDP listener."""
-    qualified = rdp_credential(user, server)
-    allow_unsigned_rdp()
-    path = rdp_file(qualified, server, width, height)
-    log(f"mstsc {server} as {qualified} — the console goes away until --restore-console")
+def _one_connect(user: str, qualified: str, server: str, width: int, height: int,
+                 prompt: bool, wait: float) -> dict | None:
+    """One mstsc run, waiting for the session to appear. ``None`` if it never does."""
+    path = rdp_file(qualified, server, width, height, prompt=prompt)
+    log(f"mstsc {server} as {qualified}"
+        + (" — Windows will ask for the password" if prompt else "")
+        + " — the console goes away until --restore-console")
     import threading
     threading.Thread(target=click_dialogs, args=(wait,), daemon=True).start()
     subprocess.Popen([MSTSC, path], close_fds=True)
@@ -454,7 +656,44 @@ def rdp_connect(user: str, server: str = DEFAULT_SERVER, width: int = 1600, heig
             log(f"session {s['id']} up for {user} ({s['state']})")
             return s
         time.sleep(2)
-    raise SystemExit(f"no session for {user} after {wait:.0f}s — is mstsc showing a "
+    return None
+
+
+def rdp_connect(user: str, server: str = DEFAULT_SERVER, width: int = 1600, height: int = 900,
+                wait: float = 180.0, ask: bool | None = None) -> dict:
+    """Create a session for `user` by connecting to this machine's own RDP listener.
+
+    ``ask`` decides where the password comes from: ``False`` insists on a stored one,
+    ``True`` stores nothing and has Windows ask, and the default asks *only* when there
+    is nothing stored. Waiting for a person to type is slower than waiting for a
+    credential, so the asking run gets its own, longer patience.
+    """
+    if ask:
+        _LAU, dom, name = _account(user)
+        qualified, prompt = f"{dom}\\{name}", True
+    else:
+        qualified, prompt = rdp_credential(user, server)
+        if prompt and ask is False:
+            raise SystemExit(
+                f"no stored password for {qualified}. Either save one:\n"
+                rf"    C:\Python312\python.exe tools\rdp_instance.py --user {user} "
+                "--save-credential\n"
+                "or bring the session up with --ask, which stores nothing.")
+    allow_unsigned_rdp()
+    patience = max(wait, 300.0) if prompt else wait
+    found = _one_connect(user, qualified, server, width, height, prompt, patience)
+    if found:
+        return found
+    # The sealed credential produced no session and the old readable one is still here:
+    # put it back and try once more, rather than leave the second instance down because
+    # of a hardening. Both outcomes are said out loud — a silent fallback would make the
+    # sealed form look like it works on a machine where it does not.
+    if not prompt and unseal_fallback(user, server):
+        log("retrying the connect with the old credential")
+        found = _one_connect(user, qualified, server, width, height, False, wait)
+        if found:
+            return found
+    raise SystemExit(f"no session for {user} after {patience:.0f}s — is mstsc showing a "
                      f"dialog? Check with --status")
 
 
@@ -561,8 +800,20 @@ def start_daemon(session: int, port: int, timeout: float = 120.0,
     return bool(st.get("warm"))
 
 
-def bring_up(user: str, port: int, server: str, width: int, height: int,
-             use_rdp: bool = True, restore: bool = True) -> int:
+def bring_up(user: str, port: int, server: str = DEFAULT_SERVER, width: int = 1600,
+             height: int = 900, use_rdp: bool = True, restore: bool = True,
+             ask: bool | None = None, say=None) -> int:
+    """Session -> client -> daemon -> console back. ``0`` when the second instance answers.
+
+    ``say`` is where the running commentary goes (the panel hands in its log; a command
+    line leaves it alone and gets stdout). ``ask`` is :func:`rdp_connect`'s.
+    """
+    with spoken_to(say) if say else contextlib.nullcontext():
+        return _bring_up(user, port, server, width, height, use_rdp, restore, ask)
+
+
+def _bring_up(user: str, port: int, server: str, width: int, height: int,
+              use_rdp: bool, restore: bool, ask: bool | None) -> int:
     s = session_of(user)
     if s:
         log(f"session {s['id']} for {user} already exists ({s['state']})")
@@ -575,7 +826,7 @@ def bring_up(user: str, port: int, server: str, width: int, height: int,
     warm = False
     try:
         if s is None:
-            s = rdp_connect(user, server, width, height)
+            s = rdp_connect(user, server, width, height, ask=ask)
         client = start_client(s["id"])
         log(f"client pid {client['pid']} in session {s['id']}")
         warm = start_daemon(s["id"], port)
@@ -643,6 +894,17 @@ def main() -> int:
                     help="session -> client -> daemon -> console back")
     ap.add_argument("--no-rdp", action="store_true",
                     help="never create a session; use an existing one only")
+    ap.add_argument("--ask", action="store_true",
+                    help="have Windows ask for the password and store nothing")
+    ap.add_argument("--stored", action="store_true",
+                    help="insist on a stored password; fail rather than ask")
+    ap.add_argument("--credentials", action="store_true",
+                    help="what is stored for this account, and in what form")
+    ap.add_argument("--save-credential", action="store_true",
+                    help="ask for the password once and seal it where mstsc reads it")
+    ap.add_argument("--forget-credential", action="store_true",
+                    help="delete the readable copies of the password (the sealed one "
+                         "goes with cmdkey /delete)")
     ap.add_argument("--no-restore", action="store_true",
                     help="leave the console with the other session (debugging)")
     ap.add_argument("--restore-console", action="store_true",
@@ -670,6 +932,32 @@ def main() -> int:
 
     if a.restore_console:
         return 0 if restore_console() else 1
+    if a.credentials:
+        st = credential_state(user_or_ask(), a.server)
+        log(f"account {st['user']} -> {st['target']}")
+        log(f"  sealed (usable, unreadable): {'yes' if st['sealed'] else 'no'}")
+        log(f"  readable copy in {st['target']}: {'yes' if st['readable_rdp'] else 'no'}")
+        log(f"  readable copy in {CRED_PREFIX}/{st['user']}: "
+            f"{'yes' if st['readable_store'] else 'no'}")
+        if st["readable_rdp"] or st["readable_store"]:
+            log("  a readable copy hands the password to anything running as this "
+                "account; --bring-up seals it, --forget-credential then removes it")
+        return 0
+    if a.save_credential:
+        user = user_or_ask()
+        if not sys.stdin or not sys.stdin.isatty():
+            raise SystemExit("--save-credential asks for the password, so it needs a "
+                             "terminal. Or bring the session up with --ask.")
+        _LAU, dom, name = _account(user)
+        pw = getpass.getpass(f"Password for {dom}\\{name} (stored sealed, not readable): ")
+        if not pw:
+            raise SystemExit("nothing typed — nothing stored")
+        seal_credential(user, pw, a.server)
+        del pw
+        return 0
+    if a.forget_credential:
+        forget_credential(user_or_ask(), a.server)
+        return 0
     if a.stop or a.logoff:
         return stop(user_or_ask(), a.port, logoff=a.logoff)
     if a.lua:
@@ -686,8 +974,9 @@ def main() -> int:
         log(f"daemon :{a.port} {st}")
         return 0 if st.get("warm") else 1
     if a.bring_up:
+        ask = True if a.ask else (False if a.stored else None)
         return bring_up(user_or_ask(), a.port, a.server, a.width, a.height,
-                        use_rdp=not a.no_rdp, restore=not a.no_restore)
+                        use_rdp=not a.no_rdp, restore=not a.no_restore, ask=ask)
     status(user_or_ask(), a.port)
     return 0
 

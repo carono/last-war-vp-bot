@@ -450,7 +450,7 @@
   "session.check": "Kiểm tra",
   "session.check.no_client": "phiên {session} ({state}) đã lên, nhưng không có {exe} nào chạy trong đó — «{button}» sẽ khởi động một cái ở đấy.",
   "session.check.no_login": "ô đã đánh dấu, nhưng chưa gõ tên đăng nhập — không có phiên nào để nhìn vào.",
-  "session.check.no_session": "không ai đăng nhập với tên {user}. Hãy dựng phiên lên trước — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "không có ai đăng nhập với tên {user} — «{up}» tạo phiên, chạy client trong đó và để phiên ở trạng thái ngắt kết nối.",
   "session.check.off": "ô chưa đánh dấu: client của hồ sơ này chính là cái trên màn hình này.",
   "session.check.ok": "phiên {session} ({state}): {exe} đang chạy, pid {pid}.",
   "session.check.probe_error": "không đọc được phiên: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "lính",
   "rally_tab.stamina": "Thể lực",
   "chat.empty": "chưa có tin nhắn nào",
+  "log.session.bringing_up": "đang mở phiên Windows của {user} — mất vài phút",
+  "log.session.up_failed": "không mở được phiên: {error}",
+  "log.session.up_ok": "phiên, client và daemon đã chạy",
+  "log.session.up_partial": "phiên chưa lên hoàn tất (mã {code}) — các dòng ở trên cho biết nó dừng ở đâu",
+  "log.session.will_ask": "tài khoản đó chưa lưu mật khẩu — chính Windows sẽ hỏi ngay và không giữ lại gì",
+  "session.bring_up": "Mở phiên",
   "vsduel.empty": "hôm nay chưa đánh dấu gì",
   "vsduel.day.off": "hôm nay đã tắt"
 }

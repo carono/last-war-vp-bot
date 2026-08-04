@@ -450,7 +450,7 @@
   "session.check": "Check",
   "session.check.no_client": "session {session} ({state}) is up, but no {exe} is running in it — «{button}» starts one there.",
   "session.check.no_login": "the box is ticked, but no login is typed — there is no session to look in.",
-  "session.check.no_session": "nobody is logged on as {user}. Bring the session up first — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "nobody is logged on as {user} — «{up}» creates the session, starts the client in it and leaves it disconnected.",
   "session.check.off": "the box is not ticked: this profile's client is the one on this desktop.",
   "session.check.ok": "session {session} ({state}): {exe} is running, pid {pid}.",
   "session.check.probe_error": "the session could not be read: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "soldiers",
   "rally_tab.stamina": "Stamina",
   "chat.empty": "no messages yet",
+  "log.session.bringing_up": "bringing {user}'s Windows session up — this takes a few minutes",
+  "log.session.up_failed": "the session could not be brought up: {error}",
+  "log.session.up_ok": "the session, the client and the daemon are up",
+  "log.session.up_partial": "the session did not come all the way up (code {code}) — the lines above say where it stopped",
+  "log.session.will_ask": "no password is stored for that account, so Windows itself will ask for it in a moment — and will keep nothing",
+  "session.bring_up": "Bring the session up",
   "vsduel.empty": "nothing ticked for today",
   "vsduel.day.off": "today is switched off"
 }

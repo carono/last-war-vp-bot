@@ -450,7 +450,7 @@
   "session.check": "Periksa",
   "session.check.no_client": "sesi {session} ({state}) menyala, tetapi tidak ada {exe} yang berjalan di dalamnya — «{button}» menjalankan satu di sana.",
   "session.check.no_login": "kotaknya dicentang, tetapi tidak ada pengguna yang diketik — tidak ada sesi untuk dilihat.",
-  "session.check.no_session": "tidak ada yang masuk sebagai {user}. Nyalakan dulu sesinya — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "tidak ada yang masuk sebagai {user} — «{up}» membuat sesi, menjalankan klien di dalamnya dan meninggalkannya terputus.",
   "session.check.off": "kotaknya tidak dicentang: klien profil ini adalah yang di meja ini.",
   "session.check.ok": "sesi {session} ({state}): {exe} berjalan, pid {pid}.",
   "session.check.probe_error": "sesinya tidak bisa dibaca: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "prajurit",
   "rally_tab.stamina": "Stamina",
   "chat.empty": "belum ada pesan",
+  "log.session.bringing_up": "menjalankan sesi Windows milik {user} — perlu beberapa menit",
+  "log.session.up_failed": "sesi tidak bisa dijalankan: {error}",
+  "log.session.up_ok": "sesi, klien dan daemon sudah jalan",
+  "log.session.up_partial": "sesi tidak naik sampai tuntas (kode {code}) — baris di atas menunjukkan di mana berhentinya",
+  "log.session.will_ask": "tidak ada kata sandi tersimpan untuk akun itu — Windows sendiri akan menanyakannya sebentar lagi dan tidak menyimpan apa pun",
+  "session.bring_up": "Jalankan sesi",
   "vsduel.empty": "tidak ada yang dicentang untuk hari ini",
   "vsduel.day.off": "hari ini dimatikan"
 }

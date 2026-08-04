@@ -425,6 +425,12 @@ class SettingsTab(PanelTab):
         self._session_check_btn = self.tr(
             ttk.Button(frame, command=self._check_session), "session.check")
         self._session_check_btn.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        # …and beside it the thing «Проверить» used to send the person to a terminal for
+        # (#1231). The verdict says «поднимите сессию»; the button that does it belongs
+        # in arm's reach of the sentence, not in a command line in a document.
+        self._session_up_btn = self.tr(
+            ttk.Button(frame, command=self._bring_up_session), "session.bring_up")
+        self._session_up_btn.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
         self._session_verdict = ttk.Label(frame, foreground="#888", wraplength=520,
                                           justify="left")
         self._session_verdict.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -482,6 +488,7 @@ class SettingsTab(PanelTab):
         # button itself is drawn from, so the two can never drift into telling the
         # person to press something that is no longer written there.
         fmt["button"] = self.t("game.launch").strip("▶ ")
+        fmt["up"] = self.t("session.bring_up")
         try:
             self._session_verdict.configure(
                 text=self.t(f"session.check.{kind}", **fmt),
@@ -489,6 +496,59 @@ class SettingsTab(PanelTab):
         except tk.TclError:
             pass
         self._refresh_session_user_state()
+
+    def _bring_up_session(self) -> None:
+        """Create this profile's Windows session, and start its client and daemon in it.
+
+        Minutes of work, none of it on the Tk thread: an RDP logon, a launcher that may
+        decide to update, and a daemon that waits for the client to finish loading. What
+        the tool says on the way goes into the panel's log as it happens, so the wait is
+        something a person can watch rather than a window that has stopped answering.
+        """
+        if not runtime.game_process.profile_user(self.rt.settings):
+            # Nothing to bring up: no session is named. «Проверить» already has the
+            # words for both ways of being in that state, so let it say them.
+            self._check_session()
+            return
+        btn = getattr(self, "_session_up_btn", None)
+        if btn is not None:
+            btn.configure(state="disabled")
+        # Windows asks for the password when none is stored, and the dialog appears on
+        # the desktop with no explanation of what wanted it (#1231). Say so first.
+        state = runtime.game_process.credential_state(self.rt.settings)
+        if state is not None and not state.get("sealed"):
+            self.say("session", "log.session.will_ask")
+        self.say("session", "log.session.bringing_up",
+                 user=runtime.game_process.profile_user(self.rt.settings))
+
+        def work() -> None:
+            try:
+                code = runtime.game_process.bring_up(
+                    self.rt.settings, say=lambda msg: self.rt.put(f"[session] {msg}"))
+            except Exception as exc:     # noqa: BLE001 — a line in the log, not a crash
+                self.post(lambda: self._brought_up(None, exc))
+                return
+            self.post(lambda: self._brought_up(code, None))
+
+        threading.Thread(target=work, name="panel-session-up", daemon=True).start()
+
+    def _brought_up(self, code: "int | None", error: "Exception | None") -> None:
+        """Say how the bring-up ended and re-read the verdict. Tk thread."""
+        btn = getattr(self, "_session_up_btn", None)
+        if btn is not None:
+            try:
+                btn.configure(state="normal")
+            except tk.TclError:
+                pass
+        if error is not None:
+            self.say("session", "log.session.up_failed", error=error)
+        elif code == 0:
+            self.say("session", "log.session.up_ok")
+        else:
+            self.say("session", "log.session.up_partial", code=code)
+        # Whatever it says, the verdict line is now stale — and it is the one place the
+        # person looks to find out whether the thing they just pressed worked.
+        self._check_session()
 
     def _session_state_word(self, state) -> str:
         """«активна» / «отключена» / the raw code for the states nobody has to know."""

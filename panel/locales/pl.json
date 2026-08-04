@@ -450,7 +450,7 @@
   "session.check": "Sprawdź",
   "session.check.no_client": "sesja {session} ({state}) jest podniesiona, ale nie działa w niej żaden {exe} — «{button}» uruchomi go tam.",
   "session.check.no_login": "pole jest zaznaczone, ale nie wpisano loginu — nie ma sesji, w której można szukać.",
-  "session.check.no_session": "nikt nie jest zalogowany jako {user}. Najpierw podnieś sesję — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "nikt nie jest zalogowany jako {user} — «{up}» utworzy sesję, uruchomi w niej klienta i zostawi ją rozłączoną.",
   "session.check.off": "pole nie jest zaznaczone: klient tego profilu to ten na tym pulpicie.",
   "session.check.ok": "sesja {session} ({state}): {exe} działa, pid {pid}.",
   "session.check.probe_error": "nie udało się odczytać sesji: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "żołnierzy",
   "rally_tab.stamina": "Wytrzymałość",
   "chat.empty": "jeszcze nie ma wiadomości",
+  "log.session.bringing_up": "podnoszę sesję Windows użytkownika {user} — to potrwa kilka minut",
+  "log.session.up_failed": "nie udało się podnieść sesji: {error}",
+  "log.session.up_ok": "sesja, klient i demon działają",
+  "log.session.up_partial": "sesja nie podniosła się do końca (kod {code}) — powyższe wiersze mówią, gdzie się zatrzymała",
+  "log.session.will_ask": "dla tego konta nie zapisano hasła — Windows sam o nie poprosi i niczego nie zachowa",
+  "session.bring_up": "Podnieś sesję",
   "vsduel.empty": "na dziś nic nie zaznaczono",
   "vsduel.day.off": "dziś jest wyłączony"
 }

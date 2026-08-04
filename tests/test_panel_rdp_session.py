@@ -347,6 +347,86 @@ def test_the_session_travels_to_a_scenario_beside_the_port():
     assert _Runtime.game_target(rt)["game_user"] is None
 
 
+# -- «Поднять сессию»: the panel does it itself now (#1231) ------------------
+
+def test_a_profile_on_this_desktop_has_no_session_to_bring_up():
+    """The button is a no-op there, and says so by refusing rather than by guessing.
+
+    Bringing "the session" up for a profile that names none would create one for
+    whatever `--user` defaulted to — which on somebody else's machine is nobody.
+    """
+    try:
+        gp.bring_up(_Settings())
+    except LookupError:
+        return
+    raise AssertionError("a profile with no session named must refuse to bring one up")
+
+
+def test_the_bring_up_hands_the_session_and_the_port_to_the_tool():
+    """Both halves travel: a bring-up that forgot the port starts a daemon on 47654,
+    which is THIS desktop's — the exact crossing `session.clash` exists to warn about.
+    """
+    seen = {}
+
+    class _Tool:
+        @staticmethod
+        def bring_up(user, port, say=None):
+            seen.update(user=user, port=port, say=say)
+            return 0
+
+    saved = sys.modules.get("rdp_instance")
+    sys.modules["rdp_instance"] = _Tool
+    try:
+        note = []
+        code = gp.bring_up(_Settings(rdp_session=True, rdp_user="player2",
+                                     daemon_port=47655), say=note.append)
+    finally:
+        if saved is None:
+            del sys.modules["rdp_instance"]
+        else:
+            sys.modules["rdp_instance"] = saved
+    assert code == 0, code
+    assert seen["user"] == "player2" and seen["port"] == 47655, seen
+    assert seen["say"] is not None, "the panel's log must be handed in, not dropped"
+
+
+def test_a_tool_that_gives_up_reaches_the_panel_as_an_error():
+    """`SystemExit` is how a command-line tool says "this cannot go on" — and it is not
+    an `Exception`, so a worker thread that lets one past dies with nothing said."""
+
+    class _Tool:
+        @staticmethod
+        def bring_up(user, port, say=None):
+            raise SystemExit("no session for player2 after 180s")
+
+    saved = sys.modules.get("rdp_instance")
+    sys.modules["rdp_instance"] = _Tool
+    try:
+        gp.bring_up(_Settings(rdp_session=True, rdp_user="player2"))
+    except RuntimeError as exc:
+        assert "player2" in str(exc), exc
+        return
+    except SystemExit:
+        raise AssertionError("SystemExit reached the panel unconverted")
+    finally:
+        if saved is None:
+            sys.modules.pop("rdp_instance", None)
+        else:
+            sys.modules["rdp_instance"] = saved
+    raise AssertionError("a tool that gave up must be reported, not swallowed")
+
+
+def test_the_verdict_that_names_the_button_spells_it_from_the_button_s_own_key():
+    """«…поднимите сессию» must name what is written ON the button, in every locale —
+    a verdict pointing at a control worded differently is a person hunting for it."""
+    import json
+    root = Path(__file__).resolve().parents[1] / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        loc = json.loads(path.read_text(encoding="utf-8"))
+        assert "session.bring_up" in loc, path.name
+        assert "{up}" in loc["session.check.no_session"], path.name
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

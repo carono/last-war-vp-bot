@@ -450,7 +450,7 @@
   "session.check": "Comprobar",
   "session.check.no_client": "la sesión {session} ({state}) está levantada, pero no corre ningún {exe} en ella — «{button}» arranca uno allí.",
   "session.check.no_login": "la casilla está marcada, pero no hay usuario escrito — no hay sesión donde mirar.",
-  "session.check.no_session": "nadie ha iniciado sesión como {user}. Levanta la sesión primero — tools/rdp_instance.py --bring-up.",
+  "session.check.no_session": "nadie ha iniciado sesión como {user} — «{up}» crea la sesión, arranca el cliente en ella y la deja desconectada.",
   "session.check.off": "la casilla no está marcada: el cliente de este perfil es el de este escritorio.",
   "session.check.ok": "sesión {session} ({state}): {exe} está en marcha, pid {pid}.",
   "session.check.probe_error": "no se pudo leer la sesión: {error}",
@@ -993,6 +993,12 @@
   "rally_tab.soldiers": "soldados",
   "rally_tab.stamina": "Vigor",
   "chat.empty": "aún no hay mensajes",
+  "log.session.bringing_up": "levantando la sesión de Windows de {user} — tarda unos minutos",
+  "log.session.up_failed": "no se pudo levantar la sesión: {error}",
+  "log.session.up_ok": "la sesión, el cliente y el demonio están levantados",
+  "log.session.up_partial": "la sesión no llegó a levantarse del todo (código {code}) — las líneas de arriba dicen dónde se detuvo",
+  "log.session.will_ask": "no hay contraseña guardada para esa cuenta — Windows la pedirá enseguida y no guardará nada",
+  "session.bring_up": "Levantar la sesión",
   "vsduel.empty": "nada marcado para hoy",
   "vsduel.day.off": "hoy está apagado"
 }
