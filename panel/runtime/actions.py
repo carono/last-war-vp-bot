@@ -15,9 +15,12 @@ why the import here is deferred to the call.
 """
 from __future__ import annotations
 
+import contextlib
 import glob
 import os
+import re
 
+from . import claims
 from .activity import Activity
 from .paths import SRC
 
@@ -28,6 +31,17 @@ ACTIONS_DIR = os.path.join(SRC, "lastwar_bot", "actions")
 #: Runtime plumbing rather than user-facing scenarios — hidden from the picker even
 #: though the file is there. `watchdog` is ticked by the runner, not run by hand.
 HIDDEN_ACTIONS = frozenset({"watchdog"})
+
+#: The DSL primitives that need the client to be IN FRONT — it is clicked at real screen
+#: coordinates, or photographed. Last War ignores `PostMessage`, so `CLICK` raises the
+#: window and `FIND` screenshots it (`inputs.click(mode="foreground")`); one desktop has
+#: one foreground, and two scenarios doing this at once press into each other's client.
+#:
+#: Everything else in the DSL is headless Lua through that profile's own daemon, which
+#: is why this list is short and why zero of the blessed scenarios are on it today
+#: (docs/research/multi-profile-panel.md §4.6). The guard exists so that the day one of
+#: them is, it is already correct.
+_VISION_RE = re.compile(r"^\s*(FIND|CLICK|CLICK_AT|PRESS|DRAG|TYPE)\b", re.IGNORECASE)
 
 
 class Outcome:
@@ -124,9 +138,67 @@ class ActionRunner:
                 kw.setdefault("on_event", on_event or self._log.put)
             for key, value in self._target_kw().items():
                 kw.setdefault(key, value)
-        with self._activity.step("activity.action", name=name):
-            return bool(script_engine.run_action(name, hwnd=hwnd,
-                                                 variables=args or {}, **kw))
+        with self._foreground(name) as held:
+            if held is not None:
+                self._refused(name, held, ctx)
+                return False
+            with self._activity.step("activity.action", name=name):
+                return bool(script_engine.run_action(name, hwnd=hwnd,
+                                                     variables=args or {}, **kw))
+
+    # -- the desktop's one foreground (#1226) --------------------------------
+    @contextlib.contextmanager
+    def _foreground(self, name: str):
+        """Hold the desktop's foreground for ``name``, if ``name`` needs it.
+
+        Yields ``None`` when the scenario may run, and the NAME OF THE HOLDER when
+        another profile is already clicking at real screen coordinates. Two things
+        make this cheap enough to leave in the path of every run: a scenario that is
+        headless Lua — which is all of the blessed ones — never asks at all, and a
+        profile whose client is in its own Windows session is exempt, because its
+        desktop is its own (docs/research/multi-profile-panel.md §4.6).
+        """
+        if not self.needs_foreground(name):
+            yield None
+            return
+        with claims.Foreground(self._owner(name), exempt=self._own_desktop()) as fg:
+            yield fg.taken
+
+    def _own_desktop(self) -> bool:
+        """Does this runner drive a client on a desktop of its OWN? (An RDP profile.)"""
+        return bool(self._target_kw().get("game_user"))
+
+    def _owner(self, name: str) -> str:
+        who = getattr(self._activity, "name", None)
+        return f"{who}/{name}" if who else name
+
+    def _refused(self, name: str, held: str, ctx) -> None:
+        """Say the run did not happen, and why, in the two places that ask."""
+        self._log.say("action", "busy.foreground", owner=held, name=name)
+        if ctx is not None and not getattr(ctx, "fail_reason", ""):
+            try:
+                ctx.fail_reason = f"foreground held by {held}"
+            except Exception:             # noqa: BLE001 — a reason, never the refusal
+                pass
+
+    @staticmethod
+    def needs_foreground(name: str) -> bool:
+        """Does the named scenario click or look at the screen?
+
+        Read off the FILE rather than the parsed tree: this is asked before every run,
+        the answer is a property of the text, and parsing costs more than a scan of a
+        few dozen lines. A scenario that cannot be read at all is treated as headless —
+        the run is about to fail on the same missing file and will say so properly.
+        """
+        from lastwar_bot import script_engine
+        path = script_engine.resolve_action(name)
+        if path is None:
+            return False
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return any(_VISION_RE.match(line) for line in fh)
+        except OSError:
+            return False
 
     def play(self, name: str, args: dict | None = None, *, hwnd: int = 0,
              on_event=None, cancel=None, **kw) -> Outcome:

@@ -49,6 +49,7 @@
   "autostart.error.failed": "Le planificateur de tâches a refusé : {error}",
   "busy": "occupé — attends la fin de l'action en cours",
   "busy.elsewhere": "le jeu est pris — {owner} le pilote depuis {sec} s",
+  "busy.foreground": "l'écran est pris — {owner} y clique ; «{name}» ignoré",
   "capture.ghost_op": "Opérations Fantômes",
   "capture.secret_tasks": "Tâches secrètes",
   "chat.clear": "Vider",

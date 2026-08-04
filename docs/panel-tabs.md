@@ -124,7 +124,8 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.tabs.get(id)` | another tab, **or `None`** — it may not be in this window |
 | `rt.schedule` | the errands; built on first ask, started only by the shell |
 | `rt.squads` | where every squad is and how much stamina is left: `at_base(n)` (`None` when it could not be read), `read(force=…)` off the Tk thread, `latest()` to draw with, `watch(fn) -> unwatch` — the poll runs only while somebody is watching. Built on first ask; the reading itself is `actions/read_squad_state.md`. |
-| `rt.root` | for `after()` / `bell()` — **not** to build into; build into `self.parent` |
+| `rt.post(fn)` | run `fn` on the Tk thread from a background thread. `self.post` is the same. **The only way back from a worker** — see «Coming back from a background thread» below |
+| `rt.root` | for `bell()`, and for `after(<delay>, …)` ON THE TK THREAD — **not** to build into (build into `self.parent`), and never for a hand-over (`rt.post`) |
 
 ---
 
@@ -158,6 +159,47 @@ and standalone, which is what makes a tab launchable at all.
 7. **No words written in the tab.** `text="Обновить"` is a bug — every string a person
    reads is a locale key, in every shipped locale. The next section is the whole rule;
    `CLAUDE.md` is binding on it.
+8. **No `rt.root.after(0, …)` from a background thread.** It looks like the free
+   hand-over and it is the opposite of one: see the section below. Use `self.post`.
+
+---
+
+## Coming back from a background thread
+
+A tab reads the game off the Tk thread and then has to paint what it found. **That
+hand-over is `self.post(fn)`, always.**
+
+```python
+def refresh(self) -> None:
+    threading.Thread(target=self._work, daemon=True).start()
+
+def _work(self) -> None:
+    data = self.fetch()                 # the game, on a worker
+    self.post(lambda: self.render(data))   # ✅ back to the Tk thread
+    # self.rt.root.after(0, lambda: self.render(data))   ❌ never
+```
+
+`after(0, …)` from a thread that is not Tk's does not schedule anything. tkinter
+registers a Tcl command for the callback and then makes the `after` call, and from a
+foreign thread `_tkinter` runs neither: it queues each as an event for the Tk thread and
+**blocks the caller** until the event loop gets round to it. Measured with four profiles
+open, that is **8.6 ms on average and 17 ms at the tail, per hand-over** — so a tab of
+one profile reporting a reading sits on the thread that draws all the others, and every
+other profile's work sits behind it (`tools/dev/panel_thread_bench.py`,
+docs/research/multi-profile-panel.md §12). `post` costs 17 µs and touches no Tk at all.
+
+It is also the difference between working and not during the BOOT. While the window is
+pumping `update()` by hand — which is most of a panel's start-up — the same call raises
+«main thread is not in main loop», and that killed the thread that made it: a monitor
+that ended during those seconds left its checkbox ticked for a process that had gone.
+
+The same applies to `rt.settings.opt_*`: read them from wherever you like. They answer
+from a thread-safe mirror off the Tk thread and only touch the variable when the caller
+IS the Tk thread, so a background read costs a dict lookup rather than a round trip
+through the window.
+
+`tests/test_panel_parallel_profiles.py` parses everything under `panel/` and fails on the
+next `after(0, …)` written.
 
 ---
 

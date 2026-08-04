@@ -97,12 +97,16 @@ class PanelRuntime:
         self.children = ChildFactory(
             log=self.log, cwd=REPO,
             python=lambda: self.settings.opt_str("win_python"),
-            # `root.after` is how a child's line gets onto the Tk thread. A runtime
-            # built with no root has no Tk thread to get onto — every other piece here
-            # already tolerates that (`Ticker`, `EventBus`, the variables above), and
-            # this was the one line that did not.
+            # How a child's death gets onto the Tk thread. Was `root.after`, and it is
+            # the queue now (#1226): a child is read by a thread of its own, so the
+            # hand-over was a worker calling Tk — which blocks on the event loop and,
+            # during the boot, raised «main thread is not in main loop» and killed the
+            # reader before it could untick the checkbox (the paragraph in
+            # `panel/childmon.py::_announce_exit` is about exactly that). The delay is
+            # accepted and dropped: every caller passes 0, and «soon» is what a queue
+            # gives. A runtime built with no root still has no Tk thread to get onto.
             port=self.daemon_port,
-            schedule=root.after if root is not None else None,
+            schedule=(lambda _delay, call: self.post(call)) if root is not None else None,
             token=lambda: self.game.token,
             # Where this profile's children are written down, so a run that was killed
             # rather than closed does not leave its monitors sniffing for ever (#1212).
@@ -118,7 +122,10 @@ class PanelRuntime:
             # what stops the panel starting a daemon HERE for a client that lives in
             # another Windows session — it would bind the right port and then drive
             # this desktop's game, or nothing (#1218).
-            user=lambda: game_process.profile_user(self.settings))
+            user=lambda: game_process.profile_user(self.settings),
+            # …and whose link this is, so every claim it takes is filed under the
+            # profile and a refusal names the profile holding the client (#1226).
+            name=lambda: self.profiles.active)
         self.actions = ActionRunner(log=self.log, target=self.game_target,
                                     activity=self.activity)
         self._schedule = None           # built on first ask (see the property below)
@@ -261,12 +268,20 @@ class PanelRuntime:
         threading.Thread(target=work, daemon=True).start()
         return True
 
-    def _on_tk(self, call) -> None:
-        """Run ``call`` on the Tk thread, or drop it if the window has gone."""
-        try:
-            self.root.after(0, call)
-        except Exception:                              # noqa: BLE001 — the window is gone
-            pass
+    def post(self, call) -> None:
+        """Run ``call`` on the Tk thread soon — from any thread, without touching Tk.
+
+        THE ONE HAND-OVER a tab or a worker should use. `root.after(0, …)` from a worker
+        thread is not free: it makes two blocking trips into the Tcl interpreter and
+        waits for the event loop, so one profile reporting its work sits on the thread
+        that draws all the others (panel/runtime/tick.py, #1226). This costs a queue
+        insert and cannot raise «main thread is not in main loop».
+        """
+        self.tick.post(call)
+
+    #: The name this had while there was one profile and one caller. Kept because three
+    #: modules and a test spell it, and because "on the Tk thread" is what it means.
+    _on_tk = post
 
     def daemon_port(self) -> int:
         """The daemon this profile drives — a non-default port is another session's."""

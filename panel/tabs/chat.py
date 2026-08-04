@@ -1246,7 +1246,7 @@ class ChatTab(PanelTab):
 
         def work() -> None:
             uid = self._resolve_char_uid()
-            self.rt.root.after(0, lambda: self._open_chat_store(uid))
+            self.post(lambda: self._open_chat_store(uid))
 
         threading.Thread(target=work, daemon=True).start()
 

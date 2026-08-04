@@ -37,6 +37,7 @@ from . import paths  # noqa: F401  (imported for its side effect)
 from .actions import ACTIONS_DIR, ActionRunner, Outcome, action_titles, list_actions
 from .activity import Activity, Step
 from .bus import EventBus
+from . import claims
 from .children import ChildFactory
 from .captures import CAPTURE_OPTIONS, SECRET_TASK_CAPTURE
 from .daemon import GameLink
@@ -52,14 +53,15 @@ from . import settings
 from .settings import DEFAULTS, SettingsBinder
 from . import squads
 from .squads import Squad, SquadReader, SquadState
-from .tick import Ticker
+from .tick import Ticker, TkPost
 from .workspace import Workspace
 from . import updates
 
-__all__ = ["paths", "reads", "diag", "game_process", "ACTIONS_DIR",
+__all__ = ["paths", "reads", "diag", "game_process", "claims", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Activity", "Step",
            "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
-           "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "Translator",
+           "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "TkPost",
+           "Translator",
            "squads", "Squad", "SquadReader", "SquadState",
            "updates", "CAPTURE_OPTIONS", "SECRET_TASK_CAPTURE",
            "ProfileSession", "SessionScoped", "Workspace"]

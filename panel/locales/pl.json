@@ -49,6 +49,7 @@
   "autostart.error.failed": "Harmonogram zadań odmówił: {error}",
   "busy": "zajęte — poczekaj, aż skończy się bieżąca akcja",
   "busy.elsewhere": "gra jest zajęta — {owner} prowadzi ją od {sec} s",
+  "busy.foreground": "ekran jest zajęty — klika w nim {owner}; «{name}» pominięto",
   "capture.ghost_op": "Operacja Widmo",
   "capture.secret_tasks": "Tajne zadania",
   "chat.clear": "Wyczyść",

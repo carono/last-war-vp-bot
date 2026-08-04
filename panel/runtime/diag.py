@@ -39,7 +39,7 @@ def send_archive(rt) -> None:
             # BOUND, not captured: Python deletes the `except` name when the block
             # ends, so a lambda closing over it raised NameError at the one moment
             # this line exists for — reporting that the send failed.
-            rt.root.after(0, lambda e=exc: rt.say("debug", "log.debug.failed", error=e))
+            rt.post(lambda e=exc: rt.say("debug", "log.debug.failed", error=e))
             return
         rel = repo_rel(archive)
 
@@ -50,6 +50,6 @@ def send_archive(rt) -> None:
                 rt.say("debug", "log.debug.sent", dest=url, path=rel)
             else:                     # "stub" — archive is ready, transport is not
                 rt.say("debug", "log.debug.stub", path=rel, dest=url)
-        rt.root.after(0, done)
+        rt.post(done)
 
     threading.Thread(target=work, daemon=True).start()

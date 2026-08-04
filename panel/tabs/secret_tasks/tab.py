@@ -205,11 +205,14 @@ class SecretTasksTab(PanelTab):
 
     # -- getting onto the Tk thread ------------------------------------------
     def after(self, func) -> None:
-        """Run ``func`` on the Tk thread; a window that has gone simply drops it."""
-        try:
-            self.rt.root.after(0, func)
-        except (tk.TclError, RuntimeError):
-            pass
+        """Run ``func`` on the Tk thread; a window that has gone simply drops it.
+
+        Through the runtime's hand-over queue rather than `root.after`: the callers are
+        the capture's reader, the auto-loot watcher and the sweep, all of them workers,
+        and `after` from a worker waits on the event loop that draws every other open
+        profile (#1226).
+        """
+        self.post(func)
 
     # -- lifecycle ------------------------------------------------------------
     def ensure_loaded(self) -> None:

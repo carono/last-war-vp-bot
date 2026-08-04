@@ -49,6 +49,7 @@
   "autostart.error.failed": "Bộ lập lịch tác vụ từ chối: {error}",
   "busy": "đang bận — chờ hành động hiện tại xong đã",
   "busy.elsewhere": "trò chơi đang bận — {owner} đã điều khiển nó {sec} giây",
+  "busy.foreground": "màn hình đang bận — {owner} đang bấm trong đó; bỏ qua «{name}»",
   "capture.ghost_op": "Chiến Dịch Linh Hồn",
   "capture.secret_tasks": "Nhiệm vụ bí mật",
   "chat.clear": "Xóa sạch",

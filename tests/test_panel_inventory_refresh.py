@@ -69,6 +69,9 @@ def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
             claim=lambda _o: True, release=lambda: None, on_settled=lambda: None,
             up=lambda: (_ for _ in ()).throw(
                 AssertionError("must not reach the daemon gate"))),
+        # `post` is how the runtime hands work to the Tk thread now (#1226);
+        # here it simply runs it, which is what this double always meant.
+        post=lambda fn: fn(),
         root=types.SimpleNamespace(after=lambda _ms, fn: fn()))
     sched._handlers, sched._needs_game = {}, set()
     sched._gates, sched._args = {}, {}

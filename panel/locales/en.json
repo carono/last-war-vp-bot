@@ -49,6 +49,7 @@
   "autostart.error.failed": "The task scheduler refused: {error}",
   "busy": "busy — wait for the current action to finish",
   "busy.elsewhere": "the game is busy — {owner} has been driving it for {sec}s",
+  "busy.foreground": "the screen is taken — {owner} is clicking in it; «{name}» skipped",
   "capture.ghost_op": "Ghost Ops",
   "capture.secret_tasks": "Secret tasks",
   "chat.clear": "Clear",

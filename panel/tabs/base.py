@@ -202,6 +202,19 @@ class PanelTab:
     def say(self, tag: str, key: str, **fmt) -> None:
         self.rt.say(tag, key, **fmt)
 
+    def post(self, call) -> None:
+        """Repaint from a background thread: hand ``call`` to the Tk thread.
+
+        **The only way a tab may come back from a worker.** `self.rt.root.after(0, …)`
+        looks like the same thing and is not: from a thread that is not the Tk one it
+        makes two blocking trips into the Tcl interpreter and waits for the event loop,
+        so a tab of ONE profile reporting a reading sits on the thread that draws all
+        the others — which is what stopped the panel scaling past two profiles (#1226,
+        panel/runtime/tick.py). It also cannot raise «main thread is not in main loop»,
+        which is what killed a worker that finished during the boot.
+        """
+        self.rt.post(call)
+
 
 # ---------------------------------------------------------------------------
 # running one tab on its own

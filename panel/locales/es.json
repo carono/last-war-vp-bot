@@ -49,6 +49,7 @@
   "autostart.error.failed": "El programador de tareas se negó: {error}",
   "busy": "ocupado — espera a que termine la acción en curso",
   "busy.elsewhere": "el juego está ocupado — {owner} lo lleva desde hace {sec} s",
+  "busy.foreground": "la pantalla está ocupada — {owner} está haciendo clic en ella; «{name}» omitido",
   "capture.ghost_op": "Operaciones Fantasma",
   "capture.secret_tasks": "Tareas secretas",
   "chat.clear": "Vaciar",

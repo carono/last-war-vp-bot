@@ -163,11 +163,14 @@ class _Pane:
         self.build()
 
     def after(self, func) -> None:
-        """Run ``func`` on the Tk thread; a window that has gone simply drops it."""
-        try:
-            self.rt.root.after(0, func)
-        except (tk.TclError, RuntimeError):
-            pass
+        """Run ``func`` on the Tk thread; a window that has gone simply drops it.
+
+        Through the runtime's hand-over queue rather than `root.after`: every caller of
+        this is a worker, and `after` from one waits on the event loop that draws every
+        other open profile (#1226). A pane is not a `PanelTab`, so it asks the runtime
+        directly rather than through the tab's own shorthand.
+        """
+        self.rt.post(func)
 
     def evaluator(self):
         """This profile's warm-daemon evaluator (raises if there is no daemon)."""

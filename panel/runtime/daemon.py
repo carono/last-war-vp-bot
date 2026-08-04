@@ -10,14 +10,23 @@ Two responsibilities, and they belong together because the second is about the f
   port drives the client of ANOTHER Windows session — tools/rdp_instance.py), whether it
   is up, starting it if it is not, and handing out the warm evaluator. A tab never
   touches `lua_client` directly.
-* **The claim.** One action at a time, held in TWO locks: an in-process one, because the
-  panel's buttons run on the Tk thread while the timer scheduler runs on its own; and
-  the DAEMON's lease (tools/lib/game_lease.py), because a tab launched as its own
-  process is a second panel with a second flag against one game.
+* **The claim.** One action at a time, held in THREE locks, each covering what the next
+  one cannot see: this link's own flag, because the panel's buttons run on the Tk thread
+  while the timer scheduler runs on its own; the PROCESS-wide registry keyed by the
+  client (panel/runtime/claims.py), because one window may hold four profiles and two of
+  them may be pointed at one client; and the DAEMON's lease
+  (tools/lib/game_lease.py), because a tab launched as its own process is a second panel
+  with a second flag against one game.
 
-The daemon's answer is authoritative. A failed claim releases the local flag again, so
-nothing is left held. No daemon reachable means nothing else can be driving the game
-either, so the local flag alone is enough there — the fallback is honest, not a hole.
+The daemon's answer is authoritative wherever there is a daemon to ask. A failed claim
+releases everything it took on the way in, so nothing is left held.
+
+The middle lock is there for the case the other two miss. «No daemon reachable means
+nothing else can be driving the game either» was honest while a panel was one profile in
+one process, and it stopped being true the moment a window could hold several: with one
+daemon down, every session pointed at that client passed the lease check and the local
+flag could not see them, because the flag is per link (#1226,
+docs/research/multi-profile-panel.md §4.4).
 
 THE TOKEN BELONGS TO THE LINK, NOT TO THE PROCESS. It used to live in `os.environ`, and
 that was fine while a panel meant one profile. It is not fine with two profiles open at
@@ -46,6 +55,7 @@ import coords
 import lua_actions
 import lua_client
 
+from . import claims
 from .activity import Activity
 
 #: The server a jump falls back to when the game cannot say which one it is on.
@@ -72,7 +82,7 @@ class GameLink:
 
     def __init__(self, port, python, log, env, cwd: str, daemon_script: str,
                  on_state=None, debug=None, on_settled=None, activity=None,
-                 user=None) -> None:
+                 user=None, name=None) -> None:
         self._port = port                 # callable: this profile's daemon port
         self._python = python             # callable: the interpreter to start it with
         self._log = log                   # the LogBus
@@ -85,6 +95,12 @@ class GameLink:
         # itself runs in — so a daemon started here for a profile whose client is in
         # session 4 comes up on the right port and finds the wrong game, or no game.
         self._user = user if user is not None else (lambda: None)
+        # callable: the profile this link belongs to, or None for a link that is not one
+        # profile's (a bare harness). It goes in front of every claim owner, so a
+        # refusal in the log says WHICH profile is holding the client rather than only
+        # that something is — which is the whole difference between «занято» and a
+        # readable answer once more than one profile is open (§4.3, #1226).
+        self._name = name if name is not None else (lambda: None)
         #: "the daemon went warm / is starting / failed", said in one word. PUBLIC
         #: and reassignable like `on_settled`: the shell rebinds it per session, so
         #: the indicator that gets painted is the one on THAT profile's page (#1206).
@@ -101,6 +117,9 @@ class GameLink:
         self._activity = activity if activity is not None else Activity()
         self._busy = False
         self._busy_lock = threading.Lock()
+        #: The process-wide claim this link is holding (`panel/runtime/claims.py`), or
+        #: ``None``. Remembered rather than re-derived — see :meth:`_claim_client`.
+        self._claimed = None
         # `token=""` — explicitly unleased, rather than "whatever this process
         # inherited". A panel process may hold two profiles' leases at once, so a
         # client that picked one up out of the environment would be carrying the
@@ -293,16 +312,77 @@ class GameLink:
 
     # -- the claim ----------------------------------------------------------
     def claim(self, owner: str = "panel") -> bool:
-        """Take the right to drive the game, or say it is already taken."""
+        """Take the right to drive the game, or say it is already taken.
+
+        THREE LOCKS NOW, not two, and the middle one is the whole of #1226's half of
+        this: this link's own flag, then the process-wide registry keyed by the CLIENT
+        (:mod:`panel.runtime.claims`), then the daemon's lease. See
+        :func:`_claim_client` for the hole the middle one closes.
+        """
+        owner = self._owned(owner)
         with self._busy_lock:
             if self._busy:
                 return False
             self._busy = True
+        if not self._claim_client(owner):
+            with self._busy_lock:
+                self._busy = False
+            return False
         if not self._claim_lease(owner):
+            self._drop_client()
             with self._busy_lock:
                 self._busy = False
             return False
         return True
+
+    def _owned(self, owner: str) -> str:
+        """``timer`` → ``<profile>/timer`` — the profile in front of what it is doing.
+
+        Both halves matter to somebody reading a refusal: WHOSE errand is holding the
+        client, and which errand. Without the profile the log of a four-account panel
+        says «занято: timer» four different ways and means four different accounts.
+        """
+        try:
+            profile = self._name()
+        except Exception:                             # noqa: BLE001 — a label, not the run
+            profile = None
+        name = str(owner or "panel")
+        return f"{profile}/{name}" if profile else name
+
+    def _endpoint(self) -> tuple:
+        """Which CLIENT this link drives, as the registry keys it: ``(host, port)``."""
+        return (lua_client.HOST, self.port())
+
+    def _claim_client(self, owner: str) -> bool:
+        """Take the process-wide claim on this client. ``False`` if a profile holds it.
+
+        THE HOLE THIS CLOSES. `_claim_lease` answers ``True`` when the daemon cannot be
+        reached — "nothing else can be driving the game either" — and that was honest
+        while a panel was one profile in one process. With several profiles in ONE
+        process and one daemon down, every one of them passed: two sessions pointed at
+        the same client (the copy-a-profile-and-forget-the-port accident, §4.3) would
+        both walk into it, and the local flag could not see it because the flag is per
+        link. Keyed by the client rather than by the profile, so two links on one port
+        take turns and two links on two ports do not wait for each other at all.
+        """
+        key = self._endpoint()
+        held = claims.acquire(key, owner)
+        if held is not None:
+            self._log.say("panel", "busy.elsewhere", owner=held, sec=0)
+            return False
+        # WHICH key, remembered — never re-derived at release time. `release()` is
+        # called by callers that never claimed (a runtime shutting down always lets go),
+        # and by then the port may have moved with a profile switch. Either way, a link
+        # that drops a key it did not take drops ANOTHER profile's claim on the client
+        # they share, which is the one failure this registry exists to prevent.
+        self._claimed = key
+        return True
+
+    def _drop_client(self) -> None:
+        """Let go of the process-wide claim, if this link is the one holding it."""
+        key, self._claimed = getattr(self, "_claimed", None), None
+        if key is not None:
+            claims.release(key)
 
     def _claim_lease(self, owner: str) -> bool:
         """Claim the daemon's lease. True also when there is no daemon to claim it from.
@@ -337,6 +417,9 @@ class GameLink:
                 client.release()
             except OSError:
                 pass
+        # …and the process-wide one, whatever happened above: a claim this link cannot
+        # let go of is a client no other profile can ever take.
+        self._drop_client()
         with self._busy_lock:
             self._busy = False
 

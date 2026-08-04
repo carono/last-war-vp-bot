@@ -105,6 +105,7 @@ from . import debug_log as dbgmod
 from . import i18n as i18nmod
 from . import runtime
 from .runtime import stall as stallmod
+from .runtime import tick as tickmod
 from . import debug_sender as dbgsender
 from . import profile as profilemod
 from . import tabs as tabsreg
@@ -601,7 +602,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return self.bind_session(func, session)
 
     def _later(self, delay_ms: int, func):
-        """`after`, bound — for a one-shot callback that touches this profile.
+        """A one-shot callback that touches this profile, on the Tk thread. Bound.
 
         Never raises. Most callers are worker threads coming back to repaint something,
         and `after` itself is a Tk call: from a worker, while the main thread is not
@@ -609,7 +610,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
         «main thread is not in main loop» and killed the whole worker. What is being
         scheduled is always a repaint, and the poll behind it comes round again — so a
         hand-over that cannot be made is dropped, not thrown.
+
+        WITH NO DELAY it is not `after` at all any more (#1226). «Run this on the Tk
+        thread as soon as you can» is a hand-over, and a hand-over goes through the
+        window's queue: a worker calling `after` does not schedule anything, it waits
+        for the event loop — the same event loop every other open profile is drawing on.
+        A real DELAY still needs `after`, because only Tk has a clock; those callers are
+        on the Tk thread already (a settle, a re-poll after an action).
         """
+        if not delay_ms:
+            ticker = getattr(self, "_tick", None)     # before the first `_adopt`
+            if ticker is not None:
+                ticker.post(self._bound(func))
+                return None
         try:
             return self.after(delay_ms, self._bound(func))
         except (tk.TclError, RuntimeError):
@@ -776,10 +789,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if self._activity_pending:             # one repaint per turn, not per reporter
             return
         self._activity_pending = True
-        try:
-            self.after(0, self._paint_activity)
-        except (tk.TclError, RuntimeError):    # no loop to paint from (closing, a test)
+        # OFF THE TK THREAD it is a hand-over, and a hand-over goes through the window's
+        # queue rather than `after` — a step is reported by the very worker whose work
+        # the strip is about, and it must not pay the event loop to say so (#1226).
+        post = tickmod.poster(self)
+        if post is None:                       # no loop to paint from (closing, a test)
             self._activity_pending = False
+            return
+        post.post(self._paint_activity)
 
     def _paint_activity(self) -> None:
         """Write the newest live step — of any open profile — onto the strip."""
@@ -1758,6 +1775,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
                     self._binder.tab_config(tab.ID, type(tab).LEGACY_KEYS))
         finally:
             self._loading = False
+            # A whole profile has just landed in the widgets. The traces have kept the
+            # background-readable shadow in step all the way through, but this is the
+            # one moment worth being certain about — everything a worker reads (the
+            # port, the session, the executable) has just changed at once (#1226).
+            self._binder.refresh_live()
 
     def _install_autosave(self) -> None:
         """Persist to the active profile whenever any bound setting changes."""
@@ -2939,7 +2961,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             finally:
                 self._activity.end(handle)
                 self._update_busy = False
-            self.after(0, lambda: self._show_update_state(state, manual))
+            self._later(0, lambda: self._show_update_state(state, manual))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _poll_updates(self) -> None:
@@ -3060,7 +3082,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
             finally:
                 self._activity.end(handle)
                 self._update_busy = False
-            self.after(0, lambda: self._show_pull_result(res, before))
+            self._later(0, lambda: self._show_pull_result(res, before))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
     def _show_pull_result(self, res, before: str) -> None:

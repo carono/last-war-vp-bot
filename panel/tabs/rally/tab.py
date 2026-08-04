@@ -730,13 +730,13 @@ class RallyTab(PanelTab):
 
     # -- talking to the panel (always from a worker thread) ------------------
     def _after(self, func) -> None:
-        """Run ``func`` on the Tk thread; a window that has gone simply drops it."""
-        import tkinter as tk
+        """Run ``func`` on the Tk thread; a window that has gone simply drops it.
 
-        try:
-            self.rt.root.after(0, func)
-        except (tk.TclError, RuntimeError):
-            pass
+        Through the runtime's hand-over queue rather than `root.after`: this tab's
+        callers are all workers, and `after` from a worker waits on the event loop that
+        draws every other open profile (#1226).
+        """
+        self.post(func)
 
     def _bell(self) -> None:
         import tkinter as tk

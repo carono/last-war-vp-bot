@@ -49,6 +49,7 @@
   "autostart.error.failed": "Планировщик задач отказал: {error}",
   "busy": "занят — дождись завершения текущего действия",
   "busy.elsewhere": "игра занята — {owner} ведёт её уже {sec} с",
+  "busy.foreground": "экран занят — в нём кликает {owner}; «{name}» пропущен",
   "capture.ghost_op": "Операция Призрак",
   "capture.secret_tasks": "Секретные задания",
   "chat.clear": "Очистить",

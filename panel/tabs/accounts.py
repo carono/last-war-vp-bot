@@ -149,7 +149,7 @@ class AccountsTab(DataTab):
                 reason = str(exc)
             finally:
                 self.rt.game.release()
-        self.rt.root.after(0, lambda: self._switch_done(serverid, name, ok, reason))
+        self.post(lambda: self._switch_done(serverid, name, ok, reason))
 
     def _switch_done(self, serverid, name, ok, reason) -> None:
         self._busy = False

@@ -397,10 +397,10 @@ class Schedule:
         return box.get("value")
 
     def _on_tk(self, func) -> None:
-        try:
-            self.rt.root.after(0, func)
-        except Exception:                        # noqa: BLE001 — the window is gone
-            pass
+        # Through the runtime's queue, never `root.after` — the scheduler thread is a
+        # worker, and a worker calling Tk waits for the event loop that draws every
+        # other open profile (#1226, panel/runtime/tick.py).
+        self.rt.post(func)
 
 
 #: Triggers whose listener IS the work — nothing is submitted and no tab is needed.

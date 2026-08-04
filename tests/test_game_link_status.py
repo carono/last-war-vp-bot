@@ -76,6 +76,10 @@ class _Machine:
                                 "state": gp.WTS_DISCONNECTED}]
         gp._pids_in_session = lambda exe, session: list(self.pids)
         sys.modules["psutil"] = self._psutil()
+        # The socket table is shared between open profiles and cached for a couple of
+        # seconds (#1226), so a case that did not drop it would be reading the machine
+        # the PREVIOUS case set up. Both ends, so nothing leaks either way.
+        gp.forget_machine_state()
         return self
 
     def _psutil(self):
@@ -95,6 +99,7 @@ class _Machine:
             sys.modules.pop("psutil", None)
         else:
             sys.modules["psutil"] = held
+        gp.forget_machine_state()
         return False
 
 

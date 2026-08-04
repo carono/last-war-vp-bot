@@ -49,6 +49,7 @@
   "autostart.error.failed": "Penjadwal tugas menolak: {error}",
   "busy": "sibuk — tunggu tindakan yang sedang berjalan selesai",
   "busy.elsewhere": "permainan sedang dipakai — {owner} menjalankannya sejak {sec} d",
+  "busy.foreground": "layar sedang dipakai — {owner} sedang mengeklik di dalamnya; «{name}» dilewati",
   "capture.ghost_op": "Operasi Hantu",
   "capture.secret_tasks": "Tugas rahasia",
   "chat.clear": "Bersihkan",

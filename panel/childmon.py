@@ -157,9 +157,12 @@ class ChildMonitor:
         was never said (#1212, seen at every start once the sweep — a child that always
         ends a few seconds after the boot begins — existed).
 
-        So the hand-over is attempted and, failing that, done here. Running it on this
-        thread is the lesser evil: the callbacks are a log line and a Tk variable, and
-        the alternative is not running them at all.
+        The panel's ``schedule`` is the window's hand-over QUEUE now
+        (`panel/runtime/tick.py`, #1226), which cannot raise that at all and does not
+        make this thread wait on the event loop — so the fallback below is for a monitor
+        built without one (a test, a harness) rather than for the boot. Running it on
+        this thread is the lesser evil there: the callbacks are a log line and a Tk
+        variable, and the alternative is not running them at all.
         """
         try:
             if self._schedule is not None:

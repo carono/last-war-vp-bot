@@ -49,6 +49,7 @@
   "autostart.error.failed": "Die Aufgabenplanung hat abgelehnt: {error}",
   "busy": "beschäftigt — warte, bis die laufende Aktion fertig ist",
   "busy.elsewhere": "das Spiel ist belegt — {owner} steuert es seit {sec} s",
+  "busy.foreground": "der Bildschirm ist belegt — {owner} klickt darin; «{name}» übersprungen",
   "capture.ghost_op": "Geistereinsatz",
   "capture.secret_tasks": "Geheime Missionen",
   "chat.clear": "Leeren",

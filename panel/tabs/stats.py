@@ -101,7 +101,7 @@ class StatsTab(PanelTab):
                                     self.rt.profiles.resource_stats_json())
         self.say("trigger", "triggers.log.resource_gain",
                  what=", ".join(f"{k} +{v}" for k, v in gains.items()))
-        self.rt.root.after(0, self.redraw)
+        self.post(self.redraw)
 
     def shutdown(self) -> None:
         if self._unsubscribe is not None:

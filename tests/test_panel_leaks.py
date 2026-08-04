@@ -336,6 +336,11 @@ class _Loops:
         return self._ticker._loops
 
     def after(self, delay, func):
+        # A Ticker also starts the WINDOW's hand-over pump (#1226) — one chain of its
+        # own, re-arming for the life of the window, and not one of the NAMED loops
+        # this class is counting. Left off the books so `pending` keeps its meaning.
+        if getattr(func, "__self__", None) is getattr(self, "_lw_tk_poster", None):
+            return "pump"
         self.seq += 1
         job = f"job{self.seq}"
         self.armed.append(job)

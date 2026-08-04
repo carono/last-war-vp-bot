@@ -35,11 +35,61 @@ translated at all.
 """
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 
 import game_paths
 
 from ..i18n import Message
+
+#: How long a MACHINE-WIDE reading is reused (#1226).
+#:
+#: The three expensive things this module asks — the TCP table, the process table and
+#: the list of Windows sessions — are facts about the BOX, not about a profile. Every
+#: open profile used to ask for all three on its own clock: four profiles meant four
+#: walks of a few hundred sockets and a few hundred processes every eight seconds, each
+#: of them holding Python's lock while it built the objects, and every one of them
+#: producing an answer the others had just produced.
+#:
+#: So the walk is shared and the verdict is not. Filtering the shared table down to one
+#: profile's client is a comprehension over a list already in memory; only the walk is
+#: cached, and only for long enough that profiles polling on independent clocks land in
+#: the same one. Two seconds against an eight-second poll — the strip can be two seconds
+#: stale, which is a quarter of the interval it was already showing.
+MACHINE_TTL_SEC = 2.0
+
+
+class _Shared:
+    """One machine-wide reading, taken at most every :data:`MACHINE_TTL_SEC`.
+
+    The lock is held for the WALK, deliberately: a second profile arriving mid-walk
+    should wait for the answer being fetched rather than start a second one. That is the
+    whole saving.
+    """
+
+    __slots__ = ("_fetch", "_lock", "_at", "_value")
+
+    def __init__(self, fetch) -> None:
+        self._fetch = fetch
+        self._lock = threading.Lock()
+        self._at = 0.0
+        self._value = None
+
+    def get(self, ttl: float = MACHINE_TTL_SEC):
+        now = time.monotonic()
+        with self._lock:
+            if self._value is not None and (now - self._at) < ttl:
+                return self._value
+            self._value = self._fetch()
+            self._at = time.monotonic()
+            return self._value
+
+    def forget(self) -> None:
+        """Drop the reading — the next ask walks again. For tests, and for a deliberate
+        re-check after something was started or killed."""
+        with self._lock:
+            self._at, self._value = 0.0, None
 
 #: The default client executable. A profile may name another one — a second client in
 #: its own Windows session, or an install somewhere else — so every caller passes it.
@@ -107,7 +157,16 @@ def sessions() -> "list | None":
     or not Windows at all. The two are told apart because they want opposite things said
     to the person, and folding them together is how a panel ends up looking in the wrong
     session in silence.
+
+    Shared between open profiles (:data:`MACHINE_TTL_SEC`): who is logged on to this box
+    is one answer, and four profiles asking it four times a poll is four answers that
+    were always going to be the same one. A session appearing or disappearing is minutes
+    of work by a person; two seconds of staleness cannot be noticed.
     """
+    return _SESSIONS.get()
+
+
+def _read_sessions() -> "list | None":
     try:
         import win32ts
         found = []
@@ -143,11 +202,17 @@ def session_of(user: str) -> int | None:
     return None if found is None else found["id"]
 
 
+def _read_names() -> list:
+    """``(pid, name)`` for every process on the box — the psutil walk, once."""
+    import psutil
+    return [(p.info["pid"], (p.info["name"] or ""))
+            for p in psutil.process_iter(["pid", "name"])]
+
+
 def _pids_by_name(game_exe: str) -> list[int]:
     """Every process called ``game_exe``, whatever session it sits in."""
-    import psutil
-    return [p.info["pid"] for p in psutil.process_iter(["pid", "name"])
-            if (p.info["name"] or "").lower() == game_exe.lower()]
+    want = game_exe.lower()
+    return [pid for pid, name in _NAMES.get() if name.lower() == want]
 
 
 def own_session() -> int | None:
@@ -175,9 +240,21 @@ def _pids_in_session(game_exe: str, session: int) -> list[int]:
     reads as a service and is exactly the process being looked for. tools/rdp_instance.py
     learned the same thing the same way.
     """
+    want = game_exe.lower()
+    return [pid for sid, pid, name in _WTS.get()
+            if sid == session and name.lower() == want]
+
+
+def _read_wts() -> list:
+    """``(session, pid, name)`` for every process on the box — the WTS walk, once.
+
+    Raises exactly as the bare call did on a machine that cannot be asked, because
+    :func:`pids` reads that as "try the name instead" and a cached empty list would read
+    as "the client is gone".
+    """
     import win32ts
-    return [int(pid) for sid, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0)
-            if int(sid) == session and (name or "").lower() == game_exe.lower()]
+    return [(int(sid), int(pid), (name or ""))
+            for sid, pid, name, _sid in win32ts.WTSEnumerateProcesses(0, 1, 0)]
 
 
 def pids(game_exe: str = GAME_EXE, user: str | None = None) -> list[int]:
@@ -259,14 +336,43 @@ def _client_sockets(found) -> list:
     and an endpoint of its own gateway. So a second account gets a real verdict rather
     than a permanent «не знаю» — but the empty answer is still handled as its own state,
     because that is a property of the machine and not of this code.
+
+    ONE WALK FOR THE WHOLE WINDOW, too (#1226). The table is the machine's, not this
+    profile's: four profiles filtering the same few hundred rows is one walk and four
+    comprehensions, not four walks. `MACHINE_TTL_SEC` is what makes polls on independent
+    clocks land in the same one.
     """
-    import psutil
     known = set(found)
+    return [c for c in _CONNECTIONS.get() if c.pid in known]
+
+
+def _read_connections() -> list:
+    """The machine's whole TCP table, or an empty one where it cannot be read."""
+    import psutil
     try:
-        conns = psutil.net_connections(kind="tcp")
+        return list(psutil.net_connections(kind="tcp"))
     except Exception:                        # noqa: BLE001 — a reading, never a crash
         return []
-    return [c for c in conns if c.pid in known]
+
+
+#: The three machine-wide walks, each taken at most every :data:`MACHINE_TTL_SEC` and
+#: shared by every open profile. Down here rather than at the top because each names the
+#: reader defined above it.
+_SESSIONS = _Shared(_read_sessions)
+_NAMES = _Shared(_read_names)
+_WTS = _Shared(_read_wts)
+_CONNECTIONS = _Shared(_read_connections)
+
+
+def forget_machine_state() -> None:
+    """Drop every shared reading, so the next ask walks again.
+
+    For the caller that has just CHANGED what it is about to read — started a client,
+    killed one, brought a Windows session up — and for tests, which must not inherit a
+    reading taken by the case before them.
+    """
+    for shared in (_SESSIONS, _NAMES, _WTS, _CONNECTIONS):
+        shared.forget()
 
 
 def _endpoint(found) -> str | None:
@@ -506,7 +612,13 @@ def check(settings) -> dict:
 
     Returns ``{"kind": …}`` and the numbers behind it; the words are the caller's, so
     this stays free of the UI's language (`panel/tabs/settings.py` maps kind → key).
+
+    The one caller that walks afresh: a person pressing «Проверить» has just changed
+    something and is asking whether it took, so the two seconds of sharing every poll
+    lives with (:data:`MACHINE_TTL_SEC`) are exactly the two seconds they would not
+    understand.
     """
+    forget_machine_state()
     user = profile_user(settings)
     if not user:
         # Ticked with nothing typed is not the same as not ticked: one is a setting

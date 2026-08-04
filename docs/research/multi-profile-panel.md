@@ -506,7 +506,7 @@ starts. Sizes are honest estimates of *new and changed* lines.
 | 1 | Runtime isolation: the five globals of §7.1, plus tests | ≈300 + 480 test | low | **done** `c7e65db` |
 | 2a | `ProfileSession`, `Workspace`, `SessionScoped`, `open_profiles` | ≈370 + 370 test | low | **done** `1d0da8d` |
 | 2b | The shell holds the workspace: a page per session, the outer notebook, the boot per session | ≈400 changed in `__main__.py` | **high** | to do |
-| 3 | Parallel operation: the per-port claim registry, named lease owners, per-profile timer tags, the foreground guard, «Стоп всё» and close fanning out | ≈200 | medium | to do |
+| 3 | Parallel operation: the per-port claim registry, named lease owners, the foreground guard, and getting a profile's background work OFF the Tk thread | ≈200 | medium | **done** (#1226) |
 | 4 | Open / close from the UI, the autostart's three artefacts per session, geometry to the window file, strings in all eleven locales | ≈300 | medium | to do |
 
 ### Wave 1 — runtime isolation. **Done.**
@@ -538,16 +538,47 @@ scheduling sites.
 4. switching pages while an errand runs neither stops it nor moves its output;
 5. the contract test and `test_panel_leaks.py` stay green.
 
-### Wave 3 — parallel operation.
+### Wave 3 — parallel operation. **Done (#1226).**
 
-The `(host, port)` claim registry (§4.4); `claim("<profile>/timer")` so a refusal names
-who holds the game; the timer tag carrying the profile; the foreground guard (§4.6);
-`_panic` and `_on_close` fanning out; and a measurement of what N sessions cost in
-processes and CPU (§5.4).
+This wave was written expecting the work to be about the CLAIM. Measured on the live
+panel it was mostly about something else, and §12 below is the whole of that finding:
+a profile's background work talked to the window on the window's thread, so four
+profiles' worth of it queued up behind the one event loop that draws all of them.
 
-*Accept:* two profiles deliberately given the SAME port — the second's errands are refused
-with a line naming the first, are re-queued, and run once the first lets go; neither
-profile ever presses while the other holds; «Стоп всё» stops both.
+What landed:
+
+* `panel/runtime/claims.py` — the process-wide registry keyed by `(host, port)` (§4.4),
+  taken before the daemon is asked, so two profiles on ONE port take turns even when
+  there is no daemon to arbitrate;
+* every claim owner carries the profile — `GameLink._owned` turns `timer` into
+  `<profile>/timer`, so a refusal in the log names the account that is holding the
+  client rather than only that something is (§4.3, item 3);
+* the foreground guard (§4.6): a scenario whose text contains `FIND` / `CLICK` /
+  `PRESS` / `DRAG` / `TYPE` takes the desktop's one foreground before it runs and is
+  refused with `busy.foreground` while another profile has it. A profile whose client is
+  in its own Windows session is exempt. Zero blessed scenarios need it today, and a test
+  fails the day one does without the guard being in the path;
+* the whole of §12: the settings shadow, the hand-over queue, and the machine-wide
+  readings shared between profiles;
+* `tools/dev/panel_thread_bench.py` — the measurement, kept.
+
+`_panic` and `_on_close` were already fanning out through `Workspace.each` by the time
+this started (wave 2b), so nothing was owed there.
+
+**Not done, deliberately: the timer log tag carrying the profile** (§5.3, first bullet).
+Each page's log pane, `panel.log` and `debug.log` are already that profile's alone, so
+the prefix would say what the file it is in already says — and it would put a redundant
+word on every timer line of the one-profile panel, which is most of them. The place a
+profile's name genuinely could not be told from context is a REFUSAL, and that is
+exactly where it now goes (`<profile>/timer`, above). If a merged all-profiles log view
+is ever built (§6.4 says it is out of scope), this comes back with it.
+
+*Accepted:* `tests/test_panel_parallel_profiles.py` 21/21 — two profiles on one port
+take turns with no daemon at all, two on two ports never wait for each other, a refusal
+names the holder, nothing is left held after one, a background settings read never
+touches a Tk variable, four of them answer at once, one socket-table walk serves four
+profiles, and a grep-with-a-parser fails on the next `after(0, …)` written anywhere
+under `panel/`.
 
 ### Wave 4 — the UI and what is remembered.
 
@@ -665,3 +696,107 @@ directory is removed).
 * **No IPC into the running panel** for the autostart's `--profile X` (§7.2). The panel
   refuses and says why; a channel into a running panel is its own task, with its own
   security question.
+
+---
+
+## 12. What actually blocked the panel, measured (#1226)
+
+Wave 3 was written expecting to be about the claim. The operator's complaint was
+different:
+
+> Действия одного профиля блокируют интерфейс панели. С двумя профилями терпимо, на 3-4
+> панель будет парализована.
+
+Everything in this document says that should not happen: `play_async` runs on a worker
+thread, the schedule is per profile, the claim is per client. And it happened anyway,
+because of a seam nobody had looked at — **the panel's background work talks to the
+window, and it was doing so on the window's thread.**
+
+### The finding
+
+`sys._current_frames` samples from `panel/runtime/stall.py` (43 stall reports in one live
+run, `LW_PANEL_STALL_MS=200`) with the «meanwhile» lines folded by frame:
+
+| what another thread was in | samples |
+|---|---|
+| `tkinter/__init__.py:569 / 571 / 646 get` — a Tk variable, read from a worker | 15 |
+| `tkinter/__init__.py:1604 _register` — `after()` from a worker | 6 |
+| `panel/runtime/game_process.py:133 _pids_in_session` | 2 |
+| `panel/childmon.py:132 _read`, `subprocess._readerthread` | 32, and **not real** |
+
+The last row is the stall tool being wrong, and it is worth knowing about: those threads
+are blocked inside a C read that has released Python's lock, but the innermost PYTHON
+frame is a method called `_read`, and `stall.py::_PARKED` filters by frame NAME. So they
+look like competition and are not. Reading a stall report, discount any «meanwhile» whose
+frame is a function of ours that is merely sitting in a blocking call.
+
+The two real ones are the same mistake twice:
+
+* **`SettingsBinder.opt()` answered off a Tk variable.** It is the panel's most-read
+  thing — the daemon port on every socket check, the interpreter on every child, the
+  executable and the Windows session on every status poll — and it is read almost
+  entirely from BACKGROUND threads. From a thread that is not Tk's, `_tkinter` does not
+  read anything: it queues the call as an event for the Tk thread and blocks the caller
+  until the event loop runs it.
+* **`root.after(0, …)` was how a worker handed a repaint back.** That is two such calls
+  (`Misc._register`, then `after`), and while the main thread is not inside the event
+  loop — most of a panel's boot, because the window pumps `update()` by hand — it raises
+  «main thread is not in main loop» and killed the worker outright. Both
+  `panel/childmon.py::_announce_exit` and `panel/__main__.py::_startup` already carried a
+  paragraph about losing a boot step to exactly that; neither had noticed it was the same
+  bug as the slowness.
+
+So a profile that was merely *reporting* its work sat on the thread that draws all the
+others, and every other profile's work sat behind it. That is why two profiles are
+tolerable and four are not: the queue is shared and it is served by the thing the person
+is trying to look at.
+
+### The numbers
+
+`tools/dev/panel_thread_bench.py`, four profiles at fifty background calls a second each,
+against a Tk thread doing what a page build does:
+
+| what a worker does | mean | p95 |
+|---|---|---|
+| `var.get()` — read a knob off its Tk variable | **9.4 ms** | **19.1 ms** |
+| `root.after(0, …)` — hand a repaint back | **8.6 ms** | **17.1 ms** |
+| read the shadow instead | 1.6 µs | 2.2 µs |
+| `post()` instead | 16.9 µs | 39.3 µs |
+
+Nine milliseconds to ask which port you are on. A status poll makes several; a scenario
+makes dozens. And the workers could not even keep to the requested rate — at 50 calls a
+second asked for, the Tk-variable path managed about 31.
+
+### What was done
+
+* **`SettingsBinder` shadows its widgets.** A `trace_add` on each variable mirrors the
+  value into a plain dict on the Tk thread; `opt()` reads the variable only when it is
+  ITSELF on the Tk thread and the dict otherwise. Same answer, no Tk, and the boot-time
+  «main thread is not in main loop» disappears with it.
+* **One hand-over queue per window** (`panel/runtime/tick.py::TkPost`). `post()` is a
+  `queue.put` and touches no Tk at all; ONE `after` chain per window drains it on the Tk
+  thread. `rt.post` / `tab.post` / `ticker.post` are the door, `Ticker.on_tk` goes
+  through it, and everything under `panel/` that used to hand work over with
+  `after(0, …)` now uses it. A parsed guard in the test file fails on the next one
+  written.
+* **The machine's own facts are read once for everybody**
+  (`panel/runtime/game_process.py`). The TCP table, the process table and the list of
+  Windows sessions are facts about the BOX; four profiles polling on independent clocks
+  used to walk each of them four times every eight seconds. They are shared behind a
+  two-second reading now — the walk is cached, the verdict is not, because filtering the
+  shared table down to one profile's client is a comprehension over a list already in
+  memory. «Проверить» drops the reading first, because a person who has just changed
+  something is asking whether it took.
+
+### What is left
+
+* The stall tool's `_PARKED` heuristic (above) reports threads blocked in C reads as
+  competition. Filtering by what the frame is DOING rather than by its name needs the
+  thread's state, which `sys._current_frames` does not carry — a plausible fix is to
+  ignore any thread whose frame has not moved between two samples.
+* `_pump_log` still classifies severity and writes `panel.log` on the Tk thread, per
+  line, per session (~25 µs of regex per line, twice — the producer thread computes the
+  same thing for the debug mirror). Irrelevant at a scenario's few lines and worth doing
+  the day a tracer streams into four profiles at once.
+* §5.4's other question is still unanswered: N profiles × M enabled triggers is N × M
+  sniffer child processes on one box. Nothing has measured that.

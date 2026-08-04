@@ -49,6 +49,7 @@
   "autostart.error.failed": "L'utilità di pianificazione ha rifiutato: {error}",
   "busy": "occupato — aspetta che finisca l'azione in corso",
   "busy.elsewhere": "il gioco è occupato — {owner} lo guida da {sec} s",
+  "busy.foreground": "lo schermo è occupato — {owner} ci sta cliccando; «{name}» saltato",
   "capture.ghost_op": "Operazioni Fantasma",
   "capture.secret_tasks": "Attività segrete",
   "chat.clear": "Svuota",

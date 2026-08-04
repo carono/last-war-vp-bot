@@ -122,9 +122,9 @@ class DataTab(PanelTab):
         try:
             data = self.fetch()
         except Exception as exc:        # noqa: BLE001
-            self.rt.root.after(0, lambda e=exc: self._finish_error(e))
+            self.post(lambda e=exc: self._finish_error(e))
             return
-        self.rt.root.after(0, lambda: self._finish_ok(data))
+        self.post(lambda: self._finish_ok(data))
 
     def _finish_ok(self, data) -> None:
         self._busy = False

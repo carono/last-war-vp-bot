@@ -90,6 +90,24 @@ Measured on a warm panel with both profiles already open, a switch settles in
 **100–280 ms**. The same switch while a process walk runs, or to a profile that is not
 open, is **7–14 s**.
 
+## The other half, found later (#1226)
+
+Everything above is about the Tk thread being BUSY. The complaint that came next —
+«действия одного профиля блокируют интерфейс; на 3-4 аккаунта панель будет
+парализована» — turned out to be about the Tk thread being the only door: a profile's
+background work talked to the window on the window's thread, so N profiles' worth of it
+queued behind the one event loop. The measurement, the two seams and what was done are
+in `docs/research/multi-profile-panel.md` §12, and the tool that measures it is
+`tools/dev/panel_thread_bench.py`.
+
+One thing there belongs here, because it is about reading THIS tool's output:
+**`stall.py::_PARKED` filters a thread out by the NAME of its innermost frame**, so a
+thread blocked inside a C read called from a method of ours — `panel/childmon.py::_read`
+sitting in `for raw in proc.stdout` — is reported as competing when it has released
+Python's lock and is doing nothing at all. It was 32 of 43 reports' top «meanwhile» line
+and it was noise. Discount any «meanwhile» whose frame is a function of ours that is
+merely sitting in a blocking call.
+
 ## What is left
 
 * **A switch to a profile that is not open builds its whole page** — fifteen tabs. Of

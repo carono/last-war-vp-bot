@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import tkinter as tk
 
 import game_paths
@@ -141,6 +142,27 @@ class SettingsBinder:
         self.defaults: dict = dict(defaults or {})
         self._values: dict = {}
         self.vars: dict = {}         # knob key -> Tk variable, once widgets exist
+        #: WHAT EVERY WIDGET CURRENTLY HOLDS, readable from any thread (#1226).
+        #:
+        #: `opt()` is the panel's most-read thing — the daemon port on every socket
+        #: check, the interpreter on every child, the executable and the Windows session
+        #: on every status poll — and it is read almost entirely from BACKGROUND
+        #: threads: the scheduler, the status poll, the dashboard loop, an action, a
+        #: tab's fetch. Reading a Tk variable from one of those is not a read: tkinter
+        #: hands the call to the Tk thread and blocks until the event loop runs it, so
+        #: each of them costs whatever the window is busy with, and the window pays an
+        #: event for each. With four profiles open that is the panel's whole problem —
+        #: every profile's background work queues up behind the one thread that draws
+        #: all of them. And during the boot, when the main thread is not inside the
+        #: event loop, the very same call raises «main thread is not in main loop» and
+        #: killed the worker that made it.
+        #:
+        #: So the widgets' values are SHADOWED here by a trace that fires on the Tk
+        #: thread whenever one is written, and a reader that is not the Tk thread reads
+        #: this dict instead. Same answer, no Tk. The Tk thread itself still reads the
+        #: variable directly — it is already there, and a value written and read inside
+        #: one callback must not go through a trace that has not fired yet.
+        self._live: dict = {}
         self._master = None          # what those variables hang off, for a late block
         self.loading = False         # suppresses auto-save while an apply is running
         # "Something bound changed — write the profile out." Set by whoever owns the
@@ -212,6 +234,7 @@ class SettingsBinder:
         for key, default in self.defaults.items():
             if key not in self.vars:
                 self.vars[key] = make(master, self._initial(key, default))
+                self._shadow(key)
         return self.vars
 
     def _initial(self, key: str, default):
@@ -250,19 +273,67 @@ class SettingsBinder:
     def var(self, key):
         return self.vars.get(key)
 
+    # -- the thread-safe shadow ---------------------------------------------
+    def _shadow(self, key: str) -> None:
+        """Mirror one knob's widget value into :attr:`_live`, now and on every write.
+
+        The trace is what keeps the mirror honest, and it costs a dict store on the Tk
+        thread per edit — against a blocking trip into Tcl for every background read,
+        which is what it replaces. A variable that will not take a trace (a stand-in in
+        a test, a Tk too old) simply has no mirror: :meth:`opt` then falls through to
+        the saved value, which is what a runtime with no widgets at all already does.
+        """
+        var = self.vars.get(key)
+        if var is None:
+            return
+        self._catch(key)
+        try:
+            var.trace_add("write", lambda *_a, k=key: self._catch(k))
+        except Exception:            # noqa: BLE001 — no trace is a stale mirror, not a crash
+            pass
+
+    def _catch(self, key: str) -> None:
+        """Read one variable and store it. Runs on whoever wrote it — the Tk thread."""
+        var = self.vars.get(key)
+        if var is None:
+            return
+        try:
+            self._live[key] = var.get()
+        except Exception:            # noqa: BLE001 — a half-typed box has no value yet
+            self._live.pop(key, None)
+
+    def refresh_live(self) -> None:
+        """Re-read every variable into the shadow. Tk thread only.
+
+        For the one case a trace cannot cover: a whole profile applied to the widgets at
+        once, where something may have set a variable before its trace existed. Cheap
+        (one Tcl read per knob) and called where the panel already touches all of them.
+        """
+        for key in list(self.vars):
+            self._catch(key)
+
     # -- typed readers ------------------------------------------------------
     def opt(self, key: str):
         """The raw current value of a knob: the widget, else the file, else the default.
 
         A `BooleanVar` whose entry holds something that is not a boolean raises out of
         `.get()`, which is a half-typed field rather than a broken panel — fall through.
+
+        SAFE FROM ANY THREAD, and free from all but one of them: only the Tk thread
+        touches a Tk variable here, and everybody else reads the shadow that thread
+        keeps (see :attr:`_live`). A background reader therefore never blocks on the
+        window and never raises «main thread is not in main loop».
         """
-        var = self.vars.get(key)
-        if var is not None:
-            try:
-                return var.get()
-            except Exception:            # noqa: BLE001 — tk.TclError, without importing tk
-                pass
+        if self.vars:
+            if threading.current_thread() is threading.main_thread():
+                var = self.vars.get(key)
+                if var is not None:
+                    try:
+                        return var.get()
+                    except Exception:    # noqa: BLE001 — tk.TclError, without importing tk
+                        pass
+            elif key in self._live:
+                return self._live[key]
         if key in self._values:
             return self._values[key]
         return self.defaults.get(key)

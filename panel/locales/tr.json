@@ -49,6 +49,7 @@
   "autostart.error.failed": "Görev zamanlayıcı geri çevirdi: {error}",
   "busy": "meşgul — yürüyen işlemin bitmesini bekle",
   "busy.elsewhere": "oyun meşgul — {owner} {sec} sn'dir onu sürüyor",
+  "busy.foreground": "ekran meşgul — içinde {owner} tıklıyor; «{name}» atlandı",
   "capture.ghost_op": "Hayalet Operasyonu",
   "capture.secret_tasks": "Gizli görevler",
   "chat.clear": "Temizle",

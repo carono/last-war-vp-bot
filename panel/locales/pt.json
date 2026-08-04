@@ -49,6 +49,7 @@
   "autostart.error.failed": "O agendador de tarefas recusou: {error}",
   "busy": "ocupado — espere a ação atual terminar",
   "busy.elsewhere": "o jogo está ocupado — {owner} está conduzindo há {sec} s",
+  "busy.foreground": "a tela está ocupada — {owner} está clicando nela; «{name}» ignorado",
   "capture.ghost_op": "Operações Fantasmas",
   "capture.secret_tasks": "Tarefas secretas",
   "chat.clear": "Limpar",

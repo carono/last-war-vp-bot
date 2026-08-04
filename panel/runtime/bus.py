@@ -41,12 +41,17 @@ class EventBus:
         if self._w is None:
             self._deliver(listeners, payload)
             return
-        import tkinter as tk
+        # Through the window's hand-over queue (panel/runtime/tick.py), because a fact
+        # is nearly always published by a WORKER — a capture line, a collect finishing,
+        # a wire event — and `after` from a worker blocks it on the event loop that
+        # draws every open profile (#1226).
+        from .tick import poster
 
-        try:
-            self._w.after(0, lambda: self._deliver(listeners, payload))
-        except (tk.TclError, RuntimeError):      # no Tk loop (closing, or a test)
+        post = poster(self._w)
+        if post is None:
             self._deliver(listeners, payload)
+            return
+        post.post(lambda: self._deliver(listeners, payload))
 
     @staticmethod
     def _deliver(listeners, payload) -> None:
