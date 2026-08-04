@@ -428,7 +428,7 @@ class TimersTab(PanelTab):
             return
         if not messagebox.askyesno(self.t("timers.delete"),
                                    self.t("timers.confirm_delete", name=timer.name),
-                                   parent=self):
+                                   parent=self.rt.root):
             return
         self._timer_selected = None
         self._write_timer(self._timer_catalogue.remove(timer.name))
@@ -451,9 +451,11 @@ class TimersTab(PanelTab):
         Nothing is written until Save, and Save refuses an entry the scheduler could
         not run: no name, a name already taken by another row, or no steps at all.
         """
-        win = tk.Toplevel(self)
+        # rt.root, not `self`: a PanelTab is not a widget and Tk wants a window path
+        # for both the master and the transient owner (#1235).
+        win = tk.Toplevel(self.rt.root)
         win.title(self.t("timers.editor.window"))
-        win.transient(self)
+        win.transient(self.rt.root)
         frm = ttk.Frame(win, padding=12)
         frm.pack(fill="both", expand=True)
         frm.columnconfigure(1, weight=1)

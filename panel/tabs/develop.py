@@ -399,7 +399,11 @@ class DevelopTab(PanelTab):
         paths = [files[k] for k in ("trace", "traffic") if k in files]
         win = tk.Toplevel(self.rt.root)
         win.title(self.t("develop.run.title"))
-        win.transient(self)
+        # `self` is a PanelTab, NOT a widget: Tk resolves a master by window path, so
+        # `transient(self)` raises «bad window path name» right here — after the
+        # Toplevel exists and before anything is packed into it, which is exactly the
+        # empty modal it produced (#1235). The window a dialog belongs to is rt.root.
+        win.transient(self.rt.root)
         frm = ttk.Frame(win, padding=14)
         frm.pack(fill="both", expand=True)
 

@@ -448,10 +448,12 @@ class ChatTab(PanelTab):
         emojis = chat_assets.emoji_catalogue()
         stickers = chat_assets.sticker_catalogue()
 
-        top = tk.Toplevel(self)
+        # rt.root, not `self`: a PanelTab is not a widget and Tk wants a window path
+        # for both the master and the transient owner (#1235).
+        top = tk.Toplevel(self.rt.root)
         self._emoji_win = top
         top.title(self.t("chat.picker.title"))
-        top.transient(self)
+        top.transient(self.rt.root)
         ttk.Label(top, text=self.t("chat.picker.emoji"), anchor="w",
                  foreground="#8a8a8a").pack(fill="x", padx=8, pady=(8, 0))
         em_box = ScrolledText(top, wrap="char", state="disabled", cursor="arrow",
@@ -900,7 +902,7 @@ class ChatTab(PanelTab):
         except Exception as exc:       # noqa: BLE001
             self.say("chat", "log.chat.photo_failed", error=exc)
             return
-        top = tk.Toplevel(self)
+        top = tk.Toplevel(self.rt.root)      # a PanelTab is not a widget (#1235)
         top.title(self.t("tab.chat"))
         top.configure(bg="#000000")
         lbl = tk.Label(top, image=photo, bg="#000000", cursor="hand2")
@@ -912,7 +914,7 @@ class ChatTab(PanelTab):
         x = max(0, (sw - top.winfo_width()) // 2)
         y = max(0, (sh - top.winfo_height()) // 2)
         top.geometry(f"+{x}+{y}")
-        top.transient(self)
+        top.transient(self.rt.root)
         top.focus_set()
 
     def _pump_chat(self) -> None:
