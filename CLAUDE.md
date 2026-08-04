@@ -277,13 +277,15 @@ used** — to build a path, filter a process list or match a window.
 Every new variable is added to [`.env.example`](.env.example) in the same commit, with
 a line saying what it is for and that it is optional.
 
-There is no separate test under this rule any more: `tests/test_no_hardcoded_values.py`
-was deleted with #1234, because the only way it could recognise a forbidden value was to
-carry a copy of it — the file guarding the repository against personal data held the
-largest collection of it in the repository. What it checked about *this machine* is still
-checked: `tests/test_game_paths.py` fails on a module that spells the install or the
-interpreter out for itself. The rest of the rule holds because you read your own diff
-before you commit it.
+No test knows the forbidden VALUES any more: `tests/test_no_hardcoded_values.py` was
+deleted with #1234, because the only way it could recognise one was to carry a copy of
+it — the file guarding the repository against personal data held the largest collection
+of it in the repository. What is checkable without knowing a single value still is:
+`tests/test_game_paths.py` fails on a module that spells the install or the interpreter
+out for itself, and `tests/test_repository_hygiene.py` fails on anything committed that
+is not text, on a private tree that has slipped out of `.gitignore`, and on the three
+values a tool must ask for rather than know. The rest holds because you read your own
+diff before you commit it.
 
 ## Not one identifier of a real account is written down
 
@@ -315,9 +317,17 @@ somebody's account for ever. So invent values of the same shape as you paste, no
 «later» is precisely why they are still here.
 
 **A recording is not a fixture until it is anonymised.** The place for a genuine one is
-a git-ignored tree — `results/`, `panel/profiles/`; they are ignored for exactly this
-reason. Anything that comes out of one of them and into a tracked file gets its
-identifiers replaced on the way, in the same edit, or it does not come out.
+a git-ignored tree — `results/`, `screenshots/`, `panel/profiles/`; they are ignored for
+exactly this reason. Anything that comes out of one of them and into a tracked file gets
+its identifiers replaced on the way, in the same edit, or it does not come out.
+
+**And no screenshot is ever committed, for any reason.** Take as many as you like — they
+land behind `.gitignore` and stay on the disk that made them. A `.png` in a diff reads as
+`Bin 41k` and in a review as nothing at all, while carrying a nickname, an alliance tag,
+a coordinate or a taskbar with a login on it. `tests/test_repository_hygiene.py` fails on
+anything tracked that is not text: it works off an allow-list of source suffixes, so an
+image, a capture, a screen recording, a browser trace or a database fails whether or not
+anybody thought to ban that particular extension.
 
 ### When a test genuinely needs the data
 

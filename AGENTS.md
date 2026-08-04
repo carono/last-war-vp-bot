@@ -500,12 +500,17 @@ flag, check it still exists before acting on it.
   one of the right shape, not a real one; if it only passes against a
   real value it is testing the account, not the code.
 
-  There is no test for any of this: the guard that used to check it
-  worked by holding a copy of every banned value, which made it the
-  largest pile of personal data in the repository, and it was deleted
-  (#1234). The full rule is in `CLAUDE.md`, «Not one identifier of a
-  real account is written down» and «Nothing about one machine is
-  written into the code».
+  No test knows the forbidden values: the guard that used to check them
+  worked by holding a copy of each, which made it the largest pile of
+  personal data in the repository, and it was deleted (#1234). What
+  needs no value to check still is checked —
+  `tests/test_repository_hygiene.py` fails on anything committed that is
+  not text (**a screenshot never goes in, ever** — take them behind
+  `.gitignore`), on a private tree that has slipped out of `.gitignore`,
+  and on a port, an install path or a Windows login a tool has started
+  to assume instead of asking. The full rule is in `CLAUDE.md`, «Not one
+  identifier of a real account is written down» and «Nothing about one
+  machine is written into the code».
 
 ---
 

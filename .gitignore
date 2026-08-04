@@ -78,6 +78,32 @@ sslkeys.log
 *.psd
 *.mp4
 
+# Anything a browser run leaves behind. Playwright writes screenshots, videos and
+# traces into these without being asked — a video of a session is a screenshot thirty
+# times a second, and a trace .zip has the screenshots inside it where no rule matching
+# on ".png" can see them.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+playwright/.cache/
+.last-run.json
+*.webm
+*.mov
+*.avi
+*.zip
+*.har
+*.trace
+
+# Recordings and dumps a session produces outside the trees above: transcripts, decoded
+# streams, exported tables, throwaway databases. None of it is source, all of it comes
+# off a live account.
+*.jsonl
+*.csv
+*.db
+*.sqlite
+*.sqlite3
+
 # tools/scratch/ — throwaway probes/one-offs from RE sessions (never source).
 tools/scratch/
 
