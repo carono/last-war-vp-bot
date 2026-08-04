@@ -253,6 +253,12 @@ was found.
 not something the game states on the wire — see §7 of `protocol.md`. That is the
 one soft spot in this rule.
 
+The gate is judged on the GAME's clock, which is not this computer's — it ran twelve
+seconds ahead of a PC that was itself within two of real UTC (`game-clock.md`,
+task #1227). Against `time.time()` the same `completionTime` reads as "not yet" for
+that long after the server would already pay out, and the countdown on the tab
+disagrees with the one the game draws beside it.
+
 ## 7. Open
 
 * **Finding targets is still the weak half.** The queue has to be filled from a

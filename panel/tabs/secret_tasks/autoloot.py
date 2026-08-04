@@ -36,6 +36,19 @@ from ...runtime.paths import TOOLS
 #: capture is not free.
 RESTART_MS = 1500
 
+# The states the standing order reports on screen. They are the reasons a tick can end
+# without a robbery — every one of which used to look identical from outside: nothing in
+# the log, nothing on the tab, and no way to tell a watcher waiting for a star from one
+# that was never started (#1227).
+STATE_OFF = "secret.autoloot.state.off"            # not watching at all
+STATE_WATCHING = "secret.autoloot.state.watching"  # watching; the rule matches nothing
+STATE_TARGETS = "secret.autoloot.state.targets"    # …matches this many tiles
+STATE_ROBBING = "secret.autoloot.state.robbing"    # a robbery is in flight
+STATE_PAUSED = "secret.autoloot.state.paused"      # the day's budget is spent, until…
+STATE_NO_SOURCE = "secret.autoloot.state.no_source"  # no live game and no checkpoint
+STATE_NO_OWN = "secret.autoloot.state.no_own"      # own server unknown, box ticked
+STATE_ERROR = "secret.autoloot.state.error"        # the last tick raised
+
 
 class AutoLoot:
     """The watcher, the listener, and the rule both of them obey."""
@@ -50,6 +63,12 @@ class AutoLoot:
         self._pause_until = 0.0      # wall clock the watcher may fire again at
         self._warned = False         # "no checkpoint yet" is said once per run
         self._warned_own = False     # so is "the own server cannot be read"
+        # What the standing order is doing right now, as (locale key, datum beside it).
+        # A watcher that finds nothing to rob says nothing — which is indistinguishable
+        # from one that is not running at all, and is exactly what «автолут не работает
+        # совершенно» turned out to be (#1227). Every early return below writes here, and
+        # the tab draws it under the checkbox, so silence has a reason on screen.
+        self._state = (STATE_OFF, "")
 
     @property
     def running(self) -> bool:
@@ -69,6 +88,7 @@ class AutoLoot:
         self._seen.clear()
         self._pause_until = 0.0
         self._warned = self._warned_own = False
+        self._state = (STATE_WATCHING, "")
         self.tab.say("autoloot", "log.autoloot.on", rule=self.rule_text())
         if not self.tab.capture.running:
             self.tab.say("autoloot", "log.autoloot.no_monitor")
@@ -80,6 +100,7 @@ class AutoLoot:
         if stop is not None:
             stop.set()
             self.tab.say("autoloot", "log.autoloot.off")
+        self._state = (STATE_OFF, "")
         self.stop_push()
 
     # -- the event-driven listener -------------------------------------------
@@ -165,6 +186,7 @@ class AutoLoot:
                 last_err = ""
             except Exception as exc:      # noqa: BLE001 — never let one tick kill the loop
                 err = f"{type(exc).__name__}: {exc}"
+                self._state = (STATE_ERROR, type(exc).__name__)
                 if err != last_err:
                     last_err = err
                     self.tab.say("autoloot", "log.autoloot.poll_error", error=err)
@@ -183,8 +205,10 @@ class AutoLoot:
         is off, the VM alone carries the feature.
         """
         if self._proc is not None:                    # a robbery is still running
+            self._state = (STATE_ROBBING, "")
             return
         if time.time() < self._pause_until:           # the day's budget is spent
+            self._state = (STATE_PAUSED, _hhmm(self._pause_until))
             return
         checkpoint = self.rt.profiles.tasks_json()
         have_scan = os.path.exists(checkpoint)
@@ -192,6 +216,7 @@ class AutoLoot:
         if not vm_ready and not have_scan:
             # No live VM to read and no checkpoint to fall back on — there is simply no
             # source yet. Say so once, not on every poll.
+            self._state = (STATE_NO_SOURCE, "")
             if not self._warned:
                 self._warned = True
                 self.tab.say("autoloot", "log.autoloot.no_scan")
@@ -203,12 +228,18 @@ class AutoLoot:
         # The read needs the live VM, so a checkpoint alone is not enough to fire on.
         if self.tab.skip_own_var.get():
             if not (vm_ready and self.tab.own_server()):
+                self._state = (STATE_NO_OWN, "")
                 if not self._warned_own:
                     self._warned_own = True
                     self.tab.say("autoloot", "log.autoloot.no_own_server")
                 return
             self._warned_own = False
         targets = self.all_targets(checkpoint if have_scan else None, vm_ready)
+        # What the rule matched THIS tick, whether or not any of it is new. A watcher
+        # that keeps finding nothing is the ordinary case — there is no star of that
+        # level on the map most of the time — and it is the case that read as broken.
+        self._state = ((STATE_TARGETS, str(len(targets))) if targets
+                       else (STATE_WATCHING, ""))
         # Already-sent uuids are skipped: a source keeps showing a tile the server refused
         # (or that we robbed but whose loot count has not come back yet), and re-firing at
         # it would burn the day's budget on a target that cannot pay. A fresh session
@@ -320,6 +351,7 @@ class AutoLoot:
         if spent:
             pause = self.rt.settings.opt_int("autoloot_pause_min", low=1, high=1440) * 60
             self._pause_until = time.time() + pause
+            self._state = (STATE_PAUSED, _hhmm(self._pause_until))
             self.tab.say("autoloot", "log.autoloot.spent", mins=int(pause // 60))
         if self._proc is proc:
             self._proc = None
@@ -370,3 +402,30 @@ class AutoLoot:
         if self.tab.skip_own_var.get():
             text += " " + self.tab.t("secret.autoloot.rule_skip_own")
         return text
+
+    # -- what it is doing right now --------------------------------------------
+    def state(self) -> tuple:
+        """(locale key, the datum that goes beside it) — the live state of the order.
+
+        The rule says what it WOULD rob; this says what is happening. They are different
+        questions, and only the first one was ever answered on screen: a watcher with no
+        star in range is silent, and so is one whose budget is spent, one that cannot
+        read the own server, and one that was never started. From the operator's chair
+        all four are «автолут не работает совершенно» (#1227).
+        """
+        return self._state
+
+    def state_text(self) -> str:
+        """The same thing as one phrase, in the panel's language."""
+        key, datum = self._state
+        text = self.tab.t(key)
+        return f"{text} {datum}" if datum else text
+
+
+def _hhmm(when: float) -> str:
+    """A wall-clock stamp as HH:MM — how long a pause lasts, in the operator's terms.
+
+    A number of minutes tells somebody who has just walked up nothing; a time they can
+    compare with the clock on their own screen tells them whether to wait.
+    """
+    return time.strftime("%H:%M", time.localtime(when))

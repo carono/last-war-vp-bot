@@ -1159,6 +1159,20 @@ def steal_next_secret_task() -> str:
             '.." srv="..tostring(t.server)) end' % secret_task_steals_left())
 
 
+def game_server_time() -> str:
+    """Emit the game's own clock, in whole seconds — `ACT NOW=<seconds>`.
+
+    `ChatInterface.getServerTime()` is what the client counts its own timers
+    with, and it is not this computer's clock: it ran twelve seconds ahead of a
+    machine that was itself within two seconds of real UTC (task #1227). Every
+    timestamp the game hands out is on THIS clock, so anything drawing a
+    countdown or asking "has the dispatch finished yet" has to be judged against
+    it. `tools/lib/game_clock.py` keeps the difference; this is the read.
+    """
+    return ('CS.UnityEngine.Debug.LogError("ACT NOW="'
+            '..tostring(ChatInterface.getServerTime()))')
+
+
 def secret_task_raidable_alliance() -> str:
     """Emit every alliance secret task that is raidable *right now*, straight from the VM.
 
@@ -1185,7 +1199,9 @@ def secret_task_raidable_alliance() -> str:
     return (
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
-        'local now = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 '
+        'local nowsec = tonumber(ChatInterface.getServerTime()) or 0 '
+        'local now = nowsec * 1000 '
+        'CS.UnityEngine.Debug.LogError("ACT NOW="..tostring(nowsec)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '
@@ -1218,7 +1234,9 @@ def secret_task_all_alliance() -> str:
     return (
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
-        'local now = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 '
+        'local nowsec = tonumber(ChatInterface.getServerTime()) or 0 '
+        'local now = nowsec * 1000 '
+        'CS.UnityEngine.Debug.LogError("ACT NOW="..tostring(nowsec)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '

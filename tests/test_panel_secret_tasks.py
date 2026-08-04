@@ -437,6 +437,71 @@ def test_the_jump_history_remembers_the_newest_first_and_is_capped():
     assert len(tab._jump_hist) == st.JUMP_HISTORY_MAX, len(tab._jump_hist)
 
 
+def test_a_looted_out_tile_is_not_a_row(monkeypatch=None):
+    """3/3 is spent — it cannot pay anybody, so it never reaches the list (#1227).
+
+    Three ways in, and all three are shut: the wire feed's merge, the rows already on
+    screen (a filter, so a count that changes takes effect at once), and the poll that
+    watches a ready tile fill up under us.
+    """
+    import types
+
+    tab = _make_tab({})
+    tab._busy = True
+    tab._maybe_start_poll = lambda: None
+    full = types.SimpleNamespace(uuid=9, server_id=1, x=1, y=2, level=7, cfg_id=16003,
+                                 loot_count=3, free_slots=0, expires_at=None,
+                                 completed_at=None)
+    free = types.SimpleNamespace(uuid=8, server_id=1, x=1, y=2, level=7, cfg_id=16003,
+                                 loot_count=1, free_slots=2, expires_at=None,
+                                 completed_at=None)
+    tab.rt = types.SimpleNamespace(root=None)
+    # A merged row is given a countdown variable; there is no Tk root here, and the
+    # decision under test is which tiles become rows at all.
+    was, st.tk_stringvar = st.tk_stringvar, lambda _master: _Var()
+    try:
+        tab._merge([full, free])
+    finally:
+        st.tk_stringvar = was
+    assert set(tab._rows) == {"8"}, tab._rows       # the spent tile was never added
+
+    # …and one that fills up while it is on the list goes when the poll says so.
+    rows = {"2": dict(_row(2, 7, -5_000, 600_000), ready=True)}
+    tab2 = _make_tab(rows)
+    live = _LiveTask(2)
+    live.loot_count = 3
+    tab2._poll_apply(["2"], {"2": live})
+    assert "2" not in tab2._rows, tab2._rows
+
+    # …and a row whose count is already three is filtered out of what is drawn.
+    tab3 = _make_tab({"5": dict(_row(5, 7, -5_000, 600_000), loot_count=3),
+                      "6": dict(_row(6, 7, -5_000, 600_000), loot_count=2)})
+    assert [r["uuid"] for r in tab3._visible_rows()] == [6]
+
+
+def test_the_countdown_runs_on_the_games_clock_not_this_machines():
+    """A tile matures when the GAME says so, not when this PC does (#1227).
+
+    The two were twelve seconds apart live. With the game's clock a minute ahead, a tile
+    whose completion is forty seconds away by the PC's reckoning is already raidable.
+    """
+    import game_clock
+
+    rows = {"1": _row(1, 7, 40_000, 600_000)}
+    tab = _make_tab(rows)
+    game_clock.reset()
+    _expired, changed = tab._refresh_timers()
+    assert rows["1"]["ready"] is False and changed is False
+    try:
+        game_clock.note(int((__import__("time").time() + 60) * 1000),
+                        __import__("time").time(), __import__("time").time())
+        _expired, changed = tab._refresh_timers()
+        assert rows["1"]["ready"] is True, "the game's clock was not what decided"
+        assert changed is True
+    finally:
+        game_clock.reset()
+
+
 def test_room_ids_from_cached_self_ids():
     tab = object.__new__(st.SecretTasksTab)         # no Tk build
     tab._ids = ("100", "3d4b9dee")

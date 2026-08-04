@@ -100,6 +100,13 @@ JUMP_HISTORY_MAX = 20
 # not the auto-loot watcher.
 POLL_MS = 30_000
 
+# How often the game's own clock is re-measured (#1227). It is not this machine's
+# clock — it ran twelve seconds ahead of a PC that was itself within two of real UTC,
+# and the operator had been reading 25-30 s of that — so every countdown here is drawn
+# against `game_clock`, and this is what keeps it true. Five minutes is far more often
+# than a drift of seconds a day needs; the read is one line through the warm daemon.
+CLOCK_MS = 5 * 60_000
+
 # The two channels a task can be forwarded to. The room ids are built from the player's
 # own server / alliance, read once and cached (see `_self_ids`).
 SHARE_ALLIANCE = "alliance"
@@ -187,6 +194,9 @@ class SecretTasksTab(PanelTab):
         self.sweep_cy_var = tk.StringVar(master=master)
         self._sweep_hint = None
         self._rule_lbl = None
+        # The words currently on the auto-loot label, so the countdown can leave it
+        # alone while they have not changed.
+        self._rule_line = None
 
         # -- «Переход по координатам» ----------------------------------------
         # The server box may be left empty on purpose: a blank one jumps on whatever
@@ -243,6 +253,7 @@ class SecretTasksTab(PanelTab):
         if self.loaded:
             return
         self.loaded = True
+        self._start_clock_sync()
         self._start_ticking()
         self._snapshot()
 
@@ -291,7 +302,7 @@ class SecretTasksTab(PanelTab):
         self.autoloot.stop()
         self.sweep.stop()
         for name in ("secret_tick", "secret_poll", "secret_nudge",
-                     "autoloot_push_restart"):
+                     "secret_clock", "autoloot_push_restart"):
             self.rt.tick.disarm(name)
         self._ticking = self._polling = False
 
@@ -918,20 +929,46 @@ class SecretTasksTab(PanelTab):
             self._own_server = 0
         return self._own_server
 
+    def _autoloot_line(self) -> str:
+        """The auto-loot label: what it would rob, and what it is doing about it.
+
+        Two questions, and until #1227 only the first was answered. A standing order that
+        finds no star of its level says nothing at all — which reads exactly like one
+        that never started, and that is what «автолут не работает совершенно» was.
+        """
+        return f"{self.autoloot.rule_text()} · {self.autoloot.state_text()}"
+
     def _refresh_rule_hints(self) -> None:
         """Re-render the two "this is what the checkbox will do" lines.
 
         Both standing orders are invisible otherwise, and an invisible rule is how a
         robbery got spent on a level-6 star.
         """
-        for widget, text in ((self._rule_lbl, self.autoloot.rule_text),
-                             (self._sweep_hint, self.sweep.rule_text)):
-            if widget is None:
-                continue
+        self._rule_line = None                 # say it again even if the words match
+        self._refresh_autoloot_line()
+        if self._sweep_hint is not None:
             try:
-                widget.configure(text=text())
+                self._sweep_hint.configure(text=self.sweep.rule_text())
             except tk.TclError:
                 pass
+
+    def _refresh_autoloot_line(self) -> None:
+        """Redraw the auto-loot label, and only when its words have actually changed.
+
+        The state behind it moves on the watcher's own thread, so the second-by-second
+        countdown is what notices; a `configure` per second per profile is exactly the
+        kind of Tk traffic #1226 went looking for, and comparing two strings is not.
+        """
+        if self._rule_lbl is None:
+            return
+        line = self._autoloot_line()
+        if line == self._rule_line:
+            return
+        self._rule_line = line
+        try:
+            self._rule_lbl.configure(text=line)
+        except tk.TclError:
+            pass
 
     def _on_level_filter_change(self) -> None:
         """A «уровень от / до» box was typed: re-draw the list against the new range,
@@ -1019,6 +1056,11 @@ class SecretTasksTab(PanelTab):
             key = str(t.uuid)
             if key in self._rows or key in self._collected:
                 continue
+            if t.free_slots <= 0:
+                # Three looters and the tile is spent: it cannot pay anybody, so it is
+                # not added at all rather than added and hidden. The wire feed carries
+                # them (the capture reports what the map re-sent); the VM read does not.
+                continue
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
                 "level": t.level, "cfg_id": t.cfg_id, "loot_count": t.loot_count,
@@ -1056,17 +1098,23 @@ class SecretTasksTab(PanelTab):
         # Both imported here rather than at the top: `coords` lives in tools/lib, which
         # is only on the path once `panel.runtime.paths` has run, and this module is
         # imported before that in a standalone tab.
-        import time as _time
-
         import coords
+        import game_clock
 
-        now = _time.time()
+        # The phone counts down from `now` to `until` and both are epoch SECONDS
+        # (panel/tabs/base.py) — the tile's timestamps are the game's MILLISECONDS, so
+        # they are divided below. And `now` is the GAME's now: a countdown on the phone
+        # is drawn from the same clock the game's own is, or it is off by the drift
+        # between the two the same way the window's was (#1227).
+        now = game_clock.now_ms() / 1000.0
         items = []
-        for row in sorted(self._rows.values(),
+        # The same rows the window draws — the level range AND the looted-out tiles the
+        # table drops (#1227). A phone showing a spent tile the window has taken off the
+        # list is the divergence CLAUDE.md forbids, and the worse half of it: whoever is
+        # away from the machine cannot check.
+        for row in sorted(self._visible_rows(),
                           key=lambda r: (not r.get("ready"),
                                          r.get("expires_at") or float("inf"))):
-            if not self._in_range(row.get("level")):
-                continue
             facts = [{"label": "secrettasks.col.level", "value": str(row.get("level"))},
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
@@ -1075,10 +1123,17 @@ class SecretTasksTab(PanelTab):
                 "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
                 "facts": facts,
                 # Ready: how long is left to take it. Not ready: when it becomes one.
-                "until": (exp if row.get("ready") else done) or None,
+                "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
                 "pill": "secrettasks.ready" if row.get("ready") else None,
             })
-        return {"cards": [{"title": None, "items": items,
+        # What «Автолут ★» is doing, in the same words the window puts under the
+        # checkbox. It is the reading somebody away from the machine most needs: the
+        # tiles say what is on the map, this says whether anything is going to be taken
+        # — and «nothing, the day's five are spent» is not a thing to guess at (#1227).
+        state_key, state_datum = self.autoloot.state()
+        return {"cards": [{"title": "secret.autoloot.frame",
+                           "rows": [{"label": state_key, "value": state_datum}]},
+                          {"title": None, "items": items,
                            "empty": "secrettasks.empty"}],
                 "now": now,
                 "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
@@ -1150,8 +1205,23 @@ class SecretTasksTab(PanelTab):
             return False
         return True
 
+    def _spent(self, row) -> bool:
+        """Whether the tile has been robbed as often as the game allows.
+
+        Three looters and the tile is finished: there is no slot left for anybody,
+        so a robbery on it is a press the server refuses and a row on the list is a
+        line that can only mislead — it draws «готово к сбору» like a real target,
+        offers the same «Собрать» cell, and sorts among the tiles worth going to
+        (#1227). The wire feed is where they come from: the capture reports every
+        tile the map re-sent, spent or not, while the VM read drops them itself.
+        """
+        import lastwar_proto as proto      # lazy: tools/lib is on the path by now
+        return int(row.get("loot_count") or 0) >= proto.MAX_LOOTERS
+
     def _visible_rows(self) -> list:
-        return [r for r in self._rows.values() if self._in_range(r["level"])]
+        """The rows the tab shows: inside the level range and not yet looted out."""
+        return [r for r in self._rows.values()
+                if self._in_range(r["level"]) and not self._spent(r)]
 
     def _update_status(self) -> None:
         n = len(self._visible_rows())
@@ -1162,6 +1232,35 @@ class SecretTasksTab(PanelTab):
     # log line, the chat share, the jump — and an 18-digit id nobody can read out loud
     # was taking the width the countdown needed. The uuid still travels with the row and
     # is what the robbery is sent with; it is simply not what a person is shown.
+
+    # -- the game's clock ------------------------------------------------------
+    def _start_clock_sync(self) -> None:
+        """Learn the game's clock now, and keep learning it while the tab is open.
+
+        Every countdown on this tab is drawn against `game_clock`, and it only knows the
+        drift once somebody has measured it. The VM reads the tab already makes carry the
+        measurement for free, but a tab fed only by the wire (the capture's checkpoint,
+        with no row ready enough to poll) would never make one — and an unmeasured clock
+        is the old behaviour, off by however far the game has drifted from this machine.
+
+        One line through the warm daemon, five minutes apart, skipped whenever the game
+        is not up. Off the Tk thread, like every other daemon round trip here.
+        """
+        self._sync_clock()
+        self.rt.tick.arm("secret_clock", CLOCK_MS, self._start_clock_sync)
+
+    def _sync_clock(self) -> None:
+        if not (self.rt.game.up() and not self.rt.game.busy):
+            return
+
+        def work() -> None:
+            try:
+                import game_clock
+                game_clock.read(self.rt.game.evaluator())
+            except Exception:                 # noqa: BLE001 — an unread clock is not fatal
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
 
     # -- the countdown ---------------------------------------------------------
     def _start_ticking(self) -> None:
@@ -1185,6 +1284,9 @@ class SecretTasksTab(PanelTab):
                 self._update_status()
             else:
                 self._paint_timers()
+            # The standing order reports from its own thread; this is where the words
+            # under the checkbox catch up with it.
+            self._refresh_autoloot_line()
             self._maybe_start_poll()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
@@ -1197,9 +1299,15 @@ class SecretTasksTab(PanelTab):
         The countdown runs to `completed_at` — the moment the tile becomes raidable — not
         to expiry: «готово через …» while it is ahead, then «готово к сбору» (with how
         long is left to loot) once it is past. `expires_at` still governs removal.
+
+        Against the GAME's clock, not this computer's (#1227). Both timestamps are stamped
+        by the game, and its clock had drifted twelve seconds ahead of a machine that was
+        itself within two of real UTC — so a countdown drawn from `time.time()` disagreed
+        with the one the game draws beside it by however far the drift had got, which the
+        operator was reading as 25-30 s.
         """
-        import time
-        now = int(time.time() * 1000)
+        import game_clock
+        now = game_clock.now_ms()
         expired, changed = [], False
         for key, row in self._rows.items():
             exp = row["expires_at"]
@@ -1279,6 +1387,12 @@ class SecretTasksTab(PanelTab):
             row["expires_at"] = task.expires_at
             row["completed_at"] = task.completed_at
             row["loot_count"] = task.loot_count
+            if self._spent(row):
+                # It filled up while we were watching it — the third looter got there
+                # first. Nothing is left to take, so the row goes rather than sitting
+                # there offering «Собрать» (#1227).
+                self._rows.pop(key, None)
+                removed = True
         if self.autoloot_var.get():
             self._auto_loot(live)
         if removed:

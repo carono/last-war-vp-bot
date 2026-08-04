@@ -350,6 +350,56 @@ def test_the_prohibition_travels_to_both_children():
     assert quiet and "--skip-own-server" not in quiet[0], quiet
 
 
+def test_the_watcher_says_what_it_is_doing_even_when_it_does_nothing():
+    """Every silent end to a tick names itself on screen (#1227).
+
+    «Автолут не работает совершенно» was four different states wearing one face: no
+    source, an unreadable own server, a spent budget, and the ordinary "there is no
+    star of that level on the map right now". None of them said anything after the
+    first line, so from the operator's chair they were indistinguishable from a
+    watcher that had never started.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    from panel.tabs.secret_tasks import autoloot as al
+
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp)
+    assert w.state()[0] == al.STATE_OFF, w.state()
+
+    w.tick()                                       # no checkpoint, no live VM
+    assert w.state()[0] == al.STATE_NO_SOURCE, w.state()
+
+    _checkpoint(cp, [_task(1, 50000704, "5000", 7)])
+    w.tick()                                       # a source, but nothing starred
+    assert w.state()[0] == al.STATE_WATCHING, w.state()
+
+    _checkpoint(cp, [_task(3, 60000701, "6000", 7)])
+    w.tick()                                       # a star of the top level
+    assert w.state() == (al.STATE_TARGETS, "1"), w.state()
+
+    w._proc = object()                             # …a robbery in flight
+    w.tick()
+    assert w.state()[0] == al.STATE_ROBBING, w.state()
+    w._proc = None
+
+    w._pause_until = time.time() + 600             # …the day's five are spent
+    w.tick()
+    key, until = w.state()
+    assert key == al.STATE_PAUSED and ":" in until, w.state()
+    w._pause_until = 0.0
+
+    # …and the own-server prohibition with nothing to compare against.
+    blocked = _Watcher(cp, skip_own=True, own_server=0)
+    blocked.tick()
+    assert blocked.state()[0] == al.STATE_NO_OWN, blocked.state()
+
+    # Every one of them is a real key in the shipped locales, and reads as a sentence.
+    assert w.state_text(), "the state came out as an empty line"
+
+
 def _run_standalone() -> int:
     tests = [obj for name, obj in sorted(globals().items())
              if name.startswith("test_") and callable(obj)]

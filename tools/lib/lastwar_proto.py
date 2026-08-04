@@ -36,6 +36,16 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import game_clock
+
+# Every timestamp decoded below is epoch milliseconds on the GAME's clock, and
+# that clock is not this computer's — it was twelve seconds ahead of a machine
+# within two seconds of real UTC when it was last measured (#1227). So a record
+# is judged against `game_clock.now_ms()`, never against `time.time()`, and the
+# two differ by whatever the last live read said. Wall-clock `time.time()` is
+# still right for the *host's* own bookkeeping — how long ago the capture saw a
+# tile — and stays where it is used for that.
+
 # --------------------------------------------------------------------------
 # Frame constants
 # --------------------------------------------------------------------------
@@ -405,6 +415,12 @@ PENDING_WINDOW_MS = 10 * 60 * 1000
 # The unit is wall-clock seconds on the capture host, not the game's ms clock.
 TASK_FRESH_SECONDS = 15 * 60
 
+# A checkpoint is rewritten in place while readers poll it, so a read can land in
+# the middle of a flush and see broken JSON. How many times to look again, and how
+# long to wait in between — the writer takes milliseconds, so this is a blink.
+CHECKPOINT_TRIES = 3
+CHECKPOINT_RETRY_PAUSE = 0.25
+
 # `cfgId` splits into a family prefix and a trailing `LLVV` (level, variant).
 # The prefix is not a fixed width, so it must be read from the right:
 #     400602   -> family "40",   level 6, variant 2
@@ -521,9 +537,12 @@ class SecretTask:
           * a loot slot must still be free (a 3/3 tile is spent).
 
         Both timestamps are epoch milliseconds on the game's clock, so they are
-        compared against wall-clock now.
+        compared against the GAME's now (`game_clock`), not this machine's: the
+        two were twelve seconds apart when it was last measured, and on the wrong
+        side of that a tile the server would already pay out on reads «ещё
+        выполняется» (#1227).
         """
-        now = int(time.time() * 1000)
+        now = game_clock.now_ms()
         if self.completed_at is None or self.completed_at > now:
             return False
         if self.expires_at is not None and self.expires_at <= now:
@@ -540,7 +559,7 @@ class SecretTask:
         this one needs it in the near future. `expires_at` (the tile's daily
         map-expiry) still has to be ahead or the tile is already gone.
         """
-        now = int(time.time() * 1000)
+        now = game_clock.now_ms()
         if self.expires_at is not None and self.expires_at <= now:
             return False
         return (self.completed_at is not None
@@ -558,7 +577,7 @@ class SecretTask:
 
         An already-expired tile is gone from the map and is none of the three.
         """
-        now = int(time.time() * 1000)
+        now = game_clock.now_ms()
         if self.expires_at is not None and self.expires_at <= now:
             return False
         return (self.completed_at is not None
@@ -741,10 +760,28 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
     recomputed against the current clock rather than trusted as written.
 
     Accepts both the bare-list checkpoint and a ``{"tasks": [...]}`` wrapper.
+
+    A read caught mid-flush is retried rather than raised. The capture rewrites
+    the checkpoint in place every couple of seconds and deliberately does NOT
+    rename a temp file over it (`map_capture.dump_records` explains why: on
+    Windows that costs whole capture sessions), so a poller sees a half-written
+    file every so often. Raising there cost the auto-loot the entire tick — the
+    watcher logged «ошибка опроса скана» and robbed nothing until the next poll
+    (#1227). The writer is finished in milliseconds, so a couple of short retries
+    turn it into a delay nobody notices; only a file that is still broken after
+    them is a real one, and that still raises.
     """
     now = time.time() if now is None else now
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
+    data = None
+    for attempt in range(CHECKPOINT_TRIES):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            break
+        except json.JSONDecodeError:
+            if attempt == CHECKPOINT_TRIES - 1:
+                raise
+            time.sleep(CHECKPOINT_RETRY_PAUSE)
     records = data.get("tasks") if isinstance(data, dict) else data
     fresh = []
     for record in records or ():
@@ -1067,7 +1104,7 @@ class GhostReconMission:
         The polled list carries a trustworthy `state`, so there `done` and
         `can_loot` agree; only on the map does the timer override a bogus `f9`.
         """
-        now = int(time.time() * 1000)
+        now = game_clock.now_ms()
         if self.completion_time is None or self.completion_time > now:
             return False
         if self.expire_time is not None and self.expire_time <= now:
@@ -1430,7 +1467,7 @@ class WorldTreasure:
     @property
     def expired(self) -> bool:
         return (self.expires_at is not None
-                and self.expires_at <= int(time.time() * 1000))
+                and self.expires_at <= game_clock.now_ms())
 
     def as_dict(self) -> dict:
         return {
@@ -1726,7 +1763,7 @@ class Truck:
         start, end = self.leg_start_ms, self.leg_end_ms
         if start is None or end is None or end <= start:
             return x1, y1
-        now = int(time.time() * 1000)
+        now = game_clock.now_ms()
         share = (now - start) / (end - start)
         share = min(1.0, max(0.0, share))
         return (round(x0 + (x1 - x0) * share), round(y0 + (y1 - y0) * share))
@@ -1741,7 +1778,7 @@ class Truck:
         """
         if not self.arrive_at:
             return True
-        return self.arrive_at <= int(time.time() * 1000)
+        return self.arrive_at <= game_clock.now_ms()
 
     @property
     def can_loot(self) -> bool:

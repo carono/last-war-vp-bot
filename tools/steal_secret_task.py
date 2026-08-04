@@ -63,6 +63,7 @@ import time
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "lib"))
 import coords as coords_fmt  # noqa: E402
+import game_clock  # noqa: E402
 import lua_actions  # noqa: E402
 import lua_client  # noqa: E402
 
@@ -86,11 +87,24 @@ def _num(line: str, key: str) -> int:
 
 
 def read_status(ev) -> tuple[int, int]:
-    """(robberies left today, targets queued)."""
+    """(robberies left today, targets queued).
+
+    The line carries the game's clock as well (`NOW=`), because this is the one
+    read every route into the robbery makes — including `--from-scan`, which
+    never touches the tile list and would otherwise judge a checkpoint's
+    timestamps against this machine's clock instead of the game's (#1227).
+    """
     chunk = ('CS.UnityEngine.Debug.LogError("ACT status left="..tostring(%s)'
-             '.." queued="..tostring(%s))'
+             '.." queued="..tostring(%s)'
+             '.." NOW="..tostring(ChatInterface.getServerTime()))'
              % (lua_actions.secret_task_steals_left(), lua_actions.secret_task_queue_len()))
-    for ln in ev.run(chunk, MARKER, 1.0):
+    sent = time.time()
+    lines = ev.run(chunk, MARKER, 1.0)
+    back = time.time()
+    seconds = game_clock.parse(lines)
+    if seconds is not None:
+        game_clock.note(seconds * 1000, sent, back)
+    for ln in lines:
         if "status left=" in ln:
             return _num(ln, "left"), _num(ln, "queued")
     return 0, 0
@@ -215,7 +229,7 @@ def _vm_raidable_tasks(ev) -> list:
     That is enough for `loot_count` / `free_slots` / `can_loot`; whether *I* am already
     in the list is the server's call at steal time, the same as every other route.
     """
-    return _parse_vt_lines(ev.run(lua_actions.secret_task_raidable_alliance(), MARKER, 1.1))
+    return _read_vt(ev, lua_actions.secret_task_raidable_alliance())
 
 
 def _vm_all_alliance_tasks(ev) -> list:
@@ -227,7 +241,25 @@ def _vm_all_alliance_tasks(ev) -> list:
     out. Same `ACT VT …` shape as the raidable read; `SecretTask.can_loot` / `.pending`
     tell the states apart against the local clock.
     """
-    return _parse_vt_lines(ev.run(lua_actions.secret_task_all_alliance(), MARKER, 1.1))
+    return _read_vt(ev, lua_actions.secret_task_all_alliance())
+
+
+def _read_vt(ev, chunk: str) -> list:
+    """Run one of the two alliance reads and parse it — setting the game's clock.
+
+    Both chunks open by emitting `ACT NOW=<seconds>`, the game's own time, so
+    every read of the tile list also re-measures how far the game's clock has
+    drifted from this machine's (`game_clock`). It is the same round trip, and it
+    is the clock the tiles' `done` / `exp` are stamped on, so a list is judged on
+    the clock it was read with rather than on whatever this PC believes (#1227).
+    """
+    sent = time.time()
+    lines = ev.run(chunk, MARKER, 1.1)
+    back = time.time()
+    seconds = game_clock.parse(lines)
+    if seconds is not None:
+        game_clock.note(seconds * 1000, sent, back)
+    return _parse_vt_lines(lines)
 
 
 def _parse_vt_lines(lines) -> list:
@@ -366,6 +398,12 @@ def main() -> int:
         left, queued = read_status(ev)
         print("robberies left today: %d   targets queued: %d" % (left, queued))
         return 0
+
+    # The game's clock, before a single timestamp is judged against it (#1227). The VM
+    # reads below carry it for free, but a `--from-scan` run never touches the tile list
+    # and this is its one chance to learn how far the game's time has drifted from the
+    # machine's — which is exactly the comparison «has this dispatch finished yet».
+    game_clock.read(ev)
 
     # «Не грабить на своём сервере», resolved once and up front. A prohibition that
     # cannot be checked must stop the run rather than lapse quietly: an unreadable own
