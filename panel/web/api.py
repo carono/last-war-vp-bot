@@ -323,7 +323,7 @@ class WebApi:
                 continue
             if soonest is None or when < soonest:
                 # The TITLE, not the id: what the front page said until now was
-                # «ближайший: alliance_upkeep», which is the key the file is keyed by
+                # «ближайший: donate_alliance_tech», the key the file is keyed by
                 # and not a thing anybody calls it (the tab has never shown it either).
                 soonest, whose = when, self._timer_title(rt, timer)
         # `running` is a property on the scheduler, like `busy` on the game link.

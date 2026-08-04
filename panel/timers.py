@@ -1,7 +1,7 @@
 r"""Scheduled repeats of the panel's actions — the timer module.
 
-A *timer* is a scenario plus a period: "collect the base every hour", "keep the
-alliance up — donate, then claim the gifts — every hour". While the panel is open
+A *timer* is a scenario plus a period: "collect the base every hour", "donate to
+the alliance's technology every twenty minutes". While the panel is open
 a background thread ticks; a timer whose last successful run is older than its
 period runs its scenario headless (no window opened, no mouse) and writes down
 when it finished. That record lives in the profile directory, so closing the
@@ -38,12 +38,12 @@ the why are in :func:`adopt_new_errands` and :func:`offered_catalogue`.
         "args": {}
       },
       {
-        "name": "alliance_upkeep",
-        "scenario": ["donate_alliance_tech", "collect_alliance_gifts"],
+        "name": "quick_sweep",
+        "scenario": ["collect_truck_resources", "collect_base_resources"],
         "interval_sec": 3600,
         "enabled": false,
         "args": {},
-        "title": "Alliance: donate, then claim the gifts"
+        "title": "Everything the base has banked"
       }
     ]
 
@@ -142,13 +142,16 @@ TEMPLATE_FILE = os.path.join(PANEL_DIR, "timers.json")
 class Timer:
     """One schedulable errand, as configured.
 
-    ``scenario`` is a *sequence* because an errand is not always one press: the
-    alliance one is "donate, then claim the gifts", which is two recipes that
-    belong to a single switch and a single clock. The runner walks them in order
-    and the errand only counts as done when the last one has finished — a
-    donation that went through followed by a failed gift claim is a failed
-    errand, and the retry does both. That is the safe way round: both recipes
-    no-op when there is nothing to take.
+    ``scenario`` is a *sequence* because an errand is not always one press: a
+    profile may want two recipes under a single switch and a single clock. The
+    runner walks them in order and the errand only counts as done when the last
+    one has finished — a first step that went through followed by a failed second
+    is a failed errand, and the retry does both.
+
+    That is a shape the operator may ask for, not one the built-ins reach for:
+    two recipes on one clock can only ever have ONE period, and errands that
+    genuinely want different ones — a donation every 20 minutes and a gift chest
+    every six hours — must be two rows (:data:`SPLIT_ERRANDS`).
     """
 
     name: str                       # id — config key, record key, log name
@@ -194,14 +197,31 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.collect_base_resources",
     ),
     Timer(
-        name="alliance_upkeep",
-        # Donation first: it is the one with something to lose. Attempts bank up
-        # on their own timer and the routine wants them spent every 20 minutes,
-        # so if the pair is ever cut short it should be cut short at the gifts,
-        # which simply wait in the window until the next round.
-        scenario=("donate_alliance_tech", "collect_alliance_gifts"),
-        interval_sec=3600,
-        label_key="timers.item.alliance_upkeep",
+        name="donate_alliance_tech",
+        scenario=("donate_alliance_tech",),
+        # Twenty minutes, which is the rate the game hands the attempts back at.
+        # This is the errand with something to lose: the attempts bank up to a cap
+        # and every one that is still banked when the day turns is simply gone, so
+        # it wants the short clock — and used to be denied it by sharing one with
+        # the gifts.
+        interval_sec=1200,
+        # The press is headless and no-ops on an empty quota, so a failure means the
+        # game was not answering; five minutes is soon enough to catch the attempts
+        # before the next batch lands on top of them.
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.donate_alliance_tech",
+    ),
+    Timer(
+        name="collect_alliance_gifts",
+        scenario=("collect_alliance_gifts",),
+        # Six hours. Nothing about a gift expires while it waits in the chest, and
+        # this recipe — unlike the donation — opens a window in the game and closes
+        # it again, so looking oftener costs the player's view for nothing.
+        interval_sec=21600,
+        retry_sec=300,
+        enabled=False,
+        label_key="timers.item.collect_alliance_gifts",
     ),
     Timer(
         name="collect_truck_resources",
@@ -268,6 +288,31 @@ DEFAULT_TIMERS: tuple[Timer, ...] = (
         label_key="timers.item.restart_game",
     ),
 )
+
+
+#: Errands that were ONE row and are now several — the old name mapped to the names it
+#: became. Retired here rather than merely deleted, because a name has three lives: the
+#: profile files that still list it, the local template that still offers it, and the
+#: "already shown to this profile" record that must keep it from coming back. What is
+#: done about each is in :func:`split_legacy_errands` and :func:`offered_catalogue`.
+#:
+#: `alliance_upkeep` was "donate, then claim the gifts" on a single switch and therefore
+#: a single period — and the two halves do not want the same one. The donation attempts
+#: bank up every 20 minutes and are lost at the end of the day if they are not spent,
+#: while the gift chest keeps for hours; one clock could only ever be right for one of
+#: them, and the hour it was set to was right for neither.
+SPLIT_ERRANDS: dict[str, tuple[str, ...]] = {
+    "alliance_upkeep": ("donate_alliance_tech", "collect_alliance_gifts"),
+}
+
+#: What a retired errand used to run. An entry in a profile's file may leave the scenario
+#: out and lean on the built-in of the same name (:func:`parse_catalogue`) — and a
+#: retired name has no built-in any more, so without this the row would be dropped as
+#: "nothing to run" and the operator's switch would go with it, before anything had the
+#: chance to split it.
+RETIRED_SCENARIOS: dict[str, tuple[str, ...]] = {
+    "alliance_upkeep": ("donate_alliance_tech", "collect_alliance_gifts"),
+}
 
 
 def _as_scenario(raw) -> tuple[str, ...]:
@@ -532,7 +577,7 @@ def parse_catalogue(data, path: str | None = None,
         base = builtin.get(name)
         scenario = _as_scenario(raw.get("scenario"))
         if not scenario:
-            scenario = base.scenario if base else ()
+            scenario = base.scenario if base else RETIRED_SCENARIOS.get(name, ())
         if not scenario:
             errors.append(Message("log.timers.no_scenario",
                                   f"{name}: no scenario to run — skipped", name=name))
@@ -622,12 +667,16 @@ def offered_catalogue(template: "Catalogue | None" = None) -> Catalogue:
     month's template on disk. The built-in list below is what actually ships, which
     makes the union — the template first, since it is the one that was edited on
     purpose — the honest answer to "what should a profile be offered".
+
+    A RETIRED name (:data:`SPLIT_ERRANDS`) is dropped from the template's half of that
+    union: last month's template still lists it, and a profile created today must not be
+    seeded with an errand this version has already replaced.
     """
     template = load_template() if template is None else template
     names = set(template.names())
-    return Catalogue(list(template.timers)
-                     + [t for t in DEFAULT_TIMERS if t.name not in names],
-                     template.path, template.errors)
+    offered = [t for t in template.timers if t.name not in SPLIT_ERRANDS]
+    offered += [t for t in DEFAULT_TIMERS if t.name not in names]
+    return Catalogue(offered, template.path, template.errors)
 
 
 def adopt_new_errands(catalogue: Catalogue, offered: Catalogue,
@@ -669,12 +718,70 @@ def adopt_new_errands(catalogue: Catalogue, offered: Catalogue,
     return catalogue
 
 
+def split_legacy_errands(catalogue: Catalogue, offered: Catalogue,
+                         path: str) -> Catalogue:
+    """Replace a retired errand with the rows it became, keeping its switch.
+
+    The profile's file owns its list (:func:`parse_catalogue`) and nothing else may
+    rewrite it — which is right for everything except this: an errand that was SPLIT is
+    not a row the operator chose to keep, it is one this version no longer knows how to
+    run on a single clock. Left alone, an account that had `alliance_upkeep` switched on
+    would go on donating once an hour for ever while the panel showed it two new rows,
+    switched off, doing the same work on the right periods.
+
+    So the old row is taken out and the ones it became are put IN ITS PLACE, each with
+    its own built-in period and **the switch the operator had set** — an errand that was
+    running keeps running, one that was off stays off. Nothing is invented: if the
+    profile already has one of the new rows (adopted, or typed by hand) that one is left
+    exactly as it is.
+
+    The retired name also goes into the "already shown" record, so a stale local template
+    that still offers it cannot hand it back on the next launch.
+    """
+    stale = [t for t in catalogue.timers if t.name in SPLIT_ERRANDS]
+    if not stale:
+        return catalogue
+    builtin = {timer.name: timer for timer in DEFAULT_TIMERS}
+    before = set(catalogue.names())
+    out: list[Timer] = []
+    for timer in catalogue.timers:
+        parts = SPLIT_ERRANDS.get(timer.name)
+        if parts is None:
+            out.append(timer)
+            continue
+        for part in parts:
+            base = offered.by_name(part) or builtin.get(part)
+            if base is None or any(t.name == part for t in out) or part in before:
+                continue
+            out.append(Timer(
+                name=base.name, scenario=base.scenario,
+                interval_sec=base.interval_sec, retry_sec=base.retry_sec,
+                # The one thing carried across the split: the operator's decision.
+                enabled=timer.enabled,
+                args=dict(base.args), title=base.title, label_key=base.label_key))
+    fresh = Catalogue(out, catalogue.path or path, catalogue.errors)
+    save_catalogue(fresh, path)
+
+    record = seen_path(path)
+    stored = _read_seen(record)
+    if stored is None:
+        # No record yet, and :func:`adopt_new_errands` is about to take the profile's
+        # list as one. Its list no longer holds the retired name, so write the record
+        # HERE from the list as it was — otherwise a stale template would offer the old
+        # errand straight back, and the split would undo itself on every launch. What
+        # goes in is exactly what that first-time branch would have written.
+        stored = before | set(offered.names())
+    _write_json(record, sorted(stored | before | {t.name for t in out}))
+    return fresh
+
+
 def load_profile_catalogue(path: str) -> Catalogue:
     """The catalogue a profile runs, seeded from the template when it has none.
 
     A file that did not exist is written from the template; one that did keeps every
-    word of what is in it, and gains only the errands this version has learnt since
-    (:func:`adopt_new_errands`).
+    word of what is in it, gains the errands this version has learnt since
+    (:func:`adopt_new_errands`), and has any errand this version has SPLIT replaced by
+    the rows it became (:func:`split_legacy_errands`).
     """
     template = load_template()
     offered = offered_catalogue(template)
@@ -690,6 +797,9 @@ def load_profile_catalogue(path: str) -> Catalogue:
         # Unreadable: what came back is the FALLBACK, not this profile's list. Deciding
         # what it is missing from that would write our guess over the operator's file.
         return catalogue
+    # The split runs FIRST: it is the one that has to see the file as it was written,
+    # and it settles the "already shown" record the adoption below reads.
+    catalogue = split_legacy_errands(catalogue, offered, path)
     return adopt_new_errands(catalogue, offered, path)
 
 

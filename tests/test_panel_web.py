@@ -1095,7 +1095,7 @@ def test_nothing_is_wider_than_the_narrowest_phone():
 
 
 def test_the_front_page_names_the_errand_rather_than_its_id():
-    """«ближайший: alliance_upkeep» is the file's key, not a thing anybody calls it."""
+    """«ближайший: donate_alliance_tech» is the file's key, not what anybody calls it."""
     with tempfile.TemporaryDirectory() as home:
         _rt, api = _api(home)
         assert api.state()["timers"]["next_name"] == "Collect", api.state()["timers"]

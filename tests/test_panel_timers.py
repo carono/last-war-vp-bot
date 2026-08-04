@@ -15,7 +15,8 @@ that is what is tested here:
     the args and the title exactly as they were typed;
   * a timer that has never run is due at once, and one just run is not;
   * a switched-off row is never due, whatever its clock says;
-  * the alliance errand is ONE timer of two steps, in order (donate, then gifts);
+  * the donation and the alliance gifts are TWO errands on two clocks, and a
+    profile written when they were one row is split in place, switch and all;
   * every scenario runs single-file on ONE worker thread — two errands due at the
     same second do not overlap, and "run now" queues instead of starting a thread;
   * a run is written down; a FAILED run is not, and is held back from re-firing
@@ -53,7 +54,8 @@ import fake_runtime  # noqa: E402
 from panel import timers as timersmod  # noqa: E402
 
 BASE = "collect_base_resources"
-ALLY = "alliance_upkeep"          # donate, then claim the gifts
+ALLY = "donate_alliance_tech"     # spend the banked donation attempts
+GIFTS = "collect_alliance_gifts"  # the alliance gift chest, on its own clock
 MINISTRY = "apply_ministry_interior"   # ask for the Minister of the Interior post
 
 
@@ -172,8 +174,7 @@ def test_a_missing_file_is_seeded_and_a_broken_one_falls_back():
     assert path.exists(), "the config file was not seeded"
     written = json.loads(path.read_text(encoding="utf-8"))
     assert [e["name"] for e in written] == defaults, written
-    assert written[1]["scenario"] == ["donate_alliance_tech",
-                                      "collect_alliance_gifts"], written[1]
+    assert written[1]["scenario"] == "donate_alliance_tech", written[1]
 
     # A file that cannot be read is NOT overwritten — whatever the operator typed
     # is still there to be fixed, and the panel runs on the fallback meanwhile.
@@ -270,18 +271,33 @@ def test_most_overdue_goes_first():
     assert cat.due_names(cfg, records, now) == [ALLY, BASE]
 
 
-def test_the_alliance_errand_is_one_timer_of_two_steps():
-    """Donate and gifts share a switch, a period and a clock — and their order."""
-    timer = _catalogue().by_name(ALLY)
-    assert timer.scenario == ("donate_alliance_tech", "collect_alliance_gifts")
+def test_the_donation_and_the_gifts_are_two_errands_on_two_clocks():
+    """They were one row, and one row can only ever have one period (#1229).
 
-    # One tick = one errand = both steps, once. The runner is the panel's, so
-    # what is checked here is that the scheduler hands the pair over as a unit.
+    The donation attempts come back every 20 minutes and are lost at the end of the
+    day if they are not spent; the gift chest keeps for hours and its recipe opens a
+    window in the game. The hour they shared was right for neither.
+    """
+    cat = _catalogue()
+    donate, gifts = cat.by_name(ALLY), cat.by_name(GIFTS)
+    assert donate.scenario == ("donate_alliance_tech",), donate.scenario
+    assert gifts.scenario == ("collect_alliance_gifts",), gifts.scenario
+    assert donate.interval_sec == 1200, donate.interval_sec
+    assert gifts.interval_sec == 21600, gifts.interval_sec
+    assert cat.by_name("alliance_upkeep") is None, "the merged errand is still offered"
+
+    # Two rows, two clocks: the donation fires three times over the hour the gifts
+    # sit out — which is the whole point of splitting them.
     tmp = Path(tempfile.mkdtemp())
-    s = _Scheduler(tmp, _cfg(**{ALLY: 3600}))
-    assert s.sched.tick_once() == [ALLY], s.ran
-    assert s.ran == [ALLY], s.ran
-    assert s.sched.tick_once() == [], "the pair re-fired inside its period"
+    s = _Scheduler(tmp, _cfg(**{ALLY: 1200, GIFTS: 21600}))
+    now = time.time()
+    assert sorted(s.sched.tick_once(now)) == sorted([ALLY, GIFTS]), s.ran
+    # A little past each period: a run is stamped with the REAL clock, so the
+    # virtual one has to clear it by more than the test takes to get there.
+    assert s.sched.tick_once(now + 1210) == [ALLY], s.ran
+    assert s.sched.tick_once(now + 2420) == [ALLY], s.ran
+    assert s.sched.tick_once(now + 3630) == [ALLY], s.ran
+    assert s.ran == [ALLY, GIFTS, ALLY, ALLY, ALLY], s.ran
 
 
 # --- running ----------------------------------------------------------------
@@ -489,6 +505,66 @@ def test_a_freshly_seeded_profile_is_not_adopted_twice():
         timersmod.save_catalogue(first.remove("two"), str(profile))
         again = timersmod.load_profile_catalogue(str(profile))
     assert again.names() == ["one"], again.names()
+
+
+_MERGED = "alliance_upkeep"       # what the pair was one row of, before #1229
+
+
+def _merged_profile(tmp: Path, enabled: bool) -> Path:
+    """A profile file written before the split: the pair on one switch and one clock."""
+    path = tmp / "timers.json"
+    path.write_text(json.dumps([
+        {"name": BASE, "scenario": BASE, "interval_sec": 3600, "enabled": False},
+        {"name": _MERGED, "scenario": [ALLY, GIFTS], "interval_sec": 3600,
+         "retry_sec": 300, "enabled": enabled},
+    ]), encoding="utf-8")
+    return path
+
+
+def test_the_merged_alliance_errand_is_split_in_place_keeping_its_switch():
+    """One switch over two recipes that want two periods had to become two rows.
+
+    The profile's file owns its list and is never rewritten from the template, so
+    without this an account that had the pair switched on would go on donating once an
+    hour for ever, while the panel showed it two NEW rows, switched off, doing the same
+    work on the right clocks.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    profile = _merged_profile(tmp, enabled=True)
+    shipped = tuple(t for t in timersmod.DEFAULT_TIMERS
+                    if t.name in (BASE, ALLY, GIFTS))
+
+    # The local template is as old as the profile: it still OFFERS the merged errand,
+    # which is exactly how a split could undo itself on the next launch.
+    with _with_template(_template(tmp, [BASE, _MERGED])):
+        timersmod.DEFAULT_TIMERS = shipped
+        cat = timersmod.load_profile_catalogue(str(profile))
+        assert cat.names() == [BASE, ALLY, GIFTS], cat.names()
+
+        # The switch is the operator's decision — the one thing carried across…
+        assert cat.by_name(ALLY).enabled is True, "a running errand stopped running"
+        assert cat.by_name(GIFTS).enabled is True, "a running errand stopped running"
+        # …while the periods are this version's, which is the point of the split.
+        assert cat.by_name(ALLY).interval_sec == 1200, cat.by_name(ALLY)
+        assert cat.by_name(GIFTS).interval_sec == 21600, cat.by_name(GIFTS)
+
+        on_disk = [e["name"] for e in json.loads(profile.read_text(encoding="utf-8"))]
+        assert on_disk == [BASE, ALLY, GIFTS], on_disk
+        again = timersmod.load_profile_catalogue(str(profile))
+    assert again.names() == [BASE, ALLY, GIFTS], "the stale template brought it back"
+
+
+def test_the_split_switches_nothing_on_by_itself():
+    """An errand that was off stays off: the split is a rearrangement, not a decision."""
+    tmp = Path(tempfile.mkdtemp())
+    profile = _merged_profile(tmp, enabled=False)
+    shipped = tuple(t for t in timersmod.DEFAULT_TIMERS
+                    if t.name in (BASE, ALLY, GIFTS))
+    with _with_template(_template(tmp, [BASE, _MERGED])):
+        timersmod.DEFAULT_TIMERS = shipped
+        cat = timersmod.load_profile_catalogue(str(profile))
+    assert cat.by_name(ALLY).enabled is False, cat.by_name(ALLY)
+    assert cat.by_name(GIFTS).enabled is False, cat.by_name(GIFTS)
 
 
 def test_only_a_successful_application_restarts_the_ministry_clock():

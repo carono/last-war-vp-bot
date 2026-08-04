@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 32 of 110
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 32 of 111
 
-🟩 32 done · 🟨 34 partly · 🟥 44 not automated
+🟩 32 done · 🟨 35 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -37,7 +37,7 @@ such route still read the screen the old way.
 
 A few abilities no longer need starting at all: the panel has a schedule, and an
 errand listed there runs itself once its period has passed — collecting the base,
-and keeping the alliance up (donate, then claim the gifts) as one errand. The
+donating to the alliance's technology, claiming its gifts, each on its own. The
 clock is kept per account and survives a restart, so an hour that ran out while
 the panel was closed is worked off shortly after it opens. Two errands that come
 due at the same moment never run at the same time: they queue and take their
@@ -76,7 +76,8 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - ✅ Helping the alliance — a single press answers every pending request at once
 - ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
-- 🟡 Donating and claiming the gifts on a schedule — one switch and one period in the panel (an hour by default, and it goes down to the 20 minutes the routine actually asks for): once that long has passed, the donation happens and the gifts are claimed straight after it, in that order, with nobody watching. The clock belongs to the account and survives a restart, so a period that ran out while the panel was closed is worked off shortly after it opens; nothing fires while the game is not running, and a run that fails is retried whole instead of counted. Both presses are the proven ones above; the schedule itself has not yet run through a live session
+- 🟡 Donating on a schedule — its own switch and its own period in the panel, every 20 minutes by default, which is the rate the game hands the attempts back at: once that long has passed the donation happens with nobody watching, so the attempts are spent instead of sitting banked until the day turns and takes them
+- 🟡 Claiming the gifts on a schedule — a separate switch and a separate period, every 6 hours by default: nothing in the chest spoils while it waits, and this one opens a window in the game and closes it again, so looking oftener would cost the view for nothing. It used to share a switch and a clock with the donation above, which meant one period for two errands that want very different ones. For both: the clock belongs to the account and survives a restart, so a period that ran out while the panel was closed is worked off shortly after it opens; nothing fires while the game is not running, and a run that fails is retried instead of counted. The presses themselves are the proven ones above; the schedule has not yet run through a live session
 - ✅ Healing units — one press sends every wounded soldier type for treatment at once, no window opened, and it does nothing when nobody is hurt. Proven live: 681 wounded went in on a single press. If the hospital is busy — a heal already running, or finished soldiers still waiting to be picked up — the game turns the press down, so collect first
 - ✅ Collecting units from the hospital — takes the healed soldiers back and frees the hospital for the next heal. Costs nothing while a heal is still running, so it can be run on any schedule
 - ✅ Asking for help with healing — one press puts the request in front of the alliance, and it is skipped when a request is already standing. Proven live: five alliancemates answered within seconds of the press. It also asks for the base's other working queues, but only the hospital is confirmed to register
@@ -119,7 +120,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Base
 
 - ✅ Collecting everything produced at the base — one sweep over every building that has something waiting, skipping the ones still producing
-- 🟡 Collecting the base on a schedule — a switch and a period in the panel (an hour by default): once that long has passed since the last collection the sweep happens by itself, so the buildings do not sit full while nobody is looking. Same schedule as the alliance donation and gifts above, with the same clock kept per account; not yet run through a live session
+- 🟡 Collecting the base on a schedule — a switch and a period in the panel (an hour by default): once that long has passed since the last collection the sweep happens by itself, so the buildings do not sit full while nobody is looking. Same schedule as the alliance donation and the gifts above, each errand with its own period and the clock kept per account; not yet run through a live session
 - ❌ Researching technology
 - ❌ Upgrading and constructing buildings
 - ❌ Upgrading the drone

@@ -442,9 +442,9 @@ class TimersTab(PanelTab):
     def _edit_timer_dialog(self, timer, is_new: bool) -> None:
         """The row's whole entry, in a window: name, title, period, steps, args.
 
-        Steps are one per line, because that is what a scenario is — «donate, then
-        claim the gifts» is two lines — and a line is either the name of an action
-        script or DSL source run as it stands (panel/timers.py says so too). The
+        Steps are one per line, because that is what a scenario is — «collect the
+        truck, then the base» is two lines — and a line is either the name of an
+        action script or DSL source run as it stands (panel/timers.py says so too). The
         picker beside the box appends a script's name so the thirty-odd recipes do
         not have to be remembered.
 

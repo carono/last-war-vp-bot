@@ -197,8 +197,8 @@ class Schedule:
         real failure — the scheduler turns that into a logged failure and a retry hold,
         and `last_run` is deliberately left where it was.
 
-        A scenario of several steps (the alliance one is donate → gifts) runs under ONE
-        claim and in ONE script context: nothing may slip between the halves, `args` and
+        A scenario of several steps — an errand the operator wrote that way — runs under
+        ONE claim and in ONE script context: nothing may slip between the halves, `args` and
         anything a step reads stay visible to the next one, and a failing step aborts
         the rest, so the retry replays the whole errand rather than half of it.
 

@@ -27,8 +27,8 @@ Blocks:
     recipe is handed now. «Общие» and «Игра» hold the knobs that used to be constants in
     this file: the Python that runs the children, the daemon port, the auto-loot budget,
     the log's retention cap, the game paths and the map-sweep box.
-  * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech and
-    then claim the gifts) has a switch and a period, and runs itself once that long has
+  * Таймеры — a schedule: each listed errand (collect the base; donate to alliance tech;
+    claim its gifts) has ITS OWN switch and period, and runs itself once that long has
     passed since it last ran. Rows are ADDED, COPIED, EDITED and DELETED from the tab
     itself — scenario steps, args and title included — so an unattended routine is built
     without leaving the panel. Everything scheduled runs single-file on one worker thread
