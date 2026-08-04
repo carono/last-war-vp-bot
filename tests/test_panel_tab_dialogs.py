@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import ast
 import sys
+import time
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -133,41 +134,119 @@ def test_the_check_would_have_caught_it() -> None:
     assert len(hits) == 3, f"expected the three bad lines, got: {hits}"
 
 
+class _Develop:
+    """A real Tk root with a real Develop tab on it, and its end-of-run dialog.
+
+    The tab is built against `cold_runtime`, so everything on screen is the panel's
+    own — the locale files, the settings defaults — and nothing reaches the game.
+    """
+
+    def __enter__(self):
+        import tkinter as tk
+        from fake_runtime import cold_runtime
+        from panel.tabs.develop import DevelopTab
+
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.errors: list = []
+        self.root.report_callback_exception = lambda *exc: self.errors.append(exc)
+        self.rt = cold_runtime(self.root)
+        self.tab = DevelopTab(self.rt, tk.Frame(self.root))
+        self.run = _REPO / "tests" / "_dialog_run.tmp.log"
+        self.run.write_text("XSCALL probe\n", encoding="utf-8")
+        return self
+
+    def open_dialog(self):
+        """Run the end-of-session prompt; returns the Toplevel it put up."""
+        before = set(self.root.winfo_children())
+        self.tab._ask_run_outcome({"trace": str(self.run)}, "probe", seconds=3.0)
+        new = [w for w in self.root.winfo_children() if w not in before]
+        assert len(new) == 1, f"expected one dialog, got {new}"
+        return new[0]
+
+    def __exit__(self, *_exc) -> None:
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        self.run.unlink(missing_ok=True)
+        self.rt.shutdown()
+        # The window's shared hand-over pump re-arms itself every 30 ms and `shutdown`
+        # only disarms the NAMED chains. The panel destroys its root and its process
+        # together, so a pending pump never fires there; a test that raises and drops
+        # several roots in one process gets «invalid command name …_pump» on stderr
+        # unless it stops the chain itself.
+        from panel.runtime import tick as tickmod
+
+        pump = tickmod.poster(self.root)
+        if pump is not None:
+            pump.stop()
+        self.root.destroy()
+
+
 def test_the_develop_run_dialog_is_not_empty() -> None:
     """The bug as the person met it: open the real dialog and count what is in it.
 
     A static rule catches the shape; this catches the outcome, because «пустая
     модалка» is not «an exception was raised» — it is a window with no children.
     """
-    import tkinter as tk
-    from fake_runtime import cold_runtime
+    with _Develop() as env:
+        win = env.open_dialog()
+        kinds = {type(w).__name__ for w in _descendants(win)}
+        assert "Button" in kinds, f"no buttons in the dialog: {sorted(kinds)}"
+        assert len(_descendants(win)) > 5, "the dialog came up empty"
+        assert not env.errors, f"the dialog reported: {env.errors}"
 
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        from panel.tabs.develop import DevelopTab
 
-        rt = cold_runtime(root)
-        frame = tk.Frame(root)
-        tab = DevelopTab(rt, frame)
+def test_the_description_box_takes_the_first_keystroke() -> None:
+    """Clicking the greyed placeholder must empty the box and hand back a colour.
 
-        run = _REPO / "tests" / "_dialog_run.tmp.log"
-        run.write_text("XSCALL probe\n", encoding="utf-8")
-        before = set(root.winfo_children())
-        try:
-            tab._ask_run_outcome({"trace": str(run)}, "probe", seconds=3.0)
-            new = [w for w in root.winfo_children() if w not in before]
-            assert len(new) == 1, f"expected one dialog, got {new}"
-            win = new[0]
-            kinds = {type(w).__name__ for w in _descendants(win)}
-            assert "Button" in kinds, f"no buttons in the dialog: {sorted(kinds)}"
-            assert len(list(_descendants(win))) > 5, "the dialog came up empty"
-        finally:
-            for widget in root.winfo_children():
-                widget.destroy()
-            run.unlink(missing_ok=True)
-    finally:
-        root.destroy()
+    `foreground=""` is not "the widget's default" to Tk — a Text has no empty colour
+    and raises «unknown color name ""» from inside the binding, which the event loop
+    swallows into `report_callback_exception`: the person sees their own words stay
+    grey and nothing says why (#1235, found by running the capture for real).
+    """
+    with _Develop() as env:
+        win = env.open_dialog()
+        boxes = [w for w in _descendants(win) if type(w).__name__ in ("Text", "ScrolledText")]
+        assert boxes, "no description box in the dialog"
+        box = boxes[0]
+        assert box.get("1.0", "end").strip(), "the placeholder is not there to clear"
+        box.focus_set()
+        box.event_generate("<Button-1>")
+        env.root.update()
+        assert not env.errors, f"clearing the placeholder raised: {env.errors}"
+        assert not box.get("1.0", "end").strip(), "the placeholder survived the click"
+        colour = box.cget("foreground")
+        assert colour and colour != "#888", f"typing would stay grey: {colour!r}"
+
+
+def test_a_child_dying_arms_the_prompt_from_the_tk_thread() -> None:
+    """`tick.arm` is `widget.after`, and a reader thread must not make that call.
+
+    When both sniffers die on their own the session ends in the READER thread, and
+    the same save/delete prompt has to come up. Arming it from there is the call
+    that blocks on the event loop and raises «main thread is not in main loop»
+    while the window is pumping by hand — killing the reader (#1226).
+    """
+    import threading
+
+    with _Develop() as env:
+        callers: list = []
+        env.rt.tick.arm = lambda name, delay, func: callers.append(
+            (name, threading.current_thread()))
+
+        worker = threading.Thread(target=env.tab._sync_sniff_var)
+        worker.start()
+        worker.join(5.0)
+        assert not worker.is_alive(), "the reader thread is stuck in a Tk call"
+        assert not callers, f"armed straight from the worker: {callers}"
+
+        for _ in range(20):                     # let the shared pump drain the queue
+            env.root.update()
+            time.sleep(0.02)
+        assert callers, "the prompt was never armed"
+        name, thread = callers[0]
+        assert name == "sniff_flush", f"armed the wrong chain: {name}"
+        assert thread is threading.main_thread(), f"armed on {thread.name}"
 
 
 def _descendants(widget) -> list:

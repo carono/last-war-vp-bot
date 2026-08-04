@@ -326,15 +326,26 @@ class DevelopTab(PanelTab):
         Either child may die on its own (the game restarts, tshark loses the
         interface). While the other one still runs the session is live, so the
         checkmark must stay — it is the pair's state, not one process's.
+
+        CALLED FROM A READER THREAD, so everything it does goes over `post`, in one
+        callable. `tick.arm` is not bookkeeping — it is `widget.after`, the very Tk
+        call a worker must not make: from here it blocks on the event loop, and while
+        the window is pumping by hand it raises «main thread is not in main loop» and
+        kills the reader that made it (#1226, panel/runtime/tick.py). Armed on the Tk
+        thread it also cannot race the Stop path's own arm — one chain per name.
         """
         if self._sniff_proc is None and self._trace_proc is None:
-            self.post(lambda: self._sniff_var.set(False))
-            # Both children died on their own (the game restarted, tshark lost
-            # the interface) — the session is over just as surely as after a
-            # Stop, so it gets the same save/delete prompt. Whichever path runs
-            # first empties _sniff_files, so the other one finds nothing to ask
-            # about; both land on the Tk thread, so they cannot interleave.
-            self.rt.tick.arm("sniff_flush", SNIFF_FLUSH_MS, self._finish_sniff_session)
+            def close_out() -> None:
+                self._sniff_var.set(False)
+                # Both children died on their own (the game restarted, tshark lost
+                # the interface) — the session is over just as surely as after a
+                # Stop, so it gets the same save/delete prompt. Whichever path runs
+                # first empties _sniff_files, so the other one finds nothing to ask
+                # about; both land on the Tk thread, so they cannot interleave.
+                self.rt.tick.arm("sniff_flush", SNIFF_FLUSH_MS,
+                                 self._finish_sniff_session)
+
+            self.post(close_out)
 
     def _stop_sniff(self) -> None:
         proc, self._sniff_proc = self._sniff_proc, None
@@ -432,8 +443,13 @@ class DevelopTab(PanelTab):
         # so the first keypress empties the box and the typing lands in a clean
         # one. `showing` — not the widget's colour — is what `save()` trusts:
         # the placeholder must never be storable as a description.
+        # The colour to put BACK is read off the widget before it is greyed, because
+        # `foreground=""` is not "the default" to Tk — a Text has no empty colour and
+        # raises «unknown color name ""» from inside the keypress that clears the
+        # placeholder, leaving what the person is typing grey (#1235).
         placeholder = self.t("develop.run.placeholder")
         showing = {"placeholder": True}
+        typed_fg = text.cget("foreground")
         text.insert("1.0", placeholder)
         text.configure(foreground="#888")
 
@@ -441,7 +457,7 @@ class DevelopTab(PanelTab):
             if showing["placeholder"]:
                 showing["placeholder"] = False
                 text.delete("1.0", "end")
-                text.configure(foreground="")
+                text.configure(foreground=typed_fg)
 
         text.bind("<Key>", clear_placeholder)
         text.bind("<Button-1>", clear_placeholder)
