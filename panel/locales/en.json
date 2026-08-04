@@ -936,6 +936,7 @@
   "web.ui.unit.min": "{n} min",
   "web.ui.unit.hour": "{n} h",
   "web.ui.unit.day": "{n} d",
+  "web.state.elsewhere": "profile «{profile}» is serving it, port {port}",
   "graphics.frame": "Picture quality",
   "graphics.mode.standard": "Normal",
   "graphics.mode.low": "Simplified (save the video card)",

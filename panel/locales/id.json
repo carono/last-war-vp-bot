@@ -936,6 +936,7 @@
   "web.ui.unit.min": "{n} mnt",
   "web.ui.unit.hour": "{n} jam",
   "web.ui.unit.day": "{n} hr",
+  "web.state.elsewhere": "dilayani profil «{profile}», porta {port}",
   "graphics.frame": "Kualitas gambar",
   "graphics.mode.standard": "Normal",
   "graphics.mode.low": "Disederhanakan (hemat kartu grafis)",

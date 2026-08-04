@@ -936,6 +936,7 @@
   "web.ui.unit.min": "{n} phút",
   "web.ui.unit.hour": "{n} giờ",
   "web.ui.unit.day": "{n} ngày",
+  "web.state.elsewhere": "hồ sơ «{profile}» đang phục vụ, cổng {port}",
   "graphics.frame": "Chất lượng hình ảnh",
   "graphics.mode.standard": "Thông thường",
   "graphics.mode.low": "Rút gọn (tiết kiệm card đồ họa)",

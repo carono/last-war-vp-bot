@@ -936,6 +936,7 @@
   "web.ui.unit.min": "{n} мин",
   "web.ui.unit.hour": "{n} ч",
   "web.ui.unit.day": "{n} д",
+  "web.state.elsewhere": "обслуживает профиль «{profile}», порт {port}",
   "graphics.frame": "Качество графики",
   "graphics.mode.standard": "Обычный",
   "graphics.mode.low": "Упрощённый (беречь видеокарту)",
