@@ -127,6 +127,18 @@ def _all_tracked() -> list[str]:
     return [f for f in out if f]
 
 
+def _all_tracked_paths() -> list[str]:
+    """Every tracked path, with no glob at all — the readable ones and any other.
+
+    :func:`_all_tracked` filters by :data:`ALL_GLOBS` because it goes on to READ the
+    files; this one is for asking what is in the repository, where a suffix nobody
+    listed is exactly the interesting answer.
+    """
+    out = subprocess.run(["git", "ls-files"], cwd=_REPO,
+                         capture_output=True, text=True, check=True).stdout.split("\n")
+    return [f for f in out if f]
+
+
 def _read(rel: str) -> str:
     return (_REPO / rel).read_text(encoding="utf-8", errors="replace")
 
@@ -611,6 +623,43 @@ def test_the_table_of_digests_holds_no_plaintext():
         assert " " in what, f"{digest[:8]}…: a category reads like «a player nickname»"
     assert _digest("") not in PERSONAL_DIGESTS, "an empty value would ban every line"
     assert len(set(PERSONAL_DIGESTS)) == len(PERSONAL_DIGESTS)
+
+
+#: What this repository is made of: text somebody wrote. An ALLOW-list and not a list
+#: of banned extensions, because the next recording to arrive will have a suffix nobody
+#: thought to ban — `.pcapng`, `.har`, `.xlsx`, `.zip` — while a screenshot is only ever
+#: one of five names people remember to check for.
+SOURCE_SUFFIXES = {".py", ".md", ".json", ".bat", ".cmd", ".ps1", ".sh", ".txt", ".lua",
+                   ".toml", ".js", ".html", ".css", ".yml", ".yaml", ".cfg", ".ini",
+                   ".example"}
+
+#: …and the handful of files a repository has that carry no suffix at all.
+SOURCE_NAMES = {"LICENSE", ".gitignore", ".gitattributes"}
+
+
+def test_nothing_but_text_is_tracked():
+    """No image, capture, log or database is committed — a shape, not a list of names.
+
+    A screenshot is the one leak nobody reviews: it carries whatever was on the screen
+    — a nickname, an alliance, a coordinate, a Windows taskbar with a login on it — and
+    a diff shows it as «Bin 41k». #1220 deleted the ones that had got in; nothing stopped
+    the next one, and «I did not notice a .png in the diff» is not a defence anybody has
+    ever had to make twice in a row.
+
+    The complement of :func:`test_nothing_untracked_is_waiting_to_be_committed_by_accident`:
+    that one watches the working tree, this one watches what is already in.
+    """
+    offenders = []
+    for rel in _all_tracked_paths():
+        p = pathlib.Path(rel)
+        if p.suffix.lower() in SOURCE_SUFFIXES or p.name in SOURCE_NAMES:
+            continue
+        offenders.append(rel)
+    assert not offenders, (
+        f"tracked, and not text: {offenders[:5]}. A recording, an image or a binary "
+        f"belongs in an ignored tree — and if this one is genuinely source, add its "
+        f"suffix to SOURCE_SUFFIXES so the decision is written down."
+    )
 
 
 #: Directories that hold live data from a real account, on the machine that plays.
