@@ -370,8 +370,8 @@ def test_the_bring_up_hands_the_session_and_the_port_to_the_tool():
 
     class _Tool:
         @staticmethod
-        def bring_up(user, port, say=None):
-            seen.update(user=user, port=port, say=say)
+        def bring_up(user, port, say=None, **kw):
+            seen.update(user=user, port=port, say=say, **kw)
             return 0
 
     saved = sys.modules.get("rdp_instance")
@@ -388,6 +388,11 @@ def test_the_bring_up_hands_the_session_and_the_port_to_the_tool():
     assert code == 0, code
     assert seen["user"] == "player2" and seen["port"] == 47655, seen
     assert seen["say"] is not None, "the panel's log must be handed in, not dropped"
+    # …and it asks for nothing else. `seal` rewrites a stored credential into a form
+    # this logon was measured refusing to spend (#1231): a button that turned it on by
+    # itself would leave the person's second instance failing over on every bring-up,
+    # for a hardening they never asked for and cannot see.
+    assert not seen.get("seal"), seen
 
 
 def test_a_tool_that_gives_up_reaches_the_panel_as_an_error():

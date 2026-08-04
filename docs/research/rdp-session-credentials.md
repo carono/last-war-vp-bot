@@ -8,11 +8,17 @@ Two questions, and they have different answers:
 
 * **"can the panel bring the session up itself?"** — yes, and it does now. Nothing was
   missing but the wiring.
-* **"can it do that without a password stored anywhere?"** — not unattended. Creating a
-  Windows interactive session *is* an authentication, and no Windows API manufactures
-  one without a credential (§2). What is genuinely fixable is the *form* the secret is
-  kept in, and that fix is large: it goes from **readable by anything you run** to
-  **readable by nothing at all**.
+* **"can it do that without a password stored anywhere?"** — yes, at the cost of one
+  prompt per reboot, and **no** if it has to be unattended. Creating a Windows
+  interactive session *is* an authentication, and no Windows API manufactures one
+  without a credential (§2).
+
+> **This document was wrong once, and the correction is the interesting part.** The
+> first version of it recommended keeping the password in the *unreadable* credential
+> form — usable by the connection, readable by nothing, apparently the best of both.
+> Then it was tested against a real logon and **the connection will not spend that
+> form** (§3A). Unattended and unreadable are not available together here. What is
+> available is the choice in §3B, and one mitigation worth more than either (§5).
 
 ## 1. Where the password was, and what could read it
 
@@ -74,6 +80,14 @@ exists*. It cannot make one. Nor can anything else:
   password. It is a *network*-flavoured token belonging to session 0, with no window
   station, no desktop and no credentials to pass on. `SetTokenInformation(TokenSessionId)`
   can move a token into an existing session — never into a new one.
+
+  Measured here, and it is worse than the theory: `schtasks /ru <user> /np` **prompts
+  for the password anyway**, elevated or not, and hangs on the prompt; registering the
+  same thing properly (`New-ScheduledTaskPrincipal -LogonType S4U`) is refused with
+  `0x80070005` both as an elevated administrator **and as SYSTEM**. And a task that does
+  run reports what the theory says it would — as the scheduler's own account, in
+  `session=0`, with `[Environment]::UserInteractive` **False**. There is no desktop
+  there for a client to draw on, which is the wall #1105 hit from the other side.
 * **A service with `CreateProcessAsUser`** is the same story: it needs a token, and the
   only password-free way to a user's token is one of the two above.
 * An interactive session is created by the terminal-services stack in response to a
@@ -85,39 +99,58 @@ So the credential question is only ever: **who holds it, and in what form.**
 
 ## 3. The options, and what each one costs
 
-### A. Sealed credential — *chosen, and now the default*
+### A. Sealed credential — *tried, measured, and it does not work here*
 
-Keep the password where Windows keeps RDP passwords: a `TERMSRV/<server>` credential of
-type `CRED_TYPE_DOMAIN_PASSWORD`. mstsc consumes it exactly as it consumes the one its
-own «remember me» writes; `CredRead` returns nothing to anybody.
+The idea: keep the password where Windows keeps RDP passwords, as a `TERMSRV/<server>`
+credential of type `CRED_TYPE_DOMAIN_PASSWORD` — the type mstsc's own «remember me»
+writes. Unattended *and* unreadable, apparently the best of both.
 
-* **Cost to the person:** one prompt, once, ever (`--save-credential`).
-* **Security:** the secret still exists — an attacker who is already SYSTEM, or who has
-  the desktop user's own password (DPAPI master key), can still get at the vault. What
-  goes away is the entire class of "anything running as me can print it": no script, no
-  tool in this repo, and no process it spawns can read it any more. This repo's code
-  touches the plaintext in exactly one place now — the one-time migration of an old
-  readable credential — and never again.
-* **Caveat, stated plainly:** the sealed *connect* has not been exercised live here,
-  because doing so means logging off or reconnecting a session with a live farming
-  client in it. The credential API half is measured (write, read-back-empty, delete —
-  all confirmed); the consumption half rests on it being the same credential mstsc
-  writes for itself, of which this machine holds three working examples. Because that
-  is an inference and not a measurement, `rdp_connect` **falls back**: if the sealed
-  connect produces no session and the old readable copy is still on the machine, it puts
-  the readable one back, says so, and retries. A hardening that quietly stops the second
-  instance coming up would be worse than the thing it hardened.
+Half of it is true. Such a credential is genuinely unreadable: written, then `CredRead`
+returns a 0-byte blob, while the generic one at the same target returns its 36 bytes of
+plaintext. Three credentials on this machine, saved by mstsc itself against real remote
+hosts, are of exactly this type.
 
-### B. Ask, and store nothing — *implemented alongside*
+**The other half fails.** With the sealed credential in place and nothing else, the
+connection does not happen:
 
-`--ask` (and the panel, whenever nothing is stored) opens mstsc with its own credential
+| credential at `TERMSRV/127.0.0.2` | written by | result |
+|---|---|---|
+| generic (readable) | `CredWrite` | **connected in ~2 s** |
+| domain-password (unreadable) | `CredWrite` | mstsc opens, ~25 s, vanishes — no session |
+| domain-password (unreadable) | **`cmdkey /add:`** — Windows' own tool, rc=0 | mstsc opens, ~25 s, vanishes — no session |
+
+No dialog, no exit code, nothing in the client's window but its own frame: the failure
+signature `multi-instance-rdp.md` §3.1 records for `localhost`. The third row is the one
+that settles it — `cmdkey` writing the credential rules out a field this repo forgot to
+set. Whatever LSA declines to release, it declines for **a local account authenticating
+a workgroup machine over loopback RDP**. Three `UserName` spellings were tried
+(`<domain>\<user>`, `<host>\<user>`, and mismatched against the `.rdp`); none changed it.
+
+So this is **not the default**. `--seal` keeps it available, because the verdict is
+about one configuration and a domain-joined install has a KDC and may well differ, and
+`rdp_connect` falls back to the readable copy and says so — trying it costs one slow
+bring-up, not a stranded instance. (That fallback earned itself immediately: the first
+live bring-up ran the sealed attempt, failed, fell back, and the session came up.)
+
+### B. Ask, and store nothing — *the answer to the question as asked*
+
+`--ask`, and the panel whenever nothing is stored, open mstsc with its own credential
 prompt. Windows asks, Windows checks, nothing is written anywhere. Everything after the
-logon — client, daemon, console, tear-down — is unattended as before.
+logon — client, daemon, console, tear-down — is unattended exactly as before.
 
-* **Cost:** one password typed per reboot, at the machine.
+* **Cost:** one password typed per reboot, at the machine. Not per bring-up: a
+  disconnected session survives everything short of a reboot or a logoff.
 * **Security:** the best available. There is no secret at rest to steal.
-* This is the honest reading of "without storing a password", and it is why the panel
-  never fails for want of a credential: with none stored it takes this route by itself.
+
+### B′. Store the readable credential — *the price of unattended*
+
+The alternative, and now that A is gone it is the only unattended one: a generic
+`TERMSRV/<server>` credential, which this logon spends in two seconds and which hands
+its plaintext to any process running as the desktop user.
+
+* **Cost:** nothing, ever, after the first `--save-credential`.
+* **Security:** poor, and it must be stated rather than implied — `--credentials` says
+  it in as many words. It is only tolerable at all once §5's mitigation is applied.
 
 ### C. An account with no password
 
@@ -147,18 +180,52 @@ Rejected on three counts, any one of which is enough:
 Two flavours, and neither creates the session:
 
 * *"Run whether user is logged on or not"* + a stored password — the password becomes an
-  LSA secret (better than a generic credential, no better than option A), and the task
+  LSA secret, which is a better hiding place than a generic credential, and the task
   runs under a **batch** logon in session 0: no desktop, so ACE kills the client exactly
   as in #1105.
-* `/np` (S4U, nothing stored) — same session 0, same wall.
+* `/np` (S4U, nothing stored) — same session 0, same wall. And it is not even
+  registerable here: see the measurements in §2.
+
+The session-0 half is measured, not assumed. A probe run as a scheduled task reported:
+
+```
+nt authority\system
+session=0
+UserInteractive=False
+```
 
 It is, however, genuinely useful for the *other* half: a task registered **inside** the
 second session with an "at log on" trigger, running `tools\start_instance.cmd <port>`,
 brings the client and the daemon up on their own whenever that session logs on. Combined
-with option A or B, a reboot then costs at most one password and no further attention.
+with B or B′, a reboot then costs at most one password and no further attention.
 Not implemented — the SYSTEM route already does this and works.
 
-### F. A service under SYSTEM calling `CreateProcessAsUser`
+### F. A saved RDP connection with credential delegation
+
+The one option that sounds like it dodges §2 entirely, and the reason it does not is
+worth spelling out, because the mistake is easy to make.
+
+CredSSP delegation is configured under
+`HKLM\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation` —
+`AllowDefaultCredentials` with `TERMSRV/*` in its list makes the RDP client hand the
+**logged-on user's own** credentials to the target without a prompt. It genuinely
+removes a password dialog, and it stores nothing new.
+
+It removes the wrong dialog. Delegation answers *"do not make me retype who I already
+am"*; the question here is *"log in as somebody else"*. Delegating the desktop user's
+default credentials to `127.0.0.2` authenticates as **the desktop user** — it would
+create or reconnect that account's session, and the second client must be owned by the
+second account's own interactive logon or ACE kills it (#1105). To delegate the second
+account's credentials, mstsc would have to be *running as* that account, which needs its
+password — the thing being avoided. `AllowFreshCredentials` is the same shape: "fresh"
+means typed.
+
+There is a cost, too, if anybody reaches for it anyway: `TERMSRV/*` tells the machine to
+hand your credentials to *any* RDP target you connect to. On a workstation that also
+opens sessions to real remote servers — this one has three saved — that is a wider
+change than the problem deserves.
+
+### G. A service under SYSTEM calling `CreateProcessAsUser`
 
 Already how this works (`tools/session_launch.py`), already password-free, and §2 is why
 it cannot be stretched to cover the logon. Nothing to change.
@@ -168,19 +235,17 @@ it cannot be stretched to cover the logon. Nothing to change.
 `tools/rdp_instance.py`:
 
 ```
---credentials        what is stored for this account, and in what form
---save-credential    ask once, seal it (CRED_TYPE_DOMAIN_PASSWORD)
---forget-credential  delete the readable copies
---bring-up           sealed if there is one, readable ones sealed on the way past,
-                     and Windows asks when there is neither
+--credentials        what is stored for this account, in what form, and who can read it
+--save-credential    ask once and store it (add --seal for the unreadable form)
+--forget-credential  store nothing again
+--bring-up           use what is stored; ask when nothing is
 --bring-up --ask     ask always, store nothing
 --bring-up --stored  refuse to ask; fail instead (for unattended callers)
+--bring-up --seal    try the unreadable form, falling back if it is not spent
 ```
 
-A readable credential left over from #1105/#1106 is migrated to the sealed form the
-first time a bring-up needs it. The `LastWarVpBot/…` entry is deliberately **left
-standing** until the person runs `--forget-credential`: while it is there it is the way
-back if the sealed form does not take.
+Nothing is sealed behind anyone's back: the default path uses whatever is stored, and
+`--credentials` names the exposure rather than leaving it to be discovered.
 
 The panel: **Настройки → Игра → «Поднять сессию»**, beside «Проверить». It runs the same
 sequence off the Tk thread with the tool's commentary going line by line into the panel
@@ -193,12 +258,31 @@ a dialog for the person.** It ticks "do not ask again" and presses «Да» only
 that ask nothing but yes or no — otherwise the no-storage route would have its credential
 prompt answered, with an empty password, by the very automation that opened it.
 
-## 5. What is still true afterwards
+## 5. The recommendation
 
-* One prompt per boot at worst, none at all with a sealed credential.
-* The password is not readable by anything running as the desktop user.
-* Nothing in this repository stores, logs or passes a password.
+**Take B, and do the mitigation.** Store nothing; let the panel bring the session up and
+let Windows ask for the password on the one occasion per boot when it needs one. The
+session then survives everything until the next reboot, so this is not a prompt anybody
+meets during a day's farming — and it is the only arrangement in which there is no
+secret at rest at all.
+
+Take B′ — the stored, readable credential — only if the machine must come back
+unattended after a power cut. If so, then **the mitigation is not optional**:
+
+> **The second Windows account does not need to be an Administrator.** It runs one game
+> client in a session nobody looks at. On the machine this was written for it is in
+> Administrators, which means what a readable credential exposes is an admin password.
+> Demote it to a standard user and the same exposure buys an attacker a game profile.
+
+That single change is worth more than anything the credential form could have bought,
+and — unlike option A — it is available on every configuration.
+
+## 6. What is true afterwards
+
+* The panel raises the session itself; no command line is named to anybody any more.
+* One prompt per boot, or none if the person accepts a readable stored credential and
+  has been told plainly that it is readable.
+* Nothing in this repository logs or prints a password, and the only code path that
+  holds one at all is the opt-in `--seal` migration.
 * Steps 2–4 (client, daemon, console) remain what they always were: no credential
   anywhere near them (`docs/research/multi-instance-rdp.md` §1).
-* **Worth doing separately:** the second account is an Administrator and has no need to
-  be. Demoting it costs nothing and shrinks what the remaining secret is worth.

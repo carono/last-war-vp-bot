@@ -251,12 +251,12 @@ C:\Python312\python.exe tools\rdp_instance.py --user <user2> --credentials      
 C:\Python312\python.exe tools\rdp_instance.py --user <user2> --bring-up --ask   # store nothing
 ```
 
-`--save-credential` writes a `TERMSRV/<server>` credential of type
-`CRED_TYPE_DOMAIN_PASSWORD` — the one mstsc's own «remember me» writes, which LSA uses
-and hands back to nobody. With nothing stored, `--bring-up` lets mstsc ask, and keeps
-none of it. The old *generic* credentials from #1105/#1106 gave their plaintext to any
-process running as the desktop user; one left over is sealed on first use and removed
-with `--forget-credential`.
+With nothing stored, `--bring-up` lets mstsc ask and keeps none of it — one prompt per
+reboot, which is the recommended arrangement. `--save-credential` is the unattended
+alternative and its credential **is readable** by anything running as the desktop user:
+the unreadable form exists, but this logon was measured refusing to spend it, so the
+choice is between a prompt and an exposure rather than between forms of storage. If the
+readable one is chosen, demote the second account out of Administrators first.
 
 The tool also sets the policy that lets an unsigned `.rdp` open without a prompt
 (`AllowUnsignedFiles`); a dialog watcher clicks anything that still appears (it ticks
