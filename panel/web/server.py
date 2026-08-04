@@ -30,6 +30,7 @@ import json
 import mimetypes
 import os
 import socket
+import socketserver
 import ssl
 import threading
 import time
@@ -158,6 +159,35 @@ class Attempts:
             self._by_peer.pop(peer, None)
 
 
+class _Server(ThreadingHTTPServer):
+    """`ThreadingHTTPServer` that does not look its own name up in DNS (#1226).
+
+    `HTTPServer.server_bind` ends with `self.server_name = socket.getfqdn(host)`, and on
+    the wildcard address that is a **reverse DNS lookup for `0.0.0.0`**: measured on this
+    machine, 832–1004 ms, inside the constructor, on whatever thread called it. The tab
+    calls it from `ensure_loaded` — which is the Tk thread — so switching the web server
+    on, or merely opening a panel with it already on, froze the window for a second.
+
+    `server_name` is only ever used to fill in a `Host:` the client did not send. Nothing
+    here reads it: every response is built from the request, and the address a person is
+    given is printed by the tab from the port. So the lookup buys nothing at all, and
+    `gethostname()` — which is free, and is what the lookup starts from — is a better
+    answer than a reverse lookup of a wildcard.
+    """
+
+    def server_bind(self) -> None:
+        # `socketserver.TCPServer`'s half (bind + getsockname), named OUTRIGHT. Not
+        # `super(ThreadingHTTPServer, self)`, which walks on to `HTTPServer.server_bind`
+        # — the very method whose last line is the lookup — and skips nothing at all.
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        try:
+            self.server_name = socket.gethostname()
+        except OSError:                      # a machine that will not say; it is a label
+            self.server_name = str(host)
+        self.server_port = port
+
+
 class WebServer:
     """One window's remote control: a thread, a socket, and the API behind it."""
 
@@ -218,7 +248,7 @@ class WebServer:
         self.api.attach()
         handler = _make_handler(self)
         try:
-            httpd = ThreadingHTTPServer((self.host, self.port), handler)
+            httpd = _Server((self.host, self.port), handler)
         except OSError:
             self.api.detach()
             raise

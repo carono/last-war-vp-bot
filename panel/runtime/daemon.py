@@ -71,6 +71,12 @@ LEASE_TTL_SEC = 120
 NO_WINDOW = 0x08000000        # CREATE_NO_WINDOW
 DETACHED = 0x00000008         # DETACHED_PROCESS
 
+# How long a check that THIS profile's daemon is reachable may take, and how long its
+# answer is reused. Both exist because a daemon that is not there costs the whole timeout
+# and a daemon that is there costs 0.3 ms — see `GameLink.up` (#1226).
+UP_TIMEOUT_SEC = 0.35
+UP_CACHE_SEC = 1.0
+
 # How long `ensure()` waits for a daemon it just started, and how often it looks.
 START_TRIES, START_WAIT = 60, 0.5
 # How long `restart()` waits for the old one to let go of the port.
@@ -117,6 +123,9 @@ class GameLink:
         self._activity = activity if activity is not None else Activity()
         self._busy = False
         self._busy_lock = threading.Lock()
+        #: The last answer :meth:`up` got, and when: ``(at, port, answer)``. See there
+        #: for why a check nobody caches is a second of frozen window per profile.
+        self._up_seen: tuple = (0.0, None, False)
         #: The process-wide claim this link is holding (`panel/runtime/claims.py`), or
         #: ``None``. Remembered rather than re-derived — see :meth:`_claim_client`.
         self._claimed = None
@@ -188,9 +197,42 @@ class GameLink:
         client = self.client
         return str(getattr(client, "token", "") or "") if client is not None else ""
 
-    def up(self) -> bool:
-        """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)"""
-        return lua_client.is_running(port=self.port())
+    def up(self, fresh: bool = False) -> bool:
+        """Is THIS profile's daemon reachable? (Not "a daemon somewhere".)
+
+        **A daemon that is NOT there costs the whole timeout, every time** — measured on
+        this machine, a connect to a port nothing is listening on never gets refused, it
+        is dropped, so `is_running` sat for its full second and answered `False`. A
+        daemon that IS there answers in 0.3 ms. So the honest reading of the old
+        one-second default is «a second per check, but only when the answer is no».
+
+        That is the shape that stops the panel scaling (#1226). A profile whose client
+        is not up yet — the third and fourth account, most of the day — makes every
+        `up()` a full second, and `up()` is asked by the status poll, the dashboard, the
+        schedule's gate, a capture starting and every action. Some of those are on the
+        TK THREAD, and then it is a second of window that does not redraw, per profile.
+
+        Two changes, both cheap:
+
+        * the timeout is :data:`UP_TIMEOUT_SEC`, because this is a LOOPBACK socket. A
+          third of a second is already three orders of magnitude more than a daemon that
+          is there needs, and waiting longer only makes a «no» slower to arrive;
+        * the answer is reused for :data:`UP_CACHE_SEC`. A daemon does not come and go
+          within a second, and the callers that would notice — `ensure`, which is
+          watching for one it has just started — ask with ``fresh=True``.
+        """
+        port = self.port()
+        if not fresh:
+            at, was, answer = self._up_seen
+            if was == port and (time.monotonic() - at) < UP_CACHE_SEC:
+                return answer
+        answer = lua_client.is_running(port=port, timeout=UP_TIMEOUT_SEC)
+        self._up_seen = (time.monotonic(), port, answer)
+        return answer
+
+    def forget_up(self) -> None:
+        """Drop the remembered answer — something just changed the daemon's existence."""
+        self._up_seen = (0.0, None, False)
 
     def evaluator(self):
         """The warm evaluator, on this profile's port and under THIS link's lease.
@@ -275,7 +317,7 @@ class GameLink:
                 self.on_state("error", False)
                 return False
             for _ in range(START_TRIES):
-                if self.up():
+                if self.up(fresh=True):   # watching for one we have just started
                     self._log.say("daemon", "log.daemon.ready")
                     self._note("ready on port %s", port)
                     self.on_state("warm", True)
@@ -301,7 +343,7 @@ class GameLink:
             except Exception as exc:                  # noqa: BLE001
                 self._log.say("daemon", "log.daemon.shutdown_failed", error=exc)
             for _ in range(FREE_TRIES):               # let the port come free
-                if not self.up():
+                if not self.up(fresh=True):           # …one we have just shut down
                     break
                 time.sleep(FREE_WAIT)
             # No token carried over: the daemon that granted it is gone, so the lease
@@ -392,6 +434,14 @@ class GameLink:
         """
         client = self.client
         if client is None or not hasattr(client, "acquire"):
+            return True
+        if not self.up():
+            # The same answer `acquire` is about to give, without the wait for it. This
+            # matters because `claim` is called ON THE TK THREAD by every button, and a
+            # daemon that is not there costs a connect to find out — so a press with no
+            # daemon up froze the window for as long as the connect took, every time
+            # (#1226). `up` is the cached, short-timeout check, and its answer here is
+            # the honest one: nothing else can be driving a game nothing can reach.
             return True
         try:
             token = client.acquire(owner, ttl=LEASE_TTL_SEC)

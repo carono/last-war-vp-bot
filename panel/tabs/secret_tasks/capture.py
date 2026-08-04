@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 
 # The runtime FIRST: importing `panel.runtime` is what puts the repo's tools/lib on
@@ -38,10 +39,13 @@ class Capture:
         self.rt = rt
         self.tab = tab
         self._proc = None
+        #: A launch is in flight on its own thread — see :meth:`start`. Without it, two
+        #: presses in the second the game takes to answer are two captures.
+        self._starting = False
 
     @property
     def running(self) -> bool:
-        return self._proc is not None
+        return self._proc is not None or self._starting
 
     # -- start / stop --------------------------------------------------------
     def toggle(self) -> None:
@@ -51,6 +55,15 @@ class Capture:
             self.stop()
 
     def start(self) -> None:
+        """Build the command from the tab, then go and start the child. Tk thread.
+
+        SPLIT IN TWO ON PURPOSE (#1226). Everything the TAB knows is read here, where the
+        widgets are; everything that touches the GAME or spawns a process happens on a
+        thread, because both of them block for hundreds of milliseconds and this method
+        is called while a page is being built — once per open profile. The daemon check
+        alone was a third of a second of window that had not redrawn, and the server seed
+        behind it is a round trip into the game VM.
+        """
         if self._proc is not None:
             return
         idx = self.tab.kind_index()
@@ -76,30 +89,48 @@ class Capture:
         interval = self.tab.interval_var.get().strip()
         if interval.isdigit() and int(interval) > 0:
             cmd += ["--interval", interval]
-        # Seed the on-screen server from the running game through the warm daemon, so the
-        # capture prints "server N" from its first line instead of sitting on "server
-        # unknown yet" until the map is scrolled (a passive capture only learns the server
-        # from a map response, which arrives only while the map moves). VPN-independent;
-        # the capture's own weight-of-traffic election still overrides this the moment
-        # real map data disagrees.
-        if self.rt.game.up():
-            srv = self.rt.game.current_server()
-            if srv and str(srv).isdigit():
-                cmd += ["--seed-server", str(srv)]
-                self.tab.say("secret", "log.secret.seed_server", srv=srv)
-        self.tab.say("secret", "log.secret.starting", script=script)
-        mon = self.rt.children.spawn("secret", cmd, on_line=self.on_line,
-                                     on_exit=self._on_exit)
-        if not mon.start():
-            self.tab.monitor_var.set(False)
+        # …and the rest — the game and the spawn — off the Tk thread. `_starting` is what
+        # stops a second press (or a second `ensure_loaded`) launching a second capture
+        # in the gap before `_proc` is set.
+        if self._starting:
             return
-        self._proc = mon
-        # Confirm the child really started (so a silent monitor is never mistaken for a
-        # crash). A passive pcap only yields tiles while the map is scrolling — so say so,
-        # unless «Автообъезд карты» is already doing the scrolling.
-        self.tab.say("secret",
-                     "log.secret.started" if self.tab.sweep.running
-                     else "log.secret.started_move_map", pid=mon.pid)
+        self._starting = True
+        threading.Thread(target=self._launch, args=(cmd, script),
+                         name="panel-capture-start", daemon=True).start()
+
+    def _launch(self, cmd: list, script: str) -> None:
+        """Seed the server, spawn the child, say what happened. Worker thread."""
+        try:
+            # Seed the on-screen server from the running game through the warm daemon, so
+            # the capture prints "server N" from its first line instead of sitting on
+            # "server unknown yet" until the map is scrolled (a passive capture only
+            # learns the server from a map response, which arrives only while the map
+            # moves). VPN-independent; the capture's own weight-of-traffic election still
+            # overrides this the moment real map data disagrees.
+            if self.rt.game.up():
+                srv = self.rt.game.current_server()
+                if srv and str(srv).isdigit():
+                    cmd += ["--seed-server", str(srv)]
+                    self.tab.say("secret", "log.secret.seed_server", srv=srv)
+            self.tab.say("secret", "log.secret.starting", script=script)
+            mon = self.rt.children.spawn("secret", cmd, on_line=self.on_line,
+                                         on_exit=self._on_exit)
+            if not mon.start():
+                self.tab.post(lambda: self.tab.monitor_var.set(False))
+                return
+            self._proc = mon
+            # Confirm the child really started (so a silent monitor is never mistaken for
+            # a crash). A passive pcap only yields tiles while the map is scrolling — so
+            # say so, unless «Автообъезд карты» is already doing the scrolling.
+            self.tab.say("secret",
+                         "log.secret.started" if self.tab.sweep.running
+                         else "log.secret.started_move_map", pid=mon.pid)
+        except Exception as exc:          # noqa: BLE001 — a capture, never the window
+            self.tab.say("secret", "log.secret.ended")
+            self.rt.dbg("secret").error("capture start failed: %s", exc, exc_info=True)
+            self.tab.post(lambda: self.tab.monitor_var.set(False))
+        finally:
+            self._starting = False
 
     def stop(self) -> None:
         mon, self._proc = self._proc, None

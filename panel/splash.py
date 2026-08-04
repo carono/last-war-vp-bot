@@ -18,12 +18,24 @@ _TITLE = "#f0f0f0"
 _SUBTLE = "#8a8a8a"
 _STEP = "#aaaaaa"
 
+#: How often :meth:`SplashScreen.say` is allowed to force the glass to catch up.
+#: See there: the flush re-lays out the whole window, so once per reported step
+#: makes a page build quadratic in its own size (#1226).
+SAY_FLUSH_MS = 100
+
 
 class SplashScreen(tk.Toplevel):
     """Boot splash. Call ``step(text, progress)`` per phase, then ``finish()``."""
 
+    #: When the glass was last forced to catch up (see :meth:`say`). A CLASS default as
+    #: well as an instance one, so a stand-in that does not run `__init__` — which is
+    #: how this is tested without a display — still has an answer.
+    _flushed = 0.0
+
     def __init__(self, master, title="Last War", subtitle="", width=440, height=250):
         super().__init__(master)
+        #: When the glass was last forced to catch up (see :meth:`say`).
+        self._flushed = 0.0
         self.overrideredirect(True)             # frameless — no title bar, no border
         self.configure(bg=_BG)
         self._center(width, height)
@@ -82,8 +94,21 @@ class SplashScreen(tk.Toplevel):
         """
         try:
             self._step_lbl.configure(text=text)
-            self.update_idletasks()
         except Exception:           # noqa: BLE001 — the splash is never load-bearing
+            return
+        # THE FLUSH IS RATIONED (#1226). `update_idletasks` re-lays out everything that
+        # has been built so far, so calling it once per reported step makes a page build
+        # quadratic in its own size — measured as the largest single stall left in a
+        # four-profile boot, from inside `_build_one_tab`. A person cannot read four
+        # sentences in a tenth of a second anyway, so the label is always up to date and
+        # the GLASS is caught up at most every SAY_FLUSH_MS.
+        now = time.monotonic()
+        if (now - self._flushed) * 1000 < SAY_FLUSH_MS:
+            return
+        self._flushed = now
+        try:
+            self.update_idletasks()
+        except Exception:           # noqa: BLE001
             pass
 
     def step(self, text: str, progress: float | None = None) -> None:

@@ -56,6 +56,9 @@ class Workspace:
         self._current: "ProfileSession | None" = None
         #: What `_remember` last wrote, so writing it again is skipped.
         self._written: tuple = (None, None)
+        #: While true, `_remember` writes nothing — a caller that is about to change the
+        #: list several times in a row says so and writes once at the end (`restore`).
+        self._quiet = False
 
     def free(self, name: str) -> bool:
         """Is ``name`` open in no other panel? ``True`` when nothing was asked."""
@@ -204,13 +207,22 @@ class Workspace:
         # remembered list is only remembered, so a profile another panel is holding is
         # skipped and said out loud rather than taken over.
         self._held_elsewhere = []
-        for name in wanted:
-            if name != head and not self.free(name):
-                self._held_elsewhere.append(name)
-                if self._refused is not None:
-                    self._refused(name)
-                continue
-            self.open(name, make_current=False)
+        # ONE WRITE, not one per profile (#1226). Every `open` calls `_remember`, and
+        # `_remember` reads the panel-wide settings file and writes it back — on the Tk
+        # thread, with a virus scanner between it and the disk. Opening four profiles
+        # therefore rewrote the same file four times before the window had drawn at all,
+        # measured as a 437 ms stall. The list is only interesting once it is complete.
+        self._quiet = True
+        try:
+            for name in wanted:
+                if name != head and not self.free(name):
+                    self._held_elsewhere.append(name)
+                    if self._refused is not None:
+                        self._refused(name)
+                    continue
+                self.open(name, make_current=False)
+        finally:
+            self._quiet = False
         self.switch_to(head)
         # The pointer follows the page that is on screen, so the next plain launch
         # comes up looking at the same profile even if the list is later lost.
@@ -237,6 +249,8 @@ class Workspace:
         no way to know it was ever wanted. The only thing that takes a name out of this
         list is closing it on purpose.
         """
+        if self._quiet:
+            return
         names = self.names
         active = self._current.name if self._current is not None else None
         if active is not None:

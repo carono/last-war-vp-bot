@@ -44,6 +44,11 @@ PORT = int(os.environ.get("LW_DAEMON_PORT") or DEFAULT_PORT)
 # the lease long after this module was imported.
 LEASE_ENV_VAR = "LW_GAME_LEASE"
 
+#: How long a CONNECT to the daemon may take, as opposed to how long an answer may take.
+#: The daemon is on this machine: a connect that has not succeeded in half a second is
+#: not going to. See `DaemonClient.__init__` for what the shared number used to cost.
+CONNECT_TIMEOUT = 0.5
+
 
 def current_lease() -> str:
     """The token this process holds or inherited, or ``""``."""
@@ -63,14 +68,25 @@ class DaemonClient:
     """Talks to lua_daemon over a per-call TCP connection. Same interface as LuaEval."""
 
     def __init__(self, host: str = HOST, port: int = PORT, timeout: float = 90.0,
-                 token: "str | None" = None):
+                 token: "str | None" = None, connect_timeout: float = CONNECT_TIMEOUT):
         self.host, self.port, self.timeout = host, port, timeout
+        # CONNECTING and WAITING FOR AN ANSWER are two different waits and only one of
+        # them is long. A Lua chunk may legitimately take a minute, which is what
+        # `timeout` is for; the CONNECT is to a socket on this machine and either
+        # succeeds in a fraction of a millisecond or is never going to. Sharing the one
+        # number meant a call made while the daemon was down sat for the operating
+        # system's own connect timeout — measured at 2.0 s — and `GameLink.claim` is
+        # called from the Tk thread by every button, so that was two seconds of frozen
+        # window per press with no daemon up (#1226).
+        self.connect_timeout = float(connect_timeout)
         # None means "whatever this process is running under"; "" means explicitly
         # unleased (a read that must never queue behind, or be refused by, a lease).
         self.token = current_lease() if token is None else token
 
     def _rpc(self, req: dict) -> dict:
-        s = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        s = socket.create_connection((self.host, self.port),
+                                     timeout=self.connect_timeout)
+        s.settimeout(self.timeout)       # …and the ANSWER may take as long as it takes
         try:
             s.sendall((json.dumps(req) + "\n").encode("utf-8"))
             buf = b""

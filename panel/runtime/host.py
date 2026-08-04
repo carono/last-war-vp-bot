@@ -11,6 +11,8 @@ in the profile's `panel.log` and `debug.log`.
 """
 from __future__ import annotations
 
+import threading
+
 from .. import debug_log as dbgmod
 from .. import i18n as i18nmod
 from .. import profile as profilemod
@@ -145,7 +147,22 @@ class PanelRuntime:
         # before anything of this runtime's own is started so the log line reads in
         # order. Only children of a DEAD owner are touched: a panel open beside this one
         # keeps its own (panel/runtime/children.py).
-        self.children.reap()
+        #
+        # ON A THREAD, because this is `PanelRuntime.__init__` and that runs on the TK
+        # THREAD, once per open profile. It walks the registry asking psutil whether each
+        # owner is alive, which is `Process.status()` and `create_time()` per entry —
+        # measured at ~300 ms, and with four profiles opening that is more than a second
+        # of window that has not drawn yet (#1226). Nothing waits for the answer: it ends
+        # processes the LAST run left behind, and a monitor that lives a second longer has
+        # already lived since the previous panel closed.
+        threading.Thread(target=self._reap, name="panel-reap", daemon=True).start()
+
+    def _reap(self) -> None:
+        """End what the LAST run left behind. On a thread of its own — see the caller."""
+        try:
+            self.children.reap()
+        except Exception:                 # noqa: BLE001 — housekeeping, never the panel
+            self.dbg("children").error("reap failed", exc_info=True)
 
     @property
     def schedule(self):

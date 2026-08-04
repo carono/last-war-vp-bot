@@ -17,6 +17,7 @@ log says which one broke.
 """
 from __future__ import annotations
 
+import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -271,6 +272,27 @@ class SettingsTab(PanelTab):
     def _refresh_autostart(self) -> None:
         """Re-read the scheduler and the last verdict, and say both in one block.
 
+        THE READ IS OFF THE TK THREAD, because it is a `schtasks` SUBPROCESS: measured
+        at ~58 ms, and this runs whenever the page is drawn — so with four profiles open
+        it is a quarter of a second of window that has not redrawn, for a label nobody
+        is waiting on (#1226). The painting comes back through `self.post`, which is the
+        one way a tab may return from a worker (docs/panel-tabs.md).
+        """
+        if getattr(self, "_autostart_note", None) is None:
+            return
+
+        def read() -> None:
+            try:
+                info = autostartmod.status(self.rt.profiles)
+            except Exception:            # noqa: BLE001 — a label, never the page
+                return
+            self.post(lambda: self._paint_autostart(info))
+
+        threading.Thread(target=read, name="panel-autostart", daemon=True).start()
+
+    def _paint_autostart(self, info) -> None:
+        """Draw what :meth:`_refresh_autostart` read. Tk thread.
+
         Whole sentences joined by a newline, never fragments glued together: the order
         of the pieces is not the same in every language, and each line here stands by
         itself in any of them.
@@ -278,7 +300,6 @@ class SettingsTab(PanelTab):
         note = getattr(self, "_autostart_note", None)
         if note is None:
             return
-        info = autostartmod.status(self.rt.profiles)
         self._autostart_var.set(info.registered)
         lines = []
         if not info.supported:

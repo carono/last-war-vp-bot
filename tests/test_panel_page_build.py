@@ -450,6 +450,24 @@ def test_the_splash_commentary_does_not_pump_the_event_loop() -> None:
     assert "update" not in kinds, "say() pumped the event loop"
     assert kinds == ["label", "idle"], kinds
 
+    # …and the FLUSH is rationed, which the label is not (#1226). `update_idletasks`
+    # re-lays out the whole window, so one per reported step makes a page build
+    # quadratic in its own size — it was the largest stall left in a four-profile boot.
+    # Every step still updates the words; the glass catches up at most every
+    # SAY_FLUSH_MS.
+    calls.clear()
+    for i in range(5):
+        fake.say(f"building tab {i}…")
+    kinds = [c[0] for c in calls]
+    assert kinds.count("label") == 5, kinds
+    assert kinds.count("idle") == 0, f"the flush is not rationed: {kinds}"
+
+    # …and once the window has passed, the next one flushes again.
+    fake._flushed -= splashmod.SAY_FLUSH_MS / 1000.0
+    calls.clear()
+    fake.say("a later phase…")
+    assert [c[0] for c in calls] == ["label", "idle"], calls
+
 
 def test_the_bottom_strip_says_what_is_running_and_names_the_profile() -> None:
     """The window's strip: idle by default, the newest step otherwise."""

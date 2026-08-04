@@ -788,8 +788,70 @@ second asked for, the Tk-variable path managed about 31.
   memory. «Проверить» drops the reading first, because a person who has just changed
   something is asking whether it took.
 
+### What the LIVE four-profile panel then said
+
+Everything above was read off stall reports from a two-profile run and confirmed with a
+synthetic bench. The acceptance question was different — «is the panel responsive with
+four profiles» — so `tools/dev/panel_load_bench.py` was written to ask it of a REAL
+panel: four profiles opened (copies, cloned to reach four), every one of them doing a
+profile's background work, and the event loop's own lateness recorded from inside it. It
+can put the pre-fix paths back on the same build (`--legacy`), so the two runs differ in
+the fix and in nothing else.
+
+| what is reverted | boot, 4 profiles | steady state under load |
+|---|---|---|
+| nothing (fixed) | **8.4–8.8 s** | p95 4.6–5.2 ms, worst 31–60 ms |
+| the QUEUE half | **79.8 s** | p95 3.9–4.3 ms |
+| the BLOCKING half | 8.9 s | p95 4.3 ms |
+| both | **81.5–81.9 s** | p95 3.9–4.3 ms |
+
+Three things in that table are worth saying out loud.
+
+**The queue half is the whole of it.** Four boot threads each blocking on the one event
+loop, which is itself building four pages, is not four times one profile — it is ninety
+seconds against nine. That is «на 3-4 панель будет парализована», reproduced and
+measured, and it is superlinear because every profile's work waits behind every other
+profile's work AND behind the drawing.
+
+**The steady state was never the problem**, and the table says so honestly: an idle
+window with four working profiles is late by four milliseconds either way. What the fix
+changes is what happens while the Tk thread is BUSY — booting, building a page,
+switching a profile — which is exactly when somebody is waiting for it. A bench that had
+only measured an idle window would have found nothing and concluded there was nothing.
+
+**The blocking half hides in a total.** It is ~0.3 s of the boot and it is not therefore
+small: what it costs is not spread evenly. Reading the stall reports rather than the
+total is what found each of these, all of them on the Tk thread, all of them per profile:
+
+| what | measured | where it was |
+|---|---|---|
+| `rt.game.up()` with the daemon down | **1004 ms** | `capture.start`, in `ensure_loaded` |
+| `claim()` with the daemon down | **2.0 s** | every button, through `_claim_lease` |
+| `getfqdn('0.0.0.0')` binding the web server | **832–1004 ms** | `web.ensure_loaded` |
+| `children.reap()` (psutil per child) | **~300 ms** | `PanelRuntime.__init__` |
+| `autostart.registered()` (a `schtasks` child) | **58 ms** | the Settings page |
+| `current_server()` (a round trip into the game) | **≥500 ms** | `capture.start` |
+
+The first two are one fault with two faces: **a connect to a local port nothing is
+listening on is DROPPED on this machine, not refused**, so every check cost its whole
+timeout — and the timeouts were a second (`is_running`) and ninety (`DaemonClient`, which
+shared one number between connecting and waiting for an answer). A third and fourth
+account are not up most of the day, so this was the ordinary case, not the edge one.
+
+Fixed by: a short timeout and a one-second memory on `up()`; a `connect_timeout` separate
+from the answer timeout; `_claim_lease` short-circuiting on a daemon it already knows is
+down; a `server_bind` that does not resolve; the reap on a thread; the autostart read on
+a thread; the capture's game reads and its spawn on a thread; the panel-wide file written
+once per `restore` rather than once per profile; and the splash's forced redraw rationed
+to 100 ms, because `update_idletasks` re-lays out everything built so far and one per
+reported step makes a page build quadratic in its own size.
+
 ### What is left
 
+* **A page build is still 1.3–1.9 s per profile**, spread over thousands of small widget
+  calls with no single frame to blame — the same thing §«What is left» below has been
+  saying since #1211, and the reason a boot is eight seconds rather than two. Building a
+  tab's content on first show is the fix, and it is a change to the tab contract.
 * The stall tool's `_PARKED` heuristic (above) reports threads blocked in C reads as
   competition. Filtering by what the frame is DOING rather than by its name needs the
   thread's state, which `sys._current_frames` does not carry — a plausible fix is to

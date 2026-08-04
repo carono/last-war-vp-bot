@@ -276,7 +276,9 @@ def _cold_link(port: int, user=None) -> GameLink:
     link = GameLink(port=lambda: port, python=lambda: "python", log=_Log(),
                     env=dict, cwd=str(_REPO), daemon_script="x",
                     user=(lambda: user) if user else None)
-    link.up = lambda: False
+    # `fresh=` since #1226: a check inside `ensure`'s start loop asks for a reading
+    # rather than the remembered one, so the double has to accept it.
+    link.up = lambda fresh=False: False
     return link
 
 

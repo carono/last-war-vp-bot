@@ -100,7 +100,18 @@ queued behind the one event loop. The measurement, the two seams and what was do
 in `docs/research/multi-profile-panel.md` §12, and the tool that measures it is
 `tools/dev/panel_thread_bench.py`.
 
-One thing there belongs here, because it is about reading THIS tool's output:
+Two things there belong here.
+
+**A blocking call on the Tk thread is worth more than it looks in a total.** The
+four-profile boot went 81.5 s → 8.6 s, and almost all of that was the queueing; the
+blocking calls found alongside it were ~0.3 s of the total and were still worth every
+one of them, because they are not spread evenly — they are a second of dead window at
+the moment somebody presses a button. The list, with what each measured, is in
+`multi-profile-panel.md` §12. The one to remember: **a connect to a local port nothing
+is listening on is dropped on this machine, not refused**, so every «is my daemon there»
+check cost its whole timeout, and two of those timeouts were 1 s and 90 s.
+
+The second is about reading THIS tool's output:
 **`stall.py::_PARKED` filters a thread out by the NAME of its innermost frame**, so a
 thread blocked inside a C read called from a method of ours — `panel/childmon.py::_read`
 sitting in `for raw in proc.stdout` — is reported as competing when it has released

@@ -29,7 +29,15 @@ What has to hold, and what each group below pins:
     profiles on two clients never wait for each other, and a refusal names the profile
     that is holding it;
   * the desktop's one foreground is taken only by a scenario that clicks or looks, and
-    an RDP profile — which has a desktop of its own — neither takes it nor waits.
+    an RDP profile — which has a desktop of its own — neither takes it nor waits;
+  * and nothing a profile does BLOCKS the Tk thread: not the check that its daemon is
+    there, not the claim, not binding the web server, not writing the panel's file.
+
+The second group came out of running the thing rather than reading it. A real panel with
+four profiles, driven by `tools/dev/panel_load_bench.py`, booted in **81.5 s** with the
+pre-#1226 paths and **8.6 s** with them — and reverting the two halves separately says
+which is which: the queueing half alone is 79.8 s of that, and the blocking half is what
+the stall reports pointed at during a page build. Both are pinned below.
 
 Tk-free except for the two groups that are about Tk, which use a widget DOUBLE rather
 than a real window: what is being asserted is «was Tk called from this thread», and a
@@ -363,6 +371,7 @@ class _Link:
         self.link._log = _SilentLog()
         self.link._client = None
         self.link._client_port = port
+        self.link._up_seen = (0.0, None, False)
 
     def __getattr__(self, name):
         return getattr(self.link, name)
@@ -516,7 +525,127 @@ def test_a_scenario_that_clicks_is_recognised() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. and it stays that way
+# 6. what a profile may NOT do on the Tk thread
+#
+# Every one of these was found by running `tools/dev/panel_load_bench.py` with four
+# profiles and reading the stall reports. They are the second half of the fault: the
+# first is a profile's work QUEUEING on the Tk thread (above), this is a profile's work
+# SITTING on it. Both scale with the number of profiles and neither is visible with one.
+# ---------------------------------------------------------------------------
+def test_a_daemon_that_is_not_there_is_not_a_second_of_frozen_window() -> None:
+    """A connect to a port nothing is listening on is DROPPED here, not refused.
+
+    So the check cost its whole timeout, every time, and the old timeout was a second —
+    on the Tk thread, once per profile, whenever an account was not up yet. And the
+    answer was never remembered, so asking twice cost two.
+    """
+    from panel.runtime import daemon as daemonmod
+
+    assert daemonmod.UP_TIMEOUT_SEC <= 0.5, daemonmod.UP_TIMEOUT_SEC
+    link = _Link("main", 47654)
+    asked: list = []
+
+    import lua_client
+
+    was = lua_client.is_running
+    lua_client.is_running = lambda **kw: (asked.append(kw), False)[1]
+    try:
+        assert link.link.up() is False
+        assert link.link.up() is False and link.link.up() is False
+        assert len(asked) == 1, f"the answer was not remembered: {len(asked)} asks"
+        assert asked[0]["timeout"] <= 0.5, asked[0]
+        # …and the caller watching for one it has just started is never fobbed off.
+        link.link.up(fresh=True)
+        assert len(asked) == 2, "fresh=True read a remembered answer"
+    finally:
+        lua_client.is_running = was
+
+
+def test_a_claim_does_not_dial_a_daemon_it_knows_is_not_there() -> None:
+    """`claim` runs on the TK THREAD from every button, and dialling costs a connect."""
+    link = _Link("main", 47654)
+    dialled: list = []
+
+    class _Client:
+        def acquire(self, owner, ttl=0):
+            dialled.append(owner)
+            return "token"
+
+    link.link._client = _Client()
+    link.link.up = lambda fresh=False: False
+    claims.clear()
+    try:
+        assert link.claim("panel") is True, "a down daemon must not refuse the claim"
+        assert dialled == [], "it dialled a daemon it had just been told is not there"
+    finally:
+        link.release()
+        claims.clear()
+
+
+def test_connecting_to_the_daemon_and_waiting_for_it_are_two_different_waits() -> None:
+    """A Lua chunk may take a minute; a LOCAL connect either works at once or never."""
+    import lua_client
+
+    client = lua_client.DaemonClient(port=47654)
+    assert client.timeout >= 30, client.timeout          # the answer may take a while
+    assert client.connect_timeout <= 1.0, client.connect_timeout
+    assert lua_client.CONNECT_TIMEOUT <= 1.0, lua_client.CONNECT_TIMEOUT
+
+
+def test_the_web_server_does_not_look_itself_up_in_dns_to_bind() -> None:
+    """`HTTPServer.server_bind` ends in `getfqdn(host)` — on the wildcard, ~0.9 s.
+
+    On the Tk thread, because the tab binds from `ensure_loaded`. Nothing reads
+    `server_name`, so the lookup bought a second of frozen window and nothing else.
+    """
+    from http.server import BaseHTTPRequestHandler
+
+    from panel.web import server as websrv
+
+    started = time.perf_counter()
+    httpd = websrv._Server(("0.0.0.0", 0), BaseHTTPRequestHandler)
+    held = time.perf_counter() - started
+    try:
+        assert held < 0.2, f"the bind took {held * 1000:.0f} ms — it is still resolving"
+        assert httpd.server_name, "a server with no name at all"
+    finally:
+        httpd.server_close()
+
+
+def test_opening_four_profiles_writes_the_panel_file_once() -> None:
+    """`_remember` reads and rewrites the panel-wide settings on every `open`.
+
+    On the Tk thread, with a virus scanner between it and the disk. The list is only
+    interesting once it is complete.
+    """
+    from panel.runtime.workspace import Workspace
+
+    writes: list = []
+
+    class _Profiles:
+        active = "one"
+
+        def open_profiles(self) -> list:
+            return ["one", "two", "three", "four"]
+
+        def set_active(self, name, write=True) -> None: ...
+
+        def set_open_profiles(self, names, active=None) -> None:
+            writes.append(list(names))
+
+        def _ensure_dir(self, name) -> str:
+            return name
+
+    space = Workspace(None, profiles=_Profiles())
+    space.open = lambda name, make_current=True: space._sessions.append(
+        type("S", (), {"name": name, "rt": None})())
+    space.switch_to = lambda name: None
+    space.restore()
+    assert len(writes) == 1, f"{len(writes)} writes for four profiles: {writes}"
+
+
+# ---------------------------------------------------------------------------
+# 7. and it stays that way
 # ---------------------------------------------------------------------------
 def test_nothing_in_the_panel_hands_work_over_with_a_bare_after() -> None:
     """A grep, deliberately — the same shape as the one guarding `_arm`.
