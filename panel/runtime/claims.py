@@ -29,7 +29,7 @@ WHY NOT A LOCK. A lock says "wait"; every caller here wants "say so and come bac
 later" — a timer re-queues its errand, a button says «занят», the map sweep keeps its
 waypoint. So the registry hands out an OWNER instead: the answer to a refused claim is
 the name of whoever is holding it, which is what turns «занято» into «занято профилем
-casper» in the log.
+alice» in the log.
 
 Nothing here is per-window: two panels are two processes and the daemon's lease is what
 separates those. This is one process, several profiles.
