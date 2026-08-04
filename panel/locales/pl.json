@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Wytrzymałość",
   "chat.empty": "jeszcze nie ma wiadomości",
   "log.session.bringing_up": "podnoszę sesję Windows użytkownika {user} — to potrwa kilka minut",
+  "log.session.save_hint": "Windows będzie pytał po każdym ponownym uruchomieniu, dopóki hasło nie zostanie zapisane w Menedżerze poświadczeń. Aby zapisać je raz — w terminalu: tools\\rdp_instance.py --user {user} --save-credential (przyjmuje je Windows, panel nigdy go nie widzi).",
   "log.session.up_failed": "nie udało się podnieść sesji: {error}",
   "log.session.up_ok": "sesja, klient i demon działają",
   "log.session.up_partial": "sesja nie podniosła się do końca (kod {code}) — powyższe wiersze mówią, gdzie się zatrzymała",

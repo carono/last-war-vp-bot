@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Dayanıklılık",
   "chat.empty": "henüz mesaj yok",
   "log.session.bringing_up": "{user} kullanıcısının Windows oturumu başlatılıyor — birkaç dakika sürer",
+  "log.session.save_hint": "Parola Kimlik Bilgileri Yöneticisi'ne kaydedilene kadar Windows her yeniden başlatmadan sonra soracak. Bir kez kaydetmek için — bir terminalde: tools\\rdp_instance.py --user {user} --save-credential (parolayı Windows alır, panel onu hiç görmez).",
   "log.session.up_failed": "oturum başlatılamadı: {error}",
   "log.session.up_ok": "oturum, istemci ve daemon çalışıyor",
   "log.session.up_partial": "oturum sonuna kadar açılmadı (kod {code}) — nerede durduğunu yukarıdaki satırlar söylüyor",

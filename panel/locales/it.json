@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Vigore",
   "chat.empty": "ancora nessun messaggio",
   "log.session.bringing_up": "avvio della sessione Windows di {user} — richiede qualche minuto",
+  "log.session.save_hint": "Windows lo chiederà di nuovo dopo ogni riavvio finché la password non è salvata in Gestione credenziali. Per salvarla una volta — in un terminale: tools\\rdp_instance.py --user {user} --save-credential (la riceve Windows, il pannello non la vede mai).",
   "log.session.up_failed": "non è stato possibile avviare la sessione: {error}",
   "log.session.up_ok": "sessione, client e daemon sono attivi",
   "log.session.up_partial": "la sessione non è salita fino in fondo (codice {code}) — le righe sopra dicono dove si è fermata",

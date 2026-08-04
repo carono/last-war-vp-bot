@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Стамина",
   "chat.empty": "сообщений пока нет",
   "log.session.bringing_up": "поднимаю сессию Windows пользователя {user} — это займёт несколько минут",
+  "log.session.save_hint": "Windows будет спрашивать после каждой перезагрузки, пока пароль не сохранён в диспетчере учётных данных. Сохранить один раз — в терминале: tools\\rdp_instance.py --user {user} --save-credential (пароль принимает Windows, панель его не видит).",
   "log.session.up_failed": "не удалось поднять сессию: {error}",
   "log.session.up_ok": "сессия, клиент и демон подняты",
   "log.session.up_partial": "сессия поднялась не до конца (код {code}) — где остановилось, видно в строках выше",

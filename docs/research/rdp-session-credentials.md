@@ -20,6 +20,26 @@ Two questions, and they have different answers:
 > form** (§3A). Unattended and unreadable are not available together here. What is
 > available is the choice in §3B, and one mitigation worth more than either (§5).
 
+## 0. The mechanism is already Windows' own — that part was never in doubt
+
+Worth saying first, because it is easy to read the rest as though the bot invented a
+password store. It did not. What holds the password is **Credential Manager**: DPAPI at
+rest, keyed to this user and this machine, and **mstsc fetches it itself** — exactly the
+thing the RDP client's «remember me» tick uses. Nothing in this repository decrypts it,
+and since §4 nothing here even *receives* it.
+
+Measured this session, and these are the four questions worth having answers to:
+
+| | answer | evidence |
+|---|---|---|
+| Does a stored credential already bring the session up with no password typed? | **yes** | a cold `--stop --logoff` then `--bring-up`: connected in ~2 s, client started, daemon warm, a Lua chunk answered out of the second client. Nothing was typed. |
+| Is the credential really what does it? | **yes** | with every entry for that target deleted and nothing else changed, the same connect **fails**. The control matters: without it, every other row could be caching. |
+| Does it survive a reboot? | **yes** | a «remember me» credential on this machine was written **2024-07-02** and is still there; the machine last booted **2026-07-13**. `Persist = LOCAL_MACHINE`. |
+| Is the `TERMSRV/` prefix needed? | it is the right one to use | `TERMSRV/127.0.0.2` connects; the bare `127.0.0.2` also connected here, but `TERMSRV/<host>` is the name Windows itself writes and the one to rely on. |
+
+The single point of difference with «tick remember me and be done» is the credential's
+**type**, and that is not a preference either — see §3A.
+
 ## 1. Where the password was, and what could read it
 
 Both halves of the old arrangement were Windows *generic* credentials, written with
@@ -113,18 +133,30 @@ hosts, are of exactly this type.
 **The other half fails.** With the sealed credential in place and nothing else, the
 connection does not happen:
 
-| credential at `TERMSRV/127.0.0.2` | written by | result |
-|---|---|---|
-| generic (readable) | `CredWrite` | **connected in ~2 s** |
-| domain-password (unreadable) | `CredWrite` | mstsc opens, ~25 s, vanishes — no session |
-| domain-password (unreadable) | **`cmdkey /add:`** — Windows' own tool, rc=0 | mstsc opens, ~25 s, vanishes — no session |
+| credential at `TERMSRV/127.0.0.2` | result |
+|---|---|
+| **nothing at all** (control) | mstsc opens, then no session |
+| generic (readable) | **connected in ~2–6 s** |
+| domain-password (unreadable), `CredWrite` | mstsc opens, ~25 s, vanishes — no session |
 
-No dialog, no exit code, nothing in the client's window but its own frame: the failure
-signature `multi-instance-rdp.md` §3.1 records for `localhost`. The third row is the one
-that settles it — `cmdkey` writing the credential rules out a field this repo forgot to
-set. Whatever LSA declines to release, it declines for **a local account authenticating
-a workgroup machine over loopback RDP**. Three `UserName` spellings were tried
-(`<domain>\<user>`, `<host>\<user>`, and mismatched against the `.rdp`); none changed it.
+No dialog, no exit code, nothing but the client's own frame: the failure signature
+`multi-instance-rdp.md` §3.1 records for `localhost`. The control row is what makes the
+third one mean something — **the unreadable credential behaves exactly as if no
+credential existed**. Three `UserName` spellings were tried (`<domain>\<user>`,
+`<host>\<user>`, and mismatched against the `.rdp`); none changed it.
+
+> **A retracted claim.** An earlier version of this file added a fourth row: the same
+> failure with the credential written by `cmdkey /add:` rather than `CredWrite`, offered
+> as proof that no field of ours was to blame. That row is withdrawn. `cmdkey` reads its
+> `/pass` prompt from the **console**, not from stdin — fed through a pipe it stores an
+> *empty* password and still exits 0. The tell came later, when the same trick against
+> `/generic:` produced a credential whose blob was zero bytes; for the domain type the
+> blob always reads back empty, so there it looked like success. The conclusion survives
+> on the `CredWrite` row plus the control, but the corroboration did not exist.
+
+An attempt to pin the cause on loopback specifically — the same two forms against this
+machine's LAN address — was inconclusive: **the generic control failed there too**, so
+that experiment says something about the address, not about the credential.
 
 So this is **not the default**. `--seal` keeps it available, because the verdict is
 about one configuration and a domain-joined install has a KDC and may well differ, and
@@ -142,15 +174,28 @@ logon — client, daemon, console, tear-down — is unattended exactly as before
   disconnected session survives everything short of a reboot or a logoff.
 * **Security:** the best available. There is no secret at rest to steal.
 
-### B′. Store the readable credential — *the price of unattended*
+### B′. Store it in Credential Manager, the way the RDP client does — *unattended*
 
 The alternative, and now that A is gone it is the only unattended one: a generic
-`TERMSRV/<server>` credential, which this logon spends in two seconds and which hands
-its plaintext to any process running as the desktop user.
+`TERMSRV/<server>` credential, which this logon spends in a couple of seconds.
 
-* **Cost:** nothing, ever, after the first `--save-credential`.
-* **Security:** poor, and it must be stated rather than implied — `--credentials` says
-  it in as many words. It is only tolerable at all once §5's mitigation is applied.
+**`--save-credential` does not ask for the password itself.** It runs
+`cmdkey /generic:TERMSRV/<host> /user:<domain>\<user> /pass`, and `cmdkey` prompts on
+its own console: the password goes **person → cmdkey → Credential Manager**, never
+through this process and never through an argument (which would put it in every process
+listing). That is the whole of what the person wanted — Windows takes the password, and
+this repository has no code that could print it even by accident.
+
+One guard, because the failure mode is silent: `cmdkey` reads that prompt from the
+console and, given a pipe instead, stores an **empty** password and reports success. So
+what landed is read back, and an empty entry is deleted with a complaint rather than
+left to surface at three in the morning as "the session will not come up".
+
+* **Cost:** nothing after the one prompt, and it survives reboots (§0).
+* **Security:** the entry is DPAPI-protected at rest and unreadable to other users and
+  other machines — but a *generic* credential is readable by anything running as **this**
+  user, which is the part that must be said rather than implied. `--credentials` says it.
+  It is only tolerable once §5's mitigation is applied.
 
 ### C. An account with no password
 
@@ -236,7 +281,7 @@ it cannot be stretched to cover the logon. Nothing to change.
 
 ```
 --credentials        what is stored for this account, in what form, and who can read it
---save-credential    ask once and store it (add --seal for the unreadable form)
+--save-credential    hand the typing to cmdkey — Windows stores it, we never see it
 --forget-credential  store nothing again
 --bring-up           use what is stored; ask when nothing is
 --bring-up --ask     ask always, store nothing
@@ -249,9 +294,15 @@ Nothing is sealed behind anyone's back: the default path uses whatever is stored
 
 The panel: **Настройки → Игра → «Поднять сессию»**, beside «Проверить». It runs the same
 sequence off the Tk thread with the tool's commentary going line by line into the panel
-log, says beforehand when Windows is about to ask for a password, and re-reads the
-verdict when it finishes. The verdict for "nobody is logged on as that user" now names
-that button instead of a command line.
+log, and re-reads the verdict when it finishes. The verdict for "nobody is logged on as
+that user" now names that button instead of a command line.
+
+When nothing is stored it says two things before Windows puts a password box on the
+desktop: that the box is about to appear and what wanted it, and that it will appear
+again after every reboot until the password is saved — with the one command that saves
+it. A dialog nobody expected, and a dialog that returns forever with no explanation of
+how to stop it, are two different kinds of bad, and both are cheaper to prevent than to
+support.
 
 The dialog-clicker learned one rule along the way: **a dialog with somewhere to type is
 a dialog for the person.** It ticks "do not ask again" and presses «Да» only on dialogs
@@ -260,14 +311,17 @@ prompt answered, with an empty password, by the very automation that opened it.
 
 ## 5. The recommendation
 
-**Take B, and do the mitigation.** Store nothing; let the panel bring the session up and
-let Windows ask for the password on the one occasion per boot when it needs one. The
-session then survives everything until the next reboot, so this is not a prompt anybody
-meets during a day's farming — and it is the only arrangement in which there is no
-secret at rest at all.
+**Take B′ if the machine has to come back on its own, B if it does not — and do the
+mitigation either way.**
 
-Take B′ — the stored, readable credential — only if the machine must come back
-unattended after a power cut. If so, then **the mitigation is not optional**:
+B′ (`--save-credential`, once) is the arrangement the RDP client itself offers: Windows
+holds the password, mstsc spends it, the bot never sees it, and a reboot costs nothing.
+B (`--ask`) keeps no secret at all and costs one prompt per boot — a disconnected
+session survives everything else, so it is not a prompt anybody meets during a day's
+farming.
+
+Whichever is chosen, **the mitigation is not optional**, and under B′ it is the thing
+that decides whether the stored credential matters at all:
 
 > **The second Windows account does not need to be an Administrator.** It runs one game
 > client in a session nobody looks at. On the machine this was written for it is in

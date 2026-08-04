@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Endurance",
   "chat.empty": "pas encore de messages",
   "log.session.bringing_up": "ouverture de la session Windows de {user} — cela prend quelques minutes",
+  "log.session.save_hint": "Windows redemandera après chaque redémarrage tant que le mot de passe n'est pas enregistré dans le Gestionnaire d'identification. Pour l'enregistrer une fois — dans un terminal : tools\\rdp_instance.py --user {user} --save-credential (c'est Windows qui le reçoit, le panneau ne le voit jamais).",
   "log.session.up_failed": "impossible d'ouvrir la session : {error}",
   "log.session.up_ok": "la session, le client et le démon sont en place",
   "log.session.up_partial": "la session n'est pas allée jusqu'au bout (code {code}) — les lignes ci-dessus disent où cela s'est arrêté",

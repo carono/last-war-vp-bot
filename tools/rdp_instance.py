@@ -414,7 +414,7 @@ def credential_state(user: str, server: str = DEFAULT_SERVER) -> dict:
     qualified = f"{dom}\\{name}"
     target = RDP_CRED_TARGET.format(server=server)
     sealed = _cred_read(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD)
-    return {
+    state = {
         "user": qualified, "server": server, "target": target,
         # A sealed credential for somebody else is not this account's credential.
         "sealed": bool(sealed) and (sealed.get("UserName") or "").lower() == qualified.lower(),
@@ -422,6 +422,13 @@ def credential_state(user: str, server: str = DEFAULT_SERVER) -> dict:
         "readable_store": _cred_read(f"{CRED_PREFIX}/{qualified}",
                                      win32cred.CRED_TYPE_GENERIC) is not None,
     }
+    # "will this bring-up have to ask a person?" — the one question every caller
+    # actually has, answered here rather than by each of them re-deriving it from three
+    # booleans and getting the `LastWarVpBot` copy wrong (it counts: it is copied into
+    # the target on the way past).
+    state["stored"] = bool(state["sealed"] or state["readable_rdp"]
+                           or state["readable_store"])
+    return state
 
 
 def seal_credential(user: str, password: str, server: str = DEFAULT_SERVER) -> str:
@@ -467,6 +474,49 @@ def seal_credential(user: str, password: str, server: str = DEFAULT_SERVER) -> s
         pass
     log(f"credential {target} sealed for {qualified} — usable, not readable")
     return qualified
+
+
+def save_credential(user: str, server: str = DEFAULT_SERVER) -> bool:
+    """Have **Windows** take the password and put it in Credential Manager.
+
+    The point of #1231, and the reason this shells out to `cmdkey` instead of asking:
+    the password goes person -> cmdkey -> Credential Manager and **never through this
+    process**. Nothing here reads it, holds it, logs it or passes it on — the same
+    arrangement as mstsc's own «remember me», reached by the tool Windows ships for it.
+
+    `/pass` with no value makes cmdkey prompt on its own console, so the password is
+    never an argument either (it would be in every process listing if it were).
+
+    One guard, because the failure is silent: `cmdkey` reads that prompt from the
+    **console**, not from a pipe, and given a pipe it stores an *empty* password and
+    still reports success (measured, #1231). So what landed is read back — a generic
+    credential is readable, which is the one moment that is useful — and an empty one
+    is deleted rather than left to fail at three in the morning as "no session".
+    """
+    import win32cred
+    _LAU, dom, name = _account(user)
+    qualified = f"{dom}\\{name}"
+    target = RDP_CRED_TARGET.format(server=server)
+    cmdkey = os.path.join(WIN, "System32", "cmdkey.exe")
+    if not sys.stdin or not sys.stdin.isatty():
+        log("this needs a console to type into. Run it from a terminal, or bring the "
+            "session up with --ask and let mstsc ask instead.")
+        return False
+    log(f"Windows will ask for {qualified}'s password. It goes straight into Credential "
+        f"Manager ({target}); nothing here sees it.")
+    rc = subprocess.run([cmdkey, f"/generic:{target}", f"/user:{qualified}", "/pass"]
+                        ).returncode
+    stored = _cred_read(target, win32cred.CRED_TYPE_GENERIC)
+    if rc != 0 or not stored or not (stored.get("CredentialBlob") or b""):
+        log(f"nothing usable was stored (cmdkey rc={rc}) — removing the empty entry")
+        try:
+            win32cred.CredDelete(target, win32cred.CRED_TYPE_GENERIC)
+        except Exception:        # noqa: BLE001
+            pass
+        return False
+    log(f"credential {target} stored for {qualified}. It survives reboots, and "
+        f"--bring-up will not ask again.")
+    return True
 
 
 def forget_credential(user: str, server: str = DEFAULT_SERVER, sealed: bool = False) -> None:
@@ -1018,33 +1068,17 @@ def main() -> int:
         return 0
     if a.save_credential:
         user = user_or_ask()
-        if not sys.stdin or not sys.stdin.isatty():
-            raise SystemExit("--save-credential asks for the password, so it needs a "
-                             "terminal. Or bring the session up with --ask.")
-        _LAU, dom, name = _account(user)
-        if not a.seal:
-            log("note: the stored form is readable by anything running as this account. "
-                "That is not a choice — the unreadable one is not spent by this logon "
-                "(docs/research/rdp-session-credentials.md). --ask stores nothing at all.")
-        pw = getpass.getpass(f"Password for {dom}\\{name}: ")
-        if not pw:
-            raise SystemExit("nothing typed — nothing stored")
         if a.seal:
+            if not sys.stdin or not sys.stdin.isatty():
+                raise SystemExit("--save-credential --seal needs a terminal to ask on")
+            _LAU, dom, name = _account(user)
+            pw = getpass.getpass(f"Password for {dom}\\{name}: ")
+            if not pw:
+                raise SystemExit("nothing typed — nothing stored")
             seal_credential(user, pw, a.server)
-        else:
-            import win32cred
-            win32cred.CredWrite({
-                "Type": win32cred.CRED_TYPE_GENERIC,
-                "TargetName": RDP_CRED_TARGET.format(server=a.server),
-                "UserName": f"{dom}\\{name}",
-                "CredentialBlob": pw,
-                "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
-                "Comment": "last-war-vp-bot second instance over RDP (#1106)",
-            }, 0)
-            log(f"credential {RDP_CRED_TARGET.format(server=a.server)} stored for "
-                f"{dom}\\{name}")
-        del pw
-        return 0
+            del pw
+            return 0
+        return 0 if save_credential(user, a.server) else 1
     if a.forget_credential:
         forget_credential(user_or_ask(), a.server)
         return 0

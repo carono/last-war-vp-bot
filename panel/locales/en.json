@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Stamina",
   "chat.empty": "no messages yet",
   "log.session.bringing_up": "bringing {user}'s Windows session up — this takes a few minutes",
+  "log.session.save_hint": "Windows will ask again after every reboot until the password is saved in Credential Manager. To save it once — in a terminal: tools\\rdp_instance.py --user {user} --save-credential (Windows takes it; the panel never sees it).",
   "log.session.up_failed": "the session could not be brought up: {error}",
   "log.session.up_ok": "the session, the client and the daemon are up",
   "log.session.up_partial": "the session did not come all the way up (code {code}) — the lines above say where it stopped",

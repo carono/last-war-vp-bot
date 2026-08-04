@@ -515,9 +515,15 @@ class SettingsTab(PanelTab):
             btn.configure(state="disabled")
         # Windows asks for the password when none is stored, and the dialog appears on
         # the desktop with no explanation of what wanted it (#1231). Say so first.
+        # Nothing stored means Windows is about to put a password box on the desktop
+        # with no hint of what wanted it — and, unless the person is told otherwise, it
+        # will do that again after every reboot. Both halves are said before the dialog
+        # appears rather than after it has confused somebody (#1231).
         state = runtime.game_process.credential_state(self.rt.settings)
-        if state is not None and not state.get("sealed"):
+        if state is not None and not state.get("stored"):
             self.say("session", "log.session.will_ask")
+            self.say("session", "log.session.save_hint",
+                     user=runtime.game_process.profile_user(self.rt.settings))
         self.say("session", "log.session.bringing_up",
                  user=runtime.game_process.profile_user(self.rt.settings))
 

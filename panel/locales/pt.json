@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Vigor",
   "chat.empty": "ainda sem mensagens",
   "log.session.bringing_up": "a levantar a sessão do Windows de {user} — demora alguns minutos",
+  "log.session.save_hint": "O Windows voltará a perguntar após cada reinício enquanto a palavra-passe não estiver guardada no Gestor de Credenciais. Para a guardar uma vez — num terminal: tools\\rdp_instance.py --user {user} --save-credential (quem a recebe é o Windows; o painel nunca a vê).",
   "log.session.up_failed": "não foi possível levantar a sessão: {error}",
   "log.session.up_ok": "a sessão, o cliente e o daemon estão de pé",
   "log.session.up_partial": "a sessão não subiu por completo (código {code}) — as linhas acima dizem onde parou",

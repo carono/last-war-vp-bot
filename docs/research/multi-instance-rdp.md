@@ -251,12 +251,17 @@ C:\Python312\python.exe tools\rdp_instance.py --user <user2> --credentials      
 C:\Python312\python.exe tools\rdp_instance.py --user <user2> --bring-up --ask   # store nothing
 ```
 
-With nothing stored, `--bring-up` lets mstsc ask and keeps none of it — one prompt per
-reboot, which is the recommended arrangement. `--save-credential` is the unattended
-alternative and its credential **is readable** by anything running as the desktop user:
-the unreadable form exists, but this logon was measured refusing to spend it, so the
-choice is between a prompt and an exposure rather than between forms of storage. If the
-readable one is chosen, demote the second account out of Administrators first.
+The store is Windows' own — Credential Manager, DPAPI, fetched by mstsc itself, the same
+mechanism as the RDP client's «remember me» tick. `--save-credential` does not ask for
+the password: it runs `cmdkey /generic:TERMSRV/<host> … /pass`, which prompts on its own
+console, so the password goes person → cmdkey → Credential Manager and never through
+this repository. The entry survives reboots (one on this machine dates from 2024).
+
+With nothing stored, `--bring-up` lets mstsc ask instead and keeps none of it — one
+prompt per reboot. The stored entry **is readable** by anything running as the desktop
+user: the unreadable credential type exists, but this logon was measured refusing to
+spend it, so the choice is between a prompt and that exposure rather than between forms
+of storage. Either way, demote the second account out of Administrators.
 
 The tool also sets the policy that lets an unsigned `.rdp` open without a prompt
 (`AllowUnsignedFiles`); a dialog watcher clicks anything that still appears (it ticks

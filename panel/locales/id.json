@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Stamina",
   "chat.empty": "belum ada pesan",
   "log.session.bringing_up": "menjalankan sesi Windows milik {user} — perlu beberapa menit",
+  "log.session.save_hint": "Windows akan bertanya lagi setiap kali komputer dinyalakan ulang sampai kata sandi disimpan di Credential Manager. Untuk menyimpannya sekali — di terminal: tools\\rdp_instance.py --user {user} --save-credential (Windows yang menerimanya; panel tidak pernah melihatnya).",
   "log.session.up_failed": "sesi tidak bisa dijalankan: {error}",
   "log.session.up_ok": "sesi, klien dan daemon sudah jalan",
   "log.session.up_partial": "sesi tidak naik sampai tuntas (kode {code}) — baris di atas menunjukkan di mana berhentinya",

@@ -994,6 +994,7 @@
   "rally_tab.stamina": "Ausdauer",
   "chat.empty": "noch keine Nachrichten",
   "log.session.bringing_up": "die Windows-Sitzung von {user} wird gestartet — das dauert einige Minuten",
+  "log.session.save_hint": "Windows fragt nach jedem Neustart erneut, bis das Passwort in der Anmeldeinformationsverwaltung gespeichert ist. Einmalig speichern — im Terminal: tools\\rdp_instance.py --user {user} --save-credential (Windows nimmt es entgegen, das Panel sieht es nie).",
   "log.session.up_failed": "die Sitzung ließ sich nicht starten: {error}",
   "log.session.up_ok": "Sitzung, Client und Daemon laufen",
   "log.session.up_partial": "die Sitzung kam nicht vollständig hoch (Code {code}) — die Zeilen oben sagen, wo es stehen blieb",
