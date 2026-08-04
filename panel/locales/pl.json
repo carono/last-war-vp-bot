@@ -880,6 +880,7 @@
   "web.address": "Adres dla telefonu",
   "web.hint": "Otwórz ten adres na telefonie podłączonym do tej samej sieci co ten komputer. Token jest już w odnośniku; jeśli telefon nie może z niego skorzystać, wpisz token ręcznie.",
   "web.warning": "Żeby dostać się spoza sieci domowej, przekieruj ten port na routerze. Ruch nie jest szyfrowany, token da się odczytać po drodze — ogranicz, kto może się łączyć (filtr adresów na routerze), albo schowaj to za VPN.",
+  "web.warning.tls": "Ruch jest szyfrowany podanym certyfikatem, tokenu nie da się odczytać po drodze. Żeby dostać się spoza sieci domowej, przekieruj ten port na routerze — certyfikat podpisany samodzielnie ostrzega raz na każdym urządzeniu, potem zostaje zapamiętany.",
   "web.state.on": "nasłuchuje na porcie {port}",
   "web.state.off": "wyłączone",
   "web.log.started": "zdalne sterowanie włączone, port {port}",

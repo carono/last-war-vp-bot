@@ -880,6 +880,7 @@
   "web.address": "Endereço para o telemóvel",
   "web.hint": "Abra este endereço num telemóvel ligado à mesma rede que esta máquina. O token já vai na ligação; se o telemóvel não a conseguir seguir, escreva o token à mão.",
   "web.warning": "Para lhe chegar de fora da rede doméstica, encaminhe esta porta no router. O tráfego não é cifrado e o token lê-se pelo caminho — limite quem se pode ligar (um filtro de endereços no router) ou ponha-o atrás de uma VPN.",
+  "web.warning.tls": "O tráfego é cifrado pelo certificado indicado e o token não se lê pelo caminho. Para lhe chegar de fora da rede doméstica, encaminhe esta porta no router — um certificado autoassinado avisa uma vez em cada dispositivo e depois fica lembrado.",
   "web.state.on": "a escutar na porta {port}",
   "web.state.off": "desligado",
   "web.log.started": "controlo remoto ligado, porta {port}",

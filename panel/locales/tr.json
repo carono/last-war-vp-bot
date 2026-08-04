@@ -880,6 +880,7 @@
   "web.address": "Telefon için adres",
   "web.hint": "Bu adresi, bu makineyle aynı ağdaki bir telefonda açın. Jeton bağlantının içinde; telefon bağlantıyı açamıyorsa jetonu elle yazın.",
   "web.warning": "Ev ağının dışından erişmek için bu bağlantı noktasını yönlendiricide yönlendirin. Trafik şifrelenmiyor, jeton yol boyunca okunabilir — kimin bağlanabileceğini sınırlayın (yönlendiricide adres filtresi) ya da bir VPN'in arkasına alın.",
+  "web.warning.tls": "Trafik belirttiğiniz sertifikayla şifreleniyor, jeton yol boyunca okunamaz. Ev ağının dışından erişmek için bu bağlantı noktasını yönlendiricide yönlendirin — kendinden imzalı bir sertifika her cihazda bir kez uyarır, sonra hatırlanır.",
   "web.state.on": "{port} numaralı bağlantı noktasını dinliyor",
   "web.state.off": "kapalı",
   "web.log.started": "uzaktan kumanda açık, bağlantı noktası {port}",

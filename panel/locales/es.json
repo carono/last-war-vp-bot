@@ -880,6 +880,7 @@
   "web.address": "Dirección para el móvil",
   "web.hint": "Abre esta dirección en un móvil conectado a la misma red que este equipo. El token ya va en el enlace; si el móvil no puede seguirlo, escribe el token a mano.",
   "web.warning": "Para llegar desde fuera de la red doméstica, redirige este puerto en el router. El tráfico no va cifrado y el token se lee por el camino — limita quién puede conectarse (un filtro de direcciones en el router) o ponlo detrás de una VPN.",
+  "web.warning.tls": "El tráfico va cifrado con el certificado indicado y el token no se lee por el camino. Para llegar desde fuera de la red doméstica, redirige este puerto en el router — un certificado autofirmado avisa una vez en cada dispositivo y luego se recuerda.",
   "web.state.on": "escuchando en el puerto {port}",
   "web.state.off": "apagado",
   "web.log.started": "control remoto activado, puerto {port}",

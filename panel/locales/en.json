@@ -880,6 +880,7 @@
   "web.address": "Address for the phone",
   "web.hint": "Open this address on a phone that is on the same network as this machine. The token is already in the link; if the phone cannot follow it, type the token in by hand.",
   "web.warning": "To reach it from outside the home network, forward this port on the router. The traffic is not encrypted, so the token is readable along the way — limit who may connect (an address filter on the router) or put it behind a VPN.",
+  "web.warning.tls": "The traffic is encrypted by the certificate you named, so the token is not readable along the way. To reach it from outside the home network, forward this port on the router — and a self-signed certificate warns once on every device before it is remembered.",
   "web.state.on": "listening on port {port}",
   "web.state.off": "off",
   "web.log.started": "remote control is on, port {port}",

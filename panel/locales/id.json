@@ -880,6 +880,7 @@
   "web.address": "Alamat untuk ponsel",
   "web.hint": "Buka alamat ini di ponsel yang berada di jaringan yang sama dengan komputer ini. Token sudah ada di dalam tautan; kalau ponsel tidak bisa membukanya, ketik token secara manual.",
   "web.warning": "Untuk menjangkaunya dari luar jaringan rumah, teruskan porta ini di router. Lalu lintasnya tidak dienkripsi dan token terbaca di jalan — batasi siapa yang boleh menyambung (penyaring alamat di router) atau taruh di belakang VPN.",
+  "web.warning.tls": "Lalu lintasnya dienkripsi oleh sertifikat yang Anda sebutkan, token tidak terbaca di jalan. Untuk menjangkaunya dari luar jaringan rumah, teruskan porta ini di router — sertifikat yang ditandatangani sendiri memperingatkan sekali di tiap perangkat, lalu diingat.",
   "web.state.on": "mendengarkan porta {port}",
   "web.state.off": "mati",
   "web.log.started": "kendali jarak jauh menyala, porta {port}",

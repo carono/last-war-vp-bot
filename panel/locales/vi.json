@@ -880,6 +880,7 @@
   "web.address": "Địa chỉ cho điện thoại",
   "web.hint": "Mở địa chỉ này trên điện thoại nối cùng mạng với máy này. Mã khoá đã nằm sẵn trong liên kết; nếu điện thoại không mở được liên kết, hãy nhập mã khoá bằng tay.",
   "web.warning": "Để tới được từ ngoài mạng nhà, hãy chuyển tiếp cổng này trên bộ định tuyến. Lưu lượng không được mã hoá, mã khoá đọc được dọc đường — hãy giới hạn ai được kết nối (lọc địa chỉ trên bộ định tuyến) hoặc đặt sau một VPN.",
+  "web.warning.tls": "Lưu lượng được mã hoá bằng chứng chỉ bạn đã nêu, mã khoá không đọc được dọc đường. Để tới được từ ngoài mạng nhà, hãy chuyển tiếp cổng này trên bộ định tuyến — chứng chỉ tự ký sẽ cảnh báo một lần trên mỗi thiết bị, sau đó được ghi nhớ.",
   "web.state.on": "đang nghe cổng {port}",
   "web.state.off": "tắt",
   "web.log.started": "điều khiển từ xa đã bật, cổng {port}",

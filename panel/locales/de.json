@@ -880,6 +880,7 @@
   "web.address": "Adresse für das Telefon",
   "web.hint": "Diese Adresse auf einem Telefon im selben Netz wie dieser Rechner öffnen. Das Token steckt bereits im Link; folgt das Telefon dem Link nicht, das Token von Hand eingeben.",
   "web.warning": "Um sie von außerhalb des Heimnetzes zu erreichen, leiten Sie diesen Port am Router weiter. Der Verkehr ist unverschlüsselt, das Token ist unterwegs lesbar — schränken Sie ein, wer verbinden darf (ein Adressfilter am Router), oder setzen Sie ein VPN davor.",
+  "web.warning.tls": "Der Verkehr wird mit dem angegebenen Zertifikat verschlüsselt, das Token ist unterwegs nicht lesbar. Um sie von außerhalb des Heimnetzes zu erreichen, leiten Sie diesen Port am Router weiter — ein selbstsigniertes Zertifikat warnt auf jedem Gerät einmal und wird danach gemerkt.",
   "web.state.on": "lauscht auf Port {port}",
   "web.state.off": "aus",
   "web.log.started": "Fernsteuerung an, Port {port}",

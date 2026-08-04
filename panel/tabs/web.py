@@ -69,6 +69,7 @@ class WebTab(PanelTab):
         self._link = None               # the address, selectable
         self._cert = None               # StringVar: optional certificate (PEM)
         self._key = None                # StringVar: …and its key
+        self._warning = None            # the line saying what the address really is
         self._server = None
 
     # -- the window ---------------------------------------------------------
@@ -134,8 +135,11 @@ class WebTab(PanelTab):
                 "web.https").pack(anchor="w", padx=10, pady=(8, 0))
         self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
                 "web.hint").pack(anchor="w", padx=10, pady=(10, 0))
-        self.tr(ttk.Label(self.parent, wraplength=520, justify="left"),
-                "web.warning").pack(anchor="w", padx=10, pady=(6, 10))
+        # Not `tr`: which of the two warnings is true depends on whether the server
+        # answering has a certificate, so `_paint` says it — and `_paint` is what
+        # `on_language_change` calls, which is what `tr` would have been for.
+        self._warning = ttk.Label(self.parent, wraplength=520, justify="left")
+        self._warning.pack(anchor="w", padx=10, pady=(6, 10))
         self._paint()
 
     # -- lifecycle ----------------------------------------------------------
@@ -287,6 +291,20 @@ class WebTab(PanelTab):
             return self._server
         return webmod.serving_any()
 
+    def _scheme(self) -> str:
+        """`https` or `http` — of whoever is SERVING, never of this tab's fields.
+
+        An `http://` link to a TLS-only server fails in a way nobody diagnoses on a
+        phone, and so does the other way round. The certificate that decides it belongs
+        to the server that is bound, which on a sibling profile's socket is not the one
+        named here; only with nothing bound at all is this profile's own field the best
+        guess there is.
+        """
+        server = self._serving()
+        if server is not None:
+            return server.scheme
+        return "https" if self._cert.get().strip() else "http"
+
     def _address(self) -> str:
         """The link to type into a phone: the machine's address, port and token.
 
@@ -299,7 +317,7 @@ class WebTab(PanelTab):
         token = server.token if server is not None else self._token.get().strip()
         port = server.bound_port() if server is not None else self._port_number()
         tail = f"/?token={token}" if token else "/"
-        return f"http://{host}:{port}{tail}"
+        return f"{self._scheme()}://{host}:{port}{tail}"
 
     def _paint(self) -> None:
         """Three states, not two: mine, a sibling's, or nothing at all."""
@@ -317,6 +335,9 @@ class WebTab(PanelTab):
         if self._link is not None:
             self._link.delete(0, "end")
             self._link.insert(0, self._address() if server is not None else "")
+        if self._warning is not None:
+            self._warning.configure(text=self.t(
+                "web.warning.tls" if self._scheme() == "https" else "web.warning"))
 
 
     def _copy(self) -> None:

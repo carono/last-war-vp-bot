@@ -26,6 +26,7 @@ import ssl
 import sys
 import tempfile
 import time
+import types
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -630,6 +631,63 @@ def test_a_certificate_that_will_not_load_refuses_to_serve():
         finally:
             server.stop()
         raise AssertionError("it served without the certificate it was told to use")
+
+
+# ---------------------------------------------------------------------------
+# the address the TAB hands out — the other half of the same promise
+# ---------------------------------------------------------------------------
+#
+# `WebServer.scheme` above is only half of it: the link a person taps is written by the
+# tab, and the tab spelt `http://` into it whatever the server was doing. A TLS-only
+# server reached over `http://` answers nothing a phone can explain, which is the exact
+# failure the scheme exists to prevent — so the tab is pinned here too, with no display:
+# `_scheme` and `_address` read four things, and a stand-in can hold all four.
+class _Var:
+    """As much of a Tk variable as the address needs — no root, no event loop."""
+
+    def __init__(self, value: str = "") -> None:
+        self._value = value
+
+    def get(self) -> str:
+        return self._value
+
+
+def _tab(server=None, cert: str = "", token: str = "tok", port: int = 9761):
+    from panel.tabs.web import WebTab
+    stub = types.SimpleNamespace(_server=server, _cert=_Var(cert), _token=_Var(token))
+    stub._serving = lambda: server
+    stub._port_number = lambda: port
+    stub._scheme = types.MethodType(WebTab._scheme, stub)
+    stub._address = types.MethodType(WebTab._address, stub)
+    return stub
+
+
+def test_the_link_on_the_tab_is_plain_http_until_a_certificate_is_named():
+    assert _tab()._address() == "http://%s:9761/?token=tok" % webmod.addresses()[0]
+
+
+def test_the_link_follows_the_certificate_of_the_server_that_is_serving():
+    """The certificate that decides the scheme belongs to the socket, not to the tab.
+
+    A sibling profile's server is the one a phone will meet (§3.1), so its certificate
+    is what the link must agree with — including when this profile named none.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        tls = webmod.WebServer(rt, port=9999, token="theirs", api=api,
+                               certfile="cert.pem")
+        link = _tab(server=tls)._address()
+        assert link.startswith("https://"), link
+        assert link.endswith(":9999/?token=theirs"), link
+        # …and the other way round: this profile's certificate does not make a
+        # sibling's plain-HTTP socket into a TLS one.
+        plain = webmod.WebServer(rt, port=9999, token="theirs", api=api)
+        assert _tab(server=plain, cert="cert.pem")._address().startswith("http://")
+
+
+def test_with_nothing_bound_the_tab_answers_from_its_own_field():
+    """Before the switch goes on there is no socket to ask, and the field is all there is."""
+    assert _tab(cert="cert.pem")._address().startswith("https://")
 
 
 # ---------------------------------------------------------------------------

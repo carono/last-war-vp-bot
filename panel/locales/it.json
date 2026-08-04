@@ -880,6 +880,7 @@
   "web.address": "Indirizzo per il telefono",
   "web.hint": "Apri questo indirizzo su un telefono collegato alla stessa rete di questa macchina. Il token è già nel link; se il telefono non riesce a seguirlo, digita il token a mano.",
   "web.warning": "Per raggiungerlo da fuori della rete di casa, inoltra questa porta sul router. Il traffico non è cifrato e il token si legge per strada — limita chi può collegarsi (un filtro di indirizzi sul router) o mettilo dietro una VPN.",
+  "web.warning.tls": "Il traffico è cifrato dal certificato indicato e il token non si legge per strada. Per raggiungerlo da fuori della rete di casa, inoltra questa porta sul router — un certificato autofirmato avvisa una volta su ogni dispositivo e poi viene ricordato.",
   "web.state.on": "in ascolto sulla porta {port}",
   "web.state.off": "spento",
   "web.log.started": "controllo remoto acceso, porta {port}",
