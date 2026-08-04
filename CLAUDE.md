@@ -277,6 +277,17 @@ used** — to build a path, filter a process list or match a window.
 Every new variable is added to [`.env.example`](.env.example) in the same commit, with
 a line saying what it is for and that it is optional.
 
+**And the guard does not carry what it guards.** A banned nickname, login or alliance
+tag lives in `tests/test_no_hardcoded_values.py` as a SHA-256 of its normalised
+spelling — never in plain text, because a list of real people published to protect
+them is still a list of real people (#1234). Adding one is
+`… tests\test_no_hardcoded_values.py --hash "the value"`, which prints the digest to
+paste in; the value stays in the shell that typed it. Ids are not listed at all — a
+sixteen-digit account id and a long hex device id are caught by SHAPE, and the fix is
+to write the anonymised form (`1000000000xxxxxx`, or zeros) the cleaned fixtures use.
+A failure names the file, the line and the KIND («a player nickname») and never the
+value; read the line to see it.
+
 `tests/test_no_hardcoded_values.py` enforces all of it — the quoted literals, the
 personal logins, and the «one place decides the interpreter» rule. Run it before you
 call this kind of work done:

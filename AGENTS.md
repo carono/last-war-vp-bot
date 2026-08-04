@@ -486,8 +486,11 @@ flag, check it still exists before acting on it.
 
   `tests/test_no_hardcoded_values.py` enforces both halves — quoted
   literals of the install, and personal logins anywhere in a tracked
-  file. The full rule is in `CLAUDE.md`, «Nothing about one machine is
-  written into the code».
+  file. It holds the banned names as SHA-256 digests rather than as
+  text, so the guard is not itself a published list of real people
+  (#1234): add one with `--hash "the value"`, and expect a failure that
+  names the place and the kind but not the value. The full rule is in
+  `CLAUDE.md`, «Nothing about one machine is written into the code».
 
 ---
 

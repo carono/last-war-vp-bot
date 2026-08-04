@@ -18,11 +18,30 @@ than merely written down:
   point of a resolver: the literal still exists, exactly once, with an environment
   variable in front of it.
 
+And one thing had to change before either of those meant anything — task #1234:
+
+* **The guard does not carry the data it guards.** A list of banned nicknames, logins
+  and account ids is a list of real people, and it was sitting here in plain text,
+  greppable and indexable, in a public repository. Every one of them is a SHA-256 of
+  the normalised value now, the failure message names the FILE and the KIND
+  («a player nickname») and never the value, and nothing in this file is exempt from
+  the personal-data check any more — it reads itself along with everything else.
+
+  Adding a name therefore never means typing it into a commit:
+
+      C:\Python312\python.exe tests\test_no_hardcoded_values.py --hash "the value"
+
+  prints the digest to paste into :data:`PERSONAL_DIGESTS`. Be honest about what this
+  is: a hash of a short nickname is guessable by anyone who already knows the
+  nickname. It is not secrecy — it is the difference between data that is published
+  and data that is merely checkable, and that difference is the whole of it.
+
 Run:
     C:\Python312\python.exe tests\test_no_hardcoded_values.py
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import pathlib
@@ -186,29 +205,17 @@ def test_the_download_tree_is_not_the_install_tree():
     assert gp.gameres().startswith(gp.game_dir())
 
 
-#: Real people, in the two shapes this repository kept collecting them in: Windows
-#: logins, and the game identities that got copied out of a live session into a test
-#: fixture. Both are personal data in a public repository, and the second kind is not
-#: even the author's own — `DeadMorozzz` was another player who happened to be on
-#: screen when a capture was recorded.
-PERSONAL = re.compile(
-    r"\b(casper|spame"                        # Windows logins
-    r"|Carono|DeadMorozzz"                    # game nicknames — the author's and others'
-    r"|Iwabo|mdw88|Korive|armaca|ofbi"        # …more players caught in recordings
-    r"|EleNita|tonyv811976"                   # …and the two a chat trace was run against
-    r"|WPBs|RBs"                              # their alliance tags
-    r"|1697234600000972|1527794448000935"     # their uids
-    r"|2146058428000509|1092741133002105"     # the author's second character
-    r"|GenX ?77|1297450549001027"            # an alliance member in a live push payload
-    r"|TLou"                                  # an alliance tag
-    r"|1522777203000972|1371213785000935)\b", # live game uids
-    re.IGNORECASE)
-
 #: Cyrillic letters that are drawn exactly like Latin ones. A word mixing the two reads
 #: as ordinary text and matches nothing a plain pattern looks for — which is how
 #: `P:\projects abandoned\карono\…`, a real working directory, sat in a test through
 #: several green runs of this file. Every line is folded to Latin before it is
 #: searched, so a mixed-alphabet spelling meets the same pattern as a plain one.
+#:
+#: Folding happens BEFORE hashing as well as before matching, and that ordering is the
+#: whole reason a digest can replace a pattern here: a name written with a Cyrillic `а`
+#: in the middle normalises to the same letters as the plain spelling, so it lands on
+#: the same digest. Hash first and the two are unrelated numbers, and the homoglyph
+#: spelling walks past a guard that looks like it is working.
 HOMOGLYPHS = str.maketrans({
     "а": "a", "А": "A", "е": "e", "Е": "E", "о": "o", "О": "O",
     "р": "p", "Р": "P", "с": "c", "С": "C", "х": "x", "Х": "X",
@@ -222,21 +229,96 @@ def _fold(line: str) -> str:
     """The line as it LOOKS, not as it is encoded — see :data:`HOMOGLYPHS`."""
     return line.translate(HOMOGLYPHS)
 
+
+#: A run of letters and digits — the unit a name is written in. Everything between the
+#: runs (spaces, dots, brackets, quotes, underscores) is separator, so `"casparov_x"`,
+#: `casparov.log` and `[casparov]` all offer the same word to the check.
+WORD = re.compile(r"[0-9A-Za-z]+")
+
+#: Nothing shorter is a name worth banning, and nothing longer than a two-word handle
+#: is one either. The bounds are here so the scan is not a SHA-256 of every token in
+#: the repository — they are deliberately independent of what is actually banned,
+#: because the digests cannot tell us how long the values were and must not.
+MIN_LEN, MAX_LEN = 3, 40
+
+
+def _norm(value: str) -> str:
+    """The value as a name, stripped of how it happened to be written.
+
+    Folded to Latin shapes, lower-cased, and reduced to letters and digits: `Marrow 88`,
+    `marrow-88` and `MARROW88` are one value, and so is the same word with a Cyrillic
+    letter in it. Normalising before hashing is what makes a digest as forgiving as the
+    case-insensitive, homoglyph-folding pattern it replaced.
+
+    (The example is invented — writing a real one here is the bug this file was fixed
+    for, and the guard caught exactly that in the first draft of this docstring.)
+    """
+    return re.sub(r"[^0-9a-z]+", "", _fold(value).lower())
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(_norm(value).encode("utf-8")).hexdigest()
+
+
+def _hit(line: str, digests: dict[str, str]) -> str | None:
+    """What KIND of personal value this line carries, or None. Never the value itself.
+
+    Single words and adjacent pairs both, because a handle can be written with a space
+    in it and normalisation joins it back up.
+    """
+    words = WORD.findall(_fold(line).lower())
+    for i, word in enumerate(words):
+        pair = word + words[i + 1] if i + 1 < len(words) else ""
+        for cand in (word, pair):
+            if MIN_LEN <= len(cand) <= MAX_LEN and not cand.isdigit():
+                what = digests.get(hashlib.sha256(cand.encode("utf-8")).hexdigest())
+                if what:
+                    return what
+    return None
+
+
+#: The people this repository is not allowed to name, as digests of their normalised
+#: spelling — see the module docstring for why, and for `--hash` to add one.
+#:
+#: They arrived in the two shapes the tree kept collecting: Windows logins, and game
+#: identities copied out of a live session into a fixture or a research note. The
+#: second kind is mostly not the author's — they are other players who happened to be
+#: on screen when a capture was recorded, which is exactly why publishing the list to
+#: protect them was the wrong shape of fix.
+#:
+#: The KIND is written out on purpose: a failure has to be actionable («line 12 names a
+#: player nickname») without the reader, the log, the CI output or the next search
+#: engine learning who. Account ids are absent from this table by design — sixteen
+#: digits is a SHAPE, and :func:`test_no_live_account_id_is_shipped` reads it directly.
+PERSONAL_DIGESTS = {
+    "81fdff283ec2829b4002384ad18370f64e7a48618c45058e3d112d965e27f72e": "a Windows login",
+    "73facd83f2b2a650ad2f292103d0c05048d20a88bccb5fb51fc78bc8a7ae47c1": "a Windows login",
+    "3b8009df5b442d0182d64d6ebd42388d11431b28622a256e2997f7d8e2e423cf": "a player nickname",
+    "85cc260c0f43b61de66c3bc169ee39bce818118301ee51452d2def470969b904": "a player nickname",
+    "4703c73aa8bf17d5af773722f9ce800ab0eaea70238809a578030653eb7f4112": "a player nickname",
+    "c53ceffe2a6ac8679ed63b47ee35f9b1ebc9526415215ca2413261e17279c8d3": "a player nickname",
+    "95c6cac5663f0ae96eec60b9126996811ef1f0a304199eb6fa6a6dbb0ad03b3d": "a player nickname",
+    "45a98030b3446fd4035393096704bf5e55e88f04bbbfc72d2572bf90bb8c6e4c": "a player nickname",
+    "5497c9722ef6130bf094db941a3cb9b32c68b3145a713350df8cd0bccce9aa97": "a player nickname",
+    "abc41ec8c9e58b14c50eef1db12910914b13e9b23abeee836912d52fe2d17dfb": "a player nickname",
+    "5620b4c0722d246e44003e49be984bff6d3c900a4da840d4b024b523cf5a8f0f": "a player nickname",
+    "be28df538a5c732658750b179278bbbf275afa5baeab134576e2fb6ede09bd9d": "a player nickname",
+    "cb0471a04689afb69c26137a18ea632e1c8446ec506f3248802228f5975cfba0": "an alliance tag",
+    "3620d818217973204d3975354dca9bee92f869b39b7f0fe2a367068b47c3af5a": "an alliance tag",
+    "e09567fee4f8e4aef530e5f182534fde1e2e1e333977c1601271590b0dfc8d32": "an alliance tag",
+}
+
 #: The repository's own address is not personal data — it is where the project lives,
 #: and it has to be the real one for anybody to download it. Any line carrying it is
 #: exempt, and nothing else is.
 REPO_URL = re.compile(r"github\.com(:\d+)?[/:]carono|carono/last-war-vp-bot")
 
-#: The three files where a real name is the point rather than a leak.
-#:
-#: A copyright line and an author field must name the actual author — that is what
-#: they are for, and stripping them would be a licensing bug, not a privacy fix. They
-#: are listed here (and `LICENSE`/`*.toml` are inside `ALL_GLOBS`) so that the guard
-#: SEES them and forgives them on purpose. Being outside the search is not the same as
-#: being allowed, and the difference is the whole subject of this file.
-PERSONAL_ALLOWED = {
-    "tests/test_no_hardcoded_values.py",   # names them all in order to ban them
-}
+#: **Nothing is exempt from the personal-data check.** There used to be one entry here
+#: — this file, because it named every banned value in order to ban them — and that
+#: exemption was the leak (#1234): the one file nobody checked was the one holding the
+#: list. Digests removed the reason for it, so the set is empty and stays empty; a
+#: legitimate exception is a LINE shape (below), never a file.
+PERSONAL_ALLOWED: set[str] = set()
 
 #: The one LINE shape where a real name is the point: a copyright holder and a package
 #: author field. Deliberately a line rule and not a file rule — exempting the whole of
@@ -263,6 +345,10 @@ def test_no_personal_identity_is_shipped():
     of those people are not the author, they are other players who happened to be on
     screen when a capture was recorded. Prose is exactly where recorded data goes to
     be forgotten.
+
+    **And this file is checked too**, which it was not until #1234. The failure names
+    the place and the kind and stops there: printing the value would put it back into
+    the CI log, the terminal history and whatever reads them.
     """
     for rel in _all_tracked():
         if rel in PERSONAL_ALLOWED:
@@ -270,11 +356,81 @@ def test_no_personal_identity_is_shipped():
         for i, line in enumerate(_read(rel).splitlines(), 1):
             if REPO_URL.search(line) or ATTRIBUTION.match(line):
                 continue
-            hit = PERSONAL.search(line)
-            assert not hit, (
-                f"{rel}:{i} names {hit.group(0)!r} — a real person or account. Use a "
-                f"placeholder; a fixture recorded live has to be anonymised before it "
-                f"is committed."
+            what = _hit(line, PERSONAL_DIGESTS)
+            assert not what, (
+                f"{rel}:{i} names {what} — a real person. Use a placeholder; a fixture "
+                f"recorded live has to be anonymised before it is committed. (The value "
+                f"is not printed on purpose: read the line.)"
+            )
+
+
+#: An account id as this game writes them: sixteen digits, and a shape rather than a
+#: list — which is why not one of them is in :data:`PERSONAL_DIGESTS`. A digest can
+#: only ban the ids somebody has already seen; the shape bans the next one too.
+ACCOUNT_ID = re.compile(r"(?<!\d)\d{16}(?!\d)")
+
+#: What an anonymised id looks like once a fixture has been cleaned: the ten-digit
+#: `1000000000` prefix and a made-up tail, or a run of zeros where the id was a device
+#: rather than a player. Every id in `tests/fixtures/` and in `docs/research/` already
+#: reads like one of the two, so the rule below costs nothing to keep and fails the
+#: moment a fresh recording is committed unread.
+PLACEHOLDER_ID = re.compile(r"^(1000000000\d{6}|0+)$")
+
+
+def test_no_live_account_id_is_shipped():
+    """A sixteen-digit id is either the anonymised shape or it is somebody's account.
+
+    Shape, not identity: the guard cannot know whose account a number is, and does not
+    need to. It knows that a real one has never been cleaned, and that a cleaned one is
+    recognisable at a glance — by the author writing it and by a reviewer reading the
+    diff, which is the property the old list of seven remembered ids never had.
+    """
+    for rel in _all_tracked():
+        for i, line in enumerate(_read(rel).splitlines(), 1):
+            for m in ACCOUNT_ID.finditer(line):
+                assert PLACEHOLDER_ID.match(m.group(0)), (
+                    f"{rel}:{i} carries a sixteen-digit account id that has not been "
+                    f"anonymised. Replace it with a 1000000000xxxxxx placeholder — a "
+                    f"recording is not a fixture until it is."
+                )
+
+
+#: A long run of hex that contains at least one letter: a device id, an alliance uuid,
+#: a session token — the shapes a live capture leaves behind. All-zero placeholders
+#: have no letter in them and so are never flagged, which is the point of writing them
+#: that way.
+HEX_BLOB = re.compile(r"(?<![0-9A-Za-z])(?=[0-9a-f]*[a-f])[0-9a-f]{24,}(?![0-9A-Za-z])",
+                      re.IGNORECASE)
+
+#: The two files whose long hex is not an identity, each for a reason that is written
+#: down rather than assumed.
+HEX_ALLOWED = {
+    # The digests above. This file is exempt from THIS check and from nothing else —
+    # the personal-data check reads it like any other file now.
+    "tests/test_no_hardcoded_values.py",
+    # The published checksums of the Python and Git installers it downloads. They
+    # describe a file on a vendor's server, not a person.
+    "install.bat",
+}
+
+
+def test_no_identifier_blob_is_shipped():
+    """No 24-plus hex identifier outside the two files that have a reason for one.
+
+    A capture is full of them, and they are the one kind of personal value nobody
+    recognises on sight — a reviewer skims a 32-character uuid the way they skim
+    whitespace. So the guard fails on the shape and asks for a zeroed placeholder,
+    which is what the fixtures that have already been cleaned use.
+    """
+    for rel in _all_tracked():
+        if rel in HEX_ALLOWED:
+            continue
+        for i, line in enumerate(_read(rel).splitlines(), 1):
+            m = HEX_BLOB.search(line)
+            assert not m, (
+                f"{rel}:{i} carries a {len(m.group(0))}-character identifier. If it "
+                f"came off a live session it is somebody's — zero it out the way the "
+                f"cleaned fixtures do."
             )
 
 
@@ -386,9 +542,75 @@ def test_a_homoglyph_spelling_does_not_slip_past():
     """
     assert _fold("карono") == "kapono"
     assert _fold("Р:\\рrojects") == "P:\\projects"
-    assert PERSONAL.search(_fold("сasper")), "a folded login must still match"
     assert MACHINE_PATH.search(_fold("Р:\\x")), \
         "a folded drive letter must still match"
+
+
+def test_the_guard_catches_what_is_planted_in_front_of_it():
+    """Push values at the checker and watch it flag them — the digests changed how it
+    remembers, and this is what says they did not change what it catches.
+
+    The values here are invented, so the test proves the mechanism without the file
+    holding a real one — which is the entire trick. Every spelling a person might reach
+    for is tried: the plain one, another case, a homoglyph, a separator, a word wrapped
+    in punctuation, and a handle written with a space in it.
+    """
+    planted = {_digest("Quillonbrek"): "an invented nickname",
+               _digest("Marrow 88"): "an invented handle"}
+
+    for spelling in ("Quillonbrek", "QUILLONBREK", "quillonbrek",
+                     "Quillоnbrek",                       # Cyrillic о
+                     "  name = 'Quillonbrek'  ", "[Quillonbrek]", "quillonbrek_2",
+                     "path/to/Quillonbrek.log"):
+        assert _hit(spelling, planted) == "an invented nickname", \
+            f"a planted value walked past the guard: {spelling!r}"
+
+    for spelling in ("Marrow 88", "Marrow-88", "marrow88", "«Marrow 88»"):
+        assert _hit(spelling, planted) == "an invented handle", \
+            f"a planted two-word handle walked past the guard: {spelling!r}"
+
+    # …and it stays quiet on ordinary text, or the whole tree fails and nobody reads it.
+    for innocent in ("the marrow of the matter", "quill on brek", "88", "",
+                     "collect_healed xall", "def test_the_guard(): pass"):
+        assert _hit(innocent, planted) is None, f"false positive on {innocent!r}"
+
+
+def test_the_guard_still_flags_the_shapes_it_no_longer_lists():
+    """The ids and blobs left the digest table for a shape check; push those at it too.
+
+    A live id and a cleaned one, side by side: what the check has to tell apart is not
+    who they belong to but whether anybody cleaned them.
+    """
+    # Invented, and spelled in two halves so that this file does not itself carry a
+    # sixteen-digit run — the check reads its own source like everybody else's, and
+    # writing the example out in one piece is how you find that out.
+    live = "2468013579" + "246801"
+    assert ACCOUNT_ID.search(live) and not PLACEHOLDER_ID.match(live)
+    assert PLACEHOLDER_ID.match("1000000000000935"), "a cleaned fixture id must pass"
+    assert not ACCOUNT_ID.search("100000000000093"), "fifteen digits is not an id"
+    assert not ACCOUNT_ID.search("10000000000009351"), "…nor is seventeen"
+
+    assert HEX_BLOB.search('"allianceId": "a3f9c1d0e4b27856aa910c33de77f102"')
+    assert not HEX_BLOB.search('"allianceId": "00000000000000000000000000000000"'), \
+        "a zeroed placeholder is what a cleaned fixture looks like"
+    assert not HEX_BLOB.search("commit 26bbbfc"), "a short sha is a reference, not an id"
+
+
+def test_the_table_of_digests_holds_no_plaintext():
+    """The guard's own list must be unreadable — that is the whole of task #1234.
+
+    Two ways it could quietly stop being: a value pasted in beside its digest, and a
+    «category» that is really the value with a label's punctuation on it. The second is
+    checked by hashing the category and looking for it in the table.
+    """
+    for digest, what in PERSONAL_DIGESTS.items():
+        assert re.fullmatch(r"[0-9a-f]{64}", digest), \
+            f"{what}: not a SHA-256 digest — use --hash, never the value"
+        assert _digest(what) not in PERSONAL_DIGESTS, \
+            "a category names its own value; describe the KIND instead"
+        assert " " in what, f"{digest[:8]}…: a category reads like «a player nickname»"
+    assert _digest("") not in PERSONAL_DIGESTS, "an empty value would ban every line"
+    assert len(set(PERSONAL_DIGESTS)) == len(PERSONAL_DIGESTS)
 
 
 #: Directories that hold live data from a real account, on the machine that plays.
@@ -502,6 +724,18 @@ def test_the_interpreter_is_decided_in_one_place():
 
 
 def _main() -> int:
+    # `--hash "a value"` — the only way a new banned name should ever be added. It
+    # prints the digest and nothing else, so the value stays in the shell that typed it
+    # and never reaches a commit, a diff or a review comment.
+    if len(sys.argv) > 1 and sys.argv[1] == "--hash":
+        if len(sys.argv) < 3:
+            print('usage: --hash "the value to ban"')
+            return 2
+        for value in sys.argv[2:]:
+            print(f'    "{_digest(value)}": "a player nickname",   '
+                  f'# describe the KIND, never the value')
+        return 0
+
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
     for t in tests:

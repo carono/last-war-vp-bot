@@ -24,7 +24,7 @@ On the wire that request is three fields and no credentials:
 
 ```json
 {"airKey": "lwDid_<base64 of the device id>",
- "deviceId": "a594ed140224448fb45ad9c91aa5410f_n3d",
+ "deviceId": "00000000000000000000000000000000_n3d",   // anonymised: 32 hex, this machine's
  "type": 1}
 ```
 
