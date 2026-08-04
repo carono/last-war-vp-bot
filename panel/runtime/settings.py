@@ -211,8 +211,41 @@ class SettingsBinder:
         make = factory or _settings_var
         for key, default in self.defaults.items():
             if key not in self.vars:
-                self.vars[key] = make(master, default)
+                self.vars[key] = make(master, self._initial(key, default))
         return self.vars
+
+    def _initial(self, key: str, default):
+        """What a knob's variable STARTS at: this profile's SAVED value, else the default.
+
+        Not the bare default, and the difference is a class of bug rather than a
+        cosmetic one. :meth:`opt` lets the widget beat the file — a knob being edited
+        right now is the truth — so a variable made with the code's default IS the
+        answer to every read of that knob until somebody applies the profile to the
+        widgets, and the shell does that pages later, long after the runtime and its
+        game link were built.
+
+        What it cost: a profile whose client lives in another Windows session names a
+        daemon port of its own (47655), and its link was built while the widget still
+        said 47654. The port is re-read everywhere else, so the panel CLAIMED the game
+        lease on one daemon and pressed the scenario into the other — every action of
+        that profile came back «lease lost», `WAIT scene == city` never saw a scene, and
+        the restart errand relaunched a perfectly healthy client every six minutes for
+        two days (#1224).
+
+        The TYPE stays the declared default's: a factory chooses the kind of variable
+        from what it is handed, and a boolean knob saved as a string must not turn its
+        checkbox into a text box.
+        """
+        if key not in self._values:
+            return default
+        raw = self._values[key]
+        if raw is None:
+            return default
+        if isinstance(default, bool):
+            if isinstance(raw, str):
+                return raw.strip().lower() in ("1", "true", "yes", "on")
+            return bool(raw)
+        return raw
 
     def var(self, key):
         return self.vars.get(key)

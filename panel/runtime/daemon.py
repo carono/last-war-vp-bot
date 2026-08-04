@@ -105,11 +105,63 @@ class GameLink:
         # inherited". A panel process may hold two profiles' leases at once, so a
         # client that picked one up out of the environment would be carrying the
         # other profile's right to drive the other profile's client.
-        self.client = lua_client.DaemonClient(port=self.port(), token="")
+        self._client = lua_client.DaemonClient(port=self.port(), token="")
+        #: Which port :attr:`_client` was BUILT for, so the property below can tell
+        #: that the profile's answer has moved since. ``None`` for a client somebody
+        #: handed in (a test's double): not ours to re-point.
+        self._client_port = self.port()
 
     # -- the connection -----------------------------------------------------
     def port(self) -> int:
         return int(self._port())
+
+    @property
+    def client(self):
+        """This profile's daemon client, ON THE PORT THE PROFILE NAMES NOW.
+
+        The port is a CALLABLE for a reason — it follows a profile switch and an edited
+        setting — and everything else here re-reads it on every use. The client was the
+        one thing that did not: it was built once, in the runtime's constructor, and
+        stayed on whatever the answer was at that instant. During a boot that instant is
+        before the profile's saved values have reached the widgets, so a second account
+        on 47655 got a client on 47654 and kept it. Nothing said so, because the client
+        still answered — it was simply answering about the OTHER account's game: the
+        lease was claimed there while the scenario ran on 47655 and came back «lease
+        lost» (#1224).
+
+        So the check is here, where it cannot be forgotten, rather than in the callers
+        that happen to remember `rebind()`.
+        """
+        if self._client_port is not None and self._client_port != self.port():
+            self._repoint()
+        return self._client
+
+    @client.setter
+    def client(self, value) -> None:
+        self._client = value
+        # A double without a port is nobody's to follow; a real client says which
+        # daemon it was made for and the property keeps it honest from here on.
+        self._client_port = getattr(value, "port", None)
+
+    def _repoint(self) -> None:
+        """Build a client for the port the profile names now, and let the old one go.
+
+        The lease does NOT come along, and that is the whole point: a token is one
+        daemon's word, meaningless to another and actively harmful there — a `run`
+        carrying it is refused as «lease lost» instead of simply running. So the claim
+        is handed back to the daemon that granted it (a lease left behind would hold
+        that client for its whole ttl) and the new client starts unleased. The panel's
+        own `_busy` flag is untouched: whoever holds the claim still holds it, and its
+        `release()` finds a client with nothing to give back.
+        """
+        old, port = self._client, self.port()
+        self._client = lua_client.DaemonClient(port=port, token="")
+        self._client_port = port
+        if old is not None and getattr(old, "token", ""):
+            try:
+                old.release()
+            except Exception:                         # noqa: BLE001 — a courtesy, not the move
+                pass
 
     @property
     def token(self) -> str:
@@ -133,14 +185,15 @@ class GameLink:
     def rebind(self) -> bool:
         """Point the client at the profile's port. ``True`` if it actually moved.
 
-        The lease comes along: re-pointing is what a profile switch and a port edit do,
-        and a claim silently dropped there would leave the daemon holding a lease this
-        link no longer knows it has.
+        Kept as the SPOKEN version of what :attr:`client` now does by itself: a profile
+        switch and a port edit say so in the log, and the shell wants to know whether
+        there was anything to say. The move itself, and what happens to the lease of the
+        daemon being left, is :meth:`_repoint`.
         """
         port = self.port()
-        if getattr(self.client, "port", None) == port:
+        if getattr(self._client, "port", None) == port:
             return False
-        self.client = lua_client.DaemonClient(port=port, token=self.token)
+        self._repoint()
         return True
 
     def user(self) -> "str | None":
