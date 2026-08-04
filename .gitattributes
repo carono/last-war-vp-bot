@@ -1,3 +1,9 @@
 # Batch files are read by cmd.exe, which wants CRLF: an LF-only .bat breaks
 # on a goto out of a block or a for loop, and does it silently.
+#
+# Silently is the word. cmd.exe seeks by byte offset and counts two bytes a line,
+# so LF makes it resume mid-line and run the tail of a comment — `panel.bat` died
+# on 'the' and 'all.bat', the ends of its own REM lines (#1225). .cmd is read by
+# the same parser and needs the same thing.
 *.bat text eol=crlf
+*.cmd text eol=crlf
