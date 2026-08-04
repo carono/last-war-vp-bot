@@ -484,13 +484,28 @@ flag, check it still exists before acting on it.
   a session that cannot exist and reports the ordinary «no client
   running».
 
-  `tests/test_no_hardcoded_values.py` enforces both halves — quoted
-  literals of the install, and personal logins anywhere in a tracked
-  file. It holds the banned names as SHA-256 digests rather than as
-  text, so the guard is not itself a published list of real people
-  (#1234): add one with `--hash "the value"`, and expect a failure that
-  names the place and the kind but not the value. The full rule is in
-  `CLAUDE.md`, «Nothing about one machine is written into the code».
+- **Never write down an identifier of a real account** — a nickname
+  (yours or another player's), a Windows login, a game uid or account
+  uuid, an alliance id or tag, a device id, an account-bound server
+  number, the coordinates of a particular base, an IP, a path with
+  somebody's user name in it. Not in code, tests, fixtures, docs,
+  comments or example commands.
+
+  The usual way one arrives is an example: the ability is run, the game
+  answers, and the answer is pasted in *because it is true*. What an
+  example is for is its SHAPE, and the shape survives having the values
+  replaced — so replace them as you paste, with invented ones of the
+  same format (`Player1`, `AL1`, an id that looks made up, zeros for a
+  device id, `<user>` in a path). A test that needs a server reply needs
+  one of the right shape, not a real one; if it only passes against a
+  real value it is testing the account, not the code.
+
+  There is no test for any of this: the guard that used to check it
+  worked by holding a copy of every banned value, which made it the
+  largest pile of personal data in the repository, and it was deleted
+  (#1234). The full rule is in `CLAUDE.md`, «Not one identifier of a
+  real account is written down» and «Nothing about one machine is
+  written into the code».
 
 ---
 

@@ -211,6 +211,11 @@ tracker — until:
   edit is not done while the window is missing what the phone now has. A deliberate
   difference is agreed with the person first and written down, never left silent;
 - nothing it adds is true of this machine only (below);
+- **not one identifier of a real account is anywhere in what it adds** — no nickname,
+  Windows login, uid, uuid, alliance id or tag, device id, account-bound server number,
+  base coordinate, IP or user-named path, in code, tests, fixtures, docs, comments or
+  example commands. A live reply used as an example is rewritten with invented values of
+  the same shape BEFORE it is committed, never after (below);
 - and, once the user has confirmed it live, both farming files say so (below).
 
 ## Nothing about one machine is written into the code
@@ -265,11 +270,6 @@ WIN_PYTHON = game_paths.win_python()
 GAME_PORT = game_paths.game_port()         # …and ask the live socket before trusting it
 ```
 
-**A recording is not a fixture until it is anonymised.** A capture taken from a live
-session carries whoever was on screen — nicknames, account ids, alliance tags, device
-ids, and they are not all yours to publish. Replace them before the file is committed;
-`tests/fixtures/` is as public as the rest of the repository.
-
 Prose is not a value: a comment or a docstring may name the game, the launcher or a
 «run it like this» line, and should. What may not come back is a **quoted literal being
 used** — to build a path, filter a process list or match a window.
@@ -277,24 +277,85 @@ used** — to build a path, filter a process list or match a window.
 Every new variable is added to [`.env.example`](.env.example) in the same commit, with
 a line saying what it is for and that it is optional.
 
-**And the guard does not carry what it guards.** A banned nickname, login or alliance
-tag lives in `tests/test_no_hardcoded_values.py` as a SHA-256 of its normalised
-spelling — never in plain text, because a list of real people published to protect
-them is still a list of real people (#1234). Adding one is
-`… tests\test_no_hardcoded_values.py --hash "the value"`, which prints the digest to
-paste in; the value stays in the shell that typed it. Ids are not listed at all — a
-sixteen-digit account id and a long hex device id are caught by SHAPE, and the fix is
-to write the anonymised form (`1000000000xxxxxx`, or zeros) the cleaned fixtures use.
-A failure names the file, the line and the KIND («a player nickname») and never the
-value; read the line to see it.
+There is no separate test under this rule any more: `tests/test_no_hardcoded_values.py`
+was deleted with #1234, because the only way it could recognise a forbidden value was to
+carry a copy of it — the file guarding the repository against personal data held the
+largest collection of it in the repository. What it checked about *this machine* is still
+checked: `tests/test_game_paths.py` fails on a module that spells the install or the
+interpreter out for itself. The rest of the rule holds because you read your own diff
+before you commit it.
 
-`tests/test_no_hardcoded_values.py` enforces all of it — the quoted literals, the
-personal logins, and the «one place decides the interpreter» rule. Run it before you
-call this kind of work done:
+## Not one identifier of a real account is written down
 
+**Also binding, on every agent, with no exceptions.** This repository is public.
+**Never write a real identifier into it — yours or anybody else's.** Not a player
+nickname, not a Windows login, not a game uid or an account uuid, not an alliance id or
+tag, not a device id, not a server number that belongs to an account, not the
+coordinates of a particular base, not an IP address, not a path with somebody's user
+name in it. Not in code, not in tests, not in fixtures, not in documentation, not in a
+comment, and not in an example command line. There is no file in this repository where
+one of them is allowed to be, and no reason that makes one of them worth keeping.
+
+Half of them are not even yours to publish. A capture, a screenshot or a chat log
+records whoever happened to be on screen — other players, their alliances, their
+account ids. They never agreed to be in a public repository and cannot ask to be taken
+out of one, because a git history does not forget.
+
+### Why an example may not «just use the real answer»
+
+This is how they get in, and it is not carelessness — it is diligence pointed the wrong
+way. An agent runs the ability, the game answers, and the answer goes into the docstring
+or the fixture *because it is true*: it is what the server really said, so it must be the
+most honest example there is.
+
+It is the one thing that must never be pasted. **What makes an example useful is its
+SHAPE — field names, types, lengths, the order things arrive in — and the shape survives
+having the values replaced.** The real numbers add nothing a reader can use and carry
+somebody's account for ever. So invent values of the same shape as you paste, not later:
+«later» is precisely why they are still here.
+
+**A recording is not a fixture until it is anonymised.** The place for a genuine one is
+a git-ignored tree — `results/`, `panel/profiles/`; they are ignored for exactly this
+reason. Anything that comes out of one of them and into a tracked file gets its
+identifiers replaced on the way, in the same edit, or it does not come out.
+
+### When a test genuinely needs the data
+
+A test that parses a server reply needs a reply **of the right shape**, not a real one.
+The contract it is checking is the field names, the types, the nesting and the edge
+cases — never the digits inside. So write the fixture by hand: a made-up id that looks
+made up, `Player1` and `Player2`, an alliance called `AL1`, zeros for a device id,
+`<user>` in a path. It reads better too — a reviewer can see at a glance which value the
+test is about.
+
+**If a test only passes against a real value, it is testing the account, not the code.**
+That is a broken test, and pasting a live reply into it hides the breakage instead of
+fixing it.
+
+### What that looks like
+
+```python
+# ❌ the live reply, pasted in because it is what really came back
+ROLES = [_role(100, "1544820371002087", 35, "NightHollow", 241514404, "QRt")]
+# ❌ …and the same mistake in prose, in a comment and in a command line
+#    base at @[512,377|1832], device 7c1a44e90b6d4f27a5e3110cc84b2d55_n3d
+#    run: python tools/rdp_instance.py --user gtaylor
 ```
-C:\Python312\python.exe tests\test_no_hardcoded_values.py
+
+```python
+# ✅ the same shape, invented — a reviewer can see at a glance these are not real
+ROLES = [_role(100, "1000000000000001", 35, "Player1", 241514404, "AL1")]
+# ✅ …and prose says what the field IS, not what one account's happened to be
+#    base at @[<x>,<y>|<server>], device 00000000000000000000000000000000_n3d
+#    run: python tools/rdp_instance.py --user <the Windows login of that session>
 ```
+
+Even the ❌ block is invented — a file that teaches this rule cannot be the one place
+that breaks it, and «but it is only an example of the mistake» is how the last set got
+in.
+
+If you find one already in the tree, replace it in the commit you are making — do not
+open a task for it and move on.
 
 ## Not one word of the panel is written in the panel
 

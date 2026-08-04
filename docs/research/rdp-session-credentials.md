@@ -31,9 +31,10 @@ Short version, for somebody who has just installed this and wants the second ins
 * **This repository never receives it.** `--save-credential` hands the typing to
   `cmdkey`, Windows' own tool, which prompts on its own console; `--ask` hands it to
   mstsc's own dialog. In both routes the password goes from the person to Windows, and
-  no code here is on that path. (`tests/test_no_hardcoded_values.py` fails the build on
-  a Windows login committed anywhere, prose included — a password would have to survive
-  that guard *and* a review to get in.)
+  no code here is on that path. (A Windows login may not be committed anywhere in this
+  repository, prose included — see `CLAUDE.md`, «Not one identifier of a real account is
+  written down» — so a password would have to survive that rule *and* a review to get
+  in.)
 * **On a new machine**, one of two one-time acts, and nothing after that:
 
   ```
