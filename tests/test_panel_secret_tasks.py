@@ -129,6 +129,8 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     tab.t = i18n.t
     tab.level_from_var, tab.level_to_var = _Var(lo), _Var(hi)
     tab.autoloot_var = _Var(autoloot)
+    # «Показывать исчерпанные» — off, as a fresh profile has it.
+    tab.show_spent_var = _Var(False)
     tab.autoloot = _FakeAutoLoot(tab)
     tab._rows = rows
     tab._collected = set()
@@ -437,46 +439,40 @@ def test_the_jump_history_remembers_the_newest_first_and_is_capped():
     assert len(tab._jump_hist) == st.JUMP_HISTORY_MAX, len(tab._jump_hist)
 
 
-def test_a_looted_out_tile_is_not_a_row(monkeypatch=None):
-    """3/3 is spent — it cannot pay anybody, so it never reaches the list (#1227).
+def test_a_looted_out_tile_is_off_the_list_unless_it_is_asked_for():
+    """3/3 is spent — it cannot pay anybody, so it is not on the list (#1227).
 
-    Three ways in, and all three are shut: the wire feed's merge, the rows already on
-    screen (a filter, so a count that changes takes effect at once), and the poll that
-    watches a ready tile fill up under us.
+    Hidden by a display rule rather than thrown away, because «Показывать исчерпанные»
+    has to be able to bring it back: a row that vanishes is otherwise impossible to
+    account for. And however it is reached, it is never collectable — pressing it would
+    spend one of the day's five on a robbery the server refuses.
     """
-    import types
+    spent = dict(_row(5, 7, -5_000, 600_000), loot_count=3, ready=True)
+    free = dict(_row(6, 7, -5_000, 600_000), loot_count=2, ready=True)
+    tab = _make_tab({"5": spent, "6": free})
 
-    tab = _make_tab({})
-    tab._busy = True
-    tab._maybe_start_poll = lambda: None
-    full = types.SimpleNamespace(uuid=9, server_id=1, x=1, y=2, level=7, cfg_id=16003,
-                                 loot_count=3, free_slots=0, expires_at=None,
-                                 completed_at=None)
-    free = types.SimpleNamespace(uuid=8, server_id=1, x=1, y=2, level=7, cfg_id=16003,
-                                 loot_count=1, free_slots=2, expires_at=None,
-                                 completed_at=None)
-    tab.rt = types.SimpleNamespace(root=None)
-    # A merged row is given a countdown variable; there is no Tk root here, and the
-    # decision under test is which tiles become rows at all.
-    was, st.tk_stringvar = st.tk_stringvar, lambda _master: _Var()
-    try:
-        tab._merge([full, free])
-    finally:
-        st.tk_stringvar = was
-    assert set(tab._rows) == {"8"}, tab._rows       # the spent tile was never added
+    assert [r["uuid"] for r in tab._visible_rows()] == [6]
+    tab.show_spent_var = _Var(True)
+    assert sorted(r["uuid"] for r in tab._visible_rows()) == [5, 6]
 
-    # …and one that fills up while it is on the list goes when the poll says so.
-    rows = {"2": dict(_row(2, 7, -5_000, 600_000), ready=True)}
-    tab2 = _make_tab(rows)
-    live = _LiveTask(2)
-    live.loot_count = 3
-    tab2._poll_apply(["2"], {"2": live})
-    assert "2" not in tab2._rows, tab2._rows
+    # Shown, but not offered: no action cell, no strip button, no menu entry, and the
+    # auto-loot rule does not aim at it either.
+    assert tab._collectable(spent) is False
+    assert tab._collectable(free) is True
+    cells = dict(zip([c[0] for c in st.COLUMNS],
+                     st.SecretTasksTab._row_values(tab, spent)))
+    assert cells["action"] == "", cells
+    assert cells["slots"] == "3/3", cells
 
-    # …and a row whose count is already three is filtered out of what is drawn.
-    tab3 = _make_tab({"5": dict(_row(5, 7, -5_000, 600_000), loot_count=3),
-                      "6": dict(_row(6, 7, -5_000, 600_000), loot_count=2)})
-    assert [r["uuid"] for r in tab3._visible_rows()] == [6]
+    # The standing order weighs the same rows and passes over the spent one. Aimed at
+    # `_auto_loot` rather than the poll around it: the poll refreshes a row's loot count
+    # from the game first, and the game never reports a 3/3 tile at all — it drops them
+    # — so the poll could only reach this case by inventing a reading the VM cannot give.
+    robbed = []
+    tab.autoloot_var = _Var(True)
+    tab._collect = lambda row: robbed.append(row["uuid"])
+    tab._auto_loot({"5": _LiveTask(5), "6": _LiveTask(6)})
+    assert robbed == [6], robbed
 
 
 def test_the_countdown_runs_on_the_games_clock_not_this_machines():

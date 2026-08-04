@@ -69,6 +69,18 @@ import lua_client  # noqa: E402
 
 MARKER = "ACT"
 
+
+class NotLoggedIn(RuntimeError):
+    """The client answered, but it is not in a session yet.
+
+    Raised by the VM reads rather than returned as an empty list, because an empty
+    list is what a logged-in client with nothing to rob says — and telling those two
+    apart is the whole point. A client at the login screen has no alliance tasks, an
+    own server of `-1` and a full day's robberies still unspent, all without a single
+    error (#1227). The clock is the one thing it cannot fake, and every one of these
+    reads carries it.
+    """
+
 # How long to wait for the `world.get.detail.new` reply before giving up on a
 # coordinate. The round trip ran ~0.2-1 s live; three tries at 0.7 s is generous
 # without hanging a scripted run on a tile that simply has no task on it.
@@ -94,16 +106,16 @@ def read_status(ev) -> tuple[int, int]:
     never touches the tile list and would otherwise judge a checkpoint's
     timestamps against this machine's clock instead of the game's (#1227).
     """
-    chunk = ('CS.UnityEngine.Debug.LogError("ACT status left="..tostring(%s)'
-             '.." queued="..tostring(%s)'
-             '.." NOW="..tostring(ChatInterface.getServerTime()))'
+    chunk = (lua_actions.game_server_time() + ' '
+             'CS.UnityEngine.Debug.LogError("ACT status left="..tostring(%s)'
+             '.." queued="..tostring(%s))'
              % (lua_actions.secret_task_steals_left(), lua_actions.secret_task_queue_len()))
     sent = time.time()
     lines = ev.run(chunk, MARKER, 1.0)
     back = time.time()
-    seconds = game_clock.parse(lines)
-    if seconds is not None:
-        game_clock.note(seconds * 1000, sent, back)
+    server_ms = game_clock.parse_ms(lines)
+    if server_ms is not None:
+        game_clock.note(server_ms, sent, back)
     for ln in lines:
         if "status left=" in ln:
             return _num(ln, "left"), _num(ln, "queued")
@@ -138,12 +150,20 @@ def own_server(ev) -> int:
     (that is what a robbery run does), so `curServerId` would answer "wherever I am
     looking". `ChatInterface.getSelfServerId()` is the account's own one, which is what
     «не грабить на своём сервере» is about — the neighbours.
+
+    A client that has not logged in answers **-1**, and that is not a server id:
+    handed on as one it would make «не грабить на своём сервере» compare every
+    tile against a server that cannot exist, so the prohibition would lapse
+    silently and the neighbours would be robbed after all (#1227). Anything that
+    is not a positive id is "unreadable", which the callers already refuse to act
+    on.
     """
     import chat_share                          # tools/lib, already on sys.path
     try:
-        return int(chat_share.self_profile(ev).get("srv") or 0)
+        server = int(chat_share.self_profile(ev).get("srv") or 0)
     except (TypeError, ValueError):
         return 0
+    return server if server > 0 else 0
 
 
 def _label(task) -> str:
@@ -256,9 +276,13 @@ def _read_vt(ev, chunk: str) -> list:
     sent = time.time()
     lines = ev.run(chunk, MARKER, 1.1)
     back = time.time()
-    seconds = game_clock.parse(lines)
-    if seconds is not None:
-        game_clock.note(seconds * 1000, sent, back)
+    server_ms = game_clock.parse_ms(lines)
+    if server_ms is None or not game_clock.plausible(server_ms):
+        # The read came back without a usable clock: this client is not in a session
+        # (or the VM did not answer at all). Its empty task table means "cannot say",
+        # not "nothing to rob", and the two must not look the same to a caller.
+        raise NotLoggedIn("the client cannot say what time it is")
+    game_clock.note(server_ms, sent, back)
     return _parse_vt_lines(lines)
 
 
@@ -394,16 +418,21 @@ def main() -> int:
 
     ev = lua_client.get_evaluator()
 
+    # A client that has not finished logging in answers everything, and every answer
+    # is a plausible-looking lie: no alliance task in the manager, own server -1, and
+    # a daily budget of "all five left" because `GetTodayStealNum()` reads 0 out of an
+    # empty manager. Nothing raises, so a run against it looks exactly like a quiet day
+    # with nothing to rob — which is what «автолут не работает совершенно» was on the
+    # second profile (#1227). The clock is the one question it cannot fake.
+    if not game_clock.session_ready(ev):
+        print("the client is not logged in (it cannot say what time it is) — nothing "
+              "read and nothing robbed; log the game in and run this again")
+        return 1
+
     if args.status:
         left, queued = read_status(ev)
         print("robberies left today: %d   targets queued: %d" % (left, queued))
         return 0
-
-    # The game's clock, before a single timestamp is judged against it (#1227). The VM
-    # reads below carry it for free, but a `--from-scan` run never touches the tile list
-    # and this is its one chance to learn how far the game's time has drifted from the
-    # machine's — which is exactly the comparison «has this dispatch finished yet».
-    game_clock.read(ev)
 
     # «Не грабить на своём сервере», resolved once and up front. A prohibition that
     # cannot be checked must stop the run rather than lapse quietly: an unreadable own

@@ -39,8 +39,8 @@ from datetime import datetime, timezone
 import game_clock
 
 # Every timestamp decoded below is epoch milliseconds on the GAME's clock, and
-# that clock is not this computer's — it was twelve seconds ahead of a machine
-# within two seconds of real UTC when it was last measured (#1227). So a record
+# that clock is not this computer's — the two were eleven seconds apart when last
+# measured, with the PC the one that was slow (#1227). So a record
 # is judged against `game_clock.now_ms()`, never against `time.time()`, and the
 # two differ by whatever the last live read said. Wall-clock `time.time()` is
 # still right for the *host's* own bookkeeping — how long ago the capture saw a
@@ -538,9 +538,9 @@ class SecretTask:
 
         Both timestamps are epoch milliseconds on the game's clock, so they are
         compared against the GAME's now (`game_clock`), not this machine's: the
-        two were twelve seconds apart when it was last measured, and on the wrong
-        side of that a tile the server would already pay out on reads «ещё
-        выполняется» (#1227).
+        two were eleven seconds apart when it was last measured — the PC being the
+        slow one — and on the wrong side of that a tile the server would already pay
+        out on reads «ещё выполняется» (#1227).
         """
         now = game_clock.now_ms()
         if self.completed_at is None or self.completed_at > now:

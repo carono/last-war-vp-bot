@@ -253,8 +253,8 @@ was found.
 not something the game states on the wire — see §7 of `protocol.md`. That is the
 one soft spot in this rule.
 
-The gate is judged on the GAME's clock, which is not this computer's — it ran twelve
-seconds ahead of a PC that was itself within two of real UTC (`game-clock.md`,
+The gate is judged on the GAME's clock, which is not this computer's — the two were
+eleven seconds apart when measured, with the PC the slow one (`game-clock.md`,
 task #1227). Against `time.time()` the same `completionTime` reads as "not yet" for
 that long after the server would already pay out, and the countdown on the tab
 disagrees with the one the game draws beside it.

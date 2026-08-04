@@ -1159,18 +1159,40 @@ def steal_next_secret_task() -> str:
             '.." srv="..tostring(t.server)) end' % secret_task_steals_left())
 
 
-def game_server_time() -> str:
-    """Emit the game's own clock, in whole seconds — `ACT NOW=<seconds>`.
+# The clock the client draws its OWN countdowns with, in milliseconds, as a Lua
+# statement that leaves it in a local called `nowms`.
+#
+# `UITimeManager.Instance:GetServerTime()` is the one to ask, and it is not a
+# guess: `ActDispatchTaskDataManager.RefreshCompleteTimer`, string-dumped out of
+# the live VM, computes its countdown as `completionTime` minus a `curTime` taken
+# from exactly this manager (task #1227). It is the server's clock kept as an
+# offset from the device's — `self.serverDeltaTime` — so it does NOT move with the
+# PC's own time.
+#
+# `ChatInterface.getServerTime()` is the fallback, the same clock in whole
+# seconds. Measured together they agree to the second (…337743 ms vs …337 s), so
+# the fallback costs precision and nothing else.
+_SERVER_NOW_MS = (
+    'local nowms = 0 '
+    'pcall(function() nowms = UITimeManager.Instance:GetServerTime() end) '
+    'nowms = math.floor(tonumber(nowms) or 0) '
+    'if nowms <= 0 then nowms = (tonumber(ChatInterface.getServerTime()) or 0) * 1000 end ')
 
-    `ChatInterface.getServerTime()` is what the client counts its own timers
-    with, and it is not this computer's clock: it ran twelve seconds ahead of a
-    machine that was itself within two seconds of real UTC (task #1227). Every
-    timestamp the game hands out is on THIS clock, so anything drawing a
-    countdown or asking "has the dispatch finished yet" has to be judged against
-    it. `tools/lib/game_clock.py` keeps the difference; this is the read.
+
+def game_server_time() -> str:
+    """Emit the game's own clock, in milliseconds — `ACT NOWMS=<ms>`.
+
+    This is the clock every timestamp the game hands out is stamped on, and it is
+    the one the client's own countdowns are drawn against — so anything asking
+    «how long until this tile is raidable» or «has the dispatch finished yet» has
+    to be judged by it rather than by the PC's clock. The two are not the same:
+    the machine this was written on ran eleven seconds SLOW against real UTC, and
+    the operator was reading 25-30 s of that on the tab (task #1227).
+
+    `tools/lib/game_clock.py` keeps the difference; this is the read.
     """
-    return ('CS.UnityEngine.Debug.LogError("ACT NOW="'
-            '..tostring(ChatInterface.getServerTime()))')
+    return (_SERVER_NOW_MS
+            + 'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms))')
 
 
 def secret_task_raidable_alliance() -> str:
@@ -1199,9 +1221,9 @@ def secret_task_raidable_alliance() -> str:
     return (
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
-        'local nowsec = tonumber(ChatInterface.getServerTime()) or 0 '
-        'local now = nowsec * 1000 '
-        'CS.UnityEngine.Debug.LogError("ACT NOW="..tostring(nowsec)) '
+        + _SERVER_NOW_MS +
+        'local now = nowms '
+        'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '
@@ -1234,9 +1256,9 @@ def secret_task_all_alliance() -> str:
     return (
         'pcall(function() '
         'local m = DataCenter.ActDispatchTaskDataManager '
-        'local nowsec = tonumber(ChatInterface.getServerTime()) or 0 '
-        'local now = nowsec * 1000 '
-        'CS.UnityEngine.Debug.LogError("ACT NOW="..tostring(nowsec)) '
+        + _SERVER_NOW_MS +
+        'local now = nowms '
+        'CS.UnityEngine.Debug.LogError("ACT NOWMS="..tostring(nowms)) '
         'for _, v in pairs(m.allianceTask or {}) do '
         'local done = tonumber(v.completionTime) or 0 '
         'local exp = tonumber(v.actEndTime) or 0 '

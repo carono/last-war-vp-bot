@@ -429,13 +429,18 @@ def _vt(uuid: int, cfg_id: int, srv: int = 534, steals: int = 0) -> str:
 
 
 class _FakeEv:
-    """A daemon/LuaEval stand-in: `run()` returns canned VT lines for any chunk."""
+    """A daemon/LuaEval stand-in: `run()` returns canned VT lines for any chunk.
+
+    With the game's clock in front of them, as a real read carries it: a read with no
+    clock in it is what tells the tool the client is still at the login screen (#1227).
+    """
 
     def __init__(self, lines):
         self.lines = list(lines)
 
     def run(self, chunk, marker=None, settle=1.2):
-        return list(self.lines)
+        import time as _time
+        return ["ACT NOWMS=%d" % int(_time.time() * 1000)] + list(self.lines)
 
 
 def test_autoloot_from_vm_parses_and_applies_the_same_rule():

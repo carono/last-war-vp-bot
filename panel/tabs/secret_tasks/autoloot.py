@@ -47,6 +47,7 @@ STATE_ROBBING = "secret.autoloot.state.robbing"    # a robbery is in flight
 STATE_PAUSED = "secret.autoloot.state.paused"      # the day's budget is spent, until…
 STATE_NO_SOURCE = "secret.autoloot.state.no_source"  # no live game and no checkpoint
 STATE_NO_OWN = "secret.autoloot.state.no_own"      # own server unknown, box ticked
+STATE_NO_LOGIN = "secret.autoloot.state.no_login"  # the client is not in a session
 STATE_ERROR = "secret.autoloot.state.error"        # the last tick raised
 
 
@@ -63,6 +64,7 @@ class AutoLoot:
         self._pause_until = 0.0      # wall clock the watcher may fire again at
         self._warned = False         # "no checkpoint yet" is said once per run
         self._warned_own = False     # so is "the own server cannot be read"
+        self._warned_login = False   # …and "this client is not logged in"
         # What the standing order is doing right now, as (locale key, datum beside it).
         # A watcher that finds nothing to rob says nothing — which is indistinguishable
         # from one that is not running at all, and is exactly what «автолут не работает
@@ -87,7 +89,7 @@ class AutoLoot:
         self._stop = threading.Event()
         self._seen.clear()
         self._pause_until = 0.0
-        self._warned = self._warned_own = False
+        self._warned = self._warned_own = self._warned_login = False
         self._state = (STATE_WATCHING, "")
         self.tab.say("autoloot", "log.autoloot.on", rule=self.rule_text())
         if not self.tab.capture.running:
@@ -234,7 +236,21 @@ class AutoLoot:
                     self.tab.say("autoloot", "log.autoloot.no_own_server")
                 return
             self._warned_own = False
-        targets = self.all_targets(checkpoint if have_scan else None, vm_ready)
+        import steal_secret_task              # lazy: keeps panel start-up free of it
+
+        try:
+            targets = self.all_targets(checkpoint if have_scan else None, vm_ready)
+        except steal_secret_task.NotLoggedIn:
+            # The client answered and said nothing useful: no alliance task, own server
+            # -1, the whole day's robberies apparently unspent. That is a session that
+            # has not started, not a quiet map, and until #1227 the two looked the same
+            # from here — the watcher simply never found a target and never said why.
+            self._state = (STATE_NO_LOGIN, "")
+            if not self._warned_login:
+                self._warned_login = True
+                self.tab.say("autoloot", "log.autoloot.no_login")
+            return
+        self._warned_login = False
         # What the rule matched THIS tick, whether or not any of it is new. A watcher
         # that keeps finding nothing is the ordinary case — there is no star of that
         # level on the map most of the time — and it is the case that read as broken.

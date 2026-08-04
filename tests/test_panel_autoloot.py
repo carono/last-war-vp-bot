@@ -218,7 +218,12 @@ def _vt_line(uuid: int, cfg_id: int, srv: int = 534, steals: int = 0) -> str:
 
 
 class _FakeClient:
-    """A warm-daemon stand-in: every `run()` returns the same canned VT lines."""
+    """A warm-daemon stand-in: every `run()` returns the same canned VT lines.
+
+    Prefixed with the game's clock, because a real read carries it and a read that
+    does NOT is how the tool knows the client has not logged in (#1227) — a fake
+    without it would be modelling a login screen, not a session.
+    """
 
     def __init__(self, lines):
         self.lines = list(lines)
@@ -226,7 +231,7 @@ class _FakeClient:
 
     def run(self, chunk, marker=None, settle=1.2):
         self.calls += 1
-        return list(self.lines)
+        return ["ACT NOWMS=%d" % int(time.time() * 1000)] + list(self.lines)
 
 
 def test_autoloot_reads_live_vm():
@@ -398,6 +403,39 @@ def test_the_watcher_says_what_it_is_doing_even_when_it_does_nothing():
 
     # Every one of them is a real key in the shipped locales, and reads as a sentence.
     assert w.state_text(), "the state came out as an empty line"
+
+
+def test_a_client_that_is_not_logged_in_is_said_out_loud_not_watched_in_silence():
+    """The second profile's whole failure, in one tick (#1227).
+
+    A client at the login screen answers every question and every answer is a
+    plausible-looking lie — no alliance task, own server -1, all five robberies still
+    unspent. The watcher used to take that at face value: it found no target, said
+    nothing, and looked exactly like a watcher that had never started, which is what
+    «автолут не работает совершенно» turned out to be.
+    """
+    if not _HAS_TK:
+        print("  SKIP tkinter not importable — run under the Windows Python")
+        return
+    from panel.tabs.secret_tasks import autoloot as al
+
+    class _LoginScreen:
+        """Answers, and carries no clock — the one thing it cannot fake."""
+
+        def run(self, _chunk, _marker=None, _settle=1.2):
+            return []
+
+    tmp = Path(tempfile.mkdtemp())
+    cp = tmp / "secret_tasks.json"
+    w = _Watcher(cp, level_from="1", level_to="7", vm_up=True)
+    w.rt.game.client = _LoginScreen()
+    w.rt.game.evaluator = lambda: _LoginScreen()
+
+    w.tick()
+    w.tick()
+    assert w.runs == [], "robbed on the word of a client that is not logged in"
+    assert w.state()[0] == al.STATE_NO_LOGIN, w.state()
+    assert sum("не залогинен" in m for m in w.logs) == 1, w.logs
 
 
 def _run_standalone() -> int:

@@ -1,9 +1,9 @@
 r"""The game's clock — the one every timestamp the game hands out is stamped on.
 
 It is not this computer's clock, and the difference is not academic: measured live on
-2026-08-04 the game ran **twelve seconds ahead** of a PC that was itself within two
-seconds of real UTC, and the operator had been reading 25-30 s of that drift as a
-countdown that disagreed with the one the game draws beside it (task #1227).
+2026-08-04 the two were **eleven seconds apart**, with the PC the slow one, and the
+operator had been reading 25-30 s of that drift as a countdown that disagreed with
+the one the game draws beside it (task #1227).
 
 What is tested here is the whole of the correction:
 
@@ -92,16 +92,72 @@ def test_the_raid_gate_follows_the_games_clock():
 
 
 def test_the_line_is_parsed_out_of_a_read_that_carries_it():
-    """The tile reads open with `ACT NOW=<seconds>`, so a list is judged on the clock
-    it was read with — no round trip of its own."""
-    assert game_clock.parse(["ACT NOW=1785840599", "ACT VT uuid=1"]) == 1785840599
-    assert game_clock.parse(["ACT NOW=1785840599.0"]) == 1785840599
-    assert game_clock.parse(["ACT VT uuid=1"]) is None
-    assert game_clock.parse([]) is None
+    """The tile reads open with the game's clock, so a list is judged on the clock it
+    was read with — and no read pays a round trip of its own."""
+    assert game_clock.parse_ms(["ACT NOWMS=1785840599123", "ACT VT uuid=1"]) \
+        == 1785840599123
+    assert game_clock.parse_ms(["ACT NOWMS=1785840599123.0"]) == 1785840599123
+    # The whole-second fallback, for a chunk written before the millisecond one.
+    assert game_clock.parse_ms(["ACT NOW=1785840599"]) == 1785840599000
+    assert game_clock.parse_ms(["ACT VT uuid=1"]) is None
+    assert game_clock.parse_ms([]) is None
+    # Every read that talks to the VM carries it, and asks the manager the client's own
+    # countdown uses — with `ChatInterface` kept as the fallback behind it.
     for chunk in (lua_actions.secret_task_all_alliance(),
                   lua_actions.secret_task_raidable_alliance(),
                   lua_actions.game_server_time()):
-        assert "getServerTime" in chunk and "ACT NOW=" in chunk, chunk
+        assert "UITimeManager" in chunk and "ACT NOWMS=" in chunk, chunk
+        assert "getServerTime" in chunk, chunk
+
+
+def test_a_client_at_the_login_screen_is_not_believed():
+    """A game that has not logged in answers with its own uptime, and cheerfully.
+
+    Measured on the second client (#1227): `UITimeManager:GetServerTime()` = 6 280 648
+    — an hour and three quarters of process uptime, not a clock — with
+    `serverDeltaTime` still 0. Believing it would put the game's clock in 1970 and make
+    every tile on the map read as expired since the Carter administration. And it is
+    the same read that answers "no alliance tasks, own server -1, all five robberies
+    still yours", every one of them a plausible-looking lie.
+    """
+    class _LoginScreen:
+        def run(self, _chunk, _marker=None, _settle=1.0):
+            return ["ACT NOWMS=6280648"]           # uptime, not a clock
+
+    class _Session:
+        def run(self, _chunk, _marker=None, _settle=1.0):
+            return ["ACT NOWMS=%d" % int(time.time() * 1000)]
+
+    assert game_clock.plausible(6_280_648) is False
+    assert game_clock.plausible(0) is False
+    assert game_clock.plausible(int((time.time() + 9 * 3600) * 1000)) is False
+    assert game_clock.plausible(int(time.time() * 1000)) is True
+
+    game_clock.reset()
+    try:
+        assert game_clock.read(_LoginScreen()) is None
+        assert game_clock.session_ready(_LoginScreen()) is False
+        assert game_clock.offset_ms() == 0, "an uptime moved the clock"
+        assert game_clock.session_ready(_Session()) is True
+    finally:
+        game_clock.reset()
+
+
+def test_a_read_with_no_clock_in_it_is_a_client_that_cannot_answer():
+    """The VM reads raise rather than return an empty list — the two mean different
+    things, and telling them apart is the whole point (#1227)."""
+    import steal_secret_task as steal
+
+    class _LoginScreen:
+        def run(self, _chunk, _marker=None, _settle=1.0):
+            return []                              # no clock, no tasks, no error
+
+    try:
+        steal._vm_all_alliance_tasks(_LoginScreen())
+    except steal.NotLoggedIn:
+        pass
+    else:
+        raise AssertionError("an empty read passed for a logged-in client")
 
 
 def test_a_checkpoint_caught_mid_flush_is_read_again_not_raised(tmp=None):

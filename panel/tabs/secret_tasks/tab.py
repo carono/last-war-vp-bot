@@ -101,8 +101,8 @@ JUMP_HISTORY_MAX = 20
 POLL_MS = 30_000
 
 # How often the game's own clock is re-measured (#1227). It is not this machine's
-# clock — it ran twelve seconds ahead of a PC that was itself within two of real UTC,
-# and the operator had been reading 25-30 s of that — so every countdown here is drawn
+# clock, which was measured eleven seconds slow against it — and the operator had been
+# reading 25-30 s of that — so every countdown here is drawn
 # against `game_clock`, and this is what keeps it true. Five minutes is far more often
 # than a drift of seconds a day needs; the read is one line through the warm daemon.
 CLOCK_MS = 5 * 60_000
@@ -189,6 +189,11 @@ class SecretTasksTab(PanelTab):
         # «Не грабить на своём сервере»: the robberies are the only thing it gates —
         # a tile at home is still listed, still shareable and still collectable by hand.
         self.skip_own_var = tk.BooleanVar(master=master, value=False)
+        # «Показывать исчерпанные»: off by default, because a 3/3 tile cannot pay
+        # anybody and a list is read with the eyes (#1227). It is a box rather than a
+        # silent rule so that a tile vanishing has somewhere to be looked for — the
+        # question «did it fill up, or did the bot lose it?» is otherwise unanswerable.
+        self.show_spent_var = tk.BooleanVar(master=master, value=False)
         self.sweep_var = tk.BooleanVar(master=master, value=False)
         self.sweep_cx_var = tk.StringVar(master=master)
         self.sweep_cy_var = tk.StringVar(master=master)
@@ -315,6 +320,7 @@ class SecretTasksTab(PanelTab):
             "filter_star": bool(self.star_var.get()),
             "filter_pending": bool(self.pending_var.get()),
             "filter_can_loot": bool(self.can_loot_var.get()),
+            "show_spent": bool(self.show_spent_var.get()),
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
             "autoloot": bool(self.autoloot_var.get()),
@@ -341,6 +347,7 @@ class SecretTasksTab(PanelTab):
         self.star_var.set(bool(raw.get("filter_star", False)))
         self.pending_var.set(bool(raw.get("filter_pending", False)))
         self.can_loot_var.set(bool(raw.get("filter_can_loot", False)))
+        self.show_spent_var.set(bool(raw.get("show_spent", False)))
         self.filter_from_var.set(raw.get("filter_level_from", ""))
         self.filter_to_var.set(raw.get("filter_level_to", ""))
         # A profile saved before the display filter and the robbery rule were split has
@@ -368,7 +375,8 @@ class SecretTasksTab(PanelTab):
 
     def persist_vars(self) -> list:
         return [self.monitor_var, self.interval_var, self.star_var, self.pending_var,
-                self.can_loot_var, self.filter_from_var, self.filter_to_var,
+                self.can_loot_var, self.show_spent_var,
+                self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_from_var, self.level_to_var,
                 self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
                 self.coord_x_var, self.coord_y_var, self.coord_srv_var]
@@ -572,6 +580,13 @@ class SecretTasksTab(PanelTab):
         self._goto_btn = self.tr(ttk.Button(acts, width=12, command=self._goto_selected),
                                  "secrettasks.goto")
         self._goto_btn.pack(side="left")
+        # «Показывать исчерпанные» — off by default (#1227). A 3/3 tile has no slot for
+        # anybody, so it is only in the way of the eye; the box is here so that a row
+        # that disappears can still be accounted for, rather than leaving the operator
+        # to wonder whether the list lost it.
+        self.tr(ttk.Checkbutton(acts, variable=self.show_spent_var,
+                                command=self._on_show_spent),
+                "secrettasks.show_spent").pack(side="left", padx=(12, 0))
         self.tr(ttk.Label(acts, foreground="#888"), "secrettasks.click_hint").pack(
             side="left", padx=10)
         self._share_btn = ttk.Button(acts, width=12)
@@ -647,13 +662,14 @@ class SecretTasksTab(PanelTab):
         """
         import coords as coords_fmt
         ready = bool(row.get("ready"))
+        can_take = self._collectable(row)
         return (coords_fmt.fmt(row["x"], row["y"]),
                 self.t("secrettasks.server", srv=row["server"]),
                 "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH,
                            self.t("secrettasks.stars", n=int(row["level"] or 0))),
                 row["timer"].get(),
                 self.t("secrettasks.slots", n=int(row["loot_count"] or 0)),
-                self.t("secrettasks.collect") if ready else "")
+                self.t("secrettasks.collect") if can_take else "")
 
     def _show_empty(self, empty: bool) -> None:
         """Say «нет звёздных секреток» above the table, or take the line away."""
@@ -698,7 +714,7 @@ class SecretTasksTab(PanelTab):
             return
         if where == LINK_COLUMN:
             self._jump_to_row(row)
-        elif where == ACTION_COLUMN and row.get("ready"):
+        elif where == ACTION_COLUMN and self._collectable(row):
             self._collect(row)
 
     def _live_cell(self, event) -> bool:
@@ -707,7 +723,7 @@ class SecretTasksTab(PanelTab):
         if where == LINK_COLUMN:
             return True
         row = self._row_at(event)
-        return where == ACTION_COLUMN and bool(row and row.get("ready"))
+        return where == ACTION_COLUMN and bool(row and self._collectable(row))
 
     def _on_motion(self, event) -> None:
         """The link cursor over a cell that acts, the ordinary one everywhere else."""
@@ -719,7 +735,7 @@ class SecretTasksTab(PanelTab):
     def _on_double_click(self, event) -> None:
         """Double-click a ready row to rob it — the one-press collect the rows had."""
         row = self._row_at(event)
-        if row is not None and row.get("ready"):
+        if row is not None and self._collectable(row):
             self._collect(row)
 
     def _on_right_click(self, event) -> None:
@@ -733,7 +749,7 @@ class SecretTasksTab(PanelTab):
         menu = tk.Menu(self.rt.root, tearoff=0)
         menu.add_command(label=self.t("secrettasks.goto"),
                          command=lambda: self._jump_to_row(row))
-        if row.get("ready"):
+        if self._collectable(row):
             menu.add_command(label=self.t("secrettasks.collect"),
                              command=lambda: self._collect(row))
         menu.add_separator()
@@ -763,7 +779,7 @@ class SecretTasksTab(PanelTab):
         row = self._selected()
         for widget, live in ((self._goto_btn, row is not None),
                              (self._share_btn, row is not None),
-                             (self._collect_btn, bool(row and row.get("ready")))):
+                             (self._collect_btn, bool(row and self._collectable(row)))):
             if widget is None:
                 continue
             try:
@@ -773,7 +789,7 @@ class SecretTasksTab(PanelTab):
 
     def _collect_selected(self) -> None:
         row = self._selected()
-        if row is not None and row.get("ready"):
+        if row is not None and self._collectable(row):
             self._collect(row)
 
     def _goto_selected(self) -> None:
@@ -806,6 +822,16 @@ class SecretTasksTab(PanelTab):
     def _on_interval_change(self) -> None:
         if not self.rt.settings.loading and self.capture.running:
             self.capture.restart()
+
+    def _on_show_spent(self) -> None:
+        """«Показывать исчерпанные» was flipped: redraw the list, nothing else.
+
+        A pure display rule — it changes no robbery and touches no game. The rows are
+        all still in memory either way, so this costs a repaint.
+        """
+        self.rt.settings.changed()
+        self._render()
+        self._update_status()
 
     def _on_autoloot_toggle(self) -> None:
         """«Автолут ★» was ticked or cleared: start/stop it, and grey what it owns."""
@@ -1050,16 +1076,15 @@ class SecretTasksTab(PanelTab):
         A rescan only ADDS — an existing row keeps its place and its timer, a tile robbed
         by hand this session is skipped, and nothing already on screen is torn out from
         under the operator. Expiry and the ready-transition are the tick's job.
+
+        A looted-out (3/3) tile is merged like any other and hidden by the display rule
+        instead (:meth:`_visible_rows`), so «Показывать исчерпанные» has something to
+        show. Only the wire feed carries them at all — the VM read drops them itself.
         """
         self._busy = False
         for t in tasks:
             key = str(t.uuid)
             if key in self._rows or key in self._collected:
-                continue
-            if t.free_slots <= 0:
-                # Three looters and the tile is spent: it cannot pay anybody, so it is
-                # not added at all rather than added and hidden. The wire feed carries
-                # them (the capture reports what the map re-sent); the VM read does not.
                 continue
             self._rows[key] = {
                 "uuid": t.uuid, "server": t.server_id, "x": t.x, "y": t.y,
@@ -1108,10 +1133,11 @@ class SecretTasksTab(PanelTab):
         # between the two the same way the window's was (#1227).
         now = game_clock.now_ms() / 1000.0
         items = []
-        # The same rows the window draws — the level range AND the looted-out tiles the
-        # table drops (#1227). A phone showing a spent tile the window has taken off the
-        # list is the divergence CLAUDE.md forbids, and the worse half of it: whoever is
-        # away from the machine cannot check.
+        # The same rows the window draws, under the same rule — the level range AND the
+        # looted-out tiles «Показывать исчерпанные» governs (#1227). A phone showing a
+        # spent tile the window has taken off the list is the divergence CLAUDE.md
+        # forbids, and the worse half of it: whoever is away from the machine cannot
+        # check which of the two is right.
         for row in sorted(self._visible_rows(),
                           key=lambda r: (not r.get("ready"),
                                          r.get("expires_at") or float("inf"))):
@@ -1119,12 +1145,17 @@ class SecretTasksTab(PanelTab):
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
             done, exp = row.get("completed_at"), row.get("expires_at")
+            # A spent tile says so instead of saying «готово»: it is on the list only
+            # because the box asked for it, and «ready» on a row nobody can rob is the
+            # single most misleading word the screen could carry.
+            spent = self._spent(row)
             items.append({
                 "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
                 "facts": facts,
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
-                "pill": "secrettasks.ready" if row.get("ready") else None,
+                "pill": ("secrettasks.spent" if spent
+                         else "secrettasks.ready" if row.get("ready") else None),
             })
         # What «Автолут ★» is doing, in the same words the window puts under the
         # checkbox. It is the reading somebody away from the machine most needs: the
@@ -1136,14 +1167,40 @@ class SecretTasksTab(PanelTab):
                           {"title": None, "items": items,
                            "empty": "secrettasks.empty"}],
                 "now": now,
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+                # The button names what pressing it will do, because a phone has no
+                # checkbox to carry the state in: «Показать исчерпанные» while they are
+                # hidden, «Скрыть» while they are not.
+                "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            {"id": "show_spent",
+                             "label": ("secrettasks.hide_spent"
+                                       if self.show_spent_var.get()
+                                       else "secrettasks.show_spent")}]}
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить» only — see the note above about the robbery."""
-        if action != "refresh":
-            return {"error": "unknown"}
-        self.refresh()
-        return {"ok": True}
+        """«Обновить», and the one display rule the phone may change.
+
+        Still no «Ограбить» — the robbery on this tab spawns its own tool because the
+        recipe only spends a queue that tool fills (`CLAUDE.md`, #1188), and a second
+        copy of that reached from outside the house is the same debt twice.
+        «Показывать исчерпанные» is the opposite: it decides nothing in the game, only
+        what the screen draws, so the phone gets the same switch the window has.
+        """
+        if action == "refresh":
+            self.refresh()
+            return {"ok": True}
+        if action == "show_spent":
+            self.post(self._toggle_show_spent)
+            return {"ok": True}
+        return {"error": "unknown"}
+
+    def _toggle_show_spent(self) -> None:
+        """Flip «Показывать исчерпанные» from the phone, on the Tk thread.
+
+        Through the same variable the window's box is bound to, so the two front-ends
+        cannot disagree about which way it is set.
+        """
+        self.show_spent_var.set(not self.show_spent_var.get())
+        self._on_show_spent()
 
     # -- drawing ---------------------------------------------------------------
     def _render(self) -> None:
@@ -1218,10 +1275,27 @@ class SecretTasksTab(PanelTab):
         import lastwar_proto as proto      # lazy: tools/lib is on the path by now
         return int(row.get("loot_count") or 0) >= proto.MAX_LOOTERS
 
+    def _collectable(self, row) -> bool:
+        """Whether «Собрать» means anything on this row.
+
+        Ready is not enough once a spent tile can be on screen: with «Показывать
+        исчерпанные" ticked a 3/3 row is visible, and it is visible precisely because
+        it is finished — pressing it would spend one of the day's five on a robbery the
+        server refuses (#1227).
+        """
+        return bool(row.get("ready")) and not self._spent(row)
+
     def _visible_rows(self) -> list:
-        """The rows the tab shows: inside the level range and not yet looted out."""
+        """The rows the tab shows: inside the level range, and not looted out.
+
+        The second half is what «Показывать исчерпанные» lifts. It is off by default
+        because a 3/3 tile cannot pay anybody and only costs the eye a line, and it
+        exists at all so that a row that vanishes can be looked for rather than
+        guessed at (#1227).
+        """
+        show_spent = bool(self.show_spent_var.get())
         return [r for r in self._rows.values()
-                if self._in_range(r["level"]) and not self._spent(r)]
+                if self._in_range(r["level"]) and (show_spent or not self._spent(r))]
 
     def _update_status(self) -> None:
         n = len(self._visible_rows())
@@ -1301,10 +1375,10 @@ class SecretTasksTab(PanelTab):
         long is left to loot) once it is past. `expires_at` still governs removal.
 
         Against the GAME's clock, not this computer's (#1227). Both timestamps are stamped
-        by the game, and its clock had drifted twelve seconds ahead of a machine that was
-        itself within two of real UTC — so a countdown drawn from `time.time()` disagreed
-        with the one the game draws beside it by however far the drift had got, which the
-        operator was reading as 25-30 s.
+        by the game, and the machine's own clock was measured eleven seconds slow against
+        it — so a countdown drawn from `time.time()` disagreed with the one the game draws
+        beside it by however far the drift had got, which the operator was reading as
+        25-30 s.
         """
         import game_clock
         now = game_clock.now_ms()
@@ -1387,12 +1461,6 @@ class SecretTasksTab(PanelTab):
             row["expires_at"] = task.expires_at
             row["completed_at"] = task.completed_at
             row["loot_count"] = task.loot_count
-            if self._spent(row):
-                # It filled up while we were watching it — the third looter got there
-                # first. Nothing is left to take, so the row goes rather than sitting
-                # there offering «Собрать» (#1227).
-                self._rows.pop(key, None)
-                removed = True
         if self.autoloot_var.get():
             self._auto_loot(live)
         if removed:
@@ -1410,7 +1478,7 @@ class SecretTasksTab(PanelTab):
         """
         candidates = [
             (key, row) for key, row in self._rows.items()
-            if row.get("ready") and self._in_range(row["level"])
+            if self._collectable(row) and self._in_range(row["level"])
             and key not in self._auto_attempted and key not in self._collected
             and key in live and live[key].can_loot
         ]
