@@ -47,7 +47,7 @@ src/lastwar_bot/
 │   └── dev/                    *** experimental / untested — still runnable ***
 │       ├── go_to_base.md       # example: chrome-gated navigation
 │       ├── click_base_button.md# leaf script: FIND + CLICK
-│       ├── watchdog.md         # ticked every runner cycle
+│       ├── watchdog.md         # interrupt handling; nothing ticks it any more
 │       └── …                   # the rest of the vision actions
 ├── game/
 │   ├── skills/navigate.py      # the one game-aware module (identify_screen)
@@ -58,8 +58,6 @@ src/lastwar_bot/
 │   ├── templates.py            # cv2.matchTemplate + NMS
 │   └── red_dots.py             # HSV attention-dot detector
 ├── inputs.py                   # foreground/background click backends
-├── runner.py                   # BotRunner: tick loop + watchdog dispatch
-├── ui.py                       # Tk Debug UI
 └── script_engine.py            # DSL parser + interpreter
 ```
 
@@ -67,7 +65,7 @@ src/lastwar_bot/
 now just `donate_alliance_tech.md`); everything else — the OCR/vision actions, the
 watchdog — sits in `actions/dev/`. The panel's Scenarios list shows the blessed dir
 only, so an operator can only run what's tested. Both are still runnable from code:
-`resolve_action(name)` (used by `run_action` and the watchdog) looks in `actions/`
+`resolve_action(name)` (what `run_action` resolves through) looks in `actions/`
 first, then `actions/dev/`, and `CALL` resolves across both. Promote a dev script by
 moving it up into `actions/` once it is tested; the paths in the examples below refer
 to files that now live under `actions/dev/`.
@@ -184,7 +182,7 @@ IF NOT FOUND
 
 ### Watchdog with hard halt
 ```
-# watchdog.md  (auto-run every runner tick)
+# watchdog.md  (run like any other scenario — nothing ticks it by itself)
 FIND kicked_modal.png
     LOG "Another login detected"
     CLOSE_WINDOW
@@ -236,7 +234,7 @@ as a first step in any flow that must start from a known state.
 5. **Smoke test**:
    - Parse: `python -X utf8 -c "from lastwar_bot import script_engine; print(script_engine.parse_file(script_engine.ACTIONS_DIR / 'NAME.md'))"`.
    - Run live: `from lastwar_bot.perception.capture import find_window; from lastwar_bot.script_engine import run_action; info = find_window('Last War-Survival Game', 'LastWar.exe'); print(run_action('NAME', info.hwnd, on_event=print))`.
-   - Or via UI: launch `python -m lastwar_bot.ui` and use Debug tab.
+   - Or from the panel: `panel.bat`, the «Сценарии» tab, «Запустить».
 6. **Commit**: a script-only change is *not* the same as a Python
    runtime change. Make that explicit in the commit message.
 
@@ -366,8 +364,9 @@ checklist above.
   Used as a binary signal of "the game UI is visible".
 - **LAST** — the implicit register holding the most recent successful
   `FIND` result. Consumed by `CLICK`.
-- **runner** — `BotRunner` in `runner.py`. Manages the background
-  tick loop; calls `watchdog.md` on every tick.
+- **runner** — what plays a scenario. The panel's `ActionRunner`
+  (`panel/runtime/actions.py`), which is the one door a press goes
+  through; the tick loop that used to be here (`runner.py`) is gone.
 - **SIFT** — the feature-matching backend used for UI detection. Tuned
   in `features.default_sift()` (low contrast and edge thresholds so
   small icons get keypoints).

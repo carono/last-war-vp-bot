@@ -72,15 +72,13 @@ including what to do with the panel code that predates the rule, is in
 ```
 AGENTS.md                              <- you are here
 README.md                              user-facing intro (RU mirror: README.ru.md)
-run.bat                                Windows launcher (forwards %*)
+panel.bat                              Windows launcher for the panel (forwards %*)
 requirements.txt                       pip dependencies
 pyproject.toml                         setuptools package
 
 src/lastwar_bot/
 ├── __main__.py                        smoke test (python -m lastwar_bot)
-├── ui.py                              Tk control window (python -m lastwar_bot.ui)
 ├── ui_region.py                       region-picker Toplevel for calibration
-├── runner.py                          background tick loop + watchdog dispatch
 ├── script_engine.py                   DSL parser + interpreter
 ├── inputs.py                          click / press_key (Win32 native)
 ├── config.py                          pydantic-settings, .env-driven
@@ -193,22 +191,13 @@ Existing skills the user maintains:
   but **Last War ignores it** (DirectInput).
 - `press_key(hwnd, key_name)` — `keybd_event`, foreground.
 
-### UI (`ui.py`)
+### The window
 
-`python -m lastwar_bot.ui --profile <id>`  (or `run.bat --profile <id>`)
-
-- Header: status + provider names + profile id.
-- Main tab: Start / Stop / Clear log.
-- Debug tab:
-  - **Detect** — show current screen.
-  - **Go to Base / Go to World** — run `go_to_base.md` / `go_to_world.md`.
-  - **Fix window size** — call `ensure_client_size`.
-  - **Capture profile** — run `capture_profile.md`.
-  - **Pick region…** — opens a Toplevel with the live capture; drag a
-    rectangle, get `(x, y, w, h)` to clipboard or save the crop as PNG.
-  - **Launch game** — run `launch_game.md`.
-- Log: read-only, supports selection, Ctrl+C / Ctrl+A, right-click menu
-  with Copy / Select all / Clear.
+There is one, and it is the panel: `panel.bat`, or `python -m panel`
+(`docs/panel-tabs.md`). The Tk window this package used to carry —
+`ui.py`, its `runner.py` tick loop and the `run.bat` that started them
+through a `.venv` — is gone: it had been replaced by the panel long
+before it was deleted, and nothing had imported it for as long.
 
 ### Providers
 

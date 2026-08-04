@@ -220,8 +220,8 @@ IF screen == unknown
 ### `STOP ["reason"]`
 
 Signal that the bot should halt entirely. Unwinds all enclosing blocks
-and sub-actions. The runner notices the halt flag on the shared context
-after the action returns and stops itself. Optional quoted reason is
+and sub-actions, and leaves the halt flag on the shared context for
+whoever played the scenario to read. Optional quoted reason is
 surfaced in the log.
 
 Typical use is inside a watchdog: if a condition requires immediate
@@ -678,27 +678,12 @@ Allowed in `IF` and `WAIT`:
 (More predicates are added as new primitives appear — extend
 `Interpreter.eval_condition`.)
 
-## Watchdog
-
-The runner's tick loop runs a special action called `watchdog.md` (if
-present) on every tick *before* the main heartbeat. The watchdog is the
-designated place for "react to interrupt conditions" logic — modals
-that need acknowledgment, network errors that warrant a shutdown,
-account-locked dialogues, etc.
-
-If the watchdog executes a `STOP`, the runner halts immediately and
-won't run further ticks. Combine with `CLOSE_WINDOW` to also close the
-game cleanly.
-
-To disable, leave `watchdog.md` empty (only comments) or pass
-`watchdog_action=None` to `BotRunner`.
-
 ## Profiles
 
 Each operator of the bot picks a **profile id** on startup:
 
 ```
-python -m lastwar_bot.ui --profile alice
+panel.bat --profile alice
 ```
 
 The profile is loaded from `./profiles/<id>.json` (created on first
