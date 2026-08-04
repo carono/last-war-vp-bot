@@ -11,9 +11,11 @@ not re-learn the hard way.
 ## 1. What this project is
 
 A Windows desktop bot that automates the daily routine in *Last War —
-Survival Game*. The game has an official PC client (DirectX); the bot
-captures its window, identifies the current screen, clicks on things,
-OCRs the things it needs to know, runs on a tick loop with a watchdog.
+Survival Game*. The game has an official PC client (DirectX). Most of what
+the bot does now goes through the client's own Lua VM — headless, no window
+raised, no pixels read — and the CV/OCR half (capture the window, identify
+the screen, click, OCR) is used where no Lua route exists. What runs when is
+the panel's business: a schedule of errands, each of them a scenario.
 
 It replaces a legacy Lua / UOPilot project, which is now history rather
 than a branch: commit `b5ce084` is the last tip that carried its tree, and
@@ -71,10 +73,32 @@ including what to do with the panel code that predates the rule, is in
 
 ```
 AGENTS.md                              <- you are here
+CLAUDE.md                              the binding rules (actions-first, tabs, i18n, …)
 README.md                              user-facing intro (RU mirror: README.ru.md)
-panel.bat                              Windows launcher for the panel (forwards %*)
-requirements.txt                       pip dependencies
+install.bat                            one-shot install + desktop shortcuts
+panel.bat                              start the panel (forwards %*, e.g. --profile alice)
+daemon.bat                             start the warm Lua daemon by hand
+update.bat                             pull and re-install
+requirements.txt                       pip dependencies (requirements-tools.txt: the sniffers)
 pyproject.toml                         setuptools package
+
+panel/                                 THE WINDOW — and the only interface there is
+├── __main__.py                          the shell: window, notebook, log, menu, «Главная»
+├── runtime/                             what a tab talks to: the game link, the claim,
+│                                        the schedule, settings, children, i18n, …
+├── tabs/                                one plugin per tab (docs/panel-tabs.md)
+├── web/                                 the same runtime, drawn for a phone (#1221)
+├── locales/                             eleven JSON files — every string the panel says
+└── profiles/                            gitignored — per-profile config, logs, state
+
+tools/                                 command-line tools; `tools/lib/` is the shared half
+├── lua_daemon.py                        one warm LuaEval per client, on its own port
+├── lib/lua_client.py                    how everything talks to that daemon
+├── lib/game_paths.py                    where the game is — every per-machine answer
+├── lib/lua_actions.py                   the Lua chunks a primitive sends
+└── lib/game_buttons.py                  the button catalogue `TAP` presses
+
+tests/                                 self-running scripts (no pytest — see §8)
 
 src/lastwar_bot/
 ├── __main__.py                        smoke test (python -m lastwar_bot)
@@ -100,14 +124,20 @@ src/lastwar_bot/
 └── actions/*.md                       DSL scripts (skill catalogue)
 
 docs/
-├── architecture.md                    system design + state
+├── farming.md                         WHAT THE BOT CAN DO — the feature list (RU: farming.ru.md)
+├── panel-tabs.md                      how to write a panel tab; read before writing one
+├── architecture.md                    the original v2 design + what became of it
 ├── dsl.md                             formal DSL grammar (user-facing)
 ├── actions-authoring.md               deep dive for script authors / LLMs
+├── game-glossary.md                   the game's own words, in all eleven languages
 ├── install/                           Windows install guides
 ├── game/                              game knowledge (overview, daily cycle, glossary, screens)
+├── skills/                            how to record and read a sniffer session
+├── research/                          one file per ability: protocol, Lua route, findings
 └── legacy-{en,ru}/                    archived old project, read-only reference
 
-profiles/                              gitignored — per-player JSON
+profiles/                              gitignored — per-player JSON (the bot's own, not the panel's)
+results/                               gitignored — captures, traces, tool output
 screenshots/                           gitignored — runtime captures, debugging dumps
 ```
 
@@ -128,8 +158,10 @@ screenshots/                           gitignored — runtime captures, debuggin
 | `WAIT cond [WITHIN N s]` | `WAIT screen == base WITHIN 10s` | poll until condition true or timeout |
 | `WAIT N` | `WAIT 1.5` | plain sleep (seconds) |
 | `READ_TEXT (x, y, w, h) INTO profile.<f>` | OCR a region, save to active profile (auto-persists) |
+| `ARGS <name> = <default>` | `ARGS level = 30` | declare an input; the caller passes `variables={"level": …}`, `$name` interpolates |
 | `LOG "msg"` | trace line |
-| `STOP ["reason"]` | halt the whole action chain; runner stops on next check |
+| `FAIL ["reason"]` | `FAIL "no squad free"` | end the scenario UNsuccessfully, in its own words; the panel shows the reason |
+| `STOP ["reason"]` | halt the whole action chain and leave the flag on the context |
 | `CLOSE_WINDOW` | send WM_CLOSE to the game window |
 | `LAUNCH "path"` | spawn a detached process; `%VAR%` / `$VAR` / `~` are expanded |
 | `START_GAME ["path"] [WITHIN N s]` | start the game client **where this profile's client lives** — this desktop, or the Windows session the profile names, through `tools/session_launch.py` |
@@ -137,8 +169,23 @@ screenshots/                           gitignored — runtime captures, debuggin
 | `ATTACH_GAME [WITHIN N s]` | re-point the warm Lua daemon at the client running now — the other half of a restart |
 | `SCAN_SECRET_MISSIONS [LEVEL n] [STAR] [CAN_LOOT] [FREE_SLOTS n] [WITHIN N s]` | secret tasks read off the **wire**, not the screen; fills `MISSIONS` |
 
+**Through the game's own Lua VM — no window raised, no pixels read.** This is the
+half most scenarios are written in now; the CV primitives above are for what has no
+Lua route. Full grammar in [`docs/dsl.md`](docs/dsl.md) §Game primitives.
+
+| Keyword | Form | Notes |
+|---|---|---|
+| `TAP <button> [xN \| xall]` | `TAP heal_all xall` | press one named button from the catalogue (`tools/lib/game_buttons.py`); `xall` re-reads the button's own count and spends what is there |
+| `LUA <chunk>` | `LUA SceneUtils.ChangeToCity()` | run one chunk in the VM, verbatim; errors surface as a log line |
+| `READ_LUA <expr> INTO <var>` | `READ_LUA … INTO wounded` | evaluate an expression and keep the value for `IF` / `WHILE` |
+| `GAME WORLD` / `GAME CITY` | switch scene through the VM (not a click) |
+| `JUMP x, y [, server]` | `JUMP 512, 480, 1226` | walk the camera to a tile, same or cross-server |
+
 Conditions allowed in `IF` / `WHILE` / `WAIT`:
-- `screen == base|world|unknown`, `screen != …`
+- `scene == city|world|unknown`, `scene != …` — **the state one**, asked of the Lua
+  VM: `city` means the base is in play with its HUD up. Prefer it to `screen`.
+- `screen == base|world|unknown`, `screen != …` — the pixel one (SIFT).
+- `<var> ==|!=|>|<|>=|<= <number>` — a value `READ_LUA … INTO <var>` or `ARGS` put there
 - `FOUND` / `NOT FOUND` (state of the last FIND **statement**)
 - `FIND <tpl>.png` (ad-hoc; also updates `LAST` on success)
 - `profile.<field> == "text"` / `profile.<field> != "text"`
@@ -146,19 +193,26 @@ Conditions allowed in `IF` / `WHILE` / `WAIT`:
 
 ### Action scripts (`actions/`)
 
-Existing skills the user maintains:
-- `launch_game.md` — start the launcher **in the Windows session this profile's
-  client lives in** (`START_GAME`), wait up to 5 min for base.
-- `go_to_base.md`, `go_to_world.md` — chrome-gated navigation.
-- `click_base_button.md`, `click_world_button.md` — leaf find+click.
-- `close_modals.md` — press ESC until the screen is recognised again.
-- `close_profile_modal.md` — close the profile dialog by template.
-- `capture_profile.md` — OCR player name / level / server into profile JSON.
-- `scan_secret_missions.md` — find raidable secret tasks by level / loot
-  slots, reading the game's own map traffic instead of the screen.
-- `watchdog.md` — runs every runner tick; reacts to the "logged in from
-  another device" modal (template `kicked_modal.png`) by closing the
-  game and halting the bot.
+**`actions/` is blessed, `actions/dev/` is not.** The panel offers the blessed
+directory only; both are runnable from code, and `CALL` resolves across the two.
+The list below is a shape, not an inventory — the directory is the inventory, and
+what each ability does for the PLAYER is [`docs/farming.md`](docs/farming.md).
+
+- **The client's own life** — `launch_game.md` (start it *in the Windows session
+  this profile's client lives in*), `quit_game.md`, `restart_game.md`,
+  `recover_from_kick.md`, `switch_account.md`.
+- **The base** — `collect_base_resources.md`, `collect_truck_resources.md`,
+  `collect_visitor_gifts.md`, `recruit_survivors.md`, `heal_units.md`,
+  `upgrade_decorations.md`.
+- **The alliance** — `donate_alliance_tech.md`, `collect_alliance_gifts.md`,
+  `help_ally.md`, `apply_ministry_interior.md`, `submit_ministry.md`.
+- **The map** — `steal_secret_task.md`, `steal_ghost_recon.md`,
+  `create_rally.md`, `join_rally.md`, `rally_monitor.md`, `occupation_skills.md`.
+- **Readings and settings** — `read_squad_state.md`, `read_graphics_load.md`,
+  `set_graphics_load.md`, `send_chat_message.md`.
+- **`actions/dev/`** — the older pixel-driven ones (`go_to_base.md`,
+  `close_modals.md`, `capture_profile.md`, `scan_secret_missions.md`,
+  `watchdog.md`, …). They still run; nothing ticks `watchdog.md` by itself.
 
 ### Perception primitives (`perception/`)
 
@@ -269,10 +323,22 @@ Last War's DirectInput path. The bot **must** run with the game window
 focused. Background input is kept in the codebase for probing other
 apps. (Memory: `project-input-model`.)
 
-### Cross-session control is not possible
-A bot in user session A can't see windows owned by user session B
-(EnumWindows is per-session). RDP / fast-user-switching: the bot and
-the game must run in the same user session.
+### Cross-session control needs a helper in the other session — but it works
+A process in Windows session A cannot see or click a window of session B
+(`EnumWindows` is per-session), and the anti-cheat kills a client started under a
+foreign token. That used to read as "impossible", and it is why a second account
+runs the way it does (`docs/research/multi-instance-rdp.md`, #1106/#1218):
+
+- the second client lives in **its own Windows session**, logged on as its own
+  account, started there by `tools/session_launch.py` under that session's own
+  token — never spawned from this desktop;
+- a **daemon of its own** (`tools/lua_daemon.py`, its own port) runs INSIDE that
+  session beside it, and everything this side does travels over that port;
+- so the panel drives it headlessly through Lua, and never through a window.
+
+What still holds: nothing pixel-driven reaches across, one client per session,
+and a daemon started on the wrong desktop binds the right port and drives the
+wrong game — which is exactly how #1224 went unnoticed for two days.
 
 ### Internal SIFT FIND retry papers over RANSAC stochasticity
 A single SIFT attempt occasionally fails right at the 4-inlier floor.
@@ -292,11 +358,15 @@ SetCursorPos.
 
 ### "Add behaviour X"
 1. Read `docs/dsl.md` and existing `actions/*.md`. Try to compose.
-2. Need new templates? Use UI → Debug → **Pick region…** and save under
-   `game/templates/`. For frames around dynamic content, erase the
-   centre to transparent (alpha < 128 = mask).
-3. Need new OCR regions? Same picker — **Copy coords** gives
-   `(x, y, w, h)` ready to paste into a `READ_TEXT` line.
+2. **Look for a Lua route before a pixel one.** Almost everything the bot does
+   now is `TAP` / `LUA` / `READ_LUA` — headless, no window raised, no template to
+   maintain. `docs/research/` has one file per ability that was found that way,
+   and `tools/lib/game_buttons.py` is the catalogue `TAP` presses.
+3. Only if there is no Lua route: crop a template into `game/templates/` (name it
+   from the table in that folder's README) and read a `READ_TEXT` rectangle off a
+   screenshot of the client. For frames around dynamic content, erase the centre
+   to transparent (alpha < 128 = mask). `ui_region.py` holds a picker widget for
+   this, but nothing opens it any more — the window that did is gone.
 4. Compose / extend `.md` files. Commit "script-only" with that wording.
 
 ### "DSL can't express X" (you need a primitive)
@@ -319,8 +389,7 @@ SetCursorPos.
 
 ### Adding a new screen to `identify_screen`
 1. Capture a screenshot showing the new screen at a known good size.
-2. Cut a stable distinguishing element (via Pick region) into
-   `game/templates/`.
+2. Cut a stable distinguishing element out of it into `game/templates/`.
 3. Add a branch in `navigate.identify_screen` returning the new name.
 4. Update conditions: any `screen == <name>` references in scripts
    need to be valid (currently we only have `base` / `world` /
@@ -330,17 +399,23 @@ SetCursorPos.
 
 ## 7. Project memory (~/.claude/.../memory/)
 
-Three feedback/project facts already stored across sessions:
+Dozens of facts are stored across sessions and indexed in `MEMORY.md` — how the
+Lua route into the game was found, what a second account needs, which readings
+are gated, which diagnoses cost a day. The ones that govern how you WORK here:
 
 - **feedback-repo-language** — English in repo artefacts, Russian in
   chat. Legacy folders stay Russian.
-- **project-input-model** — foreground input only; PostMessage is
-  ignored; bot must keep the game focused.
 - **feedback-actions-first** — new behaviours go in `actions/*.md`;
   Python only when a primitive is missing.
+- **project-input-model** — foreground input only; PostMessage is
+  ignored; anything pixel-driven needs the game focused.
+- **feedback-never-git-add-all / stage-only-my-lines** — the working tree is
+  shared with other agents. Stage your own paths, never `-A`, and verify a
+  commit by reading its content back.
 
 A returning session loads these automatically — they take precedence
-over guesswork.
+over guesswork, but they are notes from a moment: if one names a file or a
+flag, check it still exists before acting on it.
 
 ---
 
@@ -428,9 +503,10 @@ recipe in section 6.
 - **Typed OCR** — `READ_NUMBER (region) INTO profile.<f>` that parses
   the OCR text as an integer; today's `READ_TEXT` stores strings,
   comparisons are string-only.
-- **Calibration UI for templates** — Pick region is the starting
-  point; could be extended with a "Save with alpha-masked centre"
-  flow that asks for an inner rectangle to erase.
+- **A way back into the region picker** — `ui_region.RegionPickerWindow` still
+  crops templates and copies `READ_TEXT` coordinates, and nothing opens it since
+  the old window went. A panel tab, or a `__main__` on the module, plus the
+  "save with an alpha-masked centre" flow it never got.
 - **VLM ASK primitive** — `ASK_VLM "question" INTO profile.x` that
   sends the current capture to the configured `VisionProvider` and
   binds the answer. Needed when ambiguous screens require a smarter
@@ -445,40 +521,59 @@ recipe in section 6.
 - **`docs/farming.md`** (RU mirror `docs/farming.ru.md`) — the feature list:
   what is automated, what is half-way, what is still done by hand. The
   README points a reader here first; keep the two in step.
-- **`docs/architecture.md`** — system design with component diagram.
+- **`CLAUDE.md`** — the BINDING rules, and they override anything here: every
+  ability is a scenario, every tab a plugin, every edit travels between the
+  window and the phone, every string a locale key, nothing about one machine in
+  the code, and both farming files updated once an ability is confirmed live.
+- **`docs/architecture.md`** — the original v2 design, with a note on which parts
+  of it were never built (the LLM planner and the VLM executor loop).
 - **`docs/dsl.md`** — formal grammar (user-facing reference).
 - **`docs/panel-tabs.md`** — how to write a panel tab (the how-to; the
   reasoning is `docs/research/panel-tabs-refactor.md` below).
 - **`docs/actions-authoring.md`** — deep-dive recipes and primitive-
   authoring checklist.
 - **`docs/game/`** — game knowledge: overview, daily cycle, glossary,
-  per-screen notes.
+  per-screen notes. **`docs/game-glossary.md`** is the other half: the terms the
+  GAME itself has words for, copied out of its own tables in all eleven panel
+  languages (`tools/game_locale.py --term "…"` prints any other one).
 - **`docs/install/`** — Windows install for a new operator.
-- **`docs/research/panel-tabs-refactor.md`** — the migration plan for the
-  control panel: every tab a self-contained runnable module, the panel a
-  shell that plugs them in. Read it before touching `panel/__main__.py`.
+- **`docs/research/`** — one file per ability, and this is where an
+  implementation detail belongs (protocol names, Lua routes, wire fields).
+  `panel-tabs-refactor.md` is the panel's migration plan — read it before
+  touching `panel/__main__.py`; `multi-instance-rdp.md` is how a second account
+  runs at all.
+- **`docs/skills/`** — recording a sniffer session and turning it into a
+  scenario. `sniff-quick.md` is loaded into every session by `CLAUDE.md`.
 
 ---
 
 ## 11. Status
 
-Everything in section 4 works. The bot can:
+**The honest, ability-by-ability answer is [`docs/farming.md`](docs/farming.md)**
+(RU mirror `farming.ru.md`), with ✅ for proven live and 🟡 for half-way. It is
+kept up to date by rule; this section is only the shape of things.
 
-- launch the game, wait for the base screen;
-- navigate between base and world via SIFT-found toggle clicks;
-- detect & dismiss the "kicked by another login" modal via the watchdog;
-- press ESC to close stacked popups until the screen is recognised;
-- capture player profile (name / level / server) via OCR into a JSON
-  profile; switch profiles via `--profile`;
-- crop new templates and copy OCR-region coords from a live capture
-  without leaving the UI.
+What exists:
 
-What hasn't been built yet — the **daily activity sequence**
-(see `docs/game/daily_cycle.md`): mail, radar, secret missions, base
-resources, alliance donations + gifts, events / Arms Race / VS,
-monster rallies. These will become `.md` scripts (composing existing
-primitives and any newly added ones such as FIND_ALL, READ_NUMBER,
-SWIPE). When the user asks for one of those flows, start by reading
-`docs/game/daily_cycle.md` for the order and any timing constraints.
+- **The panel is the interface.** Tabs are plugins (`docs/panel-tabs.md`), it
+  speaks eleven languages, several profiles are open at once each with its own
+  client, and a phone opens the same runtime over the local network (#1221).
+- **The game is driven headlessly**, through its own Lua VM by way of a warm
+  daemon per client — collecting, donating, healing, recruiting, helping, the
+  ministry, robberies, rallies, the client's own start/close/restart. Pixels and
+  OCR are the minority path now.
+- **Reading the world** — the map, secret tasks, ghost recon, rallies and chat
+  are read off the game's own traffic and its Lua state, not the screen.
+- **Two accounts on one machine**, the second in its own Windows session
+  (§5 above).
+- **Errands on a clock**, plus triggers that fire on a push from the wire; the
+  list belongs to the profile, and a failed errand is retried whole instead of
+  being counted as run.
+
+What is not built: the **LLM planner** and the **VLM executor** of
+`docs/architecture.md` — the bot acts through explicit scenarios, not a plan it
+composed. And nothing sequences a WHOLE session by itself: the schedule can be
+made to do it, but no ready-made daily routine ships (`docs/game/daily_cycle.md`
+holds the order and the timing constraints if you build one).
 
 Good luck — and when in doubt, **default to a script change**.

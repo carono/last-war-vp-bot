@@ -63,8 +63,8 @@ sslkeys.log
 # Nothing shipped depends on them. The bot drives the game through the Lua daemon;
 # the pixel path that used to match against these templates survives only in
 # `src/lastwar_bot/actions/dev/` and in `tools/dev/`, and is not what any of the
-# working scenarios use. Whoever wants it crops their own with
-# `python -m lastwar_bot.ui_region` — see src/lastwar_bot/game/templates/README.md.
+# working scenarios use. Whoever wants it crops their own out of a screenshot —
+# see src/lastwar_bot/game/templates/README.md.
 *.png
 *.jpg
 *.jpeg

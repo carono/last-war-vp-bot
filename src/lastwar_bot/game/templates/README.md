@@ -32,17 +32,19 @@ of it — needs none of this. Templates matter only to the pixel-driven paths.
 
 ## Making one
 
-The panel's region picker crops and saves straight into this directory:
+Take a screenshot of the running client and cut the element out of it into this
+directory, under the file name from the table above. Any image editor does; what
+matters is the crop, not the tool.
 
-```
-python -m lastwar_bot.ui_region
-```
+Keep it tight — just the distinctive part of the button or icon, without surrounding
+background, which is what makes it match at different window sizes. A PNG with an
+alpha channel is treated as a masked template (transparent pixels are ignored),
+which helps for icons on a varying background.
 
-Point it at the running client, drag a box around the element, and give it the file
-name from the table above. Keep the crop tight — just the distinctive part of the
-button or icon, without surrounding background, which is what makes it match at
-different window sizes. A PNG with an alpha channel is treated as a masked template
-(transparent pixels are ignored), which helps for icons on a varying background.
+There is a picker for this in the code — `lastwar_bot/ui_region.py` drags a box,
+copies `(x, y, w, h)` for a `READ_TEXT` line and saves the crop straight here — but
+nothing opens it at the moment: it was a window of the Tk UI that the panel
+replaced, and no tab has taken it over yet.
 
 `_fs` in a name means the full-screen variant of the same element: the client draws
 some chrome differently when the window is maximised, so both crops exist and

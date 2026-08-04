@@ -132,9 +132,9 @@ box and centre reported by the match still cover the full original
 template area, so a subsequent `CLICK` lands on the icon's centre as
 usual.
 
-Workflow: capture the template (e.g. via the UI's Pick region) and
-erase the dynamic part to transparent in any image editor (GIMP /
-Photoshop / Paint.NET).
+Workflow: cut the template out of a screenshot of the client and erase
+the dynamic part to transparent in any image editor (GIMP / Photoshop /
+Paint.NET). See `src/lastwar_bot/game/templates/README.md`.
 
 ### `FIND <template>.png`
 

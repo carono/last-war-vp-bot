@@ -395,9 +395,8 @@ def _no_template(name: str) -> str:
     bug in the scenario; it is a step of setting the bot up that nobody has done yet.
     """
     return (f"template not found: {name}. The UI templates are not shipped with the "
-            f"repository — crop it from your own client with "
-            f"`python -m lastwar_bot.ui_region`, or see "
-            f"src/lastwar_bot/game/templates/README.md")
+            f"repository — crop it from a screenshot of your own client, as "
+            f"src/lastwar_bot/game/templates/README.md describes")
 
 
 # ---- Parser ----------------------------------------------------------------

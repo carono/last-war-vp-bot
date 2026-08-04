@@ -62,11 +62,12 @@ python -m panel.tabs.rally --profile default # one tab, in a window of its own
 
 ## Inside the panel
 
-The panel speaks both Russian and English; the tab names below are how the
-English interface spells them.
+The panel speaks eleven languages — English, Russian, German, French, Spanish,
+Italian, Portuguese, Polish, Turkish, Indonesian, Vietnamese — and the tab names
+below are how the English interface spells them.
 
 The window opens on **Main**: the account summary — the day's budgets and
-everything waiting for you, read in one go — over the buttons that start and
+everything waiting for you, read in one go — over the buttons that start, close and
 restart the game client, the watchdog that notices when it has died, and a line
 that says whether this checkout has fallen behind the repository and offers to
 follow. Under it all is the log, where every coordinate the bot prints is a
