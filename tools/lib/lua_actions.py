@@ -2187,7 +2187,20 @@ _RALLY_PRELUDE = (
     "local team=g(mo,'teamUuid') local ts=tostring(team) "
     "if team~=nil and ts~='0' and ts~='nil' and not taken[ts] then "
     "local lead=false pcall(function() lead=(tostring(g(mo,'uuid'))==tostring(team-1)) end) "
+    # TWO PLACES, AND THEY ARE NOT THE SAME PLACE. `point` is where the rally is GOING
+    # — the monster — and it is what a listing should show. `joinpoint` is where a
+    # JOINER marches: the troops gather at the base of whoever raised the banner and
+    # set off from there together, so a join ends at the leader's own tile (`startPos`,
+    # `homePos` behind it). Every member march of every rally read live says the same:
+    # its `targetPos` is the leader's tile and its `homePos` is the member's own base.
+    #
+    # Sending the monster made the client fly the camera to the monster and the server
+    # refuse the march as «invalid end point» — the destination was real, it just was
+    # not a place a joining squad may be sent to. The player spotted it from the camera:
+    # joining by hand moves the view to the PLAYER doing the rallying, the bot's press
+    # moved it to the monster.
     "if lead then rallies[#rallies+1]={team=team,point=g(mo,'targetPos'),"
+    "joinpoint=(g(mo,'startPos') or g(mo,'homePos') or g(mo,'targetPos')),"
     "server=(g(mo,'serverId') or g(mo,'targetServer'))} end "
     "end end end "
     "table.sort(rallies,function(a,b) return tostring(a.team)<tostring(b.team) end) "
@@ -2234,25 +2247,10 @@ _RALLY_PRELUDE_MINE = (
     "if mine ~= nil then local kept = {} "
     "for _, r in ipairs(rallies) do if ours[tostring(r.team)] then kept[#kept+1] = r end end "
     "rallies = kept end "
-    # WHERE A JOINER MARCHES TO IS NOT WHERE THE RALLY IS GOING. The troops gather at
-    # the BASE of whoever raised the banner and set off from there together, so the
-    # end point of a join is the leader's own tile — `startPos` — and not the monster
-    # the rally is aimed at, which is what `targetPos` holds and what the prelude
-    # collects for everybody else.
-    #
-    # Sending the monster made the client fly the camera to the monster and the server
-    # refuse the march as «invalid end point» — the destination was real, it just was
-    # not a place a joining squad may be sent to. The player spotted it from the camera:
-    # joining by hand moves the view to the PLAYER doing the rallying, the bot's press
-    # moved it to the monster.
-    "for _, r in ipairs(rallies) do "
-    "if col then local e4 = col:GetEnumerator() while e4:MoveNext() do local m4 = cur(e4) "
-    "local t4 = nil pcall(function() t4 = m4.teamUuid end) "
-    "if t4 ~= nil and tostring(t4) == tostring(r.team) then "
-    "local isL = false pcall(function() isL = (tostring(m4.uuid) == tostring(t4 - 1)) end) "
-    "if isL then pcall(function() "
-    "local s = m4.startPos if s == nil then s = m4.homePos end "
-    "if s ~= nil then r.point = s end end) end end end end end "
+    # On the JOIN side `point` IS the gathering tile: everything downstream of this
+    # prelude sends a squad, and a squad marches to the leader's base (see `joinpoint`
+    # in `_RALLY_PRELUDE`). The listing side keeps the two apart and shows the monster.
+    "for _, r in ipairs(rallies) do if r.joinpoint ~= nil then r.point = r.joinpoint end end "
 )
 
 
@@ -2309,8 +2307,11 @@ def rally_joined_count() -> str:
 # --------------------------------------------------------------------------
 # The direct send does not work and it is not for want of trying: the message the bot
 # builds matches the player's argument for argument (docs/research/rally-join.md), and
-# the server still creates no march. So the join is driven the way `create_rally.md`
-# drives the raise — through the windows, waiting for STATES rather than sleeping:
+# the server still creates no march — until #1238 found that both were being aimed at the
+# monster instead of the tile the joiners gather on. `rally_join_send` is the join with no
+# screen at all; what is below it is the FALLBACK, and it earns its keep by filling a
+# squad that has no soldiers in it. It walks the windows the way `create_rally.md` drives
+# the raise, waiting for STATES rather than sleeping:
 #
 #     OnClickStartMarch -> UIFormationSelectListV2 -> pick the squad -> OnCheckTime
 #
@@ -2357,6 +2358,80 @@ def rally_join_armed() -> str:
     """Lua *expression* -> 1 when there is a rally to join and a squad to join it with."""
     return ("(function() local p = DataCenter.__lw_rally_join "
             "if p == nil or p.formation == nil then return 0 end return 1 end)()")
+
+
+def rally_join_soldiers() -> str:
+    """Lua *expression* -> soldiers standing in the armed squad, or -1 if unreadable.
+
+    The one thing the squad screen does that the send cannot do for itself: a squad with
+    heroes and NO soldiers is refused by the client before a byte leaves — the send's own
+    constants are `hasSolider` and `GameDialogDefine.ADD_SOLDIER`, and what the player is
+    shown is the «add soldiers» tip rather than an error.
+
+    Nothing here can put soldiers in an empty squad, so a run that reads 0 has nothing to
+    send with: either the screen fills the squad from the base's pool, or — when the pool
+    is empty too, which is what an evening of rallies leaves behind — the answer is the
+    hospital and not this ability.
+    """
+    return ("(function() local p = DataCenter.__lw_rally_join "
+            "if p == nil or p.formation == nil then return -1 end "
+            "local afd = DataCenter.ArmyFormationDataManager local n = -1 "
+            "for _, f in pairs(afd.ArmyFormationList) do "
+            "local ok, u = pcall(function() return f.uuid end) "
+            "if ok and tostring(u) == tostring(p.formation) then "
+            "pcall(function() n = tonumber(f.totalSoldierNum) or -1 end) end end "
+            "return n end)()")
+
+
+def rally_join_send() -> str:
+    """Join the armed rally with NO screen: build the march message and send it.
+
+    This is the same call the game itself ends up making — the squad screen's launch
+    walks `OnCheckTime` -> `OnCreateClick` -> `TryStartMarch` -> this — and its Lua reads
+    nothing off any window: the payload comes from `GetFormationStartPos` and
+    `ArmyFormationDataManager:GetOneArmyInfoByUuid`, i.e. from the squad itself.
+
+    What made the direct send look impossible for weeks was the END POINT, not the path:
+    it was aimed at the monster the rally is going to attack instead of the tile the
+    joiners gather on (#1237, and `joinpoint` in `_RALLY_PRELUDE`). Every other
+    explanation chased — the thirteenth argument, the hero arrays, the message body —
+    sat downstream of that.
+
+    Called straight, not through `TimerManager:DelayInvoke` as the old press was: the
+    screen's own launch runs synchronously from this same daemon thread and works, and a
+    send hidden behind a timer cannot say whether it threw — which is half of what a run
+    needs to know when nothing appears on the map.
+    """
+    return (
+        _RALLY_JOIN_PARAMS +
+        "if p.formation == nil then error('no rally armed for this run') end "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(p.formation, 6, p.point, p.team, 1, 1, false, "
+        "p.server, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_send squad="..tostring(p.squad)'
+        '.." team="..tostring(p.team).." point="..tostring(p.point)'
+        '.." server="..tostring(p.server).." ok="..tostring(ok).." err="..tostring(err))'
+    )
+
+
+def rally_join_in() -> str:
+    """Lua *expression* -> 1 when one of our marches is already standing in the armed rally.
+
+    Asked between the screenless send and the fallback that opens the screens, because a
+    send that landed a moment late must not cost a SECOND squad: the ability spends one
+    squad per rally and the whole point of the fallback is the case where nothing was
+    spent at all.
+    """
+    return (
+        "(function() local p = DataCenter.__lw_rally_join if p == nil then return 0 end "
+        "local P = LuaEntry.Player local wm = DataCenter.WorldMarchDataManager "
+        "local col = wm:GetAllMarches() if col == nil then return 0 end "
+        "local e = col:GetEnumerator() while e:MoveNext() do local mo = e.Current "
+        "local ok, v = pcall(function() return mo.Value end) if ok and v ~= nil then mo = v end "
+        "local t, u = nil, nil pcall(function() t = mo.teamUuid u = mo.ownerUid end) "
+        "if t ~= nil and tostring(t) == tostring(p.team) "
+        "and tostring(u) == tostring(P.uid) then return 1 end end "
+        "return 0 end)()")
 
 
 def rally_join_open() -> str:
@@ -2451,6 +2526,11 @@ def join_next_rally() -> str:
     One press per chunk: the squad is dropped from the queue and the rally marked
     as taken BEFORE the send, so a refused join costs one squad rather than wedging
     `xall` on the same rally forever.
+
+    Superseded by `rally_join_send` + the fallback in `actions/join_rally.md`, which
+    ask the map whether the send achieved anything instead of assuming it did. Kept
+    because `tools/rally_join.py` drives the same shape from a shell, and corrected
+    to `joinpoint` with it: this one spent months aiming at the monster.
     """
     return (
         _RALLY_PRELUDE +
@@ -2471,14 +2551,17 @@ def join_next_rally() -> str:
         "return end "
         "local taken2=DataCenter.__lw_rally_joined or {} taken2[tostring(r.team)]=true "
         "DataCenter.__lw_rally_joined=taken2 "
+        # Where the JOINER goes — the leader's own tile — and not where the rally is
+        # going. See `joinpoint` in `_RALLY_PRELUDE`.
+        "local jp = r.joinpoint or r.point "
         "if not warm then "
-        "pcall(function() MarchUtil.OnClickStartMarch(6,r.point,r.team,-1,1,7,r.server,0,0) end) "
+        "pcall(function() MarchUtil.OnClickStartMarch(6,jp,r.team,-1,1,7,r.server,0,0) end) "
         "pcall(function() GoToUtil.CloseAllWindows() end) end "
         "TimerManager:GetInstance():DelayInvoke(function() pcall(function() "
-        "MarchUtil.SendCreateMarchMessage(formation,6,r.point,r.team,1,1,false,r.server,nil) "
+        "MarchUtil.SendCreateMarchMessage(formation,6,jp,r.team,1,1,false,r.server,nil) "
         "end) end,0.5) "
         'CS.UnityEngine.Debug.LogError("ACT rally_join squad="..tostring(slot)'
-        '.." team="..tostring(r.team).." point="..tostring(r.point)'
+        '.." team="..tostring(r.team).." point="..tostring(jp)'
         '.." server="..tostring(r.server).." warmed="..tostring(not warm))'
     )
 

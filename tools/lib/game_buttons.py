@@ -480,18 +480,28 @@ BUTTONS: dict[str, Button] = {
         # Three squads is the whole army; the cap is only a backstop.
         max_taps=5,
     ),
-    # --- alliance rally: JOIN one through the game's own screens --------------
-    # The direct send is measured, argument for argument, to match the player's own and
-    # to create no march all the same (docs/research/rally-join.md), so the join is
-    # driven the way the raise already is: open the screen, pick the squad, launch, with
-    # the recipe waiting for each state in between. The screen is never closed by these —
-    # it closes itself on success, and closing it early is exactly what left the old
-    # press with nothing behind it.
+    # --- alliance rally: JOIN one --------------------------------------------
+    # `rally_join_send` is the join, and it opens nothing: the squad screen adds nothing
+    # to the message that the squad does not already carry (docs/research/rally-join.md).
+    # The three presses after it are the FALLBACK — open the screen, pick the squad,
+    # launch, with the recipe waiting for each state in between — and they are what fills
+    # a squad standing empty. The screen is never closed by them: it closes itself on
+    # success, and closing it early is exactly what left the old press with nothing
+    # behind it.
     "rally_join_arm": Button(
         # Not a press in the game: pick the rally and the squad and park them, so every
         # step below reads one answer rather than racing the map for its own.
         lua=_lua_actions.rally_join_arm(),
         wait=0.05, label="arm the join (rally + squad)",
+    ),
+    "rally_join_send": Button(
+        # The join with no screen at all: the same message the screen's launch ends up
+        # sending, aimed at the tile the joiners gather on. Tried first; the screens
+        # below are the fallback when the map does not move (actions/join_rally.md).
+        lua=_lua_actions.rally_join_send(),
+        # The march appears when the server answers and the recipe POLLS for that.
+        # Sleeping here only holds the lease — and the next rally behind it.
+        wait=0.1, label="join the rally with no screen",
     ),
     "rally_join_open": Button(
         lua=_lua_actions.rally_join_open(),

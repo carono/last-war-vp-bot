@@ -22,7 +22,8 @@ confirmed live). The leader march carries everything a join needs:
 | field       | meaning                                   |
 |-------------|-------------------------------------------|
 | `teamUuid`  | rally id (non-zero)                       |
-| `targetPos` | targetPointId (the join's point argument) |
+| `startPos`  | the leader's own tile — **the join's point argument** |
+| `targetPos` | where the rally is going (the monster) — for a listing, never for a join |
 | `serverId`  | target server                            |
 | `ownerName` | player name (carries tags, e.g. `<Player3>`) |
 
@@ -35,11 +36,15 @@ march appears) rather than pre-filtered.
 Wire command: `world.march.formation.new`. Sent by:
 
 ```
-MarchUtil.SendCreateMarchMessage(formationUuid, 6, targetPointId, teamUuid, 1, 1, false, server, nil)
+MarchUtil.SendCreateMarchMessage(formationUuid, 6, gatheringTile, teamUuid, 1, 1, false, server, nil)
 ```
 
 `6` = rally target type. Joining an EXISTING rally = this call with the rally's non-zero
 `teamUuid`. Re-joining a rally you are already in is suppressed client-side (no second message).
+
+`gatheringTile` is the LEADER's own tile (`startPos`), not the rally's target — sending
+the target is refused as «invalid end point», and it is what made this call look broken
+for weeks. See «The wall was the END POINT» below.
 
 **Choosing the squad:** the first argument (`formationUuid`) is which squad is sent. Squads
 live in `DataCenter.ArmyFormationDataManager.ArmyFormationList` keyed by uuid; each has
@@ -58,13 +63,15 @@ and only falls back to an optional env-provided table (`LW_SQUAD_FORMATIONS`, se
 | 2             | `<formationUuid-2>` |
 | 3             | `<formationUuid-3>` |
 
-**Cold-formation wall:** the send silently no-ops unless a formation is loaded
-(`ArmyFormationDataManager.ArmyFormationList[*].totalSoldierNum > 0`). Formations start cold
-(soldiers=0). `MarchUtil.OnClickStartMarch(6, targetPointId, teamUuid, -1, 1, 7, server, 0, 0)` —
-the game's «в поход» entry — warms them (0 → 3123 verified), **but it opens the dispatch panel**,
-so close it afterwards with `GoToUtil.CloseAllWindows()` (the same close the game runs in this
-flow; not `DestroyAllWindow`, which kills the HUD). If a formation is already warm, skip
-OnClickStartMarch entirely and the join opens no UI at all.
+**Empty-squad wall:** the send refuses a squad with no soldiers
+(`ArmyFormationDataManager.ArmyFormationList[*].totalSoldierNum == 0`) before anything
+reaches the wire — the client shows the «add soldiers» tip and the caller gets a clean
+return. `MarchUtil.OnClickStartMarch(6, gatheringTile, teamUuid, -1, 1, 7, server, 0, 10)` —
+the game's «в поход» entry — fills the squad from the base's pool (0 → 3123 verified),
+**but it opens the dispatch panel**. A squad that already has soldiers needs none of that
+and the join opens no UI at all. What the panel canNOT do is conjure soldiers that do not
+exist: see «What the squad screen actually contributes» below for how an empty barracks
+looks exactly like an unloaded squad.
 
 Verify success by an increase in own marches:
 `DataCenter.WorldMarchDataManager:GetOwnerMarches()` count (enumerate it). `IsHaveMarchInWorld()`
@@ -106,6 +113,11 @@ rally_join.py --cancel --team T --member M
 
 ## The send is accepted and does nothing — measured, not yet explained (#1237)
 
+> **Explained since.** Everything in this section and the three after it was measured
+> against a send aimed at the WRONG TILE; skip to «The wall was the END POINT» for the
+> answer. Kept because the measurements are sound and the wrong turns are worth not
+> taking twice.
+
 `MarchUtil.SendCreateMarchMessage` returns cleanly and creates no march. This is the
 same failure the tool's own verdict string has always named
 («no new march created … direct SendCreateMarchMessage no-ops»), measured properly so
@@ -119,7 +131,7 @@ the disagreement reads exactly like a bug (this cost three wrong conclusions fir
 |---|---|
 | rallies the prelude finds | 1 (of 40 marches, 1 teamed, 1 leader) |
 | squads sieved as at-home | all of the ones asked for |
-| the press's own marker | `rally_join squad=1 team=… point=… server=935` |
+| the press's own marker | `rally_join squad=1 team=… point=… server=<server>` |
 | `pcall` around the send | `ok=true err=nil` |
 | our squads in a rally, before → after | unchanged, every time |
 
@@ -212,8 +224,8 @@ A trace of a HAND-MADE join (`results/traces/…_ралли_trace.log`, «при
 первым отрядом») against the bot's own press, hooked at `SFSNetwork.SendMessage`:
 
 ```
-game: world.march.formation.new | <formation> | 6 | <team> | 465565;480562 | 1 | true | <heroInfos> | 935 | -1 | nil | nil | <OBJECT>
-bot:  world.march.formation.new | <formation> | 6 | <team> | 465565;460587 | 1 | true | <heroInfos> | 935 | -1 | nil | nil | nil
+game: world.march.formation.new | <formation> | 6 | <team> | 400500;400900 | 1 | true | <heroInfos> | <server> | -1 | nil | nil | <OBJECT>
+bot:  world.march.formation.new | <formation> | 6 | <team> | 400500;700400 | 1 | true | <heroInfos> | <server> | -1 | nil | nil | nil
 ```
 
 Identical but for the LAST argument. Everything the earlier sessions suspected is
@@ -269,5 +281,106 @@ Anyone picking this up again starts there: read those two collections properly (
 `Type = 17` wrapper is the thing to understand), and compare the counts against the six
 the trace records.
 
-One observation left unexplained: one bot send had a path starting `465562` where every
-other send, the player's and the bot's, started `465565`.
+One observation left unexplained: one bot send had a path starting `400502` where every
+other send, the player's and the bot's, started `400500`.
+
+---
+
+## The wall was the END POINT, and everything above it was downstream (#1237)
+
+None of the collections above needed reading. A joiner does not march to the monster —
+the troops gather at the base of whoever raised the banner and set off from there
+together — so the end point of a join is the LEADER'S OWN TILE. The three places a march
+carries, read off a live rally:
+
+| field       | is                                    |
+|-------------|---------------------------------------|
+| `targetPos` | where the rally is going — the monster |
+| `startPos`  | the leader's own tile — where joiners gather |
+| `homePos`   | the marcher's own base                 |
+
+Every member march of every rally out says the same thing from the other side: its
+`targetPos` is the leader's tile and its `homePos` is that member's own base. The bot
+was sending the monster: a real tile, just not one a joining squad may be sent to — so
+the server refused the march as «invalid end point» while the client dutifully flew the
+camera there. The player saw it without a single probe: joining by hand moves the camera
+to the PLAYER who raised the banner, the bot's press moved it to the monster.
+
+Re-read in that light, the wire diff two sections up was already saying so. The two
+paths were `400500;400900` (the player) and `400500;700400` (the bot) — the SAME start
+and DIFFERENT ends. It was written up as «identical but for the last argument», and the
+thirteenth argument, the hero arrays and the message bodies were all chased downstream
+of a difference that was in plain sight.
+
+`joinpoint` in `_RALLY_PRELUDE` (tools/lib/lua_actions.py) is that tile, kept beside
+`point` rather than replacing it: a LISTING should show where a rally is going, and only
+the join side wants the gathering tile.
+
+## What the squad screen actually contributes (#1238)
+
+Nothing, to the message. The client's Lua is not stripped, so a function's constants can
+be read straight off the live VM with `string.dump` — unwrap any trace hook first by
+walking `debug.getupvalue` down to the innermost function, or you get the hook:
+
+* **`MarchUtil.SendCreateMarchMessage`** (`MarchUtil.lua:1633`) builds the whole thing
+  out of the SQUAD: `GetFormationStartPos`, `ArmyFormationDataManager:GetOneArmyInfoByUuid`
+  (→ `soldiers`, `heroes`), `GenerateServerHeroArray`, `RefreshFormationModelToJson`,
+  then `StartMarch`. Not one window is read.
+* **`MarchUtil.StartMarch`** (`:1828`) is what moves the camera and picks between
+  `SendChangeMarchToServer` (this formation already has a march) and
+  `SendCreateMarchToServer`.
+* **`MarchUtil.TryStartMarch`** (`:574`) — the stamina check, `CheckFormation`, then
+  `SendCreateMarchMessage`.
+* **`UIFormationSelectListV2Ctrl:OnCheckTime`** — the screen's launch — is march-time and
+  confirm dialogs (`alliance_boss_001/002`, `assembly_monster_toplimit`) and then
+  `OnCreateClick`, which ends in the same send.
+
+So the screen's contribution is: it lets a human pick the squad, it shows the
+confirmations, and — the one that matters to a bot — **it fills an empty squad with
+soldiers from the base's pool**. A squad that already has soldiers needs none of it.
+
+**The client refuses to send an empty squad before a byte leaves.** The send's own
+constants are `hasSolider` / `hasHero` and `UIUtil.ShowTipsId(GameDialogDefine.ADD_SOLDIER)`
+— what the player gets is the «add soldiers» tip, not an error, and what a bot gets is
+`ok=true` and no march. That is the whole of the «cold formation wall», and it is worth
+naming precisely because it has a second cause that looks identical:
+
+> **`totalSoldierNum == 0` can mean the ACCOUNT has no soldiers, not that the squad is
+> unloaded.** Measured live on 2026-08-05: three squads, five heroes each, `state = 0`,
+> `IsFree() = true`, `GetAllTotalSoldierNum() = 0`, nothing unformed, 555 wounded in the
+> hospital. Nothing warms a squad in that state — not the screen, not
+> `AutoInitFormationData`, `AutoAddSoldier`, `RefreshFormationSoldier` or
+> `FetchFormationSoldier`, each tried and each a clean no-op — because there are no
+> soldiers to put in it. The answer is the hospital, not this ability. A run in that
+> state joins nothing by ANY path, and «нажали и ничего» is exactly what it looks like.
+
+### Where that leaves the join
+
+`actions/join_rally.md` sends first and opens the screens only if the map does not move:
+
+    arm -> (squad has soldiers?) -> send -> poll ~1.5 s -> already in it? -> done
+                                        \-> not in it -> open screen -> pick -> launch
+
+The fallback is not decoration: it is what fills an empty squad, and it is what the run
+falls back on if the screenless send turns out to want something else after all. The
+same correction went into the two other places that send directly —
+`join_next_rally()` and `tools/rally_join.py`, both of which were still aiming at the
+monster.
+
+**Confirmed live, 2026-08-05.** One run of `join_rally` against a banner the alliance had
+just raised, with the game lease held so nothing else could be doing it:
+
+```
+TAP arm the join (rally + squad)
+READ_LUA armed = 1
+READ_LUA soldiers = 3123.0
+IF soldiers > 0 -> True
+  TAP join the rally with no screen
+  READ_LUA joined = 0
+  WAIT 0.25s
+  READ_LUA joined = 1
+  LOG "joined the rally without opening a screen"
+```
+
+One press, one quarter-second poll, no window: **`> action` to done in about a second**,
+against the four presses and ~4 s the screens cost. The fallback below it did not run.

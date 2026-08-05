@@ -717,6 +717,56 @@ def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
         root.destroy()
 
 
+def test_the_join_tries_the_screenless_send_before_it_opens_anything():
+    """The squad screen is the FALLBACK, not the route (#1238).
+
+    It adds nothing to the message — the send builds that out of the squad — so the join
+    is one press whenever the squad has soldiers in it. The screen earns its place on the
+    one case the send cannot cover: a squad standing empty, which the client refuses to
+    send before a byte leaves.
+
+    Pinned because the order is the whole saving: a run that opens the screen first pays
+    four presses and a couple of seconds for a rally that lasts one minute.
+    """
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    body, _ = se.prepare_source(src, {"squads": [1]})
+    stmts = se.parse_text(body)
+
+    gate = [s for s in stmts if isinstance(s, se.IfStmt) and s.condition == "soldiers > 0"]
+    assert gate, "the screenless send is not gated on the squad having soldiers"
+    inner = [type(x).__name__ for x in gate[0].then_block]
+    assert "TapStmt" in inner, inner
+    assert gate[0].then_block[0].name == "rally_join_send", gate[0].then_block[0]
+
+    # …and it happens BEFORE the screen is opened, or it is not a fast path at all.
+    send = stmts.index(gate[0])
+    opens = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.TapStmt) and s.name == "rally_join_open"]
+    assert opens and send < opens[0], (send, opens)
+
+    # A late send must not cost a second squad: the fallback asks the map first.
+    guard = [s for s in gate[0].then_block
+             if isinstance(s, se.ReadLuaStmt) and s.var == "already_in"]
+    assert guard, "nothing checks whether the send landed late before opening the screen"
+
+
+def test_a_join_is_sent_where_the_joiners_gather_not_where_the_rally_goes():
+    """`targetPos` is the monster; a joining squad marches to the leader's tile (#1237)."""
+    import importlib
+
+    la = importlib.import_module("lib.lua_actions")
+    assert "joinpoint" in la._RALLY_PRELUDE, "the gathering tile is not read at all"
+    assert "startPos" in la._RALLY_PRELUDE, la._RALLY_PRELUDE[:200]
+    # The listing keeps the target; only the join side swaps it for the gathering tile.
+    assert "r.point = r.joinpoint" in la._RALLY_PRELUDE_MINE
+    assert "targetPos" in la._RALLY_PRELUDE, "the listing lost where the rally is going"
+    # …and the direct sends use it rather than the target.
+    assert "r.joinpoint or r.point" in la.join_next_rally()
+
+
 class _Ok:
     ok = True
     reason = ""

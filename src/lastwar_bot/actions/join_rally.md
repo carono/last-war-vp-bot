@@ -21,22 +21,20 @@
 # the server takes seconds to confirm, and waiting for it would let two squads land
 # on the same rally.
 #
-# Nothing is opened on screen as long as one squad is already loaded. If every
-# squad is cold the join would be a silent no-op, so the press loads them the way
-# the game does and closes the panel it opens.
+# NOTHING IS OPENED ON SCREEN when the squad already has soldiers in it: the join is
+# one message, and the game's own squad screen adds nothing to it that the squad does
+# not already carry. A squad standing empty is the one case that still needs the
+# screen, because filling it from the base's pool is what the screen is for.
 #
-# The engine calls live in tools/lib/game_buttons.py ("join_rally") and
+# The engine calls live in tools/lib/game_buttons.py ("rally_join_*") and
 # tools/lib/lua_actions.py; the reverse-engineering is in
 # docs/research/rally-join.md.
 #
-# THE SEND IS NOT RELIABLE, and this recipe is written around that rather than over
-# it. It was seen joining once in a live game — the alliance's participant list came
-# back one name longer with the player in it — and on the next day's rallies the same
-# press went out repeatedly and joined nobody, with `SendCreateMarchMessage` returning
-# `ok=true` and creating no march, on both the warm and the cold path. So the run now
-# COUNTS: the squads standing in a rally before the press and after it, and it fails
-# saying so when the number did not move. Whatever the game wants that it is not being
-# given, a run that pressed and achieved nothing must not come back «OK».
+# THE RUN COUNTS RATHER THAN ASSUMES: the squads standing in a rally before the press
+# and after it, and it fails saying so when the number did not move. A send returns
+# `ok=true` whether the server took it or dropped it, and this ability spent weeks
+# reporting success while joining nobody. That is also what decides between the two
+# paths below — the screens are used when the map did not move, not on a guess.
 
 ARGS squads = [1, 2, 3]
 
@@ -119,11 +117,44 @@ READ_LUA (function() local p = DataCenter.__lw_rally_join if p == nil or p.forma
 IF armed == 0
     FAIL "there is a rally out and a squad at home, but they could not be paired up — the squad has no formation the game knows"
 
-# --- 2. Open the game's own squad screen -----------------------------------------
-# THE DIRECT SEND DOES NOT WORK. The message the bot built matched the player's own
-# argument for argument and the server created no march (docs/research/rally-join.md),
-# so the join is made the way the raise is: through the windows. This press is what a
-# player's tap on the rally does, and it opens the squad screen.
+# --- 2. The join with no screen at all -------------------------------------------
+# The squad screen contributes NOTHING to the message. The send's own Lua builds it out
+# of the squad — the start tile, the soldiers, the heroes — and reads no window; the
+# screen's launch walks OnCheckTime -> OnCreateClick -> TryStartMarch and ends in this
+# very call. What made the direct send look impossible for weeks was the END POINT: it
+# was aimed at the monster instead of the tile the joiners gather on (#1237, #1238).
+#
+# One thing the screen does do is fill an empty squad from the base's pool, and the
+# client refuses to send a squad with no soldiers before a byte leaves. So the fast path
+# is tried only when the squad already has some; otherwise the screens below do it.
+READ_LUA (function() local p = DataCenter.__lw_rally_join if p == nil or p.formation == nil then return -1 end local afd = DataCenter.ArmyFormationDataManager local n = -1 for _, f in pairs(afd.ArmyFormationList) do local ok, u = pcall(function() return f.uuid end) if ok and tostring(u) == tostring(p.formation) then pcall(function() n = tonumber(f.totalSoldierNum) or -1 end) end end return n end)() INTO soldiers
+
+# The whole fast path sits inside the gate: an empty squad has nothing to send, and a
+# run that polls for a march it never asked for is a second and a half given away to
+# the rally that is standing on the map while it waits.
+IF soldiers > 0
+    TAP rally_join_send
+    # Did it land? The same counting the whole run is judged by, polled briefly — the
+    # server answers in well under a second when it accepts, and this path costs about
+    # as much as ONE of the four presses below.
+    READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
+    WHILE joined < 1 LIMIT 6
+        WAIT 0.25
+        READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
+    IF joined >= 1
+        LOG "joined the rally without opening a screen"
+        STOP
+    # ALREADY IN IT? The send may simply have been slower than the poll, and a second
+    # squad spent on the same rally is worse than a slow join. Asked of the map, not of
+    # the counter: a march standing in the rally is the thing that matters.
+    READ_LUA (function() local p = DataCenter.__lw_rally_join if p == nil then return 0 end local P = LuaEntry.Player local wm = DataCenter.WorldMarchDataManager local col = wm:GetAllMarches() if col == nil then return 0 end local e = col:GetEnumerator() while e:MoveNext() do local mo = e.Current local ok, v = pcall(function() return mo.Value end) if ok and v ~= nil then mo = v end local t, u = nil, nil pcall(function() t = mo.teamUuid u = mo.ownerUid end) if t ~= nil and tostring(t) == tostring(p.team) and tostring(u) == tostring(P.uid) then return 1 end end return 0 end)() INTO already_in
+    IF already_in == 1
+        LOG "joined the rally without opening a screen"
+        STOP
+
+# --- 3. …otherwise the game's own squad screen ------------------------------------
+
+# This press is what a player's tap on the rally does, and it opens the squad screen.
 #
 # NOTHING CLOSES THAT SCREEN. The old press opened it and shut it in the same breath,
 # which is why the send behind it had nothing to stand on — the lesson #1172 paid for
@@ -139,7 +170,7 @@ WHILE screen == 0 LIMIT 30
 IF screen == 0
     FAIL "the rally did not bring up the squad screen — nothing was sent"
 
-# --- 3. Pick the squad, and read the pick back -----------------------------------
+# --- 4. Pick the squad, and read the pick back -----------------------------------
 # A launch on a screen that is not holding the wanted squad is a press that ends in
 # nothing, so the pick is confirmed before the send.
 TAP rally_join_squad
@@ -150,7 +181,7 @@ IF picked == 0
     TAP close
     FAIL "the squad screen would not take the chosen squad — nothing was sent"
 
-# --- 4. Launch, and let the game say whether we are in ---------------------------
+# --- 5. Launch, and let the game say whether we are in ---------------------------
 # The proof is one more of OUR squads standing in a rally than before the run — not the
 # press returning cleanly, which it did for weeks while joining nothing.
 # STILL THERE? A banner is minutes at best and seconds during an event, and the steps

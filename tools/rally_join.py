@@ -29,8 +29,10 @@ The rally parameters come from ``push.alliance.march.refresh``:
 This tool also LISTENS: DataCenter.WorldMarchDataManager:GetAllMarches() enumerates every
 world march; team marches (teamUuid != 0) are rallies, grouped by teamUuid with the leader
 being the march whose uuid == teamUuid - 1. That yields the join parameters straight from
-the game (no pcap) — teamUuid, targetPos = targetPointId, serverId — so --list / --watch /
---leader work on live state.
+the game (no pcap) — teamUuid, serverId, and the leader's own tile, which is where the
+joiners gather and therefore where a join's march ends (`startPos`; `targetPos` is the
+monster the rally is going to attack, and sending a squad there is refused as «invalid
+end point»). --list / --watch / --leader work on live state.
 
 Usage:
     # listen
@@ -39,7 +41,7 @@ Usage:
     # join (--leader optional: omit to take the first available rally; --squad N picks the squad)
     ...\python.exe tools\rally_join.py --me <yourName> [--squad N]
     ...\python.exe tools\rally_join.py --leader <name-or-mask> --me <yourName> [--squad N]
-    ...\python.exe tools\rally_join.py --team <teamUuid> --point <targetPointId> --server <serverId>
+    ...\python.exe tools\rally_join.py --team <teamUuid> --point <gathering tile> --server <serverId>
     # decline / leave
     ...\python.exe tools\rally_join.py --cancel --leader <name-or-mask> --me <yourName>
     ...\python.exe tools\rally_join.py --cancel --team <teamUuid> --member <memberUuid>
@@ -175,9 +177,13 @@ def list_rallies(run):
     march — via GetEnumerator, and keeps team marches (teamUuid != 0). Marches are grouped by
     teamUuid into rallies; the LEADER of a rally is the march whose uuid == teamUuid - 1 (the
     game numbers a rally's teamUuid as leaderUuid + 1, confirmed live). The leader march
-    carries the rally's join parameters: teamUuid, targetPos (= targetPointId) and serverId.
+    carries the rally's join parameters: teamUuid, serverId and two DIFFERENT places —
+    `targetPos`, where the rally is going (the monster), and `startPos`, the leader's own
+    tile, which is where the joiners gather and therefore where a join's march ends. The
+    listing shows the first; a join is sent at the second (#1237, #1238).
 
-    Each returned dict: {team, leader, point, server, members}. See docs/research/rally-join.md.
+    Each returned dict: {team, leader, point, joinpoint, server, members}. See
+    docs/research/rally-join.md.
     """
     rows = run(
         r'''local wm=DataCenter.WorldMarchDataManager local col=wm:GetAllMarches()
@@ -191,12 +197,15 @@ while e:MoveNext() do local mo=e.Current.Value if mo==nil then mo=e.Current end
     counts[ts]=(counts[ts] or 0)+1
     local isLeader=false pcall(function() isLeader=(tostring(g(mo,'uuid'))==tostring(team-1)) end)
     if isLeader then leaders[ts]={owner=tostring(g(mo,'ownerName')),
-      point=tostring(g(mo,'targetPos')), srv=tostring(g(mo,'serverId') or g(mo,'targetServer'))} end
+      point=tostring(g(mo,'targetPos')),
+      joinpoint=tostring(g(mo,'startPos') or g(mo,'homePos') or g(mo,'targetPos')),
+      srv=tostring(g(mo,'serverId') or g(mo,'targetServer'))} end
   end
 end
 for ts,info in pairs(leaders) do
   -- leader name is emitted LAST because it can contain spaces (e.g. "<Player3>").
   CS.UnityEngine.Debug.LogError('RALLY team='..ts..' point='..info.point
+    ..' joinpoint='..info.joinpoint
     ..' server='..info.srv..' members='..tostring(counts[ts])..' leader='..info.owner)
 end
 CS.UnityEngine.Debug.LogError('RALLY end')''',
@@ -206,7 +215,7 @@ CS.UnityEngine.Debug.LogError('RALLY end')''',
         if "RALLY team=" not in ln:
             continue
         d = {}
-        for part in ("team", "point", "server", "members"):
+        for part in ("team", "point", "joinpoint", "server", "members"):
             if part + "=" in ln:
                 d[part] = ln.split(part + "=")[1].split()[0]
         # leader is last so it keeps spaces (names like "<Player3>")
@@ -214,6 +223,15 @@ CS.UnityEngine.Debug.LogError('RALLY end')''',
             d["leader"] = ln.split("leader=", 1)[1].strip()
         out.append(d)
     return out
+
+
+def _join_point(rally):
+    """Where a JOINING squad marches: the leader's own tile, not the rally's target.
+
+    Falls back to the target for a listing that predates the field — a wrong point is
+    refused by the server as «invalid end point», so it fails loudly either way.
+    """
+    return rally.get("joinpoint") or rally.get("point")
 
 
 def do_join(run, ev, team, point, server, formation_arg=None):
@@ -276,7 +294,7 @@ def do_watch(run, ev, interval, auto_join, me=None, formation_arg=None):
                 r = fresh[0]
                 if r.get("point") and r.get("server"):
                     print("-> auto-joining team=%s (leader %s)" % (r["team"], r.get("leader")), flush=True)
-                    do_join(run, ev, r["team"], r["point"], r["server"], formation_arg)
+                    do_join(run, ev, r["team"], _join_point(r), r["server"], formation_arg)
                     return
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -346,7 +364,8 @@ def main():
     ap.add_argument("--cancel", action="store_true",
                     help="leave/decline a rally instead of joining")
     ap.add_argument("--team", help="rally teamUuid (join/cancel a specific rally)")
-    ap.add_argument("--point", help="rally targetPointId (join only)")
+    ap.add_argument("--point", help="the tile the rally gathers on — the leader's own, "
+                                    "as printed by --list under joinpoint (join only)")
     ap.add_argument("--server", help="rally target serverId (join only)")
     ap.add_argument("--member",
                     help="player's own march UUID within the rally (cancel only)")
@@ -403,9 +422,10 @@ def main():
                 print("no rallies visible right now", flush=True)
             for r in rallies:
                 mine = " (yours)" if args.me and r.get("leader") == args.me else ""
-                print("team=%s leader=%s point=%s server=%s members=%s%s"
+                print("team=%s leader=%s point=%s joinpoint=%s server=%s members=%s%s"
                       % (r.get("team"), r.get("leader"), r.get("point"),
-                         r.get("server"), r.get("members"), mine), flush=True)
+                         r.get("joinpoint"), r.get("server"), r.get("members"), mine),
+                      flush=True)
         elif args.watch:
             do_watch(run, ev, args.interval, args.auto_join, args.me, formation_arg())
         elif args.cancel:
@@ -425,10 +445,13 @@ def main():
                 where = ("whose leader matches %r" % args.leader) if args.leader else "available"
                 print("no rally %s is visible right now" % where, flush=True)
             else:
-                print("target rally: leader=%s team=%s point=%s server=%s members=%s"
-                      % (match.get("leader"), match["team"], match["point"], match["server"],
-                         match.get("members")), flush=True)
-                do_join(run, ev, match["team"], match["point"], match["server"], formation_arg())
+                print("target rally: leader=%s team=%s point=%s joinpoint=%s server=%s "
+                      "members=%s"
+                      % (match.get("leader"), match["team"], match["point"],
+                         _join_point(match), match["server"], match.get("members")),
+                      flush=True)
+                do_join(run, ev, match["team"], _join_point(match), match["server"],
+                        formation_arg())
     finally:
         ev.close()
 
