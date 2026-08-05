@@ -383,4 +383,60 @@ IF soldiers > 0 -> True
 ```
 
 One press, one quarter-second poll, no window: **`> action` to done in about a second**,
-against the four presses and ~4 s the screens cost. The fallback below it did not run.
+against the four presses the screens cost. The fallback below it did not run.
+
+### What the screen costs, measured step by step
+
+Both paths driven through the SAME buttons the recipe presses, on live rallies of the
+alliance, with the game lease held so nothing else could be joining beside them. Each
+line is that step's own time; the last is the server's answer arriving on the map.
+
+```
+  SEND (no window)                    SCREEN (the path before this)
+  arm (rally + squad)     187 ms      arm (rally + squad)       204 ms
+  read: armed?            148 ms      read: armed?              148 ms
+  SEND                    233 ms      open the squad screen     301 ms
+  the map says we are in  219 ms      wait: screen is up        204 ms
+                       ────────       pick the squad            559 ms
+                 TOTAL    788 ms      read: pick took?          392 ms
+                                      read: rally still up?     251 ms
+                                      launch                    773 ms
+                                      the map says we are in    596 ms
+                                                             ────────
+                                                    TOTAL     3430 ms
+```
+
+**The screens are 2.48 s of a 3.43 s join — about 72% of it.** Not a rounding error and
+not worth keeping for its own sake: on a banner that stands for a minute or two, it is
+the difference between arriving with the places still open and arriving late.
+
+Both runs above ended with a squad standing in the armed rally (`0 → 1` and `1 → 2`), and
+the screenless send has now done it three times out of three unhooked runs (17:40:10,
+17:46:31, 17:50:03; 788, 720 and ~1000 ms).
+
+### The hero and formation arrays: built by the SEND, not by the screen
+
+The wall the previous session hit — counting the `{Data = <C# collection>, Type = 17}`
+wrappers — did not have to be climbed. Count the game's own array-building calls instead,
+by wrapping `SFSArray.New` / `SFSArray.AddSFSObject` / `SFSObject.PutSFSArray` for the
+length of one press. Our screenless send builds:
+
+```
+arrays=2  added=6  put=2  keys=formations,heroInfos
+```
+
+Which is, object for object, what the trace of a HAND-MADE join records: two arrays put
+under `formations` and `heroInfos`, six objects added — the six heroes — and **nothing
+added to `formations` at all**. So:
+
+* the hero array is not something the screen produces; the send builds it from
+  `GetOneArmyInfoByUuid` on the squad, with no window anywhere;
+* the soldiers do NOT ride in `formations` — that array goes out empty on the player's
+  own join too. What carries the army is the thirteenth argument, which the send builds
+  for itself.
+
+One caveat recorded rather than smoothed over: the run with those hooks installed built
+the message and did NOT end in a march, where three unhooked runs did. The hooks are the
+obvious suspect — they replace three xLua-bound statics for the length of the press — but
+that is a suspicion, not a measurement, and anyone repeating this should count first and
+judge the join on a clean run.
