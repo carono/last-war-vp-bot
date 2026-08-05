@@ -101,3 +101,54 @@ rally_join.py --cancel --team T --member M
 
 `--me` / `--leader` match names as a case-insensitive substring (handles tag-wrapped names like
 `<Player3>`).
+
+---
+
+## The send is accepted and does nothing — measured, not yet explained (#1237)
+
+`MarchUtil.SendCreateMarchMessage` returns cleanly and creates no march. This is the
+same failure the tool's own verdict string has always named
+(«no new march created … direct SendCreateMarchMessage no-ops»), measured properly so
+whoever picks the reverse-engineering up does not have to start from scratch.
+
+**What was measured.** Every reading below was taken with the state read and the press
+run in ONE VM chunk, because squads come home and rallies expire between two calls and
+the disagreement reads exactly like a bug (this cost three wrong conclusions first).
+
+| Reading | Value |
+|---|---|
+| rallies the prelude finds | 1 (of 40 marches, 1 teamed, 1 leader) |
+| squads sieved as at-home | all of the ones asked for |
+| the press's own marker | `rally_join squad=1 team=… point=… server=935` |
+| `pcall` around the send | `ok=true err=nil` |
+| our squads in a rally, before → after | unchanged, every time |
+
+**What it is not.**
+
+* *Not the cold-formation rule.* It fails with `warmed=true` (the press ran the
+  `OnClickStartMarch` warm-up) and with `warmed=false` (formations already loaded,
+  direct send — the exact shape that worked on 2026-08-04). Warming by hand first,
+  waiting for `totalSoldierNum` to come up (0 → 8319) and only then pressing, fails too.
+* *Not the argument types.* The prelude hands `team`, `point`, `server` and the
+  formation uuid as Lua **numbers**; an early reading that showed a string/number
+  compare error inside `SceneUtils.lua:258` was an artefact of a probe that had
+  `tostring()`-ed them.
+* *Not the main-thread context on its own.* The press already goes through
+  `TimerManager:DelayInvoke`, which is what a synchronous probe from the daemon lacks.
+* *Not the squad state.* The sieve keeps only squads with `state == 0` and `IsFree()`.
+
+**What is known to have worked**, once, on 2026-08-04 through the panel: formations
+warm, `warmed=false`, and the alliance's `push.alliance.march.refresh` came back with
+the player added to the participant list six seconds later. Nothing in the recipe
+changed between that run and the failures.
+
+**Where to look next.** The tool's own comment points at the panel-confirm context that
+`OnClickStartMarch` → the squad screen → confirm sets up, and which the direct send
+skips. That is a UI flow rather than one call, so the next step is to trace what the
+game itself sends on a hand-made join (a capture of a manual join beside a bot one, on
+the same rally) and diff the two — the wire is the only place the difference will be
+unambiguous.
+
+Until then `actions/join_rally.md` **counts the squads standing in a rally before and
+after the press** and fails saying so when the number does not move, so the ability is
+honest about the state it is in.

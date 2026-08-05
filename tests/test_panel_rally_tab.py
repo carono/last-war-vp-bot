@@ -583,9 +583,10 @@ def test_the_join_recipe_tells_an_empty_list_from_squads_that_are_all_out():
     assert "free_squads == -1" in fails, fails
     assert "free_squads == 0" in fails, fails
     assert fails["free_squads == -1"] != fails["free_squads == 0"], fails
-    # …and it costs no extra round trip: one READ_LUA answers both.
-    assert len([s for s in stmts if isinstance(s, se.ReadLuaStmt)]) == 1, [
-        s.text for s in stmts]
+    # …and it costs no extra round trip for THAT question: one reading answers both.
+    sentinel = [s for s in stmts if isinstance(s, se.ReadLuaStmt)
+                and "__lw_rally_want" in s.text]
+    assert len(sentinel) == 1, [s.text[:60] for s in stmts]
 
 
 # ---------------------------------------------------------------------------
@@ -624,6 +625,47 @@ def test_every_key_the_tab_uses_exists_in_both_locales():
                            .read_text(encoding="utf-8"))
         missing = [k for k in keys if k not in table]
         assert not missing, f"{lang}.json misses {missing}"
+
+
+def test_the_join_counts_what_it_achieved_instead_of_reporting_ok():
+    """«Пытается, а эффекта ноль» — the log said OK over a press that did nothing.
+
+    The send is put on the game's own timer and returns before the server has replied,
+    so the press cannot tell a join that worked from one that vanished. Only the squads
+    standing in a rally afterwards can, and the two endings that used to look identical
+    are now three: nothing was out (a quiet success), the press achieved nothing (a
+    failure the auto-join will retry), or it joined and says how many (#1237).
+    """
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    body, _ = se.prepare_source(src, {"squads": [1]})
+    stmts = se.parse_text(body)
+
+    reads = [s for s in stmts if isinstance(s, se.ReadLuaStmt)]
+    assert any(s.var == "rallies_out" for s in reads), [s.var for s in reads]
+    assert any(s.var == "joined" for s in reads), [s.var for s in reads]
+
+    # Nothing out is a deliberate SUCCESS — a trigger firing on every march must not
+    # log a failure for an ordinary quiet minute.
+    quiet = [s for s in stmts if isinstance(s, se.IfStmt)
+             and s.condition == "rallies_out == 0"][0]
+    kinds = [type(x).__name__ for x in quiet.then_block]
+    assert "StopStmt" in kinds and "FailStmt" not in kinds, kinds
+
+    # …and a press that achieved nothing is a FAILURE, so the auto-join tries again.
+    nothing = [s for s in stmts if isinstance(s, se.IfStmt)
+               and s.condition == "joined == 0"][0]
+    assert [type(x).__name__ for x in nothing.then_block] == ["FailStmt"], nothing
+
+    # The count is read AFTER the press, or it would be measuring the wrong moment.
+    order = [i for i, s in enumerate(stmts)]
+    tap = [i for i, s in enumerate(stmts) if isinstance(s, se.TapStmt)][0]
+    after = [i for i, s in enumerate(stmts)
+             if isinstance(s, se.ReadLuaStmt) and s.var == "joined"][0]
+    assert after > tap, f"the verdict is read before the press ({after} < {tap})"
+    assert order
 
 
 def _main() -> int:

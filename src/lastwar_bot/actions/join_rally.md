@@ -29,8 +29,14 @@
 # tools/lib/lua_actions.py; the reverse-engineering is in
 # docs/research/rally-join.md.
 #
-# UNPROVEN as a recipe: the calls behind it are the ones tools/rally_join.py joins
-# with, but this file has not been run against a live rally yet.
+# THE SEND IS NOT RELIABLE, and this recipe is written around that rather than over
+# it. It was seen joining once in a live game — the alliance's participant list came
+# back one name longer with the player in it — and on the next day's rallies the same
+# press went out repeatedly and joined nobody, with `SendCreateMarchMessage` returning
+# `ok=true` and creating no march, on both the warm and the cold path. So the run now
+# COUNTS: the squads standing in a rally before the press and after it, and it fails
+# saying so when the number did not move. Whatever the game wants that it is not being
+# given, a run that pressed and achieved nothing must not come back «OK».
 
 ARGS squads = [1, 2, 3]
 
@@ -73,4 +79,30 @@ IF free_squads == -1
 IF free_squads == 0
     FAIL "not one of the chosen squads is in the base — there is nothing to join with"
 
+# IS THERE ANYTHING TO JOIN — asked before the press, because the two ways this run
+# ends with nothing joined are not the same thing. A quiet minute with no rally out is
+# an ordinary success; a rally that WAS out and no squad in it afterwards is a fault,
+# and the auto-join trigger must retry the second and not the first. Until #1237 both
+# came back «OK» with no line at all, which is exactly what «пытается, эффекта ноль»
+# looks like from the log.
+READ_LUA (function() local wm=DataCenter.WorldMarchDataManager local function g(mo,k) local ok,v=pcall(function() return mo[k] end) if ok then return v end return nil end local function cur(e) local mo=e.Current local ok,v=pcall(function() return mo.Value end) if ok and v~=nil then return v end return mo end local taken=DataCenter.__lw_rally_joined or {} local om=wm:GetOwnerMarches() if om then local e=om:GetEnumerator() while e:MoveNext() do local mo=cur(e) local t=g(mo,'teamUuid') if t~=nil and tostring(t)~='0' then taken[tostring(t)]=true end end end local rallies={} local col=wm:GetAllMarches() if col then local e=col:GetEnumerator() while e:MoveNext() do local mo=cur(e) local team=g(mo,'teamUuid') local ts=tostring(team) if team~=nil and ts~='0' and ts~='nil' and not taken[ts] then local lead=false pcall(function() lead=(tostring(g(mo,'uuid'))==tostring(team-1)) end) if lead then rallies[#rallies+1]={team=team,point=g(mo,'targetPos'),server=(g(mo,'serverId') or g(mo,'targetServer'))} end end end end table.sort(rallies,function(a,b) return tostring(a.team)<tostring(b.team) end) local squads=DataCenter.__lw_rally_squads or {1,2,3}  return #rallies end)() INTO rallies_out
+
+IF rallies_out == 0
+    LOG "no rally is out that this account is not already in — nothing to join"
+    STOP
+
+# What the press is about to be judged against.
+LUA DataCenter.__lw_rally_before = (function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()
+
 TAP join_rally xall   # one press per squad, each to a rally of its own
+
+# …AND WHETHER IT ACTUALLY DID IT. The press cannot answer this for itself: the send is
+# put on the game's own timer and returns before the server has replied, so a join that
+# worked and a join that vanished return exactly the same thing. Only the squads
+# standing in a rally afterwards can say, and the difference is the answer.
+READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
+
+IF joined == 0
+    FAIL "the press went out and no squad joined the rally — the send is accepted by the game and quietly does nothing in this state (docs/research/rally-join.md)"
+
+LOG "joined {joined} rally(ies)"

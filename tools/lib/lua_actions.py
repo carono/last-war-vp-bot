@@ -2214,6 +2214,35 @@ def rally_joins_pending() -> str:
             % _RALLY_PRELUDE)
 
 
+def rally_joinable_count() -> str:
+    """Lua *expression* -> how many rallies are out that this account is not in.
+
+    The press's own gate is `min(squads, rallies)`; this is the rallies half on its
+    own, so a recipe can tell «there was nothing to join» from «there was, and the
+    join did not happen». Those are the two endings that used to look identical, and
+    the second one is a fault while the first is an ordinary quiet minute.
+    """
+    return "(function() %s return #rallies end)()" % _RALLY_PRELUDE
+
+
+def rally_joined_count() -> str:
+    """Lua *expression* -> how many of OUR squads are standing in a rally right now.
+
+    Read before the press and again after it, and the difference is the only honest
+    answer to «did that do anything». The press cannot answer it for itself: the send
+    is scheduled onto the game's own timer and returns before the server has replied,
+    so a press that «worked» and a press that vanished return exactly the same thing
+    (docs/research/rally-join.md).
+    """
+    return ("(function() local P=LuaEntry.Player "
+            "local wm=DataCenter.WorldMarchDataManager "
+            "local afd=DataCenter.ArmyFormationDataManager local n=0 "
+            "for _,f in pairs(afd.ArmyFormationList) do pcall(function() "
+            "local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) "
+            "if m~=nil and tostring(m.teamUuid)~=\"0\" then n=n+1 end end) end "
+            "return n end)()")
+
+
 def join_next_rally() -> str:
     """Send the next parked squad to the next rally it is not already in.
 
