@@ -2234,6 +2234,25 @@ _RALLY_PRELUDE_MINE = (
     "if mine ~= nil then local kept = {} "
     "for _, r in ipairs(rallies) do if ours[tostring(r.team)] then kept[#kept+1] = r end end "
     "rallies = kept end "
+    # WHERE A JOINER MARCHES TO IS NOT WHERE THE RALLY IS GOING. The troops gather at
+    # the BASE of whoever raised the banner and set off from there together, so the
+    # end point of a join is the leader's own tile — `startPos` — and not the monster
+    # the rally is aimed at, which is what `targetPos` holds and what the prelude
+    # collects for everybody else.
+    #
+    # Sending the monster made the client fly the camera to the monster and the server
+    # refuse the march as «invalid end point» — the destination was real, it just was
+    # not a place a joining squad may be sent to. The player spotted it from the camera:
+    # joining by hand moves the view to the PLAYER doing the rallying, the bot's press
+    # moved it to the monster.
+    "for _, r in ipairs(rallies) do "
+    "if col then local e4 = col:GetEnumerator() while e4:MoveNext() do local m4 = cur(e4) "
+    "local t4 = nil pcall(function() t4 = m4.teamUuid end) "
+    "if t4 ~= nil and tostring(t4) == tostring(r.team) then "
+    "local isL = false pcall(function() isL = (tostring(m4.uuid) == tostring(t4 - 1)) end) "
+    "if isL then pcall(function() "
+    "local s = m4.startPos if s == nil then s = m4.homePos end "
+    "if s ~= nil then r.point = s end end) end end end end end "
 )
 
 
