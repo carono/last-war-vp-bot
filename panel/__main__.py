@@ -2106,8 +2106,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # …and now the tabs themselves, a step each (see `_stage`). The last step is
         # what depends on all of them having been built.
         session = self._session()
+        # THE ORDER THEY ARE FILLED IN IS NOT THE ORDER THEY SIT IN. The pages went into
+        # the notebook above in the profile's order and stay there; «Настройки» collects
+        # a page from every tab that has one, so it is built last whatever its place on
+        # the strip (`tabsreg.build_order`, #1237).
         steps = [functools.partial(self._build_one_tab, spec, frames[spec.id])
-                 for spec in specs]
+                 for spec in tabsreg.build_order(specs)]
         steps.append(functools.partial(self._finish_tabs, nb, frames, done))
         self._stage(session, steps, staged)
 
@@ -2115,8 +2119,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """One plugin tab: built, registered, and named on the strip while it is.
 
         BEFORE the Settings page is drawn, because a tab contributes its own page to it
-        (§6) and the aggregator can only draw the tabs that exist by then — which is
-        why «settings» sits at order 40, after the tabs whose pages it collects.
+        (§6) and the aggregator can only draw the tabs that exist by then. That is what
+        `tabsreg.build_order` above is for — «settings» sits at order 40 and would
+        otherwise be filled third, with «Ралли» and its «Авторалли» page still nine
+        tabs away (#1237).
         """
         with self._rt.activity.step("activity.tab.build",
                                     tab=self._t(spec.title_key)):

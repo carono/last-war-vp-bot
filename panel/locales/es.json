@@ -342,6 +342,7 @@
   "rally.alert": "Avisarme",
   "rally.alert.fired": "★ REUNIÓN (estandarte {team}) — se puede unir",
   "rally.autojoin": "Unirse solo",
+  "rally.autojoin_needs_monitor": "la unión automática escucha por el monitor de reuniones — lo enciendo",
   "rally.frame": "Reunión",
   "rally.hint": "push.alliance.march.* → registro + {path}",
   "rally.join_now": "Unirse",

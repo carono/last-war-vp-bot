@@ -342,6 +342,7 @@
   "rally.alert": "Me avisar",
   "rally.alert.fired": "★ MOBILIZAÇÃO (estandarte {team}) — dá para entrar",
   "rally.autojoin": "Entrar sozinho",
+  "rally.autojoin_needs_monitor": "a entrada automática escuta pelo monitor de mobilizações — vou ligá-lo",
   "rally.frame": "Mobilização",
   "rally.hint": "push.alliance.march.* → registro + {path}",
   "rally.join_now": "Entrar",

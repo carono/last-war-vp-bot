@@ -437,6 +437,66 @@ def test_join_now_refuses_with_no_squad_ticked():
         root.destroy()
 
 
+def test_ticking_the_auto_join_brings_the_watcher_up_with_it():
+    """«Присоединяться сам» over a watcher that is off is a switch that does nothing.
+
+    The tab's auto-join rides the monitor child's lines — that is its only ear — and the
+    two boxes were independent, so a profile could sit with the join ticked and the
+    watcher off, joining nothing and saying so nowhere (#1237). Unticking the join must
+    NOT take the watcher down again: being told about a rally without joining it is an
+    ordinary thing to want.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        started = []
+        tab._start_monitor = lambda: started.append(True)
+        tab._monitor_var.set(False)
+        tab._autojoin_var.set(True)
+        tab._toggle_autojoin()
+        assert tab._monitor_var.get() is True, "the watcher was left off"
+        assert started == [True], "…and it was never actually started"
+
+        tab._autojoin_var.set(False)
+        tab._toggle_autojoin()
+        assert tab._monitor_var.get() is True, "unticking the join stopped the watcher"
+        assert started == [True], "…and started it again"
+    finally:
+        root.destroy()
+
+
+def test_the_join_recipe_tells_an_empty_list_from_squads_that_are_all_out():
+    """Two empty answers, two sentences — the reading alone cannot tell them apart.
+
+    Nobody ticked a squad and every ticked squad is marching both leave the sieve empty,
+    and for weeks the auto-join blamed the second for the first (#1237). The count that
+    arrived is kept in the game VM so ONE reading answers both: -1 for «none ticked».
+    """
+    from lastwar_bot import script_engine as se
+
+    src = (ROOT / "src" / "lastwar_bot" / "actions" / "join_rally.md").read_text(
+        encoding="utf-8")
+    body, _ = se.prepare_source(src, {"squads": []})
+    stmts = se.parse_text(body)
+    fails = {stmt.condition: stmt.then_block[0].reason
+             for stmt in stmts if isinstance(stmt, se.IfStmt)
+             and stmt.then_block and isinstance(stmt.then_block[0], se.FailStmt)}
+    assert "free_squads == -1" in fails, fails
+    assert "free_squads == 0" in fails, fails
+    assert fails["free_squads == -1"] != fails["free_squads == 0"], fails
+    # …and it costs no extra round trip: one READ_LUA answers both.
+    assert len([s for s in stmts if isinstance(s, se.ReadLuaStmt)]) == 1, [
+        s.text for s in stmts]
+
+
 # ---------------------------------------------------------------------------
 # the words
 # ---------------------------------------------------------------------------
@@ -458,6 +518,7 @@ def test_every_key_the_tab_uses_exists_in_both_locales():
             "rally_tab.capped", "rally_tab.busy", "rally_tab.progress",
             "rally_tab.finished", "rally_tab.stopped",
             "rally.frame", "rally.monitor", "rally.alert", "rally.autojoin",
+            "rally.autojoin_needs_monitor",
             "rally.join_now", "rally.hint", "rally.no_squads", "rally.joining",
             "rally.alert.fired", "log.rally.started", "log.rally.stopped",
             "log.rally.ended", "busy", "settings.tab.autorally"]

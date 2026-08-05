@@ -342,6 +342,7 @@
   "rally.alert": "Báo cho tôi",
   "rally.alert.fired": "★ TẬP KẾT (cờ {team}) — có thể tham gia",
   "rally.autojoin": "Tự tham gia",
+  "rally.autojoin_needs_monitor": "tự tham gia nghe qua trình theo dõi tập kết — đang bật nó",
   "rally.frame": "Tập kết",
   "rally.hint": "push.alliance.march.* → nhật ký + {path}",
   "rally.join_now": "Tham gia",

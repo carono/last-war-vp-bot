@@ -342,6 +342,7 @@
   "rally.alert": "Beni uyar",
   "rally.alert.fired": "★ RALLİ (sancak {team}) — katılınabilir",
   "rally.autojoin": "Kendiliğinden katıl",
+  "rally.autojoin_needs_monitor": "kendiliğinden katılma ralli gözcüsü üzerinden dinler — onu açıyorum",
   "rally.frame": "Ralli",
   "rally.hint": "push.alliance.march.* → günlük + {path}",
   "rally.join_now": "Katıl",

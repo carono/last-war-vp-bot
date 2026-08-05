@@ -342,6 +342,7 @@
   "rally.alert": "Me prévenir",
   "rally.alert.fired": "★ RALLIEMENT (étendard {team}) — on peut rejoindre",
   "rally.autojoin": "Rejoindre tout seul",
+  "rally.autojoin_needs_monitor": "l'adhésion automatique écoute par le moniteur de ralliements — je l'active",
   "rally.frame": "Ralliement",
   "rally.hint": "push.alliance.march.* → journal + {path}",
   "rally.join_now": "Rejoindre",

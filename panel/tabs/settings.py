@@ -58,6 +58,9 @@ class SettingsTab(PanelTab):
     PREFERRED_SIZE = "820x640"
     LOCALE_NS = ("settings", "opt", "debug", "session", "autostart", "graphics")
     NEEDS = frozenset()
+    # …and this is the tab that collects the others' pages, so it is filled after every
+    # one of them however early it sits in the tab bar (`panel.tabs.build_order`, #1237).
+    AGGREGATES_TABS = True
 
     # -- «Вкладки»: which of them this profile shows --------------------------
     def _build_tabs_settings(self, parent: ttk.Frame) -> None:

@@ -45,9 +45,22 @@ CALL rally_monitor
 # silent no-op that looks exactly like a join. Sieved HERE rather than in the panel
 # because it is a rule of the ability, not of the button (CLAUDE.md); a squad whose
 # state cannot be read is kept, because a gate that cannot see must not refuse.
-LUA DataCenter.__lw_rally_squads = (function() local want = { {squads} } local afd = DataCenter.ArmyFormationDataManager local home = {} for _, idx in ipairs(want) do local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == tonumber(idx) then f = v end end if f == nil then home[#home+1] = idx else local st = tonumber(f.state) local free = false pcall(function() free = f:IsFree() end) if st == nil or (st == 0 and free) then home[#home+1] = idx end end end return home end)() DataCenter.__lw_rally_joined = {}
+#
+# `__lw_rally_want` is the count that arrived, kept because AN EMPTY LIST IS A
+# DIFFERENT FAILURE from a list whose squads are all out — and one the reading below
+# cannot tell apart, since both leave `home` empty. Nobody ticked one is a settings
+# page nobody filled in; until #1237 that page was not even DRAWN, so every auto-join
+# refused with «none is in the base» and sent whoever read the log to look at their
+# marches instead of at the empty list they were sent out with.
+LUA DataCenter.__lw_rally_squads = (function() local want = { {squads} } DataCenter.__lw_rally_want = #want local afd = DataCenter.ArmyFormationDataManager local home = {} for _, idx in ipairs(want) do local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == tonumber(idx) then f = v end end if f == nil then home[#home+1] = idx else local st = tonumber(f.state) local free = false pcall(function() free = f:IsFree() end) if st == nil or (st == 0 and free) then home[#home+1] = idx end end end return home end)() DataCenter.__lw_rally_joined = {}
 
-READ_LUA #(DataCenter.__lw_rally_squads or {}) INTO free_squads
+# Both answers in ONE round trip: -1 for «none was ticked», otherwise how many of the
+# ticked ones are standing in the base. A second READ_LUA to count the argument the
+# panel already knows would be a VM call spent on arithmetic (#1230).
+READ_LUA (function() if (DataCenter.__lw_rally_want or 0) == 0 then return -1 end return #(DataCenter.__lw_rally_squads or {}) end)() INTO free_squads
+
+IF free_squads == -1
+    FAIL "no squad is ticked for joining — the auto-rally settings page holds the list a join may spend"
 
 IF free_squads == 0
     FAIL "not one of the chosen squads is in the base — there is nothing to join with"

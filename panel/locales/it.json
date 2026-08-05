@@ -342,6 +342,7 @@
   "rally.alert": "Avvisami",
   "rally.alert.fired": "★ RALLY (stendardo {team}) — ci si può unire",
   "rally.autojoin": "Unirsi da sé",
+  "rally.autojoin_needs_monitor": "l'adesione automatica ascolta tramite il monitor dei rally — lo accendo",
   "rally.frame": "Rally",
   "rally.hint": "push.alliance.march.* → registro + {path}",
   "rally.join_now": "Unisciti",

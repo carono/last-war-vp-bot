@@ -266,7 +266,8 @@ class RallyTab(PanelTab):
         # asks for it — the join itself.
         self.tr(ttk.Checkbutton(top, variable=self._alert_var),
                 "rally.alert").pack(side="left", padx=(12, 0))
-        self.tr(ttk.Checkbutton(top, variable=self._autojoin_var),
+        self.tr(ttk.Checkbutton(top, variable=self._autojoin_var,
+                                command=self._toggle_autojoin),
                 "rally.autojoin").pack(side="left", padx=(12, 0))
         self.tr(ttk.Button(top, command=self.join_now),
                 "rally.join_now").pack(side="right")
@@ -629,6 +630,25 @@ class RallyTab(PanelTab):
             self._start_monitor()
         else:
             self._stop_monitor()
+
+    def _toggle_autojoin(self) -> None:
+        """Joining by itself needs an ear, and the watcher above is the only one it has.
+
+        The two boxes were independent, so «Присоединяться сам» ticked over a watcher
+        that was off was a switch that did nothing whatever and said so nowhere — and a
+        profile in exactly that state is half of what #1237 was reported as. Ticking the
+        join brings the watcher up with it and says which box moved. Unticking the join
+        leaves the watcher alone: being TOLD about a rally without joining it is a
+        perfectly ordinary thing to want.
+
+        The trigger «Автоприсоединение к стягиваниям альянса» in «Таймеры» is the other
+        way to join by itself, and it needs none of this — it listens on the wire
+        through the schedule. This box is the tab's own path.
+        """
+        if self._autojoin_var.get() and not self._monitor_var.get():
+            self._monitor_var.set(True)
+            self._start_monitor()
+            self.say("rally", "rally.autojoin_needs_monitor")
 
     def _start_monitor(self) -> None:
         if self._proc is not None:

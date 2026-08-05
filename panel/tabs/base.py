@@ -82,6 +82,12 @@ class PanelTab:
     # -- the settings page it contributes, if any ---------------------------
     SETTINGS_PAGE_KEY: str = ""
 
+    #: Does this tab draw parts CONTRIBUTED BY OTHER TABS? Only «Настройки» does — it
+    #: collects a page from every tab that declares a `SETTINGS_PAGE_KEY` above. Such a
+    #: tab is built LAST (`panel.tabs.build_order`), whatever its `ORDER` puts it at in
+    #: the tab bar, because it can only draw the tabs that already exist (#1237).
+    AGGREGATES_TABS: bool = False
+
     # -- and what it looks like on a phone ----------------------------------
     #: Does this tab offer a screen to the web front-end (`panel/web/`)? A tab that
     #: says yes implements :meth:`web_view`, and the phone lists it under «Ещё».

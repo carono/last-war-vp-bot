@@ -26,12 +26,20 @@ class TabSpec:
     """One registry entry. Holds the import path; loads the class on demand."""
 
     def __init__(self, tab_id: str, module: str, cls_name: str, order: int = 100,
-                 default_enabled: bool = True, title_key: str | None = None) -> None:
+                 default_enabled: bool = True, title_key: str | None = None,
+                 aggregates: bool = False) -> None:
         self.id = tab_id
         self.module = module
         self.cls_name = cls_name
         self.order = order
         self.default_enabled = default_enabled
+        # Whether this tab draws parts CONTRIBUTED BY OTHER TABS — «Настройки» and its
+        # per-tab pages (§6). Declared here as well as on the class for the same reason
+        # `title_key` is: :func:`build_order` has to answer before anything is imported,
+        # and importing fifteen modules in one event-loop turn to read one boolean is
+        # exactly the start-up stall the staged build exists to avoid (#1226). The
+        # contract test pins the two to each other.
+        self.aggregates = aggregates
         # The notebook needs a label BEFORE the tab is built — and importing a module
         # just to read one string would undo the laziness the registry exists for. By
         # convention that label is `tab.<id>`; the contract test pins every class to it.
@@ -83,7 +91,8 @@ class TabRegistry:
 TABS: tuple = (
     TabSpec("scenarios", "panel.tabs.scenarios", "ScenariosTab", order=20),
     TabSpec("timers",    "panel.tabs.timers",    "TimersTab",    order=30),
-    TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40),
+    TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40,
+            aggregates=True),
     TabSpec("web",       "panel.tabs.web",       "WebTab",       order=45),
     TabSpec("chat",      "panel.tabs.chat",      "ChatTab",      order=50),
     TabSpec("alliance",  "panel.tabs.alliance",  "AllianceTab",  order=200),
@@ -147,3 +156,24 @@ def resolve(enabled: "list | None" = None, order: "list | None" = None,
 
     key = ranker(order)
     return sorted((BY_ID[t] for t in chosen), key=lambda s: key(s.id, s.order))
+
+
+def build_order(specs) -> list:
+    """The order the tabs are FILLED in — which is not the order they sit in.
+
+    The notebook's pages are added in the profile's order and stay there; this is only
+    the sequence they are built in, and one tab cares about it: «Настройки» is an
+    AGGREGATOR (§6). It draws a page per tab that declares a `SETTINGS_PAGE_KEY`, and it
+    can only draw the tabs that exist by the time it is built — so it has to be built
+    after every one of them.
+
+    It was not. «Настройки» sits at order 40 and «Ралли» at 300, so the settings page
+    was drawn while `rt.tabs.live` still held two tabs, and «Авторалли» — the page whose
+    squad list IS the auto-join's `squads` argument — was silently never drawn at all
+    (#1237). Nothing failed: the aggregator collected the pages that were there, the
+    auto-join read an empty list, and the operator had no control to fix it with.
+
+    Ordering the BUILD rather than moving the tab is what keeps both true: «Настройки»
+    stays third in the tab bar, where a person expects it, and is filled last.
+    """
+    return sorted(specs, key=lambda spec: 1 if spec.aggregates else 0)

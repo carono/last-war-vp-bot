@@ -342,6 +342,7 @@
   "rally.alert": "Оповещать",
   "rally.alert.fired": "★ СТЯГИВАНИЕ (стяг {team}) — можно присоединиться",
   "rally.autojoin": "Присоединяться сам",
+  "rally.autojoin_needs_monitor": "автоприсоединение слушает через монитор стягиваний — включаю его",
   "rally.frame": "Стягивание",
   "rally.hint": "push.alliance.march.* → лог + {path}",
   "rally.join_now": "Присоединиться",

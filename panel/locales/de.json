@@ -342,6 +342,7 @@
   "rally.alert": "Mich benachrichtigen",
   "rally.alert.fired": "★ VERSAMMLUNG (Banner {team}) — beitretbar",
   "rally.autojoin": "Von selbst beitreten",
+  "rally.autojoin_needs_monitor": "der Selbstbeitritt hört über die Versammlungs-Überwachung — sie wird eingeschaltet",
   "rally.frame": "Versammlung",
   "rally.hint": "push.alliance.march.* → Protokoll + {path}",
   "rally.join_now": "Beitreten",

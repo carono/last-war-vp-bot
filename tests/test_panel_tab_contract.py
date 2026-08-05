@@ -44,6 +44,41 @@ def test_every_tab_imports():
         # have to agree, and this is what keeps them agreeing.
         assert cls.TITLE_KEY == spec.title_key, (
             f"{spec.id}: registry says {spec.title_key!r}, class says {cls.TITLE_KEY!r}")
+        # Same bargain for «does this tab draw the others' pages»: `build_order` answers
+        # it before anything is imported, so the spec carries it and the class declares
+        # it, and neither may drift from the other (#1237).
+        assert cls.AGGREGATES_TABS == spec.aggregates, (
+            f"{spec.id}: registry says aggregates={spec.aggregates}, class says "
+            f"{cls.AGGREGATES_TABS}")
+
+
+def test_the_aggregator_is_built_after_every_page_it_collects():
+    """«Настройки» draws a page per contributing tab, so it must be built last.
+
+    This is the one ordering the panel cannot get wrong quietly. `SettingsTab.build()`
+    walks `rt.tabs.live` and asks each tab for its page; a contributor built AFTER it is
+    simply not in that list, and its page is not drawn — no error, no log line, just a
+    settings page with a section missing. That is how «Авторалли» disappeared: settings
+    sits at order 40 and rally at 300, so the aggregator ran ninth-from-last and the
+    squad list the auto-join spends was never on screen to be filled in (#1237).
+
+    Asserted over the REAL registry, in the real resolve→build_order sequence, because
+    the existing coverage of the aggregator hands it a made-up dict of tabs and so
+    agrees with itself whatever the shell does.
+    """
+    specs = tabsreg.resolve()
+    order = [spec.id for spec in tabsreg.build_order(specs)]
+    contributors = [spec.id for spec in specs if spec.load().SETTINGS_PAGE_KEY]
+    aggregators = [spec.id for spec in specs if spec.aggregates]
+    assert aggregators, "no tab collects the contributed settings pages any more"
+    assert contributors, "no tab contributes a settings page any more"
+    for agg in aggregators:
+        for contributor in contributors:
+            assert order.index(agg) > order.index(contributor), (
+                f"{agg!r} is built before {contributor!r}, so {contributor!r}'s "
+                f"settings page is never drawn: {order}")
+    # …and the tab BAR is untouched by all this: the aggregator keeps its place.
+    assert [s.id for s in specs] == [s.id for s in tabsreg.resolve()], "resolve moved"
 
 
 def test_the_registry_ids_are_unique_and_ordered():

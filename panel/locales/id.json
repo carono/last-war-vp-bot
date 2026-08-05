@@ -342,6 +342,7 @@
   "rally.alert": "Beri tahu aku",
   "rally.alert.fired": "★ RELI (panji {team}) — bisa diikuti",
   "rally.autojoin": "Ikut sendiri",
+  "rally.autojoin_needs_monitor": "ikut sendiri mendengar lewat pemantau reli — aku menyalakannya",
   "rally.frame": "Reli",
   "rally.hint": "push.alliance.march.* → catatan + {path}",
   "rally.join_now": "Ikut",

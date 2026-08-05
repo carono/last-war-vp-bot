@@ -74,6 +74,7 @@ All of these are class attributes with defaults, so declare only what is true.
 | `SETTINGS` | `{key: default}` the tab adds to the Settings knobs. | If it has knobs of its own. |
 | `LEGACY_KEYS` | `{block key: old flat key}` — how the profile spelled this setting before the tab existed. | Only when moving existing settings; see below. |
 | `SETTINGS_PAGE_KEY` | Locale key of the page this tab contributes to «Настройки». | If it has a settings page. Then implement `settings_page(parent)`. |
+| `AGGREGATES_TABS` | Does this tab draw parts contributed by OTHER tabs? Such a tab is built last, whatever its `ORDER` (below). | Only «Настройки» sets it. Set the matching `aggregates=True` on its registry entry too. |
 | `TIMERS` / `TRIGGERS` | Errands the tab brings with it (§3.2). | If it has any; see below. |
 | `EAGER` | Load at boot instead of on first show. | Only if `ensure_loaded` brings up something that must be RUNNING. |
 | `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the three that must not (below). |
@@ -217,6 +218,25 @@ your block's key to the old flat one, and the binder reads either. Two rules:
   map. A lost setting and a migration bug look identical; keep them apart.
 * The container **dual-writes** for one release — the new block and the old flat keys —
   so a profile touched by the new panel still opens in the old one.
+
+### The page a tab contributes, and why the order matters
+
+`SETTINGS_PAGE_KEY` + `settings_page(parent)` puts a page of your own inside
+«Настройки». It travels with the tab: switch the tab off in the profile and its page is
+gone too, which is the whole point of the aggregator (§6 of the refactor notes).
+
+**The order tabs are built in is not the order they sit in.** «Настройки» walks
+`rt.tabs.live` and asks each tab for its page, so it can only draw the tabs that already
+exist — and it sits at `ORDER` 40 while most contributors are in the hundreds. That is
+what `AGGREGATES_TABS` is for: a tab that declares it is built LAST
+(`panel.tabs.build_order`), keeping its place on the strip.
+
+It is worth knowing because of how it fails. A contributor built after the aggregator
+raises nothing and logs nothing — its page is simply not there. «Авторалли» vanished that
+way and stayed vanished, and with it the squad list the rally auto-join spends, so the
+auto-join read an empty list and refused every time (#1237). If you add a second
+aggregator one day, set the flag in both places and let
+`tests/test_panel_tab_contract.py` pin the order.
 
 ---
 

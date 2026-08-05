@@ -342,6 +342,7 @@
   "rally.alert": "Alert me",
   "rally.alert.fired": "★ RALLY (banner {team}) — joinable",
   "rally.autojoin": "Join by itself",
+  "rally.autojoin_needs_monitor": "auto-join listens through the rally monitor — switching it on",
   "rally.frame": "Rally",
   "rally.hint": "push.alliance.march.* → log + {path}",
   "rally.join_now": "Join",

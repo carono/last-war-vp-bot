@@ -342,6 +342,7 @@
   "rally.alert": "Powiadom mnie",
   "rally.alert.fired": "★ RAJD (sztandar {team}) — można dołączyć",
   "rally.autojoin": "Dołączać samemu",
+  "rally.autojoin_needs_monitor": "automatyczne dołączanie słucha przez monitor rajdów — włączam go",
   "rally.frame": "Rajd",
   "rally.hint": "push.alliance.march.* → dziennik + {path}",
   "rally.join_now": "Dołącz",
