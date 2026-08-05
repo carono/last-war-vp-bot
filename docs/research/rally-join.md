@@ -152,3 +152,56 @@ unambiguous.
 Until then `actions/join_rally.md` **counts the squads standing in a rally before and
 after the press** and fails saying so when the number does not move, so the ability is
 honest about the state it is in.
+
+### The real signatures, read off the live VM (#1237)
+
+The client's Lua is not stripped, so `debug.getinfo` + `debug.getlocal` give the true
+parameter NAMES — which matters here because everything below used to be positional
+guesswork copied from one working call:
+
+```
+SendCreateMarchMessage(formationUuid, targetType, targetPoint, targetUuid,
+                       timeIndex, autoBackHome, needSoldier, targetServerId,
+                       destroyTimeIndex)
+OnClickStartMarch(targetType, pointIndex, uuid, index, backHome, rallyType,
+                  targetServerId, targetWorldId, monsterSpecialType, ignoreNotice)
+OnJoinRally(selfMarchUuid, rallyType, targetUuid, targetPointId, curStamina)
+TryStartMarch(selfMarchUuid, theMarchTargetType, curStamina, isFormation, targetUuid,
+              pointId, backHome, needSoldier, destroyTimeIndex, targetServerId)
+StartMarch(targetType, targetPoint, targetUuid, timeIndex, mUuid, fUuid, autoBackHome,
+           dataObj, pos, targetServer, desTimeIndex, extraParam)
+```
+
+**`MarchTargetType.JOIN_RALLY == 6`** — read out of the live enum, so the magic 6 the
+tool has always passed is right, and «wrong target type» is not the explanation. (5 is
+`ATTACK_ARMY`, 7 is `RALLY_FOR_BOSS`; the enum has 126 entries.)
+
+**The march object carries exactly one point field.** Probed by name on a live march:
+`targetPos`, `serverId`, `targetServer`, `worldId`, `uuid`, `ownerUid`, `status`, `type`
+answer; `targetPoint`, `targetPointId`, `pointId`, `pointIndex`, `endPoint`, `endPos`,
+`targetX`, `targetY` do not exist. So `targetPos` IS the end point and reading it is not
+the mistake either.
+
+### THE LEAD: the game has a join-a-rally entry and the bot has never used it
+
+`MarchUtil.OnJoinRally(selfMarchUuid, rallyType, targetUuid, targetPointId, curStamina)`
+— and its constants show what it does: `GetCostStaminaByTargetType` with
+`MarchTargetType.JOIN_RALLY`, the `LWResourceLackUtil` energy check, then **`StartMarch`**.
+
+The bot calls `SendCreateMarchMessage` instead, which is the low-level sender at the
+BOTTOM of that path. `StartMarch` takes `mUuid`, `fUuid`, `dataObj`, `pos` and
+`extraParam`; `SendCreateMarchToServer` takes `formationData` and `startPos`. None of
+those reach the server when the bottom of the stack is called directly, and the player's
+report of the error — «invalid end point» — is about exactly the kind of thing those
+carry.
+
+So the next thing to try is the game's own entry, on a live rally:
+
+```lua
+MarchUtil.OnJoinRally(formationUuid, rallyType, teamUuid, targetPos, curStamina)
+```
+
+`selfMarchUuid` is almost certainly the formation uuid (`TryStartMarch` takes the same
+first argument and passes it to `CheckFormation` + `SendCreateMarchMessage`), and
+`rallyType` is the btnType the create side already uses (`RALLY_FOR_BOSS = 7`). Both
+need confirming against a rally that is actually out — none was during this session.
