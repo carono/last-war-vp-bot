@@ -77,7 +77,12 @@ class EventMonitor(LiveDecoder):
         self.cooldown = cooldown
         self.matches = 0            # matching commands seen
         self.fired = 0              # markers actually printed (after the cooldown)
-        self._last_fire = 0.0
+        # PER COMMAND, not one clock for the whole ear. With a single `--match` the two
+        # are the same thing; with several — which is how the panel's hub runs this now,
+        # one capture carrying every subscribed pattern — a shared clock would let a
+        # chatty command swallow the marker of a quiet one that arrived inside its two
+        # seconds, and the trigger waiting on that quiet one would simply never fire.
+        self._last_fire: dict = {}
 
     def emit(self, direction, env):  # LiveDecoder hook — scapy callback thread
         command = proto.envelope_command(env) or ""
@@ -87,9 +92,9 @@ class EventMonitor(LiveDecoder):
             return
         self.matches += 1
         now = time.time()
-        if now - self._last_fire < self.cooldown:
+        if now - self._last_fire.get(command, 0.0) < self.cooldown:
             return
-        self._last_fire = now
+        self._last_fire[command] = now
         self.fired += 1
         # Guarded, like the help monitor's ear: a print that raises in the scapy
         # callback (an un-encodable name, a closed pipe) would take the capture

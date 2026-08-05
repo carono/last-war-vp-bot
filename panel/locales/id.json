@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} tiba — menjalankan skripnya",
   "triggers.log.backoff": "{name}: terlempar lagi — menunggu {minutes} mnt sebelum menyalakan ulang",
   "triggers.log.off": "{name}: berhenti mengawasi",
+  "triggers.log.ear": "satu telinga untuk {count} pendengar: {patterns}",
   "triggers.log.on": "{name}: mengawasi {event}",
   "triggers.log.poll_error": "{name}: pemeriksaannya tidak terbaca: {error}",
   "triggers.log.reloaded": "pemicu dibaca ulang — {n}",

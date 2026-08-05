@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} ist eingetroffen — führe das Szenario aus",
   "triggers.log.backoff": "{name}: erneut hinausgeworfen — warte {minutes} min vor dem Neustart",
   "triggers.log.off": "{name}: beobachtet nicht mehr",
+  "triggers.log.ear": "ein Ohr für {count} Zuhörer: {patterns}",
   "triggers.log.on": "{name}: beobachtet {event}",
   "triggers.log.poll_error": "{name}: die Prüfung ließ sich nicht lesen: {error}",
   "triggers.log.reloaded": "Auslöser neu gelesen — {n}",

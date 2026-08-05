@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: nadeszło {event} — wykonuję scenariusz",
   "triggers.log.backoff": "{name}: znowu wyrzucony — czekam {minutes} min przed ponownym startem",
   "triggers.log.off": "{name}: przestał pilnować",
+  "triggers.log.ear": "jedno ucho na {count} słuchaczy: {patterns}",
   "triggers.log.on": "{name}: pilnuje {event}",
   "triggers.log.poll_error": "{name}: nie udało się odczytać sprawdzenia: {error}",
   "triggers.log.reloaded": "wyzwalacze odczytane na nowo — {n}",

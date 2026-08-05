@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} chegou — rodando o roteiro",
   "triggers.log.backoff": "{name}: expulso de novo — espero {minutes} min antes de relançar",
   "triggers.log.off": "{name}: parou de vigiar",
+  "triggers.log.ear": "um só ouvido para {count} escutas: {patterns}",
   "triggers.log.on": "{name}: vigiando {event}",
   "triggers.log.poll_error": "{name}: não deu para ler a verificação: {error}",
   "triggers.log.reloaded": "gatilhos relidos — {n}",

@@ -249,6 +249,39 @@ game.
 
 ---
 
+## Listening on the wire — subscribe, never spawn
+
+A tab (or anything else) that wants to hear a game push asks the runtime's one ear:
+
+```python
+self._off = self.rt.wire.subscribe("push.alliance.march", self._on_march)
+...
+self._off()          # in shutdown / on_hide — the ear closes with the last subscriber
+```
+
+**Never spawn `wire_event_monitor.py` yourself.** One capture per profile carries the
+union of every subscribed pattern and dispatches by substring in Python
+(`panel/runtime/wire.py`). A process per listener is what this replaced: each opened its
+own npcap handle on the same interface and decoded every packet the game sent to read
+one command name out of it, and with a runtime per open profile the bill was
+*listeners × profiles* — every term the same work done again.
+
+Three things to know before you subscribe:
+
+* **the callback runs on the child's reader thread**, not on Tk. Hand work to a queue;
+  anything that draws goes through `self.post`;
+* **it is called with `None` when the ear closes.** That is «the capture died», not a
+  command — treat it the way the trigger watcher does, by forgetting the subscription
+  and re-subscribing on the next sync;
+* **an empty pattern is refused**, because `"" in command` matches everything and a
+  typo would quietly subscribe you to the whole of the game's traffic.
+
+A capture that decodes payloads rather than matching command names — the rally monitor's
+army archive, the leaderboard collector — is still a child of its own; the hub carries
+command NAMES, and folding those in would mean moving their decoding into it.
+
+---
+
 ## Errands a tab brings with it
 
 If the thing your tab does should also happen on a clock or when a push lands, declare

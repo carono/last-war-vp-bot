@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} landed — running the scenario",
   "triggers.log.backoff": "{name}: kicked again — waiting {minutes} min before relaunching",
   "triggers.log.off": "{name}: stopped watching",
+  "triggers.log.ear": "one ear for {count} listener(s): {patterns}",
   "triggers.log.on": "{name}: watching for {event}",
   "triggers.log.poll_error": "{name}: the check could not be read: {error}",
   "triggers.log.reloaded": "triggers re-read — {n}",

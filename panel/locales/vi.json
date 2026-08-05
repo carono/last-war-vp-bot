@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} đã tới — đang chạy kịch bản",
   "triggers.log.backoff": "{name}: lại bị văng — chờ {minutes} phút trước khi khởi động lại",
   "triggers.log.off": "{name}: đã thôi canh",
+  "triggers.log.ear": "một tai cho {count} người nghe: {patterns}",
   "triggers.log.on": "{name}: đang canh {event}",
   "triggers.log.poll_error": "{name}: không đọc được phép kiểm: {error}",
   "triggers.log.reloaded": "đã đọc lại các bộ kích hoạt — {n}",

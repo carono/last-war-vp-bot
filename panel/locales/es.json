@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: llegó {event} — ejecuto el guion",
   "triggers.log.backoff": "{name}: expulsado otra vez — espero {minutes} min antes de relanzar",
   "triggers.log.off": "{name}: ha dejado de vigilar",
+  "triggers.log.ear": "un solo oído para {count} escuchas: {patterns}",
   "triggers.log.on": "{name}: vigilando {event}",
   "triggers.log.poll_error": "{name}: no se pudo leer la comprobación: {error}",
   "triggers.log.reloaded": "disparadores releídos — {n}",

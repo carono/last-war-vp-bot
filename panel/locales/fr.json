@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name} : {event} est arrivé — j'exécute le scénario",
   "triggers.log.backoff": "{name} : encore éjecté — j'attends {minutes} min avant de relancer",
   "triggers.log.off": "{name} : ne surveille plus",
+  "triggers.log.ear": "une seule oreille pour {count} écouteurs : {patterns}",
   "triggers.log.on": "{name} : surveille {event}",
   "triggers.log.poll_error": "{name} : la vérification n'a pas pu être lue : {error}",
   "triggers.log.reloaded": "déclencheurs relus — {n}",

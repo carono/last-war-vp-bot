@@ -132,6 +132,7 @@ class PanelRuntime:
                                     activity=self.activity)
         self._schedule = None           # built on first ask (see the property below)
         self._squads = None             # …and so is the squad reader
+        self._wire = None               # …and the one wire ear (panel/runtime/wire.py)
         self._heartbeat = False         # only the shell beats (see start_heartbeat)
         self._lock = None               # this profile's instance lock, held open
         self._lock_on = None            # …and which profile it is holding
@@ -197,6 +198,20 @@ class PanelRuntime:
             from .squads import SquadReader
             self._squads = SquadReader(self)
         return self._squads
+
+    @property
+    def wire(self):
+        """This profile's ONE wire ear, shared by everything that wants a push.
+
+        Built on first ask and it spawns nothing until somebody subscribes, so a
+        profile with every trigger switched off pays nothing. Each subscription used to
+        be a capture process of its own, decoding the same traffic again for one
+        command name — the bill was listeners × profiles (panel/runtime/wire.py).
+        """
+        if self._wire is None:
+            from .wire import WireHub
+            self._wire = WireHub(self)
+        return self._wire
 
     # -- the shorthands every tab uses constantly ---------------------------
     def dbg(self, component: str = "panel"):
@@ -382,6 +397,8 @@ class PanelRuntime:
         self.stop_heartbeat()
         if self._squads is not None:
             self._squads.stop()
+        if self._wire is not None:
+            self._wire.stop()
         self.tick.disarm_all()
         # EVERY child, not just the ones a tab remembered to stop. A tab's own
         # `shutdown` still runs first and still knows what its checkbox means; this is

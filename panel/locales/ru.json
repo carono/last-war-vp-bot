@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: пришло {event} — запускаю сценарий",
   "triggers.log.backoff": "{name}: снова кик — жду {minutes} мин перед перезапуском",
   "triggers.log.off": "{name}: перестал слушать",
+  "triggers.log.ear": "одно ухо на {count} слушателей: {patterns}",
   "triggers.log.on": "{name}: слушаю {event}",
   "triggers.log.poll_error": "{name}: не удалось прочитать проверку: {error}",
   "triggers.log.reloaded": "триггеры перечитаны — {n}",

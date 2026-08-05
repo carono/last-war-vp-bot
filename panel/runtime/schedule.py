@@ -39,6 +39,25 @@ from . import game_process
 ASK_TIMEOUT_SEC = 3.0
 
 
+class _Subscription:
+    """A wire subscription wearing the shape the trigger watcher expects.
+
+    The watcher stores whatever `spawn` hands back and only ever calls `.stop()` on it
+    — so a subscription and a child process are the same thing to it, which is what let
+    the ears be consolidated without touching a line of the watcher.
+    """
+
+    __slots__ = ("_off",)
+
+    def __init__(self, off) -> None:
+        self._off = off
+
+    def stop(self) -> None:
+        off, self._off = self._off, None
+        if off is not None:
+            off()
+
+
 class Schedule:
     """The clock, the wire watcher, the queue they share, and who handles what."""
 
@@ -286,23 +305,24 @@ class Schedule:
         """
         if trigger.name == "leaderboard_collect":
             return self._spawn_leaderboard(trigger)
-        marker = triggersmod.FIRE_MARKER
 
-        def on_line(line: str):
-            if line.startswith(marker):
-                on_fire()               # thread-safe: submit hands to the queue
-                return False            # the marker is machinery, not for the log
-            return None                 # the human line logs as usual
+        # A SUBSCRIPTION, not a process. Every enabled trigger used to be its own
+        # capture, decoding the whole of the game's traffic to read one command name
+        # out of it — with a runtime per open profile, the bill was listeners ×
+        # profiles and every term was the same work done again. `rt.wire` is one ear
+        # per profile carrying the union of the patterns, and this is a handle over it
+        # (panel/runtime/wire.py). The watcher above cannot tell the difference: it
+        # holds something with `.stop()` either way.
+        def on_event(command):
+            if command is None:
+                # The ear closed under us. Same meaning as the child dying used to
+                # have, and the same answer: forget this listener, and the next sync
+                # brings it back.
+                self.on_listener_exit(trigger.name)
+                return
+            on_fire()                   # thread-safe: submit hands to the queue
 
-        # no --all-tcp: auto-detect the narrow game port, as every capture does.
-        mon = self.rt.children.spawn(
-            "trigger",
-            [self.rt.children.python(), "-u",
-             os.path.join(TOOLS, "wire_event_monitor.py"),
-             "--match", trigger.event_pattern],
-            on_line=on_line,
-            on_exit=lambda n=trigger.name: self.on_listener_exit(n))
-        return mon if mon.start() else None
+        return _Subscription(self.rt.wire.subscribe(trigger.event_pattern, on_event))
 
     def _spawn_leaderboard(self, trigger):
         mon = self.rt.children.spawn(

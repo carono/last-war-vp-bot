@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: è arrivato {event} — eseguo lo script",
   "triggers.log.backoff": "{name}: espulso di nuovo — aspetto {minutes} min prima di rilanciare",
   "triggers.log.off": "{name}: ha smesso di sorvegliare",
+  "triggers.log.ear": "un solo orecchio per {count} ascoltatori: {patterns}",
   "triggers.log.on": "{name}: sorveglia {event}",
   "triggers.log.poll_error": "{name}: non è stato possibile leggere il controllo: {error}",
   "triggers.log.reloaded": "inneschi riletti — {n}",

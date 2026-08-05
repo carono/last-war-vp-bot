@@ -577,6 +577,7 @@
   "triggers.log.fire": "{name}: {event} geldi — betiği çalıştırıyorum",
   "triggers.log.backoff": "{name}: yine atıldı — yeniden başlatmadan önce {minutes} dk bekliyorum",
   "triggers.log.off": "{name}: gözlemeyi bıraktı",
+  "triggers.log.ear": "{count} dinleyici için tek kulak: {patterns}",
   "triggers.log.on": "{name}: {event} gözleniyor",
   "triggers.log.poll_error": "{name}: denetim okunamadı: {error}",
   "triggers.log.reloaded": "tetikleyiciler yeniden okundu — {n}",
