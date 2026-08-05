@@ -61,6 +61,16 @@ class WireHub:
     def __init__(self, rt) -> None:
         self._rt = rt
         self._lock = threading.Lock()
+        # A SECOND lock, and it is not paranoia. `_sync` reads the wanted patterns, stops
+        # what is running and starts the replacement, and `self._proc` is only set once
+        # the child has actually started — so two subscribers arriving together (which is
+        # exactly what the trigger watcher does at boot, one `subscribe` per enabled
+        # trigger) both saw `_proc` as None, both found nothing to stop, and both spawned.
+        # The narrower ear was then orphaned and went on decoding the whole stream for
+        # nobody — the very waste this module exists to remove. Seen live: two
+        # `wire_event_monitor` processes, same second, one with a subset of the other's
+        # patterns (#1237).
+        self._sync_lock = threading.Lock()
         self._subs: dict = {}          # token -> (pattern, callback)
         self._next = 0
         self._proc = None              # the capture child, while anybody wants it
@@ -105,21 +115,32 @@ class WireHub:
 
     # -- the child ------------------------------------------------------------
     def _sync(self) -> None:
-        """Match the running capture to the patterns wanted right now. Idempotent."""
-        wanted = self.patterns()
-        if not wanted:
+        """Match the running capture to the patterns wanted right now. Idempotent.
+
+        Serialised: see `_sync_lock`. Deciding and acting have to be one step, or two
+        subscribers racing leave two captures behind.
+        """
+        with self._sync_lock:
+            wanted = self.patterns()
+            if not wanted:
+                self.stop()
+                return
+            if self._proc is not None and self._running == wanted:
+                return
             self.stop()
-            return
-        if self._proc is not None and self._running == wanted:
-            return
-        self.stop()
-        self._start(wanted)
+            self._start(wanted)
 
     def _start(self, patterns: tuple) -> None:
         cmd = [self._rt.children.python(), "-u",
                os.path.join(TOOLS, "wire_event_monitor.py")]
         for pattern in patterns:
             cmd += ["--match", pattern]
+        # THE EAR'S OWN THROTTLE, cut to a fraction. It exists to keep a burst of one
+        # command from filling the log with markers, and its two-second default is fine
+        # for an errand on a clock — but a rally is seconds long and the trigger waiting
+        # on it must not sit out a throttle meant for tidiness (#1237). The panel's queue
+        # coalesces the PRESSES anyway, so nothing is run twice by this.
+        cmd += ["--cooldown", "0.3"]
         # WHOSE traffic this ear is for. Two accounts of the same game dial the same
         # server port, so the capture filter cannot separate them and every profile's
         # ear has been hearing both — a trigger firing in one account off the other's

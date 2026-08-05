@@ -491,24 +491,27 @@ BUTTONS: dict[str, Button] = {
         # Not a press in the game: pick the rally and the squad and park them, so every
         # step below reads one answer rather than racing the map for its own.
         lua=_lua_actions.rally_join_arm(),
-        wait=0.2, label="arm the join (rally + squad)",
+        wait=0.05, label="arm the join (rally + squad)",
     ),
     "rally_join_open": Button(
         lua=_lua_actions.rally_join_open(),
-        # The screen is the server's answer, so the recipe polls for it rather than
-        # trusting this number; this only keeps the press from returning before the
-        # window has begun opening.
-        wait=1.2, label="open the squad screen for the rally",
+        # The screen is the server's answer and the recipe POLLS for it in quarter
+        # seconds, so sleeping here is time given away twice. Just long enough for the
+        # call to land (#1237: the places are taken while the bot waits).
+        wait=0.15, label="open the squad screen for the rally",
     ),
     "rally_join_squad": Button(
         lua=_lua_actions.rally_join_squad(),
-        wait=0.6, label="pick the squad on the join screen",
+        # Local — the pick is recorded in the window's own controller, nothing is
+        # waited on — and the recipe reads it back before it launches anyway.
+        wait=0.1, label="pick the squad on the join screen",
     ),
     "rally_join_launch": Button(
         lua=_lua_actions.rally_join_launch(),
-        # The launch is a send: the march only appears once the server answers, and the
-        # recipe counts the squads in a rally before and after to know whether it did.
-        wait=3.0, label="launch the join",
+        # The send is away the moment this returns; the march appears when the server
+        # answers, and the recipe POLLS for that. Sleeping here only holds the game's
+        # lease — and the next rally behind it — for nothing.
+        wait=0.3, label="launch the join",
     ),
     # --- alliance rally: RAISE one («Стягивание») -----------------------------
     # The create side, four presses in the order the game itself walks them:

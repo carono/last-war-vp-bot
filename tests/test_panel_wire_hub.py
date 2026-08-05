@@ -273,6 +273,39 @@ def test_an_empty_pattern_is_refused_rather_than_matching_everything():
         raise AssertionError(f"{bad!r} was accepted as a pattern")
 
 
+def test_two_subscribers_arriving_together_leave_one_ear():
+    """The boot case: the trigger watcher subscribes once per enabled trigger, at once.
+
+    `_sync` decides and acts in two steps — read the wanted patterns, stop what runs,
+    start the replacement — and `_proc` is only set once the child HAS started. Without
+    a lock around the whole of that, two subscribers both saw nothing to stop and both
+    spawned, and the narrower ear went on decoding the stream for nobody. Seen live as
+    two `wire_event_monitor` processes in the same second, one carrying a subset of the
+    other's patterns (#1237).
+    """
+    import threading
+
+    rt, hub = _hub()
+    start = threading.Barrier(4)
+
+    def join(pattern):
+        start.wait()
+        hub.subscribe(pattern, lambda c: None)
+
+    threads = [threading.Thread(target=join, args=(p,))
+               for p in ("al.help.new", "push.alliance.march", "push.world.point")]
+    for th in threads:
+        th.start()
+    start.wait()
+    for th in threads:
+        th.join()
+
+    live = [c for c in rt.children.spawned if not c.stopped]
+    assert len(live) == 1, [c.patterns() for c in live]
+    assert sorted(live[0].patterns()) == ["al.help.new", "push.alliance.march",
+                                          "push.world.point"], live[0].patterns()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

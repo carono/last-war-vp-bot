@@ -852,6 +852,14 @@ class RallyTab(PanelTab):
                  squads=", ".join(str(s) for s in squads))
         threading.Thread(target=self._join_work, args=(squads,), daemon=True).start()
 
+    #: How long a join waits for the game to be free before giving the place up. A rally
+    #: is seconds long during an event and the claim is held by short things — a status
+    #: read, a timer's errand, the auto-join TRIGGER doing the same job from the other
+    #: side — so dropping the join the instant the game is busy threw away rallies that
+    #: were free again a moment later. Measured on a live event: two banners in one
+    #: minute lost to «занят», with the claim let go within a second of each (#1237).
+    JOIN_CLAIM_WAIT_SEC = 4.0
+
     def _join_work(self, squads) -> None:
         """The join itself, off the Tk thread and under the game claim.
 
@@ -859,10 +867,19 @@ class RallyTab(PanelTab):
         (`actions/join_rally.md` keeps only the ones standing in the base and fails
         saying so when none is) — the tab hands over what the operator ticked and
         repeats what came back.
+
+        WAITS FOR THE GAME rather than dropping the rally. Safe to block here: this runs
+        on a worker of its own, never on Tk. Only when the wait runs out does it say so
+        and let the banner go — and then it says it once, not per attempt.
         """
-        if not self.rt.game.claim("panel/rally-join"):
-            self.say("rally", "busy")
-            return
+        import time as _time
+
+        deadline = _time.time() + self.JOIN_CLAIM_WAIT_SEC
+        while not self.rt.game.claim("panel/rally-join"):
+            if _time.time() >= deadline:
+                self.say("rally", "busy")
+                return
+            _time.sleep(0.15)
         try:
             out = self.rt.actions.play("join_rally", {"squads": squads},
                                        on_event=lambda msg: self.rt.put(f"[rally] {msg}"))

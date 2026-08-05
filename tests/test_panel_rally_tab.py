@@ -669,6 +669,59 @@ def test_the_join_counts_what_it_achieved_instead_of_reporting_ok():
     assert order
 
 
+def test_a_busy_game_makes_the_join_wait_rather_than_drop_the_rally():
+    """«занят — дождись завершения» threw the banner away instead of waiting for it.
+
+    A rally is seconds long during an event and the game's claim is held by short
+    things — a status read, a timer's errand, the auto-join TRIGGER doing the same job
+    from the other side. Dropping the join the instant the claim is refused lost two
+    banners in one minute on a live event, each with the claim free again a moment
+    later (#1237). It waits now, on its own worker thread, and only gives up when the
+    wait runs out.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab.JOIN_CLAIM_WAIT_SEC = 1.0
+        played = []
+        rt.actions.play = lambda name, args=None, **kw: played.append(name) or _Ok()
+
+        # Busy for the first two asks, then free: the join must still happen.
+        asks = {"n": 0}
+
+        def claim(owner="panel"):
+            asks["n"] += 1
+            return asks["n"] > 2
+
+        rt.game.claim = claim
+        tab._join_work([1])
+        assert played == ["join_rally"], (played, asks)
+        assert asks["n"] == 3, asks
+
+        # …and a game that never frees up gives the banner up rather than hanging.
+        played.clear()
+        rt.game.claim = lambda owner="panel": False
+        before = len(rt.log.lines)
+        tab._join_work([1])
+        assert played == [], played
+        assert len(rt.log.lines) == before + 1, "it must say it gave up, once"
+    finally:
+        root.destroy()
+
+
+class _Ok:
+    ok = True
+    reason = ""
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
