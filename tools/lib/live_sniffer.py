@@ -311,6 +311,22 @@ class LiveDecoder:
         self.lock = threading.Lock()
         self.started = time.time()
         self.packets = 0
+        # WHOSE CLIENT THIS CAPTURE IS FOR (map_capture.own_ports_watcher).
+        #
+        # `None` — everybody's, which is what every capture did until now and is still
+        # the honest answer when the owner cannot be worked out. Otherwise a callable
+        # returning the set of LOCAL tcp ports belonging to our own client, refreshed
+        # as it is asked, and a packet on any other port is dropped before it is
+        # decoded at all.
+        #
+        # It is needed because the BPF filter cannot express it. The filter narrows by
+        # the game's REMOTE port, and two clients of the same game dial the same
+        # server port — so with a second account running, every capture on this machine
+        # has been decoding both accounts' traffic and firing both profiles' triggers
+        # off whichever arrived. The local port is the thing that differs, and it is
+        # only knowable from the socket table, not from the packet.
+        self.own_ports = None
+        self.foreign = 0                 # packets dropped as another client's
 
     def feed_packet(self, pkt, iface: str | None) -> None:
         """Scapy sniffer entry point — hand it one captured packet.
@@ -343,6 +359,13 @@ class LiveDecoder:
         data = bytes(tcp.payload)
         if not data:
             return
+        # Another account's client, if we know enough to tell. Before the stream
+        # bookkeeping, so a foreign connection never even gets a Stream of its own.
+        if self.own_ports is not None:
+            mine = self.own_ports()
+            if mine and tcp.sport not in mine and tcp.dport not in mine:
+                self.foreign += 1
+                return
 
         with self.lock:
             self.packets += 1

@@ -280,6 +280,21 @@ A capture that decodes payloads rather than matching command names — the rally
 army archive, the leaderboard collector — is still a child of its own; the hub carries
 command NAMES, and folding those in would mean moving their decoding into it.
 
+**A capture you spawn yourself must still be told whose client it is.** Two accounts of
+the same game dial the same server port, so the packet filter cannot separate them and a
+capture hears both — one profile's auto-join spending squads because the other's alliance
+raised a banner. Pass the profile's pids and the capture keeps only those sockets:
+
+```python
+for pid in game_process.profile_pids(self.rt.settings):
+    cmd += ["--client-pid", str(pid)]
+```
+
+An empty answer means «could not tell», and then the capture stays machine-wide on
+purpose: losing the separation is a fair price for an unanswerable question, while a
+capture that went deaf would make a profile farming nothing look like one with nothing
+to do.
+
 ---
 
 ## Errands a tab brings with it

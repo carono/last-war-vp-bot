@@ -73,9 +73,20 @@ class _Dbg:
     def debug(self, *a, **kw): ...
 
 
+class _Settings:
+    """Enough of the binder for `game_process.profile_pids` to answer «cannot tell»."""
+
+    def opt_str(self, key, default=""):
+        return ""
+
+    def opt_bool(self, key, default=False):
+        return False
+
+
 class _Rt:
     def __init__(self):
         self.children = _Children()
+        self.settings = _Settings()
         self.said: list = []
 
     def say(self, tag, key, **fmt):
@@ -96,6 +107,40 @@ def _fire(hub, command):
 
 
 # ---------------------------------------------------------------------------
+def test_the_ear_is_told_whose_client_it_is():
+    """A shared ear must still be ONE account's — see tests/test_capture_own_client.py.
+
+    Two clients of the same game dial the same server port, so the capture cannot tell
+    them apart by filter and every profile's ear heard both. The hub names its profile's
+    pids on the command line; what it must NOT do is invent one when the answer is «could
+    not tell», because the capture reads no flag as «keep everything» rather than as
+    «keep nothing» — and an ear that went deaf would look exactly like a quiet account.
+
+    `profile_pids` is stubbed on purpose: what it answers depends on whether a game
+    happens to be running on the machine the tests are on, and that must not decide
+    whether this passes.
+    """
+    from panel.runtime import game_process, wire as wiremod
+
+    real = game_process.profile_pids
+    try:
+        wiremod.game_process.profile_pids = lambda settings: [4001, 4002]
+        rt, hub = _hub()
+        hub.subscribe("al.help.new", lambda c: None)
+        cmd = rt.children.spawned[-1].cmd
+        pids = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--client-pid"]
+        assert pids == ["4001", "4002"], cmd
+
+        wiremod.game_process.profile_pids = lambda settings: []
+        rt, hub = _hub()
+        hub.subscribe("al.help.new", lambda c: None)
+        cmd = rt.children.spawned[-1].cmd
+        assert "--match" in cmd, cmd
+        assert "--client-pid" not in cmd, "a pid was invented out of «cannot tell»"
+    finally:
+        wiremod.game_process.profile_pids = real
+
+
 def test_no_subscriber_no_capture():
     """A profile with every trigger switched off must not spawn an ear at all."""
     rt, hub = _hub()

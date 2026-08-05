@@ -150,6 +150,28 @@ def profile_user(settings) -> str | None:
         return None
 
 
+def profile_pids(settings) -> list:
+    """This profile's client pids — for a capture that must decode only ITS account.
+
+    Two clients of the same game dial the same server port, so a packet filter cannot
+    tell them apart and every capture on the machine used to decode both: a wire trigger
+    in one profile firing off the other's push, an auto-join in one account spending
+    squads because the other's alliance raised a banner. The pid is what the capture
+    narrows by (`map_capture.OwnPorts`), and this is the one place that answers «which
+    client is this profile's» for it.
+
+    NEVER RAISES, and an empty list means «could not tell» — which every caller must
+    treat as «capture everything», not as «capture nothing». A profile that goes deaf
+    farms nothing and looks exactly like one with nothing to do; a profile that hears
+    too much is what we had yesterday.
+    """
+    try:
+        return list(pids(settings.opt_str("game_exe") or GAME_EXE,
+                         profile_user(settings)))
+    except Exception:                    # noqa: BLE001 — no session, no WTS, no psutil
+        return []
+
+
 def sessions() -> "list | None":
     """Every Windows session with its login and state, or ``None`` if it cannot be asked.
 

@@ -113,6 +113,12 @@ class EventMonitor(LiveDecoder):
         print(f"{C_OK}{self.matches} match(es) seen, {self.fired} marker(s) printed"
               f"{C_RESET}")
         print(f"{self.packets} packet(s) with payload")
+        # What `--client-pid` actually cost, in packets. Printed whenever the ear was
+        # pinned — including as zero — because «0 dropped» is the reading that says the
+        # separation is not quietly eating this account's own traffic, and there is no
+        # way to tell that from a silent run otherwise.
+        if self.own_ports is not None:
+            print(f"{self.foreign} packet(s) dropped as another client's")
         if not self.matches:
             print(f"{C_DIM}Nothing matched — {' / '.join(self.patterns)} only arrives "
                   f"when the game actually sends it.{C_RESET}")

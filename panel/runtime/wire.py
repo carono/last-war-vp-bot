@@ -28,20 +28,26 @@ THE DISPATCH RUNS ON THE CHILD'S READER THREAD, never on Tk. A subscriber's call
 must therefore be safe off the Tk thread — the schedule's `submit` is (it hands to a
 queue), and anything that draws should go through `rt.post`.
 
-A NOTE ON WHAT ONE CAPTURE CAN AND CANNOT TELL APART. The capture filters by the game's
-TCP port, and `map_capture.detect_game_ports()` collects that port from EVERY
-`lastwar.exe` on the machine — so a profile's ear has always heard both clients when two
-accounts run side by side, and a trigger in one profile has always been able to fire on
-the other's push. That is not new here and this change neither causes nor cures it; it is
-written down because consolidating the ears makes it easy to assume the opposite. Curing
-it means tagging each frame with the local port, mapping that to a pid and the pid to a
-profile — worth doing, and its own task.
+ONE PROFILE, ONE ACCOUNT'S TRAFFIC. The capture filter can only narrow by TCP port, and
+two clients of the same game dial the SAME server port — so until this ear existed every
+capture on the machine decoded both accounts and every profile's triggers fired off
+whichever arrived first. What differs is the LOCAL port, which is not in the packet but
+in the socket table, so the profile's client pids are resolved by `game_process.profile_pids` and
+the capture keeps only the traffic on those sockets, following them by Windows user when
+the client is restarted (`map_capture.OwnPorts`).
+
+Where the owner cannot be worked out — no psutil, a session that will not answer, a
+foreign token that refuses — the capture keeps ITS OLD machine-wide behaviour instead of
+going quiet. Losing the separation is a fair price for an unanswerable question; losing
+the traffic would make a profile that farms nothing look exactly like one with nothing
+to do.
 """
 from __future__ import annotations
 
 import os
 import threading
 
+from . import game_process
 from .paths import TOOLS
 
 #: The marker line the child prints for every match. Kept in `panel/triggers.py` because
@@ -114,6 +120,13 @@ class WireHub:
                os.path.join(TOOLS, "wire_event_monitor.py")]
         for pattern in patterns:
             cmd += ["--match", pattern]
+        # WHOSE traffic this ear is for. Two accounts of the same game dial the same
+        # server port, so the capture filter cannot separate them and every profile's
+        # ear has been hearing both — a trigger firing in one account off the other's
+        # push. The pids are resolved here, where the profile is known, and followed
+        # inside the capture by user so a client restart does not need a new ear.
+        for pid in game_process.profile_pids(self._rt.settings):
+            cmd += ["--client-pid", str(pid)]
         mon = self._rt.children.spawn("trigger", cmd, on_line=self._on_line,
                                       on_exit=self._on_exit)
         if not mon.start():

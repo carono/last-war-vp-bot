@@ -80,6 +80,102 @@ def detect_game_ports() -> set:
         return set()
 
 
+class OwnPorts:
+    """The local TCP ports of ONE client, re-read as the capture asks for them.
+
+    Two accounts of the same game dial the same server port, so the BPF filter — which
+    can only narrow by port — cannot separate them, and every capture on the machine has
+    been decoding both and letting both profiles' triggers fire off whichever arrived.
+    What differs is the LOCAL port, and that is only in the socket table.
+
+    Refreshed on a clock rather than read once, because a client re-dials: the local
+    port is ephemeral and changes on every reconnect, so a set read at start-up would
+    make the capture go deaf the first time the connection dropped. Followed by PID
+    where the pid still exists, and by the pid's Windows USER once it does not — which
+    is what carries the answer across a client restart in the same session.
+
+    NEVER DEAF ON DOUBT. An empty answer means «could not tell», and the decoder treats
+    that as «keep everything» rather than «keep nothing»: a machine that will not
+    attribute another user's sockets (which is ordinary for the second account, running
+    under its own Windows login) must lose the separation, never the traffic.
+    """
+
+    #: How often the socket table is re-read. A reconnect is seconds of silence anyway,
+    #: and this walk is a kernel table — cheap, but not free enough to do per packet.
+    TTL_SEC = 5.0
+
+    def __init__(self, pids, ttl: float = TTL_SEC) -> None:
+        self._pids = {int(p) for p in pids or ()}
+        self._users = self._usernames(self._pids)
+        self._ttl = ttl
+        self._ports: set = set()
+        self._at = 0.0
+
+    @staticmethod
+    def _usernames(pids) -> set:
+        """The Windows accounts those pids run as — the anchor across a restart."""
+        try:
+            import psutil
+        except ImportError:
+            return set()
+        out = set()
+        for pid in pids:
+            try:
+                out.add(psutil.Process(pid).username())
+            except Exception:            # noqa: BLE001 — a foreign token may refuse
+                pass
+        return out
+
+    def _live_pids(self) -> set:
+        """The pids to watch now: the ones we were given, or their replacements."""
+        try:
+            import psutil
+        except ImportError:
+            return set()
+        alive = {p for p in self._pids if psutil.pid_exists(p)}
+        if alive or not self._users:
+            return alive
+        # The client was restarted: same account, new pid. Find it by the user we
+        # anchored on rather than going deaf until the panel notices.
+        found = set()
+        for proc in psutil.process_iter(["pid", "name"]):
+            if (proc.info["name"] or "").lower() != GAME_PROCESS:
+                continue
+            try:
+                if proc.username() in self._users:
+                    found.add(proc.info["pid"])
+            except Exception:            # noqa: BLE001
+                pass
+        if found:
+            self._pids = found
+        return found
+
+    def __call__(self) -> set:
+        now = time.time()
+        if now - self._at < self._ttl:
+            return self._ports
+        self._at = now
+        try:
+            import psutil
+        except ImportError:
+            self._ports = set()
+            return self._ports
+        pids = self._live_pids()
+        if not pids:
+            self._ports = set()          # "cannot tell" — the decoder keeps everything
+            return self._ports
+        ports = set()
+        try:
+            for c in psutil.net_connections(kind="tcp"):
+                if (c.pid in pids and c.laddr and c.raddr
+                        and c.raddr.port not in NON_GAME_PORTS):
+                    ports.add(c.laddr.port)
+        except Exception:                # noqa: BLE001 — AccessDenied on some setups
+            ports = set()
+        self._ports = ports
+        return self._ports
+
+
 def check_platform() -> None:
     """Refuse to run where capture cannot possibly work, and say why.
 
@@ -540,6 +636,11 @@ def add_capture_arguments(ap: argparse.ArgumentParser,
     ap.add_argument("--port", type=int, default=None, metavar="N",
                     help="capture this TCP port instead of auto-detecting the "
                          "game's live port from its own connections")
+    ap.add_argument("--client-pid", type=int, action="append", default=[],
+                    metavar="PID",
+                    help="decode only the traffic of THIS client (repeatable). Two "
+                         "accounts dial the same server port, so without it a capture "
+                         "hears both — and every trigger fires off either")
     ap.add_argument("--all-tcp", action="store_true",
                     help="capture every TCP port, not just the game's — the "
                          "catch-all if port auto-detection ever fails")
@@ -594,6 +695,11 @@ def start_capture(index: MapIndex, args) -> tuple:
                   f"(is {GAME_PROCESS} running, and psutil installed?) — "
                   f"falling back to :{GAME_PORT}. Pass --port N or --all-tcp "
                   f"if the capture stays silent.{C_RESET}", file=sys.stderr)
+    if getattr(args, "client_pid", None):
+        index.own_ports = OwnPorts(args.client_pid)
+        print(f"{C_DIM}decoding only pid(s) "
+              f"{', '.join(str(p) for p in args.client_pid)} — another account's "
+              f"client on this machine is not this capture's{C_RESET}")
     if getattr(args, "dump", None):
         try:
             index.transcript = FrameLog(args.dump)

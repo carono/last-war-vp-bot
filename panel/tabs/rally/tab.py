@@ -53,6 +53,7 @@ import os
 import threading
 from tkinter import ttk
 
+from ...runtime import game_process
 from ...runtime import log as logmod
 from ...runtime.paths import TOOLS, repo_rel
 from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
@@ -776,6 +777,12 @@ class RallyTab(PanelTab):
                os.path.join(TOOLS, "rally_monitor.py")]
         # no --all-tcp: auto-detect the narrow game port, as the other captures do.
         cmd += ["--out", out] if archive else ["--no-archive"]
+        # …and only THIS profile's client. Two accounts dial the same server port, so
+        # without this the capture hears both alliances and the auto-join spends this
+        # account's squads on the other one's banner. Empty when it cannot be told,
+        # which keeps the old machine-wide behaviour rather than going deaf.
+        for pid in game_process.profile_pids(self.rt.settings):
+            cmd += ["--client-pid", str(pid)]
         mon = self.rt.children.spawn("rally", cmd,
                                      on_line=self._on_line, on_exit=self._on_exit)
         if not mon.start():
