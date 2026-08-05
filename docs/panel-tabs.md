@@ -232,11 +232,20 @@ what `AGGREGATES_TABS` is for: a tab that declares it is built LAST
 (`panel.tabs.build_order`), keeping its place on the strip.
 
 It is worth knowing because of how it fails. A contributor built after the aggregator
-raises nothing and logs nothing — its page is simply not there. «Авторалли» vanished that
+raises nothing and logs nothing — its page is simply not there. «Автосбор» vanished that
 way and stayed vanished, and with it the squad list the rally auto-join spends, so the
 auto-join read an empty list and refused every time (#1237). If you add a second
 aggregator one day, set the flag in both places and let
 `tests/test_panel_tab_contract.py` pin the order.
+
+**No tab uses this today**, and that is worth saying rather than leaving to be
+discovered. «Автосбор» was the only contributor and it moved onto the «Ралли» tab in
+the same task: nothing on it was a knob of the PANEL — not a path, not a port, not an
+interpreter — it was all about rallies, and it belongs beside the switches that spend
+it. Before you reach for `SETTINGS_PAGE_KEY`, ask whether your page is really a panel
+setting or just a setting your tab happens to own. If it is the second, put it on the
+tab; «Настройки» is for the things that are true of the installation rather than of the
+game.
 
 ---
 

@@ -437,14 +437,14 @@ def test_join_now_refuses_with_no_squad_ticked():
         root.destroy()
 
 
-def test_ticking_the_auto_join_brings_the_watcher_up_with_it():
-    """«Присоединяться сам» over a watcher that is off is a switch that does nothing.
+def test_the_capture_serves_three_switches_and_the_archive_is_only_the_monitors():
+    """The monitor is statistics in a file; joining by itself is not, and never was.
 
-    The tab's auto-join rides the monitor child's lines — that is its only ear — and the
-    two boxes were independent, so a profile could sit with the join ticked and the
-    watcher off, joining nothing and saying so nowhere (#1237). Unticking the join must
-    NOT take the watcher down again: being told about a rally without joining it is an
-    ordinary thing to want.
+    They were one switch because the archive-writer happened to be the thing spawning
+    the capture — so «Присоединяться сам» needed a statistics file nobody asked for, and
+    unticking the statistics silently unticked the joining. Three separate wants over
+    one capture now: it comes up for any of them, stays up while any of them is on, and
+    only «Монитор» — the box that MEANS «write it down» — passes `--out` (#1237).
     """
     try:
         import tkinter  # noqa: F401
@@ -457,18 +457,51 @@ def test_ticking_the_auto_join_brings_the_watcher_up_with_it():
         _skip(exc)
         return
     try:
-        started = []
-        tab._start_monitor = lambda: started.append(True)
-        tab._monitor_var.set(False)
-        tab._autojoin_var.set(True)
-        tab._toggle_autojoin()
-        assert tab._monitor_var.get() is True, "the watcher was left off"
-        assert started == [True], "…and it was never actually started"
+        spawned = []
 
+        class _Child:
+            def __init__(self, cmd):
+                self.cmd = cmd
+            def start(self):
+                spawned.append(self.cmd)
+                return True
+            def stop(self):
+                spawned.append(["stop"])
+
+        rt.children.spawn = lambda name, cmd, **kw: _Child(cmd)
+
+        # Joining by itself, with the statistics OFF: the capture runs and writes
+        # nothing. This is the case the user asked for in as many words.
+        for var in (tab._monitor_var, tab._alert_var, tab._autojoin_var):
+            var.set(False)
+        tab._autojoin_var.set(True)
+        tab._sync_capture()
+        assert spawned, "auto-join alone did not bring the capture up"
+        assert "--no-archive" in spawned[-1], spawned[-1]
+        assert "--out" not in spawned[-1], spawned[-1]
+
+        # Ticking the statistics on top re-points the SAME need at a writing child.
+        tab._monitor_var.set(True)
+        tab._sync_capture()
+        assert "--out" in spawned[-1], spawned[-1]
+        assert "--no-archive" not in spawned[-1], spawned[-1]
+
+        # Statistics off again, join still on — still listening, still not writing.
+        before = len(spawned)
+        tab._monitor_var.set(False)
+        tab._sync_capture()
+        assert "--no-archive" in spawned[-1], spawned[-1]
+        assert len(spawned) > before, "the child was never re-pointed"
+
+        # Nothing wanted -> nothing running.
         tab._autojoin_var.set(False)
-        tab._toggle_autojoin()
-        assert tab._monitor_var.get() is True, "unticking the join stopped the watcher"
-        assert started == [True], "…and started it again"
+        tab._sync_capture()
+        assert tab._proc is None, "the capture outlived every switch that wanted it"
+
+        # …and the alert alone is reason enough on its own.
+        tab._alert_var.set(True)
+        tab._sync_capture()
+        assert tab._proc is not None, "the alert cannot hear a rally without the capture"
     finally:
         root.destroy()
 
@@ -479,8 +512,11 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
     Where the squads are the phone already showed; whether a join was ARMED, and with
     which squads, lived only in the window — so from a bus three squads standing at home
     beside a rally nobody joined looked exactly like a bot that was working (#1237).
-    Readings, not switches: the list that decides which squads a join spends is on
-    «Настройки», which is not on the phone at all.
+    Three switches, because any of the three can be the quiet one, and «Автосбор» beside
+    them, because it moved onto this tab and a control the window has and the phone does
+    not is a control nobody away from the machine can see the state of.
+
+    Readings, not switches: the list is edited at the machine.
     """
     try:
         import tkinter  # noqa: F401
@@ -494,28 +530,36 @@ def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
         return
     try:
         tab._monitor_var.set(True)
+        tab._alert_var.set(False)
         tab._autojoin_var.set(False)
-        card = tab._web_autojoin_card()
-        pills = {item["label"]: item.get("pill") for item in card["items"]}
-        assert pills["rally.monitor"] == "rally.state.on", pills
-        assert pills["rally.autojoin"] == "rally.state.off", pills
-        # Nothing ticked reads as a WORD, so it says the same thing in eleven languages.
-        assert pills["autorally.squads"] == "rally.state.none", pills
+        pills = {i["label"]: i.get("pill") for i in tab._web_autojoin_card()["items"]}
+        assert pills == {"rally.monitor": "rally.state.on",
+                         "rally.alert": "rally.state.off",
+                         "rally.autojoin": "rally.state.off"}, pills
+
+        # Nothing ticked reads as a WORD, so it says the same in eleven languages.
+        card = tab._web_autorally_card()
+        squads = [i for i in card["items"] if i["label"] == "autorally.squads"][0]
+        assert squads.get("pill") == "rally.state.none", squads
 
         tab._autojoin_var.set(True)
         tab.autorally._squad_vars[2].set(True)
         tab.autorally._squad_vars[3].set(True)
-        card = tab._web_autojoin_card()
+        card = tab._web_autorally_card()
         squads = [i for i in card["items"] if i["label"] == "autorally.squads"][0]
         # …and the squads themselves are DIGITS, which need no translating.
         assert squads.get("detail") == "2, 3", squads
         assert squads.get("pill") is None, squads
-        assert [i for i in card["items"]
+        assert [i for i in tab._web_autojoin_card()["items"]
                 if i["label"] == "rally.autojoin"][0]["pill"] == "rally.state.on"
+        # The daily cap is on the phone too — it is what silently stopped the joining
+        # once already, and «spent/allowed» is the only reading that shows it coming.
+        assert card["rows"], card
+        assert all("/" in row["value"] for row in card["rows"]), card["rows"]
 
-        # The whole screen still holds together with the card in it.
-        view = tab.web_view()
-        assert card["title"] in [c.get("title") for c in view["cards"]], view
+        # Both cards are on the screen the phone actually gets.
+        titles = [c.get("title") for c in tab.web_view()["cards"]]
+        assert "rally.frame" in titles and "autorally.frame" in titles, titles
     finally:
         root.destroy()
 
@@ -565,11 +609,13 @@ def test_every_key_the_tab_uses_exists_in_both_locales():
             "rally_tab.capped", "rally_tab.busy", "rally_tab.progress",
             "rally_tab.finished", "rally_tab.stopped",
             "rally.frame", "rally.monitor", "rally.alert", "rally.autojoin",
-            "rally.autojoin_needs_monitor", "rally.state.on", "rally.state.off",
+            "rally.state.on", "rally.state.off",
             "rally.state.none",
             "rally.join_now", "rally.hint", "rally.no_squads", "rally.joining",
             "rally.alert.fired", "log.rally.started", "log.rally.stopped",
-            "log.rally.ended", "busy", "settings.tab.autorally"]
+            "log.rally.ended", "log.rally.listening", "busy",
+            "autorally.frame", "autorally.squads", "autorally.drill.squads",
+            "autorally.create.squads", "autorally.create.elite"]
     for base in ("searching", "raised"):
         for kind in ("boss", "monster"):
             keys.append(rl._kind_key(base, kind))

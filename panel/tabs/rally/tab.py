@@ -29,13 +29,23 @@ tab reads it the same way whether it is in the shell or opened on its own — an
 repainted from two places: a poll while somebody is looking at the tab, and the
 «squad_state» trigger, which fires the moment a march message crosses the wire.
 
-**Hearing about one.** The monitor is a child process reading `push.alliance.march.*`
-off the wire; a march carrying a `team=` is a rally, and the first line about each
-banner can ring a bell and — if the operator asks for it — join with the squads
-«Настройки → Авторалли» allows.
+**Hearing about one.** A child process reads `push.alliance.march.*` off the wire; a
+march carrying a `team=` is a rally, and the first line about each banner can be written
+down, can ring a bell, and — if the operator asks for it — can be joined with the squads
+«Автосбор» allows.
 
-That settings page is contributed by this tab (:meth:`settings_page`), so it travels
-with rally and is not there when rally is switched off.
+Those are THREE switches over ONE capture and they are not the same switch (#1237).
+«Монитор стягиваний» means «write the armies down», and that is the whole of it — a
+statistics file, for reading later. «Оповещать» and «Присоединяться сам» want the same
+stream and nothing of the file. The capture is reference-counted against all three: it
+comes up for whichever is on, stays up while any of them is, and the archive is written
+only when the monitor box is ticked. Joining by itself therefore works with the monitor
+off, which is what the person asking for it meant by it.
+
+**«Автосбор»** — the squads a join may spend, the alliance drill, the banner-carrier and
+the daily caps — is on THIS tab, under the switches that spend it. It was a page inside
+«Настройки» until #1237, where the aggregator failed to draw it at all and nobody could
+see the setting that made the joining work.
 """
 from __future__ import annotations
 
@@ -48,6 +58,7 @@ from ...runtime.paths import TOOLS, repo_rel
 from ...widgets import (ScrollableFrame, install_numeric_field, tk_stringvar,
                         font as ui_font)
 from ..base import PanelTab, TriggerSpec
+from . import autorally as autorallymod
 from . import limits as rallylimits
 from .autorally import AutoRallyPage
 
@@ -106,7 +117,6 @@ class RallyTab(PanelTab):
     LOCALE_NS = ("rally_tab", "rally", "autorally", "rally_limit", "log.rally",
                  "squads")
     NEEDS = frozenset({"daemon", "children", "actions"})
-    SETTINGS_PAGE_KEY = "settings.tab.autorally"
     # The flat keys this tab's settings used to be spelled with, so a profile that
     # predates the per-tab block keeps every value it had (§5 rule 1).
     LEGACY_KEYS = {"form": "rally_tab", "autorally": "autorally",
@@ -129,7 +139,8 @@ class RallyTab(PanelTab):
         master = rt.root
         self._run_stop = None       # threading.Event while a run is in flight, else None
         self._done = 0              # rallies raised in the current/last run (the status)
-        self._proc = None           # the monitor child, while it is running
+        self._proc = None           # the capture child, while it is running
+        self._archiving = False     # …and whether it was launched writing the archive
         # teamUuids already alerted on this session. A rally emits create AND refresh
         # events, and an alert per event would ring four times for one стяг.
         self._seen: set = set()
@@ -153,9 +164,9 @@ class RallyTab(PanelTab):
         self._autojoin_var = tk.BooleanVar(master=master, value=False)
         self._hint = None
         self._quick_buttons: dict = {}
-        # The «Авторалли» settings page. Built here rather than in `settings_page`
-        # because its squad list is read by the monitor's auto-join, and a standalone
-        # rally window has no Settings tab to draw it on.
+        # «Автосбор» — built here, drawn by `build()` onto this tab. Constructed in the
+        # constructor and not in the draw, because its squad list is what the auto-join
+        # spends and a profile applies its config before anything is on screen.
         self.autorally = AutoRallyPage(rt)
 
     # -- UI -----------------------------------------------------------------
@@ -173,6 +184,14 @@ class RallyTab(PanelTab):
 
         self._build_form(body)
         self._build_monitor(body)
+        # «Автосбор» — the squads a join may spend, the drill, the banner-carrier and
+        # the daily caps. It was a page inside «Настройки» until #1237: everything on
+        # it is about rallies, none of it is a knob of the panel, and the switch that
+        # SPENDS the list is six lines above it here. It is drawn UNDER the switches
+        # on purpose, so the tab reads «join by itself: on» and then «with these».
+        autorally = ttk.Frame(body)
+        autorally.pack(fill="x", padx=10, pady=(0, 6))
+        self.autorally.build(autorally)
 
         self.tr(ttk.Label(body, foreground="#888", wraplength=640, justify="left"),
                 "rally_tab.hint").pack(anchor="w", padx=10, pady=(0, 10))
@@ -264,15 +283,17 @@ class RallyTab(PanelTab):
         top = ttk.Frame(rally)
         top.pack(fill="x")
         self.tr(ttk.Checkbutton(top, variable=self._monitor_var,
-                                command=self._toggle_monitor),
+                                command=self._sync_capture),
                 "rally.monitor").pack(side="left")
         # A rally is worth minutes and the alert used to be one log line that scrolled
         # past. Now it is a line the log paints as news, a bell, and — if the operator
-        # asks for it — the join itself.
-        self.tr(ttk.Checkbutton(top, variable=self._alert_var),
+        # asks for it — the join itself. All three ride one capture and none of them
+        # owns it: they say what they want and `_sync_capture` decides.
+        self.tr(ttk.Checkbutton(top, variable=self._alert_var,
+                                command=self._sync_capture),
                 "rally.alert").pack(side="left", padx=(12, 0))
         self.tr(ttk.Checkbutton(top, variable=self._autojoin_var,
-                                command=self._toggle_autojoin),
+                                command=self._sync_capture),
                 "rally.autojoin").pack(side="left", padx=(12, 0))
         self.tr(ttk.Button(top, command=self.join_now),
                 "rally.join_now").pack(side="right")
@@ -281,10 +302,6 @@ class RallyTab(PanelTab):
         self._hint.pack(anchor="w", pady=(4, 0))
         self._refresh_hint()
         self.rt.i18n.hook(self._refresh_hint, key="rally-log-path")
-
-    def settings_page(self, parent) -> None:
-        """«Настройки → Авторалли» — contributed by this tab, so it goes when rally does."""
-        self.autorally.build(parent)
 
     def _refresh_hint(self) -> None:
         """Say which file this profile's monitor writes to (path, in the log's language)."""
@@ -305,10 +322,10 @@ class RallyTab(PanelTab):
         """Start the monitor if this profile had it on. There is no lazy data read here.
 
         Idempotent: the shell calls it once at boot (a capture must run whether or not
-        anybody opens the tab) and again the first time the tab is shown.
+        anybody opens the tab) and again the first time the tab is shown. EAGER, so
+        joining by itself works in a profile whose «Ралли» tab is never opened.
         """
-        if self._monitor_var.get():
-            self._start_monitor()
+        self._sync_capture()
 
     def on_show(self) -> None:
         """Somebody is looking: keep the squad line live for as long as they are.
@@ -356,48 +373,87 @@ class RallyTab(PanelTab):
                 {"label": "rally_tab.stamina",
                  "value": f"{state.stamina}/{state.stamina_max}"}]})
         cards.append(self._web_autojoin_card())
+        cards.append(self._web_autorally_card())
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
 
     def _web_autojoin_card(self) -> dict:
-        """Whether joining by itself is armed, and with which squads. A READING.
+        """The three switches, one per line, each saying on or off. READINGS.
 
         THE ANSWER TO «the boxes are ticked and nothing happens» (#1237), which is the
         one question this screen could not answer. Where the squads are it already
         showed; whether anything was going to be SENT to them lived only in the window,
         so a person away from the machine saw three squads standing at home beside a
-        rally nobody joined and had no way to tell an empty settings list from a
-        watcher that was off.
+        rally nobody joined and no way to tell which switch was the quiet one.
 
-        Readings and no switch, deliberately, and it is the same line `web_press` draws:
-        a join is squads spent, and the list that decides which is the settings page —
-        which is not on the phone either («Настройки» declares `WEB_SCREEN = False`, and
-        that divergence is written down in CLAUDE.md). Arming it from a bus without the
-        list in arm's reach would be a press whose consequences are edited elsewhere.
+        Three lines and not one, because they are three separate things now: the archive
+        is written or it is not, the bell rings or it does not, the join goes out or it
+        does not, and any of them can be the reason nothing is happening.
         """
         return {
             "title": "rally.frame",
             "items": [
                 {"label": "rally.monitor",
                  "pill": _switch(self._monitor_var.get())},
+                {"label": "rally.alert",
+                 "pill": _switch(self._alert_var.get())},
                 {"label": "rally.autojoin",
                  "pill": _switch(self._autojoin_var.get())},
-                # The digits are DATA and the same in every language; «none» is a word,
-                # so it is a key on the pill rather than a sentence in the value.
+            ],
+        }
+
+    def _web_autorally_card(self) -> dict:
+        """«Автосбор» as the phone sees it — the same block the tab now draws.
+
+        It moved onto the tab in #1237 and so it has to be here: a control the window
+        has and the phone does not is a control the person on the bus cannot see the
+        state of, and this block is precisely the state that decides whether the
+        auto-join does anything at all.
+
+        Readings, no switches — the same line `web_press` holds. Every value is either
+        digits (which need no translating) or a key; a cap is «spent/allowed», which is
+        what silently stopped the joining once already.
+        """
+        page = self.autorally
+        drill = [s for s in RALLY_SQUADS
+                 if page._drill_state.get(s, autorallymod.DRILL_OFF)
+                 != autorallymod.DRILL_OFF]
+        limits, counts = rallylimits.read(self.rt)
+        rows = [{"label": "rally_limit.type." + key,
+                 "value": "%d/%d" % (counts.count_for(key), limits.limit_for(key))}
+                for key in limits.types()]
+        return {
+            "title": "autorally.frame",
+            "items": [
                 ({"label": "autorally.squads",
+                  # The digits are DATA and the same in every language; «none» is a
+                  # word, so it is a key on the pill rather than a sentence in a value.
                   "detail": ", ".join(str(s) for s in self.join_squads())}
                  if self.join_squads() else
                  {"label": "autorally.squads", "pill": "rally.state.none"}),
+                ({"label": "autorally.drill.squads",
+                  "detail": ", ".join(str(s) for s in drill)}
+                 if page._drill_on_var.get() and drill else
+                 {"label": "autorally.drill.squads",
+                  "pill": _switch(page._drill_on_var.get()) if not drill
+                  else "rally.state.off"}),
+                ({"label": "autorally.create.squads",
+                  "detail": str(page._create_flagship)}
+                 if page._create_flagship else
+                 {"label": "autorally.create.squads", "pill": "rally.state.none"}),
+                {"label": "autorally.create.elite",
+                 "detail": str(page.create_elite_level())},
             ],
+            "rows": rows,
         }
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» — the squad reader's own asynchronous read, nothing else.
 
         Joining a rally from the phone is deliberately NOT here yet: the join is a
-        send with squads chosen for it, and choosing them is the settings page's list.
-        A wrong squad sent from a bus is a squad that is not home when the next rally
-        lands.
+        send with squads chosen for it, and choosing them is «Автосбор» above — a
+        reading here, editable only at the machine. A wrong squad sent from a bus is a
+        squad that is not home when the next rally lands.
         """
         if action != "refresh":
             return {"error": "unknown"}
@@ -449,11 +505,10 @@ class RallyTab(PanelTab):
         Restarting is deliberate: a running capture keeps writing to the OLD profile's
         log, so a switch has to redirect it.
         """
-        self._stop_monitor()
+        self._stop_capture()
         self._refresh_hint()
         self.autorally.reload_limits()
-        if self._monitor_var.get():
-            self._start_monitor()
+        self._sync_capture()
 
     def on_language_change(self) -> None:
         self._refresh_hint()
@@ -461,12 +516,14 @@ class RallyTab(PanelTab):
     def panic(self) -> None:
         """«Стоп всё»: the capture off, and a run in flight asked to stop."""
         self._monitor_var.set(False)
-        self._stop_monitor()
+        self._alert_var.set(False)
+        self._autojoin_var.set(False)
+        self._stop_capture()
         self._stop_run()
 
     def shutdown(self) -> None:
         self._stop_run()
-        self._stop_monitor()
+        self._stop_capture()
         self._unwatch_squads()
 
     # -- reading the controls ----------------------------------------------
@@ -662,58 +719,83 @@ class RallyTab(PanelTab):
         finally:
             self.rt.game.release()
 
-    # -- the monitor child ---------------------------------------------------
-    def _toggle_monitor(self) -> None:
-        if self._monitor_var.get():
-            self._start_monitor()
-        else:
-            self._stop_monitor()
+    # -- the capture, and the three switches that want it ---------------------
+    #
+    # ONE CAPTURE, THREE REASONS, AND THEY ARE NOT THE SAME SWITCH (#1237). A rally
+    # rides `push.alliance.march.*`, and reading that stream is the only way the panel
+    # hears one has gone out. Three things on this tab want to hear it:
+    #
+    #   * «Монитор стягиваний» — write the armies down (the JSONL archive). That IS the
+    #     monitor, and it is all of it: statistics, in a file, for reading later.
+    #   * «Оповещать» — say so in the log and ring.
+    #   * «Присоединяться сам» — join it.
+    #
+    # They were wired as one because the archive-writer happened to be the thing
+    # spawning the capture, so joining by itself needed a statistics file nobody asked
+    # for, and switching the statistics off silently switched the joining off too. The
+    # capture is now reference-counted against all three: it comes up for whichever of
+    # them is on and stays up while ANY of them is, and the archive is written only
+    # when the monitor box — the one that means «write it down» — is ticked.
+    def _capture_wants(self) -> tuple:
+        """``(wanted, archive)`` — whether to listen at all, and whether to write."""
+        archive = bool(self._monitor_var.get())
+        return (archive or bool(self._alert_var.get())
+                or bool(self._autojoin_var.get())), archive
 
-    def _toggle_autojoin(self) -> None:
-        """Joining by itself needs an ear, and the watcher above is the only one it has.
+    def _sync_capture(self) -> None:
+        """Bring the capture up, take it down, or re-point it — whatever the boxes say.
 
-        The two boxes were independent, so «Присоединяться сам» ticked over a watcher
-        that was off was a switch that did nothing whatever and said so nowhere — and a
-        profile in exactly that state is half of what #1237 was reported as. Ticking the
-        join brings the watcher up with it and says which box moved. Unticking the join
-        leaves the watcher alone: being TOLD about a rally without joining it is a
-        perfectly ordinary thing to want.
-
-        The trigger «Автоприсоединение к стягиваниям альянса» in «Таймеры» is the other
-        way to join by itself, and it needs none of this — it listens on the wire
-        through the schedule. This box is the tab's own path.
+        Idempotent, and the ONE place the child's lifetime is decided: every switch
+        calls this and none of them starts or stops anything itself. A change of the
+        archive half restarts the child, because whether it writes is an argument it
+        was launched with.
         """
-        if self._autojoin_var.get() and not self._monitor_var.get():
-            self._monitor_var.set(True)
-            self._start_monitor()
-            self.say("rally", "rally.autojoin_needs_monitor")
-
-    def _start_monitor(self) -> None:
+        wanted, archive = self._capture_wants()
+        if not wanted:
+            self._stop_capture()
+            return
+        if self._proc is not None and self._archiving == archive:
+            return
         if self._proc is not None:
-            return
+            self._stop_capture()
+        self._start_capture(archive)
+
+    def _start_capture(self, archive: bool) -> None:
         out = self.rt.profiles.rally_log()         # per-profile log
-        try:
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-        except Exception:                          # noqa: BLE001 — the child says so too
-            pass
-        self.say("rally", "log.rally.started", path=repo_rel(out))
+        if archive:
+            try:
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+            except Exception:                      # noqa: BLE001 — the child says so too
+                pass
+            self.say("rally", "log.rally.started", path=repo_rel(out))
+        else:
+            # Listening for the joining and the alert, writing nothing — said in as
+            # many words, or a capture running with «Монитор» unticked reads as a bug.
+            self.say("rally", "log.rally.listening")
+        cmd = [self.rt.children.python(), "-u",
+               os.path.join(TOOLS, "rally_monitor.py")]
         # no --all-tcp: auto-detect the narrow game port, as the other captures do.
-        mon = self.rt.children.spawn(
-            "rally",
-            [self.rt.children.python(), "-u", os.path.join(TOOLS, "rally_monitor.py"),
-             "--out", out],
-            on_line=self._on_line, on_exit=self._on_exit)
+        cmd += ["--out", out] if archive else ["--no-archive"]
+        mon = self.rt.children.spawn("rally", cmd,
+                                     on_line=self._on_line, on_exit=self._on_exit)
         if not mon.start():
+            # The capture is what all three switches ride, so a child that will not
+            # start takes all three down — leaving one ticked would promise a join
+            # that has nothing to hear.
             self._monitor_var.set(False)
+            self._alert_var.set(False)
+            self._autojoin_var.set(False)
             return
-        self._proc = mon
+        self._proc, self._archiving = mon, archive
 
     def _on_exit(self) -> None:
         self.say("rally", "log.rally.ended")
         self._proc = None
         self._monitor_var.set(False)
+        self._alert_var.set(False)
+        self._autojoin_var.set(False)
 
-    def _stop_monitor(self) -> None:
+    def _stop_capture(self) -> None:
         mon, self._proc = self._proc, None
         if mon is not None:
             self.say("rally", "log.rally.stopped")

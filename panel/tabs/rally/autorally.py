@@ -1,11 +1,15 @@
-"""The «Авторалли» settings page — the first page a TAB contributes to Settings.
+"""«Автосбор» — the block on the «Ралли» tab that decides which squads go where.
 
-Under the plugin model the Settings tab is an aggregator: it draws the runtime's own
-pages and then one page per tab that has one, so «Авторалли» travels with the rally tab
-and is simply not there when rally is switched off
-(docs/research/panel-tabs-refactor.md §6).
+IT USED TO BE A PAGE INSIDE «НАСТРОЙКИ», contributed by the rally tab through
+`settings_page()`, and it moved onto the tab itself in #1237. Two reasons, and the
+second is the one that matters: nothing here is a knob of the PANEL — not a path, not a
+port, not an interpreter — it is all about rallies, and it belongs beside the switches
+that spend it. And while it lived under an aggregator it could go missing without a
+sound: the Settings tab drew the tabs it happened to have been built before, rally was
+not one of them, and the squad list the auto-join spends was simply not on screen for
+anybody to fill in.
 
-Four blocks, and they share the page because they are the same decision asked four
+Four blocks, and they share the block because they are the same decision asked four
 ways — which squads may go to a rally:
 
 * **the join list** — the squads an auto-join may spend. This list IS what the recipe
@@ -18,10 +22,11 @@ ways — which squads may go to a rally:
   rally_limits.py). The list of types is the caps file's own keys, so adding a type is
   a data change rather than a code one.
 
-THE VARIABLES EXIST WITHOUT THE WIDGETS. A standalone «Ралли» window has no Settings
-tab at all, and the monitor's auto-join still has to know which squads it may send —
-so the page's state is built in the constructor and `build()` only draws controls onto
-it. That is also why a profile applies cleanly before anything is on screen.
+THE VARIABLES EXIST WITHOUT THE WIDGETS, and that is still true now the block is on the
+tab: the auto-join runs at boot, from `ensure_loaded`, in a profile nobody has opened
+the tab in — and it still has to know which squads it may send. So the state is built in
+the constructor and `build()` only draws controls onto it. That is also why a profile
+applies cleanly before anything is on screen.
 """
 from __future__ import annotations
 

@@ -201,15 +201,23 @@ class RallyMonitor(LiveDecoder):
     sniffer calls ``LiveDecoder.feed_packet`` regardless of the subclass.
     """
 
-    def __init__(self, out_path: str):
+    def __init__(self, out_path: "str | None"):
         super().__init__()
         self.frames = 0
         self.participant_rows = 0
         self.teams: set = set()          # distinct non-zero teamUuids (стяги)
         self.participants: set = set()   # distinct ownerUids
-        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        self._out = open(out_path, "a", encoding="utf-8")  # append: accumulate
+        # `None` — decode and PRINT, archive nothing. The panel runs this capture for
+        # two unrelated reasons: to collect the armies (the archive below) and, since
+        # #1237, simply to HEAR that a rally went out, which is what its auto-join acts
+        # on. The second reason has no use for the file, and writing one anyway would
+        # make «Монитор стягиваний» a switch that changes nothing — the archive is the
+        # whole of what that switch means to the person using it.
         self.out_path = out_path
+        self._out = None
+        if out_path:
+            os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+            self._out = open(out_path, "a", encoding="utf-8")  # append: accumulate
 
     def emit(self, direction, env):  # LiveDecoder hook
         command = proto.envelope_command(env) or ""
@@ -249,10 +257,12 @@ class RallyMonitor(LiveDecoder):
                 "formation": _formation(army_pb),
                 "armyInfoRaw": army_pb,
             }
-            self._out.write(json.dumps(record, ensure_ascii=False) + "\n")
-            self.participant_rows += 1
+            if self._out is not None:
+                self._out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                self.participant_rows += 1
             names.append(march.get("ownerName") or owner)
-        self._out.flush()
+        if self._out is not None:
+            self._out.flush()
 
         who = ", ".join(str(n) for n in names if n) or "-"
         tag = (f"{C_RALLY}team={team_here}{C_RESET}" if team_here
@@ -270,13 +280,14 @@ class RallyMonitor(LiveDecoder):
             print("teams (teamUuid):")
             for team in sorted(self.teams):
                 print(f"  {team}")
-        print(f"\n{self.packets} packet(s) with payload; archive: {self.out_path}")
+        print(f"\n{self.packets} packet(s) with payload; archive: {self.out_path or '-'}")
         if not self.frames:
             print(f"{C_DIM}No rally events decoded — rallies ride "
                   f"push.alliance.march.*, which only arrives when an alliance "
                   f"rally is actually launched or refreshed while capturing."
                   f"{C_RESET}")
-        self._out.close()
+        if self._out is not None:
+            self._out.close()
 
 
 def main() -> int:
@@ -289,6 +300,10 @@ def main() -> int:
     add_capture_arguments(ap, include_dump=False)
     ap.add_argument("--out", default=DEFAULT_OUT,
                     help=f"JSONL archive, appended (default {DEFAULT_OUT})")
+    # For the caller that wants the STREAM and not the archive — the panel's
+    # auto-join, which only needs to hear that a rally went out (#1237).
+    ap.add_argument("--no-archive", action="store_true",
+                    help="decode and print, write no JSONL")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter rather
     # than refused by the capture-only platform check.
@@ -301,14 +316,15 @@ def main() -> int:
     except Exception:
         pass
 
-    monitor = RallyMonitor(args.out)
+    monitor = RallyMonitor(None if args.no_archive else args.out)
     stop, bpf = start_capture(monitor, args)
 
     print("Rally monitor — scapy/npcap, no dumpcap")
     print(f"filter: '{bpf}'   interface: {args.iface or 'default'}")
     window = f"{args.seconds}s" if args.seconds else "until Ctrl+C"
     print(f"{C_DIM}decoding alliance.march.create/refresh armies -> "
-          f"{monitor.out_path}\nlistening {window} — a rally must be launched or "
+          f"{monitor.out_path or 'stdout only (--no-archive)'}"
+          f"\nlistening {window} — a rally must be launched or "
           f"refreshed for anything to arrive{C_RESET}\n")
 
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

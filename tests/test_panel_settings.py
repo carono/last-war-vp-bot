@@ -204,15 +204,20 @@ def test_ticking_develop_on_the_tabs_page_turns_it_on():
 
 
 def test_a_tab_contributes_its_own_settings_page():
-    """«Авторалли» is drawn by the rally tab, so it is there when rally is, and not
-    when it is not (docs/research/panel-tabs-refactor.md §6)."""
+    """A tab that declares a page gets it drawn, and a window without that tab has none.
+
+    «Автосбор» was the only real user and moved onto the «Ралли» tab itself in #1237 —
+    everything on it was about rallies and none of it was a knob of the panel. The
+    MECHANISM stays, because the next tab to want a page of its own should find it
+    working, so it is exercised here with a stand-in contributor.
+    """
     if ttk is None:
         _skip()
         return
 
     class _Contributor:
         ID = "rally"
-        SETTINGS_PAGE_KEY = "settings.tab.autorally"
+        SETTINGS_PAGE_KEY = "tab.rally"
 
         def __init__(self):
             self.drawn = []
@@ -232,7 +237,7 @@ def test_a_tab_contributes_its_own_settings_page():
               if isinstance(w, ttk.Notebook)][0]
         labels = [nb.tab(t, "text") for t in nb.tabs()]
         assert len(labels) == len(SHELL_PAGES) + 1, labels
-        assert labels[-1] == page.t("settings.tab.autorally"), labels
+        assert labels[-1] == page.t("tab.rally"), labels
         assert tab.drawn, "the tab was never asked to draw its page"
     finally:
         root.destroy()
@@ -247,7 +252,7 @@ def test_a_tab_contributes_its_own_settings_page():
         nb = [w for w in root.winfo_children()[0].winfo_children()
               if isinstance(w, ttk.Notebook)][0]
         labels = [nb.tab(t, "text") for t in nb.tabs()]
-        assert page.t("settings.tab.autorally") not in labels, labels
+        assert page.t("tab.rally") not in labels, labels
     finally:
         root.destroy()
 

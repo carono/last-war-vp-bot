@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fake_runtime  # noqa: E402
 from panel import tabs as tabsreg  # noqa: E402
+from panel.tabs.base import PanelTab  # noqa: E402
 
 
 def _skip(what, exc=None) -> None:
@@ -53,32 +54,54 @@ def test_every_tab_imports():
 
 
 def test_the_aggregator_is_built_after_every_page_it_collects():
-    """«Настройки» draws a page per contributing tab, so it must be built last.
+    """«Настройки» draws pages contributed by other tabs, so it must be built last.
 
-    This is the one ordering the panel cannot get wrong quietly. `SettingsTab.build()`
+    This is the one ordering the panel cannot get wrong loudly. `SettingsTab.build()`
     walks `rt.tabs.live` and asks each tab for its page; a contributor built AFTER it is
     simply not in that list, and its page is not drawn — no error, no log line, just a
-    settings page with a section missing. That is how «Авторалли» disappeared: settings
+    settings page with a section missing. That is how «Автосбор» disappeared: settings
     sits at order 40 and rally at 300, so the aggregator ran ninth-from-last and the
     squad list the auto-join spends was never on screen to be filled in (#1237).
 
-    Asserted over the REAL registry, in the real resolve→build_order sequence, because
-    the existing coverage of the aggregator hands it a made-up dict of tabs and so
-    agrees with itself whatever the shell does.
+    No tab contributes a page TODAY — «Автосбор» moved onto the «Ралли» tab itself, which
+    is where it belongs — so the registry half of this is checked against a stand-in.
+    The mechanism stays, and so does its guarantee: the next tab to want a settings page
+    of its own must not have to discover this by losing one.
     """
     specs = tabsreg.resolve()
     order = [spec.id for spec in tabsreg.build_order(specs)]
-    contributors = [spec.id for spec in specs if spec.load().SETTINGS_PAGE_KEY]
     aggregators = [spec.id for spec in specs if spec.aggregates]
-    assert aggregators, "no tab collects the contributed settings pages any more"
-    assert contributors, "no tab contributes a settings page any more"
+    assert aggregators, "no tab collects contributed settings pages any more"
+    # Whatever else moves, an aggregator is filled after every ordinary tab.
     for agg in aggregators:
-        for contributor in contributors:
-            assert order.index(agg) > order.index(contributor), (
-                f"{agg!r} is built before {contributor!r}, so {contributor!r}'s "
-                f"settings page is never drawn: {order}")
-    # …and the tab BAR is untouched by all this: the aggregator keeps its place.
+        plain = [s.id for s in specs if not s.aggregates]
+        assert all(order.index(agg) > order.index(other) for other in plain), order
+
+    # …and a contributor, wherever the registry would place it, is built before it.
+    contributor = tabsreg.TabSpec("zz-contributor", "panel.tabs.stats", "StatsTab",
+                                  order=999)
+    mixed = tabsreg.build_order(list(specs) + [contributor])
+    ids = [spec.id for spec in mixed]
+    for agg in aggregators:
+        assert ids.index(agg) > ids.index("zz-contributor"), ids
+
+    # The tab BAR is untouched by all this: the aggregator keeps its place.
     assert [s.id for s in specs] == [s.id for s in tabsreg.resolve()], "resolve moved"
+
+
+def test_no_tab_contributes_a_settings_page_without_declaring_the_key():
+    """`settings_page()` and `SETTINGS_PAGE_KEY` are one thing said twice.
+
+    A tab that draws a page without naming it is a page the aggregator never asks for;
+    a tab that names one without drawing it is an empty sub-tab. Neither fails loudly,
+    so they are pinned to each other here.
+    """
+    for spec in tabsreg.TABS:
+        cls = spec.load()
+        own = cls.settings_page is not PanelTab.settings_page
+        assert own == bool(cls.SETTINGS_PAGE_KEY), (
+            f"{spec.id}: SETTINGS_PAGE_KEY={cls.SETTINGS_PAGE_KEY!r} but "
+            f"settings_page is {'overridden' if own else 'the default'}")
 
 
 def test_the_registry_ids_are_unique_and_ordered():
