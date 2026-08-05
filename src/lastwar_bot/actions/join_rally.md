@@ -138,6 +138,17 @@ IF picked == 0
 # --- 4. Launch, and let the game say whether we are in ---------------------------
 # The proof is one more of OUR squads standing in a rally than before the run — not the
 # press returning cleanly, which it did for weeks while joining nothing.
+# STILL THERE? A banner is minutes at best and seconds during an event, and the steps
+# above cost a few of them. Launching at a rally that has already come down aims the
+# send at a tile that is no longer one — the server refuses it, and what the player is
+# shown is «invalid end point». Said apart from «pressed and nothing happened», because
+# they are different things and only one of them is the bot's fault.
+READ_LUA (function() local p = DataCenter.__lw_rally_join if p == nil then return 0 end local wm = DataCenter.WorldMarchDataManager local col = wm:GetAllMarches() if col == nil then return 1 end local e = col:GetEnumerator() while e:MoveNext() do local mo = e.Current local ok, v = pcall(function() return mo.Value end) if ok and v ~= nil then mo = v end local t = nil pcall(function() t = mo.teamUuid end) if t ~= nil and tostring(t) == tostring(p.team) then return 1 end end return 0 end)() INTO alive
+
+IF alive == 0
+    TAP close
+    FAIL "the rally came down before the squad could be sent — it was gone by the time the screen was ready"
+
 TAP rally_join_launch
 
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined

@@ -2363,6 +2363,31 @@ def rally_join_screen() -> str:
             "if _isformation(w) then return 1 end return 0 end)()")
 
 
+def rally_join_alive() -> str:
+    """Lua *expression* -> 1 while the armed rally is still standing on the map.
+
+    A rally is minutes at best and SECONDS during an event, and this flow takes a few
+    of them: arm, open the screen, wait for it, pick, launch. A banner that came down in
+    between leaves the launch pointing at a tile that is no longer a rally — which the
+    server refuses, and which the player is shown as «invalid end point».
+
+    That is not the same failure as «everything was pressed and nothing happened», and
+    reading it here is what tells the two apart instead of leaving both to look like the
+    ability being broken.
+    """
+    return (
+        "(function() local p = DataCenter.__lw_rally_join if p == nil then return 0 end "
+        "local wm = DataCenter.WorldMarchDataManager local col = wm:GetAllMarches() "
+        "if col == nil then return 1 end "
+        "local e = col:GetEnumerator() while e:MoveNext() do "
+        "local mo = e.Current local ok, v = pcall(function() return mo.Value end) "
+        "if ok and v ~= nil then mo = v end "
+        "local t = nil pcall(function() t = mo.teamUuid end) "
+        "if t ~= nil and tostring(t) == tostring(p.team) then return 1 end end "
+        "return 0 end)()"
+    )
+
+
 def rally_join_squad() -> str:
     """Pick the parked squad on the open screen — the tap, and what the tap records."""
     return (
