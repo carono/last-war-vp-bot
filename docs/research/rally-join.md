@@ -241,3 +241,33 @@ the army array — and the fix there was to assemble the message and hand it to 
 message path rather than calling the convenience wrapper. That is the next thing to
 build here: assemble `world.march.formation.new` with the soldier object filled in, and
 send it the way `hospital.cure` is sent.
+
+### Where the protocol route stopped (#1237)
+
+Two more things were ruled out by direct test rather than by argument, and then the
+route ran into a wall worth naming so the next attempt does not re-walk it.
+
+**The thirteenth argument is not the cause.** The player's own join passes an EMPTY
+table there and the bot passes `nil` — the only difference the two messages had. A patch
+that substituted `{}` for `nil` on every march send was installed, a warm formation was
+prepared, the press fired with the patch applied (counter = 1), and no march was
+created. Measured, not reasoned.
+
+**The message bodies match.** Unpacked from a live send, the bot's `formationParam` is
+`{dataHolder = {formations = …, heroInfos = …, uuid = <formation>}}` — the same three
+keys the trace shows the game building, and the same `path` shape (`<base tile>;<target
+tile>`). The formation is warm at press time (3123 soldiers).
+
+**Where it stopped.** How many entries are actually inside `heroInfos` and `formations`.
+The trace shows the player's join carrying SIX heroes (`heroUuid` + `index` 1…6); the
+bot's counts could not be read at all. Both containers cross the Lua/C# boundary as
+`{Data = <C# collection>, Type = 17}`, and two attempts to count them — `pairs(x.Data)`
+and a `:Size()` probe — returned `?` rather than a number. So «the bot sends no heroes»
+is UNVERIFIED, not established, and must not be repeated as though it were.
+
+Anyone picking this up again starts there: read those two collections properly (the
+`Type = 17` wrapper is the thing to understand), and compare the counts against the six
+the trace records.
+
+One observation left unexplained: one bot send had a path starting `465562` where every
+other send, the player's and the bot's, started `465565`.
