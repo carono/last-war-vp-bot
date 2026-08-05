@@ -2330,26 +2330,45 @@ _RALLY_JOIN_PARAMS = "local p = DataCenter.__lw_rally_join or {} "
 def rally_join_arm() -> str:
     """Pick the rally to join and the squad to send, and park both. Presses nothing.
 
-    First of the sieved squads, first rally the account is not already in — the same two
-    lists `join_next_rally` used, so what changes here is only HOW the join is made.
+    First rally the account is not already in; of the sieved squads, **the first one that
+    can actually be sent** — that is, one with soldiers in it. The sieve upstream only
+    asks whether a squad is at home and idle, and a squad can be both of those and still
+    be empty; taking it anyway is what sends an otherwise headless join through the
+    windows, because an empty squad is the one case the send cannot cover (#1238).
+
+    Falls back to the first sieved squad when none has soldiers — then the screen path
+    below fills it, which is what the screen is for. So the choice never REFUSES a join,
+    it only prefers the one that needs nothing opened.
+
     Parked because `TAP` carries no arguments and every step below reads it back.
     """
     return (
         _RALLY_PRELUDE_MINE +
-        "local slot = squads[1] local r = rallies[1] "
+        "local r = rallies[1] "
+        "local afd = DataCenter.ArmyFormationDataManager "
+        # index -> formation uuid + how many soldiers are standing in it, read once
+        "local uuid_of, soldiers_of = {}, {} "
+        "for _, v in pairs(afd.ArmyFormationList) do "
+        "local ok, idx = pcall(function() return v.index end) "
+        "if ok and idx ~= nil then local key = tostring(idx) "
+        "pcall(function() uuid_of[key] = v.uuid end) "
+        "local n = 0 pcall(function() n = tonumber(v.totalSoldierNum) or 0 end) "
+        "soldiers_of[key] = n end end "
+        "local slot = nil "
+        "for _, s in ipairs(squads) do "
+        "if slot == nil and (soldiers_of[tostring(s)] or 0) > 0 then slot = s end end "
+        "if slot == nil then slot = squads[1] end "
         "if slot == nil or r == nil then DataCenter.__lw_rally_join = nil "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_arm none squads="..#squads'
         '.." rallies="..#rallies) return end '
-        "local afd = DataCenter.ArmyFormationDataManager local fu = nil "
-        "for _, v in pairs(afd.ArmyFormationList) do "
-        "local ok, idx = pcall(function() return v.index end) "
-        "if ok and tostring(idx) == tostring(slot) then pcall(function() fu = v.uuid end) end end "
+        "local fu = uuid_of[tostring(slot)] "
         "if fu == nil then DataCenter.__lw_rally_join = nil "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_arm noformation squad="..tostring(slot)) '
         "return end "
         "DataCenter.__lw_rally_join = {squad = slot, formation = fu, point = r.point, "
         "team = r.team, server = r.server} "
         'CS.UnityEngine.Debug.LogError("ACT rally_join_arm squad="..tostring(slot)'
+        '.." soldiers="..tostring(soldiers_of[tostring(slot)])'
         '.." team="..tostring(r.team).." point="..tostring(r.point))'
     )
 

@@ -753,6 +753,25 @@ def test_the_join_tries_the_screenless_send_before_it_opens_anything():
     assert guard, "nothing checks whether the send landed late before opening the screen"
 
 
+def test_the_arm_prefers_a_squad_that_can_actually_be_sent():
+    """A squad can be at home, idle and EMPTY — and taking it forces the screen (#1238).
+
+    The sieve upstream only asks «is it home and free». If squad 1 is home and empty while
+    squad 3 is home with an army, arming squad 1 sends an otherwise headless join through
+    the windows for nothing. So the arm picks the first ticked squad that has soldiers, and
+    falls back to the first free one when none has — which is where the screen belongs,
+    since filling an empty squad is what it is for.
+    """
+    import importlib
+
+    la = importlib.import_module("lib.lua_actions")
+    arm = la.rally_join_arm()
+    assert "totalSoldierNum" in arm, "the arm does not look at soldiers at all"
+    assert "soldiers_of" in arm and "if slot == nil then slot = squads[1] end" in arm, arm[-400:]
+    # the marker carries the count, so a log line says WHY a run went to the screen
+    assert 'soldiers="..tostring(soldiers_of' in arm, arm[-300:]
+
+
 def test_a_join_is_sent_where_the_joiners_gather_not_where_the_rally_goes():
     """`targetPos` is the monster; a joining squad marches to the leader's tile (#1237)."""
     import importlib
