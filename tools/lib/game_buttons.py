@@ -480,6 +480,36 @@ BUTTONS: dict[str, Button] = {
         # Three squads is the whole army; the cap is only a backstop.
         max_taps=5,
     ),
+    # --- alliance rally: JOIN one through the game's own screens --------------
+    # The direct send is measured, argument for argument, to match the player's own and
+    # to create no march all the same (docs/research/rally-join.md), so the join is
+    # driven the way the raise already is: open the screen, pick the squad, launch, with
+    # the recipe waiting for each state in between. The screen is never closed by these —
+    # it closes itself on success, and closing it early is exactly what left the old
+    # press with nothing behind it.
+    "rally_join_arm": Button(
+        # Not a press in the game: pick the rally and the squad and park them, so every
+        # step below reads one answer rather than racing the map for its own.
+        lua=_lua_actions.rally_join_arm(),
+        wait=0.2, label="arm the join (rally + squad)",
+    ),
+    "rally_join_open": Button(
+        lua=_lua_actions.rally_join_open(),
+        # The screen is the server's answer, so the recipe polls for it rather than
+        # trusting this number; this only keeps the press from returning before the
+        # window has begun opening.
+        wait=1.2, label="open the squad screen for the rally",
+    ),
+    "rally_join_squad": Button(
+        lua=_lua_actions.rally_join_squad(),
+        wait=0.6, label="pick the squad on the join screen",
+    ),
+    "rally_join_launch": Button(
+        lua=_lua_actions.rally_join_launch(),
+        # The launch is a send: the march only appears once the server answers, and the
+        # recipe counts the squads in a rally before and after to know whether it did.
+        wait=3.0, label="launch the join",
+    ),
     # --- alliance rally: RAISE one («Стягивание») -----------------------------
     # The create side, four presses in the order the game itself walks them:
     #

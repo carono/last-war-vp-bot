@@ -590,9 +590,14 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     # The recipe leads with `CALL rally_monitor` — it logs who is in the rallies (the
     # members and squads) before spending anything (#1130) — then parks the squads,
     # SIEVES them down to the ones standing in the base (#1222), refuses when none is
-    # left, and presses.
-    assert [type(s).__name__ for s in stmts] == [
-        "CallStmt", "LuaStmt", "ReadLuaStmt", "IfStmt", "TapStmt"], stmts
+    # left, and then joins ONE rally THROUGH THE GAME'S OWN SCREENS.
+    #
+    # The single `TAP join_rally xall` this used to end with is gone with the direct
+    # send it drove: that message matched the player's own argument for argument and the
+    # server created no march (#1237, docs/research/rally-join.md). The join is made the
+    # way `create_rally.md` makes a raise — open the squad screen, pick, launch — which
+    # is one rally per run rather than one per squad, and the trigger fires again on the
+    # next banner.
     assert stmts[0].action_name == "rally_monitor"
     assert "{ 1, 2, 3 }" in stmts[1].chunk, stmts[1].chunk
     # The sieve is in the recipe rather than in the panel: a squad already out joins
@@ -600,8 +605,19 @@ def test_join_rally_recipe_spends_one_squad_per_rally():
     assert "IsFree" in stmts[1].chunk and "ArmyFormationList" in stmts[1].chunk, stmts[1].chunk
     assert stmts[2].var == "free_squads", stmts[2]
     assert type(stmts[3].then_block[0]).__name__ == "FailStmt", stmts[3]
-    assert stmts[4].name == "join_rally"
-    assert stmts[4].count is None, "the press must be TAP … xall, not a fixed count"
+
+    presses = [s.name for s in stmts if type(s).__name__ == "TapStmt"]
+    assert presses[:1] == ["rally_join_arm"], presses
+    for want in ("rally_join_open", "rally_join_squad", "rally_join_launch"):
+        assert want in presses, presses
+        assert want in gb.BUTTONS, f"{want} is not a button"
+    # …and the rally it goes for is THIS ALLIANCE'S. Another alliance's banner cannot be
+    # joined at all — the server refuses it, which is what «invalid end point» was, and
+    # the recipe spent weeks pressing at rallies it could never enter.
+    reads = {s.var: s.expr for s in stmts if type(s).__name__ == "ReadLuaStmt"}
+    assert "__lw_my_alliance" in reads["rallies_out"], reads["rallies_out"][:200]
+    # The proof is still counted, not assumed: squads in a rally before and after.
+    assert "joined" in reads and "__lw_rally_before" in reads["joined"], reads.get("joined")
 
     # The parked squads live on the LuaStmt (now the second statement, after CALL).
     def _lua_chunk(squads):

@@ -2195,6 +2195,48 @@ _RALLY_PRELUDE = (
 )
 
 
+# OURS, NOT EVERY BANNER ON THE MAP. `GetAllMarches()` returns every march the client
+# can see, and a rally belonging to another alliance cannot be joined at all — the
+# server refuses it, which is the «invalid end point» the player was shown and which
+# cost this ability weeks of looking in the wrong place (#1237). The marches carry
+# `allianceName`; the PLAYER does not, and no alliance manager on the client will hand
+# it over — so it is learned from any march of our own on the map (`ownerUid == P.uid`)
+# and remembered, because there are minutes when we have none out and the answer must
+# not go with them.
+#
+# Learned and not configured, deliberately: an alliance name typed into a setting is one
+# more thing to be wrong after a merge or a rename, and it would be an account's own
+# identifier living in a file (`CLAUDE.md`).
+_RALLY_MINE = (
+    "local P = LuaEntry.Player "
+    "if col then local e2 = col:GetEnumerator() while e2:MoveNext() do local m2 = cur(e2) "
+    "local u, an = nil, nil "
+    "pcall(function() u = tostring(m2.ownerUid) an = tostring(m2.allianceName) end) "
+    "if u == tostring(P.uid) and an ~= nil and an ~= '' and an ~= 'nil' then "
+    "DataCenter.__lw_my_alliance = an end end end "
+    "local mine = DataCenter.__lw_my_alliance "
+)
+
+#: The prelude the JOIN side uses: every rally out, narrowed to this alliance's. Kept
+#: apart from `_RALLY_PRELUDE` because the monitor's listing wants what is on the map,
+#: the whole map — «who is rallying right now» is a different question from «what may I
+#: join». Falls open when the alliance could not be learned: a gate that cannot see must
+#: not refuse (the same rule the squad sieve follows), and a press at a rally we cannot
+#: join costs one refusal rather than a missed one.
+_RALLY_PRELUDE_MINE = (
+    _RALLY_PRELUDE + _RALLY_MINE +
+    "local ours = {} "
+    "if col and mine then local e3 = col:GetEnumerator() while e3:MoveNext() do "
+    "local m3 = cur(e3) local t3, n3 = nil, nil "
+    "pcall(function() t3 = m3.teamUuid n3 = tostring(m3.allianceName) end) "
+    "if t3 ~= nil and tostring(t3) ~= '0' and n3 == mine then ours[tostring(t3)] = true end "
+    "end end "
+    "if mine ~= nil then local kept = {} "
+    "for _, r in ipairs(rallies) do if ours[tostring(r.team)] then kept[#kept+1] = r end end "
+    "rallies = kept end "
+)
+
+
 def rally_squads_set(squads) -> str:
     """Park the squad slots a run may spend, and forget the previous run's joins."""
     slots = ",".join(str(int(s)) for s in squads)
@@ -2222,7 +2264,7 @@ def rally_joinable_count() -> str:
     join did not happen». Those are the two endings that used to look identical, and
     the second one is a fault while the first is an ordinary quiet minute.
     """
-    return "(function() %s return #rallies end)()" % _RALLY_PRELUDE
+    return "(function() %s return #rallies end)()" % _RALLY_PRELUDE_MINE
 
 
 def rally_joined_count() -> str:
@@ -2241,6 +2283,122 @@ def rally_joined_count() -> str:
             "local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) "
             "if m~=nil and tostring(m.teamUuid)~=\"0\" then n=n+1 end end) end "
             "return n end)()")
+
+
+# --------------------------------------------------------------------------
+# Alliance rally: JOIN one THROUGH THE GAME'S OWN SCREENS
+# --------------------------------------------------------------------------
+# The direct send does not work and it is not for want of trying: the message the bot
+# builds matches the player's argument for argument (docs/research/rally-join.md), and
+# the server still creates no march. So the join is driven the way `create_rally.md`
+# drives the raise — through the windows, waiting for STATES rather than sleeping:
+#
+#     OnClickStartMarch -> UIFormationSelectListV2 -> pick the squad -> OnCheckTime
+#
+# Read off a trace of a HAND-MADE join: `OnClickStartMarch(6, point, team, -1, 1, 7,
+# server, 0, 10)` is what opens that screen — note the `10`, which the old fire-and-
+# forget warm-up passed as `0` — and the screen is the SAME one the create side already
+# picks a squad on, so the last two steps are the create side's, spelled for the join.
+#
+# THE SCREEN IS NOT CLOSED BY ANY OF THIS. The old press opened it and shut it again in
+# the same breath, which is why the send that followed had nothing behind it — the same
+# lesson #1172 paid for on the create side: the popup a button lives on must stay up
+# until the button has been pressed. The screen closes itself when the launch succeeds.
+_RALLY_JOIN_PARAMS = "local p = DataCenter.__lw_rally_join or {} "
+
+
+def rally_join_arm() -> str:
+    """Pick the rally to join and the squad to send, and park both. Presses nothing.
+
+    First of the sieved squads, first rally the account is not already in — the same two
+    lists `join_next_rally` used, so what changes here is only HOW the join is made.
+    Parked because `TAP` carries no arguments and every step below reads it back.
+    """
+    return (
+        _RALLY_PRELUDE_MINE +
+        "local slot = squads[1] local r = rallies[1] "
+        "if slot == nil or r == nil then DataCenter.__lw_rally_join = nil "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_arm none squads="..#squads'
+        '.." rallies="..#rallies) return end '
+        "local afd = DataCenter.ArmyFormationDataManager local fu = nil "
+        "for _, v in pairs(afd.ArmyFormationList) do "
+        "local ok, idx = pcall(function() return v.index end) "
+        "if ok and tostring(idx) == tostring(slot) then pcall(function() fu = v.uuid end) end end "
+        "if fu == nil then DataCenter.__lw_rally_join = nil "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_arm noformation squad="..tostring(slot)) '
+        "return end "
+        "DataCenter.__lw_rally_join = {squad = slot, formation = fu, point = r.point, "
+        "team = r.team, server = r.server} "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_arm squad="..tostring(slot)'
+        '.." team="..tostring(r.team).." point="..tostring(r.point))'
+    )
+
+
+def rally_join_armed() -> str:
+    """Lua *expression* -> 1 when there is a rally to join and a squad to join it with."""
+    return ("(function() local p = DataCenter.__lw_rally_join "
+            "if p == nil or p.formation == nil then return 0 end return 1 end)()")
+
+
+def rally_join_open() -> str:
+    """Press the game's «go on this march» entry, which opens the squad screen.
+
+    The arguments are the ones a hand-made join was recorded making, in that order:
+    target type 6 (`MarchTargetType.JOIN_RALLY`), the rally's tile, the rally id, then
+    the constants the screen wants. It opens `UIFormationSelectListV2` and is NOT
+    followed by a close.
+    """
+    return (
+        _RALLY_JOIN_PARAMS +
+        "if p.formation == nil then error('no rally armed for this run') end "
+        "MarchUtil.OnClickStartMarch(6, p.point, p.team, -1, 1, 7, p.server, 0, 10) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_open point="..tostring(p.point))'
+    )
+
+
+def rally_join_screen() -> str:
+    """Lua *expression* -> 1 when the squad screen the join needs is on top."""
+    return ("(function() " + _FORMATION_WIN +
+            "local w = UIManager.Instance:GetStackTopWindow() "
+            "if _isformation(w) then return 1 end return 0 end)()")
+
+
+def rally_join_squad() -> str:
+    """Pick the parked squad on the open screen — the tap, and what the tap records."""
+    return (
+        _FORMATION_WIN + _RALLY_JOIN_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "pcall(function() w.View:OnSelectClick(p.formation) end) "
+        "w.Ctrl:SetSelectFormationUuid(p.formation) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_squad sel="'
+        '..tostring(w.Ctrl.selectFormationUuid))'
+    )
+
+
+def rally_join_picked() -> str:
+    """Lua *expression* -> 1 when the open screen really holds the parked squad."""
+    return (
+        "(function() " + _FORMATION_WIN + _RALLY_JOIN_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then return 0 end "
+        "if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) "
+        "then return 1 end return 0 end)()"
+    )
+
+
+def rally_join_launch() -> str:
+    """Press the screen's own launch. The screen closes itself when it is accepted."""
+    return (
+        _FORMATION_WIN + _RALLY_JOIN_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "w.Ctrl:OnCheckTime(p.formation, nil) "
+        'CS.UnityEngine.Debug.LogError("ACT rally_join_launch formation="'
+        '..tostring(p.formation))'
+    )
 
 
 def join_next_rally() -> str:

@@ -79,30 +79,74 @@ IF free_squads == -1
 IF free_squads == 0
     FAIL "not one of the chosen squads is in the base — there is nothing to join with"
 
-# IS THERE ANYTHING TO JOIN — asked before the press, because the two ways this run
+# IS THERE ANYTHING OF OURS TO JOIN — asked before the press, because the two ways this run
 # ends with nothing joined are not the same thing. A quiet minute with no rally out is
 # an ordinary success; a rally that WAS out and no squad in it afterwards is a fault,
 # and the auto-join trigger must retry the second and not the first. Until #1237 both
 # came back «OK» with no line at all, which is exactly what «пытается, эффекта ноль»
 # looks like from the log.
-READ_LUA (function() local wm=DataCenter.WorldMarchDataManager local function g(mo,k) local ok,v=pcall(function() return mo[k] end) if ok then return v end return nil end local function cur(e) local mo=e.Current local ok,v=pcall(function() return mo.Value end) if ok and v~=nil then return v end return mo end local taken=DataCenter.__lw_rally_joined or {} local om=wm:GetOwnerMarches() if om then local e=om:GetEnumerator() while e:MoveNext() do local mo=cur(e) local t=g(mo,'teamUuid') if t~=nil and tostring(t)~='0' then taken[tostring(t)]=true end end end local rallies={} local col=wm:GetAllMarches() if col then local e=col:GetEnumerator() while e:MoveNext() do local mo=cur(e) local team=g(mo,'teamUuid') local ts=tostring(team) if team~=nil and ts~='0' and ts~='nil' and not taken[ts] then local lead=false pcall(function() lead=(tostring(g(mo,'uuid'))==tostring(team-1)) end) if lead then rallies[#rallies+1]={team=team,point=g(mo,'targetPos'),server=(g(mo,'serverId') or g(mo,'targetServer'))} end end end end table.sort(rallies,function(a,b) return tostring(a.team)<tostring(b.team) end) local squads=DataCenter.__lw_rally_squads or {1,2,3}  return #rallies end)() INTO rallies_out
+READ_LUA (function() local wm=DataCenter.WorldMarchDataManager local function g(mo,k) local ok,v=pcall(function() return mo[k] end) if ok then return v end return nil end local function cur(e) local mo=e.Current local ok,v=pcall(function() return mo.Value end) if ok and v~=nil then return v end return mo end local taken=DataCenter.__lw_rally_joined or {} local om=wm:GetOwnerMarches() if om then local e=om:GetEnumerator() while e:MoveNext() do local mo=cur(e) local t=g(mo,'teamUuid') if t~=nil and tostring(t)~='0' then taken[tostring(t)]=true end end end local rallies={} local col=wm:GetAllMarches() if col then local e=col:GetEnumerator() while e:MoveNext() do local mo=cur(e) local team=g(mo,'teamUuid') local ts=tostring(team) if team~=nil and ts~='0' and ts~='nil' and not taken[ts] then local lead=false pcall(function() lead=(tostring(g(mo,'uuid'))==tostring(team-1)) end) if lead then rallies[#rallies+1]={team=team,point=g(mo,'targetPos'),server=(g(mo,'serverId') or g(mo,'targetServer'))} end end end end table.sort(rallies,function(a,b) return tostring(a.team)<tostring(b.team) end) local squads=DataCenter.__lw_rally_squads or {1,2,3} local P = LuaEntry.Player if col then local e2 = col:GetEnumerator() while e2:MoveNext() do local m2 = cur(e2) local u, an = nil, nil pcall(function() u = tostring(m2.ownerUid) an = tostring(m2.allianceName) end) if u == tostring(P.uid) and an ~= nil and an ~= '' and an ~= 'nil' then DataCenter.__lw_my_alliance = an end end end local mine = DataCenter.__lw_my_alliance local ours = {} if col and mine then local e3 = col:GetEnumerator() while e3:MoveNext() do local m3 = cur(e3) local t3, n3 = nil, nil pcall(function() t3 = m3.teamUuid n3 = tostring(m3.allianceName) end) if t3 ~= nil and tostring(t3) ~= '0' and n3 == mine then ours[tostring(t3)] = true end end end if mine ~= nil then local kept = {} for _, r in ipairs(rallies) do if ours[tostring(r.team)] then kept[#kept+1] = r end end rallies = kept end  return #rallies end)() INTO rallies_out
 
 IF rallies_out == 0
-    LOG "no rally is out that this account is not already in — nothing to join"
+    LOG "no rally of this alliance is out that we are not already in — nothing to join"
     STOP
 
-# What the press is about to be judged against.
+# What the join is about to be judged against.
 LUA DataCenter.__lw_rally_before = (function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()
 
-TAP join_rally xall   # one press per squad, each to a rally of its own
+# --- 1. Which rally, and which squad --------------------------------------------
+# Parked before anything is opened, so every step below reads ONE answer instead of
+# racing the map for its own — the same reason `create_rally.md` arms first.
+TAP rally_join_arm
 
-# …AND WHETHER IT ACTUALLY DID IT. The press cannot answer this for itself: the send is
-# put on the game's own timer and returns before the server has replied, so a join that
-# worked and a join that vanished return exactly the same thing. Only the squads
-# standing in a rally afterwards can say, and the difference is the answer.
+READ_LUA (function() local p = DataCenter.__lw_rally_join if p == nil or p.formation == nil then return 0 end return 1 end)() INTO armed
+
+IF armed == 0
+    FAIL "there is a rally out and a squad at home, but they could not be paired up — the squad has no formation the game knows"
+
+# --- 2. Open the game's own squad screen -----------------------------------------
+# THE DIRECT SEND DOES NOT WORK. The message the bot built matched the player's own
+# argument for argument and the server created no march (docs/research/rally-join.md),
+# so the join is made the way the raise is: through the windows. This press is what a
+# player's tap on the rally does, and it opens the squad screen.
+#
+# NOTHING CLOSES THAT SCREEN. The old press opened it and shut it in the same breath,
+# which is why the send behind it had nothing to stand on — the lesson #1172 paid for
+# on the create side, repeated here because it cost this ability weeks.
+TAP rally_join_open
+
+READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end local w = UIManager.Instance:GetStackTopWindow() if _isformation(w) then return 1 end return 0 end)() INTO screen
+
+WHILE screen == 0 LIMIT 8
+    WAIT 1
+    READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end local w = UIManager.Instance:GetStackTopWindow() if _isformation(w) then return 1 end return 0 end)() INTO screen
+
+IF screen == 0
+    FAIL "the rally did not bring up the squad screen — nothing was sent"
+
+# --- 3. Pick the squad, and read the pick back -----------------------------------
+# A launch on a screen that is not holding the wanted squad is a press that ends in
+# nothing, so the pick is confirmed before the send.
+TAP rally_join_squad
+
+READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end local p = DataCenter.__lw_rally_join or {} local w = UIManager.Instance:GetStackTopWindow() if not _isformation(w) then return 0 end if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) then return 1 end return 0 end)() INTO picked
+
+IF picked == 0
+    TAP close
+    FAIL "the squad screen would not take the chosen squad — nothing was sent"
+
+# --- 4. Launch, and let the game say whether we are in ---------------------------
+# The proof is one more of OUR squads standing in a rally than before the run — not the
+# press returning cleanly, which it did for weeks while joining nothing.
+TAP rally_join_launch
+
 READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
-IF joined == 0
-    FAIL "the press went out and no squad joined the rally — the send is accepted by the game and quietly does nothing in this state (docs/research/rally-join.md)"
+WHILE joined < 1 LIMIT 5
+    WAIT 1.2
+    READ_LUA ((function() local P=LuaEntry.Player local wm=DataCenter.WorldMarchDataManager local afd=DataCenter.ArmyFormationDataManager local n=0 for _,f in pairs(afd.ArmyFormationList) do pcall(function() local m=wm:GetOwnerFormationMarch(P.uid,f.uuid,P.allianceId) if m~=nil and tostring(m.teamUuid)~="0" then n=n+1 end end) end return n end)()) - (DataCenter.__lw_rally_before or 0) INTO joined
 
-LOG "joined {joined} rally(ies)"
+IF joined < 1
+    FAIL "everything was pressed and no squad joined the rally"
+
+LOG "joined the rally"

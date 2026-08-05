@@ -656,12 +656,13 @@ def test_the_join_counts_what_it_achieved_instead_of_reporting_ok():
 
     # …and a press that achieved nothing is a FAILURE, so the auto-join tries again.
     nothing = [s for s in stmts if isinstance(s, se.IfStmt)
-               and s.condition == "joined == 0"][0]
+               and s.condition == "joined < 1"][0]
     assert [type(x).__name__ for x in nothing.then_block] == ["FailStmt"], nothing
 
     # The count is read AFTER the press, or it would be measuring the wrong moment.
     order = [i for i, s in enumerate(stmts)]
-    tap = [i for i, s in enumerate(stmts) if isinstance(s, se.TapStmt)][0]
+    tap = [i for i, s in enumerate(stmts)
+           if isinstance(s, se.TapStmt) and s.name == "rally_join_launch"][0]
     after = [i for i, s in enumerate(stmts)
              if isinstance(s, se.ReadLuaStmt) and s.var == "joined"][0]
     assert after > tap, f"the verdict is read before the press ({after} < {tap})"
