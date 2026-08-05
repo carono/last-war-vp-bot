@@ -205,3 +205,39 @@ MarchUtil.OnJoinRally(formationUuid, rallyType, teamUuid, targetPos, curStamina)
 first argument and passes it to `CheckFormation` + `SendCreateMarchMessage`), and
 `rallyType` is the btnType the create side already uses (`RALLY_FOR_BOSS = 7`). Both
 need confirming against a rally that is actually out — none was during this session.
+
+### The wire diff, both sides measured (#1237)
+
+A trace of a HAND-MADE join (`results/traces/…_ралли_trace.log`, «присоединение к ралли
+первым отрядом») against the bot's own press, hooked at `SFSNetwork.SendMessage`:
+
+```
+game: world.march.formation.new | <formation> | 6 | <team> | 465565;480562 | 1 | true | <heroInfos> | 935 | -1 | nil | nil | <OBJECT>
+bot:  world.march.formation.new | <formation> | 6 | <team> | 465565;460587 | 1 | true | <heroInfos> | 935 | -1 | nil | nil | nil
+```
+
+Identical but for the LAST argument. Everything the earlier sessions suspected is
+therefore ruled out by observation, not by argument:
+
+* the **target type** is 6 in both — and `MarchTargetType.JOIN_RALLY == 6`;
+* the **path** is well formed in both: `<our base tile>;<rally tile>`, so «invalid end
+  point» is not a malformed endpoint but the server refusing the message as a whole;
+* the **heroInfos** array is present in both — the heroes are not what is missing;
+* the **formation uuid** is the same one in both.
+
+What is missing is the thirteenth argument. `SendCreateMarchMessage` builds it from the
+formation's own soldier state — its constants are `hasSolider`, `curSoldiers`,
+`soldierIdNumArra`, `soldierIde`, `soldierNume`, `armyArrayT` — and the bot's press
+produces `nil` there while the player's press produces an object. A march with heroes
+and no soldiers is what the server is being asked for.
+
+Leaving the squad screen OPEN and sending (rather than closing it first, which is what
+`join_next_rally` does) makes `SendCreateMarchMessage` emit no message at all — so the
+window is not simply «the thing that fills it in» either.
+
+**The precedent to follow is the hospital** (`docs/research/hospital-heal.md`, the
+`project_hospital_heal` note): the same shape of bug — a plain send silently dropping
+the army array — and the fix there was to assemble the message and hand it to the Lua
+message path rather than calling the convenience wrapper. That is the next thing to
+build here: assemble `world.march.formation.new` with the soldier object filled in, and
+send it the way `hospital.cure` is sent.
