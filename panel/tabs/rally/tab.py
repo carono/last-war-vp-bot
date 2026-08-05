@@ -84,6 +84,11 @@ def _kind_key(base: str, kind: str) -> str:
     return "rally_tab." + base + ("" if kind == RALLY_KIND_ELITE else "_" + kind)
 
 
+def _switch(on) -> str:
+    """The locale key for a switch's state, for a pill on the phone's copy of the tab."""
+    return "rally.state.on" if on else "rally.state.off"
+
+
 class _Stopped(Exception):
     """Raised inside the run loop when Stop was pressed — unwinds to the finally."""
 
@@ -350,8 +355,41 @@ class RallyTab(PanelTab):
             cards.append({"title": None, "rows": [
                 {"label": "rally_tab.stamina",
                  "value": f"{state.stamina}/{state.stamina_max}"}]})
+        cards.append(self._web_autojoin_card())
         return {"cards": cards, "now": __import__("time").time(),
                 "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def _web_autojoin_card(self) -> dict:
+        """Whether joining by itself is armed, and with which squads. A READING.
+
+        THE ANSWER TO «the boxes are ticked and nothing happens» (#1237), which is the
+        one question this screen could not answer. Where the squads are it already
+        showed; whether anything was going to be SENT to them lived only in the window,
+        so a person away from the machine saw three squads standing at home beside a
+        rally nobody joined and had no way to tell an empty settings list from a
+        watcher that was off.
+
+        Readings and no switch, deliberately, and it is the same line `web_press` draws:
+        a join is squads spent, and the list that decides which is the settings page —
+        which is not on the phone either («Настройки» declares `WEB_SCREEN = False`, and
+        that divergence is written down in CLAUDE.md). Arming it from a bus without the
+        list in arm's reach would be a press whose consequences are edited elsewhere.
+        """
+        return {
+            "title": "rally.frame",
+            "items": [
+                {"label": "rally.monitor",
+                 "pill": _switch(self._monitor_var.get())},
+                {"label": "rally.autojoin",
+                 "pill": _switch(self._autojoin_var.get())},
+                # The digits are DATA and the same in every language; «none» is a word,
+                # so it is a key on the pill rather than a sentence in the value.
+                ({"label": "autorally.squads",
+                  "detail": ", ".join(str(s) for s in self.join_squads())}
+                 if self.join_squads() else
+                 {"label": "autorally.squads", "pill": "rally.state.none"}),
+            ],
+        }
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить» — the squad reader's own asynchronous read, nothing else.

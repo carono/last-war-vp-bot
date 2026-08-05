@@ -225,6 +225,33 @@ def test_a_state_that_cannot_be_read_does_not_stop_the_run():
     assert "launch" in fake.presses, fake.presses
 
 
+def test_an_idle_flag_that_will_not_answer_is_unknown_and_not_busy():
+    """The same rule, one level down — and this is where it used to leak (#1237).
+
+    Both squad gates ask the game `IsFree()` inside a `pcall`, and both used to write the
+    answer into a variable that started at FALSE. A `pcall` that fails then leaves «busy»
+    where «unknown» belongs, so a squad standing at home behind a manager that happened
+    to refuse was called out on a march — `create_rally.md` said «squad N is not in the
+    base» and `join_rally.md` sieved it away and reported nobody home. Both were
+    sentences about the READ, worn by the squad.
+
+    Checked as TEXT because the only thing that can run the fix is the game's own Lua VM,
+    and this file deliberately needs no game. It is the shape that matters: a `pcall`
+    whose success is captured, not one whose failure is silently a «no».
+    """
+    for name in ("create_rally", "join_rally"):
+        path = _REPO / "src" / "lastwar_bot" / "actions" / f"{name}.md"
+        text = path.read_text(encoding="utf-8")
+        lua = "\n".join(line for line in text.splitlines()
+                        if line.startswith(("LUA ", "READ_LUA ")))
+        assert "IsFree" in lua, f"{name}: no idle-flag reading left to guard"
+        assert "local free = false pcall(" not in lua, (
+            f"{name}: `IsFree()` is back inside a pcall whose failure reads as busy — "
+            f"a refused read is «unknown», and unknown must not close the gate")
+        assert "local ok, idle = pcall(" in lua, (
+            f"{name}: the idle flag is read without telling a refusal from an answer")
+
+
 # --- every way it is allowed to give up -------------------------------------------
 
 def test_an_unknown_squad_stops_before_anything_is_opened():

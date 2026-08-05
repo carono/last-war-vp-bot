@@ -473,6 +473,53 @@ def test_ticking_the_auto_join_brings_the_watcher_up_with_it():
         root.destroy()
 
 
+def test_the_phone_says_whether_anything_will_be_joined_and_with_what():
+    """«Галки стоят, и ничего не происходит» is the question the screen must answer.
+
+    Where the squads are the phone already showed; whether a join was ARMED, and with
+    which squads, lived only in the window — so from a bus three squads standing at home
+    beside a rally nobody joined looked exactly like a bot that was working (#1237).
+    Readings, not switches: the list that decides which squads a join spends is on
+    «Настройки», which is not on the phone at all.
+    """
+    try:
+        import tkinter  # noqa: F401
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        root, rt, tab = _tab()
+    except Exception as exc:                            # noqa: BLE001
+        _skip(exc)
+        return
+    try:
+        tab._monitor_var.set(True)
+        tab._autojoin_var.set(False)
+        card = tab._web_autojoin_card()
+        pills = {item["label"]: item.get("pill") for item in card["items"]}
+        assert pills["rally.monitor"] == "rally.state.on", pills
+        assert pills["rally.autojoin"] == "rally.state.off", pills
+        # Nothing ticked reads as a WORD, so it says the same thing in eleven languages.
+        assert pills["autorally.squads"] == "rally.state.none", pills
+
+        tab._autojoin_var.set(True)
+        tab.autorally._squad_vars[2].set(True)
+        tab.autorally._squad_vars[3].set(True)
+        card = tab._web_autojoin_card()
+        squads = [i for i in card["items"] if i["label"] == "autorally.squads"][0]
+        # …and the squads themselves are DIGITS, which need no translating.
+        assert squads.get("detail") == "2, 3", squads
+        assert squads.get("pill") is None, squads
+        assert [i for i in card["items"]
+                if i["label"] == "rally.autojoin"][0]["pill"] == "rally.state.on"
+
+        # The whole screen still holds together with the card in it.
+        view = tab.web_view()
+        assert card["title"] in [c.get("title") for c in view["cards"]], view
+    finally:
+        root.destroy()
+
+
 def test_the_join_recipe_tells_an_empty_list_from_squads_that_are_all_out():
     """Two empty answers, two sentences — the reading alone cannot tell them apart.
 
@@ -518,7 +565,8 @@ def test_every_key_the_tab_uses_exists_in_both_locales():
             "rally_tab.capped", "rally_tab.busy", "rally_tab.progress",
             "rally_tab.finished", "rally_tab.stopped",
             "rally.frame", "rally.monitor", "rally.alert", "rally.autojoin",
-            "rally.autojoin_needs_monitor",
+            "rally.autojoin_needs_monitor", "rally.state.on", "rally.state.off",
+            "rally.state.none",
             "rally.join_now", "rally.hint", "rally.no_squads", "rally.joining",
             "rally.alert.fired", "log.rally.started", "log.rally.stopped",
             "log.rally.ended", "busy", "settings.tab.autorally"]

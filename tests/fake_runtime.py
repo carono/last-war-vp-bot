@@ -11,17 +11,44 @@ Import it rather than growing a fourth copy:
 
 Nothing here touches the game, the daemon or the network: a fake runtime is COLD by
 construction, which is also what the standalone harness hands a tab at build time.
+
+…and, from #1237, nothing here touches THIS MACHINE'S PROFILES either — see below.
 """
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from panel import profile as profilemod  # noqa: E402
 from panel import runtime as rtmod  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# THE PROFILES A TEST SEES ARE ITS OWN, AND EMPTY.
+#
+# `PanelRuntime` builds a real `ProfileManager` when it is handed none, and that
+# manager follows `panel/settings.json` to whichever profile the OPERATOR is running.
+# So every test on a cold runtime was reading — and could write — the live account's
+# files: its config, its logs, its timers, its rally counters.
+#
+# It failed exactly as CLAUDE.md says that kind of test fails: silently, until the
+# account moved. `test_a_refused_repeat_shows_the_scenarios_own_words` was green for
+# months and went red mid-afternoon because the player's own panel had joined its
+# twentieth rally of the day and the daily cap — read out of the live
+# `rally_counts.json` — started refusing the run under the test. The test was right
+# about the code and wrong about whose numbers it was using.
+#
+# Redirected at IMPORT, so it holds for every test in the process however it builds its
+# runtime, and pointed at a fresh temp tree per run so no two runs share a state either.
+# The files that DO want the real thing (`test_panel_profile_compat.py`,
+# `test_panel_multi_profile.py`, …) do not import this module.
+_SCRATCH = tempfile.mkdtemp(prefix="lw-test-profiles-")
+profilemod.PROFILES_DIR = str(Path(_SCRATCH) / "profiles")
+profilemod.SETTINGS_FILE = str(Path(_SCRATCH) / "settings.json")
 
 
 class RecordingBus(rtmod.LogBus):

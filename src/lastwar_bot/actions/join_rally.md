@@ -46,13 +46,21 @@ CALL rally_monitor
 # because it is a rule of the ability, not of the button (CLAUDE.md); a squad whose
 # state cannot be read is kept, because a gate that cannot see must not refuse.
 #
+# THAT RULE HAS THREE HOLES AND ALL THREE ARE PLUGGED HERE. A squad missing from the
+# formation list is kept; a `state` that will not become a number is kept; and — the one
+# that was leaking — an idle flag that could not be read at all is kept. `IsFree()` was
+# called inside a `pcall` whose failure left `free` at FALSE, which is not «unknown», it
+# is «busy»: a squad sitting at home behind a manager that happened to refuse was sieved
+# out and the run then said nobody was home. `ok`/`idle` tell a refusal from an answer,
+# and only an actual «no» closes the gate.
+#
 # `__lw_rally_want` is the count that arrived, kept because AN EMPTY LIST IS A
 # DIFFERENT FAILURE from a list whose squads are all out — and one the reading below
 # cannot tell apart, since both leave `home` empty. Nobody ticked one is a settings
 # page nobody filled in; until #1237 that page was not even DRAWN, so every auto-join
 # refused with «none is in the base» and sent whoever read the log to look at their
 # marches instead of at the empty list they were sent out with.
-LUA DataCenter.__lw_rally_squads = (function() local want = { {squads} } DataCenter.__lw_rally_want = #want local afd = DataCenter.ArmyFormationDataManager local home = {} for _, idx in ipairs(want) do local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == tonumber(idx) then f = v end end if f == nil then home[#home+1] = idx else local st = tonumber(f.state) local free = false pcall(function() free = f:IsFree() end) if st == nil or (st == 0 and free) then home[#home+1] = idx end end end return home end)() DataCenter.__lw_rally_joined = {}
+LUA DataCenter.__lw_rally_squads = (function() local want = { {squads} } DataCenter.__lw_rally_want = #want local afd = DataCenter.ArmyFormationDataManager local home = {} for _, idx in ipairs(want) do local f = nil for _, v in pairs(afd.ArmyFormationList) do if tonumber(v.index) == tonumber(idx) then f = v end end if f == nil then home[#home+1] = idx else local st = tonumber(f.state) local ok, idle = pcall(function() return f:IsFree() end) local free = true if ok and idle ~= nil then free = (idle and true or false) end if st == nil or (st == 0 and free) then home[#home+1] = idx end end end return home end)() DataCenter.__lw_rally_joined = {}
 
 # Both answers in ONE round trip: -1 for «none was ticked», otherwise how many of the
 # ticked ones are standing in the base. A second READ_LUA to count the argument the
