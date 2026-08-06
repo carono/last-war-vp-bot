@@ -180,6 +180,50 @@ touch a declared name directly; it computes and hops back. One place does today
 
 The plugin tabs need none of this, which is §2's third bullet paying for itself.
 
+### 3.5 Where the truth about an open profile lives — **read this before writing to `config.json`**
+
+A whole class of bug, found the hard way in #1263 and certain to be met again by whoever
+next decides to fix a profile «properly, in its file».
+
+**A profile that is OPEN does not keep its settings in `panel/profiles/<name>/config.json`.
+It keeps them in the Tk variables its Settings page is bound to** (`SettingsBinder.vars`,
+one set per runtime, §7.4). The file is a snapshot of those variables, written out by
+`Panel._collect_settings`, which builds a **fresh dict of every knob** and REPLACES the
+profile with it. That happens on every autosave — a tick, a box, a language change — and
+once more while the window is closing (`_on_close` → `_save_settings`).
+
+So a write straight to the file, under a profile somebody has open:
+
+1. lands on disk and is correct there;
+2. is read back as correct by anything that reads the file;
+3. and is silently replaced by the widgets' older values at the next save, which may be
+   minutes later or at shutdown.
+
+Nothing reports a failure at any point, because nothing failed. That is what makes it a
+class of bug rather than a mistake: **the fix works, says so, and is gone by morning.**
+
+The live case: «Профиль» → «Развести клиенты…» wrote a login and a fresh port into four
+open profiles with `provision.provision`, logged «клиенты разведены», and every one of
+them was back on the shared client the next time the panel started. The person did it
+several times and reported, correctly, «я делал, ничего не менялось». The same shape hid
+a second one: `_rebind_daemon` re-read the port from the *variable*, so even the live
+half of the fix did nothing.
+
+**The rule.**
+
+* Writing a profile's file directly is only safe for a profile **nobody has open** — the
+  boot's `provision.repair_ports` (runs before the workspace exists) and creating a
+  profile (not open yet). `provision.apply`'s docstring says so at the call site.
+* For an open profile, go through its own binder: `rt.settings.vars["<knob>"].set(...)`.
+  That is what persists the value AND what triggers whatever has to follow it — the
+  shell traces `daemon_port` and re-points the game link on a change.
+* A control belongs on the page of the profile it changes. A window that edits several
+  profiles at once has, by construction, no binder for the ones it is not showing.
+
+Pinned by `test_the_profile_window_does_not_write_a_client_behind_a_page_s_back` in
+`tests/test_panel_provision.py`: it fails if a caller other than `_create_profile`
+reaches `provision.provision` / `provision.apply` from `panel/__main__.py`.
+
 ---
 
 ## 4. Daemons
@@ -195,6 +239,14 @@ A profile names its port in `daemon_port` (default 47654). **Nothing else change
 profiles are two ports are two daemons are two clients. The panel-side plumbing that
 makes that true — the link, the children's environment, the interpreter's target — landed
 in wave 1.
+
+**The port now decides one more thing: the RDP address** (`rdp_instance.host_for`,
+#1263). Windows keeps one saved RDP password per `TERMSRV/<address>`, so an address
+shared by two accounts is a password slot shared by two accounts — and the second to
+save overwrites the first, after which every bring-up signs in as whoever won. The port
+is already unique per profile, so deriving the address from it makes the slots unique
+too, with nothing new to store or type. See `docs/research/rdp-session-credentials.md`
+§0b for the failure it fixes; it is not a theoretical one.
 
 ### 4.2 Starting and stopping
 
@@ -213,9 +265,16 @@ per-session. Two consequences worth stating:
 
 ### 4.3 Two profiles pointed at the same port
 
-This is the case the operator will create by accident — copy a profile, forget to change
-the port — and it must not look like it works. Two profiles on one port are **two views
-of one client**, and there is exactly one honest behaviour: they take turns.
+Two profiles on one port are **two views of one client**, and there is exactly one honest
+behaviour: they take turns.
+
+*How one gets into that state has changed since this was written.* It used to be the
+accident anybody would have — copy a profile, forget to change the port — because the
+port was a box on a Settings page. It is not typed at all any more (#1252, below): the
+panel hands one out and guarantees it is nobody else's. What is left is profiles made
+before that rule, and files edited by hand; both are repaired unasked at boot
+(`repair_ports`). The behaviour below is still what happens while they are in that
+state, and still what the tests pin.
 
 They already do, and correctly, because the lease is the *daemon's*:
 
@@ -284,12 +343,10 @@ is a panel that never finishes starting.
 
 **Where it is typed is the profile's own Settings page, and that is the whole of #1263.**
 There was a «Развести клиенты…» in the «Профиль» window that asked a login for every
-shared profile at once and wrote the answers with `provision.provision`. It reported
-success and changed nothing, every time, and the reason is worth keeping: **an open
-profile's client is not in its file.** It is in the Tk variables its Settings page is
-bound to, and `_collect_settings` writes all of them back on the next save — including
-the save the window makes while closing. So the plan landed on disk, said so in the log,
-and was replaced by the old port and the old login before anybody looked again.
+shared profile at once and wrote the answers with `provision.provision` — straight into
+the files, under profiles that were open. It reported success and changed nothing, every
+time, because **an open profile's settings are not in its file** (§3.5: the class of bug,
+the rule, and the test that pins it — read that before writing to a `config.json`).
 
 So `provision.apply` is now for a profile nobody has open — the boot's repair, and
 creating one — and everything else goes through the binder of the profile it belongs to:
@@ -359,11 +416,32 @@ The phone shows which account a profile is pointed at (`daemon.user` on «Сос
 no way to change it — «Настройки» has no phone screen by decision, and the picker is a
 list of THIS machine's accounts, which a phone has no business editing.
 
-Two things still owed:
+**Do not put the text box back, and do not put a login in the code instead.** They are
+the two ways this gets undone, and both look reasonable from a distance. A box is «one
+line instead of an API call», and it re-opens the typo that costs an evening. A default
+login — a constant, a fallback, a name in `instances.json` — is worse than a wrong value
+because it *looks* right: it does not fail with «not configured», it goes looking for a
+session that cannot exist and reports the ordinary «клиент не запущен», which is the same
+thing a client that is merely down says (`CLAUDE.md`, «Nothing about one machine is
+written into the code»; `DEFAULT_USER` has no default for exactly this reason, and
+`tools/data/instances.example.json` ships a placeholder rather than a name). If the
+enumeration is failing on some machine, fix or widen the enumeration — the fallback to
+typing is already there, and it says why it is being offered.
 
-* **Bringing one up from the panel.** Today `--bring-up` is a command line. A profile
-  marked `rdp_session` should be able to start its session and its daemon from its own
-  page. Wave 4, and it is a scenario plus a button, not new machinery.
+Where to look when a login is suspected of coming from somewhere else: `rdp_user` in the
+profile is the only source the bring-up reads (`game_process.profile_user`); everything
+else is a placeholder or empty. Checked end to end in #1263 — and the login was never
+the fault, the credential slot was (§0b of the credentials write-up).
+
+What was owed here is paid:
+
+* ~~**Bringing one up from the panel.** Today `--bring-up` is a command line.~~
+  **Done (#1231)**, and this line was stale for two tasks before #1263 tripped over it.
+  «Поднять сессию» on the «Игра» page runs the whole sequence — `game_process.bring_up`
+  → `rdp_instance.bring_up`, on a background thread, with the tool's own commentary
+  going into the panel's log as it happens, because it is minutes of RDP logon, launcher
+  and daemon. Creating a profile that names a session offers the same thing straight
+  away. Nothing about it is a command line any more.
 * ~~**`launch_game.md` launches into THIS session.**~~ **Done (#1218)**, and it was a
   scenario change as predicted. `LAUNCH` — which always spawns on the desktop the panel
   is on — became `START_GAME`, whose route is picked by the profile: this desktop when
@@ -613,6 +691,11 @@ one window means two `StringVar`s for the same knob on one interpreter. That is 
 names them uniquely) as long as nothing looks a variable up by name. Nothing does today; a
 test should say so, because the failure mode is one profile's Settings page editing
 another's.
+
+The OTHER failure mode of «`_collect_settings` replaces the profile» has already been
+paid for in full — a write to a profile's file, under a profile somebody has open, is
+undone by the next save and reports nothing (#1263). It has its own section, because it
+is the one a reader needs before touching a `config.json` rather than after: **§3.5**.
 
 ### 7.5 i18n — **low**
 
