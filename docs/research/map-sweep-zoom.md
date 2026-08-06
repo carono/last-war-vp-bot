@@ -327,7 +327,28 @@ measures as worth nothing.
 third-party asset, `BitBenderGames.TouchInputController`, and exposes nothing callable
 through xLua beyond `enabled`. Not needed, given the above.)
 
-## 10. What shipped
+## 10. Proven from the panel itself
+
+Everything above was measured through harnesses. The controls were then pressed on the
+LIVE panel, after it was restarted onto this code, with the ★ watcher on:
+
+* **«Зум» cycles and says what it means** — three presses walked tile → secret tasks →
+  bases → tile, each writing its own line: «высота камеры: секретки — 600, шаг 90 тайлов».
+* **«Обойти карту» at «секретки»** — one press, one lap: the watcher's own counter went
+  **122 map responses, 21 234 tiles, 598 tasks, 33 starred**, and the log printed the
+  starred tiles one by one with their coordinates.
+* **The same press at «только базы»** — `SWEEP_MAP -> zoom 1199` — took the run from
+  21 234 tiles to **77 890** while the task count stayed at **598**: fifty-six thousand
+  more tiles and not one further secret task. That is the level doing exactly what §8
+  says it does, from the button.
+
+**The ★ table staying empty is not a fault, and it took a minute to see why.** The list
+holds tiles that are raidable now or finish within ten minutes (`PENDING_WINDOW_MS`); all
+33 stars were further out than that, so an empty table over a lap that plainly worked is
+the designed answer. A reading that looks like a failure is worth chasing to its rule
+before it is called one.
+
+## 11. What shipped
 
 * `tools/lib/lua_actions.py` — `jump_to_coord(..., zoom=None)`, plus `JUMP_ZOOM = 105`
   (the game's own) and `SWEEP_ZOOM_MAX = 600` (the ceiling above). A jump about one tile
