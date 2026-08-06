@@ -206,15 +206,65 @@ class SettingsTab(PanelTab):
                  f"opt.{key}.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
         return widget
 
+    #: A reading rather than a field, and the reason it is one. Both kinds are here:
+    #: what the MACHINE answers (`runtime.settings.MACHINE_KEYS` — where the game is
+    #: installed, which Python drives the children) and what the PANEL decides (the
+    #: daemon port, `panel/runtime/provision.py`). Neither has ever had an answer a
+    #: person could give better than the code, and both were boxes it was possible to be
+    #: quietly wrong in — a port typed the same as another profile's is two profiles
+    #: farming one account with nothing on screen to say so (#1250, #1252).
+    def _read_row(self, parent: ttk.Frame, row: int, key: str, value: str,
+                  *, found: bool = True) -> int:
+        """One label, its value as text, and the hint under it. Returns the next row.
+
+        ``found=False`` draws the value in the colour of a fault and adds «не найдено»:
+        a path the machine answered with that is not on the disk is something to report,
+        never a box to correct by hand.
+        """
+        self.tr(ttk.Label(parent), f"opt.{key}").grid(row=row, column=0, sticky="nw",
+                                                      padx=(0, 8), pady=3)
+        text = value or self.t("opt.value.unknown")
+        if not found:
+            text = self.t("opt.value.missing", value=text)
+        label = ttk.Label(parent, text=text, wraplength=420, justify="left",
+                          foreground="#c33" if not found else "")
+        label.grid(row=row, column=1, columnspan=2, sticky="w", pady=3)
+        self.tr(ttk.Label(parent, foreground="#888", wraplength=420, justify="left"),
+                f"opt.{key}.hint").grid(row=row + 1, column=1, columnspan=2, sticky="w",
+                                        pady=(0, 6))
+        return row + 2
+
+    def _machine_row(self, parent: ttk.Frame, row: int, key: str) -> int:
+        """:meth:`_read_row` for a key `tools/lib/game_paths.py` answers."""
+        value, found = runtime.settings.machine_value(key)
+        return self._read_row(parent, row, key, value, found=found)
+
+    def _port_text(self) -> str:
+        """The daemon port, and — the part that matters — WHICH client it reaches."""
+        port = self.rt.settings.opt_int("daemon_port", low=1, high=65535)
+        user = runtime.game_process.profile_user(self.rt.settings)
+        return (self.t("session.client.session", user=user, port=port) if user
+                else self.t("session.client.console", port=port))
+
     def _build_general_settings(self, parent: ttk.Frame) -> None:
         """«Общие»: the Python that runs the children, the daemon, the log, auto-loot."""
         grid = ttk.Frame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(1, weight=0)
         grid.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("win_python", {"width": 34}),
-                ("daemon_port", {"spin": (1, 65535), "width": 10}),
+        # The two nobody types, first — they are the two that decide which client this
+        # whole page is about. The port follows the Windows session on «Игра»; there is
+        # no order of pressing that can leave two profiles on one number (#1252).
+        row = self._machine_row(grid, 0, "win_python")
+        self._port_lbl = ttk.Label(grid, wraplength=420, justify="left")
+        self.tr(ttk.Label(grid), "opt.daemon_port").grid(row=row, column=0, sticky="nw",
+                                                         padx=(0, 8), pady=3)
+        self._port_lbl.grid(row=row, column=1, columnspan=2, sticky="w", pady=3)
+        self._port_lbl.configure(text=self._port_text())
+        self.tr(ttk.Label(grid, foreground="#888", wraplength=420, justify="left"),
+                "opt.daemon_port.hint").grid(row=row + 1, column=1, columnspan=2,
+                                             sticky="w", pady=(0, 6))
+        for offset, (key, kwargs) in enumerate((
                 ("log_max_lines", {"spin": (200, 200000), "width": 10}),
                 ("autoloot_limit", {"spin": (1, 50), "width": 10}),
                 ("autoloot_poll", {"spin": (1, 600), "width": 10}),
@@ -222,7 +272,7 @@ class SettingsTab(PanelTab):
                 ("trace_filter", {"width": 20}),
                 ("sniff_ready_timeout", {"spin": (1, 600), "width": 10}),
         )):
-            self._opt_row(grid, row, key, **kwargs)
+            self._opt_row(grid, row + 2 + offset, key, **kwargs)
         self._build_autostart_settings(parent)
         self._build_debug_log_settings(parent)
 
@@ -369,16 +419,22 @@ class SettingsTab(PanelTab):
                  "debug.send").grid(row=1, column=1, columnspan=2, sticky="w", pady=(8, 0))
 
     def _build_game_settings(self, parent: ttk.Frame) -> None:
-        """«Игра»: where the client is, whether to put it back, and the sweep box."""
+        """«Игра»: where the client is, whether to put it back, and the sweep box.
+
+        WHERE THE CLIENT IS IS NOT ASKED (#1252). The launcher and the process name are
+        readings off `tools/lib/game_paths.py` — one answer per machine, an environment
+        variable in front of an ordinary default — and a machine that keeps the game
+        somewhere unusual says so with a variable rather than by typing a path into every
+        profile. Typed, they were a way to be quietly wrong: a profile here still carried
+        `C:\\Program Files\\LastWar\\…`, a folder the game has never installed itself
+        into, and «Запустить игру» reported the ordinary «клиент не запущен».
+        """
         grid = ttk.Frame(parent)
         grid.pack(fill="x")
         grid.columnconfigure(2, weight=1)
-        for row, (key, kwargs) in enumerate((
-                ("launcher", {"width": 34}),
-                ("game_exe", {"width": 20}),
-                ("watchdog", {}),
-        )):
-            self._opt_row(grid, row, key, **kwargs)
+        row = self._machine_row(grid, 0, "launcher")
+        row = self._machine_row(grid, row, "game_exe")
+        self._opt_row(grid, row, "watchdog")
 
         self._build_session_settings(parent)
         self._build_graphics_settings(parent)
@@ -409,16 +465,27 @@ class SettingsTab(PanelTab):
 
         The second account does not live here. It runs in its own Windows session, owned
         by that session's own user (tools/rdp_instance.py), and the panel drives it over
-        the daemon port on the «Общие» page. The port is only half the answer: everything
-        that goes looking for the *process* — the status strip, the watchdog, the tabs
-        that will not spend an errand on a client that is gone — finds a client by
-        executable name, and both clients have the same name. Naming the session's login
-        here is what tells them apart.
+        a daemon port of its own. The port is only half the answer: everything that goes
+        looking for the *process* — the status strip, the watchdog, the tabs that will not
+        spend an errand on a client that is gone — finds a client by executable name, and
+        both clients have the same name. Naming the session's login here is what tells
+        them apart.
+
+        THE LOGIN IS THE ONLY THING TYPED (#1252). The port travels with the tick: turned
+        on, this profile is given one nobody else uses; turned off, it goes back to the
+        console's. And it cannot be turned off while ANOTHER profile has the console —
+        there is one desktop, so there is one console profile, and the refusal names who
+        it is instead of letting two profiles farm one account in silence (#1250).
         """
         frame = self.tr(ttk.LabelFrame(parent, padding=8), "session.frame")
         frame.pack(fill="x", pady=(12, 0))
         frame.columnconfigure(2, weight=1)
-        self._opt_row(frame, 0, "rdp_session")
+        # `command`, not a trace: a trace also fires when a profile is APPLIED to the
+        # widgets, and this hands out a port — so switching profile would quietly move
+        # one. Only a person's click may (the «Качество графики» block below took the
+        # same lesson).
+        self._session_box = self._opt_row(frame, 0, "rdp_session")
+        self._session_box.configure(command=self._on_session_toggle)
         self._session_user_entry = self._opt_row(frame, 1, "rdp_user", width=20)
 
         # «Проверить»: the settings answer for themselves, here, rather than being
@@ -445,23 +512,70 @@ class SettingsTab(PanelTab):
 
         # The login is meaningless while the tick is off, and a box that still takes
         # typing says otherwise. Follow the checkbox — and the port — on every change.
-        for key in ("rdp_session", "daemon_port"):
+        for key in ("rdp_session", "rdp_user", "daemon_port"):
             self.rt.settings.vars[key].trace_add(
                 "write", lambda *a: self._refresh_session_user_state())
         self._refresh_session_user_state()
 
+    def _on_session_toggle(self) -> None:
+        """A person moved the tick: give this profile the client it now asks for.
+
+        The port is not a question, so it is not asked — it is handed out here and shown
+        on «Общие» as a reading (:meth:`_port_text`). Setting the bound variable is what
+        persists it and re-points the link: the shell traces `daemon_port` and rebinds
+        the daemon on a change, which is exactly what has to happen.
+        """
+        prov = runtime.provision
+        profiles = self.rt.profiles
+        name = profiles.active
+        want_session = bool(self.rt.settings.opt_bool("rdp_session"))
+        port_var = self.rt.settings.vars.get("daemon_port")
+        if port_var is None:
+            return
+        if not want_session:
+            owner = prov.console_owner(profiles, exclude=name)
+            if owner:
+                # One desktop, one console profile. Put the tick back rather than let a
+                # second profile drive the first one's client (#1250).
+                self.rt.settings.vars["rdp_session"].set(True)
+                messagebox.showinfo(self.t("session.frame"),
+                                    self.t("session.console_taken", owner=owner))
+                self._refresh_session_user_state()
+                return
+            port_var.set(prov.CONSOLE_PORT)
+            self.say("session", "log.session.client.console", port=prov.CONSOLE_PORT)
+        else:
+            current = self.rt.settings.opt_int("daemon_port", low=1, high=65535)
+            if current == prov.CONSOLE_PORT:
+                try:
+                    port = prov.free_port(profiles, exclude=name)
+                except ValueError as exc:
+                    messagebox.showerror(self.t("session.frame"),
+                                         i18nmod.translated(self.t, exc))
+                    self.rt.settings.vars["rdp_session"].set(False)
+                    self._refresh_session_user_state()
+                    return
+                port_var.set(port)
+                self.say("session", "log.session.client.own_port", port=port)
+        self._refresh_session_user_state()
+
     def _refresh_session_user_state(self) -> None:
-        """Keep the login box and the port warning in step with the tick."""
+        """Keep the login box, the port reading and the warning in step with the tick."""
         on = self.rt.settings.opt_bool("rdp_session")
         entry = getattr(self, "_session_user_entry", None)
         try:
             if entry is not None:
                 entry.configure(state="normal" if on else "disabled")
+            port_lbl = getattr(self, "_port_lbl", None)
+            if port_lbl is not None:
+                port_lbl.configure(text=self._port_text())
             clash = getattr(self, "_session_clash", None)
             if clash is not None:
                 gp = runtime.game_process
                 # The cheap half of the check: three knobs, no Windows call, because
-                # this runs on every keystroke in the port box.
+                # this runs on every keystroke in the login box. It should now be
+                # unreachable — the port follows the tick — so it stays as the proof of
+                # that rather than as something a person is expected to act on.
                 clash.configure(
                     text=self.t("session.clash",
                                 port=self.rt.settings.opt_int("daemon_port", low=1,

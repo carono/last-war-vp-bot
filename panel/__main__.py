@@ -503,12 +503,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # open. `restore` opens whatever was open when it was last closed — for every
         # panel before #1206 that is exactly one, the profile the saved pointer names,
         # and `--profile` overrides which page is on top (creating it if it is new).
+        profiles = profilemod.ProfileManager()
+        # BEFORE ANY SESSION IS BUILT, because a session reads its port on the way up and
+        # a link built on the wrong one drives the wrong client for the rest of the run
+        # (#1224). Only the half that needs nothing asked — see `_sort_out_clients`.
+        self._client_notes = self._sort_out_clients(profiles)
         self._workspace = runtime.Workspace(
-            self, defaults=SETTINGS_DEFAULTS, log=self._session_complaint,
+            self, defaults=SETTINGS_DEFAULTS, profiles=profiles,
+            log=self._session_complaint,
             can_open=self._profile_is_free, refused=self._profile_held_elsewhere)
         sessions = self._workspace.restore(first=active_profile)
         # Adopted before anything is said or drawn: `self._t` is a session's translator.
         self._adopt(self._workspace.current)
+        for key, fmt in self._client_notes:
+            self._say("profile", key, **fmt)
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
@@ -527,6 +535,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # The var is always live; the combo exists only while that modal is open.
         self._profile_var = tk.StringVar(value=self._workspace.current.name)
         self._profile_combo = None
+        self._profile_client_lbl = None
         self._profile_win = None
         self._splash_step("splash.ui", 0.45)
         self._build_outer()
@@ -1463,14 +1472,24 @@ class Panel(runtime.SessionScoped, tk.Tk):
                                           state="readonly", width=24,
                                           values=self._profiles.list())
         self._profile_combo.grid(row=0, column=1, sticky="we", padx=(8, 0))
-        self._profile_combo.bind("<<ComboboxSelected>>", lambda e: self._switch_profile())
+        self._profile_combo.bind("<<ComboboxSelected>>",
+                                 lambda e: (self._paint_profile_client(),
+                                            self._switch_profile()))
         # Said out loud, because the combo now does two things: a profile that is
         # already open is gone to, one that is not is OPENED beside it (#1206).
         self._tr(ttk.Label(frm, foreground="#888"), "profile.open_hint").grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        # WHICH CLIENT THE SELECTED PROFILE DRIVES (#1252). The one fact about a profile
+        # that decides whether it farms its own account or somebody else's, and it used
+        # to be spread over two boxes on a Settings page nobody visits.
+        self._profile_client_lbl = ttk.Label(frm, foreground="#888", wraplength=320,
+                                             justify="left")
+        self._profile_client_lbl.grid(row=2, column=0, columnspan=2, sticky="w",
+                                      pady=(6, 0))
+        self._paint_profile_client()
 
         btns = ttk.Frame(frm)
-        btns.grid(row=2, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        btns.grid(row=3, column=0, columnspan=2, sticky="we", pady=(14, 0))
         self._tr(ttk.Button(btns, command=lambda: self._switch_profile()),
                  "profile.open").pack(side="left")
         self._tr(ttk.Button(btns, command=lambda: self._close_profile()),
@@ -1483,6 +1502,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                  "profile.delete").pack(side="left")
         self._tr(ttk.Button(btns, command=win.destroy),
                  "profile.close").pack(side="right")
+        # The fix for what predates «one profile, one client» — see `_sort_out_clients`.
+        # A second row, because it is not one of the five things a person came here to do.
+        fix = ttk.Frame(frm)
+        fix.grid(row=4, column=0, columnspan=2, sticky="we", pady=(8, 0))
+        self._tr(ttk.Button(fix, command=self._separate_clients),
+                 "profile.separate").pack(side="left")
 
         win.protocol("WM_DELETE_WINDOW", win.destroy)
         win.bind("<Destroy>", self._on_profile_dialog_destroyed)
@@ -1499,7 +1524,27 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # `_refresh_profile_combo` never touches a dead widget.
         if event.widget is self._profile_win:
             self._profile_combo = None
+            self._profile_client_lbl = None
             self._profile_win = None
+
+    def _paint_profile_client(self) -> None:
+        """Say which client the profile in the combo drives, in one line."""
+        label = getattr(self, "_profile_client_lbl", None)
+        if label is None:
+            return
+        name = self._profile_var.get()
+        client = runtime.provision.clients(self._profiles).get(name)
+        if client is None:
+            text = ""
+        elif client.console:
+            text = self._t("session.client.console", port=client.port)
+        else:
+            text = self._t("session.client.session", user=client.user,
+                           port=client.port)
+        try:
+            label.configure(text=text)
+        except tk.TclError:
+            pass
 
     def _profile_dialog_parent(self):
         """Parent the create/rename/delete sub-dialogs at the modal if it is open,
@@ -1515,6 +1560,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 combo.configure(values=self._profiles.list())
             except tk.TclError:
                 pass
+        self._paint_profile_client()
 
     def _switch_profile(self, name: str | None = None) -> None:
         """Go to a profile: its page if it is open, a NEW page if it is not.
@@ -1637,20 +1683,291 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return i18nmod.translated(self._t, exc)
 
     def _create_profile(self) -> None:
-        name = simpledialog.askstring(self._t("profile.new"),
-                                      self._t("profile.prompt_name"), parent=self._profile_dialog_parent())
-        if not name:
+        """Ask for a name — and for the login of the session its client will live in.
+
+        THE ONLY THING TYPED IS THE LOGIN (#1252). A profile is an account and an
+        account is a client of its own, which is a Windows session plus a daemon port
+        (`panel/runtime/provision.py`). Of those two the panel can work the port out for
+        itself and cannot possibly guess the login, so it asks for exactly that and
+        decides the rest.
+
+        It used to ask for the name and nothing else, and seed the new profile with a
+        copy of the CURRENT one's settings — including its port. Five profiles made that
+        way all named 47654, all drove the console session's client, and all farmed one
+        account while the panel reported four healthy profiles (#1250).
+        """
+        asked = self._ask_new_profile()
+        if asked is None:
             return
+        name, login = asked
         try:
             created = self._profiles.create(name)
         except ValueError as exc:
-            messagebox.showerror(self._t("profile.new"), self._error_text(exc),
+            messagebox.showerror(self._t("profile.new.title"), self._error_text(exc),
                                  parent=self._profile_dialog_parent())
             return
-        # Seed the new profile with the current settings so it starts from a sane state.
+        # Seed the new profile with the current settings so it starts from a sane state —
+        # then give it a client of its OWN, which is the one part of a seed that must
+        # never be a copy.
         self._profiles.save(self._collect_settings(), created)
+        try:
+            plan = runtime.provision.provision(self._profiles, created, login=login)
+        except ValueError as exc:
+            # The port hunt is the only thing here that can still refuse, and a profile
+            # left half-made is worse than none: undo the directory and say why.
+            self._profiles.delete(created)
+            messagebox.showerror(self._t("profile.new.title"), self._error_text(exc),
+                                 parent=self._profile_dialog_parent())
+            return
+        self._say_client(created, plan)
         self._refresh_profile_combo(select=created)
         self._switch_profile(created)
+        if not plan.console:
+            self._offer_bring_up(created, plan)
+
+    def _offer_bring_up(self, name: str, plan) -> None:
+        """A profile whose client is in a session of its own: raise that session now?
+
+        Asked rather than done, because it is an RDP logon, a launcher that may decide to
+        update and a daemon waiting for the client to finish loading — minutes, and the
+        person may be creating four profiles in a row. Saying no leaves «Поднять сессию»
+        on the «Игра» page, which is the same call.
+        """
+        session = self._workspace.get(name)
+        rt = getattr(session, "rt", None)
+        if rt is None:
+            return
+        if not messagebox.askyesno(self._t("profile.new.title"),
+                                   self._t("profile.new.bring_up", user=plan.user),
+                                   parent=self._profile_dialog_parent()):
+            return
+        rt.say("session", "log.session.bringing_up", user=plan.user)
+
+        def work() -> None:
+            try:
+                code = runtime.game_process.bring_up(
+                    rt.settings, say=lambda msg: rt.put(f"[session] {msg}"))
+            except Exception as exc:      # noqa: BLE001 — a line in the log, not a crash
+                rt.say("session", "log.session.up_failed", error=exc)
+                return
+            rt.say("session", "log.session.up_ok" if code == 0
+                   else "log.session.up_partial", code=code)
+
+        threading.Thread(target=work, name="panel-session-up", daemon=True).start()
+
+    # -- one profile, one client (#1252) ------------------------------------
+    #
+    # A profile is an account and an account is a client of its own: a Windows session
+    # plus a daemon port (`panel/runtime/provision.py`). Creating one settles both, so a
+    # panel that has only ever made profiles the new way cannot get into the state below.
+    # What is here is for the profiles that predate that — five of them on this machine,
+    # all silently on the console session's port, all farming one account (#1250).
+    #
+    # THE TWO HALVES ARE FIXED DIFFERENTLY, and the split is the whole design:
+    #
+    # * a port that two DIFFERENT clients both claim is put right unasked, at boot,
+    #   before a single session is built. Nothing about the profile changes except a
+    #   number nobody was supposed to see;
+    # * two profiles on ONE client cannot be separated without knowing the login of the
+    #   Windows session the second one's client should live in, and that is the one thing
+    #   no amount of reading can answer. So the boot SAYS it and the «Профиль» window has
+    #   the button that asks — never a modal on the way up, because the hourly autostart
+    #   opens this panel with nobody at the machine and a question there is a panel that
+    #   never finishes starting.
+
+    def _sort_out_clients(self, profiles) -> list:
+        """Give every client its own port, and note what still needs a person.
+
+        Returns the lines to say once there is a log to say them into — this runs before
+        the workspace exists, which is the point: a session reads its port while it is
+        being built.
+        """
+        notes = []
+        self._boot_profiles = profiles
+        try:
+            moved = runtime.provision.repair_ports(profiles)
+            stranded = runtime.provision.needs_own_client(profiles)
+        except Exception:                    # noqa: BLE001 — a boot, not a repair job
+            return notes
+        for name, old, new in moved:
+            notes.append(("log.profile.port_moved",
+                          {"name": name, "old": old, "new": new}))
+        if stranded:
+            notes.append(("log.profile.client_shared_boot",
+                          {"names": ", ".join(stranded),
+                           "menu": self._t_boot("menu.profile"),
+                           "button": self._t_boot("profile.separate")}))
+        return notes
+
+    def _t_boot(self, key: str) -> str:
+        """Translate before there is a session to translate with.
+
+        `self._t` is the SHOWING session's translator and nothing is showing yet. This
+        builds one off the profile the panel is about to open, with `persist=False` so a
+        boot-time lookup cannot rename the machine's language.
+        """
+        cached = getattr(self, "_boot_i18n", None)
+        if cached is None:
+            lang = None
+            try:
+                lang = getattr(self, "_boot_profiles").load().get("language")
+            except Exception:                # noqa: BLE001
+                lang = None
+            cached = self._boot_i18n = runtime.Translator(lang, persist=False)
+        return cached.t(key)
+
+    def _separate_clients(self) -> None:
+        """Ask a login for every profile that shares a client, and give it one of its own.
+
+        The person types logins; the panel decides the ports and writes both halves. A
+        profile left with an empty box is left alone — this is a fix offered, not one
+        imposed, and a person who has two panels on one client on purpose is allowed to.
+        """
+        stranded = runtime.provision.needs_own_client(self._profiles)
+        if not stranded:
+            messagebox.showinfo(self._t("profile.separate"),
+                                self._t("profile.separate.none"),
+                                parent=self._profile_dialog_parent())
+            return
+        logins = self._ask_client_logins(stranded)
+        if not logins:
+            return
+        for name, login in logins.items():
+            try:
+                plan = runtime.provision.provision(self._profiles, name, login=login)
+            except ValueError as exc:
+                messagebox.showerror(self._t("profile.separate"),
+                                     self._error_text(exc),
+                                     parent=self._profile_dialog_parent())
+                continue
+            self._say_client(name, plan)
+        # A profile whose port just moved is open in this window with a link pointed at
+        # the old one. Re-point the showing session now; the others pick their new port
+        # up the next time the window opens, which is said in the same breath.
+        self._rebind_daemon()
+        self._say("profile", "log.profile.separated")
+
+    def _ask_client_logins(self, names: list) -> dict:
+        """One row per profile — its name, and a box for the login of its session.
+
+        Returns ``{profile: login}`` for the rows that were filled in, empty if the
+        person closed the window.
+        """
+        win = tk.Toplevel(self)
+        win.title(self._t("profile.separate"))
+        win.resizable(False, False)
+        win.transient(self._profile_dialog_parent())
+
+        frm = ttk.Frame(win)
+        frm.pack(fill="both", expand=True, padx=16, pady=16)
+        frm.columnconfigure(1, weight=1)
+        ttk.Label(frm, text=self._t("profile.separate.hint"), foreground="#888",
+                  wraplength=420, justify="left").grid(row=0, column=0, columnspan=2,
+                                                       sticky="w", pady=(0, 10))
+        boxes = {}
+        for row, name in enumerate(names, start=1):
+            ttk.Label(frm, text=name).grid(row=row, column=0, sticky="w", pady=3)
+            var = tk.StringVar(master=win)
+            ttk.Entry(frm, textvariable=var, width=24).grid(row=row, column=1,
+                                                            sticky="we", padx=(12, 0))
+            boxes[name] = var
+
+        answer: dict = {}
+
+        def ok() -> None:
+            for profile, var in boxes.items():
+                login = var.get().strip()
+                if login:
+                    answer[profile] = login
+            win.destroy()
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=len(names) + 1, column=0, columnspan=2, sticky="e", pady=(14, 0))
+        self._tr(ttk.Button(btns, command=ok), "profile.separate.apply").pack(side="left")
+        self._tr(ttk.Button(btns, command=win.destroy),
+                 "profile.cancel").pack(side="left", padx=(8, 0))
+        win.bind("<Escape>", lambda e: win.destroy())
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 3)
+        win.geometry(f"+{x}+{y}")
+        win.grab_set()
+        win.focus_set()
+        self.wait_window(win)
+        return answer
+
+    def _say_client(self, name: str, plan) -> None:
+        """One line naming the client a profile was given — which desktop, which port."""
+        if plan.console:
+            self._say("profile", "log.profile.client.console", name=name,
+                      port=plan.port)
+        else:
+            self._say("profile", "log.profile.client.session", name=name,
+                      user=plan.user, port=plan.port)
+
+    def _ask_new_profile(self):
+        """The create dialog: a name, and a login when the console is already taken.
+
+        Returns ``(name, login)`` — ``login`` empty for the console — or ``None`` if the
+        person closed it. The two fields are in ONE window on purpose: which of them is
+        needed depends on what the other profiles already hold, and a person answering
+        two chained boxes cannot see why the second appeared.
+        """
+        owner = runtime.provision.console_owner(self._profiles)
+        win = tk.Toplevel(self)
+        win.title(self._t("profile.new.title"))
+        win.resizable(False, False)
+        win.transient(self._profile_dialog_parent())
+
+        frm = ttk.Frame(win)
+        frm.pack(fill="both", expand=True, padx=16, pady=16)
+        frm.columnconfigure(1, weight=1)
+
+        name_var = tk.StringVar(master=win)
+        self._tr(ttk.Label(frm), "profile.prompt_name").grid(row=0, column=0, sticky="w")
+        name_entry = ttk.Entry(frm, textvariable=name_var, width=28)
+        name_entry.grid(row=0, column=1, sticky="we", padx=(8, 0))
+
+        login_var = tk.StringVar(master=win)
+        if owner:
+            self._tr(ttk.Label(frm), "profile.new.login").grid(row=1, column=0,
+                                                              sticky="w", pady=(8, 0))
+            ttk.Entry(frm, textvariable=login_var, width=28).grid(
+                row=1, column=1, sticky="we", padx=(8, 0), pady=(8, 0))
+            hint = self._t("profile.new.login_hint", owner=owner)
+        else:
+            hint = self._t("profile.new.console_hint")
+        ttk.Label(frm, text=hint, foreground="#888", wraplength=360,
+                  justify="left").grid(row=2, column=0, columnspan=2, sticky="w",
+                                       pady=(10, 0))
+
+        answer: list = []
+
+        def ok() -> None:
+            if not profilemod.sanitize(name_var.get()):
+                return                       # an empty name is the one thing to re-ask
+            if owner and not login_var.get().strip():
+                return                       # …and so is a session with nobody in it
+            answer.append((name_var.get(), login_var.get().strip()))
+            win.destroy()
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=3, column=0, columnspan=2, sticky="e", pady=(14, 0))
+        self._tr(ttk.Button(btns, command=ok), "profile.new").pack(side="left")
+        self._tr(ttk.Button(btns, command=win.destroy),
+                 "profile.cancel").pack(side="left", padx=(8, 0))
+        win.bind("<Return>", lambda e: ok())
+        win.bind("<Escape>", lambda e: win.destroy())
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 3)
+        win.geometry(f"+{x}+{y}")
+        win.grab_set()
+        name_entry.focus_set()
+        self.wait_window(win)
+        return answer[0] if answer else None
 
     def _rename_profile(self) -> None:
         cur = self._profiles.active
@@ -1729,7 +2046,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         }
         # Settings page -> «Общие» / «Игра». One loop, so adding a knob is adding a
         # line to SETTINGS_DEFAULTS and a widget bound to `_opt_vars[key]`.
+        #
+        # …except the ones the MACHINE answers (#1252). Where the game is installed and
+        # which Python drives the children are not this profile's opinions, and writing
+        # them into a profile is how one carried `C:\Program Files\LastWar\…` — a folder
+        # the game has never installed itself into — for long enough that «Запустить
+        # игру» silently stopped working. Not written here means an old one drops out of
+        # the file on the next save, and `runtime.settings.MACHINE_KEYS` means it is not
+        # obeyed in the meantime.
         for key in SETTINGS_DEFAULTS:
+            if key in runtime.settings.MACHINE_KEYS:
+                continue
             var = self._opt_vars.get(key)
             if var is not None:
                 out[key] = var.get()
@@ -1774,7 +2101,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
             for key, default in SETTINGS_DEFAULTS.items():
                 var = self._opt_vars.get(key)
                 if var is not None:
-                    var.set(s.get(key, default))
+                    # A machine-answered key shows what the machine answered, never what
+                    # the profile happens to still carry (#1252) — the file's value is
+                    # already ignored by every reader, and a Settings page showing a
+                    # stale path beside a panel that is not using it is worse than no
+                    # page at all.
+                    var.set(default if key in runtime.settings.MACHINE_KEYS
+                            else s.get(key, default))
             # Each plugin tab restores its own block — the new `tabs.config.<id>` if the
             # profile has one, else the flat keys it used to be spelled with. Whatever a
             # restored value has to re-draw (a rule hint, a status line) the tab does at

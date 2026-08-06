@@ -71,6 +71,29 @@ def _default_python() -> str:
 
 WIN_PYTHON = _default_python()
 
+#: THE KNOBS THAT ARE NOT KNOBS: what the MACHINE answers, not the person (#1252).
+#:
+#: Where the game is installed, what its process is called and which Python drives the
+#: children all have exactly one right answer per machine, and `tools/lib/game_paths.py`
+#: is the one place that gives it — an environment variable in front of an ordinary
+#: default, so a machine that is not ordinary sets a variable instead of editing code
+#: (`CLAUDE.md`, «Nothing about one machine is written into the code»).
+#:
+#: They were boxes on the Settings page for years, and every one of them was a way to be
+#: quietly wrong: a profile on this machine still carried `C:\Program Files\LastWar\…`
+#: from an old default — a folder the game has never installed itself into — so «Запустить
+#: игру» went looking for a launcher that was not there and said the ordinary «клиент не
+#: запущен». A typed path cannot be told from a correct one by looking at it.
+#:
+#: So the value in a profile's file is IGNORED for these: :meth:`SettingsBinder.opt`
+#: answers from the default, which is `game_paths`. They stay in :data:`DEFAULTS` because
+#: every reader still asks for them by name (`settings.opt_str("game_exe")`), and they
+#: stop being WRITTEN — `panel/__main__.py::_collect_settings` skips them, so an old
+#: value drops out of a profile the next time anything is saved. The Settings page shows
+#: what the machine answered, and says «не найдено» when the file is not there, which is
+#: a fault to report rather than a box to fill in.
+MACHINE_KEYS = frozenset({"win_python", "launcher", "game_exe"})
+
 #: Every knob the Settings page owns, with the value a profile that has never been
 #: there behaves by. A default here IS the old constant, so nothing changes for an
 #: existing profile — and adding a knob is a line here, a row on a page, and two
@@ -126,6 +149,21 @@ DEFAULTS: dict = {
     # Empty = do not send: the archive is still written, but nothing leaves the box.
     "debug_send_url": "",
 }
+
+
+def machine_value(key: str) -> tuple:
+    """What the machine answers for a :data:`MACHINE_KEYS` key: ``(value, found)``.
+
+    ``found`` is whether that file is actually there — ``True`` for `game_exe`, which is
+    a process name and not a path to look for. A missing one is a fault worth naming:
+    the panel cannot start a launcher that is not on the disk, and «не найдено» beside
+    the path it looked at says which environment variable to set (`.env.example`), which
+    is the whole of the fix on a machine that keeps the game somewhere unusual.
+    """
+    value = str(DEFAULTS.get(key) or "")
+    if key == "game_exe" or not value:
+        return value, bool(value)
+    return value, os.path.exists(value)
 
 
 def _settings_var(master, default):
@@ -323,7 +361,13 @@ class SettingsBinder:
         touches a Tk variable here, and everybody else reads the shadow that thread
         keeps (see :attr:`_live`). A background reader therefore never blocks on the
         window and never raises «main thread is not in main loop».
+
+        A :data:`MACHINE_KEYS` key skips all of that and answers from the default, which
+        IS the machine's answer (`tools/lib/game_paths.py`) — there is no widget to beat
+        it with and a value left in an old profile's file is not obeyed.
         """
+        if key in MACHINE_KEYS:
+            return self.defaults.get(key)
         if self.vars:
             if threading.current_thread() is threading.main_thread():
                 var = self.vars.get(key)

@@ -70,10 +70,7 @@ class _Reader:
 
 def test_the_settings_knobs_read_back_exactly():
     r = _Reader(_saved())
-    assert r._opt_str("win_python") == r"C:\Python312\python.exe"
     assert r._opt_int("daemon_port") == 47655   # the second session's client
-    assert r._game_exe() == "LastWar.exe"
-    assert r._launcher() == r"C:\Games\LastWar\launcher.exe"
     assert r._autoloot_limit() == 4, r._autoloot_limit()
     assert r._binder.opt_str("trace_filter") == "ghost"
     assert abs(r._binder.opt_float("sniff_ready_timeout") - 30.0) < 1e-9
@@ -91,6 +88,32 @@ def test_a_knob_the_profile_never_set_keeps_its_default():
     assert bare._opt_str("win_python") == str(pm.SETTINGS_DEFAULTS["win_python"])
     assert bare._autoloot_limit() == int(pm.SETTINGS_DEFAULTS["autoloot_limit"])
     assert bare._opt_bool("watchdog") is bool(pm.SETTINGS_DEFAULTS["watchdog"])
+
+
+def test_the_paths_in_an_old_profile_are_the_one_thing_no_longer_obeyed():
+    """The one deliberate break with «read back exactly», and why it is one (#1252).
+
+    Where the game is installed, what its process is called and which Python runs the
+    children have exactly ONE right answer per machine, and it is
+    `tools/lib/game_paths.py`'s — an environment variable in front of an ordinary
+    default. A path typed into a profile years ago cannot be told from a correct one by
+    looking at it, and a real profile on the machine this was written on carried
+    `C:\\Program Files\\LastWar\\LastWarLauncher.exe`: a folder the game has never
+    installed itself into, so «Запустить игру» reported the ordinary «клиент не
+    запущен» and there was nothing anywhere to say why.
+
+    So the value is still in the file — an older panel opening this profile still reads
+    it — and this panel answers from the machine and stops writing it back, which drops
+    it on the next save.
+    """
+    import panel.__main__ as pm
+
+    old = _Reader(_saved())
+    assert old._binder.values["launcher"] == r"C:\Games\LastWar\launcher.exe"
+    for key in pm.runtime.settings.MACHINE_KEYS:
+        assert old._opt_str(key) == str(pm.SETTINGS_DEFAULTS[key]), key
+    assert old._launcher() == str(pm.SETTINGS_DEFAULTS["launcher"])
+    assert old._game_exe() == str(pm.SETTINGS_DEFAULTS["game_exe"])
 
 
 def test_bounds_are_applied_not_just_stored():

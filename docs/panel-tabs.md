@@ -126,7 +126,7 @@ and standalone, which is what makes a tab launchable at all.
 | `rt.t(key, **fmt)` / `rt.tr(widget, key)` | words; `self.t` / `self.tr` are the same |
 | `rt.say(tag, key)` / `rt.put(line)` | the log sink (no widget — «Главная» owns the view) |
 | `rt.profiles` | the active profile's paths |
-| `rt.settings` | knobs: `opt_int` / `opt_str` / `opt_bool` / `opt_float`, `vars[key]` (one Tk variable per knob, made by the runtime before any tab is built), and `changed()` |
+| `rt.settings` | knobs: `opt_int` / `opt_str` / `opt_bool` / `opt_float`, `vars[key]` (one Tk variable per knob, made by the runtime before any tab is built), and `changed()`. **Three of them are not knobs**: `launcher`, `game_exe` and `win_python` are `runtime.settings.MACHINE_KEYS` — one answer per machine, from `tools/lib/game_paths.py`, so a value in a profile's file is ignored and never written back (#1252). Read them the same way; do not offer a box for one. The daemon port is not typed either — `panel/runtime/provision.py` hands it out with the Windows session, one client per profile. |
 | `rt.game` | `evaluator()`, `client`, `up()`, `claim()` / `release()`, `jump()`, `port()` |
 | `rt.actions` | `run(name, args)`, `play(...) -> Outcome`, `run_text`, `resolve`, `problem` |
 | `rt.play_async(name, args, …)` | run a scenario on a worker under the claim |

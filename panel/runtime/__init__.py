@@ -46,6 +46,7 @@ from . import game_process
 from .host import PanelRuntime, standalone
 from .i18n import Translator
 from .log import LogBus
+from . import provision
 from . import reads
 from .schedule import Schedule
 from .session import ProfileSession, SessionScoped
@@ -57,7 +58,7 @@ from .tick import Ticker, TkPost
 from .workspace import Workspace
 from . import updates
 
-__all__ = ["paths", "reads", "diag", "game_process", "claims", "ACTIONS_DIR",
+__all__ = ["paths", "provision", "reads", "diag", "game_process", "claims", "ACTIONS_DIR",
            "action_titles", "list_actions", "ActionRunner", "Activity", "Step",
            "Outcome", "PanelRuntime", "standalone", "ChildFactory", "EventBus", "GameLink", "LogBus",
            "DEFAULTS", "Schedule", "settings", "SettingsBinder", "Ticker", "TkPost",

@@ -223,14 +223,50 @@ it. What was *missing* was never the mechanism but the telling:
 3. **The lease owner is named per profile** (#1226, done). `claim(owner)` passes
    `"<profile>/timer"`, so a refusal in the log says *which* profile is holding the game.
 
-**A new profile is deliberately NOT given a free port.** It was item 2 of this list once,
-and it is wrong: a port is only half of «its own client» — the other half is the Windows
-session the client lives in (§4.5). A second daemon started on this desktop finds *this*
-desktop's game, so a fresh profile handed 47656 would get a second daemon, a second
-lease and no second client — two independent leases over one game, which is strictly
-worse than taking turns over one. The port follows the client, and the client is
-`rdp_session` / `rdp_user`; until a profile says where its client lives, the honest
-default is the one it already has, said out loud.
+~~**A new profile is deliberately NOT given a free port.**~~ **Both halves together, at
+creation (#1252).** The paragraph that stood here said a free port must not be handed out
+on its own, and it was right about that: a port is only half of «its own client» — the
+other half is the Windows session the client lives in (§4.5). A second daemon started on
+*this* desktop finds *this* desktop's game, so a fresh profile handed 47656 would get a
+second daemon, a second lease and no second client — two independent leases over one
+game, which is strictly worse than taking turns over one.
+
+What it got wrong was the conclusion. «Then hand out neither» left the pair to be typed
+on a Settings page nobody visits, and the result was measured on the live box: two
+profiles named a port, the other five had an empty `config.json`, fell through to the
+default profile's 47654 and farmed ONE account while the panel showed seven healthy
+profiles (#1250). The answer is to settle **both halves at once**, which is what
+`panel/runtime/provision.py` does:
+
+* **there are exactly two places a client can be** — the console (this desktop,
+  `rdp_session` off, the default port; exactly one profile, because there is one
+  desktop) or a Windows session of its own (`rdp_session` on, that session's login, a
+  port nobody else has);
+* so the *choice* is not a choice: the console goes to whoever asked first, and every
+  profile after it is a session;
+* the panel works the **port** out — lowest above the console's that no profile claims
+  and nothing on the machine answers on — and **asks for the login**, because that is
+  the one thing no amount of reading can supply. Creating a profile is a name and a
+  login, and never a number;
+* refusing is part of it: a session profile with no login would look for its client
+  among nobody's processes and report the ordinary «клиент не запущен» for ever, so
+  `plan()` raises instead of writing half a client.
+
+**What was already broken splits in two, and the split is the design.** A port two
+DIFFERENT clients both claim is repaired unasked, at boot, before a session is built —
+nothing changes but a number nobody was meant to see (`repair_ports`). Two profiles on
+ONE client cannot be separated without a login, so the boot only *says* so and the
+«Профиль» window has the button that asks (`needs_own_client`, «Развести клиенты…»).
+Never a modal on the way up: the hourly autostart opens this panel with nobody at the
+machine, and a question there is a panel that never finishes starting.
+
+**And the paths went the same way.** `launcher`, `game_exe` and `win_python` were boxes
+too, and every one of them was a way to be quietly wrong — a profile here still carried
+`C:\Program Files\LastWar\…`, which is not where the game installs itself, so «Запустить
+игру» reported the ordinary «клиент не запущен». They are `runtime.settings.MACHINE_KEYS`
+now: answered by `tools/lib/game_paths.py`, ignored in a profile's file, no longer
+written back, and shown on «Настройки» as a reading that says «не найдено» when the file
+is not there.
 
 ### 4.4 The in-process half of the claim
 
