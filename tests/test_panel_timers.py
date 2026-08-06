@@ -849,7 +849,7 @@ def test_timers_tab_builds_from_the_config_and_binds():
     cfg_path.write_text(json.dumps([
         {"name": BASE, "interval_sec": 1800},
         {"name": "inline_one", "scenario": 'LOG "hello"', "interval_sec": 600,
-         "args": {"who": "world"}, "title": "Inline step"},
+         "retry_sec": 900, "args": {"who": "world"}, "title": "Inline step"},
     ]), encoding="utf-8")
     cat = timersmod.load_catalogue(str(cfg_path))
 
@@ -958,8 +958,27 @@ def test_timers_tab_builds_from_the_config_and_binds():
         assert copy.by_name("inline_one_2").args == {"who": "world"}
         assert copy.by_name("inline_one_2").enabled is False
         assert copy.by_name("inline_one").scenario == ('LOG "hello"',)
+        # The retry travels with the copy like the period does. It used to fall back
+        # to the module default, so a duplicated errand silently retried a failure
+        # five minutes after one whose file said fifteen.
+        assert copy.by_name("inline_one_2").retry_sec == 900, copy.by_name("inline_one_2")
         # …and the rows were redrawn from it, so the copy is on screen.
         assert "inline_one_2" in tab._timer_rows, sorted(tab._timer_rows)
+
+        # The editor's own entry-builder: EVERY field the dialog shows survives a
+        # save, and a field the dialog does not name is a field silently replaced by
+        # a default — which is exactly what happened to retry_sec before #1127's row
+        # was editable at all. An unreadable number keeps the entry's own value.
+        source = tab._timer_catalogue.by_name("inline_one")
+        saved_edit = tab._edited_timer(
+            source, name="inline_one", title="Inline step", interval="600",
+            retry="1200", scenario=('LOG "hello"',), args={"who": "world"},
+            enabled=False)
+        assert (saved_edit.interval_sec, saved_edit.retry_sec) == (600, 1200), saved_edit
+        kept = tab._edited_timer(
+            source, name="inline_one", title="Inline step", interval="600",
+            retry="", scenario=('LOG "hello"',), args={}, enabled=False)
+        assert kept.retry_sec == 900, kept
 
         # A timer's args reach its steps as {placeholders} — the engine does the
         # substituting now (see test_args in tests/test_game_primitives.py).

@@ -348,6 +348,10 @@ class WebApi:
                 "title": self._timer_title(rt, timer),
                 "enabled": bool(item.get("enabled")),
                 "interval_sec": int(item.get("interval_sec") or timer.interval_sec),
+                # The wait after a FAILED run (#1127), so the phone can say why the
+                # next fire is minutes away on an hourly errand instead of leaving
+                # «ошибка» beside a countdown that disagrees with the period.
+                "retry_sec": int(timer.retry_sec),
                 "next": catalogue.next_due(timer, config, records),
                 "last": when or None,
                 "last_state": state,

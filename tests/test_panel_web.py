@@ -231,6 +231,29 @@ def test_an_errand_is_queued_not_run_here():
         assert rt.schedule.timers.requested == ["collect"]
 
 
+def test_a_failed_errand_tells_the_phone_when_it_will_be_retried():
+    """The row carries its retry, so «ошибка» comes with the reason the clock changed.
+
+    A timer whose scenario ended in FAIL keeps its `last_run` and is tried again after
+    `retry_sec` (#1127), which is minutes where the period is hours. Without the retry
+    in the row the phone drew «каждый час · ошибка · следующий через 2 мин» — three
+    facts, one of them apparently contradicting the others, and nothing to explain it.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        rt.schedule.timer_catalogue = rt.schedule.timer_catalogue.replace(
+            timersmod.Timer(name="collect", scenario=("collect_base_resources",),
+                            interval_sec=3600, retry_sec=120, enabled=True,
+                            title="Collect"))
+        now = time.time()
+        rt.schedule.store.mark_failed("collect", when=now)
+        row = {t["name"]: t for t in api.timers()["timers"]}["collect"]
+        assert row["retry_sec"] == 120, row
+        assert row["last_state"] == "failed", row
+        # …and the countdown it explains is that retry, not the hourly period.
+        assert abs(row["next"] - (now + 120)) < 2, row
+
+
 def test_a_switch_from_the_phone_lands_in_the_profiles_own_file():
     """With no Timers tab in this window the file IS the configuration."""
     with tempfile.TemporaryDirectory() as home:

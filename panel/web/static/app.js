@@ -293,6 +293,12 @@ function timerItem(row, now) {
   if (row.last_state === 'ok') bits.push(T('web.ui.last.ok', { when: when(row.last, now) }));
   else if (row.last_state === 'failed') bits.push(T('web.ui.last.failed', { when: when(row.last, now) }));
   else bits.push(T('web.ui.last.none'));
+  // Only after a failure, and only then: the retry is why an hourly errand says
+  // «следующий через 4 мин» — the window's own row makes the same substitution in
+  // its countdown, and without this the phone shows the answer with no reason.
+  if (row.last_state === 'failed' && row.retry_sec) {
+    bits.push(T('web.ui.retry', { span: span(row.retry_sec) }));
+  }
   detail.textContent = bits.join(' · ');
 
   const foot = document.createElement('div');

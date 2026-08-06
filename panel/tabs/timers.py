@@ -413,6 +413,10 @@ class TimersTab(PanelTab):
         copy = timersmod.Timer(
             name=self._timer_catalogue.unique_name(timer.name),
             scenario=timer.scenario, interval_sec=timer.interval_sec,
+            # The retry travels with the copy like the period does. Left out, it fell
+            # back to the module default, so duplicating the half-hourly ministry
+            # errand quietly handed the copy a five-minute retry it was never given.
+            retry_sec=timer.retry_sec,
             enabled=False,          # a copy starts off: two clocks on one errand is
                                     # rarely what a duplicate was for
             args=dict(timer.args),
@@ -439,8 +443,28 @@ class TimersTab(PanelTab):
         if timer is not None:
             self._edit_timer_dialog(timer, is_new=False)
 
+    def _edited_timer(self, timer, *, name: str, title: str, interval: str,
+                      retry: str, scenario: tuple, args: dict, enabled: bool):
+        """The entry the editor's fields describe — every one of them, and no default.
+
+        A method rather than four lines inside the dialog's ``save`` because this is
+        where a field is silently LOST: whatever the dialog does not name here falls
+        back to the module's default and overwrites what the operator typed in the
+        JSON, and a dialog's callback is unreachable from a test that has no display.
+        """
+        return timersmod.Timer(
+            name=name, scenario=scenario,
+            interval_sec=timersmod._as_interval(interval, timer.interval_sec),
+            retry_sec=timersmod._as_interval(retry, timer.retry_sec),
+            enabled=enabled,
+            args=args, title=title.strip() or None,
+            # The locale key belongs to the BUILT-IN entry of that name; a renamed
+            # row is no longer that entry, and keeping it would show a translated
+            # label over the wrong errand.
+            label_key=timer.label_key if name == timer.name else None)
+
     def _edit_timer_dialog(self, timer, is_new: bool) -> None:
-        """The row's whole entry, in a window: name, title, period, steps, args.
+        """The row's whole entry, in a window: name, title, period, retry, steps, args.
 
         Steps are one per line, because that is what a scenario is — «collect the
         truck, then the base» is two lines — and a line is either the name of an
@@ -463,31 +487,38 @@ class TimersTab(PanelTab):
         name_var = tk.StringVar(value=timer.name)
         title_var = tk.StringVar(value=timer.title or "")
         interval_var = tk.StringVar(value=str(timer.interval_sec))
+        # The wait after a FAILED run (#1127) — the period a scenario that ended in
+        # `FAIL` is tried again after, which is a different question from how often it
+        # runs when it works: «I am not on the base yet» wants minutes, the errand
+        # itself wants hours. The file has carried it per entry all along; without a
+        # field here the editor wrote the default over whatever was typed in the JSON.
+        retry_var = tk.StringVar(value=str(timer.retry_sec))
         args_var = tk.StringVar(value=json.dumps(timer.args, ensure_ascii=False)
                                 if timer.args else "")
+        numeric = {"timers.editor.interval", "timers.editor.retry"}
         for row, (key, var, width) in enumerate((
                 ("timers.editor.name", name_var, 28),
                 ("timers.editor.title", title_var, 40),
                 ("timers.editor.interval", interval_var, 10),
+                ("timers.editor.retry", retry_var, 10),
                 ("timers.editor.args", args_var, 40))):
             self.tr(ttk.Label(frm), key).grid(row=row, column=0, sticky="w",
                                                padx=(0, 8), pady=3)
-            # Only the interval is a number; name/title/args stay free text.
-            entry_cls = (NumericEntry if key == "timers.editor.interval"
-                         else ttk.Entry)
+            # Only the two periods are numbers; name/title/args stay free text.
+            entry_cls = NumericEntry if key in numeric else ttk.Entry
             entry_cls(frm, textvariable=var, width=width).grid(row=row, column=1,
                                                                sticky="we", pady=3)
         self.tr(ttk.Label(frm, foreground="#888", wraplength=460, justify="left"),
-                 "timers.editor.steps_hint").grid(row=4, column=0, columnspan=2,
+                 "timers.editor.steps_hint").grid(row=5, column=0, columnspan=2,
                                                   sticky="w", pady=(8, 2))
         steps = ScrolledText(frm, height=8, width=56, wrap="none", font=("Consolas", 9))
-        steps.grid(row=5, column=0, columnspan=2, sticky="nsew")
+        steps.grid(row=6, column=0, columnspan=2, sticky="nsew")
         steps.insert("1.0", "\n".join(timer.scenario))
-        frm.rowconfigure(5, weight=1)
+        frm.rowconfigure(6, weight=1)
 
         # The picker: every blessed action script, appended as a step.
         pick = ttk.Frame(frm)
-        pick.grid(row=6, column=0, columnspan=2, sticky="we", pady=(6, 0))
+        pick.grid(row=7, column=0, columnspan=2, sticky="we", pady=(6, 0))
         self.tr(ttk.Label(pick), "timers.editor.pick").pack(side="left", padx=(0, 4))
         # …in the panel's language: a scenario's title line carries a translation per
         # language tag, and without saying which one we want every row here fell back to
@@ -510,7 +541,7 @@ class TimersTab(PanelTab):
                  "timers.editor.add_step").pack(side="left", padx=(4, 0))
 
         problem = ttk.Label(frm, foreground="#c33", wraplength=460, justify="left")
-        problem.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        problem.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         def save() -> None:
             name = name_var.get().strip()
@@ -544,16 +575,9 @@ class TimersTab(PanelTab):
             # minute later.
             row_var = self._timer_vars.get(timer.name)
             enabled = bool(row_var["enabled"].get()) if row_var else bool(timer.enabled)
-            edited = timersmod.Timer(
-                name=name, scenario=scenario,
-                interval_sec=timersmod._as_interval(interval_var.get(),
-                                                    timer.interval_sec),
-                enabled=enabled,
-                args=args, title=title_var.get().strip() or None,
-                # The locale key belongs to the BUILT-IN entry of that name; a
-                # renamed row is no longer that entry, and keeping it would show a
-                # translated label over the wrong errand.
-                label_key=timer.label_key if name == timer.name else None)
+            edited = self._edited_timer(
+                timer, name=name, title=title_var.get(), interval=interval_var.get(),
+                retry=retry_var.get(), scenario=scenario, args=args, enabled=enabled)
             catalogue = self._timer_catalogue
             if not is_new and name != timer.name:
                 # A rename is a delete plus an add: the name is the record key, so
@@ -565,7 +589,7 @@ class TimersTab(PanelTab):
             self.say("timer", "timers.log.saved", name=name)
 
         btns = ttk.Frame(frm)
-        btns.grid(row=8, column=0, columnspan=2, sticky="we", pady=(10, 0))
+        btns.grid(row=9, column=0, columnspan=2, sticky="we", pady=(10, 0))
         ttk.Button(btns, text=self.t("timers.editor.cancel"),
                    command=win.destroy).pack(side="left")
         ttk.Button(btns, text=self.t("timers.editor.save"),
