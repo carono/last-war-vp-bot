@@ -21,7 +21,15 @@ watchdog acts on it, and a client that lost the server is not a client to kill a
 relaunch behind the person's back.
 
 No Tk, no game, no Windows: the process list and the socket table are the seams
-(`gp._pids_by_name` / a stand-in `psutil`), stubbed here.
+(`game_link._pids_by_name` / a stand-in `psutil`), stubbed here.
+
+**The stubs go on `tools/lib/game_link.py`, and the assertions on the panel** — which is
+the shape of #1260 and worth keeping that way round. The reading lives in the shared
+module now (so that everything which SENDS can ask it, not only the layer which draws
+it), and `panel/runtime/game_process.py` is the wording on top. Stubbing the machine in
+one place and reading the answer through the other is what proves there is still only
+one implementation: put the stubs on the panel instead and this file would pass over a
+second copy of the rule.
 
     C:\Python312\python.exe tests\test_game_link_status.py
     python3 tests/test_game_link_status.py      # SKIP: the runtime package needs tkinter
@@ -32,7 +40,11 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools" / "lib"))
+
+import game_link                                 # noqa: E402 — the reading
 
 try:                                             # the WSL python3 has no tkinter, and
     from panel.runtime import game_process as gp   # the runtime package imports it
@@ -66,20 +78,21 @@ class _Machine:
         self.pids, self.conns = list(pids), list(conns)
 
     def __enter__(self):
-        self._saved = (gp._pids_by_name, gp._pids_in_session, gp.sessions,
-                       gp.own_session, sys.modules.get("psutil"))
-        gp._pids_by_name = lambda exe: list(self.pids)
-        gp.own_session = lambda: None       # a machine with no sessions: the name is all
+        self._saved = (game_link._pids_by_name, game_link._pids_in_session,
+                       game_link.sessions, game_link.own_session,
+                       sys.modules.get("psutil"))
+        game_link._pids_by_name = lambda exe: list(self.pids)
+        game_link.own_session = lambda: None  # a machine with no sessions: the name is all
         # …and the same client, seen as the second account's — so the six sentences
         # below («в сессии {user}» and not) come off one machine rather than two.
-        gp.sessions = lambda: [{"id": 4, "user": "player2",
-                                "state": gp.WTS_DISCONNECTED}]
-        gp._pids_in_session = lambda exe, session: list(self.pids)
+        game_link.sessions = lambda: [{"id": 4, "user": "player2",
+                                       "state": game_link.WTS_DISCONNECTED}]
+        game_link._pids_in_session = lambda exe, session: list(self.pids)
         sys.modules["psutil"] = self._psutil()
         # The socket table is shared between open profiles and cached for a couple of
         # seconds (#1226), so a case that did not drop it would be reading the machine
         # the PREVIOUS case set up. Both ends, so nothing leaks either way.
-        gp.forget_machine_state()
+        game_link.forget_machine_state()
         return self
 
     def _psutil(self):
@@ -93,13 +106,13 @@ class _Machine:
         return _Fake
 
     def __exit__(self, *exc):
-        (gp._pids_by_name, gp._pids_in_session, gp.sessions,
-         gp.own_session, held) = self._saved
+        (game_link._pids_by_name, game_link._pids_in_session, game_link.sessions,
+         game_link.own_session, held) = self._saved
         if held is None:
             sys.modules.pop("psutil", None)
         else:
             sys.modules["psutil"] = held
-        gp.forget_machine_state()
+        game_link.forget_machine_state()
         return False
 
 
@@ -241,11 +254,77 @@ def test_the_phone_has_a_word_for_every_state_the_panel_can_report():
         assert not missing, f"{path.name}: {missing}"
 
 
+# -- and the whole reading is askable WITHOUT the panel (#1260) --------------
+#
+# The four cases above go through `gp`, which is the panel wording what the shared
+# module read. These go straight at the shared module, and they are named
+# `test_the_reading_*` so that `_main` can still run them on a machine where the panel
+# will not import at all — which is not a trick, it is the property being pinned. While
+# the reading lived behind `panel.i18n.Message`, «ask before you send» was a rule that
+# only held for whoever happened to be running the panel.
+
+def test_the_reading_answers_with_no_front_end_at_all():
+    with _Machine([111], [_Conn(111, "CLOSE_WAIT"), _Conn(111, "CLOSE_WAIT")]):
+        found = game_link.probe("LastWar.exe")
+    assert found.running is True and found.link == game_link.LOST, found
+    assert found.pid == 111 and found.dead == 2 and found.conn is None, found
+    assert found.online is False
+
+
+def test_the_reading_imports_nothing_of_the_panel():
+    """The one line that would quietly undo the move.
+
+    A `from panel...` here and the shared module is panel-only again — importable by the
+    layer that DRAWS and by nothing that SENDS, which is the state #1259 lost a day to.
+    Prose may name the panel (and does); an import may not.
+    """
+    src = (ROOT / "tools" / "lib" / "game_link.py").read_text(encoding="utf-8")
+    bad = [line for line in src.splitlines()
+           if line.startswith(("import ", "from ")) and "panel" in line]
+    assert not bad, bad
+
+
+def test_the_reading_says_WHY_there_is_no_client_rather_than_just_that():
+    """Three different «no client», and they want three different things done.
+
+    `no_session` is «there is nowhere to look» — the watchdog must not answer it by
+    starting a client on THIS desktop — and it is a different fact from «that session
+    is up and empty», which is a client to start, and from «nothing here», which is
+    the ordinary single-account case.
+    """
+    with _Machine([], []):
+        assert game_link.probe("LastWar.exe").reason == game_link.NOT_FOUND
+        assert game_link.probe("LastWar.exe", user="player2").reason \
+            == game_link.SESSION_NOT_FOUND
+        assert game_link.probe("LastWar.exe", user="nobody").reason \
+            == game_link.NO_SESSION
+
+
+def test_the_panel_has_a_sentence_for_every_one_of_those_reasons():
+    """…and the words stay the panel's, in all eleven locales."""
+    with _Machine([], []):
+        keys = [gp.probe("LastWar.exe").message.key,
+                gp.probe("LastWar.exe", user="player2").message.key,
+                gp.probe("LastWar.exe", user="nobody").message.key]
+    assert keys == ["game.st.not_found", "game.st.session_not_found",
+                    "game.st.no_session"], keys
+    root = Path(__file__).resolve().parents[1] / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        locale = json.loads(path.read_text(encoding="utf-8"))
+        missing = [k for k in keys + ["game.st.no_psutil", "game.st.probe_error"]
+                   if k not in locale]
+        assert not missing, f"{path.name}: {missing}"
+
+
 def _main() -> int:
-    if gp is None:
-        print(f"  SKIP the runtime package will not import here: {_WHY}")
-        return 0
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    if gp is None:
+        # Not a skip of the whole file any more. The panel needs tkinter; the reading
+        # needs nothing, and a machine that cannot import the panel is exactly where
+        # that has to be true.
+        print(f"  the runtime package will not import here: {_WHY}")
+        print("  …running the panel-free half, which is the point of #1260")
+        tests = [t for t in tests if t.__name__.startswith("test_the_reading_")]
     failed = 0
     for t in tests:
         try:

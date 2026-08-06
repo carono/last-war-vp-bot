@@ -325,11 +325,11 @@ def test_four_profiles_read_their_own_ports_at_once() -> None:
 # 3. the machine's own facts, read once for everybody
 # ---------------------------------------------------------------------------
 def test_one_walk_of_the_socket_table_serves_every_open_profile() -> None:
-    try:
-        from panel.runtime import game_process as gp
-    except Exception as exc:                           # noqa: BLE001 — no tkinter here
-        print(f"  SKIP one-walk: {exc}")
-        return
+    # The shared walk moved to `tools/lib/game_link.py` with the rest of the reading
+    # (#1260), so it is asked there — and no tkinter is needed to ask it, which is why
+    # this no longer goes through the panel at all.
+    import game_link
+
     walks = []
 
     class _Fake:
@@ -341,23 +341,23 @@ def test_one_walk_of_the_socket_table_serves_every_open_profile() -> None:
     held = sys.modules.get("psutil")
     sys.modules["psutil"] = _Fake
     try:
-        gp.forget_machine_state()
+        game_link.forget_machine_state()
         for _ in range(4):                             # four profiles' status polls
-            gp._client_sockets([111])
+            game_link.client_sockets([111])
         assert len(walks) == 1, f"{len(walks)} walks for four profiles"
-        gp.forget_machine_state()
-        gp._client_sockets([111])
+        game_link.forget_machine_state()
+        game_link.client_sockets([111])
         assert len(walks) == 2, "forgetting did not make it walk again"
     finally:
         if held is None:
             sys.modules.pop("psutil", None)
         else:
             sys.modules["psutil"] = held
-        gp.forget_machine_state()
+        game_link.forget_machine_state()
 
 
 def test_the_shared_reading_is_taken_once_even_by_four_threads_at_once() -> None:
-    from panel.runtime.game_process import _Shared
+    from game_link import _Shared
 
     walks: list = []
 

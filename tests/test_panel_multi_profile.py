@@ -40,6 +40,7 @@ for _p in (_REPO, _REPO / "tools" / "lib", _REPO / "src"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import game_link                                           # noqa: E402
 import lua_client                                          # noqa: E402
 from lastwar_bot import script_engine                      # noqa: E402
 from panel import debug_log as dbg                         # noqa: E402
@@ -591,21 +592,24 @@ class _TwoClients:
         self.procs = {1: [1001], 4: [4004]}
 
     def __enter__(self):
-        self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-                       gp._endpoint, gp._client_sockets, gp.own_session)
-        gp.sessions = lambda: [{"id": 1, "user": "player1", "state": gp.WTS_ACTIVE},
-                               {"id": 4, "user": "player2",
-                                "state": gp.WTS_DISCONNECTED}]
-        gp._pids_in_session = lambda exe, session: list(self.procs.get(session, ()))
-        gp._pids_by_name = lambda exe: [p for ps in self.procs.values() for p in ps]
-        gp._endpoint = lambda found: None
-        gp._client_sockets = lambda found: []   # not visible here, so no verdict
-        gp.own_session = lambda: self.here
+        # The machine is stubbed where the reading LIVES (`tools/lib/game_link.py`,
+        # #1260) and read back through the panel, which is what proves the panel is
+        # wording that one reading rather than keeping a second copy of it.
+        self._saved = (game_link.sessions, game_link._pids_in_session,
+                       game_link._pids_by_name, game_link.client_sockets,
+                       game_link.own_session)
+        game_link.sessions = lambda: [
+            {"id": 1, "user": "player1", "state": gp.WTS_ACTIVE},
+            {"id": 4, "user": "player2", "state": gp.WTS_DISCONNECTED}]
+        game_link._pids_in_session = lambda exe, session: list(self.procs.get(session, ()))
+        game_link._pids_by_name = lambda exe: [p for ps in self.procs.values() for p in ps]
+        game_link.client_sockets = lambda found: []   # not visible here, so no verdict
+        game_link.own_session = lambda: self.here
         return self
 
     def __exit__(self, *exc):
-        (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-         gp._endpoint, gp._client_sockets, gp.own_session) = self._saved
+        (game_link.sessions, game_link._pids_in_session, game_link._pids_by_name,
+         game_link.client_sockets, game_link.own_session) = self._saved
         return False
 
 
