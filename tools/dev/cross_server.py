@@ -1,5 +1,12 @@
 r"""View another server's world map — full load, no teleport UI (no-click, out-of-process).
 
+> **The recipe below is superseded — reach for `lua_actions.jump_to_coord` first.** That
+> one call is the game's own coordinate navigation: it loads and enters a foreign
+> server's world with no `UIMoveCity` to force-close and with map input still alive
+> afterwards, which is what the whole move-city dance here exists to work around. This
+> tool is kept as the record of how the move-city path was made to work (and for a jump
+> to a server without naming a tile); anything new should use the shared call.
+
 Problem: out of process, the ONLY call that bulk-loads a foreign server's world is
 `CrossServerUtil.JumpToServerByServerId(...)`, and outside an active event it always enters
 **move-city mode** — it opens the base-relocation window `UIMoveCity` (the "teleport"/переезд UI).
@@ -15,7 +22,7 @@ Recipe:
   2. CrossServerUtil.JumpToServerByServerId(serverId, MoveCrossServerType.BigMap3000, nil, 105, false)
      -- full bulk load; opens UIMoveCity
   3. UIManager.Instance:GetWindow("UIMoveCity").Ctrl:CloseSelf()              -- close ONLY that window
-  4. (optional) GoToUtil.GotoPos(Vector3(X*2+1,0,Y*2+1),105,nil,nil,serverId,nil)  -- pan to fill more
+  4. (optional) lua_actions.jump_to_coord(X, Y, serverId, zoom=SWEEP_ZOOM_MAX) -- pan to fill more
 
 Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServer()
 
@@ -24,8 +31,13 @@ Return home:  CrossServerUtil.BackToSrcServer() + CrossServerUtil.OnBackSelfServ
     C:\Python312\python.exe tools\cross_server.py 300 561 492
     C:\Python312\python.exe tools\cross_server.py --home        # return to the home server
 """
-import sys, time
-sys.path.insert(0, "tools/lib")
+import os, sys, time
+# Absolute, not "tools/lib": the shared modules resolve the same whatever cwd this was
+# started from.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "tools", "lib"))
+from lua_actions import SWEEP_ZOOM_MAX, jump_to_coord  # the game's own coordinate jump
 from lua_client import get_evaluator  # daemon-backed when running, else a fresh local LuaEval
 from tool_config import default_server
 
@@ -95,12 +107,24 @@ def main():
             break
     print("movecity:", closed, flush=True)
 
-    # 3) optional pan to a specific coordinate to fill more of the map
+    # 3) optional pan to a specific coordinate to fill more of the map.
+    #
+    # `jump_to_coord` is the game's own coordinate navigation (`GotoWorldPos`), which
+    # replaced the `GotoPos` camera crutch this step used to call: the crutch moves the
+    # view without being the client's move-to-tile, and a jump through it is the one
+    # scripted camera move that was measured NOT to fetch (#1053 → #1265).
+    #
+    # The height is asked for explicitly, because it decides how much map the client
+    # requests per arrival. `SWEEP_ZOOM_MAX` (600) is the widest one at which EVERY tile
+    # kind still arrives — bases, mines, secret tasks, ghost recon — and it covers about
+    # twelve times the ground of the tile view this used to pass. `BASE_ZOOM_MAX` (1199)
+    # is wider again but drops tasks and ghost tiles, which is the wrong trade for a tool
+    # whose whole point is «how much of that server actually loaded».
     if x is not None and y is not None:
-        run('pcall(function() GoToUtil.GotoPos(CS.UnityEngine.Vector3(%s*2+1,0,%s*2+1),105,nil,nil,%s,nil) end) '
+        run(jump_to_coord(int(x), int(y), int(srv), zoom=SWEEP_ZOOM_MAX) + ' '
             'pcall(function() SceneUtils.ClearLastRequestALPointsTime() end) '
             'pcall(function() SceneUtils.WorldSendGetALPointsRequest() end) '
-            'CS.UnityEngine.Debug.LogError("G panned")' % (x, y, srv), "G", 1.6)
+            'CS.UnityEngine.Debug.LogError("G panned")', "G", 1.6)
 
     time.sleep(2)
     v = one(run(

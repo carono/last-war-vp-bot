@@ -122,8 +122,10 @@ class Capture:
         # sees ~280 tcp frames/s) scapy's Python callback cannot keep up and npcap's ring
         # overflows — ~98% of packets, the game's map frames among them, are dropped
         # before decode. That is exactly why the capture works when run by hand
-        # (auto-detect → "tcp port 17935", filtered in the kernel, no flood) but found
-        # nothing when the panel forced --all-tcp. Let it auto-detect the live port;
+        # (auto-detect → one narrow "tcp port N" per live conversation, filtered in the
+        # kernel, no flood) but found nothing when the panel forced --all-tcp. The number
+        # is deliberately not written here: it moves between builds, and this comment
+        # named the one that has since become the chat channel. Let it auto-detect;
         # --all-tcp stays a manual last resort for when detection genuinely fails.
         cmd = [self.rt.children.python(), "-u", os.path.join(TOOLS, script)]
         # Checkpoint what the capture currently sees into the profile, so auto-loot has a
