@@ -8,9 +8,12 @@ story is docs/research/server-link-status.md.
 
 The tell is the socket table, and the rule for reading it is small and easy to get wrong:
 
-* a healthy client keeps **half-closed sockets** while it plays — six of them, the losers
-  of the gateway race it runs while logging in — so «there is a CLOSE_WAIT» proves
-  nothing on its own. An ESTABLISHED game socket is checked FIRST and wins;
+* a healthy client keeps **half-closed sockets** while it plays — five or six of them,
+  the losers of the gateway race it runs while logging in — so «there is a CLOSE_WAIT»
+  proves nothing on its own. An ESTABLISHED socket **of the same conversation** answers
+  them; one belonging to a different service does not, and that distinction is #1266:
+  the client keeps a chat / control channel on a port of its own, and for a night a
+  leftover socket of THAT vouched for a game link whose every socket was half-closed;
 * it keeps an ESTABLISHED **loopback pair to itself**, which survives the server hanging
   up. Counting one as proof is exactly the lie this rule exists to stop;
 * the **game port moves between builds** (`:17935`, then `:10012`), so the only port rule
@@ -87,28 +90,86 @@ def is_game_socket(c) -> bool:
     return not (ip.startswith("127.") or ip in ("::1", "0.0.0.0", "::"))
 
 
-def live_endpoint(sockets) -> "str | None":
-    """The established game connection among sockets already read, if there is one."""
+def conversations(sockets) -> dict:
+    """``{remote port: (endpoint or None, half-closed count)}`` — one entry per talk.
+
+    THE UNIT THE VERDICT IS TAKEN IN, and the whole of #1266. A client is not having one
+    conversation with the outside world, it is having several: the game on its own port,
+    the chat / control channel on another (`docs/research/chat-system.md`), and whatever
+    a future build adds. They live and die separately, and «this process has an
+    established socket» says nothing about which of them it belongs to.
+
+    The port is the grain, not the peer address: the client greets SEVERAL gateways while
+    logging in, keeps one and leaves the losers half-closed for the rest of the session,
+    so one conversation is many addresses on one port. Grouping by address would put each
+    of those in a box of its own and call five of them dead.
+    """
+    talks: dict = {}
     for c in sockets:
-        if c.status == "ESTABLISHED" and is_game_socket(c):
-            return f"{c.raddr.ip}:{c.raddr.port}"
+        if not is_game_socket(c):
+            continue
+        conn, dead = talks.get(c.raddr.port, (None, 0))
+        if c.status == "ESTABLISHED" and conn is None:
+            conn = f"{c.raddr.ip}:{c.raddr.port}"
+        elif c.status in HALF_CLOSED:
+            dead += 1
+        talks[c.raddr.port] = (conn, dead)
+    return talks
+
+
+def live_endpoint(sockets) -> "str | None":
+    """The established GAME connection among sockets already read, if there is one.
+
+    Not simply the first established one. A client that keeps a live chat socket and a
+    dead game one answered with the chat host for a whole night (§2.2), which is a wrong
+    endpoint on the strip and — until :func:`classify` was fixed with it — a green light
+    over an account that had stopped playing.
+
+    So the conversation that also carries HALF-CLOSED sockets wins: those are the losers
+    of the game's own gateway race and no other service on this client leaves any (the
+    two that do, 80 and 443, are excluded before we get here). Failing that evidence,
+    any established game socket, exactly as before.
+    """
+    talks = conversations(sockets)
+    for _port, (conn, dead) in talks.items():
+        if conn and dead:
+            return conn
+    for _port, (conn, _dead) in talks.items():
+        if conn:
+            return conn
     return None
 
 
 def classify(sockets) -> tuple:
     """``(state, endpoint, dead)`` for a client that IS running, from its own sockets.
 
-    Established first — that is the only proof of a live account, and a pile of
-    half-closed sockets means nothing beside a live one. Failing that, a half-closed
-    game socket is proof of the opposite. With neither, the honest answer is
-    :data:`UNKNOWN` and not a guess: a client 45 seconds into starting up has exactly
-    those sockets, and so does a machine that will not attribute a foreign process's.
+    **A dead conversation is never outvoted by a live one** — the rule #1266 was bought
+    with. What stood here was «established first: a pile of half-closed sockets means
+    nothing beside a live one», and that is true only while the two are the SAME
+    conversation. On 2026-08-06 they were not: six half-closed game sockets and one
+    established socket of the control channel, and this returned `online, dead=0` without
+    ever reaching the count — through a night of timers pressing into a socket the far
+    end had closed (docs/research/server-link-status.md §2.2).
+
+    So every conversation is judged on its own (:func:`conversations`), and one that has
+    half-closed sockets and no established one is a loss whatever the others are doing.
+
+    **The two errors are not symmetric, and that is why it leans this way.** A wrong
+    `online` is silent and costs a night: every reading says the account is fine, the
+    recovery never counts a strike, the gate lets every scenario through, and nothing in
+    the log looks wrong. A wrong `lost` is loud and costs one restart, after three
+    consecutive readings, a cooldown and an idle check — and the client comes back.
+
+    :data:`UNKNOWN` still covers «no verdict»: a client 45 seconds into starting up has
+    no game socket at all yet, and so does a machine that will not attribute a foreign
+    process's. Neither is a fault and neither may be treated as one.
     """
+    talks = conversations(sockets)
+    stranded = sum(dead for conn, dead in talks.values() if dead and conn is None)
+    if stranded:
+        return LOST, None, stranded
     conn = live_endpoint(sockets)
-    if conn:
-        return ONLINE, conn, 0
-    dead = sum(1 for c in sockets if c.status in HALF_CLOSED and is_game_socket(c))
-    return (LOST if dead else UNKNOWN), None, dead
+    return (ONLINE, conn, 0) if conn else (UNKNOWN, None, 0)
 
 
 def sockets_of(pids) -> list:

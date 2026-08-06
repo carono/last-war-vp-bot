@@ -64,6 +64,41 @@ class LeaseLost(RuntimeError):
     """
 
 
+class ClientGone(RuntimeError):
+    """The daemon answered, and the CLIENT it drives is not there any more (#1266).
+
+    The third thing a failed `run` can mean, and the one nothing used to say. A bad chunk
+    is the author's, a :class:`LeaseLost` is another errand's, and this is the link's: the
+    daemon is up, warm and talking, and the process on the other side of it has gone.
+
+    It had no name for a year, so it arrived as the raw words of a Windows call —
+    `SystemExit: snapshot failed err=5` — and every reader treated it as a toolkit bug.
+    A night of timers said that and not one of them concluded «the client is gone»
+    (docs/research/server-link-status.md §2.2).
+
+    RECOGNISED TWO WAYS ON PURPOSE. A daemon built since #1266 sets `client_gone` on the
+    wire and there is nothing to guess at. A daemon that was ALREADY RUNNING when this
+    shipped does not — and it will go on running for days, because that is the point of a
+    warm daemon — so its own three sentences are matched as well (:data:`GONE_WORDS`).
+    A fix that only worked after somebody restarted the thing being fixed is a fix for
+    tomorrow's incident and not for this one.
+    """
+
+
+#: What an older daemon says when it cannot reach its client — `il2cpp_probe`'s own three
+#: failures, verbatim from that module. Not heuristics: those are the only three ways the
+#: attach can end, and each of them means the process is not there to be attached to.
+GONE_WORDS = ("snapshot failed err=", "not running", "not found in pid ")
+
+
+def _client_gone(reply: dict) -> bool:
+    """Does this refusal mean the client is gone rather than the chunk being wrong?"""
+    if reply.get("client_gone"):
+        return True
+    text = str(reply.get("error") or "")
+    return any(word in text for word in GONE_WORDS)
+
+
 class DaemonClient:
     """Talks to lua_daemon over a per-call TCP connection. Same interface as LuaEval."""
 
@@ -114,6 +149,12 @@ class DaemonClient:
         if not r.get("ok"):
             if r.get("lease_lost"):
                 raise LeaseLost(r.get("error", "lease lost"))
+            if _client_gone(r):
+                raise ClientGone(
+                    f"the client this daemon drives is not there any more — nothing "
+                    f"sent from here reaches the game, and the link is what is broken "
+                    f"rather than the chunk. Restart the client, then the daemon "
+                    f"[{r.get('error', 'daemon error')}]")
             raise RuntimeError(r.get("error", "daemon error"))
         return r.get("lines", [])
 

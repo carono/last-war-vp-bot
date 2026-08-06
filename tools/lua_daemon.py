@@ -65,6 +65,22 @@ import lua_client  # HOST/PORT only — lightweight
 from game_lease import DEFAULT_TTL as DEFAULT_LEASE_TTL, Lease
 
 
+class ClientUnreachable(RuntimeError):
+    """This daemon cannot get at the client it is meant to drive (#1266).
+
+    NOT a bad chunk and not a game that refused something — the far end of the link is
+    gone. It is raised after the rebuild has already been tried, so by the time a caller
+    sees it the daemon has done everything it can by itself.
+
+    It exists because of what the panel used to be told instead: `SystemExit: snapshot
+    failed err=5`, the raw words of a Windows call inside `il2cpp_probe`, which reads as
+    a bug in the toolkit rather than as «the client is not there any more». A whole
+    evening's timers reported that and nothing anywhere concluded the obvious
+    (docs/research/server-link-status.md §2.2). The wire carries a `client_gone` flag
+    beside the text so `lua_client` does not have to recognise a sentence.
+    """
+
+
 class Daemon:
     def __init__(self):
         self._lock = threading.Lock()
@@ -146,12 +162,44 @@ class Daemon:
                 try:
                     return self._ensure().run(chunk, marker=marker, settle=settle,
                                               early=early)
-                except BaseException:
+                except BaseException as exc:
                     # Stale handle (game restarted?) or transient hijack failure —
                     # drop the warm state and rebuild once before giving up.
                     self._drop()
                     if attempt == 2:
-                        raise
+                        raise self._verdict(exc) from exc
+
+    def _verdict(self, exc: BaseException) -> BaseException:
+        """The failure to hand back once the rebuild has failed too.
+
+        THE CLIENT IS ASKED ABOUT, not guessed at from the words of the error. A run that
+        fails twice over is either a chunk this VM would not run — which is the author's
+        problem and must keep its own message — or a client that cannot be reached, which
+        is nobody's chunk and everybody's link. The pin says which process this daemon
+        serves and the machine says whether it is still there; between them there is no
+        need to read `err=5` and hope.
+
+        An unanswerable question stays the original error: this may only ever ADD a
+        verdict, never replace a real one with a guess.
+        """
+        pin = (os.environ.get("LW_GAME_PID") or "").strip()
+        try:
+            import game_client
+            # The pin is the answer when there is one — it names THIS daemon's client,
+            # and on a box with two accounts the other session's is not a substitute.
+            gone = (not game_client.alive(int(pin))) if pin.isdigit() \
+                else (not game_client.session_pids())
+        except BaseException:                         # noqa: BLE001 — cannot ask ⇒ keep it
+            return exc
+        if not gone:
+            # A client that IS there and still cannot be attached to is a different
+            # fault — rights, a hijack that lost its race — and calling it «the client
+            # is gone» would be the same kind of lie in the other direction.
+            return exc
+        return ClientUnreachable(
+            f"the client this daemon drives is gone (pid {pin or '?'}); the link is "
+            f"dead, not the chunk — restart the client, then this daemon "
+            f"[{type(exc).__name__}: {exc}]")
 
     def close(self):
         with self._lock:
@@ -198,6 +246,11 @@ def _handle(conn: socket.socket, daemon: Daemon) -> None:
                     f.write(b'{"ok":true}\n'); f.flush(); daemon.close(); os._exit(0)
                 else:
                     resp = {"ok": False, "error": f"unknown op {op!r}"}
+            except ClientUnreachable as exc:
+                # A flag beside the text, exactly as `lease_lost` is: the caller must be
+                # able to tell «the link is gone» from «your chunk is wrong» without
+                # matching sentences, and a sentence is what it had to match before.
+                resp = {"ok": False, "error": str(exc), "client_gone": True}
             except BaseException as exc:
                 resp = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
             f.write((json.dumps(resp) + "\n").encode("utf-8")); f.flush()

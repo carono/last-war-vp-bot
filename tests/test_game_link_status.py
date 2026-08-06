@@ -197,6 +197,70 @@ def test_the_established_one_wins_over_the_stale_ones_beside_it():
     assert found.link == gp.ONLINE and found.dead == 0, found
 
 
+def test_a_live_socket_of_ANOTHER_service_does_not_vouch_for_a_dead_game():
+    """The night this cost, in one table (#1266, docs/…/server-link-status.md §2.2).
+
+    The client keeps a chat / control channel on a port of its own. It survived while
+    every game socket went half-closed, and «an established socket outranks a pile of
+    dead ones» — true when they are ONE conversation — handed back `online, dead=0`
+    without ever reaching the count. The panel wrote `link=online` all night, the
+    recovery never counted a strike, the gate let every scenario through, and every
+    timer pressed into a socket the far end had closed.
+    """
+    dead_game = [_Conn(111, "CLOSE_WAIT", port=10012, ip=f"203.0.113.{n}")
+                 for n in range(1, 7)]
+    chat = _Conn(111, "ESTABLISHED", port=17935, ip="198.51.100.4")
+    with _Machine([111], dead_game + [chat]):
+        found = gp.probe("LastWar.exe")
+    assert found.link == gp.LOST, f"the control channel vouched for the game: {found}"
+    assert found.dead == 6, found.dead
+    assert found.conn is None, found.conn
+
+
+def test_the_same_two_services_on_a_HEALTHY_client_are_still_green():
+    """…and the other half, which is what stops the cure being worse than the disease.
+
+    The live reading of a healthy client, exactly: five half-closed game sockets (the
+    losers of the gateway race), one established game socket, and the control channel
+    beside them. A rule that called this «lost» would restart a perfectly good client
+    every ten minutes, which is the one failure worse than the one above.
+
+    The endpoint is the GAME's, not whichever row psutil happened to hand over first —
+    the strip spent that night naming the chat host as the server.
+    """
+    table = [_Conn(111, "CLOSE_WAIT", port=10012, ip=f"203.0.113.{n}")
+             for n in range(1, 6)]
+    table += [_Conn(111, "ESTABLISHED", port=10012, ip="203.0.113.9"),
+              _Conn(111, "ESTABLISHED", port=17935, ip="198.51.100.4")]
+    with _Machine([111], table):
+        found = gp.probe("LastWar.exe")
+    assert found.link == gp.ONLINE, found
+    assert found.conn == "203.0.113.9:10012", f"the endpoint is not the game's: {found.conn}"
+
+
+def test_the_verdict_is_taken_per_conversation_and_not_per_process():
+    """The rule under both cases above, asked of the classifier directly.
+
+    A conversation is a remote PORT: the client greets several gateways on one, so
+    grouping by address would put each loser in a box of its own and call five of them
+    dead. And a dead conversation is never outvoted by a live one — the two errors are
+    not symmetric, a wrong `online` being silent and a wrong `lost` being one restart.
+    """
+    def conn(port, status, ip="203.0.113.7"):
+        return _Conn(111, status, port=port, ip=ip)
+
+    talks = game_link.conversations([conn(10012, "CLOSE_WAIT", "203.0.113.1"),
+                                     conn(10012, "CLOSE_WAIT", "203.0.113.2"),
+                                     conn(17935, "ESTABLISHED", "198.51.100.4")])
+    assert talks == {10012: (None, 2), 17935: ("198.51.100.4:17935", 0)}, talks
+    assert game_link.classify([conn(10012, "CLOSE_WAIT"),
+                               conn(17935, "ESTABLISHED")])[0] == game_link.LOST
+    # …and one conversation answering for itself is still the ordinary afternoon.
+    assert game_link.classify([conn(10012, "CLOSE_WAIT", "203.0.113.1"),
+                               conn(10012, "ESTABLISHED", "203.0.113.2")])[0] \
+        == game_link.ONLINE
+
+
 def test_the_client_talking_to_ITSELF_is_not_a_live_account():
     """The trap the first live reading walked into.
 

@@ -10,6 +10,7 @@ lazily precisely so this file can import it.
 """
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -23,6 +24,12 @@ sys.path.insert(0, str(ROOT / "tools" / "lib"))
 import game_lease  # noqa: E402
 import lua_client  # noqa: E402
 import lua_daemon  # noqa: E402
+
+#: A pid no machine hands out — the pin of a daemon whose client has died.
+#: Windows pids are multiples of four and well under this; asking about it
+#: is «is my client still there», answered «no», with nothing else running
+#: on this box able to accidentally be it.
+_IMPOSSIBLE_PID = 0x7FFF_FFF0
 
 
 class FakeClock:
@@ -238,6 +245,99 @@ def test_a_run_on_a_lost_lease_is_refused_not_executed():
             "the refused chunk must never reach the game"
     finally:
         srv.close()
+
+
+class _DeadClient:
+    """The machine, once this daemon's client has died: nothing of ours is running.
+
+    Stubbed rather than read, so the case is the same on a box with a live client as on
+    one without — and so `_repin` cannot quietly re-aim this daemon at whatever else
+    happens to be up while the test runs.
+    """
+
+    @staticmethod
+    def alive(_pid):
+        return False
+
+    @staticmethod
+    def session_pids(*_a, **_kw):
+        return []
+
+
+class _DeadStack:
+    """`from lua_eval import LuaEval` on a client that is gone — the real failure.
+
+    `SystemExit`, not an `Exception`, and the raw words of a Windows call: that is what
+    `il2cpp_probe.module_base` does, and it is half of why this arrived at the panel as
+    a stranger's message.
+    """
+
+    @staticmethod
+    def LuaEval():                                  # noqa: N802 — the real name
+        raise SystemExit("snapshot failed err=5")
+
+
+def test_a_daemon_whose_client_is_gone_says_so_instead_of_err_5():
+    """The third thing a failed run can mean, and the one nothing used to say (#1266).
+
+    A daemon attached to a client that has died stays up, stays warm and goes on
+    answering — with the raw words of a Windows call. `SystemExit: snapshot failed
+    err=5` reads as a bug in the toolkit, so a whole evening of timers reported it and
+    not one reader anywhere concluded «the client is gone»
+    (docs/research/server-link-status.md §2.2).
+
+    Note what is NOT stubbed: the daemon still drops its evaluator and rebuilds once
+    before it gives up, exactly as it does live. The verdict is only reached after the
+    cure it can apply by itself has failed.
+    """
+    srv = _Server()
+    saved_pin = os.environ.get("LW_GAME_PID")
+    saved_mods = {n: sys.modules.get(n) for n in ("lua_eval", "game_client")}
+    # A pin naming a pid nothing can be: the daemon ASKS about its own client rather
+    # than reading the error text and hoping.
+    os.environ["LW_GAME_PID"] = str(_IMPOSSIBLE_PID)
+    sys.modules["lua_eval"], sys.modules["game_client"] = _DeadStack, _DeadClient
+    try:
+        srv.daemon._ev = None                       # nothing warm left to answer with
+        try:
+            srv.client().run("return 1", marker="A")
+        except lua_client.LeaseLost as exc:
+            raise AssertionError(f"a dead client is not a lost lease: {exc}") from exc
+        except lua_client.ClientGone as exc:
+            said = str(exc).lower()
+            assert "client" in said, exc
+            assert "gone" in said or "not there" in said, exc
+            assert "snapshot failed err=5" in said, \
+                "the original failure must still be carried, for whoever debugs it"
+        else:
+            raise AssertionError("a run against a dead client must raise ClientGone")
+    finally:
+        if saved_pin is None:
+            os.environ.pop("LW_GAME_PID", None)
+        else:
+            os.environ["LW_GAME_PID"] = saved_pin
+        for name, mod in saved_mods.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+        srv.close()
+
+
+def test_an_older_daemon_is_understood_without_being_restarted():
+    """…and the fix works on the daemon that is ALREADY RUNNING.
+
+    A warm daemon outlives the panel by design and will go on running for days, so a
+    cure that needed it restarted would be a cure for the next incident and not for
+    this one. The flag is preferred; the sentence is recognised when there is no flag.
+    """
+    assert lua_client._client_gone({"client_gone": True, "error": "whatever"})
+    assert lua_client._client_gone({"error": "SystemExit: snapshot failed err=5"})
+    assert lua_client._client_gone({"error": "SystemExit: LastWar.exe not running"})
+    assert lua_client._client_gone({"error": "GameAssembly.dll not found in pid 4242"})
+    # …and a chunk that is simply wrong stays the author's problem.
+    assert not lua_client._client_gone({"error": "LuaError: attempt to index a nil value"})
+    assert not lua_client._client_gone({"error": "lease lost"})
 
 
 def test_a_child_inherits_the_lease_through_the_token():

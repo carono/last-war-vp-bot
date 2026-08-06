@@ -122,12 +122,64 @@ ESTABLISHED sockets on `:10012`. The Lua daemon had to be restarted alongside it
 attached to the dead pid it answered `snapshot failed err=5`, which is an access
 failure and not a state anything reads as «lost» either.
 
-**What a fix has to establish, and this file cannot decide for it:** whether «connected»
-means *any* remote peer, or a peer on the port the client's own game traffic uses. The
-second is knowable without hard-coding a port — the client tells us which endpoint it is
-playing through — and it is the only version that would have caught this. Not done here:
-`tools/lib/game_link.py` was being changed by another task at the time, and a reading
-this load-bearing must not be edited by two hands at once.
+#### What was done about it (#1266)
+
+**The verdict is taken per CONVERSATION, and a dead one is never outvoted by a live
+one.** `classify` groups the client's game sockets by remote PORT (`conversations`) and
+answers `lost` if any group has half-closed sockets and no established one — whatever
+the other groups are doing. The question §2.2 left open is answered the second way:
+«connected» means a peer of the game's own talk, not any remote peer at all.
+
+The port is the grain, and it is not a constant anywhere:
+
+* **grouping by ADDRESS would not work** — the client greets several gateways while
+  logging in, so one conversation is many addresses on one port; five of the six
+  half-closed sockets would each become a «dead conversation» of its own on a perfectly
+  healthy client;
+* **and a port literal is not needed** — nothing here names 10012 or 17935. The rule is
+  «sockets that share a remote port are one talk», which survives the next build moving
+  the game exactly as the 80/443 exclusion always has. `game_paths.game_port()` was
+  deliberately NOT used for this: its default is still `17935`, which is now the CHAT
+  port, so asking it would have named the wrong conversation as the game's.
+
+Read live off a healthy client the same day, which is what the rule was checked against:
+
+| conversation | sockets |
+|---|---|
+| the game | 1 ESTABLISHED + **5 CLOSE_WAIT** (the losers of the gateway race) |
+| the control channel | 1 ESTABLISHED, no half-closed |
+| web (80/443) | excluded before any of this |
+
+So the half-closed pile is not an anomaly to be explained away — it is the game's own
+signature, present all session, and it is what identifies which talk is the game's.
+
+**Which way it leans, and why.** The two errors are not symmetric. A wrong `online` is
+silent and costs a night: every reading says the account is fine, the recovery counts no
+strikes, the gate passes every scenario, and nothing in the log looks wrong. A wrong
+`lost` is loud and costs one restart — after three consecutive readings, a cooldown and
+an idle check — and the client comes straight back. So where the two conflict, the dead
+conversation wins.
+
+**Both consequences close with it**, because both read the same verdict: the recovery
+(#1259) now counts its strikes on exactly this shape, and the `LUA`/`TAP`/`GAME`/`JUMP`
+gate now refuses it. The endpoint on the strip is the game's too, rather than whichever
+row the socket table happened to hand over first — that night it named the chat host as
+the server.
+
+**And the daemon on a dead pid says so.** A run that fails twice over now ASKS whether
+the client is still there (the pin, and the machine) instead of leaving the words of a
+Windows call to speak for it: the daemon raises `ClientUnreachable` and puts a
+`client_gone` flag on the wire beside the text, and `lua_client` turns that into
+`ClientGone` — «the client this daemon drives is not there any more … the link is what
+is broken rather than the chunk». A daemon that was already running when this shipped has
+no flag to set, and one may be warm for days, so `lua_client` also recognises
+`il2cpp_probe`'s own three failure sentences (`GONE_WORDS`). It is a diagnosis, not an
+act: restarting the daemon is still the person's press.
+
+Pinned by `tests/test_game_link_status.py` (this exact table, and the healthy one beside
+it, so the cure cannot become worse than the disease), `tests/test_engine_link_gate.py`
+(the gate refuses it) and `tests/test_daemon_lease.py` (a run against a dead client, with
+the daemon's own rebuild still attempted first).
 
 ## 3. The four answers, and why not two
 
@@ -137,8 +189,8 @@ panel's sentence attached — see §4.3.)
 
 | link | how it is decided | why it is its own answer |
 |---|---|---|
-| `online` | an ESTABLISHED game socket owned by this client | the only proof the account is playing |
-| `lost` | no ESTABLISHED one, and ≥1 in `CLOSE_WAIT` / `CLOSING` / `LAST_ACK` / `FIN_WAIT1` / `FIN_WAIT2` | a fact, not a guess: the far end hung up and nothing replaced it (§2.1 — the count alone proves nothing) |
+| `online` | an ESTABLISHED game socket, and no conversation of this client's left for dead | the only proof the account is playing (§2.2 — an established socket of ANOTHER service is not proof of this one) |
+| `lost` | some remote port carries ≥1 socket in `CLOSE_WAIT` / `CLOSING` / `LAST_ACK` / `FIN_WAIT1` / `FIN_WAIT2` and no ESTABLISHED one | a fact, not a guess: that talk's far end hung up and nothing replaced it (§2.1 — the count alone proves nothing; §2.2 — nor does a live socket elsewhere disprove it) |
 | `unknown` | the process is there and its sockets make no verdict | see below — «I cannot tell», which is not «it is broken» |
 | `offline` | no client process (or nowhere to look for one) | unchanged from before |
 

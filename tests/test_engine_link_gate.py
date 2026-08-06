@@ -75,6 +75,23 @@ def test_a_live_socket_beside_the_dead_ones_wins():
     assert state == game_link.ONLINE and conn == "203.0.113.9:10012"
 
 
+def test_a_live_socket_of_another_service_does_not_win():
+    """…and it stops winning at the point it stops being the SAME conversation (#1266).
+
+    The gate in this file is the second thing the night of 2026-08-06 defeated: every
+    `LUA` / `TAP` / `GAME` / `JUMP` was let through against a client whose game sockets
+    were all half-closed, because the chat channel's one live socket answered for them
+    (docs/research/server-link-status.md §2.2). The rule above is unchanged and still
+    right — a live socket beats the dead ones BESIDE it. A live socket of somebody
+    else's port is not beside them.
+    """
+    dead_game = [_Conn("CLOSE_WAIT", f"203.0.113.{n}", 10012) for n in range(1, 7)]
+    state, conn, dead = game_link.classify(
+        dead_game + [_Conn("ESTABLISHED", "198.51.100.4", 17935)])
+    assert state == game_link.LOST, f"the control channel vouched for the game: {state}"
+    assert dead == 6 and conn is None, (dead, conn)
+
+
 def test_the_clients_loopback_pair_is_not_the_server():
     """It survives the server hanging up — counting it is the lie this rule stops."""
     state, _, _ = game_link.classify([_Conn("ESTABLISHED", "127.0.0.1", 63204)])
