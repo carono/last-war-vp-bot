@@ -68,8 +68,9 @@ answer: from outside, that client's only remote peer is a program on the same co
 
 ## 3. The four answers, and why not two
 
-`panel/runtime/game_process.probe()` returns a `Probe`: the old `running` boolean, plus a
-`link` that is one of four.
+`game_link.probe()` returns a `Link`: the old `running` boolean, plus a `link` that is
+one of four. (`panel/runtime/game_process.probe()` returns the same reading with the
+panel's sentence attached — see §4.3.)
 
 | link | how it is decided | why it is its own answer |
 |---|---|---|
@@ -181,11 +182,64 @@ without the link beside it is not evidence, and a send made without it is not a 
 Any live check that ends in «the game did not react» has to say which of the two it was
 before it is believed, and the answer is one `probe()` away.
 
-Where the gate belongs is an open question and a conversation to have with the person,
-because the probe lives in `panel/runtime/game_process.py` and the sender lives in
-`src/lastwar_bot/script_engine.py` — the panel is the player, so the engine importing
-from it is backwards, and the probe cannot simply move because it answers in
-`panel.i18n.Message`.
+Where the gate belongs was the open question, because the probe lived in
+`panel/runtime/game_process.py` and the sender lives in `src/lastwar_bot/script_engine.py`
+— the panel is the player, so the engine importing from it is backwards, and the probe
+could not simply move while it answered in `panel.i18n.Message`. §4.2 and §4.3 are the
+answer that was agreed and built.
+
+## 4.2 The gate, as built (#1259)
+
+`script_engine` refuses on `lost`, naming the state and pointing here. Three properties
+it was built to have, all pinned by `tests/test_engine_link_gate.py`:
+
+* **only `lost` blocks.** `unknown` is a client 45 seconds into starting up, or a
+  machine that will not attribute a foreign process's sockets; blocking on it would
+  strand a healthy account behind a guess.
+* **it fails OPEN.** No psutil, no socket table, no client found, an exception anywhere
+  inside — all read as «cannot tell» and the run proceeds. A gate that becomes the fault
+  is worse than no gate.
+* **«no client at all» is not its business.** That is the run's own error, in the run's
+  own words.
+
+**It stands on the four primitives that DRIVE the game** — `LUA`, `TAP`, `GAME`, `JUMP` —
+and not at the top of a run. It went in at the top of `run_action` first, and that
+refused every recipe on a lost link *including `restart_game.md`*, whose `QUIT_GAME` /
+`CALL launch_game` / `ATTACH_GAME` send nothing to the server at all: they repair the
+client. The one cure would have been blocked by the symptom, and the six-hourly restart
+timer would have stopped working in exactly the case it exists for. On the primitives,
+the lifecycle statements are free BY CONSTRUCTION rather than by an exception list
+somebody has to keep up to date. Read once per run, not once per press.
+
+`READ_LUA` is deliberately NOT gated. A stranded client answers a read with yesterday's
+numbers, which is a lie — but the answer to that is to mark the reading stale, not to
+blind the diagnosis that is trying to work out what is wrong. That is #1261.
+
+## 4.3 Where the reading lives (#1260)
+
+[`tools/lib/game_link.py`](../../tools/lib/game_link.py) — **all of it**, not just the
+socket predicates: `probe()`, the cached machine-wide walks, and the session attribution
+that decides which of two accounts' clients is this profile's.
+
+The rule came over first and the machinery stayed in the panel, which left the shared
+half unable to answer the question anybody actually asks — «is THIS client on the
+server» — without being handed a list of pids it had no way to obtain. Working out which
+pids those are is most of the difficulty and all of the subtlety (§3.2, and
+`docs/research/multi-instance-rdp.md`), so a second implementation of it in the engine
+was never going to stay in step with the first.
+
+It answers in **data**: a `Link` — the four states, the pid, the endpoint, the count of
+half-closed sockets, and a `reason` id for the three different ways there can be no
+client (`no_session` «there is nowhere to look» is not `session_not_found` «that session
+is up and empty» is not `not_found`). `panel/runtime/game_process.py` is now the wording
+and nothing else: `Probe` is `Link` plus the `panel.i18n.Message`, and every name the
+panel used to reach for still resolves there as an alias.
+
+**Nothing in `game_link.py` may import the panel**, and a test says so
+(`test_the_reading_imports_nothing_of_the_panel`). That one line is what the whole move
+is: while the reading answered in a front-end's message type, it could only be used by
+that front-end, so «ask before you send» was a rule that held only for whoever happened
+to be running the panel — which is precisely how a day was lost.
 
 ## 5. Putting it back
 
@@ -206,31 +260,23 @@ socket table is a machine-wide reading that the panel does not always get to see
 `tests/test_game_link_status.py` — the four answers off a stubbed socket table, the web
 ports ignored, `TIME_WAIT` not counted as a loss, an established socket winning over a
 stale one beside it, `running` staying true through a loss, and every sentence the four
-can produce present in all eleven locales.
+can produce present in all eleven locales. Since #1260 it also pins the split: the
+machine is stubbed on `game_link` and the answer read back through the panel, so a second
+copy of the rule in either layer fails it, and the panel-free half runs on a machine
+where the panel will not import at all.
 
-## 4.2 The gate, as built (#1259)
+`tests/test_engine_link_gate.py` — the gate: only `lost` blocks, it fails open, it stands
+on the driving primitives and leaves `restart_game.md` alone, and it reads once per run.
 
-The rule moved to [`tools/lib/game_link.py`](../../tools/lib/game_link.py) — the socket
-predicates and the four states, no `psutil` walk of its own to speak of and no
-`panel.i18n`. `panel/runtime/game_process.py` imports it and keeps what is genuinely
-the panel's: the cached machine-wide walks, the session attribution, and the words.
-That answers the layering question §4.1 left open without inverting anything: the
-module that DRAWS the answer and the module that SENDS both ask the same rule, and the
-rule belongs to neither.
+`tests/test_panel_rdp_session.py` and `tests/test_panel_multi_profile.py` — the session
+attribution on top of the reading: which of two accounts' clients is this profile's, and
+what «Проверить» says about each way it can be wrong.
 
-`script_engine.Interpreter.run_action` reads it once per run and refuses on `lost`,
-naming the state and pointing here. Three properties it was built to have, all pinned by
-`tests/test_engine_link_gate.py`:
+## 7. Still open (#1261)
 
-* **only `lost` blocks.** `unknown` is a client 45 seconds into starting up, or a
-  machine that will not attribute a foreign process's sockets; blocking on it would
-  strand a healthy account behind a guess.
-* **it fails OPEN.** No psutil, no socket table, no client found, an exception anywhere
-  inside — all read as «cannot tell» and the run proceeds. A gate that becomes the fault
-  is worse than no gate.
-* **«no client at all» is not its business.** That is the run's own error, in the run's
-  own words.
-
-What it does NOT do, and is still #1261: stop a scheduled errand before it starts, mark
-a board's numbers stale while the link is down, or decide whether a lost link should
-relaunch the client.
+The reading is asked before anything is driven, and that is all it is asked before. What
+it does not yet do: stop a scheduled errand before it starts, mark a board's numbers
+stale while the link is down, or decide whether a lost link should relaunch the client.
+The cost of leaving those is measured — 31 minutes of a panel working on yesterday's
+numbers between the loss at 18:58:40 and the client being killed at 19:29:17 — and which
+of them to build is the person's call, not an agent's.
