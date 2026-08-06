@@ -36,6 +36,13 @@ from panel import i18n as i18nmod                      # noqa: E402
 from panel.tabs.checklist import model as modelmod     # noqa: E402
 
 SCENARIO = _REPO / "src" / "lastwar_bot" / "actions" / "read_daily_checklist.md"
+CODENAME_SCENARIO = (_REPO / "src" / "lastwar_bot" / "actions"
+                     / "read_codename_event.md")
+
+#: The event reading, as the live client answers it while «Кодовое имя» is running.
+CODENAME_OPEN = "open=1 attacks=1 need=3 left=2 maxdmg=12607399171 targets=1 until=6042"
+#: …and while it is not, which is the state the board is in most of the week.
+CODENAME_SHUT = "open=0 attacks=0 need=3 left=3 maxdmg=12607399171 targets=0 until=-"
 
 #: A reading with everything answered — the shape the live game sends back.
 FULL = ("base_ready=4 trucks_ready=0 donate_left=17 help_waiting=0 recruit_pending=2 "
@@ -168,15 +175,27 @@ def test_every_count_on_the_board_is_the_one_the_press_is_gated_on():
 
 
 def test_the_scenario_answers_every_field_the_catalogue_asks_about():
-    text = SCENARIO.read_text(encoding="utf-8")
-    for errand in modelmod.ERRANDS:
-        for field in (errand.field, errand.cap, errand.gate):
-            if field:
-                assert ("put('%s'" % field) in text, \
-                    f"«{errand.key}» reads {field}, which the scenario does not answer"
-    assert "INTO %s" % modelmod.VARIABLE in text
-    assert (_REPO / "src" / "lastwar_bot" / "actions"
-            / (modelmod.ACTION + ".md")).exists()
+    """Every field a group asks for is answered by the scenario that group reads.
+
+    TWO scenarios reach this board now (#1257): the day's errands, and «Кодовое имя»,
+    which «События» reads as well. A group names its own source, so a field that moved
+    between the two is a failure here rather than a row that quietly says «unknown».
+    """
+    texts = {modelmod.DAILY: SCENARIO.read_text(encoding="utf-8"),
+             modelmod.CODENAME: CODENAME_SCENARIO.read_text(encoding="utf-8")}
+    for group in modelmod.GROUPS:
+        text = texts[group.source]
+        for errand in group.errands:
+            for field in (errand.field, errand.cap, errand.gate):
+                if field:
+                    assert ("put('%s'" % field) in text, (
+                        f"«{errand.key}» reads {field}, which "
+                        f"{group.source} does not answer")
+    assert "INTO %s" % modelmod.VARIABLE in texts[modelmod.DAILY]
+    assert "INTO %s" % modelmod.CODENAME_VARIABLE in texts[modelmod.CODENAME]
+    for action in (modelmod.ACTION, modelmod.CODENAME_ACTION, modelmod.CODENAME_ATTACK):
+        assert (_REPO / "src" / "lastwar_bot" / "actions" / (action + ".md")).exists(), \
+            f"«{action}» is named by the board and is not a scenario"
 
 
 def test_the_scenario_is_a_read_and_presses_nothing():
@@ -216,7 +235,8 @@ def test_a_line_nothing_can_read_says_so_and_never_anything_else():
             assert modelmod.state_of(errand, reading).state == modelmod.UNKNOWN
     # A full reading answers every readable line and none of the blind ones, so the
     # counted total is exactly the read half — however long the blind half grows.
-    done, total = modelmod.progress(modelmod.states(modelmod.parse(FULL)))
+    done, total = modelmod.progress(modelmod.states(modelmod.parse(FULL),
+                                                    modelmod.parse(CODENAME_OPEN)))
     readable = [e for e in modelmod.ERRANDS if e.readable]
     assert total == len(readable), \
         f"{len(modelmod.ERRANDS) - total} lines counted that nobody can read"
@@ -373,8 +393,21 @@ class _Runtime:
         self.said.append(key)
 
     def play_async(self, name, args=None, **kw) -> bool:
+        """Record the scenario, and finish it the way the real runtime does.
+
+        `on_done` is fired because the tab CHAINS on it — the board's refresh plays the
+        day's reading and then the event's. A stub that never finished a run would have
+        let the second read quietly never happen, which is exactly the bug worth
+        catching here. `on_result` is NOT fired: these tests set the readings by hand,
+        and a stand-in outcome would overwrite the state under test.
+        """
         self.played.append(name)
-        return self._plays
+        if not self._plays:
+            return False
+        done = kw.get("on_done")
+        if done is not None:
+            done()
+        return True
 
 
 class _Skip(Exception):
@@ -402,16 +435,19 @@ class _Var:
         self._value = value
 
 
-def _tab(raw=FULL, plays=True):
-    """A tab holding one reading and nothing else — the path both screens take."""
+def _tab(raw=FULL, plays=True, codename=CODENAME_SHUT):
+    """A tab holding its two readings and nothing else — the path both screens take."""
     cls = _tab_class()
     tab = cls.__new__(cls)
     tab.rt = _Runtime(plays)
     tab._reading = modelmod.parse(raw, at=1.0) if raw is not None else None
+    tab._codename = modelmod.parse(codename, at=1.0) if codename is not None else None
     tab._busy = False
+    tab._attacking = False
     tab._body = None
     tab._status = None
     tab._refresh_button = None
+    tab._codename_button = None
     tab._wire_off = []
     tab._truck_mode = _Var(modelmod.TRUCK_MODE_DEFAULT)
     return tab
@@ -435,7 +471,8 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
 
     keys = []
     for card in view["cards"]:
-        assert set(card) <= {"title", "head", "rows", "items", "empty", "search"}
+        assert set(card) <= {"title", "head", "rows", "items", "empty", "search",
+                             "actions"}
         keys += [k for k in (card.get("title"), card.get("empty")) if k]
         keys += [r["label"] for r in card.get("rows") or ()]
         for item in card.get("items") or ():
@@ -444,15 +481,28 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
             assert "text" not in item, \
                 "a title of the panel's own must be a key, not data"
             keys += [item["label"], item["pill"]]
+        keys += [a["label"] for a in card.get("actions") or ()]
     keys += [a["label"] for a in view["actions"]]
     for key in keys:
         assert keyish.match(key), f"«{key}» is a sentence, not a locale key"
         assert key in english, f"«{key}» is in no locale"
 
-    for action in {a["id"] for a in view["actions"]}:
+    offered = {a["id"] for a in view["actions"]}
+    for card in view["cards"]:
+        offered |= {a["id"] for a in card.get("actions") or ()}
+    for action in offered:
         assert _tab().web_press(action, {}).get("error") != "unknown", \
             f"«{action}» is a dead button"
     assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
+
+    # …and the same again with «Кодовое имя» running, because that is when its card
+    # grows the one button on this board.
+    live = _tab(codename=CODENAME_OPEN)
+    ids = {a["id"] for c in live.web_view()["cards"] for a in c.get("actions") or ()}
+    assert ids == {"attack_codename"}, ids
+    for action in ids:
+        assert _tab(codename=CODENAME_OPEN).web_press(action, {}).get("error") is None, \
+            f"«{action}» is a dead button"
 
 
 def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
@@ -472,26 +522,120 @@ def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
     assert tab.rt.played == [], "a press reached the game"
 
 
-def test_the_only_press_on_either_front_end_is_read_it_again():
-    """One action on the screen, and the one scenario it runs is the READ."""
+def test_no_row_offers_a_press_on_either_front_end():
+    """A ROW is a reading and carries nothing to press. A group may (below)."""
+    for codename in (CODENAME_SHUT, CODENAME_OPEN):
+        tab = _tab(codename=codename)
+        for card in tab.web_view()["cards"]:
+            for item in card.get("items") or ():
+                assert not item.get("actions"), \
+                    f"«{item['label']}» offers a button — a row is a reading"
+
+
+def test_the_board_wide_press_is_read_it_again_and_nothing_else():
     tab = _tab()
-    view = tab.web_view()
-    assert [a["id"] for a in view["actions"]] == ["refresh"]
-    for card in view["cards"]:
-        for item in card.get("items") or ():
-            assert not item.get("actions"), \
-                f"«{item['label']}» offers a button — the board is a reading"
+    assert [a["id"] for a in tab.web_view()["actions"]] == ["refresh"]
     assert tab.web_press("refresh", {}) == {"ok": True}
-    assert tab.rt.played == [modelmod.ACTION]
+    assert tab.rt.played == [modelmod.ACTION, modelmod.CODENAME_ACTION]
+
+
+def test_the_codename_press_is_offered_only_while_the_event_is_running():
+    """The one button on the board, on both front-ends, and greyed the same way.
+
+    It exists because it was asked for, and it does not tick anything: the row above it
+    is still the game's own count, re-read after the attack. What kills it is the event
+    being shut — then there is no boss on the map for a press to reach.
+    """
+    shut = _tab(codename=CODENAME_SHUT)
+    assert not [a for c in shut.web_view()["cards"] for a in c.get("actions") or ()]
+    assert shut.web_press("attack_codename", {}) == {"error": "closed"}
+    assert shut.rt.played == [], "a press reached the game with the event shut"
+
+    live = _tab(codename=CODENAME_OPEN)
+    assert live.web_press("attack_codename", {}) == {"ok": True}
+    assert live.rt.played == [modelmod.CODENAME_ATTACK]
+
+    # A reading that never arrived is not «running»: unknown must never open a press.
+    for blind in (None, modelmod.Reading(error="no daemon")):
+        tab = _tab()
+        tab._codename = blind
+        assert tab.web_press("attack_codename", {}) == {"error": "closed"}
+        assert tab.rt.played == []
+
+
+def test_a_shut_gate_is_worded_by_the_errand_and_the_same_on_both_front_ends():
+    """«Сегодня не проводится» is true of Ghost Ops and false of a four-a-day boss.
+
+    So the wording is the errand's, and both registers are built from the one token —
+    the window says `checklist.detail.<closed>` and the phone `checklist.state.<closed>`,
+    which is what stops the two drifting into saying different things about one row.
+    """
+    english = json.loads(
+        (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
+    tokens = {e.closed for e in modelmod.ERRANDS}
+    assert tokens == {"closed", "not_running"}, tokens
+    for token in tokens:
+        for family in ("checklist.detail.", "checklist.state."):
+            assert family + token in english, f"«{family}{token}» is in no locale"
+
+    assert modelmod.BY_KEY["ghost_steals"].closed == "closed"
+    assert modelmod.BY_KEY["codename"].closed == "not_running"
+
+    tab = _tab("ghost_open=0", codename=CODENAME_SHUT)
+    pills = {i["label"]: i["pill"] for c in tab.web_view()["cards"]
+             for i in c.get("items") or ()}
+    assert pills["checklist.item.ghost_steals"] == "checklist.state.closed"
+    assert pills["checklist.item.codename"] == "checklist.state.not_running"
+
+
+def test_the_codename_counter_survives_the_event_being_shut():
+    """«0 / 3» greyed, not «—»: the numbers are the last that were true.
+
+    The row is CLOSED and rightly so, but dashing the count while printing the damage
+    beside it would say the panel had lost track of one and not the other.
+    """
+    shut = modelmod.parse(CODENAME_SHUT)
+    assert modelmod.state_of(modelmod.BY_KEY["codename"], shut).state == modelmod.CLOSED
+    assert modelmod.codename_counter(shut) == (0, 3, 12607399171)
+
+
+def test_the_codename_block_is_the_events_own_numbers_and_stays_when_it_is_shut():
+    """Grey, never hidden — and «сделано из трёх» rather than «осталось из пяти»."""
+    live = modelmod.parse(CODENAME_OPEN)
+    assert modelmod.codename_counter(live) == (1, 3, 12607399171)
+    assert modelmod.state_of(modelmod.BY_KEY["codename"], live).state == modelmod.TODO
+
+    shut = modelmod.parse(CODENAME_SHUT)
+    assert modelmod.state_of(modelmod.BY_KEY["codename"], shut).state == \
+        modelmod.CLOSED, "an event that is not on must not read as undone"
+
+    done = modelmod.parse("open=1 attacks=3 need=3 left=0 maxdmg=5 targets=1 until=60")
+    assert modelmod.state_of(modelmod.BY_KEY["codename"], done).state == modelmod.DONE
+    assert modelmod.codename_counter(done) == (3, 3, 5)
+
+    for blind in (None, modelmod.Reading(error="no daemon"),
+                  modelmod.parse("open=- attacks=- need=- left=- maxdmg=-")):
+        assert modelmod.state_of(modelmod.BY_KEY["codename"], blind).state == \
+            modelmod.UNKNOWN
+        assert modelmod.codename_counter(blind)[0] is None
+
+    assert modelmod.damage(12607399171) == "12 607 399 171"
+    assert modelmod.damage(None) == "—"
+
+    # The block is on the board whatever the event is doing — never dropped from it.
+    for reading in (live, shut, None):
+        keys = [g.key for g, _ in modelmod.grouped(modelmod.parse(FULL), reading)]
+        assert modelmod.CODENAME in keys
 
 
 def test_the_board_refreshes_itself_and_says_so_when_it_cannot():
     tab = _tab()
     assert tab.refresh() is True
-    assert tab.rt.played == [modelmod.ACTION]
+    assert tab.rt.played == [modelmod.ACTION, modelmod.CODENAME_ACTION]
     # …and a game that is busy leaves the previous reading alone rather than clearing it.
     busy = _tab(plays=False)
     assert busy.refresh() is False
+    assert busy.rt.played == [modelmod.ACTION], "the second read went out anyway"
     assert busy._reading.get("base_ready") == 4
     assert busy._busy is False, "a refused read left the tab thinking it is reading"
 
@@ -502,7 +646,7 @@ def test_a_read_that_failed_is_recorded_as_a_failure_not_as_an_empty_day():
             self.ok, self.reason = ok, reason
             self.ctx = type("C", (), {"vars": {modelmod.VARIABLE: raw}})()
 
-    tab = _tab()
+    tab = _tab(codename=None)
     tab._read_back(_Outcome(False, reason="no daemon"))
     assert tab._reading.error == "no daemon"
     assert all(s.state == modelmod.UNKNOWN for s in tab.states())
@@ -510,6 +654,26 @@ def test_a_read_that_failed_is_recorded_as_a_failure_not_as_an_empty_day():
     tab._read_back(_Outcome(True, raw=FULL))
     assert tab._reading.get("steal_left") == 2
     assert not tab._reading.error
+
+
+def test_one_reading_failing_says_nothing_about_the_other():
+    """Two scenarios reach this board, and a failure of one is not a failure of both.
+
+    The day's reading going dark must not blank «Кодовое имя», and the event's going
+    dark must not blank the day. Each line is answered by its own source or by nothing.
+    """
+    tab = _tab(raw=None, codename=CODENAME_OPEN)
+    tab._reading = modelmod.Reading(error="no daemon", at=1.0)
+    states = {s.key: s.state for s in tab.states()}
+    assert states["base_resources"] == modelmod.UNKNOWN
+    assert states["codename"] == modelmod.TODO, "the event went dark with the day"
+
+    tab = _tab(raw=FULL)
+    tab._codename = modelmod.Reading(error="no daemon", at=1.0)
+    states = {s.key: s.state for s in tab.states()}
+    assert states["base_resources"] == modelmod.TODO
+    assert states["codename"] == modelmod.UNKNOWN
+    assert not tab._codename_open(), "a dark event reading opened the press"
 
 
 def test_the_tab_is_registered_and_says_who_it_is():

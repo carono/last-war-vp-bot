@@ -112,7 +112,11 @@ def test_every_screen_is_made_of_keys_and_data_and_never_of_sentences():
 
 def test_a_screen_is_cards_and_nothing_the_renderer_cannot_draw():
     """The shape is small on purpose: four things, and a phone renderer for each."""
-    allowed_card = {"title", "head", "rows", "items", "empty", "search"}
+    # `actions` is a card's own footer of buttons (`app.js`, `pressButton`) — the same
+    # shape as the screen-wide ones, drawn under the card they belong to. «Кодовое имя»
+    # is the first block to need one: the press belongs to that event and not to the
+    # whole board (#1257).
+    allowed_card = {"title", "head", "rows", "items", "empty", "search", "actions"}
     allowed_item = {"text", "label", "detail", "note", "pill", "actions", "facts",
                     "until"}
     for tab_id, cls in _tabs_with_screens():

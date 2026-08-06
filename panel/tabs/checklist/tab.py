@@ -20,9 +20,17 @@ open, when a push that changes one of these facts crosses the wire, and whenever
 person presses «Обновить». Every count in it is the SAME expression the matching press is
 gated on, so the checklist and the button can never disagree about how much work there is.
 
-**No row has a press on it, and none ever will.** An errand is done because the game says
+**No ROW has a press on it, and none ever will.** An errand is done because the game says
 so, and a «Выполнить» beside a line is a button somebody expects to have ticked that
 line. What a GROUP may carry is a different matter (below); the rows stay readings.
+
+**A group may carry a press, and one does** (#1257): «Атаковать сейчас» under «Кодовое
+имя». It was asked for, and it does not break the rule this tab exists for — it starts an
+ability and marks nothing. The count above it is the SERVER's, re-read a couple of seconds
+after the attack goes out, so a press the game refused leaves the line exactly where it
+was and an attack made in the game itself moves it just the same. The distinction is worth
+keeping sharp, because it is the whole difference between this board and a to-do list: a
+button may START work; only a reading may say it is DONE.
 
 **The list is fixed in code and the person does not edit it**, in the window or on the
 phone. It is the day, not somebody's notes about the day.
@@ -108,10 +116,21 @@ class ChecklistTab(PanelTab):
     #: A push is a hint, not a reading: wait this long so a burst of them costs one read.
     PUSH_DELAY_MS = 3_000
 
+    #: How long after an attack goes out before the board is re-read. The server has to
+    #: answer before its attack count moves, and the scenario has already waited for
+    #: that — this is the margin, not the wait.
+    AFTER_ATTACK_MS = 2_000
+
     def __init__(self, rt, parent) -> None:
         super().__init__(rt, parent)
         #: The last answer from the game. `None` until the first read comes back.
         self._reading = None
+        #: …and the event's own, which is a second scenario because it is a second
+        #: ability: «События» reads it too, and one copy of the Lua is what keeps the
+        #: two tabs from ever showing different numbers for the same boss.
+        self._codename = None
+        self._codename_button = None
+        self._attacking = False
         self._busy = False
         self._body = None
         self._status = None
@@ -169,6 +188,7 @@ class ChecklistTab(PanelTab):
     def on_profile_switch(self) -> None:
         """A different account owes a different day: forget the reading and re-read."""
         self._reading = None
+        self._codename = None
         self._render()
         self.refresh()
 
@@ -182,11 +202,13 @@ class ChecklistTab(PanelTab):
         """
         self.rt.tick.disarm("checklist_poll")
         self.rt.tick.disarm("checklist_push")
+        self.rt.tick.disarm("checklist_after_attack")
         self._unlisten()
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("checklist_poll")
         self.rt.tick.disarm("checklist_push")
+        self.rt.tick.disarm("checklist_after_attack")
         self._unlisten()
 
     # -- hearing the game ---------------------------------------------------
@@ -244,9 +266,10 @@ class ChecklistTab(PanelTab):
     def refresh(self) -> bool:
         """Ask the game what the day still owes. `False` if it could not be asked now.
 
-        One scenario, played through the runtime under the claim. A refusal — something
-        else is driving the game — leaves the previous reading and its age on screen,
-        which is the honest answer: it is what we know, and how old it is.
+        Two scenarios, played one after the other through the runtime under the claim —
+        the day's errands and the event's. A refusal — something else is driving the
+        game — leaves the previous reading and its age on screen, which is the honest
+        answer: it is what we know, and how old it is.
         """
         if self._busy:
             return False
@@ -254,7 +277,7 @@ class ChecklistTab(PanelTab):
         self._refresh_status()
         started = self.rt.play_async(
             modelmod.ACTION, tag="checklist",
-            on_result=self._read_back, on_done=self._read_done)
+            on_result=self._read_back, on_done=self._read_codename)
         if not started:
             self._busy = False
             self._refresh_status()
@@ -262,37 +285,148 @@ class ChecklistTab(PanelTab):
 
     def _read_back(self, outcome) -> None:
         """The scenario finished (on the Tk thread). Its variables ARE the board."""
+        self._reading = self._parsed(outcome, modelmod.VARIABLE)
+
+    def _read_codename(self) -> None:
+        """The day is in; ask the event next.
+
+        A second round trip rather than a second block bolted onto the first: the event
+        reading is an ability of its own, played by «События» as well, and copying its
+        Lua into the daily scenario is exactly how two front-ends come to disagree about
+        one number. A VM call is about 0.15 s and this runs every few minutes.
+        """
+        started = self.rt.play_async(
+            modelmod.CODENAME_ACTION, tag="checklist",
+            on_result=self._codename_back, on_done=self._read_done)
+        if not started:
+            self._codename = modelmod.Reading(error="busy", at=time.time())
+            self._read_done()
+
+    def _codename_back(self, outcome) -> None:
+        self._codename = self._parsed(outcome, modelmod.CODENAME_VARIABLE)
+
+    def _parsed(self, outcome, variable: str):
+        """One scenario's answer as a :class:`~.model.Reading`, failure included."""
         at = time.time()
         if outcome is None or not getattr(outcome, "ok", False):
             reason = getattr(outcome, "reason", "") or ""
-            self._reading = modelmod.Reading(error=reason or "failed", at=at)
-        else:
-            ctx = getattr(outcome, "ctx", None)
-            raw = (getattr(ctx, "vars", {}) or {}).get(modelmod.VARIABLE)
-            self._reading = modelmod.parse(raw, at=at)
+            return modelmod.Reading(error=reason or "failed", at=at)
+        ctx = getattr(outcome, "ctx", None)
+        return modelmod.parse((getattr(ctx, "vars", {}) or {}).get(variable), at=at)
 
     def _read_done(self) -> None:
         self._busy = False
         self._render()
 
+    # -- the one press on the board -----------------------------------------
+    def attack_codename(self) -> bool:
+        """Send a squad at the «Кодовое имя» boss. One press, one attack.
+
+        **The one button on this board, and it is here because it was asked for.** The
+        rule it does NOT break is the one this tab exists for: nothing here is ticked by
+        pressing. The row above it is still the game's own count, re-read a moment after
+        the attack goes out — so a press that the game refused leaves the line exactly
+        where it was, and a press somebody made in the game itself moves it just the same.
+
+        Everything the attack IS lives in `actions/attack_codename_boss.md`: which boss,
+        which squad, what to do when the popup does not open. This starts it.
+        """
+        if self._attacking:
+            return False
+        self._attacking = True
+        self._paint_codename_button()
+        started = self.rt.play_async(
+            modelmod.CODENAME_ATTACK, tag="checklist",
+            on_result=self._attack_back, on_done=self._attack_done)
+        if not started:
+            self._attacking = False
+            self._paint_codename_button()
+            self.say("checklist", "checklist.codename.log.busy")
+        return started
+
+    def _attack_back(self, outcome) -> None:
+        if outcome is not None and getattr(outcome, "ok", False):
+            self.say("checklist", "checklist.codename.log.sent")
+        else:
+            self.say("checklist", "checklist.codename.log.failed",
+                     error=(getattr(outcome, "reason", "") or "?"))
+
+    def _attack_done(self) -> None:
+        self._attacking = False
+        self._paint_codename_button()
+        self.rt.tick.arm("checklist_after_attack", self.AFTER_ATTACK_MS, self.refresh)
+
     # -- the board ----------------------------------------------------------
     def states(self) -> list:
-        """Every errand against the last reading — what both front-ends draw."""
-        return modelmod.states(self._reading)
+        """Every errand against the last readings — what both front-ends draw."""
+        return modelmod.states(self._reading, self._codename)
 
     def _render(self) -> None:
         if self._body is None:
             return
+        self._codename_button = None
         for child in list(self._body.winfo_children()):
             child.destroy()
-        for group, states in modelmod.grouped(self._reading):
+        for group, states in modelmod.grouped(self._reading, self._codename):
             self.tr(ttk.Label(self._body, font=ui_font(weight="bold")),
                     group.title_key).pack(anchor="w", padx=6, pady=(10, 2))
             for state in states:
                 self._render_row(state)
             if group.key == modelmod.TRUCKS:
                 self._render_trucks()
+            elif group.key == modelmod.CODENAME:
+                self._render_codename(states[0])
         self._refresh_status()
+
+    def _render_codename(self, state) -> None:
+        """«Кодовое имя»: the two numbers, and the one press on the board.
+
+        The counter is the group's own quota drawn large enough to read across the room;
+        the damage beside it is the figure the event's daily ranking is decided on. The
+        press is ALIVE while the event is running and greyed while it is not — an event
+        that is not on has no boss on the map, so there is nothing for a press to reach,
+        and greying it says so before anybody reaches for it.
+        """
+        box = ttk.Frame(self._body)
+        box.pack(fill="x", padx=4, pady=(2, 6))
+
+        attacks, need, dmg = modelmod.codename_counter(self._codename)
+        counter = ttk.Frame(box)
+        counter.pack(fill="x", padx=22, pady=(0, 2))
+        self.tr(ttk.Label(counter), "checklist.codename.attacks").pack(side="left")
+        ttk.Label(counter, font=ui_font(weight="bold"),
+                  text=("—" if attacks is None or need is None
+                        else "%d / %d" % (attacks, need))).pack(side="left", padx=(6, 16))
+        self.tr(ttk.Label(counter, foreground="#888"),
+                "checklist.codename.damage").pack(side="left")
+        ttk.Label(counter, text=modelmod.damage(dmg), foreground="#888").pack(
+            side="left", padx=(6, 0))
+
+        press = ttk.Frame(box)
+        press.pack(fill="x", padx=22, pady=(2, 2))
+        self._codename_button = self.tr(ttk.Button(press, command=self.attack_codename),
+                                        "checklist.codename.attack")
+        self._codename_button.pack(side="left")
+        self._paint_codename_button()
+        if state.state != modelmod.TODO and state.state != modelmod.DONE:
+            self.tr(ttk.Label(press, foreground="#888"),
+                    "checklist.codename.closed").pack(side="left", padx=(10, 0))
+
+    def _codename_open(self) -> bool:
+        """Is the event running? `False` while nobody knows — never a guess."""
+        if self._codename is None or self._codename.error:
+            return False
+        return bool(self._codename.get("open"))
+
+    def _paint_codename_button(self) -> None:
+        """Alive only while the event is on and no attack is already on its way."""
+        if self._codename_button is None:
+            return
+        try:
+            alive = self._codename_open() and not self._attacking
+            self._codename_button.configure(state=("normal" if alive else "disabled"))
+        except tk.TclError:                 # the window is going away
+            pass
 
     def _render_trucks(self) -> None:
         """«Отправка грузовиков»: the counter, the press, and how to improve them first.
@@ -364,7 +498,9 @@ class ChecklistTab(PanelTab):
         if state.state == modelmod.UNKNOWN:
             return self.t("checklist.detail.unknown")
         if state.state == modelmod.CLOSED:
-            return self.t("checklist.detail.closed")
+            # The errand's own wording — «сегодня не проводится» is true of Ghost Ops
+            # and false of an event that opens again in two hours.
+            return self.t("checklist.detail." + state.errand.closed)
         if state.errand.kind == modelmod.QUOTA:
             if state.used is not None:
                 return self.t("checklist.detail.quota", used=state.used, cap=state.cap)
@@ -428,15 +564,38 @@ class ChecklistTab(PanelTab):
              "value": (modelmod.ago(self._age()) if self._reading is not None
                        and not self._reading.error else "—")},
         ]}]
-        for group, states in modelmod.grouped(self._reading):
+        for group, states in modelmod.grouped(self._reading, self._codename):
             card = {"title": group.title_key, "empty": "checklist.empty",
                     "items": [self._web_item(s) for s in states]}
             if group.key == modelmod.TRUCKS:
                 card["rows"] = self._web_truck_rows()
                 card["items"] += self._web_truck_items()
+            elif group.key == modelmod.CODENAME:
+                card["rows"] = self._web_codename_rows()
+                if self._codename_open() and not self._attacking:
+                    card["actions"] = [{"id": "attack_codename",
+                                        "label": "checklist.codename.attack"}]
+                else:
+                    card["items"] += [{"label": "checklist.codename.attack",
+                                       "pill": "checklist.codename.closed"}]
             cards.append(card)
         return {"cards": cards, "now": time.time(),
                 "actions": [{"id": "refresh", "label": "checklist.refresh"}]}
+
+    def _web_codename_rows(self) -> list:
+        """The group's two numbers, exactly as the window draws them above the row.
+
+        **The press IS offered here**, unlike the trucks' — because the ability behind it
+        is a scenario and `web_press` plays scenarios (`CLAUDE.md`). A phone can send a
+        squad at the boss, and it is the same squad the window would send, chosen by the
+        same run.
+        """
+        attacks, need, dmg = modelmod.codename_counter(self._codename)
+        return [{"label": "checklist.codename.attacks",
+                 "value": ("—" if attacks is None or need is None
+                           else "%d / %d" % (attacks, need))},
+                {"label": "checklist.codename.damage",
+                 "value": modelmod.damage(dmg)}]
 
     def _web_truck_rows(self) -> list:
         """The group's counter, as the window draws it above the same rows."""
@@ -465,8 +624,12 @@ class ChecklistTab(PanelTab):
         return items
 
     def _web_item(self, state) -> dict:
+        # The pill is the state, except that a CLOSED errand says it in its own words —
+        # the same distinction the window draws (`_detail`), so the two agree.
         item = {"label": state.errand.title_key,
-                "pill": "checklist.state." + state.state}
+                "pill": ("checklist.state." + (state.errand.closed
+                                                if state.state == modelmod.CLOSED
+                                                else state.state))}
         if state.state in (modelmod.DONE, modelmod.TODO):
             item["detail"] = (
                 "%d/%d" % (state.used, state.cap)
@@ -475,7 +638,16 @@ class ChecklistTab(PanelTab):
         return item
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить», and nothing else. There is nothing here to mark or to spend."""
+        """«Обновить», and the one attack. There is still nothing here to MARK.
+
+        Both presses the window has, and no others: a reading is asked for again, or a
+        squad is sent at the boss. Neither of them ticks anything — what a line says is
+        the game's answer, re-read afterwards.
+        """
         if action == "refresh":
             return {"ok": self.refresh()}
+        if action == "attack_codename":
+            if not self._codename_open():
+                return {"error": "closed"}
+            return {"ok": self.attack_codename()}
         return {"error": "unknown"}

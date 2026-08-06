@@ -78,18 +78,25 @@ class Errand:
     «состояние неизвестно» for ever, which is the honest thing to show: leaving it out
     would make the checklist look complete while a third of the day is missing from it,
     and putting a tickable box there would be the hand-marking this tab exists without.
+
+    ``closed`` is HOW a shut gate is worded — the tail of `checklist.detail.<closed>` in
+    the window and of `checklist.state.<closed>` on the phone, so the two front-ends say
+    the same thing in their own two registers. The default «сегодня не проводится» is
+    right for Ghost Ops (one day a week) and wrong for an event that opens and shuts
+    several times a day, so an errand may name its own.
     """
 
-    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate")
+    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate", "closed")
 
     def __init__(self, key: str, field: str = "", kind: str = QUEUE, cap: str = "",
-                 gate: str = "") -> None:
+                 gate: str = "", closed: str = "closed") -> None:
         self.key = key
         self.title_key = "checklist.item." + key
         self.field = field
         self.kind = kind
         self.cap = cap
         self.gate = gate
+        self.closed = closed
 
     @property
     def readable(self) -> bool:
@@ -189,6 +196,56 @@ BLIND_ERRANDS: tuple = (
     Errand("ministry"),
 )
 
+#: «Кодовое имя» — the world-boss event, and the SECOND group of the board to be more
+#: than a list of lines (#1257). The game's own name for it (key `100086` in the client's
+#: tables; `docs/game-glossary.md`), and the panel may not invent another.
+#:
+#: The event puts one boss on the world map for a few hours at a time and asks for THREE
+#: attacks on it. Attempts themselves are unlimited — the event's own rules say so, and
+#: the client agrees — so what the day owes is a count being REACHED rather than an
+#: allowance being spent. That still fits a quota exactly: the reading answers
+#: `left = need - attacks`, so `used` comes out as attacks made and `cap` as the three
+#: that earn the reward, and the counter beside the group and the row under it are the
+#: same two numbers by construction.
+#:
+#: `open` is the gate, and it is the whole reason this group can be grey: outside a
+#: window there is no boss on the map, «not done» would be a lie about a thing nobody
+#: could do, and every count beside it is last window's.
+CODENAME = "codename"
+
+#: The reading, and the attack — the SAME two scenarios «События» plays
+#: (`panel/tabs/events/model.py`). Named again here rather than imported so neither tab
+#: has to exist for the other to work: a profile may have «Чеклист» on and «События» off,
+#: or the other way round, and a board that depended on a tab being switched on would
+#: fail in the one way nobody looks for. `tests/test_panel_events.py` fails if the two
+#: pairs of names ever stop matching.
+CODENAME_ACTION = "read_codename_event"
+CODENAME_VARIABLE = "codename"
+CODENAME_ATTACK = "attack_codename_boss"
+
+CODENAME_ERRANDS: tuple = (
+    Errand("codename", "left", QUOTA, cap="need", gate="open",
+           # «сегодня не проводится» is Ghost Ops's wording and it is wrong here: this
+           # boss stands FOUR times a day, so «not on today» would be a false statement
+           # about the next window, which may be two hours away.
+           closed="not_running"),
+)
+
+#: The two fields beside the quota. `attacks` is the quota's own spent half, named again
+#: so the counter can be read WITHOUT the gate (see :func:`codename_counter`); `maxdmg` is
+#: the biggest single hit — not an errand, since nothing about it is ever «done», but it
+#: is the number the daily ranking is made of and the one the person is really playing
+#: for once the three attacks are in.
+CODENAME_ATTACKS_FIELD = "attacks"
+CODENAME_DAMAGE_FIELD = "maxdmg"
+
+#: Where a group's numbers come from. Two readings reach this board now: the daily one
+#: (`read_daily_checklist`) and the event one (`read_codename_event`), because they are
+#: separate abilities with separate lives — the event's is read by «События» too, and
+#: one copy of a Lua expression is what keeps the two tabs from ever disagreeing.
+DAILY = "daily"
+
+
 class Group:
     """One block of the board: a heading and the errands drawn under it.
 
@@ -201,14 +258,17 @@ class Group:
 
     ``key`` is what the tab tests to decide whether it draws anything extra under the
     heading; the widgets themselves stay in the tab, because this module has no Tk.
+    ``source`` names which reading its numbers come from (:data:`DAILY` for all but the
+    event groups).
     """
 
-    __slots__ = ("key", "title_key", "errands")
+    __slots__ = ("key", "title_key", "errands", "source")
 
-    def __init__(self, key: str, errands) -> None:
+    def __init__(self, key: str, errands, source: str = DAILY) -> None:
         self.key = key
         self.title_key = "checklist.group." + key
         self.errands = tuple(errands)
+        self.source = source
 
     def __iter__(self):
         """So a group still unpacks as `(heading, errands)` where that reads better."""
@@ -226,13 +286,18 @@ TRUCKS = "send_trucks"
 #: the shortest fuse on it — the fleet is idle until it is sent and the allowance dies
 #: with the game's day — and it is the one block of the board that can be acted on from
 #: the board itself.
+#: «Кодовое имя» comes SECOND, straight after the trucks and before everything read off
+#: the base: it is the only errand on the board with a wall-clock deadline that is not
+#: the end of the day. The boss stands for a few hours and then goes, so a block that sat
+#: below twenty rows of base chores would be seen after the window had shut.
 GROUPS: tuple = (
     Group(TRUCKS, TRUCK_ERRANDS),
+    Group(CODENAME, CODENAME_ERRANDS, source=CODENAME),
     Group("read", READ_ERRANDS),
     Group("blind", BLIND_ERRANDS),
 )
 
-ERRANDS: tuple = TRUCK_ERRANDS + READ_ERRANDS + BLIND_ERRANDS
+ERRANDS: tuple = (TRUCK_ERRANDS + CODENAME_ERRANDS + READ_ERRANDS + BLIND_ERRANDS)
 
 BY_KEY = {errand.key: errand for errand in ERRANDS}
 
@@ -372,15 +437,66 @@ def state_of(errand, reading) -> "ErrandState":
     return ErrandState(errand, DONE if left <= 0 else TODO, left=left, cap=cap)
 
 
-def states(reading) -> list:
-    """Every errand against one reading, in the catalogue's order."""
-    return [state_of(errand, reading) for errand in ERRANDS]
+def _sources(reading, codename) -> dict:
+    """Which reading each group's numbers come from. Two of them now, and no more.
+
+    A group asks for its source by name rather than being handed one, so a third
+    reading is a `Group(..., source=...)` and one entry here — not a new positional
+    argument threaded through every caller.
+    """
+    return {DAILY: reading, CODENAME: codename}
 
 
-def grouped(reading) -> list:
+def states(reading, codename=None) -> list:
+    """Every errand against the readings, in the catalogue's order."""
+    src = _sources(reading, codename)
+    return [state_of(errand, src[group.source])
+            for group in GROUPS for errand in group.errands]
+
+
+def grouped(reading, codename=None) -> list:
     """``[(group, [state, …]), …]`` — the board as both front-ends draw it."""
-    return [(group, [state_of(errand, reading) for errand in group.errands])
+    src = _sources(reading, codename)
+    return [(group, [state_of(errand, src[group.source]) for errand in group.errands])
             for group in GROUPS]
+
+
+def codename_counter(reading) -> tuple:
+    """``(attacks, need, damage)`` for «Кодовое имя» — any of them ``None``.
+
+    The counter the group wears, «1 из 3»: how many attacks have gone out at the boss,
+    how many earn the reward, and the biggest single hit.
+
+    **Read straight off the fields rather than through the gated row**, and that is the
+    difference between «—» and «0 / 3» on the six-sevenths of the week the boss is not
+    standing. The row is CLOSED then, and rightly — nothing is owed while there is
+    nothing to attack — but the numbers themselves are still the last thing that was
+    true, and the damage beside them is drawn whatever the gate says. Dashing one and
+    printing the other would say the panel had lost track of the count.
+
+    ``None`` still stays ``None`` all the way to the words: «nobody knows» must never be
+    drawn as a zero.
+    """
+    if reading is None or reading.error:
+        return None, None, None
+    return (reading.get(CODENAME_ATTACKS_FIELD),
+            reading.get(CODENAME_ERRANDS[0].cap),
+            reading.get(CODENAME_DAMAGE_FIELD))
+
+
+def damage(value) -> str:
+    """`12 607 399 171` — a hit big enough to need its digits grouped.
+
+    A number, not a word: the separator is a space in every language the panel ships.
+    Rounding it to «12.6B» would be a second opinion about the one figure the event's
+    daily ranking is decided on, so the digits stay.
+    """
+    if value is None:
+        return "—"
+    try:
+        return "{:,}".format(int(value)).replace(",", " ")
+    except (TypeError, ValueError):
+        return "—"
 
 
 def truck_counter(reading) -> tuple:

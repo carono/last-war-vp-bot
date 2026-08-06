@@ -3503,3 +3503,257 @@ def account_roles_dump() -> str:
         "..' pic='..hex(tostring(v.pic or ''))) end) end)"
         % (account_current_server(), _ROLES_SCAN)
     )
+
+
+# --------------------------------------------------------------------------
+# «Кодовое имя» — the world-boss event (`Codename`, the game's own key 100086)
+# --------------------------------------------------------------------------
+# The event puts one boss on the world map for a few hours at a time («Кодовое имя
+# 87/39/64», one per pair of weekdays) and asks for three attacks on it. Attempts
+# themselves are UNLIMITED — the game's own rules say so and the client agrees
+# (`attackMaxNum = -1`) — so the thing the day owes is not an allowance being spent
+# but a count being reached: three attacks earn the reward, and the biggest single
+# hit is what the daily ranking is made of.
+#
+# Everything below reads or presses `DataCenter.ActBossDataManager`, which is where
+# the client keeps the whole event:
+#
+#   IsBossAvailable()      is the attack window open RIGHT NOW (a stage with a
+#                          start and an end, checked against the server's clock).
+#                          Not «is today a boss day» — the boss comes and goes
+#                          several times a day, and outside a window there is
+#                          nothing to attack.
+#   actBossTransTimes      attacks made in the current window. The server owns it:
+#                          it is refreshed by `UserGetActBossMarch` and announced as
+#                          `OnActBossAttackTimesRefresh`, so it counts an attack sent
+#                          from anywhere — this panel, the phone, the person playing.
+#   rewardMaxTimes         how many attacks earn the reward. Three, from the config,
+#                          read rather than written down here.
+#   maxDamage              the biggest single hit, which is the number the ranking
+#                          uses and the number the person wants to see.
+#   GetActBossDataList()   the boss instances themselves: uuid, monsterId, startPos
+#                          and the window they live in.
+#
+# The reverse-engineering is docs/research/codename-event.md.
+_CODENAME_MGR = "DataCenter.ActBossDataManager"
+_CODENAME_PARAMS = "local p = DataCenter.__lw_codename or {} "
+
+
+def codename_open() -> str:
+    """Lua *expression* -> 1 while the boss can be attacked right now, else 0.
+
+    The gate the whole feature hangs off: outside a window there is no boss on the
+    map, and every count beside it is last window's. Drawn as «событие не идёт»
+    rather than as a zero, because those are different answers.
+    """
+    return ("(function() local ok, v = pcall(function() return %s:IsBossAvailable() end) "
+            "if not ok then return nil end return (v and 1 or 0) end)()" % _CODENAME_MGR)
+
+
+def codename_attacks_made() -> str:
+    """Lua *expression* -> attacks made on the boss in the current window."""
+    return ("(function() local ok, v = pcall(function() return %s.actBossTransTimes end) "
+            "if not ok then return nil end return math.floor(tonumber(v) or 0) end)()"
+            % _CODENAME_MGR)
+
+
+def codename_attacks_needed() -> str:
+    """Lua *expression* -> how many attacks earn the reward (three, from the config)."""
+    return ("(function() local ok, v = pcall(function() return %s.rewardMaxTimes end) "
+            "if not ok then return nil end return math.floor(tonumber(v) or 0) end)()"
+            % _CODENAME_MGR)
+
+
+def codename_max_damage() -> str:
+    """Lua *expression* -> the biggest single hit landed on the boss.
+
+    What the daily ranking is made of, per the event's own rules: only the highest
+    damage dealt in ONE attack counts.
+    """
+    return ("(function() local ok, v = pcall(function() return %s.maxDamage end) "
+            "if not ok then return nil end return math.floor(tonumber(v) or 0) end)()"
+            % _CODENAME_MGR)
+
+
+def codename_targets() -> str:
+    """Lua *expression* -> how many boss instances the client has on the map."""
+    return ("(function() local ok, l = pcall(function() return %s:GetActBossDataList() end) "
+            "if not ok or type(l) ~= 'table' then return nil end "
+            "local n = 0 for _ in pairs(l) do n = n + 1 end return n end)()" % _CODENAME_MGR)
+
+
+def codename_seconds_left() -> str:
+    """Lua *expression* -> seconds left in the open window, or nil when none is open."""
+    return ("(function() local ok, st = pcall(function() return %s:GetAttackStageData() end) "
+            "if not ok or type(st) ~= 'table' then return nil end "
+            "local e = tonumber(st.endTime) if e == nil then return nil end "
+            "local now = tonumber(UITimeManager:GetInstance():GetServerTime()) or 0 "
+            "local left = e - now if left < 0 then left = 0 end "
+            "return math.floor(left) end)()" % _CODENAME_MGR)
+
+
+def codename_arm() -> str:
+    """Set the attack run up: pick the boss, pick a free squad, note the count.
+
+    All three before anything is opened, for the reason `rally_create_arm` does the
+    same: a run that finds out at the last press that there was no squad has already
+    flown the camera across the map and left a popup open on it.
+
+    * `uuid` / `point` / `server` — the boss. Taken from `GetActBossDataList()`, whose
+      entries carry the uuid the march is addressed to and a `startPos` the map index
+      is made of. `startPos` is read through every shape it is known to take (a
+      table with `x`/`y`, a pair, a ready-made index), because the list is empty
+      outside a window and there was no live one to look at when this was written.
+    * `formation` — the FIRST squad standing in the base. «Свободный отряд» is what
+      the button says and what it means: a squad already marching, gathering or
+      standing in somebody else's rally cannot be sent, and the game only says so at
+      the last press.
+    * `before` — attacks made so far, so the attack can be MEASURED afterwards rather
+      than assumed from a press that returned cleanly.
+    """
+    return (
+        _CODENAME_PARAMS +
+        "p.uuid, p.point, p.server, p.formation = nil, nil, nil, nil "
+        "pcall(function() "
+        "local lst = %(mgr)s:GetActBossDataList() "
+        "for _, b in pairs(lst or {}) do "
+        "if p.uuid == nil then "
+        "p.uuid = b.uuid "
+        "pcall(function() p.server = tonumber(b.serverId) or tonumber(b.srcServer) end) "
+        "local sp = b.startPos "
+        "if type(sp) == 'table' then "
+        "local x, y = tonumber(sp.x), tonumber(sp.y) "
+        "if x ~= nil and y ~= nil then p.point = math.floor(y) * 1000 + math.floor(x) "
+        "else p.point = tonumber(sp[1]) end "
+        "else p.point = tonumber(sp) end "
+        "end end end) "
+        "pcall(function() "
+        "local best = nil "
+        "for _, v in pairs(DataCenter.ArmyFormationDataManager.ArmyFormationList) do "
+        "local idx = tonumber(v.index) "
+        "local st = tonumber(v.state) "
+        "local ok, idle = pcall(function() return v:IsFree() end) "
+        "local free = true if ok and idle ~= nil then free = (idle and true or false) end "
+        "if idx ~= nil and st == 0 and free and (best == nil or idx < best.idx) then "
+        "best = {idx = idx, uuid = v.uuid} end end "
+        "if best ~= nil then p.formation, p.squad = best.uuid, best.idx end end) "
+        "p.before = %(made)s "
+        "DataCenter.__lw_codename = p "
+        'CS.UnityEngine.Debug.LogError("ACT codename_arm boss="..tostring(p.uuid)'
+        '.." point="..tostring(p.point).." squad="..tostring(p.squad)'
+        '.." formation="..tostring(p.formation).." attacks="..tostring(p.before))'
+        % {"mgr": _CODENAME_MGR, "made": codename_attacks_made()}
+    )
+
+
+def codename_armed() -> str:
+    """Lua *expression* -> what the arm found: 1 all set, 0 no boss, -1 no free squad."""
+    return (
+        "(function() " + _CODENAME_PARAMS +
+        "if p.uuid == nil or p.point == nil then return 0 end "
+        "if p.formation == nil then return -1 end return 1 end)()"
+    )
+
+
+def codename_select() -> str:
+    """Tap the boss on the map — the same handler a finger on the tile runs.
+
+    `GoToUtil.OnClickWorldPoint(pointId, type, uuid)` is arg-routed: it resolves the
+    exact point passed and opens its populated popup (docs/research/world-monsters.md,
+    Finding 7). `WorldPointType.WorldBoss` is what the event's boss resolves to.
+    """
+    return (
+        _CODENAME_PARAMS +
+        "if p.point == nil then error('no boss parked for this run') end "
+        "GoToUtil.OnClickWorldPoint(p.point, WorldPointType.WorldBoss, p.uuid) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_select point="..tostring(p.point))'
+    )
+
+
+def codename_popup_state() -> str:
+    """Lua *expression* -> 1 the boss's popup is up, 0 not yet, -1 something else opened.
+
+    The popup lands a beat before the data inside it, so «up but empty» has to read
+    as «not yet» or the run presses into a window that cannot answer.
+    """
+    return (
+        "(function() " + _CODENAME_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UIWorldPoint' then return 0 end "
+        "local c = w.Ctrl if c == nil then return 0 end "
+        "local pid = tonumber(c.pointId) "
+        "if pid == nil then return 0 end "
+        "if p.point ~= nil and pid ~= tonumber(p.point) then return -1 end "
+        "return 1 end)()"
+    )
+
+
+def codename_attack_press() -> str:
+    """Press «Атаковать» on the boss's open popup.
+
+    The same call the popup's own button makes, with the target type the event boss
+    uses: `DIRECT_ATTACK_ACT_BOSS` at home, `CROSS_DIRECT_ATTACK_ACT_BOSS` when the
+    boss is standing on another server. THE POPUP MUST STILL BE ON TOP — closing it
+    first is what made the rally target «hide» with nothing pressed.
+    """
+    return (
+        _CODENAME_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not w or w.Name ~= 'UIWorldPoint' then "
+        "error('the boss popup is not open (top is '..tostring(w and w.Name)..')') end "
+        "local kind = MarchTargetType.DIRECT_ATTACK_ACT_BOSS "
+        "local home = nil pcall(function() home = tonumber(LuaEntry.Player.serverId) end) "
+        "if p.server ~= nil and home ~= nil and tonumber(p.server) ~= home then "
+        "kind = MarchTargetType.CROSS_DIRECT_ATTACK_ACT_BOSS end "
+        "MarchUtil.OnClickStartMarch(kind, w.Ctrl.pointId, w.Ctrl.uuid) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_attack kind="..tostring(kind)'
+        '.." point="..tostring(w.Ctrl.pointId))'
+    )
+
+
+def codename_squad_pick() -> str:
+    """Pick the free squad the arm found, on the squad screen the attack opened."""
+    return (
+        _FORMATION_WIN + _CODENAME_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "if p.formation == nil then error('no squad parked for this run') end "
+        "pcall(function() w.View:OnSelectClick(p.formation) end) "
+        "w.Ctrl:SetSelectFormationUuid(p.formation) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_squad sel="..tostring(w.Ctrl.selectFormationUuid))'
+    )
+
+
+def codename_squad_picked() -> str:
+    """Lua *expression* -> 1 when the squad screen really holds the parked squad."""
+    return (
+        "(function() " + _FORMATION_WIN + _CODENAME_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then return 0 end "
+        "if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) "
+        "then return 1 end return 0 end)()"
+    )
+
+
+def codename_launch() -> str:
+    """Press the squad screen's launch. The screen closes itself when the send goes."""
+    return (
+        _FORMATION_WIN + _CODENAME_PARAMS +
+        "local w = UIManager.Instance:GetStackTopWindow() "
+        "if not _isformation(w) then "
+        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
+        "w.Ctrl:OnCheckTime(p.formation, nil) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_launch formation="..tostring(p.formation))'
+    )
+
+
+def codename_sent() -> str:
+    """Lua *expression* -> attacks gained since the arm ran. 1 once one has gone out.
+
+    The DIFFERENCE, not the count: a window the person has already attacked in starts
+    from a non-zero number, and the server owns the counter, so this is the one thing
+    that proves an attack was really launched rather than merely pressed.
+    """
+    return ("((%s or 0) - ((DataCenter.__lw_codename or {}).before or 0))"
+            % codename_attacks_made())

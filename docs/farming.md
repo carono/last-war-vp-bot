@@ -5,7 +5,7 @@
 <!-- progress:start -->
 🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥  **28%** — 33 of 116
 
-🟩 33 done · 🟨 39 partly · 🟥 44 not automated
+🟩 33 done · 🟨 40 partly · 🟥 43 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -98,7 +98,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Events
 
 - ❌ Alliance exercises
-- ❌ Code Name
+- 🟡 Codename — the panel shows what the event owes and can send a squad at the boss. «События» keeps a block for it, and so does the checklist: how many attacks have gone out of the three that earn the reward, and the biggest single hit, which is what the daily ranking is made of. Both numbers are the game's own and are re-read, so an attack made in the game itself counts exactly as much as one the panel sent. «Атаковать сейчас» sends the first squad standing in the base — one attack a press, since the game rations no attempts and a fourth hit is still worth making for the ranking. Between windows the block goes grey and the button dies rather than disappearing: the boss stands for a few hours at a time, four times a day, and «nothing to do now» must not look like «this panel has never heard of it». The reading is confirmed against a live client; the attack has not gone out yet, because the event has not been open since it was written
 - ❌ Desert Storm
 - ❌ Snow Storm
 - 🟡 Street Run («Уличный забег», the three-lane endless runner) — the bot runs it by

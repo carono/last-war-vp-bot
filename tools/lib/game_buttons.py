@@ -571,6 +571,40 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.rally_launch(),
         wait=2.0, label="launch the rally",
     ),
+    # --- «Кодовое имя»: attack the event's world boss -------------------------
+    # The same five-press walk as a rally, because it is the same popup and the same
+    # squad screen — only the target type differs, and the target is found in the
+    # event's own list rather than through the map search:
+    #
+    #     codename_arm -> codename_select -> codename_attack -> codename_squad
+    #                  -> codename_launch
+    #
+    # WHICH boss and WHICH squad are parked in `DataCenter.__lw_codename` by the arm,
+    # because `TAP` carries no arguments. The recipe is actions/attack_codename_boss.md
+    # and the reverse-engineering is docs/research/codename-event.md.
+    "codename_arm": Button(
+        # Not a press in the game: the run's setup. It picks the boss out of the
+        # event's list, picks the first squad standing in the base, and notes how many
+        # attacks have gone out already so the last step can measure rather than assume.
+        lua=_lua_actions.codename_arm(),
+        wait=0.2, label="arm the boss attack (target + free squad)",
+    ),
+    "codename_select": Button(
+        lua=_lua_actions.codename_select(),
+        wait=1.4, label="tap the boss on the map",
+    ),
+    "codename_attack": Button(
+        lua=_lua_actions.codename_attack_press(),
+        wait=1.8, label="«Атаковать» on the boss",
+    ),
+    "codename_squad": Button(
+        lua=_lua_actions.codename_squad_pick(),
+        wait=1.0, label="pick the free squad",
+    ),
+    "codename_launch": Button(
+        lua=_lua_actions.codename_launch(),
+        wait=2.0, label="launch the attack",
+    ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the
     # group itself, so nothing has to be picked or parked beforehand. Headless — no

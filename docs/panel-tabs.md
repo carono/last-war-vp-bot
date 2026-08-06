@@ -458,6 +458,14 @@ def web_press(self, action: str, args: dict) -> dict:
     return {"ok": True} if action == "refresh" else {"error": "unknown"}
 ```
 
+**A press can belong to a card rather than to the screen.** `actions` at the top level is
+the screen's own row of buttons; the same list ON A CARD is drawn as that card's footer,
+which is what a block wants when the press belongs to one thing on the page and not to
+the page. «Кодовое имя» on «События» and on «Чеклист» is the first to use it (#1257): the
+board-wide button is «Обновить», and «Атаковать сейчас» sits under the one event it
+attacks. Both kinds reach the same `web_press`, so an id has to be answered wherever it
+was offered.
+
 **Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
 `pill` are **locale keys** and are said by the browser out of the panel's own table;
 `text`, `value`, `detail`, `note`, `head` and a fact's `value` are **data** — a player's
