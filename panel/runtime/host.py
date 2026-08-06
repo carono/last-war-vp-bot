@@ -19,6 +19,7 @@ from .. import profile as profilemod
 from . import game_process
 from .actions import ActionRunner, Outcome
 from .activity import Activity
+from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
 from .daemon import GameLink
@@ -92,6 +93,13 @@ class PanelRuntime:
         # of them the panel is inside, instead of the window simply going quiet. A
         # standalone tab has nobody listening and pays a dict insert for it.
         self.activity = Activity(name=self.profiles.active)
+        # WHETHER THIS CLIENT HAS GONE DEAF (panel/runtime/recovery.py). Fed by whoever
+        # polls the link — the window's status poll — and read by BOTH front-ends, which
+        # is why it lives here and not on the window: the phone draws the same run of
+        # bad readings, the same restart count and the same cooldown, out of the same
+        # object, and a second copy of that bookkeeping is a second answer waiting to
+        # disagree with the first.
+        self.recovery = RecoveryState()
         # `token` and `target` are read lazily on purpose: both answer off `self.game`,
         # which is built on the next line. They are what makes this runtime's children
         # and this runtime's scenarios press THIS profile's client rather than whichever

@@ -261,7 +261,14 @@ class WebApi:
             # greys the same three buttons off the same table
             # (panel/runtime/game_control.py), and a phone deciding for itself when a
             # press applies is how the two front-ends start disagreeing about it.
+            # `recovery` is the same bookkeeping the window's status strip reads, out of
+            # the same object on the runtime (panel/runtime/recovery.py): how many bad
+            # readings in a row, how many restarts this client has been given, and how
+            # long until another is allowed. Numbers, so the page says them in its own
+            # language — and the phone is the front-end that NEEDS them, because the
+            # person holding it cannot see the log scrolling past.
             "game": {"running": running, "link": link, "text": label,
+                     "recovery": rt.recovery.state(time.time()),
                      "controls": game_control.state(
                          link, str((step.fmt.get("name") if step else "") or ""))},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a

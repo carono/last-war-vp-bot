@@ -136,6 +136,23 @@ function paintState(state) {
   game.textContent = T(LINK_WORDS[link] || 'web.ui.off');
   game.className = 'pill ' + (LINK_PILLS[link] || 'off');
   $('game-text').textContent = state.game.text || '';
+  /* The self-restart, in the one place a phone can see it. The window has the log
+   * scrolling past and the person holding this does not, so «why did my client just
+   * restart» has to be answerable from the card: how long it has been unheard, how many
+   * restarts it has been given, and how long until another is allowed
+   * (panel/runtime/recovery.py). Silent while nothing is wrong. */
+  const rec = state.game.recovery || {};
+  const recEl = $('game-recovery');
+  if (rec.cooldown_left) {
+    recEl.textContent = T('web.ui.recovery.hold', { mins: Math.ceil(rec.cooldown_left / 60),
+                                                    n: rec.restarts || 0 });
+  } else if (rec.deaf_for) {
+    recEl.textContent = T('web.ui.recovery.deaf', { n: rec.deaf_for, of: rec.strikes || 0 });
+  } else if (rec.restarts) {
+    recEl.textContent = T('web.ui.recovery.done', { n: rec.restarts });
+  } else {
+    recEl.textContent = '';
+  }
   paintGameControls(state.game.controls || []);
 
   const daemon = $('daemon-dot');

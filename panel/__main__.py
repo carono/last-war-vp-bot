@@ -454,7 +454,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_main_nb", "_main_split", "_main_controls", "_lazy_tabs", "_plugin_tabs",
         "_shown_tab",
         # the two strips
-        "_status_var", "_status_lbl", "_status_msg", "_status_busy",
+        "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_recovery_var",
         "_daemon_var", "_daemon_lbl",
         # the account summary
         "_dash_values", "_dash_stop", "_dash_err", "_dash_view",
@@ -2376,6 +2376,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._status_var = tk.StringVar(value=self._t("status.checking"))
         self._status_lbl = ttk.Label(top, textvariable=self._status_var, foreground="#888")
         self._status_lbl.pack(side="left", padx=6)
+        # The self-restart, beside the state that causes it. The phone draws the same
+        # three numbers on its «Состояние» card (`panel/web/static/app.js`), out of the
+        # same object — a client that is being restarted round and round must not look
+        # like one that is simply working.
+        self._recovery_var = tk.StringVar(value="")
+        ttk.Label(top, textvariable=self._recovery_var,
+                  foreground="#888").pack(side="left", padx=6)
         # The probe words its own answer (`panel/runtime/game_process.py` returns a
         # `Message`: the sentence and its locale key in one value), so the strip can be
         # re-said on a language change instead of sitting in the old one until the next
@@ -3286,6 +3293,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, warm, found.link),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
+                self._recovery_check(found),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
@@ -3325,6 +3333,50 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _retranslate_status(self) -> None:
         if getattr(self, "_status_msg", None) is not None:
             self._status_var.set(i18nmod.translated(self._t, self._status_msg))
+
+    def _recovery_check(self, found) -> None:
+        """Restart a client the server has stopped hearing — the other half of a crash.
+
+        The watchdog below notices the PROCESS going away. This notices the account
+        going away underneath a process that is still drawing: a server that hung up on
+        an idle client, or a session kicked because the account logged in on another
+        device. From outside they are one state (`link == lost`) and they have one cure.
+
+        Everything that makes it safe to leave on overnight — a run of readings rather
+        than one, `unknown` never counting, a cooldown between restarts — is in
+        `panel/runtime/recovery.py` and pinned by `tests/test_panel_recovery.py`. What
+        is here is the wiring: the same `watchdog` switch as the crash half (from the
+        person's side it is one promise, and a dead client and a deaf one are the same
+        thing to whoever is not looking), the log line, and the press.
+
+        Nothing pauses the schedule for this, because the schedule pauses itself: with
+        the client down `Schedule.gate` holds every errand except the recovery one and
+        says so, and lifts on its own when the client is back (#1259).
+        """
+        now = time.time()
+        self._paint_recovery(self._rt.recovery.state(now))
+        said = self._rt.recovery.note(found.link, now)
+        if said is None:
+            return
+        key, fmt = said
+        if not self._opt_bool("watchdog"):
+            return
+        self._say("game", key, **fmt)
+        if key == runtime.recovery.ACT:
+            self._rt.play_async("restart_game")
+
+    def _paint_recovery(self, st: dict) -> None:
+        """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""
+        if st.get("cooldown_left"):
+            text = self._t("status.recovery.hold",
+                           mins=int(st["cooldown_left"] // 60) + 1, n=st.get("restarts", 0))
+        elif st.get("deaf_for"):
+            text = self._t("status.recovery.deaf", n=st["deaf_for"], of=st.get("strikes", 0))
+        elif st.get("restarts"):
+            text = self._t("status.recovery.done", n=st["restarts"])
+        else:
+            text = ""
+        self._recovery_var.set(text)
 
     def _watchdog_check(self, running: bool) -> None:
         """Notice the client dying, and put it back if asked to.
