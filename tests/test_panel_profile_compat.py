@@ -184,6 +184,62 @@ def test_the_profile_store_round_trips_it_unchanged():
                            for k in set(saved) | set(back) if saved.get(k) != back.get(k)}
 
 
+# ---------------------------------------------------------------------------
+# a tab folded into another one (task #1240: "scenarios" became part of "develop")
+# ---------------------------------------------------------------------------
+
+def test_tab_list_migrates_a_folded_tab_id():
+    """A profile that had the standalone «Сценарии» tab on must not lose it silently.
+
+    `SettingsBinder.tab_list` is what `tabsreg.resolve()` is fed with, so a
+    "scenarios" surviving unmapped in `tabs.enabled` would just be reported as an
+    unknown id and dropped — the merged tab would look, to that profile, exactly
+    like it was never asked for.
+    """
+    from panel import runtime
+
+    binder = runtime.SettingsBinder(profiles=None, defaults={})
+    binder.values = {"tabs": {"enabled": ["stats", "scenarios"],
+                              "known": ["stats", "scenarios"],
+                              "order": ["scenarios", "stats"]}}
+    assert binder.tab_list("enabled") == ["stats", "develop"]
+    assert binder.tab_list("known") == ["stats", "develop"]
+    assert binder.tab_list("order") == ["develop", "stats"]
+
+    # A profile that already has BOTH ids (someone turned "develop" on by hand too)
+    # must not end up with it twice.
+    binder.values = {"tabs": {"enabled": ["scenarios", "develop", "stats"]}}
+    assert binder.tab_list("enabled") == ["develop", "stats"]
+
+    # A profile untouched by the merge is unaffected.
+    binder.values = {"tabs": {"enabled": ["stats", "heroes"]}}
+    assert binder.tab_list("enabled") == ["stats", "heroes"]
+
+
+def test_tab_config_falls_back_to_flat_legacy_keys_when_the_new_block_is_empty():
+    """`develop`'s own block is autosaved as `{}` long before the merge (it was off by
+    default and has never had settings of its own), and an empty dict must not shadow
+    the flat `scenario_selected` / `scenario_args` / `scenario_interval` keys the old
+    «Сценарии» tab dual-wrote (`docs/panel-tabs.md` §"Settings, and moving existing
+    ones" — `LEGACY_KEYS` is read whenever the tab's own block has nothing in it)."""
+    from panel import runtime
+
+    legacy = {k: k for k in ("scenario_selected", "scenario_args", "scenario_interval")}
+    binder = runtime.SettingsBinder(profiles=None, defaults={})
+    binder.values = {
+        "scenario_selected": "collect_trucks", "scenario_args": '{"n": 3}',
+        "scenario_interval": "120",
+        "tabs": {"config": {"develop": {}}},
+    }
+    assert binder.tab_config("develop", legacy) == {
+        "scenario_selected": "collect_trucks", "scenario_args": '{"n": 3}',
+        "scenario_interval": "120"}
+
+    # Once the merged tab has actually been shown and saved its own block, THAT wins.
+    binder.values["tabs"]["config"]["develop"] = {"scenario_selected": "heal_units"}
+    assert binder.tab_config("develop", legacy) == {"scenario_selected": "heal_units"}
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

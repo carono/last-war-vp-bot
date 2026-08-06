@@ -75,7 +75,7 @@ Because substitution happens once, before the run, `{x}` carries the value the
 script *started* with; a variable a later `READ_LUA` overwrites is read with a
 condition, not with `{x}`.
 
-Callers: the panel's Scenarios tab has an «аргументы (JSON)» box, a timer passes
+Callers: the panel's Develop tab has an «аргументы (JSON)» box, a timer passes
 its `args` block (see `panel/timers.py`), and from Python it is
 `run_action(name, hwnd=0, variables={...})`.
 
@@ -511,7 +511,7 @@ its **own Lua VM** — the warm daemon in `tools/lua_daemon.py` (see
 `docs/research/xlua-state.md`). They send exact in-engine calls, so they are immune
 to UI-layout drift and OCR noise, and they need **no game-window handle** — an action
 made entirely of game primitives runs even when started with `hwnd=0` (e.g. from the
-panel's Scenarios tab). The daemon must be up; if it is down the evaluator falls back
+panel's Develop tab). The daemon must be up; if it is down the evaluator falls back
 to a fresh local `LuaEval`.
 
 The evaluator is created on first use and cached on the run context, so every game

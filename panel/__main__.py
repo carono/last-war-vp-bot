@@ -3252,7 +3252,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
     # Both halves, the readiness watch, the graceful stop that unwraps the tracer's
     # hooks and the keep-or-throw-away prompt went with it. It is `DEFAULT_ENABLED =
     # False`: a panel whose owner has never reverse-engineered anything does not carry
-    # it at all, which a menu entry could not express.
+    # it at all, which a menu entry could not express. The «Сценарии» tab's list,
+    # editor, runner and repeat loop joined it in the same file (task #1240) — writing
+    # and fixing an `actions/*.md` recipe is «working on the bot» too.
 
     def _jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
         """Walk the camera to a tile (panel/runtime/daemon.py owns it).
@@ -3750,7 +3752,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     # -- scenarios tab (run .md action scripts) -----------------------------
 
-    # -- the Scenarios tab is a plugin (panel/tabs/scenarios.py) --------------
+    # -- the Scenarios tab is part of «Разработка» now (panel/tabs/develop.py, #1240) -
     #
     # The list, the editor with its debounced parse-then-save, the runner, the repeat
     # loop and the `TAP` reference all went with it. Only the runtime it leans on is

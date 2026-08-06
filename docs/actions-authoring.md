@@ -105,9 +105,9 @@ read the screen and click through a window handle; the **game primitives**
 (TAP/LUA/READ_LUA/GAME/JUMP) drive the game through its own Lua VM (the warm daemon,
 `tools/lua_daemon.py`) and need no handle. Mix them freely in one script. An action
 made only of game primitives runs with `hwnd=0` — which is how the panel's
-**Scenarios** tab runs it (pick a script, Run, or Repeat on an interval).
+**Develop** tab runs it (pick a script, Run, or Repeat on an interval).
 
-**You can edit a recipe from the panel.** The Scenarios tab opens the selected
+**You can edit a recipe from the panel.** The Develop tab opens the selected
 script in an editor and saves it a second after you stop typing (Ctrl+Z undoes),
 so the fix → run → read-the-log loop needs no other window. A run in flight locks
 the list and marks its row; «Стоп» halts it at the next step.

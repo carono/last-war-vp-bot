@@ -378,9 +378,17 @@ class SettingsBinder:
     # point: a profile that predates the block keeps every value it had, read from the
     # flat top level through the tab's own LEGACY_KEYS.
     def tab_config(self, tab_id: str, legacy: dict | None = None) -> dict:
-        """One tab's saved block, or the legacy flat keys it was spelled with before."""
+        """One tab's saved block, or the legacy flat keys it was spelled with before.
+
+        An EMPTY saved block does not count as "found" — a tab that has never been
+        shown yet (`develop`, off by default) is autosaved as `{}` the first time any
+        other tab's change writes the profile, and that `{}` must not shadow flat
+        legacy keys a tab folded into it left behind (task #1240: `scenarios`'s
+        `scenario_selected`/`scenario_args`/`scenario_interval` survive under
+        `develop` this way, with no separate migration needed).
+        """
         block = (self._values.get("tabs") or {}).get("config", {}).get(tab_id)
-        if isinstance(block, dict):
+        if isinstance(block, dict) and block:
             return dict(block)
         out = {}
         for new_key, old_key in (legacy or {}).items():
@@ -401,7 +409,20 @@ class SettingsBinder:
             if new_key in block:
                 self._values[old_key] = block[new_key]
 
+    #: An old tab id folded into another one — a profile written before the merge
+    #: still names it in `tabs.enabled` / `tabs.known` / `tabs.order`, and without this
+    #: the merge would look, to that profile, like the new tab was never asked for
+    #: (task #1240: the standalone "Сценарии" tab became part of "Разработка").
+    _TAB_ID_MERGES = {"scenarios": "develop"}
+
     def tab_list(self, key: str) -> "list | None":
-        """``tabs.enabled`` / ``tabs.order``, or ``None`` when the profile has neither."""
+        """``tabs.enabled`` / ``tabs.order`` / ``tabs.known``, or ``None`` if absent."""
         value = (self._values.get("tabs") or {}).get(key)
-        return list(value) if isinstance(value, list) else None
+        if not isinstance(value, list):
+            return None
+        out = []
+        for item in value:
+            item = self._TAB_ID_MERGES.get(item, item)
+            if item not in out:
+                out.append(item)
+        return out
