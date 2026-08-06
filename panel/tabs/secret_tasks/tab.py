@@ -38,9 +38,11 @@ dropped on load, before it is ever drawn.
 THE THREE STANDING ORDERS ARE THIS TAB'S OWN NOW. The capture, «Автолут ★» and
 «Автообъезд карты» used to be checkboxes here whose every variable and every handler
 lived on `Panel`; each is a small class beside this one, holding its own child processes
-and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). The «уровень от / до»
-range doubles as the list's display filter — a starred tile shows only while its level is
-inside it, so the operator sees exactly the tiles auto-loot is about to weigh.
+and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). «Автолут ★» is aimed
+by ONE number — «минимальный уровень», this level and everything above it (#1256) — and
+it picks its targets out of THIS TAB'S LIST (:meth:`SecretTasksTab.rob_candidates`),
+never out of a second reading of the sources. What each page SHOWS is that page's own
+«уровень от / до», which re-aims no robbery at all.
 
 THERE ARE THREE TABLES, AND THEY ARE PAGES (#1244, #1251). The one described above is a
 WORKING list — the starred raids, gathered from two sources, kept across a restart,
@@ -164,6 +166,9 @@ class SecretTasksTab(PanelTab):
         "filter_level_from", "filter_level_to",
         "autoloot", "autoloot_level_from", "autoloot_level_to",
         "map_sweep", "sweep_centre_x", "sweep_centre_y")}
+    # `autoloot_level_from` / `autoloot_level_to` are kept above to READ a profile
+    # written before the range became one minimum (#1256) — `apply_config` migrates
+    # them. Nothing writes them any more: the rule is `autoloot_level_min`.
     # `autoloot_skip_own_server` and the four `coord_*` keys are NOT here on purpose:
     # they are new to this tab (#1209) and were never spelled flat on the profile, so
     # there is no old spelling to keep in step with.
@@ -197,9 +202,9 @@ class SecretTasksTab(PanelTab):
         # Tasks robbed by hand this session: a rescan must not re-add one the server has
         # not yet dropped from `allianceTask`.
         self._collected: set = set()
-        # uuids auto-loot has already fired at this session — one attempt per tile, so a
-        # 30-s poll on a spent budget does not re-send every tick.
-        self._auto_attempted: set = set()
+        # Which uuids the standing order has already fired at is the standing order's own
+        # book now (`AutoLoot._seen`, #1256) — there is one watcher and one place a
+        # target is chosen, so there is one place to remember what has been tried.
         # Whether the ready-row poll is currently scheduled.
         self._polling = False
         # Cached (server, allianceId) for the chat room ids — read once, live.
@@ -226,8 +231,12 @@ class SecretTasksTab(PanelTab):
         self.filter_from_var = tk.StringVar(master=master)
         self.filter_to_var = tk.StringVar(master=master)
         self.autoloot_var = tk.BooleanVar(master=master, value=False)
-        self.level_from_var = tk_stringvar(master)
-        self.level_to_var = tk_stringvar(master)
+        # ONE box, and it is a MINIMUM (#1256): «грабим этот уровень и всё, что выше».
+        # It was a range whose top was the level actually robbed, which meant «от 1 до 7»
+        # left a raidable 6 alone for ever — two boxes where only one of them decided
+        # anything. Deliberately NOT the same setting as the ★ page's display filter
+        # below: narrowing what is on screen still re-aims no robbery (#1099).
+        self.level_min_var = tk_stringvar(master)
         # «Не грабить на своём сервере»: the robberies are the only thing it gates —
         # a tile at home is still listed, still shareable and still collectable by hand.
         self.skip_own_var = tk.BooleanVar(master=master, value=False)
@@ -385,7 +394,9 @@ class SecretTasksTab(PanelTab):
         # `on_show` seeds it from the right profile whenever it next is.
         self._rows.clear()
         self._collected.clear()
-        self._auto_attempted.clear()
+        # …and what the standing order had already fired at belongs to that account's
+        # map, not this one's (#1256).
+        self.autoloot._seen.clear()
         self._restore_pending = set()
         # The roster belongs to the old account just as much — a different account
         # is a different alliance, and those are not this one's alliancemates (#1244).
@@ -484,8 +495,8 @@ class SecretTasksTab(PanelTab):
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
             "autoloot": bool(self.autoloot_var.get()),
-            "autoloot_level_from": self.level_from_var.get(),
-            "autoloot_level_to": self.level_to_var.get(),
+            # One number now (#1256) — the lowest level worth one of the day's five.
+            "autoloot_level_min": self.level_min_var.get(),
             "autoloot_skip_own_server": bool(self.skip_own_var.get()),
             "map_sweep": bool(self.sweep_var.get()),
             "sweep_centre_x": self.sweep_cx_var.get(),
@@ -526,15 +537,22 @@ class SecretTasksTab(PanelTab):
             self.alliance.star_var.set(bool(raw.get("alliance_star_only", False)))
         self.filter_from_var.set(raw.get("filter_level_from", ""))
         self.filter_to_var.set(raw.get("filter_level_to", ""))
-        # A profile saved before the display filter and the robbery rule were split has
-        # only the one pair — and it was AIMING the robberies as well as narrowing the
-        # log. Seeding the auto-loot range from it is what keeps that profile robbing the
-        # same levels; without the fallback the rule silently widens to "any level",
-        # which is how a robbery gets spent on a level-6 star (#1099).
-        self.level_from_var.set(raw.get("autoloot_level_from",
-                                        raw.get("filter_level_from", "")))
-        self.level_to_var.set(raw.get("autoloot_level_to",
-                                      raw.get("filter_level_to", "")))
+        # The range became one MINIMUM (#1256), and the migration has to preserve what
+        # the profile was actually robbing rather than what it looked like it was: under
+        # the old rule the level robbed was the range's TOP («от 1 до 7» robbed 7s and
+        # left 6s alone), so the old «до» is the new minimum. Only where it was blank
+        # does the old «от» stand in — that profile really was robbing from there up.
+        # Older still (before the display filter and the robbery rule were split) there
+        # is only the display pair, and it WAS aiming the robberies too; seeding from it
+        # is what keeps such a profile robbing the same levels instead of silently
+        # widening to «any level», which is how a robbery gets spent on a 6 (#1099).
+        self.level_min_var.set(str(
+            raw.get("autoloot_level_min")
+            or raw.get("autoloot_level_to")
+            or raw.get("autoloot_level_from")
+            or raw.get("filter_level_to")
+            or raw.get("filter_level_from")
+            or ""))
         self.autoloot_var.set(bool(raw.get("autoloot", False)))
         # Off by default: robbing the whole map is what the tab has always done, and a
         # prohibition nobody asked for would be a silent behaviour change.
@@ -562,7 +580,7 @@ class SecretTasksTab(PanelTab):
         return pages + [self.monitor_var, self.interval_var, self.show_spent_var,
                 self.hide_own_var,
                 self.filter_from_var, self.filter_to_var,
-                self.autoloot_var, self.level_from_var, self.level_to_var,
+                self.autoloot_var, self.level_min_var,
                 self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
                 self.coord_x_var, self.coord_y_var, self.coord_srv_var]
 
@@ -652,14 +670,18 @@ class SecretTasksTab(PanelTab):
         self._sweep_hint.pack(side="left", padx=(10, 0))
 
     def _build_filter_bar(self) -> None:
-        """The level range, «Автолут ★» and the own-server prohibition — the rule the
+        """«Автолут ★», its one level box and the own-server prohibition — the rule the
         robberies obey.
 
-        The same range doubles as the list's display filter (:meth:`_in_range`), so the
-        operator sees exactly the tiles the standing order is about to weigh. «Не грабить
-        на своём сервере» is in THIS frame rather than beside the display filters on
-        purpose: it gates the robberies and nothing else, and a box that hid tiles would
-        be a different feature wearing the same words.
+        ONE BOX, AND IT IS A MINIMUM (#1256). The range it replaces read as two bounds
+        and behaved as one: only its top was ever robbed, so a raidable level-6 star sat
+        there untouched under «от 1 до 7». «Минимальный уровень 6» robs the 6 and every
+        7 above it, best first.
+
+        Separate from the ★ page's own «Фильтры: уровень от / до» on purpose (#1099):
+        that pair is a pair of eyes and this one is a budget. «Не грабить на своём
+        сервере» is in THIS frame for the same reason — it gates the robberies and hides
+        nothing.
         """
         frame = self.tr(ttk.LabelFrame(self.parent, padding=6), "secret.autoloot.frame")
         frame.pack(fill="x", padx=10, pady=(0, 4))
@@ -668,11 +690,9 @@ class SecretTasksTab(PanelTab):
         self.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
                                 command=self._on_autoloot_toggle),
                 "secret.autoloot").pack(side="left")
-        self.tr(ttk.Label(bar), "secret.autoloot.level_from").pack(
+        self.tr(ttk.Label(bar), "secret.autoloot.level_min").pack(
             side="left", padx=(12, 2))
-        NumericEntry(bar, textvariable=self.level_from_var, width=4).pack(side="left")
-        self.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
-        NumericEntry(bar, textvariable=self.level_to_var, width=4).pack(side="left")
+        NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
         self._skip_own_box = self.tr(
             ttk.Checkbutton(bar, variable=self.skip_own_var,
                             command=self._on_skip_own_change),
@@ -682,10 +702,10 @@ class SecretTasksTab(PanelTab):
         self._rule_lbl = ttk.Label(frame, foreground="#888", wraplength=760,
                                    justify="left")
         self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
-        # Typing the range re-filters the shown list (cached — no game round trip), keeps
-        # the rule line true, and bounces the event-driven listener onto the new bounds.
-        for var in (self.level_from_var, self.level_to_var):
-            var.trace_add("write", lambda *_a: self._on_level_filter_change())
+        # Typing the minimum keeps the rule line true and bounces the event-driven
+        # listener onto it. It re-draws nothing: the rule aims the ROBBERIES, and what
+        # is on the table is the page's own filters' business (#1099, #1251).
+        self.level_min_var.trace_add("write", lambda *_a: self._on_level_filter_change())
         # The DISPLAY range redraws the table on the spot too (#1244). It governs what
         # the list shows as well as what the log prints, so a box typed into and nothing
         # happening on the table is the very confusion this fix is about.
@@ -1263,14 +1283,12 @@ class SecretTasksTab(PanelTab):
             pass
 
     def _on_level_filter_change(self) -> None:
-        """An «Автолут ★» level box was typed: keep the rule line true, re-aim the
-        listener — and redraw, because the rule line is drawn beside the list."""
+        """«Минимальный уровень» was typed: keep the rule line true and re-aim the
+        listener. Nothing on the table moves — the rule spends robberies, it does not
+        hide rows (#1099, #1256)."""
+        self.rt.settings.changed()
         self._refresh_rule_hints()
         self.autoloot.range_changed()
-        if self._tree is None:
-            return
-        self._render()
-        self._update_status()
 
     def _on_display_filter_change(self) -> None:
         """A «Фильтры: уровень от / до» box was typed: redraw the list under the new
@@ -1775,8 +1793,17 @@ class SecretTasksTab(PanelTab):
         # tiles say what is on the map, this says whether anything is going to be taken
         # — and «nothing, the day's five are spent» is not a thing to guess at (#1227).
         state_key, state_datum = self.autoloot.state()
+        low = self.autoloot.level_min()
         return {"cards": [{"title": "secret.autoloot.frame",
-                           "rows": [{"label": state_key, "value": state_datum}]},
+                           # The RULE as well as the state (#1256): the window draws the
+                           # two side by side under the checkbox, and «минимальный
+                           # уровень» is the one number that decides where the day's five
+                           # go — reading «сторожит» without it says nothing about what
+                           # is about to be spent.
+                           "rows": [{"label": "secret.autoloot.level_min",
+                                     "value": (str(low) if low is not None
+                                               else self.t("secret.autoloot.any_level"))},
+                                    {"label": state_key, "value": state_datum}]},
                           # The window's pages, as the phone's cards (#1244, #1251) — a
                           # screen scrolls where a window switches. EACH CARD CARRIES
                           # ITS OWN PAGE'S SWITCHES, for the same reason the window
@@ -1954,19 +1981,59 @@ class SecretTasksTab(PanelTab):
         return self._within(level, self.filter_from_var.get(), self.filter_to_var.get())
 
     def _in_rob_range(self, level) -> bool:
-        """Whether `level` is inside the ROBBERY range — «Автолут ★»'s own entries.
+        """Whether `level` is worth a robbery — «Автолут ★»'s own «минимальный уровень».
+
+        One bound, and it is the bottom (#1256): this level and everything above it. An
+        empty box is no bound at all.
 
         Separate from the display filter on purpose (#1099): narrowing what is printed
         must not silently re-aim the five robberies a day, and widening it must not
         hand them a level nobody asked to spend one on.
         """
-        lo, hi = self.autoloot.levels()
-        lvl = int(level or 0)
-        if lo is not None and lvl < lo:
-            return False
-        if hi is not None and lvl > hi:
-            return False
-        return True
+        low = self.autoloot.level_min()
+        return low is None or int(level or 0) >= low
+
+    def has_rows(self) -> bool:
+        """Whether OUR list holds anything at all — the watcher's «есть ли источник».
+
+        Asked instead of "is there a checkpoint / is the VM up" (#1256): the sources are
+        the list's business, and an empty list is the one honest answer to «there is
+        nothing to weigh yet», whichever of them has not arrived.
+        """
+        return bool(self._rows)
+
+    def rob_candidates(self) -> list:
+        """The rows «Автолут ★» would rob right now, best level first — OUR list only.
+
+        THE ONE PLACE THE STANDING ORDER'S TARGETS ARE CHOSEN (#1256). Everything it
+        weighs is a row of this tab's model: filled by the capture off the wire, seeded
+        by the client's own tables, updated by the alliance pushes, and re-verified
+        against the game by the ready-row poll, which drops what it can no longer
+        confirm. The watcher used to re-read those sources for itself through a copy of
+        the rule, so the list and the robberies could disagree about the very same map.
+
+        The rule, in order: the tile is raidable (ready, and not looted out —
+        :meth:`_collectable`), it wears a star (every row of this list does, by
+        construction), its level is at or above «минимальный уровень», and it is not at
+        home while «не грабить на своём сервере» is ticked. Robbed by hand this session
+        (`_collected`) is excluded for the obvious reason.
+
+        NOT filtered by what the table happens to be showing: the display boxes are a
+        pair of eyes, and somebody narrowing them to read something must not thereby
+        change which tiles the day's five are spent on.
+        """
+        skip = self.autoloot.skip_server()
+        rows = [row for key, row in self._rows.items()
+                if key not in self._collected
+                and self._collectable(row)
+                and row.get("starred")
+                and self._in_rob_range(row.get("level"))
+                and not (skip and int(row.get("server") or 0) == skip)]
+        # Best first, and among equals the tile with the most slots left: it is the one
+        # most likely to still be there when the send lands.
+        rows.sort(key=lambda r: (-int(r.get("level") or 0),
+                                 int(r.get("loot_count") or 0)))
+        return rows
 
     @staticmethod
     def _within(level, low: str, high: str) -> bool:
@@ -2181,13 +2248,19 @@ class SecretTasksTab(PanelTab):
         self.after(lambda: self._poll_apply(keys, live))
 
     def _poll_apply(self, keys: list, live) -> None:
-        """Reconcile the polled ready rows: drop the gone, refresh the rest, then loot.
+        """Reconcile the polled ready rows: drop the gone, refresh the rest.
 
         A failed read (``live is None``) is not evidence a tile vanished, so it is left
         alone until the next poll. A tile missing from a GOOD read is off the map
         (expired) or looted out (its slots filled), and either way it can no longer be
-        robbed — so its row drops. Auto-loot runs last, over the whole refreshed list, so
-        it robs by the standing order's rule rather than per-tile.
+        robbed — so its row drops.
+
+        THE ROBBERY IS NOT HERE ANY MORE (#1256). This poll used to rob as well as
+        verify, through a second copy of the rule and a direct `hero.dispatch.steal` of
+        its own — a third doorway into the ability, on a thirty-second clock, beside the
+        watcher's. What it does now is the half it is good at: it is the actuality check
+        the list is kept true by, and «Автолут ★» chooses out of the list it leaves
+        behind (:meth:`rob_candidates`).
         """
         if live is None:
             return
@@ -2204,41 +2277,10 @@ class SecretTasksTab(PanelTab):
             row["expires_at"] = task.expires_at
             row["completed_at"] = task.completed_at
             row["loot_count"] = task.loot_count
-        if self.autoloot_var.get():
-            self._auto_loot(live)
         if removed:
             self._render()
             self._update_status()
         self._persist_rows()
-
-    def _auto_loot(self, live) -> None:
-        """Rob the raidable, in-range rows — but only at the range's TOP level, once each.
-
-        The same rule the watcher obeys, and for the same reason: «от 1 до 7» robs 7-star
-        tiles and leaves a 6 alone, because the five daily robberies are the scarce thing
-        and one spent on a 6 is one a 7 cannot have until the reset (#1099). Each tile is
-        attempted once a session so a poll on a spent budget does not re-fire.
-
-        Judged on «Автолут ★»'s OWN range (#1244), not on what the table happens to be
-        showing: the display filter is a pair of eyes, and a person narrowing it to read
-        something must not thereby change which tiles the standing order spends the day's
-        five on.
-        """
-        candidates = [
-            (key, row) for key, row in self._rows.items()
-            if self._collectable(row) and self._in_rob_range(row["level"])
-            and key not in self._auto_attempted and key not in self._collected
-            and key in live and live[key].can_loot
-        ]
-        if not candidates:
-            return
-        _lo, hi = self.autoloot.levels()
-        top = hi if hi is not None else max(int(r["level"] or 0) for _, r in candidates)
-        for key, row in candidates:
-            if int(row["level"] or 0) != top:
-                continue
-            self._auto_attempted.add(key)
-            self._collect(row)
 
     # -- actions ---------------------------------------------------------------
     def _collect(self, row) -> None:

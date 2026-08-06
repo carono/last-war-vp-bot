@@ -127,18 +127,33 @@ uuid.
 
 ## 6a. Auto-loot — the panel checkbox
 
-The panel's «Автолут ★ макс. уровня» (Secret tasks frame) robs **starred tasks
-only, and only the highest level the scan actually found**. With no star in view
-it does nothing at all — deliberately, because the scarce thing is the day's five
-robberies, not the targets: an attempt spent on a plain level-5 tile is one a
-level-7 star cannot have until the daily reset.
+The panel's «Автолут ★» (Secret tasks frame) robs **starred tasks only, at or
+above the one level its «минимальный уровень» field asks for**, best first. With
+no star in view it does nothing at all — deliberately, because the scarce thing is
+the day's five robberies, not the targets: an attempt spent on a plain level-5
+tile is one a level-7 star cannot have until the daily reset.
 
 It is a **checkbox, not a press** (task #1109). A raidable star is perishable —
 the window closes, or someone else fills the third loot slot — so the gap between
 a finding appearing and a human noticing the log line was where targets were lost.
-While the box is ticked a watcher thread re-reads its sources every 2 s and fires
-the robbery the moment the rule has a target; unticking it stops the watching (a
-robbery already under way finishes).
+While the box is ticked a watcher thread looks at the panel's own list every 2 s
+and fires the robbery the moment the rule has a target; unticking it stops the
+watching (a robbery already under way finishes).
+
+**It chooses out of the panel's own list, not out of the sources (task #1256).**
+Everything below about *where a tile comes from* is still true — it is how the
+list gets filled — but the watcher itself no longer re-reads any of it. It asks
+the «Секретки» tab which of ITS rows the rule wants
+(`SecretTasksTab.rob_candidates`: raidable, starred, at or above the minimum, not
+at home while «не грабить на своём сервере» is ticked), and hands what comes back
+to `tools/steal_secret_task.py --targets uuid:server,…`, which re-derives nothing.
+Before that, the panel and the child each re-read the sources through a copy of
+the rule, so three answers about one map had to agree and did not have to: a row
+the list had dropped as expired could still be a target, and the ready-row poll
+carried a fourth copy of the rule and a robbery of its own. The list is the model
+the capture, the client's tables and the alliance pushes all fill and the one the
+30-second ready-row poll re-verifies against the game, so it is the only sensible
+thing to spend five robberies out of.
 
 **The primary source is the live game VM, not a capture (task #1124).** The old
 watcher read only the capture checkpoint, and that checkpoint only learns a tile
@@ -170,8 +185,8 @@ the dispatch task's uuid and `missionCurrentServerId` is its `targetServer`. It
 applies the identical star / level rule (`mission_passes`, the single-mission form
 of `_select_targets`), dedupes by `(uuid, server)`, and reads the live budget
 before every send. It does **not** need the «Мониторинг» capture running — it is
-its own sniffer — and a range typed while it runs restarts it (debounced) so it
-never robs to a stale «уровень до». The poll stays on as the slower safety net for
+its own sniffer — and a level typed while it runs restarts it (debounced) so it
+never robs to a stale minimum. The poll stays on as the slower safety net for
 the cases a push does not cover (enemy tiles the sweep saw, tasks already present
 before the listener started); the two are safe together because a redundant attempt
 at a tile the other path already took is simply refused, and a refusal spends no
@@ -196,45 +211,44 @@ alliance's tasks, so a raidable enemy star is knowable only from a capture. When
 the monitor is off the union is just the VM, and the feature still works in full
 for alliance-shared tasks — the old "the monitor is off, so there are no targets"
 warning is gone, replaced by a note that the monitor now only *adds* enemy tiles.
-The panel and the child agree on both sources: the watcher polls with
-`targets_from_vm(self._client, …)` + `targets_from_scan(checkpoint, …)`, and
-`_autoloot_run` fires `tools/steal_secret_task.py --from-vm [--from-scan …]
---star-max`, the same entrypoint a human uses from the shell, which re-reads the
-same two sources and re-applies the rule — so the panel holds no second copy of
-it. `load_fresh_tasks` still drops any checkpoint tile not re-seen in the last 15
-minutes and recomputes `can_loot` against the current clock; the VM reader
-recomputes `can_loot` the same way, so neither source can aim a robbery at a tile
-that is already gone.
+Both sources feed the tab's list, and `load_fresh_tasks` recomputes `can_loot`
+against the current clock as they do; the VM reader recomputes it the same way, so
+neither can put a tile on the list that is already gone. The tool's own
+`--from-vm` / `--from-scan` / `--star-max` / `--level-min` / `--level-max` route
+is still there and is what a human uses from the shell — it is simply not what the
+panel drives any more (#1256, above).
 
-**«Уровень до» IS the level it robs.** The two entries sit in the same row as the
-checkbox and read as one control, so the range is not a display preference and
-not a mere ceiling over "whatever is lying around": with `--star-max` the target
-level is exactly `--level-max`. «от 1 до 7» robs level-7 stars and leaves a
-level-6 one alone however long it is the only star on the map. Both the watcher's
-poll and the child process get the range — the child re-reads the checkpoint, so
-a range that reached only the panel would let it rob outside the range anyway.
+**«Минимальный уровень» is a FLOOR, and it is one number (task #1256).** One box,
+in the same row as the checkbox: the level typed and everything above it, best
+first. It replaced a «уровень от / до» pair that read as two bounds and behaved as
+one — with `--star-max` the level robbed was exactly `--level-max`, so «от 1 до 7»
+took 7s and left a raidable level-6 star alone however long it was the only star
+on the map. That was deliberate once (below) and wrong in practice: a 6 nobody
+takes is not a saved attempt, it is a robbery nobody made, and the five reset
+daily whether they were spent or not. The floor keeps the part that mattered — a
+level nobody wants is still never robbed — and drops the part that did not.
 
-Why the top and not the best thing available: **the five daily attempts are the
-scarce resource, not the targets.** A robbery spent on a 6 is one a 7 cannot have
-until the reset, and stars of the top level keep appearing all day. So "nothing
-raidable at the asked-for level" is a normal answer, not a failure — the watcher
-holds fire and says so.
+The reasoning it came from, kept because it is still why the order matters: **the
+five daily attempts are the scarce resource, not the targets.** So the choice is
+sorted best-level-first, and "nothing raidable at or above the asked-for level" is
+a normal answer rather than a failure — the watcher holds fire and says so.
 
 Learned the hard way, twice on 2026-07-29: at 14:15 the range said 6..7 and
-auto-loot robbed the only raidable star, a level 6, because (a) the range never
-reached the rule at all, and (b) the rule took "the highest level found" rather
-than the level asked for. Both are fixed; replaying that very checkpoint now
-yields *no* target at «до 7» and the same level-6 tile only if «до 6» is set.
+auto-loot robbed the only raidable star, a level 6, because the range never
+reached the rule at all. That half is what still matters — the rule the panel
+shows and the rule that spends the budget have to be one thing — and it is now
+structural rather than remembered: the panel chooses, and the child is told the
+answer instead of the question.
 
-With **no «уровень до»** there is no configured target level, so the rule falls
-back to the highest level actually found in range — the old behaviour, and the
-log says which of the two it is applying.
+With **an empty box** there is no floor at all: every raidable star on the list is
+a target, best first.
 
 Two things it does NOT do, both on purpose:
 
 * it ignores the **display** checkboxes (stars / pending / lootable) — those
   decide what is *printed*, and a display filter quietly changing who gets raided
-  would be a nasty surprise. The level range is the deliberate exception above;
+  would be a nasty surprise. «Минимальный уровень» is the deliberate exception
+  above, and it hides nothing;
 * it does not queue a star whose dispatch is still running. A starred tile that
   is not raidable *right now* is simply not a target on this poll — the watcher
   will pick it up on a later one, once the scan shows it free. Observed live

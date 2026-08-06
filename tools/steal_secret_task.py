@@ -12,6 +12,13 @@ docs/research/secret-task-steal.md.
 **The target is a uuid, not a coordinate.** Three ways to name one:
 
     --uuid U --server S            rob it directly (uuid straight off a map scan)
+    --targets U:S,U:S              rob exactly these, in this order — the caller has
+                                   already chosen them and nothing here re-derives the
+                                   choice. This is what the panel uses: its «Секретки»
+                                   list is the one model the capture, the client's own
+                                   tables and the pushes all fill, and the standing
+                                   order picks out of THAT rather than re-reading the
+                                   sources behind its back (#1256)
     --coords X,Y --server S        resolve the uuid first, the way a tap does:
                                    `world.get.detail.new` -> WorldPointDetailManager
     --from-vm                      every raidable alliance task read straight from the
@@ -376,10 +383,42 @@ def _select_targets(tasks, limit: int, star_max: bool = False,
     return [(t.uuid, t.server_id, _label(t)) for t in raidable[:limit]]
 
 
+def parse_targets(text: str) -> list[tuple[int, int, str]]:
+    """``"uuid:server,uuid:server"`` as the target triples the rest of this script uses.
+
+    The caller's own list, named outright. The panel picks its targets out of the model
+    its «Секретки» tab keeps — the one the capture, the client's tables and the alliance
+    pushes all fill, and the one every actuality check already runs against — so what it
+    hands over here is a DECISION, not a hint to re-derive (#1256). Re-reading the
+    sources under it is how the panel and the child it spawned came to two different
+    answers about the same map.
+
+    A malformed pair raises rather than being skipped: "rob these four" quietly becoming
+    "rob these three" is the kind of silence that spends a day's budget in the wrong
+    place.
+    """
+    out: list[tuple[int, int, str]] = []
+    for chunk in str(text).replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        head, _sep, tail = chunk.partition(":")
+        try:
+            uuid, server = int(head), int(tail)
+        except ValueError:
+            raise ValueError("a target reads «uuid:server», not %r" % chunk) from None
+        out.append((uuid, server, coords_fmt.fmt(0, 0, server).split()[0]))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--uuid", type=int, help="task uuid to rob")
+    ap.add_argument("--targets", metavar="U:S,U:S",
+                    help="rob exactly these «uuid:server» pairs, in this order — the "
+                         "caller has chosen them and nothing here re-derives the choice "
+                         "(what the panel's auto-loot hands over from its own list)")
     ap.add_argument("--coords", help="tile 'X,Y' whose task uuid should be resolved first")
     ap.add_argument("--server", type=int, help="the task's server (targetServer)")
     ap.add_argument("--from-scan", metavar="PATH",
@@ -447,7 +486,20 @@ def main() -> int:
         print("own server: %d — its tiles are not targets" % skip)
 
     targets: list[tuple[int, int, str]] = []
-    if args.from_vm or args.from_scan:
+    if args.targets:
+        # Somebody else's list decided. Nothing is re-read and nothing is re-filtered
+        # here — the level rule, the star and «не грабить на своём сервере» were all
+        # applied where the targets were chosen, and applying them twice against two
+        # different readings of the map is how the two ends disagree (#1256).
+        try:
+            targets = parse_targets(args.targets)
+        except ValueError as exc:
+            ap.error(str(exc))
+        if not targets:
+            print("--targets named nothing — nothing to rob")
+            return 0
+        targets = targets[:args.limit]
+    elif args.from_vm or args.from_scan:
         # Two sources, unioned: the live VM (alliance tasks, always current) and, when
         # given, a capture checkpoint (whatever the sweep panned over, enemy tiles too).
         # A uuid seen by both is kept once, VM copy first — it is the fresher of the two.
@@ -502,7 +554,7 @@ def main() -> int:
             ap.error("--uuid needs --server")
         targets = [(args.uuid, args.server, "uuid %d" % args.uuid)]
     else:
-        ap.error("name a target: --uuid, --coords, --from-vm or --from-scan "
+        ap.error("name a target: --uuid, --targets, --coords, --from-vm or --from-scan "
                  "(or ask for --status)")
 
     # The last gate, over WHATEVER named the targets: the two source paths dropped the

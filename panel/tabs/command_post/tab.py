@@ -342,12 +342,34 @@ class GhostReconPane(_Pane):
         # Created before `build`, which draws the box bound to it — and read by the
         # profile load, which happens whether or not the page has ever been shown.
         self.autoloot_var = tk.BooleanVar(master=rt.root, value=False)
+        # «Минимальный уровень» — this page's own, exactly like the secret tasks' own
+        # (#1256), and NOT the same number: a ghost squad runs levels 3-5 where a secret
+        # task runs 1-7, so one field for both would be wrong for one of them whichever
+        # way it was set. Blank is «any level».
+        self.level_min_var = tk_stringvar(rt.root)
+        self._rule_lbl = None
+        # OUR LIST (#1256): every squad the page knows about, by uuid — the client's own
+        # `taskList` and whatever a map scan has written down, which is the only source
+        # that ever sees another alliance's tiles. The standing order picks out of THIS
+        # and out of nothing else, so what it robs is what the page is showing.
+        self.status: dict = {}
+        self.targets: list = []
         self.order = GhostOrder(rt, self)
         super().__init__(rt, tab, parent)
 
     def shutdown(self) -> None:
         super().shutdown()
         self.order.stop()
+
+    def restart(self) -> None:
+        """The profile switched: another account's squads are not this one's (#1256).
+
+        The list goes, and so does the standing order's memory of what it has already
+        fired at — those uuids belong to the map the other client was looking at.
+        """
+        super().restart()
+        self.status, self.targets = {}, []
+        self.order._seen.clear()
 
     def build(self) -> None:
         body = self._header()
@@ -381,14 +403,73 @@ class GhostReconPane(_Pane):
         The box, the variable behind it and the watcher it starts are all this page's
         (:mod:`panel.tabs.command_post.ghost`). They used to be split three ways — the
         widget on the «Секретки» tab, the var on the app, the loop in the panel.
+
+        Beside it, since #1256, the one number that aims it: «минимальный уровень» —
+        this level and every one above it. Read live by the watcher, so raising it takes
+        effect on the next look rather than at the next tick of the checkbox, and drawn
+        out in words underneath because an invisible rule is how a day's budget gets
+        spent on something nobody wanted.
         """
         box = self.rt.tr(ttk.LabelFrame(parent, padding=8), "ghost.frame")
         box.pack(fill="x")
-        self.rt.tr(ttk.Checkbutton(box, variable=self.autoloot_var,
+        bar = ttk.Frame(box)
+        bar.pack(fill="x")
+        self.rt.tr(ttk.Checkbutton(bar, variable=self.autoloot_var,
                                    command=self.order.toggle),
                    "ghost.autoloot").pack(side="left")
-        self.rt.tr(ttk.Label(box, foreground=DIM, wraplength=520, justify="left"),
+        self.rt.tr(ttk.Label(bar), "ghost.level_min").pack(side="left", padx=(12, 2))
+        NumericEntry(bar, textvariable=self.level_min_var, width=4).pack(side="left")
+        self.rt.tr(ttk.Label(bar, foreground=DIM, wraplength=420, justify="left"),
                    "ghost.hint").pack(side="left", padx=10)
+        self._rule_lbl = ttk.Label(box, foreground=DIM, wraplength=760, justify="left")
+        self._rule_lbl.pack(fill="x", anchor="w", pady=(4, 0))
+        self._paint_rule()
+        self.level_min_var.trace_add("write", lambda *_a: self._on_rule_change())
+
+    def _on_rule_change(self) -> None:
+        """«Минимальный уровень» was typed: remember it and say what it now means."""
+        self.rt.settings.changed()
+        self._paint_rule()
+
+    def _paint_rule(self) -> None:
+        """Write the standing order out in words — what it would take, right now."""
+        if self._rule_lbl is None:
+            return
+        try:
+            self._rule_lbl.configure(text=self.rule_text())
+        except tk.TclError:                # the widget may be gone
+            pass
+
+    def level_min(self) -> "int | None":
+        """«Минимальный уровень» as an int, or None for «any» (#1256).
+
+        Anything that is not a whole number is no bound at all — a half-typed box must
+        not silently become level 0, which is every squad on the map.
+        """
+        raw = str(self.level_min_var.get()).strip()
+        return int(raw) if raw.isdigit() else None
+
+    def rule_text(self) -> str:
+        """The standing order in one phrase, in the panel's language."""
+        low = self.level_min()
+        return (self.rt.t("ghost.rule_min", lvl=low) if low is not None
+                else self.rt.t("ghost.rule_any"))
+
+    def retranslate(self) -> None:
+        """The language changed: the rule line is drawn, not bound to a variable."""
+        self._paint_rule()
+
+    # -- what is remembered between sessions --------------------------------
+    def config(self) -> dict:
+        return {"level_min": self.level_min_var.get()}
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        self.level_min_var.set(_level_text(raw.get("level_min")))
+        self._paint_rule()
+
+    def persist_vars(self) -> list:
+        return [self.level_min_var]
 
     # -- reading the game ---------------------------------------------------
     def fetch(self):
@@ -448,13 +529,70 @@ class GhostReconPane(_Pane):
             })
         return out
 
+    # -- OUR list (#1256) ---------------------------------------------------
+    def absorb(self, status, targets) -> None:
+        """Put a read into the page's own list. Safe from any thread — no Tk here.
+
+        The page's list is what the standing order chooses out of, so it has to be
+        filled whether or not anybody is looking at the page: the watcher fills it on
+        its own thread six days a week and the paint follows only when there is a window
+        to paint into.
+
+        The level is worked out ONCE, here, off the event's own config row rather than
+        by splitting the cfgId — both the rows and the rule read it afterwards, and two
+        places computing the same number is how they come to disagree.
+        """
+        import lastwar_proto as proto
+        rows = list(targets or ())
+        for target in rows:
+            _family, level = proto.ghost_recon_level(target.get("cfg"))
+            target["level"] = level or 0
+        self.status = dict(status or {})
+        self.targets = rows
+
+    def reload(self) -> list:
+        """Re-read the squads INTO the list, off the Tk thread; returns the list.
+
+        What the watcher calls: it is a background loop, so it does the read itself and
+        hands the paint over to Tk afterwards, rather than going through `refresh` and
+        the busy flag a person's «Обновить» owns.
+        """
+        self.absorb(*self.fetch())
+        self.after(self._paint)
+        return self.targets
+
+    def rob_candidates(self) -> list:
+        """The squads the standing order would take right now — out of OUR list.
+
+        The rule, in order: the game itself says the tile may be robbed (`can` — for a
+        squad in the client's own list that is `GetPointStealType`, for one off a map
+        scan it is the clock), it is not my own squad, and its level is at or above
+        «минимальный уровень». Nothing else: the event day and the five-a-day budget are
+        the GAME's gates and are asked of the game (`GhostOrder.tick`,
+        `ghost_recon_steal.py`), not guessed at here.
+        """
+        low = self.level_min()
+        out = [t for t in self.targets
+               if t.get("can") and not t.get("mine")
+               and (low is None or int(t.get("level") or 0) >= low)]
+        # Best first, so a budget that runs out mid-list runs out on the small ones.
+        out.sort(key=lambda t: (-int(t.get("level") or 0), int(t.get("looted") or 0)))
+        return out
+
     def render(self, data) -> None:
-        status, targets = data
+        """A read came back on the Tk thread: into the list, then onto the screen."""
+        self.absorb(*data)
+        self._paint()
+
+    def _paint(self) -> None:
+        """Draw the page from the list it already holds. Tk thread only."""
+        status, targets = self.status, self.targets
         self._status("")
         self._info("cmdpost.ghost.info",
                    state=self.rt.t("cmdpost.ghost.open" if status.get("open")
                                      else "cmdpost.ghost.closed"),
                    left=status.get("left", 0), queued=status.get("queued", 0))
+        self._paint_rule()
         self._clear_list()
         if not targets:
             self._empty("cmdpost.ghost.empty" if status.get("open")
@@ -466,7 +604,10 @@ class GhostReconPane(_Pane):
     def _row(self, target):
         import coords as coords_fmt
         import lastwar_proto as proto
-        family, level = proto.ghost_recon_level(target.get("cfg"))
+        # The level was worked out once, when the read went into the list (`absorb`);
+        # the family (rarity) is only wanted for the glyph.
+        family, _lvl = proto.ghost_recon_level(target.get("cfg"))
+        level = int(target.get("level") or 0)
         can = bool(target.get("can"))
         frame = ttk.Frame(self._scroll)
         ttk.Label(frame, text=STAR_GLYPH if family == proto.GHOST_STAR_FAMILY
@@ -548,9 +689,14 @@ class GhostReconPane(_Pane):
         threading.Thread(target=work, daemon=True).start()
 
     def _steal_all(self) -> None:
-        """Hand the whole robbable set to the standalone tool (the same one the standing
-        order spawns), then re-read the list once it has had time to walk the VM."""
-        self.order.rob(self.order.limit())
+        """Hand what the RULE matches to the standalone tool — the same call the standing
+        order makes, out of the same list — then re-read once it has walked the VM.
+
+        «Ограбить всё» means «everything this page would take by itself», not «everything
+        on the map»: a button that ignored «минимальный уровень» would spend the day's
+        five on exactly the squads the field was typed to avoid (#1256).
+        """
+        self.order.rob(self.rob_candidates())
         # Named: pressing «ограбить всё» twice must leave ONE re-read pending,
         # not one per press (see Panel._arm).
         self.rt.tick.arm("cmdpost_ghost_reread", GHOST_RERE_MS, self.refresh)
@@ -1174,7 +1320,22 @@ class CommandPostTab(PanelTab):
                 "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
 
     def _web_ghost(self, coords, now) -> dict:
-        """«Операция Призрак» — what the last scan wrote down, still fresh."""
+        """«Операция Призрак» — what the last scan wrote down, and what will be taken.
+
+        The standing order's two facts ride with the tiles (#1256). They are a READING,
+        like everything else on this screen: the switch and the level box stay in the
+        window, because this is the page whose robbery is not a scenario yet (#1188) —
+        but «что вообще будет взято» is precisely what somebody away from the machine
+        needs to know, and a list of squads without it says nothing about it.
+        """
+        pane = self._by_key.get("ghost")
+        low = pane.level_min() if pane is not None else None
+        on = bool(pane.autoloot_var.get()) if pane is not None else False
+        rows = [{"label": "ghost.autoloot",
+                 "value": self.rt.t("ghost.state.on" if on else "ghost.state.off")},
+                {"label": "ghost.level_min",
+                 "value": (str(low) if low is not None
+                           else self.rt.t("ghost.any_level"))}]
         items = []
         try:
             import lastwar_proto as proto
@@ -1189,7 +1350,7 @@ class CommandPostTab(PanelTab):
                            "value": str(m.steal_count or 0)}],
                 "until": float(m.expire_time) if m.expire_time else None,
             })
-        return {"title": "cmdpost.tab.ghost", "items": items,
+        return {"title": "cmdpost.tab.ghost", "rows": rows, "items": items,
                 "empty": "cmdpost.ghost.empty"}
 
     def _web_shared(self, coords) -> dict:
@@ -1271,12 +1432,17 @@ class CommandPostTab(PanelTab):
             return None
 
     def _retranslate(self) -> None:
-        """Repaint the inner tab labels when the language changes."""
+        """Repaint the inner tab labels when the language changes — and whatever a page
+        draws in words rather than binding to a variable (the ghost rule line)."""
         for index, key in enumerate(("ghost", "shared", "treasure")):
             try:
                 self._nb.tab(index, text=self.rt.t("cmdpost.tab." + key))
             except Exception:          # pragma: no cover - the notebook may be gone
                 pass
+        for page in self._by_key.values():
+            again = getattr(page, "retranslate", None)
+            if again is not None:
+                again()
 
     def shutdown(self) -> None:
         """Stop anything a page left running (the listener, the scans, the order)."""

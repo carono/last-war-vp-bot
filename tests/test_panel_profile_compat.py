@@ -152,20 +152,24 @@ def test_every_key_this_profile_carries_is_one_the_panel_knows():
     assert unknown == [], f"the profile carries keys nothing reads: {unknown}"
 
 
-def test_the_autoloot_range_still_falls_back_to_the_filter_range():
-    """The one migration already in the file, and the easiest to lose in a rewrite.
+def test_the_autoloot_minimum_still_falls_back_through_every_older_spelling():
+    """The migration chain in the file, and the easiest to lose in a rewrite.
 
-    A profile saved before the display filter and the robbery rule were split has only
-    the one pair — and it was aiming the robberies as well as narrowing the log. Seeding
-    the auto-loot range from it is what keeps that profile robbing the same levels;
-    without the fallback the rule silently widens to "any level", which is how a
-    robbery gets spent on a level-6 star (#1099).
+    The rule is ONE number now — «минимальный уровень», this level and everything above
+    it (#1256) — and what it has to inherit is what the profile was actually ROBBING,
+    not what it looked like it was: under the range it replaces the level taken was the
+    TOP one, so the old «до» is the new minimum. Older still (before the display filter
+    and the robbery rule were split, #1099) there is only the display pair, and it was
+    aiming the robberies too — this fixture is exactly that profile, and without the
+    fallback its rule would silently widen to «any level», which is how a robbery gets
+    spent on a level-6 star.
     """
     saved = _saved()
     assert "autoloot_level_from" not in saved, "the fixture must keep the hole"
-    lo = saved.get("autoloot_level_from", saved.get("filter_level_from", ""))
-    hi = saved.get("autoloot_level_to", saved.get("filter_level_to", ""))
-    assert (lo, hi) == ("5", "7"), (lo, hi)
+    low = (saved.get("autoloot_level_min") or saved.get("autoloot_level_to")
+           or saved.get("autoloot_level_from") or saved.get("filter_level_to")
+           or saved.get("filter_level_from") or "")
+    assert low == "7", low
 
 
 def test_the_three_nested_blocks_survive_whole():

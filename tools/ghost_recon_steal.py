@@ -30,11 +30,16 @@ Usage (run under the Windows Python so it can reach the warm daemon)
     C:\Python312\python.exe tools\ghost_recon_steal.py --list
     C:\Python312\python.exe tools\ghost_recon_steal.py --all
     C:\Python312\python.exe tools\ghost_recon_steal.py --uuid U --server S
+    C:\Python312\python.exe tools\ghost_recon_steal.py --targets U:S,U:S
     C:\Python312\python.exe tools\ghost_recon_steal.py --all --queue-only
 
 `--all` takes every squad the client says is robbable right now, newest-finished
-first, up to the day's remaining budget. `--queue-only` parks them in the game VM
-so `actions/steal_ghost_recon.md` (`TAP steal_ghost_recon xall`) can spend them.
+first, up to the day's remaining budget. `--targets` robs exactly the «uuid:server»
+pairs it is given, in that order, and re-derives nothing — that is what the panel's
+standing order uses, because the choice belongs to the list the «Командный пункт»
+page keeps and not to a second reading of the map (#1256). `--queue-only` parks the
+targets in the game VM so `actions/steal_ghost_recon.md`
+(`TAP steal_ghost_recon xall`) can spend them.
 
 **Outside the event this does nothing and says so.** `IsOpenDay()` is false six
 days a week, `taskList` is empty, and every press is gated on it.
@@ -466,6 +471,26 @@ def robbable(ev, tasks: list[dict]) -> list[dict]:
     return picked
 
 
+def _parse_targets(text: str) -> list[dict]:
+    """``"uuid:ownerServer,…"`` as the target dicts the rest of this script passes round.
+
+    A malformed pair raises rather than being skipped: "rob these four" quietly becoming
+    "rob these three" is the kind of silence a five-a-day budget cannot afford.
+    """
+    out: list[dict] = []
+    for chunk in str(text).replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        head, _sep, tail = chunk.partition(":")
+        try:
+            uuid, server = int(head), int(tail)
+        except ValueError:
+            raise ValueError("a target reads «uuid:server», not %r" % chunk) from None
+        out.append({"uuid": str(uuid), "srv": server})
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -473,6 +498,10 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="every known squad and its verdict")
     ap.add_argument("--all", action="store_true", help="take every robbable squad")
     ap.add_argument("--uuid", type=int, help="rob this squad uuid")
+    ap.add_argument("--targets", metavar="U:S,U:S",
+                    help="rob exactly these «uuid:ownerServer» pairs, in this order — "
+                         "the caller chose them and nothing here re-derives the choice "
+                         "(what the panel's standing order hands over from its list)")
     ap.add_argument("--server", type=int, help="the squad's ownerServer")
     ap.add_argument("--limit", type=int, default=5, help="most targets to take (default 5)")
     ap.add_argument("--queue-only", action="store_true",
@@ -499,7 +528,20 @@ def main() -> int:
         print("the event is not running today — nothing to rob")
         return 0
 
-    if args.list or args.all:
+    if args.targets:
+        # Somebody else's list decided (#1256). The event-day and the daily budget are
+        # still this script's gates — they are the game's answer and belong here — but
+        # WHICH squads are worth the five is the caller's, and re-filtering them against
+        # a second reading of `taskList` is how the panel and its child disagree.
+        try:
+            targets = _parse_targets(args.targets)
+        except ValueError as exc:
+            ap.error(str(exc))
+        if not targets:
+            print("--targets named nothing — nothing to rob")
+            return 0
+        targets = targets[:min(args.limit, status["left"])]
+    elif args.list or args.all:
         tasks = read_targets(ev)
         if args.list:
             print("%d known squad(s)" % len(tasks))
@@ -516,7 +558,8 @@ def main() -> int:
             ap.error("--uuid needs --server")
         targets = [{"uuid": str(args.uuid), "srv": args.server}]
     else:
-        ap.error("name a target: --uuid, --all (or ask for --status / --list)")
+        ap.error("name a target: --uuid, --targets, --all "
+                 "(or ask for --status / --list)")
 
     pairs = [(int(t["uuid"]), int(t.get("srv") or 0)) for t in targets]
     for uuid, server in pairs:

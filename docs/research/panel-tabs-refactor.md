@@ -604,6 +604,14 @@ exist and the panel bypasses them:
 > **as they were** — the tabs still spawn the tools — and the swap is its own task,
 > with its own live confirmation.
 
+> **Update, #1256.** Both orders still spawn their tool and the two-step path is
+> untouched — what moved is WHICH targets the tool is given. The panel now chooses out
+> of its own list (the «Секретки» tab's rows; the «Командный пункт» ghost page's list)
+> and names them with `--targets uuid:server,…`; the tool keeps the queue, the budget
+> and the event-day gate and re-derives nothing. The sentence above — "the tool is also
+> where the rule that CHOOSES the targets lives" — is therefore only true of the tool's
+> own `--from-vm` / `--from-scan` route, which is what a person uses from the shell.
+
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
 game logic may be added under `panel/`. The version of this rule that said the top
 three rows were a one-line swap is retracted: of the three, only rally was, and only

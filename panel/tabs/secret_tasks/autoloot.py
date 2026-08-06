@@ -5,23 +5,37 @@ day is the whole allowance, so a rule that is off by one level does not fail lou
 it quietly spends a robbery on a level-6 star that a 7 could have had, and nobody finds
 out until the reset (#1099). Everything here follows from that:
 
-* **the range is read live, every tick**, so narrowing it takes effect at once;
-* **a half-typed box is "no bound"**, never "any level";
-* **the range travels to every child**, because each of them re-applies the rule and
-  would otherwise rob outside it;
-* **the event-driven listener is RESTARTED when the range changes**, since it is a
+* **the rule is ONE number: the minimum level** (#1256). «Уровень от / до» was a range
+  whose TOP was the level actually robbed, so «от 1 до 7» left every 6 alone however
+  long it sat there — a rule two boxes wide that only one of the boxes decided. It is
+  «минимальный уровень» now: this level and everything above it, best first;
+* **the rule is read live, every tick**, so raising it takes effect at once;
+* **a half-typed box is "no bound"**, never "level 0";
+* **the event-driven listener is RESTARTED when the rule changes**, since it is a
   subprocess started with a fixed one — that is the exact trap #1099 closed for the
   poll and would have left open here;
 * **a uuid already fired at is never fired at again this session**, so a poll on a
   spent budget does not burn the allowance on a target that cannot pay;
-* **«не грабить на своём сервере» travels the same way the range does** — it filters
-  the targets here AND is handed to both children, because each of them re-reads the
-  sources and would otherwise rob the neighbours the box says to leave alone.
+* **«не грабить на своём сервере» travels the same way** — it takes the tiles at home
+  out of the choice here, and is handed to the listener, which chooses for itself.
+
+THE WATCHER PICKS OUT OF THE TAB'S OWN LIST (#1256), through
+:meth:`~panel.tabs.secret_tasks.tab.SecretTasksTab.rob_candidates`. It used to re-read
+the sources for itself — the live VM and the capture checkpoint, filtered by a copy of
+the rule — which meant the panel's list and the thing spending the panel's robberies
+were two different answers to the same question: a tile the list had dropped as expired
+could still be a target here, and a tile the list was drawing as ready might not be one.
+The list is the model every source fills (the capture, the client's own tables, the
+alliance pushes) and the one every actuality check already runs against, so it is the
+only sensible thing to choose out of. What is CHOSEN then travels to the child by name
+(`steal_secret_task.py --targets uuid:server,…`): the child re-derives nothing, which is
+the same disagreement one step further down.
 
 Two paths on purpose. The listener robs a *shared* secret task the instant its push
 crosses the wire (< 1 s), which is the case a human used to win; the poll is the slower
-safety net that still catches enemy tiles the sweep panned over, and tasks that were
-already there before the listener started.
+safety net over the whole list. The listener is a sniffer of its own by necessity — it
+is racing a person who is watching the same broadcast — and it is told the same rule in
+words rather than handed a list, because the tile it robs is one nothing has listed yet.
 """
 from __future__ import annotations
 
@@ -31,7 +45,7 @@ import time
 
 from ...runtime.paths import TOOLS
 
-#: How long after the last keystroke the listener is re-spawned with the new range.
+#: How long after the last keystroke the listener is re-spawned with the new rule.
 #: Debounced so typing "1" then "7" restarts once, not per keystroke — spawning a
 #: capture is not free.
 RESTART_MS = 1500
@@ -45,7 +59,7 @@ STATE_WATCHING = "secret.autoloot.state.watching"  # watching; the rule matches 
 STATE_TARGETS = "secret.autoloot.state.targets"    # …matches this many tiles
 STATE_ROBBING = "secret.autoloot.state.robbing"    # a robbery is in flight
 STATE_PAUSED = "secret.autoloot.state.paused"      # the day's budget is spent, until…
-STATE_NO_SOURCE = "secret.autoloot.state.no_source"  # no live game and no checkpoint
+STATE_NO_SOURCE = "secret.autoloot.state.no_source"  # the list has nothing in it yet
 STATE_NO_OWN = "secret.autoloot.state.no_own"      # own server unknown, box ticked
 STATE_NO_LOGIN = "secret.autoloot.state.no_login"  # the client is not in a session
 STATE_ERROR = "secret.autoloot.state.error"        # the last tick raised
@@ -62,7 +76,7 @@ class AutoLoot:
         self._push_proc = None       # the event-driven listener, when running
         self._seen: set = set()      # uuids sent this session (no re-tries)
         self._pause_until = 0.0      # wall clock the watcher may fire again at
-        self._warned = False         # "no checkpoint yet" is said once per run
+        self._warned = False         # "the list is empty" is said once per run
         self._warned_own = False     # so is "the own server cannot be read"
         self._warned_login = False   # …and "this client is not logged in"
         # What the standing order is doing right now, as (locale key, datum beside it).
@@ -110,24 +124,27 @@ class AutoLoot:
         """Spawn the listener that robs a shared secret task on its push (#1124).
 
         It sniffs the game stream itself (no dependence on the «Мониторинг» capture) and
-        acts through this profile's daemon, so it is given the same level range the
-        poll's child gets — otherwise it would rob outside «уровень от / до».
+        acts through this profile's daemon, so it is given the same rule the poll obeys —
+        otherwise it would rob below «минимальный уровень». It is the ONE thing here that
+        does not choose out of the tab's list, and it cannot: the tile it fires at is one
+        the push has only just announced, and waiting for it to reach a table is losing
+        the race the listener exists to win.
         """
         if self._push_proc is not None:
             return
         cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "secret_share_autoloot.py"),
+               # `--star-max` with no `--level-max` is "starred, at this level or above"
+               # — the single-bound rule, in the listener's own words.
                "--star-max", "--limit", str(self.limit()),
                # Every share it decodes is marked as shared, whether or not the rule
                # takes it (#1245): «worth one of my five robberies» and «the alliance
                # has already been shown this» are different questions, and the tab
                # draws the second on both of its tables.
                "--shared-json", self.rt.profiles.secret_shared_json()]
-        lo, hi = self.levels()
-        if lo is not None:
-            cmd += ["--level-min", str(lo)]
-        if hi is not None:
-            cmd += ["--level-max", str(hi)]
+        low = self.level_min()
+        if low is not None:
+            cmd += ["--level-min", str(low)]
         # The listener resolves the own server itself (it is spawned at boot, when the
         # client may not be logged in yet), so the box travels as a flag, not a number.
         if self.tab.skip_own_var.get():
@@ -147,20 +164,20 @@ class AutoLoot:
                 pass
 
     def restart_push(self) -> None:
-        """Re-spawn the listener so a changed «уровень от / до» takes effect."""
+        """Re-spawn the listener so a changed «минимальный уровень» takes effect."""
         if self._stop is None:                   # auto-loot was unticked meanwhile
             return
         self.stop_push()
         self.start_push()
 
     def range_changed(self) -> None:
-        """The rule was changed (the range, or «не грабить на своём сервере»). Bounce
+        """The rule was changed (the level, or «не грабить на своём сервере»). Bounce
         the listener onto it, debounced.
 
         The poll re-reads the rule live every tick, but the listener is a subprocess
-        started with a fixed one — a range typed while auto-loot is on would otherwise
-        keep robbing to the OLD «уровень до», and a box ticked after it started would
-        not reach it at all.
+        started with a fixed one — a level typed while auto-loot is on would otherwise
+        keep robbing to the OLD minimum, and a box ticked after it started would not
+        reach it at all.
         """
         if self._stop is None:
             return
@@ -179,12 +196,11 @@ class AutoLoot:
 
     # -- the poll ------------------------------------------------------------
     def _loop(self, stop: threading.Event) -> None:
-        """Poll the sources until the checkbox is cleared.
+        """Poll the list until the checkbox is cleared.
 
         A whole tick is wrapped: the watcher is a background loop the operator cannot
-        see, so one unreadable checkpoint (caught half-written by the capture, say) must
-        cost a log line and not the auto-loot for the session. The same complaint is
-        printed once and not on every poll after it.
+        see, so one bad tick must cost a log line and not the auto-loot for the session.
+        The same complaint is printed once and not on every poll after it.
         """
         last_err = ""
         while True:
@@ -201,15 +217,18 @@ class AutoLoot:
                 return
 
     def tick(self) -> None:
-        """One look at the sources: fire when the rule has a target we have not sent yet.
+        """One look at OUR LIST: fire when the rule has a target we have not sent yet.
 
-        The primary source is the live game VM (`ActDispatchTaskDataManager.allianceTask`,
-        read through the warm daemon): a member's shared secret task is in it the moment
-        the push lands, so a raidable star is knowable in the second it appears rather
-        than whenever the map sweep next pans over it — which is what let a human beat the
-        bot to the tile (#1124). The capture checkpoint is kept as a SECOND source, so
-        enemy tiles the sweep panned over are still robbed when the monitor is on; when it
-        is off, the VM alone carries the feature.
+        The list is the tab's own model (`SecretTasksTab.rob_candidates`) — the one the
+        capture fills off the wire, the one the client's own tables seed and the alliance
+        pushes update, and the one the ready-row poll re-verifies against the game every
+        thirty seconds, dropping whatever it can no longer confirm. So the tiles this
+        weighs are exactly the tiles the person is looking at, which is the whole point
+        of #1256: before it, the watcher re-read the sources for itself and the two could
+        disagree about what was even on the map.
+
+        A row the list is wrong about costs a REFUSED send, not a robbery: the budget is
+        spent server-side and an errorCode leaves `todayStealNum` where it was.
         """
         if self._proc is not None:                    # a robbery is still running
             self._state = (STATE_ROBBING, "")
@@ -217,138 +236,97 @@ class AutoLoot:
         if time.time() < self._pause_until:           # the day's budget is spent
             self._state = (STATE_PAUSED, _hhmm(self._pause_until))
             return
-        checkpoint = self.rt.profiles.tasks_json()
-        have_scan = os.path.exists(checkpoint)
-        vm_ready = self.rt.game.up() and not self.rt.game.busy
-        if not vm_ready and not have_scan:
-            # No live VM to read and no checkpoint to fall back on — there is simply no
-            # source yet. Say so once, not on every poll.
+        # «Не грабить на своём сервере» is a prohibition, so an unknown own server stops
+        # the tick rather than letting it through: robbing a neighbour the operator asked
+        # to be left alone cannot be taken back, and a paused watcher says so in the log.
+        if self.tab.skip_own_var.get() and not self.tab.own_server():
+            self._state = (STATE_NO_OWN, "")
+            if not self._warned_own:
+                self._warned_own = True
+                self.tab.say("autoloot", "log.autoloot.no_own_server")
+            return
+        self._warned_own = False
+        if not self.tab.has_rows():
+            # Nothing has reached the list yet — no capture has flushed, no read has
+            # landed, no push has come. Say so once, not on every poll.
             self._state = (STATE_NO_SOURCE, "")
             if not self._warned:
                 self._warned = True
                 self.tab.say("autoloot", "log.autoloot.no_scan")
             return
         self._warned = False
-        # «Не грабить на своём сервере» is a prohibition, so an unknown own server stops
-        # the tick rather than letting it through: robbing a neighbour the operator asked
-        # to be left alone cannot be taken back, and a paused watcher says so in the log.
-        # The read needs the live VM, so a checkpoint alone is not enough to fire on.
-        if self.tab.skip_own_var.get():
-            if not (vm_ready and self.tab.own_server()):
-                self._state = (STATE_NO_OWN, "")
-                if not self._warned_own:
-                    self._warned_own = True
-                    self.tab.say("autoloot", "log.autoloot.no_own_server")
-                return
-            self._warned_own = False
-        import steal_secret_task              # lazy: keeps panel start-up free of it
-
-        try:
-            targets = self.all_targets(checkpoint if have_scan else None, vm_ready)
-        except steal_secret_task.NotLoggedIn:
-            # The client answered and said nothing useful: no alliance task, own server
-            # -1, the whole day's robberies apparently unspent. That is a session that
-            # has not started, not a quiet map, and until #1227 the two looked the same
-            # from here — the watcher simply never found a target and never said why.
+        targets = self.targets()
+        # What the rule matched THIS tick, whether or not any of it is new. A watcher
+        # that keeps finding nothing is the ordinary case — there is no star of that
+        # level on the map most of the time — and it is the case that read as broken.
+        self._state = ((STATE_TARGETS, str(len(targets))) if targets
+                       else (STATE_WATCHING, ""))
+        # Already-sent uuids are skipped: the list keeps showing a tile the server
+        # refused (or one we robbed whose loot count has not come back yet), and
+        # re-firing at it would burn the day's budget on a target that cannot pay. A
+        # fresh session forgets them again.
+        fresh = [t for t in targets if t[0] not in self._seen]
+        if not fresh:
+            return
+        # The client's own word on whether it is even in a session, asked once, here —
+        # where it decides something. A client at the login screen answers everything
+        # and every answer is a plausible-looking lie (#1227); the list may still be
+        # full of rows restored from the last session, and firing at them would spend
+        # nothing and explain nothing.
+        if not self.session_ready():
             self._state = (STATE_NO_LOGIN, "")
             if not self._warned_login:
                 self._warned_login = True
                 self.tab.say("autoloot", "log.autoloot.no_login")
             return
         self._warned_login = False
-        # What the rule matched THIS tick, whether or not any of it is new. A watcher
-        # that keeps finding nothing is the ordinary case — there is no star of that
-        # level on the map most of the time — and it is the case that read as broken.
-        self._state = ((STATE_TARGETS, str(len(targets))) if targets
-                       else (STATE_WATCHING, ""))
-        # Already-sent uuids are skipped: a source keeps showing a tile the server refused
-        # (or that we robbed but whose loot count has not come back yet), and re-firing at
-        # it would burn the day's budget on a target that cannot pay. A fresh session
-        # forgets them again.
-        fresh = [t for t in targets if t[0] not in self._seen]
-        if not fresh:
-            return
         for _uuid, _srv, label in fresh:
             self.tab.say("autoloot", "log.autoloot.target", label=label)
-        # Mark EVERY target of the rule, not just the fresh ones: the child re-reads the
-        # same sources and will attempt the whole list, so the panel must not treat the
-        # rest as new the next time round.
-        self._seen.update(uuid for uuid, _srv, _label in targets)
-        self.run(checkpoint if have_scan else None, vm_ready)
+        self._seen.update(uuid for uuid, _srv, _label in fresh)
+        self.run(fresh)
 
-    def all_targets(self, checkpoint, vm_ready: bool) -> list:
-        """Union of the VM's raidable alliance tasks and the checkpoint's, VM first.
+    def session_ready(self) -> bool:
+        """Whether the client is far enough into a session to be robbed through.
 
-        A target in both sources under the same `(uuid, server)` is kept once — the VM
-        copy, the fresher of the two. A source raising propagates up to `_loop`, which
-        logs it once and tries again next poll; that is fine, because a robbery needs the
-        daemon anyway, so a dead VM is a tick with nothing to rob rather than a target
-        quietly dropped.
+        The clock is the one question a login screen cannot fake (`game_clock`), and it
+        is asked only when there is something to fire at — a watcher with no target has
+        no business waking the daemon every two seconds.
         """
-        seen: set = set()
-        out: list = []
+        import game_clock             # lazy: keeps panel start-up free of it
+        try:
+            return game_clock.session_ready(self.rt.game.evaluator())
+        except Exception:             # noqa: BLE001 — no daemon, no game, no session
+            return False
 
-        def _merge(rows):
-            for uuid, srv, label in rows:
-                if (uuid, srv) in seen:
-                    continue
-                seen.add((uuid, srv))
-                out.append((uuid, srv, label))
+    def targets(self) -> list:
+        """What the rule would rob right now, as (uuid, server, label) — from OUR list.
 
-        if vm_ready:
-            _merge(self.vm_targets())
-        if checkpoint is not None:
-            _merge(self.scan_targets(checkpoint))
+        The selection is the tab's (`rob_candidates`), because the list is the tab's; all
+        this adds is the shape the child is named in.
+        """
+        import coords as coords_fmt   # lazy: tools/lib is on the path by now
+        out = []
+        for row in self.tab.rob_candidates():
+            out.append((int(row["uuid"]), int(row["server"] or 0),
+                        coords_fmt.fmt(row.get("x"), row.get("y"), row.get("server"))))
         return out
 
-    def vm_targets(self) -> list:
-        """Star-max raidable alliance tasks read live from the VM, as (uuid, server, label).
+    def run(self, targets) -> None:
+        """Hand the chosen targets to the robbery tool, by name.
 
-        The same rule `scan_targets` applies to a checkpoint, applied to the tasks the
-        game already holds — no capture, no map panning.
+        `--targets` and nothing else: the level rule, the star and the own-server
+        prohibition were all applied where the targets were chosen, and a child that
+        re-derived them would be re-reading a map the list has already made its mind up
+        about (#1256). The budget and the queue stay the tool's, which is where they
+        belong — the recipe only SPENDS a queue this tool fills (#1188).
         """
-        import steal_secret_task     # lazy: keeps panel start-up free of it
-        lo, hi = self.levels()
-        return steal_secret_task.targets_from_vm(
-            self.rt.game.client, limit=self.limit(), star_max=True,
-            level_min=lo, level_max=hi, skip_server=self.skip_server(),
-            say=lambda _m: None)
-
-    def scan_targets(self, checkpoint: str) -> list:
-        """Star-max targets in the checkpoint right now, as (uuid, server, label).
-
-        Pure file work — it does not touch the game or the daemon, so it is safe to call
-        from the watcher thread on every poll.
-        """
-        import steal_secret_task     # lazy: keeps panel start-up free of it
-        lo, hi = self.levels()
-        return steal_secret_task.targets_from_scan(
-            checkpoint, limit=self.limit(), star_max=True,
-            level_min=lo, level_max=hi, skip_server=self.skip_server(),
-            say=lambda _m: None)
-
-    def run(self, checkpoint, vm_ready: bool) -> None:
+        if not targets:
+            return
         cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "steal_secret_task.py"),
-               "--star-max", "--limit", str(self.limit())]
-        # The child re-reads the same sources and re-applies the rule, so it has to be
-        # told which ones the tick used: the live VM (fast path) and/or the capture
-        # checkpoint (enemy tiles the sweep saw). Passing neither would leave it with
-        # nothing to rob.
-        if vm_ready:
-            cmd.append("--from-vm")
-        if checkpoint is not None:
-            cmd += ["--from-scan", checkpoint]
-        # The range has to travel with it: without these the watcher would agree to a
-        # target inside the range and the child would then rob outside it. The
-        # own-server prohibition travels for exactly the same reason.
-        lo, hi = self.levels()
-        if lo is not None:
-            cmd += ["--level-min", str(lo)]
-        if hi is not None:
-            cmd += ["--level-max", str(hi)]
-        if self.tab.skip_own_var.get():
-            cmd.append("--skip-own-server")
+               "--limit", str(self.limit()),
+               "--targets", ",".join("%d:%d" % (uuid, srv)
+                                     for uuid, srv, _label in targets)]
         self.rt.put(f"[autoloot] {self.rule_text()} …")
         proc = self.rt.children.spawn_raw(cmd, "autoloot")
         if proc is None:
@@ -381,18 +359,16 @@ class AutoLoot:
     def limit(self) -> int:
         return self.rt.settings.opt_int("autoloot_limit", low=1, high=50)
 
-    def levels(self) -> tuple:
-        """The «уровень от / до» range as (min, max) ints, either end None if unset.
+    def level_min(self) -> "int | None":
+        """«Минимальный уровень» as an int, or None when the box is empty (#1256).
 
-        Read live on every poll, like the display filters, so narrowing the range takes
-        effect on the next tick instead of at the next tick of the checkbox. Anything
-        that is not a number reads as "no bound" — a half-typed entry must not silently
-        widen the gate to everything.
+        Read live on every tick, like the display filters, so raising it takes effect on
+        the next tick instead of at the next tick of the checkbox. Anything that is not a
+        number reads as "no bound" — a half-typed entry must not silently become level 0,
+        which is every level there is.
         """
-        def bound(var) -> "int | None":
-            raw = var.get().strip()
-            return int(raw) if raw.isdigit() else None
-        return bound(self.tab.level_from_var), bound(self.tab.level_to_var)
+        raw = str(self.tab.level_min_var.get()).strip()
+        return int(raw) if raw.isdigit() else None
 
     def skip_server(self) -> "int | None":
         """The server the standing order must not rob on — the player's own, or None.
@@ -413,13 +389,9 @@ class AutoLoot:
         on a level-6 star: the operator must be able to read what the checkbox is about
         to do without opening the source.
         """
-        lo, hi = self.levels()
-        if hi is not None:
-            text = self.tab.t("secret.autoloot.rule_top", lvl=hi,
-                              lo=lo if lo is not None else "—")
-        else:
-            text = self.tab.t("secret.autoloot.rule_found",
-                              lo=lo if lo is not None else "—")
+        low = self.level_min()
+        text = (self.tab.t("secret.autoloot.rule_min", lvl=low) if low is not None
+                else self.tab.t("secret.autoloot.rule_any"))
         if self.tab.skip_own_var.get():
             text += " " + self.tab.t("secret.autoloot.rule_skip_own")
         return text

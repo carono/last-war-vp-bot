@@ -115,19 +115,26 @@ class _Var:
 
 
 class _FakeAutoLoot:
-    """The one thing the timer / poll paths ask the standing order: its range."""
+    """What the tab asks the standing order: its one bound, and the own-server rule.
+
+    Since #1256 the rule is a single «минимальный уровень» — this level and everything
+    above it — and the tab's `rob_candidates` reads it through here.
+    """
 
     def __init__(self, tab):
         self.tab = tab
+        self._seen = set()
+        self.skip = None
 
-    def levels(self):
-        def bound(var):
-            raw = var.get().strip()
-            return int(raw) if raw.isdigit() else None
-        return bound(self.tab.level_from_var), bound(self.tab.level_to_var)
+    def level_min(self):
+        raw = str(self.tab.level_min_var.get()).strip()
+        return int(raw) if raw.isdigit() else None
+
+    def skip_server(self):
+        return self.skip
 
 
-def _make_tab(rows, lo="", hi="", autoloot=False):
+def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     """A tab with its build skipped, wired just enough to run the timer / poll paths.
 
     No Tk root: the countdown, the poll reconciliation and the #1099 rob rule are all
@@ -136,9 +143,12 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
     tab = object.__new__(st.SecretTasksTab)
     tab.t = i18n.t
-    tab.level_from_var, tab.level_to_var = _Var(lo), _Var(hi)
-    # Both pairs, from the one argument: the fixture predates the split (#1244), and
-    # every test written against it means «this range, for both». The tests that are
+    # The robbery's one bound (#1256). Defaulted from the fixture's `hi` because that is
+    # what the range it replaces actually robbed — «от 1 до 7» took 7s and left 6s alone
+    # — so a test written before the change still means what it meant.
+    tab.level_min_var = _Var(rob_min if rob_min is not None else hi)
+    # The DISPLAY pair, from the same argument: the fixture predates the split (#1244),
+    # and every test written against it means «this range, for both». The tests that are
     # ABOUT the split set the two apart themselves.
     tab.filter_from_var, tab.filter_to_var = _Var(lo), _Var(hi)
     tab.autoloot_var = _Var(autoloot)
@@ -153,7 +163,6 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     tab.autoloot = _FakeAutoLoot(tab)
     tab._rows = rows
     tab._collected = set()
-    tab._auto_attempted = set()
     tab._polling = False
     tab._rendered = 0
     tab._render = lambda: setattr(tab, "_rendered", tab._rendered + 1)
@@ -227,36 +236,57 @@ class _LiveTask:
         self.can_loot = can_loot
 
 
-def test_auto_loot_robs_only_the_top_level_in_range():
-    """«от 1 до 7» robs 7-star tiles and leaves a raidable 6 alone (the #1099 rule)."""
+def test_the_rule_takes_the_minimum_level_and_everything_above_it():
+    """«минимальный уровень 6» takes the 6 AND the 7, best first (#1256).
+
+    The rule it replaces would have left the 6 standing there for ever: it robbed the
+    range's TOP and nothing else, so «от 1 до 7» meant «7 or nothing» however long a
+    raidable 6 sat on the map.
+    """
     rows = {"6": _row(6, 6, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
     for r in rows.values():
         r["ready"] = True
-    tab = _make_tab(rows, lo="1", hi="7", autoloot=True)
-    robbed = []
-    tab._collect = lambda row: robbed.append(int(row["level"]))
-    tab._poll_apply(list(rows), {"6": _LiveTask(6), "7": _LiveTask(7)})
-    assert robbed == [7]                        # only the top of the range
-    assert tab._auto_attempted == {"7"}         # and only attempted once
+    tab = _make_tab(rows, rob_min="6")
+    assert [int(r["level"]) for r in tab.rob_candidates()] == [7, 6]
+
+    # Raise the bound and the 6 drops out of the choice — nothing else changes.
+    tab.level_min_var.set("7")
+    assert [int(r["level"]) for r in tab.rob_candidates()] == [7]
 
 
-def test_auto_loot_skips_out_of_range_and_when_unticked():
-    """Nothing is robbed when the tiles fall outside the range, or the box is off."""
+def test_nothing_below_the_minimum_is_ever_a_target():
+    """A tile under «минимальный уровень» is not chosen, however raidable it is."""
     rows = {"6": _row(6, 6, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
     for r in rows.values():
         r["ready"] = True
-    live = {"6": _LiveTask(6), "7": _LiveTask(7)}
+    tab = _make_tab(rows, rob_min="8")
+    assert tab.rob_candidates() == []
 
-    off = _make_tab(rows, lo="1", hi="7", autoloot=False)
-    off._collect = lambda row: (_ for _ in ()).throw(AssertionError("robbed with box off"))
-    off._poll_apply(list(rows), live)           # box off -> no steal
+    # An empty box is no bound at all — every ready star is a target.
+    tab.level_min_var.set("")
+    assert [int(r["level"]) for r in tab.rob_candidates()] == [7, 6]
 
-    out = _make_tab({k: dict(v, ready=True) for k, v in rows.items()},
-                    lo="1", hi="5", autoloot=True)
-    robbed = []
-    out._collect = lambda row: robbed.append(int(row["level"]))
-    out._poll_apply(list(rows), live)           # both above the range
-    assert robbed == []
+
+def test_the_poll_verifies_the_list_and_robs_nothing_itself():
+    """The ready-row poll is the actuality check, not a second robbery path (#1256).
+
+    It used to rob as well as verify, through a copy of the rule and a steal of its own
+    — a third doorway into the ability on a thirty-second clock. What it does now is
+    drop what the game no longer confirms and leave the choosing to the one place that
+    chooses.
+    """
+    rows = {"6": _row(6, 6, -5_000, 600_000), "7": _row(7, 7, -5_000, 600_000)}
+    for r in rows.values():
+        r["ready"] = True
+    tab = _make_tab(rows, rob_min="6", autoloot=True)
+    tab._collect = lambda row: (_ for _ in ()).throw(
+        AssertionError("the poll robbed something"))
+
+    # The 6 is gone from the game's answer: its row goes, and the choice narrows to what
+    # is left — without a single press from here.
+    tab._poll_apply(list(rows), {"7": _LiveTask(7)})
+    assert sorted(tab._rows) == ["7"], tab._rows
+    assert [int(r["level"]) for r in tab.rob_candidates()] == [7]
 
 
 def test_the_table_has_one_cell_per_column_and_the_two_live_ones():
@@ -515,15 +545,13 @@ def test_a_looted_out_tile_is_off_the_list_unless_it_is_asked_for():
     assert cells["action"] == "", cells
     assert cells["slots"] == "3/3", cells
 
-    # The standing order weighs the same rows and passes over the spent one. Aimed at
-    # `_auto_loot` rather than the poll around it: the poll refreshes a row's loot count
-    # from the game first, and the game never reports a 3/3 tile at all — it drops them
-    # — so the poll could only reach this case by inventing a reading the VM cannot give.
-    robbed = []
+    # The standing order weighs the same rows and passes over the spent one. Asked of
+    # the choice itself (#1256) rather than of the poll around it: the poll refreshes a
+    # row's loot count from the game first, and the game never reports a 3/3 tile at all
+    # — it drops them — so the poll could only reach this case by inventing a reading
+    # the VM cannot give.
     tab.autoloot_var = _Var(True)
-    tab._collect = lambda row: robbed.append(row["uuid"])
-    tab._auto_loot({"5": _LiveTask(5), "6": _LiveTask(6)})
-    assert robbed == [6], robbed
+    assert [r["uuid"] for r in tab.rob_candidates()] == [6]
 
 
 def test_the_countdown_runs_on_the_games_clock_not_this_machines():
@@ -585,10 +613,15 @@ class _FakeProfiles:
 
 
 class _FakeOrder:
-    """A stand-in for `Capture`/`AutoLoot`/`Sweep`: only `start`/`stop` are called."""
+    """A stand-in for `Capture`/`AutoLoot`/`Sweep`: only `start`/`stop` are called.
+
+    …and, for the watcher, the book of uuids it has already fired at — a profile switch
+    clears it, because those belong to the map the other client was looking at (#1256).
+    """
 
     def __init__(self) -> None:
         self.started = self.stopped = 0
+        self._seen: set = set()
 
     def start(self) -> None:
         self.started += 1
@@ -814,7 +847,9 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     assert tab.ghost.cleared == 1, "the ghost grid kept the old account's squads"
     assert tab.ghost_allies.cleared == 1, "the allies' ghost grid kept the old alliance"
     assert tab.ghost_map.cleared == 1, "the map page kept the old profile's tiles"
-    assert tab._collected == set() and tab._auto_attempted == set()
+    # …and what the standing order had already fired at is the other account's map too
+    # (#1256 — the book moved onto the watcher when the choosing did).
+    assert tab._collected == set() and tab.autoloot._seen == set()
     assert tab._ids is None and tab._own_server == 0
     assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
 
@@ -1143,7 +1178,10 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.monitor_var = _Var(False)       # the ★ page's own sniffer switch (#1251)
     tab._own_server = 0                 # unread here, so the rule holds nothing back
     tab._visible_rows = lambda: []
-    tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
+    # The card carries the RULE beside the state now (#1256), so the stand-in
+    # answers both questions the phone asks of the standing order.
+    tab.autoloot = types.SimpleNamespace(
+        state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.alliance = types.SimpleNamespace(
         ur_var=_Var(False), star_var=_Var(False),
         web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
@@ -1292,7 +1330,10 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     tab.monitor_var = _Var(False)
     tab._visible_rows = lambda: list(tab._rows.values())
     tab._spent = lambda _row: False
-    tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
+    # The card carries the RULE beside the state now (#1256), so the stand-in
+    # answers both questions the phone asks of the standing order.
+    tab.autoloot = types.SimpleNamespace(
+        state=lambda: ("secret.autoloot", "off"), level_min=lambda: 7)
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False))
     tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
@@ -1431,7 +1472,7 @@ def test_the_log_and_the_table_filter_on_the_same_pair():
             "7": _row(7, 7, -5_000, 600_000)}
     tab = _make_tab(rows)
     tab.filter_from_var, tab.filter_to_var = _Var("5"), _Var("7")   # what is shown
-    tab.level_from_var, tab.level_to_var = _Var("7"), _Var("7")     # what is robbed
+    tab.level_min_var = _Var("7")                                   # what is robbed
     cap = _capture(tab)
 
     shown = sorted(int(r["level"]) for r in tab._visible_rows())
@@ -1448,14 +1489,10 @@ def test_the_robbery_keeps_its_own_range_while_the_table_widens():
         r["ready"] = True
     tab = _make_tab(rows)
     tab.filter_from_var, tab.filter_to_var = _Var("1"), _Var("9")   # show everything
-    tab.level_from_var, tab.level_to_var = _Var("7"), _Var("7")     # rob only the 7s
+    tab.level_min_var = _Var("7")                                   # rob from 7 up
     tab.autoloot_var = _Var(True)
-    robbed = []
-    tab._collect = lambda row: robbed.append(int(row["level"]))
 
-    tab._auto_loot({"5": _LiveTask(5), "7": _LiveTask(7)})
-
-    assert robbed == [7], robbed
+    assert [int(r["level"]) for r in tab.rob_candidates()] == [7]
     assert sorted(int(r["level"]) for r in tab._visible_rows()) == [5, 7]
 
 
@@ -1583,7 +1620,7 @@ def _config_stub():
     stub.hide_own_var = _Var(True)
     stub.filter_from_var = stub.filter_to_var = _Var("")
     stub.autoloot_var, stub.skip_own_var = _Var(False), _Var(False)
-    stub.level_from_var = stub.level_to_var = _Var("")
+    stub.level_min_var = _Var("")
     stub.sweep_var = _Var(False)
     stub.sweep_cx_var = stub.sweep_cy_var = _Var("")
     stub.coord_x_var = stub.coord_y_var = stub.coord_srv_var = _Var("")

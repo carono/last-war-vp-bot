@@ -2,8 +2,21 @@
 
 Secret tasks needed a pcap because their tiles only arrive while the map moves. Ghost
 recon does not: the client keeps the whole squad list and its own verdict on each, so
-this watcher polls the GAME rather than a checkpoint. `tools/ghost_recon_steal.py --all`
-does the deciding and the robbing, exactly as `steal_secret_task.py` does for the other.
+this watcher polls the GAME rather than a checkpoint.
+
+WHAT IT ROBS IS CHOSEN OUT OF THE PAGE'S OWN LIST (#1256). A look fills that list
+(`GhostReconPane.reload`) from the two sources it has — the client's `taskList` and
+whatever a map scan wrote down, which is the only one that ever sees another alliance's
+tiles — and then asks the list which of them the rule wants
+(`GhostReconPane.rob_candidates`: robbable, not mine, at or above «минимальный уровень»).
+The chosen ones travel to `tools/ghost_recon_steal.py --targets uuid:server,…` by name.
+It used to hand the tool `--all` and let it re-derive the set from its own reading of
+`taskList`, which meant the page could be showing one thing and the robbery spending the
+budget on another — and there was nowhere to put a level rule at all.
+
+The two gates that stay the GAME's stay the game's: whether today is the event's day and
+how many of the five are left are read here, before anything is chosen, and read again by
+the tool before every send.
 
 The event runs ONE DAY A WEEK. Six days out of seven `IsOpenDay()` says so in one cheap
 read and the answer is "look again in an hour" — a minute-by-minute poll of a shut event
@@ -37,9 +50,13 @@ class GhostOrder:
 
     def __init__(self, rt, pane) -> None:
         self.rt = rt
-        self.pane = pane          # the page whose checkbox switches this on
+        self.pane = pane          # the page whose list this chooses out of
         self._stop = None         # threading.Event while watching, else None
         self._proc = None         # one robbery child at a time
+        # uuids handed to a child this session. A squad the server refused stays in the
+        # client's list wearing the same «можно грабить» verdict, so without this the
+        # next look would spend another attempt on it, and the one after that too.
+        self._seen: set = set()
 
     @property
     def running(self) -> bool:
@@ -64,7 +81,9 @@ class GhostOrder:
         if self._stop is not None:
             return
         self._stop = threading.Event()
+        self._seen.clear()
         self.rt.say("ghost", "ghost.on")
+        self.rt.say("ghost", "ghost.rule", rule=self.pane.rule_text())
         threading.Thread(target=self._loop, args=(self._stop,), daemon=True).start()
 
     def stop(self) -> None:
@@ -118,16 +137,37 @@ class GhostOrder:
             # boundary, so the same pause the secret-task watcher uses fits.
             return self.rt.settings.opt_int("autoloot_pause_min",
                                             low=1, high=1440) * 60.0
-        self.rob(left)
+        # The event is open and there is budget: fill the page's list, then ask the list
+        # what the rule wants (#1256). Both halves are the page's — this only decides
+        # WHEN to look, which is the one thing a watcher is for.
+        self.pane.reload()
+        picks = [t for t in self.pane.rob_candidates()
+                 if str(t.get("uuid")) not in self._seen]
+        if not picks:
+            return POLL
+        self.rob(picks[:left])
         return POLL
 
     # -- the robbery ---------------------------------------------------------
-    def rob(self, left: int) -> None:
-        """Hand the robbable set to the standalone tool. Also what «ограбить всё» presses."""
+    def rob(self, targets) -> None:
+        """Hand the CHOSEN squads to the standalone tool. Also what «ограбить всё» presses.
+
+        By name, never «--all» (#1256): the choice was made against the page's own list,
+        under the page's own «минимальный уровень», and a child that re-derived it from
+        its own reading of `taskList` would be a second opinion nobody asked for. What
+        the tool still owns is the event day, the budget and the queue the recipe spends
+        (#1188).
+        """
+        pairs = [(int(t["uuid"]), int(t.get("srv") or 0))
+                 for t in (targets or ()) if t.get("uuid")]
+        if not pairs:
+            return
+        self._seen.update(str(uuid) for uuid, _srv in pairs)
         cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "ghost_recon_steal.py"),
-               "--all", "--limit", str(min(left, self.limit()))]
-        self.rt.say("ghost", "ghost.robbing", n=left)
+               "--limit", str(self.limit()),
+               "--targets", ",".join("%d:%d" % pair for pair in pairs)]
+        self.rt.say("ghost", "ghost.robbing", n=len(pairs))
         proc = self.rt.children.spawn_raw(cmd, "ghost")
         if proc is None:
             return

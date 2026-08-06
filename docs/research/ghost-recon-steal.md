@@ -163,7 +163,8 @@ The remaining conditions are read straight off the manager:
   `dismiss_ghost_recon_reward`.
 * `tools/ghost_recon_steal.py` — `--status`, `--list` (every known squad with the
   game's verdict), `--all` (queue everything robbable), `--uuid/--server`,
-  `--queue-only`.
+  `--targets uuid:server,…` (queue exactly these, in this order, re-deriving
+  nothing — what the panel's standing order hands over, #1256), `--queue-only`.
 * `src/lastwar_bot/actions/steal_ghost_recon.md` — the recipe.
 
 ## 6. Confirmed, and what is not
@@ -187,6 +188,20 @@ real uuid was available and no `ghost.recon.steal` was sent from this code. The
 feature therefore stays 🟡 in `docs/farming.md` until it is run on an event day —
 what to do then is: `--list` to see the squads, `--all` to queue what the client
 calls robbable, then the recipe (or `--all` without `--queue-only`).
+
+## 6a. The standing order, and where its targets come from (#1256)
+
+The «Командный пункт» page's checkbox is the unattended form of the same robbery,
+and since #1256 the choosing is the PAGE's rather than the tool's. A look fills
+the page's own list from the two sources it has — the client's `taskList` and
+whatever a map sweep wrote into the ghost checkpoint, which is the only one that
+ever shows another alliance's tiles — and then the list is asked which squads the
+rule wants: robbable by the game's own verdict, not my own, and at or above the
+page's «минимальный уровень» (its own number, since a squad runs levels 3-5 where
+a secret task runs 1-7). Those go to `--targets` by name; «Ограбить всё» presses
+the very same call, so the button and the watcher can no longer take different
+squads. The event day and the five-a-day budget stay the GAME's gates — read
+before anything is chosen, and read again by the tool before every send.
 
 Also open: which `cfgId` families are worth robbing (the capture shows `60302` —
 family "6", the star, ур.5 by the `MM + 2` rule in §3a, `stealMaxtimes` 3), and
