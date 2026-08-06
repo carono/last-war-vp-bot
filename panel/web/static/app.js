@@ -1,8 +1,9 @@
 /* The remote control, in about three hundred lines of plain browser JavaScript.
  *
- * It draws four things and presses four: the profile's state, its errands, its
- * scenarios and its log; a timer's switch, a timer's «run now», a scenario's «run» and
- * the client's own life — start it, close it, put it back. Every one of those is one
+ * It draws four things and presses five: the profile's state, its errands, its
+ * scenarios and its log; a timer's switch, a timer's «run now», a scenario's «run»,
+ * the client's own life — start it, close it, put it back — and the panel's own, which
+ * is one press: restart it onto the code that is now on disk. Every one of those is one
  * request to panel/web/api.py, which is one call onto the runtime — there is no logic
  * here that the panel does not already have, and none may be added: an ability is a
  * scenario and this plays it (CLAUDE.md).
@@ -156,6 +157,63 @@ function paintState(state) {
     ? T('web.ui.timers.next', { name: state.timers.next_name,
                                 when: when(state.timers.next, state.time) })
     : T('web.ui.timers.none');
+
+  paintPanel(state.panel || {});
+}
+
+/* The panel itself — the version it is running and the press that puts it back on the
+ * code that is now on disk (panel/runtime/panel_control.py). The card is not drawn at
+ * all where there is no panel to restart: the same route answers for a tab launched on
+ * its own, and there the press does not exist rather than merely not applying now. */
+let PANEL_ROW = '';
+
+function paintPanel(panel) {
+  const controls = panel.controls || [];
+  $('panel-card').hidden = controls.length === 0;
+  // The version is DATA — a number the panel reports, not one of its words.
+  $('panel-version').textContent = panel.version || '';
+  const stamp = JSON.stringify(controls);
+  if (stamp === PANEL_ROW) return;
+  PANEL_ROW = stamp;
+  const box = $('panel-controls');
+  box.textContent = '';
+  for (const control of controls) {
+    const button = document.createElement('button');
+    button.className = 'go';
+    button.textContent = T(control.label);
+    button.disabled = !control.enabled;
+    button.addEventListener('click', () => pressPanel(control, button));
+    box.appendChild(button);
+  }
+}
+
+async function pressPanel(control, button) {
+  // ASKED FIRST, always: this is the one press that switches off the very thing the
+  // thumb is holding. The question is the panel's own words, out of the same key the
+  // window's message box uses.
+  if (control.confirm && !window.confirm(T(control.confirm))) return;
+  button.disabled = true;
+  // The row is rebuilt by the next poll that gets through, whichever way this goes —
+  // otherwise the button stays flat for as long as the page is open.
+  PANEL_ROW = '';
+  let answer;
+  try {
+    answer = await post('/api/panel', { action: control.id });
+  } catch (err) {
+    // The socket may already have gone. Nothing here can tell that from a fault, and
+    // the poll can — so say nothing and let it.
+    $('offline').hidden = false;
+    return;
+  }
+  if (answer.ok) {
+    // It comes back on the same port with the same token, so the page finds its way
+    // home by itself — it only has to be told that the gap is expected.
+    toast(T('web.ui.panel.restarting'));
+    $('offline').hidden = false;
+  } else {
+    toast(T('web.ui.refused'));
+    button.disabled = false;
+  }
 }
 
 /* The client's life: start it, close it, put it back — the same three the window has

@@ -10,6 +10,7 @@ this file is what keeps it honest. Every route below is one call onto a
     /api/state      what one profile is doing right now      rt.game, rt.activity
     /api/game       start / close / restart the client       rt.play_async, via
                                                              runtime/game_control.py
+    /api/panel      put the PANEL back on the code on disk   runtime/panel_control.py
     /api/timers     the errands, their switches, when next   rt.schedule
     /api/actions    the scenarios that exist                 rt.actions
     /api/log        what has been said                       rt.log (tapped)
@@ -45,9 +46,10 @@ import os
 import threading
 import time
 
+from .. import __version__ as APP_VERSION
 from .. import i18n as i18nmod
 from .. import timers as timersmod
-from ..runtime import game_control, game_process
+from ..runtime import game_control, game_process, panel_control
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
 
@@ -274,6 +276,15 @@ class WebApi:
                           "text": rt.t(step.key, **step.fmt)}
                          if step is not None else None),
             "timers": self._due(rt),
+            # THE PANEL ITSELF, which is the one thing on this page that is not about
+            # an account: which version of the bot the window is running, and the press
+            # that puts it back on the code that is now on disk
+            # (panel/runtime/panel_control.py). Here rather than on a screen of its own
+            # because the «Веб» tab has none by decision (CLAUDE.md, «The three
+            # divergences there are»), and what such a tab genuinely needs on the move
+            # goes on «Состояние». Empty `controls` in a process that is not a panel —
+            # a tab launched on its own answers this route too.
+            "panel": {"version": APP_VERSION, "controls": panel_control.state()},
             "time": time.time(),
         }
 
@@ -457,6 +468,29 @@ class WebApi:
         _running, link, _label = self._client_status(self._name_of(rt), rt)
         return game_control.play(rt, action, link)
 
+    # -- the panel's own life -------------------------------------------------
+    def panel(self, action: str, profile: str | None = None) -> dict:
+        """Restart the panel — the same press the window has, from the far side (#1258).
+
+        Why a phone may ask for it at all: an edit to a `.py` reaches the running panel
+        only through a fresh interpreter, and the person making those edits is not
+        always the person standing at the machine. What it costs is spelled out in the
+        question the browser asks first, out of the table's own key.
+
+        WHICH PROFILE only decides whose log says it. The restart is the WINDOW's — every
+        open profile goes down and every one of them comes back up — and saying so in
+        the log of the account the person happens to be looking at is the one place it
+        will be read.
+
+        The answer is written before anything closes: `panel_control.request` arms the
+        shutdown a moment later, on the Tk thread, so this request finishes normally and
+        the page can say what is about to happen.
+        """
+        rt = self._runtime(profile)
+        if panel_control.get(action) is None:
+            return {"error": "unknown"}
+        return panel_control.request(rt, action)
+
     # -- the tabs' own screens ------------------------------------------------
     def screens(self, profile: str | None = None) -> dict:
         """Which of this profile's tabs offer a phone screen, in the window's order.
@@ -572,6 +606,8 @@ class WebApi:
                 return _answer(self.run_action(name, who))
             if path == "/api/game":
                 return _answer(self.game(str(body.get("action") or ""), who))
+            if path == "/api/panel":
+                return _answer(self.panel(str(body.get("action") or ""), who))
             if path == "/api/screen/press":
                 return _answer(self.press(str(body.get("id") or ""),
                                           str(body.get("action") or ""),

@@ -26,8 +26,9 @@ panel/tabs/web.py       «Веб»: the switch, the address, the token
 ```
 
 The page has four screens of its own: **state** (is the client on the line, is the daemon
-up, what is the panel doing, what is due next — and the client's own lifecycle, §3.10:
-start it, close it, put it back), **timers** (every errand with its switch, its period,
+up, what is the panel doing, what is due next — the client's own lifecycle, §3.10: start
+it, close it, put it back — and the panel's own, §3.11: restart it onto the code that is
+now on disk), **timers** (every errand with its switch, its period,
 when it last ran and a «run now»), **scenarios** (all of `actions/*.md`, searchable, one
 press each) and **log** (the panel's own lines, coloured by severity, with a browser
 notification when one of them is an error).
@@ -59,6 +60,7 @@ one call onto the runtime:
 | `/api/actions` | `panel.runtime.actions.list_actions()` |
 | `/api/actions/run` | `rt.play_async(name)` — under the claim, on a worker thread |
 | `/api/game` | the client's lifecycle — `runtime/game_control.py`, which is `rt.play_async` of one of three recipes |
+| `/api/panel` | the PANEL's own life — `runtime/panel_control.py`, which is the shell's own «close and start again» |
 | `/api/log` | the log bus, tapped |
 | `/api/i18n` | `panel/locales/` |
 
@@ -343,6 +345,53 @@ type, nothing clipped in Russian — which is the longest of the eleven for thes
 words. They stack rather than share a row: «Перезапустить игру» at 16 px does not fit
 beside anything on a 360-wide screen, and a row that squeezed them would have ended in
 three buttons of clipped text.
+
+### 3.11 The panel's own life, and why it is on «Состояние» rather than on a page (#1258)
+
+The state screen ends in one more card: the version the panel is running, and
+**«⟳ Перезапустить панель»**. It is the only control on the whole front-end that is not
+about an account.
+
+**Why a phone may ask for it at all.** The panel is imported once and never reloaded, so
+an edited `.py` reaches it through a fresh interpreter and through nothing else — the
+same fact that makes a successful pull mean "restart me" rather than "done". The person
+making those edits is very often not the person standing at the machine, and until this
+the press existed in exactly one place: a button that appeared only *after* a successful
+update, in the window. The one action that applies a change to a running panel was
+hidden behind the one path that had not been taken.
+
+**Why it is on «Состояние» and not on a screen of its own.** «Веб» is one of the three
+tabs that deliberately have no phone screen (`CLAUDE.md`, «The three divergences there
+are»): it is the door the person came in through, and managing that door from the far
+side is how somebody locks themselves out. The rule that goes with that exception is
+that what such a tab genuinely needs on the move goes onto «Состояние» as an element
+rather than becoming a page — and a restart is exactly that. `tests/test_panel_web.py`
+fails if the button leaves the state screen.
+
+**The table again, for the same reason as §3.10.** `panel/runtime/panel_control.py`
+holds the word on the button, the question asked first and the line said in the log; the
+window builds its button from it and asks the table's question in a message box, the
+page draws it off `/api/state` → `panel.controls` and asks the very same question with
+`confirm()`. What is *not* in the table is the doing of it: closing the window is the
+shell's — `_on_close` writes every profile out, stops the tabs' children and lets the
+instance lock go — so the shell registers a handler at start-up and the module only ever
+asks whether there is one. A tab launched on its own registers nothing, `panel.controls`
+comes back empty, and the card is not drawn: there, the press does not exist rather than
+merely not applying this second.
+
+**It survives itself, which is what makes it safe to offer to a phone.** The open
+profiles come back (`Workspace.restore` reads the list every open and close writes), the
+command line is repeated as it was, and the web server binds the same port with the same
+token — both are the profile's own saved knobs and the tab that binds them is EAGER — so
+the browser's cookie is still the right one. The page says «нет связи» for as long as the
+boot takes and finds its way home on the next poll; it is told so by a toast, because a
+gap that is expected and a gap that is a fault look identical from a phone.
+
+**The answer is written before the floor comes out.** The press arrives on an HTTP worker
+thread and is answered on it, so the shutdown is armed on the Tk thread ~1.2 s later
+instead of happening inside the request. Pulling the interpreter out from under the
+socket would leave the phone with a dead connection and no way to tell «перезапускается»
+from «упало» — which is precisely the state a remote control must never leave somebody in.
 
 ## 4. What was left out, and why
 

@@ -215,6 +215,14 @@ of them quietly grows a screen, and what those three genuinely need on the move 
 «Состояние» as a switch rather than as a page. A fourth exception is added the same way:
 ask, agree, write it in both files, pin it in the test.
 
+**«⟳ Перезапустить панель» is what that looks like in practice** (#1258). Python edits
+reach a running panel only through a fresh interpreter, and the person making them is
+usually holding a phone rather than standing at the machine — so the press went onto
+«Состояние», beside the client's three, and «Веб» still has no page. Both front-ends
+read one table (`panel/runtime/panel_control.py`) exactly as they do for the client's
+lifecycle, both ask the same question first, and the shell registers the one thing that
+can carry it out. Anything else a screenless tab needs on the move goes the same way.
+
 ### Definition of done
 
 A task that delivers an ability is not done — and must not be marked done in the

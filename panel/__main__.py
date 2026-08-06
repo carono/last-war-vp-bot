@@ -100,6 +100,7 @@ from .widgets import ScrollableFrame, font as ui_font
 from .splash import SplashScreen
 from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
+from .runtime import panel_control as panelctl
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -548,6 +549,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._restore_geometry()      # window size/position and the log sash
         self._install_resize_damper()  # …and keep dragging the frame cheap
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # …and the same close followed by a fresh start, asked for from the phone. The
+        # press itself lives in `panel/runtime/panel_control.py`, which both front-ends
+        # read; this is the one thing in the process that can carry it out, so this is
+        # where it is registered (#1258).
+        panelctl.set_handler(self._restart_now)
         self._splash_step("splash.daemon", 0.6)
         # Bringing the systems up is the slow half of the boot — the monitors, the
         # schedule, the trigger listeners, the chat history, the daemon, the account
@@ -3396,11 +3402,19 @@ class Panel(runtime.SessionScoped, tk.Tk):
             ttk.Button(upd, command=lambda: self._check_updates(manual=True)),
             "update.check")
         self._update_check_btn.pack(side="right")
-        # Both start hidden: nothing has been checked yet, so neither has anything to
-        # offer. `pack`/`pack_forget` rather than `state=disabled` — a button that is
-        # never pressable is noise, and the label already says why.
+        # ALWAYS THERE, and this is the block it belongs in: what it restarts the panel
+        # FOR is the code the block is about — a pull that has landed, and just as often
+        # an edit made on this machine, which no check will ever report. It used to
+        # appear only after a successful pull, so the one press that applies a change to
+        # the running panel was hidden behind the one path that had not been taken
+        # (#1258). The phone draws the same press on «Состояние» out of the same table.
         self._update_restart_btn = self._tr(
-            ttk.Button(upd, command=self._restart_panel), "update.restart")
+            ttk.Button(upd, command=self._restart_panel),
+            panelctl.BY_ID[panelctl.RESTART].label)
+        self._update_restart_btn.pack(side="right", padx=(0, 6))
+        # «Обновить» still comes and goes: nothing has been checked yet, so it has
+        # nothing to offer. `pack`/`pack_forget` rather than `state=disabled` — a button
+        # that is never pressable is noise, and the label already says why.
         self._update_pull_btn = self._tr(
             ttk.Button(upd, command=self._do_update), "update.pull")
         # A language switch has to re-render both dynamic labels; `tr` only knows the
@@ -3494,13 +3508,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         if self._update_ready:
             # A pull has already landed. Nothing else the block could say matters until
-            # the panel is running the code that is now on disk.
+            # the panel is running the code that is now on disk — and the button that
+            # does that is beside this line whether or not anything was pulled.
             self._update_status_var.set(self._t("update.st.updated", local=local))
             self._update_status_lbl.configure(foreground="#3c3")
             self._update_pull_btn.pack_forget()
-            self._update_restart_btn.pack(side="right", padx=(0, 6))
             return
-        self._update_restart_btn.pack_forget()
         if state is None:
             self._update_status_var.set(self._t("update.st.idle"))
             self._update_status_lbl.configure(foreground="#888")
@@ -3600,18 +3613,34 @@ class Panel(runtime.SessionScoped, tk.Tk):
                                  parent=self)
 
     def _restart_panel(self) -> None:
-        """Close this panel properly and start a fresh one on the updated code.
+        """«Перезапустить панель» — the window's half of the press (#1258).
 
-        In this order, and it matters: `_on_close` is what writes the profile out and
-        stops the tabs' children, and a replacement started before that would read a
-        settings file the old window has not finished with. The daemon is deliberately
-        NOT touched — it is a separate process holding a warm Lua VM, and the new panel
-        picks up the same one.
+        The question, the word on the button and the line in the log are the table's
+        (`panel/runtime/panel_control.py`), because the phone asks the very same question
+        out of the very same key before landing in the very same `_restart_now`. What is
+        this method's own is only HOW the question is asked: a message box here, a
+        browser dialog there.
         """
-        if not messagebox.askyesno(self._t("update.restart.title"),
-                                   self._t("update.restart.body"), parent=self):
+        control = panelctl.BY_ID[panelctl.RESTART]
+        if not messagebox.askyesno(self._t("panel.restart.title"),
+                                   self._t(control.confirm), parent=self):
             return
-        self._say("panel", "log.update.restarting")
+        panelctl.request(self._rt, control.id)
+
+    def _restart_now(self) -> None:
+        """Close this panel properly and start a fresh one. The question was already put.
+
+        Registered with `panel/runtime/panel_control.py` while the window is being
+        built, which is how a press from a phone reaches it — and why there is no
+        confirmation here: whichever front-end asked has asked already.
+
+        In this order, and it matters: `_on_close` is what writes the profiles out and
+        stops the tabs' children, and a replacement started before that would read a
+        settings file the old window has not finished with. It is also what makes the
+        new panel come up the way this one was left — every open profile, the same
+        pages. The daemon is deliberately NOT touched: it is a separate process holding
+        a warm Lua VM, and the new panel picks up the same one.
+        """
         self._activity.begin("activity.panel.restart")   # ended by the process ending
         try:
             self._on_close()

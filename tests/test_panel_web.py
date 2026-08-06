@@ -38,6 +38,7 @@ if str(_REPO) not in sys.path:
 from panel import i18n as i18nmod          # noqa: E402
 from panel import timers as timersmod      # noqa: E402
 from panel.runtime import game_control as gamectl   # noqa: E402
+from panel.runtime import panel_control as panelctl  # noqa: E402
 from panel.runtime.log import LogBus       # noqa: E402
 from panel.web import api as apimod        # noqa: E402
 from panel.web import server as webmod     # noqa: E402
@@ -780,6 +781,156 @@ def test_the_window_and_the_phone_draw_the_same_three():
     for name in ("launch_game", "quit_game", "restart_game"):
         assert name not in script, \
             f"app.js names the scenario {name} — a press travels as an id, not a recipe"
+
+
+# ---------------------------------------------------------------------------
+# the PANEL's own life: putting it back on the code that is now on disk
+# ---------------------------------------------------------------------------
+#
+# The press the window grew for an update, offered to the person who is holding a phone
+# instead of standing at the machine (#1258). What is pinned here is that it exists only
+# where there is a panel to restart, that it asks first, that the answer is written
+# BEFORE anything closes — a phone handed a dead socket cannot tell «перезапускается»
+# from «упало» — and that the window and the page press the one table.
+class _Restarter:
+    """A shell that only remembers it was asked to close itself."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+
+
+def _panel_is(shell):
+    """Register (or take away) the one thing in this process that can restart it."""
+    panelctl.set_handler(shell)
+
+
+class _Windowed(_Runtime):
+    """A runtime with a window: the hand-over is a queue and a real `after` delay.
+
+    Stands in for the only case that matters live — a press arriving on an HTTP worker
+    thread while a Tk event loop is turning — so the test can see that the restart is
+    ARMED rather than carried out under the request that asked for it.
+    """
+
+    def __init__(self, home: str) -> None:
+        super().__init__(home)
+        self.root = object()                 # a window; nothing here draws with it
+        self.posted: list = []
+        self.armed: list = []
+        self.tick = types.SimpleNamespace(
+            arm=lambda name, delay, func: self.armed.append((name, delay, func)))
+
+    def post(self, call) -> None:
+        self.posted.append(call)
+
+
+def test_the_state_page_carries_the_panel_itself():
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        shell = _Restarter()
+        _panel_is(shell)
+        try:
+            panel = api.state()["panel"]
+        finally:
+            _panel_is(None)
+        assert panel["version"], "the phone is not told which version it is looking at"
+        assert [c["id"] for c in panel["controls"]] == [panelctl.RESTART]
+        # The words are locale KEYS, said by the browser out of the same table the
+        # window's button and its message box are drawn from.
+        english = i18nmod.load_locale("en")
+        for control in panel["controls"]:
+            assert control["label"] in english, control
+            assert control["confirm"] in english, "a press this destructive asks first"
+
+
+def test_a_process_that_is_not_a_panel_offers_no_restart():
+    """A tab launched on its own answers this route too — and cannot restart a panel.
+
+    Empty rather than greyed: the press does not EXIST there, which is not the same as
+    a press that does not apply this second, and the page draws no card at all.
+    """
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        _panel_is(None)
+        assert api.state()["panel"]["controls"] == []
+        assert api.panel(panelctl.RESTART)["unavailable"] is True
+
+
+def test_pressing_it_closes_the_panel_and_says_so_first():
+    with tempfile.TemporaryDirectory() as home:
+        rt, api = _api(home)
+        shell = _Restarter()
+        _panel_is(shell)
+        try:
+            answer = api.panel(panelctl.RESTART)
+        finally:
+            _panel_is(None)
+        assert answer["ok"] and shell.calls == 1
+        # Said BEFORE anything is closed, so the record shows the intent even when the
+        # shutdown then goes wrong halfway — and under the panel's own tag, not
+        # «action», which is a scenario somebody ran.
+        assert any("[panel] log.panel.restarting" in line for line in rt.log.drain())
+
+
+def test_the_answer_is_written_before_the_floor_comes_out():
+    """With a window, the shutdown is ARMED — the request that asked finishes first."""
+    with tempfile.TemporaryDirectory() as home:
+        rt = _Windowed(home)
+        api = apimod.WebApi(rt)
+        shell = _Restarter()
+        _panel_is(shell)
+        try:
+            assert api.panel(panelctl.RESTART)["ok"]
+        finally:
+            _panel_is(None)
+        assert shell.calls == 0, "the panel closed under the request that asked for it"
+        assert len(rt.posted) == 1, "the Tk thread was reached some other way"
+        rt.posted[0]()                                   # the pump gets round to it
+        assert [(name, delay) for name, delay, _f in rt.armed] == [
+            (panelctl.TICK, panelctl.DELAY_MS)]
+        rt.armed[0][2]()                                 # …and the delay runs out
+        assert shell.calls == 1
+
+
+def test_the_phone_cannot_invent_a_second_panel_press():
+    with tempfile.TemporaryDirectory() as home:
+        _rt, api = _api(home)
+        shell = _Restarter()
+        _panel_is(shell)
+        try:
+            assert api.dispatch("POST", "/api/panel", {},
+                                {"action": "uninstall"})[0] == 404
+        finally:
+            _panel_is(None)
+        assert shell.calls == 0
+
+
+def test_the_restart_is_the_windows_and_the_phones_one_press():
+    """The mirror, as a test rather than as a promise (CLAUDE.md).
+
+    Both front-ends draw the SAME row out of `panel/runtime/panel_control.py`: the
+    window builds its button from the table and asks the table's question, the page
+    posts the id to `/api/panel` and asks the very same question first.
+    """
+    shell = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert "panelctl.set_handler" in shell, \
+        "nothing registers the shell — a press from the phone reaches nobody"
+    assert "panelctl.BY_ID[panelctl.RESTART].label" in shell, \
+        "the window's button no longer takes its word from the table"
+    assert "panelctl.request" in shell, "the window restarts by some other route"
+    script = (_REPO / "panel" / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "'/api/panel'" in script
+    assert "control.confirm" in script and "window.confirm" in script, \
+        "the phone would restart the panel on one stray tap"
+    html = (_REPO / "panel" / "web" / "static" / "index.html").read_text(encoding="utf-8")
+    # ON «Состояние», not on a screen of its own: the «Веб» tab has none by decision,
+    # and this is where what such a tab needs on the move goes (CLAUDE.md).
+    state_page = html.split('id="view-state"', 1)[1].split("</section>", 1)[0]
+    assert 'id="panel-controls"' in state_page, \
+        "the restart left the state screen — the «Веб» tab still has no page of its own"
 
 
 # ---------------------------------------------------------------------------

@@ -59,6 +59,15 @@
         <div class="row"><span data-i18n="web.ui.timers.head"></span><b id="timers-on" class="pill"></b></div>
         <p id="timers-next" class="muted small"></p>
       </div>
+      <!-- The panel itself, last on the page: which version is running, and the press
+           that puts it back on the code that is now on disk. The «Веб» tab has no
+           screen of its own by decision (CLAUDE.md), and what such a tab needs on the
+           move belongs here rather than in a page of its own. -->
+      <div id="panel-card" class="card" hidden>
+        <div class="row"><span data-i18n="web.ui.version"></span><b id="panel-version" class="pill"></b></div>
+        <p class="muted small" data-i18n="web.ui.panel.hint"></p>
+        <div id="panel-controls" class="controls"></div>
+      </div>
     </section>
 
     <!-- the errands -->
