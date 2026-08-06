@@ -181,6 +181,37 @@ it, so the cure cannot become worse than the disease), `tests/test_engine_link_g
 (the gate refuses it) and `tests/test_daemon_lease.py` (a run against a dead client, with
 the daemon's own rebuild still attempted first).
 
+### 2.3 It also catches MEASUREMENTS, not just monitors (#1053, 2026-08-07)
+
+The night after this shipped, the same shape fooled a capture — which is worth writing
+down, because nothing in #1266 suggests that a person taking a live reading is exposed
+to it too.
+
+Work on #1053 (the capture's hard-coded port) probed the client's sockets, found one
+established peer on `:17935` and six on `:10012`, captured 25 s on each, and got nine
+alliance pushes from `:17935` against **0 payload packets** from `:10012`. Every step is
+sound and the conclusion — «the game port has moved back to `:17935`» — is false. The six
+were CLOSE_WAIT, `probe()` said `link='lost', dead=6` at that moment, and what the
+capture recorded was the **control channel of a stranded client**. When the client
+reconnected an hour later, `:10012` came back established and a 20 s capture on it
+carried `push.alliance.march.create` and the alert stream.
+
+**So a traffic measurement inherits the link's state.** On a stranded client every
+observation is about the control channel, and it looks like a discovery rather than a
+failure — the frames decode, the counts are real, and the port that «works» is the wrong
+one. Two habits follow, and both are cheap:
+
+* **`game_link.probe()` before believing a capture**, exactly as the engine does before
+  pressing. `link='lost'` invalidates the run rather than the tool;
+* **capture the whole conversation set, decide nothing from one port's silence.** A port
+  can be silent because it is dead, because the client is idle, or because the traffic
+  went elsewhere, and a single-port capture cannot tell those apart.
+
+`map_capture` now reads its filter through `conversations()` here rather than keeping a
+rule of its own, and `primary_game_port` — the «one socket» answer that `steal_via_socket`
+sends down — refuses to answer at all when the raced conversation has no established
+socket. Pinned by `tests/test_game_port_detection.py`, which carries this night's table.
+
 ## 3. The four answers, and why not two
 
 `game_link.probe()` returns a `Link`: the old `running` boolean, plus a `link` that is

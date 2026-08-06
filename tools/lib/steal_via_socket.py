@@ -94,17 +94,20 @@ _GAME_PORT: "int | None" = None
 def game_port(pid: "int | None" = None) -> int:
     """The port this client is ACTUALLY talking to the server on.
 
-    It moves — :17935 for years, :10012 on one build, :17935 again on the next —
-    and every failure that follows from getting it wrong is silent: no socket
-    matches, and the tool says «is the client on the world map?» about a client
-    that is sitting on it. So the live TCP table answers first
+    It is not stable across builds — `:17935` historically, `:10012` on the current
+    client — and every failure that follows from getting it wrong is silent: no
+    socket matches, and the tool says «is the client on the world map?» about a
+    client that is sitting on it. So the live socket table answers first
     (`map_capture.primary_game_port`, the same read the capture tools use) and
     `game_paths.game_port()` / `LW_GAME_PORT` is only the last resort.
 
-    When the table cannot say — nothing established, or two candidates with equal
-    weight — it SAYS so rather than choosing, because the one thing worse than an
-    unmatched socket here is a matched wrong one: this file writes into whatever it
-    picked. `--port` (`set_game_port`) is how the operator settles it.
+    **A live socket is not proof by itself**, which is why the choice is made by
+    `game_link`'s rule and not here: the client keeps a chat / control channel on a
+    port of its own, and a stranded client answers with THAT while every game socket
+    of it is half-closed (#1266). When the game's own conversation has no established
+    socket, or two of them are equally plausible, this says so rather than choosing —
+    the one thing worse than an unmatched socket is a matched wrong one, because this
+    file WRITES into whatever it picked. `--port` (`set_game_port`) settles it.
     """
     global _GAME_PORT
     if _GAME_PORT is not None:
@@ -119,7 +122,7 @@ def game_port(pid: "int | None" = None) -> int:
         # Nothing to pin yet — a client that has not connected out, or one holding
         # two equally plausible sockets. Answer with the fallback, say why once,
         # and keep probing: the next call may find the client settled.
-        _warn_unread_port(candidates)
+        _warn_unread_port(candidates, pid)
         return game_paths.game_port()
     _GAME_PORT = found
     return found
@@ -129,16 +132,29 @@ def game_port(pid: "int | None" = None) -> int:
 _WARNED_PORT = False
 
 
-def _warn_unread_port(candidates: list) -> None:
+def _warn_unread_port(candidates: list, pid: "int | None" = None) -> None:
+    """Say WHY the port could not be read — the three reasons are different problems."""
     global _WARNED_PORT
     if _WARNED_PORT:
         return
     _WARNED_PORT = True
     fallback = game_paths.game_port()
-    if candidates:
-        print(f"{C_WARN}the client is established on several ports "
-              f"({', '.join(':' + str(p) for p in candidates)}) and the socket table "
-              f"cannot say which is the game — using :{fallback}. Pass --port N to "
+    try:
+        import game_link
+        from map_capture import client_sockets
+        lost = game_link.classify(client_sockets(pid))[0] == game_link.LOST
+    except Exception:                    # noqa: BLE001 — a diagnosis, never a blocker
+        lost = False
+    if lost:
+        # Not a port problem at all: the game conversation is half-closed and only
+        # the control channel is alive. Nothing here can be sent down anything.
+        print(f"{C_ERR}this client's game connection is half-closed — it is stranded, "
+              f"not merely quiet, so there is no socket to send down (restart it "
+              f"first). Falling back to :{fallback}.{C_RESET}", file=sys.stderr)
+    elif candidates:
+        print(f"{C_WARN}the client is talking on several ports "
+              f"({', '.join(':' + str(p) for p in candidates)}) and none of them is "
+              f"identifiable as the game's — using :{fallback}. Pass --port N to "
               f"settle it.{C_RESET}", file=sys.stderr)
     else:
         print(f"{C_DIM}could not read the game's port off a running client — "

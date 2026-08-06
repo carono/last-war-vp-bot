@@ -31,6 +31,7 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import lastwar_proto as proto  # noqa: E402
+import game_link  # noqa: E402  (which socket is which conversation — one owner)
 import game_paths  # noqa: E402  (the game's port and process name)
 from live_sniffer import C_DIM, C_ERR, C_RESET, LiveDecoder  # noqa: E402
 
@@ -38,83 +39,88 @@ from live_sniffer import C_DIM, C_ERR, C_RESET, LiveDecoder  # noqa: E402
 # process name is the same answer every other tool in the repo asks it for.
 GAME_PORT = game_paths.game_port()
 GAME_PROCESS = game_paths.game_exe().lower()
-# Outbound web ports the client also opens (translation is TLS on :443,
-# see docs/research/chat.md) and which are never the game stream. Dropped from
-# auto-detection so a capture narrows to the game connection, not the noise.
-NON_GAME_PORTS = frozenset({80, 443})
+#: Outbound web ports the client also opens (translation is TLS on :443, see
+#: docs/research/chat.md) and which are never the game stream. Kept as this module's
+#: name for them; the rule that USES it lives in `game_link.is_game_socket`, which
+#: also drops the loopback pair a client keeps to itself.
+NON_GAME_PORTS = game_link.NON_GAME_PORTS
 
 
-def detect_game_ports(pid: "int | None" = None) -> set:
-    """The remote TCP port(s) the game could be talking to a server on.
+def client_sockets(pid: "int | None" = None) -> list:
+    """The TCP rows the OS attributes to the client(s) — one walk, no handle opened.
 
-    The endpoint IP is dialled without DNS and the port is not stable across
-    builds — :17935 for years, :10012 on one build, :17935 again on the next — so
-    a hard-coded port is a standing way for a capture to sniff the right interface
-    and hear nothing while looking exactly like "nobody was panning". Read it
-    straight off the client's own ESTABLISHED connections instead: the same TCP
-    table Task Manager shows, no handle opened. Falls back to an empty set (caller
-    then uses GAME_PORT) when the process is gone or psutil is not installed.
-
-    A capture filters on ALL of them — the BPF is an `or` — because a port left
-    out is a stream nobody hears, and a spare candidate costs a few frames the
-    decoder discards. Three kinds of socket are dropped, each of them measured
-    rather than reasoned (#1053, on a client that had been up for hours):
-
-      * **web ports** (NON_GAME_PORTS) — the client keeps HTTP/TLS open for
-        assets and translation all day;
-      * **loopback peers** — a couple of `127.0.0.1 → 127.0.0.1` sockets whose two
-        ends are BOTH the client's own pid. Not a server at all;
-      * **anything but ESTABLISHED** — the same client held CLOSE_WAIT leftovers
-        naming the gateway it had already left.
-
-    `pid` narrows to a single client: two accounts on this machine dial the same
-    port, and a caller pointing at ONE socket must ask about the client it means.
+    Machine-wide by default, because the BPF cannot separate two accounts anyway
+    (`OwnPorts` does that, by local port). `pid` narrows to one client, for a caller
+    that has to point at a single socket.
     """
     try:
         import psutil
     except ImportError:
-        return set()
+        return []
     try:
         pids = ({int(pid)} if pid is not None else
                 {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
                  if (p.info["name"] or "").lower() == GAME_PROCESS})
         if not pids:
-            return set()
-        ports = set()
-        for c in psutil.net_connections(kind="tcp"):
-            if (c.pid in pids and c.raddr and c.status == "ESTABLISHED"
-                    and c.raddr.port not in NON_GAME_PORTS
-                    and not _is_loopback(getattr(c.raddr, "ip", ""))):
-                ports.add(c.raddr.port)
-        return ports
+            return []
+        return [c for c in psutil.net_connections(kind="tcp") if c.pid in pids]
     except Exception:
         # psutil raises AccessDenied / OSError on some Windows setups; a failed
         # probe must degrade to the fallback port, not take down the capture.
-        return set()
+        return []
 
 
-def _is_loopback(ip: str) -> bool:
-    """A peer on this machine is never the game's gateway."""
-    return ip.startswith("127.") or ip in ("::1", "0:0:0:0:0:0:0:1")
+def detect_game_ports(pid: "int | None" = None) -> set:
+    """Every port the client is having a SERVER conversation on — for the BPF.
+
+    The endpoint IP is dialled without DNS and the port is not stable across builds
+    (`:17935` historically, `:10012` on the current client, and it will move again),
+    so a hard-coded port is a standing way for a capture to sniff the right interface
+    and hear nothing while looking exactly like "nobody was panning". Read it off the
+    client's own socket table instead — which rows count is `game_link`'s rule and
+    not a second copy of it here: not 80/443, not the loopback pair the client keeps
+    to itself, grouped by port because one conversation is many gateway addresses.
+
+    **A conversation whose sockets are ALL half-closed is still returned**, and that
+    is deliberate: it is the port the client will come back on, and a capture started
+    against a stranded client must not have to be restarted after the reconnect. A
+    filter term that matches nothing costs nothing.
+
+    Empty back — no client, no psutil, a refused table — means «could not be read»,
+    and the caller falls back to GAME_PORT.
+    """
+    return set(game_link.conversations(client_sockets(pid)))
 
 
 def primary_game_port(pid: "int | None" = None) -> "int | None":
-    """ONE port — for a caller that has to recognise a single socket, or None.
+    """The GAME's own live conversation, as ONE port — or None, meaning «do not guess».
 
-    A capture listens to every candidate at once; anything that matches a peer
-    address (`steal_via_socket`) has to commit to one, and committing to the wrong
-    one writes into a socket that is not the game.
+    A capture listens to every candidate at once; anything that matches a peer address
+    (`steal_via_socket`) has to commit to one, and committing to the wrong one writes
+    into a socket that is not the game.
 
-    **So this answers only when the client leaves no choice, and None otherwise.**
-    The obvious tie-break — most sockets wins — was tried and DISPROVED live
-    (#1053): a client held six established sockets on :10012 and one on :17935,
-    and a 25 s capture on each showed :10012 carrying nothing at all while the
-    single :17935 socket carried the alliance pushes. The socket table knows
-    which ports are open, never which one is answering; only traffic knows that.
-    A caller with two candidates asks the operator (`--port`) instead of guessing.
+    **The game is told from the control channel by the gateway race, not by counting**
+    (`game_link.live_endpoint`, bought with #1266). The client greets several gateways
+    while logging in, keeps one and leaves the losers half-closed for the session, so
+    the conversation carrying half-closed sockets is the game's; no other service on
+    the client leaves any. Two readings that looked convincing and are NOT the rule:
+
+      * «most sockets wins» — DISPROVED live (#1053). A client held six sockets on
+        :10012 and one on :17935, and a 25 s capture on each found :10012 silent and
+        :17935 carrying pushes. It was measured on a client whose game link was DEAD:
+        the six were half-closed, and the one live socket was the control channel.
+      * «the only established socket must be the game» — the same trap from the other
+        side, and exactly the night #1266 was bought with. So when the raced
+        conversation has no established socket, this answers None: there is no game
+        socket to point at, whatever else is alive.
     """
-    ports = detect_game_ports(pid)
-    return ports.pop() if len(ports) == 1 else None
+    talks = game_link.conversations(client_sockets(pid))
+    raced = {port: conn for port, (conn, dead) in talks.items() if dead}
+    if raced:
+        live = [port for port, conn in raced.items() if conn]
+        return live[0] if len(live) == 1 else None
+    live = [port for port, (conn, _dead) in talks.items() if conn]
+    return live[0] if len(live) == 1 else None
 
 
 class OwnPorts:
@@ -204,8 +210,10 @@ class OwnPorts:
         ports = set()
         try:
             for c in psutil.net_connections(kind="tcp"):
-                if (c.pid in pids and c.laddr and c.raddr
-                        and c.raddr.port not in NON_GAME_PORTS):
+                # Same rule as everywhere else (`game_link.is_game_socket`): not the
+                # web ports, and not the loopback pair the client keeps to itself —
+                # whose two local ports would otherwise be claimed as this account's.
+                if c.pid in pids and c.laddr and game_link.is_game_socket(c):
                     ports.add(c.laddr.port)
         except Exception:                # noqa: BLE001 — AccessDenied on some setups
             ports = set()

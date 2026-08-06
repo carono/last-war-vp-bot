@@ -1,20 +1,26 @@
 r"""The server port is READ off the running client, never assumed (#1053).
 
-The game's gateway port moves, and not in one direction — :17935 for years, :10012
-on one build, :17935 again on the next, with a client sometimes holding established
-sockets on both. Every failure that follows from a stale number is SILENT: a capture
-pinned to the wrong port hears nothing and looks exactly like «nobody is playing»,
-and a socket matcher pinned to it finds no socket and says «is the client on the
-world map?» about a client that is sitting on it.
+The game's gateway port is not stable across builds — `:17935` historically, `:10012`
+on the current client, and it will move again — and every failure that follows from a
+stale number is SILENT. A capture pinned to the wrong port hears nothing and looks
+exactly like «nobody is playing»; a socket matcher pinned to it finds no socket and
+says «is the client on the world map?» about a client that is sitting on it.
 
-So this file pins the reading itself:
+**And the client is having more than one conversation.** The game rides its own port,
+the chat / control channel another, and they live and die separately — which is the
+whole of #1266, and the trap this file exists to keep shut. Two readings that look
+convincing and are both wrong were tried against a LIVE client on 2026-08-07:
 
-  * what the live TCP table says wins, per client (`map_capture.detect_game_ports`);
-  * a caller that must point at ONE socket gets an answer only when the client leaves
-    no choice, and **None** the moment there are two — never a guess dressed up as a
-    reading (`map_capture.primary_game_port`);
-  * `steal_via_socket` asks that first and only then falls back to
-    `game_paths.game_port()` / `LW_GAME_PORT`, and `--port` pins it by hand.
+  * «most sockets wins» — the client showed six sockets on `:10012` and one on
+    `:17935`, and a 25 s capture on each found `:10012` silent and `:17935` carrying
+    alliance pushes. It was measured on a client whose game link was **dead**: the six
+    were half-closed and the survivor was the control channel;
+  * «the only established socket must be the game» — the same mistake from the other
+    side, and exactly the night #1266 was bought with.
+
+So the rule is `game_link`'s and there is no second copy of it here: a conversation is
+a port, the game's is the one carrying the **half-closed losers of its own gateway
+race**, and «cannot say» survives as far as the operator.
 
 Runs anywhere: psutil is stubbed, so there is no game and no sockets.
 
@@ -67,13 +73,23 @@ def _uninstall():
     steal_via_socket.set_game_port(None)            # re-open the probe for the next test
 
 
+def _healthy(pid=7, game=10012, control=17935):
+    """What a live client's table looks like: the game, its race losers, the control
+    channel, the loopback pair it keeps to itself, and the web sockets."""
+    return [_Conn(pid, game, lport=60385),
+            _Conn(pid, game, lport=60299, status="CLOSE_WAIT"),
+            _Conn(pid, game, lport=60302, status="CLOSE_WAIT"),
+            _Conn(pid, control, lport=60388),
+            _Conn(pid, 60294, lport=60295, rip="127.0.0.1"),
+            _Conn(pid, 60295, lport=60294, rip="127.0.0.1"),
+            _Conn(pid, 443, lport=60411), _Conn(pid, 80, lport=60307)]
+
+
 # ---------------------------------------------------------------------------
 def test_the_live_port_is_read_not_assumed():
-    """The client is on :10012; nothing may answer with the fallback :17935."""
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012), _Conn(7, 10012), _Conn(7, 443)])
+    """A live client on :10012 — nothing may answer with the written-down fallback."""
+    _install([_Proc(7, "lastwar.exe")], _healthy())
     try:
-        assert map_capture.detect_game_ports() == {10012}
         assert map_capture.primary_game_port() == 10012
         assert steal_via_socket.game_port() == 10012
         assert steal_via_socket.game_port() != game_paths.game_port(), \
@@ -82,28 +98,63 @@ def test_the_live_port_is_read_not_assumed():
         _uninstall()
 
 
-def test_the_count_of_sockets_is_not_evidence():
-    """Measured, not reasoned: six established sockets on the port carrying NOTHING.
-
-    A 25 s capture on each of a live client's two candidate ports (#1053) found the
-    six-socket one silent and the single-socket one carrying the alliance pushes. So
-    «most sockets wins» is not a tie-break, and a matcher must not invent one.
-    """
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012), _Conn(7, 10012), _Conn(7, 10012),
-                     _Conn(7, 17935)])
+def test_the_game_is_told_by_its_gateway_race_not_by_counting():
+    """The control channel has one live socket too; only the game leaves losers."""
+    _install([_Proc(7, "lastwar.exe")], _healthy())
     try:
-        assert map_capture.detect_game_ports() == {10012, 17935}, "a capture hears both"
+        assert map_capture.detect_game_ports() == {10012, 17935}, \
+            "a capture must hear both conversations"
+        assert map_capture.primary_game_port() == 10012, \
+            "the matcher picked a conversation that is not the game's"
+    finally:
+        _uninstall()
+
+
+def test_the_count_of_sockets_is_not_evidence():
+    """Measured, not reasoned: the busier port was the one carrying nothing.
+
+    Six sockets on :10012 and one on :17935, and 25 s of capture on each found the
+    six-socket side silent. «Most sockets wins» is not a tie-break — those six were
+    half-closed, which makes them evidence of the opposite thing.
+    """
+    conns = ([_Conn(7, 10012, lport=60299 + i, status="CLOSE_WAIT") for i in range(6)]
+             + [_Conn(7, 17935, lport=60385)])
+    _install([_Proc(7, "lastwar.exe")], conns)
+    try:
+        assert map_capture.primary_game_port() != 17935, \
+            "the control channel was handed over as the game — the #1266 night again"
         assert map_capture.primary_game_port() is None, \
-            "the busiest port answered — the reading disproved live is back"
+            "a stranded client has no game socket to point at, and must say so"
+    finally:
+        _uninstall()
+
+
+def test_a_stranded_client_is_not_a_reading_of_a_healthy_one():
+    """The live table on 2026-08-07 00:45, in full: this is what «lost» looks like.
+
+    `game_link.probe()` said `link='lost', dead=6` at the same moment, and a matcher
+    that answered :17935 here would write into the chat channel.
+    """
+    conns = ([_Conn(7, 10012, lport=60299 + i, status="CLOSE_WAIT") for i in range(6)]
+             + [_Conn(7, 17935, lport=60385),
+                _Conn(7, 60294, lport=60295, rip="127.0.0.1"),
+                _Conn(7, 60295, lport=60294, rip="127.0.0.1"),
+                _Conn(7, 443, lport=60411)])
+    _install([_Proc(7, "lastwar.exe")], conns)
+    try:
+        assert map_capture.detect_game_ports() == {10012, 17935}, \
+            "the dead conversation must stay in the filter — it is where the client returns"
+        assert map_capture.primary_game_port() is None
+        assert steal_via_socket.game_port() == game_paths.game_port(), \
+            "an unreadable link must fall back loudly, not offer the control channel"
     finally:
         _uninstall()
 
 
 def test_a_pid_asks_about_its_own_client():
-    """Two accounts, two ports mid-migration — a duplicated handle must not cross."""
+    """Two accounts — a duplicated handle must not cross from one client to the other."""
     procs = [_Proc(7, "lastwar.exe"), _Proc(8, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012), _Conn(8, 17935)])
+    _install(procs, _healthy(7, game=10012) + _healthy(8, game=17935, control=10012))
     try:
         assert map_capture.primary_game_port(7) == 10012
         assert map_capture.primary_game_port(8) == 17935
@@ -115,8 +166,8 @@ def test_a_pid_asks_about_its_own_client():
 
 def test_web_sockets_are_never_the_game():
     """The client keeps HTTP/TLS open for assets and translation all day."""
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 443), _Conn(7, 443), _Conn(7, 80)])
+    _install([_Proc(7, "lastwar.exe")],
+             [_Conn(7, 443), _Conn(7, 443, lport=55001), _Conn(7, 80, lport=55002)])
     try:
         assert map_capture.detect_game_ports() == set()
         assert map_capture.primary_game_port() is None
@@ -125,63 +176,31 @@ def test_web_sockets_are_never_the_game():
 
 
 def test_the_client_talking_to_itself_is_not_a_gateway():
-    """Measured live: the client keeps 127.0.0.1 pairs of its own, both ends its pid.
-
-    Counted, they put two ephemeral numbers into every capture filter and can
-    outvote the real gateway.
-    """
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 58950, lport=58949, rip="127.0.0.1"),
-                     _Conn(7, 58949, lport=58950, rip="127.0.0.1"),
-                     _Conn(7, 17935)])
+    """The loopback pair survives the server hanging up — counting it is the lie."""
+    _install([_Proc(7, "lastwar.exe")],
+             [_Conn(7, 58950, lport=58949, rip="127.0.0.1"),
+              _Conn(7, 58949, lport=58950, rip="127.0.0.1")])
     try:
-        assert map_capture.detect_game_ports() == {17935}
-        assert map_capture.primary_game_port() == 17935
-    finally:
-        _uninstall()
-
-
-def test_two_candidates_are_not_guessed_between():
-    """Also measured live: an established socket on the OLD port and one on the new.
-
-    Nothing in the socket table tells them apart, and this is the read that decides
-    which socket gets written into — so «cannot say» has to survive as far as the
-    operator instead of being rounded to whichever number sorts first.
-    """
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012), _Conn(7, 17935)])
-    try:
-        assert map_capture.detect_game_ports() == {10012, 17935}, \
-            "a capture must still hear both"
-        assert map_capture.primary_game_port() is None, "a tie was decided by coin-flip"
-        assert steal_via_socket.game_port() == game_paths.game_port(), \
-            "an ambiguous read must fall back, loudly, not pick one"
-    finally:
-        _uninstall()
-
-
-def test_a_socket_that_is_not_established_is_not_a_reading():
-    """A half-closed leftover is exactly what a stranded client is full of.
-
-    Live, the CLOSE_WAIT sockets outnumbered the working one four to one and all
-    named the gateway the client had already left.
-    """
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012, status="CLOSE_WAIT"),
-                     _Conn(7, 10012, status="CLOSE_WAIT"),
-                     _Conn(7, 17935)])
-    try:
-        assert map_capture.primary_game_port() == 17935, \
-            "a port nobody is talking on outvoted the one they are"
-        _uninstall()
-        _install(procs, [_Conn(7, 10012, status="CLOSE_WAIT")])
+        assert map_capture.detect_game_ports() == set()
         assert map_capture.primary_game_port() is None
     finally:
         _uninstall()
 
 
+def test_the_dead_conversation_stays_in_the_capture_filter():
+    """A capture started against a stranded client must survive its reconnect."""
+    _install([_Proc(7, "lastwar.exe")],
+             [_Conn(7, 10012, status="CLOSE_WAIT")])
+    try:
+        assert map_capture.detect_game_ports() == {10012}
+        assert map_capture.primary_game_port() is None, \
+            "half-closed is not something to point a send at"
+    finally:
+        _uninstall()
+
+
 def test_nothing_to_read_falls_back_and_says_so():
-    """No client, no psutil — the fallback answers, and None is what «unread» looks like."""
+    """No client, no psutil — the fallback answers, and None is what «unread» means."""
     _uninstall()                                    # no psutil at all
     assert map_capture.detect_game_ports() == set()
     assert map_capture.primary_game_port() is None
@@ -192,8 +211,7 @@ def test_a_fallback_is_never_cached():
     """The client may not be up YET; a probe that failed once must not pin the run."""
     _uninstall()
     assert steal_via_socket.game_port() == game_paths.game_port()
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012)])
+    _install([_Proc(7, "lastwar.exe")], _healthy())
     try:
         assert steal_via_socket.game_port() == 10012, \
             "the failed probe stuck and the tool went on matching the wrong port"
@@ -203,8 +221,7 @@ def test_a_fallback_is_never_cached():
 
 def test_a_reading_is_cached_so_one_run_agrees_with_itself():
     """The BPF filter and the peer match must be the same number all run long."""
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012)])
+    _install([_Proc(7, "lastwar.exe")], _healthy())
     try:
         assert steal_via_socket.game_port() == 10012
         sys.modules.pop("psutil", None)             # the client goes away mid-run
@@ -216,8 +233,7 @@ def test_a_reading_is_cached_so_one_run_agrees_with_itself():
 
 def test_the_port_can_be_pinned_by_hand():
     """`--port` is the escape hatch for a machine whose socket table cannot be read."""
-    procs = [_Proc(7, "lastwar.exe")]
-    _install(procs, [_Conn(7, 10012)])
+    _install([_Proc(7, "lastwar.exe")], _healthy())
     try:
         steal_via_socket.set_game_port(17935)
         assert steal_via_socket.game_port() == 17935, "an explicit --port lost to a probe"
@@ -235,6 +251,13 @@ def test_a_capture_hears_something_even_with_nothing_to_read():
     src = (_REPO / "tools" / "dev" / "watch_rally.py").read_text(encoding="utf-8")
     assert 'default="port' not in src, "the BPF default is a written-down port again"
     assert "detect_game_ports()" in src, "the BPF default no longer asks the client"
+
+
+def test_one_owner_for_the_socket_rule():
+    """`map_capture` must not grow its own copy of «which socket is the game»."""
+    src = (_REPO / "tools" / "lib" / "map_capture.py").read_text(encoding="utf-8")
+    assert "game_link.conversations(" in src, "the conversation rule was re-implemented"
+    assert "_is_loopback" not in src, "a second loopback rule is back in map_capture"
 
 
 def _main() -> int:

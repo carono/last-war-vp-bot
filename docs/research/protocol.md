@@ -24,27 +24,50 @@ Custom binary over **plain TCP — no TLS**. Observed endpoint
 IP directly with **no preceding DNS lookup**, so SNI/DNS filters will not find
 it — filter by frame shape or port instead.
 
-**And the port moves too — in both directions** (#1053). `:17935` held for years,
-then a build came up on `:10012`, and a later one was back on `:17935`; same
-protocol, same kind of gateway. A capture pinned to the number written down here
-hears *nothing*, which on screen is indistinguishable from an idle account — the
-most expensive false lead this repository has produced. So the port is **read off
-the running client**: `map_capture.detect_game_ports()` returns its ESTABLISHED,
-non-web, non-loopback peers, and `LW_GAME_PORT` / `game_paths.game_port()` answers
-only when there is no client to ask. Every capture tool does this by default;
-`--port N` pins one and `--all-tcp` drops the filter entirely.
+**And the port moves between builds** (#1053): `:17935` when this file was first
+written, **`:10012` on the current client**. A capture pinned to the number
+written down here hears *nothing*, which on screen is indistinguishable from an
+idle account — the most expensive false lead this repository has produced. So the
+port is **read off the running client**: `map_capture.detect_game_ports()` returns
+the ports of its server conversations, and `LW_GAME_PORT` / `game_paths.game_port()`
+answers only when there is no client to ask. Every capture tool does this by
+default; `--port N` pins one and `--all-tcp` drops the filter entirely.
 
-**An open socket is not a talking one, and counting them proves nothing.**
-Measured 2026-08-07 on a client that had been up for hours: it held *six*
-ESTABLISHED sockets on `:10012` and *one* on `:17935`, plus CLOSE_WAIT leftovers
-on `:10012` and two `127.0.0.1 → 127.0.0.1` sockets whose both ends were its own
-pid. A 25 s capture on each port settled it — `:10012` delivered **0 packets with
-payload**, while the lone `:17935` socket carried nine alliance pushes. Twenty
-minutes later the `:10012` sockets were gone. Hence the rule in the code: a
-capture filters on **every** candidate (a spare costs a few discarded frames),
-and anything that must pick exactly one socket — `steal_via_socket` — refuses to
-choose when there are two and asks for `--port` instead. The socket table knows
-which ports are open, never which one is answering.
+**Which of the client's conversations is the game is NOT decided here** — it is
+`game_link`'s rule and there is one copy of it (`docs/research/server-link-status.md`).
+The client talks to more than one server: the game on its own port, the chat /
+control channel on another, plus a loopback pair to itself. They live and die
+separately, and «this process has a live socket» says nothing about which.
+
+### A wrong reading of this, twice in one night — recorded so it is not re-derived
+
+Both were measured, both looked solid, and **both are wrong**:
+
+* ❌ **«the port moved back to `:17935`»** (#1053, 2026-08-07 03:30). A client held
+  six sockets on `:10012` and one on `:17935`; 25 s of capture on each found
+  `:10012` delivering **0 packets with payload** and the lone `:17935` socket
+  carrying nine alliance pushes. Read as «the gateway moved back».
+  **Disproved 00:45 the same night**, by the same client's socket table: the six
+  `:10012` sockets were **CLOSE_WAIT**, not established, and `game_link.probe()`
+  said `link='lost', dead=6`. The live `:17935` socket was the **control channel**
+  of a stranded client — precisely the state #1266 was bought with. When the client
+  reconnected, `:10012` came back established and a 20 s capture on it carried
+  alliance marches and alerts. **The game port is `:10012`.**
+* ❌ **«the busiest port wins»** — the tie-break the first reading suggested. The
+  busier port was the one carrying nothing, because those six sockets were the
+  half-closed *losers of the gateway race*. Counting sockets measures how many the
+  client has opened, never which one is answering.
+
+What survives from the same measurements, and is used in the code:
+
+* a capture filters on **every** conversation, including one whose sockets are all
+  half-closed — that is where the client will come back after a reconnect, and a
+  filter term that matches nothing costs nothing;
+* anything that must point at exactly ONE socket (`steal_via_socket`) takes the
+  conversation carrying the half-closed race losers — the game's signature — and
+  refuses to answer at all when that conversation has no established socket. On a
+  stranded client the honest answer is «there is nothing to send down», not the
+  control channel's port.
 
 Gameplay, alliance events and map queries all multiplex over this **single
 connection**. Chat is only **partly** here: the game gateway carries chat
