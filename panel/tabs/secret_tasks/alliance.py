@@ -20,9 +20,21 @@ draws a star on. Both are off by default — the mirror shows the whole alliance
 somebody says otherwise — and both are display rules only: they hide rows, they change
 no robbery and they touch no game.
 
-It is replaced whole by every read rather than merged into: a task the game no longer
-lists has ended, and nothing here is worth keeping past the answer that produced it.
-That is also why it needs no checkpoint of its own — the game is the checkpoint.
+THIS PAGE IS A MIRROR, AND DELIBERATELY THE ONLY ONE. It is replaced whole by every
+read rather than merged into — the operator's own ruling, confirmed when the rest of
+the tab was moved the other way (#1251): «Задания альянса списком, всё верно, он один
+и всегда актуален, чего нет, значит протухло.» The read hands over the entire table
+every time (200 tasks live from 52 members), so a task it stops listing has ended, and
+a row kept past that answer would be a raid that no longer exists.
+
+Every OTHER page here accumulates, because no read of theirs can restate the whole
+truth: a lap of the map shows the patch it drove over, and the client's own ghost lists
+were watched emptying mid-event as squads came home. **Do not make this one accumulate
+to match them.** `tests/test_panel_secret_tasks.py` fails if it starts to — the
+distinction is the point, not an oversight.
+
+Not accumulating is also why it needs no checkpoint of its own: the game is the
+checkpoint.
 
 The read is its own (`dispatch_tasks.alliance_roster`, driven from the tab's
 `_roster`), because the raid read cannot answer this: it is filtered to the robbable and

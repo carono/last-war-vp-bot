@@ -2264,6 +2264,34 @@ def test_each_page_saves_its_filters_under_its_own_key():
     assert fresh.level_from.get() == "" and fresh.monitor_var.get() is False
 
 
+def test_the_alliance_page_stays_a_mirror_on_purpose():
+    """«Задания альянса списком, он один и всегда актуален, чего нет — значит протухло.»
+
+    The operator's own ruling (#1251), and the one place on this tab where a read
+    REPLACES the table instead of adding to it: `alliance_roster` hands over the whole
+    thing every time — 200 tasks from 52 members, live — so a task it stops listing has
+    ended, and keeping the row would be a raid that no longer exists.
+
+    Pinned rather than merely written down, because the rest of the tab was moved the
+    other way in the same task and «make them all consistent» is exactly the tidy-up
+    that would break this one.
+    """
+    mirror = _alliance_grid()
+    mirror.apply([_member_task(1), _member_task(2)])
+    assert set(mirror._rows) == {"1", "2"}
+    mirror.apply([_member_task(3)])
+    assert set(mirror._rows) == {"3"}, "the alliance mirror started accumulating"
+
+    # It inherits the base's replace-whole `apply` — an override here IS the change
+    # this test exists to catch.
+    assert al.AllianceGrid.apply is gr.TaskGrid.apply
+    src = (Path(__file__).resolve().parents[1] / "panel" / "tabs" / "secret_tasks" /
+           "alliance.py").read_text(encoding="utf-8")
+    assert "def apply(" not in src, "the alliance page grew an apply() of its own"
+    # …and the reason is written where the next reader will find it.
+    assert "MIRROR" in src.upper() and "протухло" in src
+
+
 def test_the_capture_only_fills_the_list_and_never_empties_it():
     """«Мониторинг только наполняет наши таблицы» (#1251).
 
@@ -2341,12 +2369,7 @@ def test_the_map_page_keeps_its_own_list_and_checkpoints_it():
     ally.apply([_ghost_record(3)])
     assert set(ally._rows) == {"1", "2", "3"}
 
-    # The secret-task alliance page IS still a mirror: that read hands over the whole
-    # table every time (200 tasks live), so what it no longer lists has ended.
-    mirror = _alliance_grid()
-    mirror.apply([_member_task(1), _member_task(2)])
-    mirror.apply([_member_task(3)])
-    assert set(mirror._rows) == {"3"}
+    # The secret-task alliance page IS still a mirror — see the test below.
 
 
 if __name__ == "__main__":
