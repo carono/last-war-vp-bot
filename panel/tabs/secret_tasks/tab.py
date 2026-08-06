@@ -42,19 +42,30 @@ and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). The «ур�
 range doubles as the list's display filter — a starred tile shows only while its level is
 inside it, so the operator sees exactly the tiles auto-loot is about to weigh.
 
-THERE ARE TWO TABLES (#1244). The one described above is a WORKING list — the starred
-raids, gathered from two sources, kept across a restart, spent by «Собрать». Under it is
-a second, identical table answering a different question: WHICH OF MY ALLIANCEMATES IS
-RUNNING WHAT. One row per task an alliance member has out, with the member's name on it,
-its rank, when it finishes and how many times it has been robbed — nothing filtered out,
-because every one of them is somebody's task
-(:mod:`~panel.tabs.secret_tasks.alliance`). It keeps no checkpoint of its own — the game
-is its checkpoint — and it is replaced whole by every read rather than merged into.
+THERE ARE THREE TABLES, AND THEY ARE PAGES (#1244, #1251). The one described above is a
+WORKING list — the starred raids, gathered from two sources, kept across a restart,
+spent by «Собрать». Beside it:
 
-That read is its own (:meth:`_roster`) and cannot be shared with the one above: the raid
-read is filtered to the robbable and carries no owner name at all. It is also the tab's
-slowest round trip, so it runs when the tab is opened, on «Обновить» and on a profile
-switch — and NOT on a mate's share, which changes the raid list rather than the roster.
+* **«Секретки альянса»** (:mod:`~panel.tabs.secret_tasks.alliance`) — a mirror of the
+  game's own table answering a different question: WHICH OF MY ALLIANCEMATES IS RUNNING
+  WHAT. One row per task an alliance member has out, with the member's name on it, its
+  rank, when it finishes and how many times it has been robbed. The READ filters nothing
+  out, because every one of them is somebody's task; what the eye is shown is the two
+  boxes over it, «UR» and «Звезда» (#1251). It keeps no checkpoint of its own — the game
+  is its checkpoint — and is replaced whole by every read.
+* **«Операция Призрак»** (:mod:`~panel.tabs.secret_tasks.ghost`) — the weekly co-op
+  event's squads: the same table again, with the game's own verdict in the state cell
+  instead of a countdown, and no robbery of its own (#1188).
+
+They were stacked under one another in a splitter and are a NOTEBOOK now (#1251): three
+tables sharing one height by dragging a sash is three tables nobody can read, and which
+of them is being looked at is a question with one answer at a time.
+
+Each has a read of its own and none can be shared: the raid read (:meth:`_snapshot`) is
+filtered to the robbable and carries no owner name, the roster (:meth:`_roster`) is the
+tab's slowest round trip, and the ghost list (:meth:`_ghost`) is a different event
+altogether. All three run when the tab is opened, on «Обновить» and on a profile switch
+— and NOT on a mate's share, which changes the raid list rather than the other two.
 
 THE LIST IS A TABLE (#1209). It was a stack of hand-packed rows, each label carrying its
 own width, which is why nothing lined up under anything: a `ttk.Treeview` gives the
@@ -87,6 +98,7 @@ from . import grid
 from .alliance import AllianceGrid
 from .autoloot import AutoLoot
 from .capture import Capture
+from .ghost import GhostGrid
 from .shared import SharedMarks
 from .sweep import Sweep
 
@@ -162,6 +174,9 @@ class SecretTasksTab(PanelTab):
         # silence the other two.
         self._vm_busy = False
         self._roster_busy = False
+        # …and the ghost-recon page's own read (#1251), which is a fourth source with
+        # a fourth failure mode: a weekly event that is shut six days out of seven.
+        self._ghost_busy = False
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -193,6 +208,11 @@ class SecretTasksTab(PanelTab):
         self._empty = None
         self._sort = None            # (column id, reversed) once a heading is clicked
         self._collect_btn = self._share_btn = self._goto_btn = None
+        # The notebook the three tables are pages of, and its page frames in the order
+        # they were added — so a language change can rewrite the tab labels, which are
+        # the one piece of text a `ttk.Notebook` will not take a variable for (#1251).
+        self._pages = None
+        self._page_keys: list = []
 
         # -- the controls the three orders read ------------------------------
         self.monitor_var = tk.BooleanVar(master=master, value=False)
@@ -210,6 +230,14 @@ class SecretTasksTab(PanelTab):
         # silent rule so that a tile vanishing has somewhere to be looked for — the
         # question «did it fill up, or did the bot lose it?» is otherwise unanswerable.
         self.show_spent_var = tk.BooleanVar(master=master, value=False)
+        # «Скрывать со своего сервера»: ON by default (#1251), and a DISPLAY rule only.
+        # A neighbour's tile at home is not what this list is read for — the raids worth
+        # a march are the ones abroad — so it starts out of the way and the box is what
+        # brings it back. Deliberately NOT the same setting as «Не грабить на своём
+        # сервере» above, which gates the ROBBERIES and hides nothing: mixing the two is
+        # how a rule about spending five raids a day silently became a rule about what
+        # is on screen.
+        self.hide_own_var = tk.BooleanVar(master=master, value=True)
         self.sweep_var = tk.BooleanVar(master=master, value=False)
         self.sweep_cx_var = tk.StringVar(master=master)
         self.sweep_cy_var = tk.StringVar(master=master)
@@ -236,7 +264,9 @@ class SecretTasksTab(PanelTab):
         # The second table (#1244): what the alliancemates are running, filled by its
         # own read — see `_roster`.
         self.alliance = AllianceGrid(self)
-        # Which tiles the alliance has already been shown (#1245). Both tables read it,
+        # The third page (#1251): the weekly event's squads, filled by its own read.
+        self.ghost = GhostGrid(self)
+        # Which tiles the alliance has already been shown (#1245). The tables read it,
         # the panel's own «Поделиться» writes it, and so do the two capture children —
         # which is what makes a share pressed in the GAME show up here.
         self.shared = SharedMarks(rt)
@@ -295,8 +325,10 @@ class SecretTasksTab(PanelTab):
             self._update_status()
         self._start_clock_sync()
         self._start_ticking()
+        self._prime_own_server()
         self._snapshot()
         self._roster()
+        self._ghost()
 
     def on_profile_switch(self) -> None:
         """Bounce all three orders onto the new account.
@@ -324,9 +356,12 @@ class SecretTasksTab(PanelTab):
         self._collected.clear()
         self._auto_attempted.clear()
         self._restore_pending = set()
-        # The roster below belongs to the old account just as much — a different account
+        # The roster belongs to the old account just as much — a different account
         # is a different alliance, and those are not this one's alliancemates (#1244).
         self.alliance.clear()
+        # …and so does the ghost list: another account has its own event budget and its
+        # own squads out (#1251).
+        self.ghost.clear()
         # …and so do the shares: «уже поделились» is about an alliance chat this account
         # is not in (#1245). Dropped rather than re-read, because the new profile's own
         # file is read by the next countdown pass anyway.
@@ -335,8 +370,10 @@ class SecretTasksTab(PanelTab):
             self._restore_pending = self._load_persisted()
             self._render()
             self._update_status()
+            self._prime_own_server()
             self._snapshot()
             self._roster()
+            self._ghost()
         self._refresh_rule_hints()
         if self.monitor_var.get():
             self.capture.start()
@@ -348,12 +385,29 @@ class SecretTasksTab(PanelTab):
     def on_language_change(self) -> None:
         self._retranslate_combo()
         self._retranslate_headings()
+        self._retranslate_pages()
         self._refresh_rule_hints()
         # The rows themselves carry words too («⭐×7», «готово через …»), and a heading
-        # is only half the table. Both tables, for the same reason.
+        # is only half the table. Every table, for the same reason.
         self._render()
-        self.alliance.retranslate()
-        self.alliance.render()
+        for page in (self.alliance, self.ghost):
+            page.retranslate()
+            page.render()
+
+    def _retranslate_pages(self) -> None:
+        """Rewrite the notebook's own tab labels (#1251).
+
+        A `ttk.Notebook` takes a string and not a variable, so its labels are the one
+        piece of text on this tab that a language change has to go and fetch by hand.
+        """
+        book = self._pages
+        if book is None:
+            return
+        try:
+            for index, key in enumerate(self._page_keys):
+                book.tab(index, text=self.t(key))
+        except tk.TclError:
+            return
 
     def panic(self) -> None:
         """«Стоп всё»: every standing order down, and the boxes say so."""
@@ -380,6 +434,12 @@ class SecretTasksTab(PanelTab):
             "monitor_interval": self.interval_var.get(),
             "secret_monitor": bool(self.monitor_var.get()),
             "show_spent": bool(self.show_spent_var.get()),
+            # The three display rules the pages carry (#1251) — what is SHOWN, never
+            # what is robbed. The robbery's own rule is `autoloot_skip_own_server`
+            # below, and the two are kept apart on purpose.
+            "hide_own_server": bool(self.hide_own_var.get()),
+            "alliance_ur_only": bool(self.alliance.ur_var.get()),
+            "alliance_star_only": bool(self.alliance.star_var.get()),
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
             "autoloot": bool(self.autoloot_var.get()),
@@ -404,6 +464,13 @@ class SecretTasksTab(PanelTab):
         self.interval_var.set(str(raw.get("monitor_interval", "15")))
         self.monitor_var.set(bool(raw.get("secret_monitor", False)))
         self.show_spent_var.set(bool(raw.get("show_spent", False)))
+        # ON for a profile that has never been asked (#1251): a raid at home is not
+        # what this list is read for, and the box is how somebody says otherwise.
+        self.hide_own_var.set(bool(raw.get("hide_own_server", True)))
+        # …and the alliance mirror shows everything until asked, which is why these two
+        # default the other way.
+        self.alliance.ur_var.set(bool(raw.get("alliance_ur_only", False)))
+        self.alliance.star_var.set(bool(raw.get("alliance_star_only", False)))
         self.filter_from_var.set(raw.get("filter_level_from", ""))
         self.filter_to_var.set(raw.get("filter_level_to", ""))
         # A profile saved before the display filter and the robbery rule were split has
@@ -431,6 +498,7 @@ class SecretTasksTab(PanelTab):
 
     def persist_vars(self) -> list:
         return [self.monitor_var, self.interval_var, self.show_spent_var,
+                self.hide_own_var, self.alliance.ur_var, self.alliance.star_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_from_var, self.level_to_var,
                 self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
@@ -590,33 +658,37 @@ class SecretTasksTab(PanelTab):
 
     # -- the table -------------------------------------------------------------
     def _build_table(self) -> None:
-        """The two tables: the starred raid targets, and the alliance's own list (#1244).
+        """The three tables, as the three pages of a notebook (#1251).
 
         A `ttk.Treeview` rather than a stack of frames (#1209). The rows used to be packed
         by hand, each label carrying its own width, so nothing lined up under anything and
         a long countdown pushed its neighbours off the row. Here the widths belong to the
         columns, the header stays put while the list scrolls, and a heading sorts.
 
-        What a Treeview cannot hold is a widget, so the two row actions live under it and
-        act on the selection — plus the right-click menu, and the coordinate link.
+        What a Treeview cannot hold is a widget, so the row actions live under it and act
+        on the selection — plus the right-click menu, and the coordinate link.
 
-        The second grid is the same table again (`grid.py`, `alliance.py`) with the
-        alliancemates' own tasks in it, unfiltered. The two share the height
-        through a `PanedWindow` rather than splitting it in a fixed ratio: which of the
-        two is being read changes by the hour, and dragging the sash is how the operator
-        says which one it is right now.
+        The tables used to share the height through a `PanedWindow`. Two of them barely
+        did; three cannot — a table with a fifth of a window is a table nobody reads, and
+        the answer to «which of these am I looking at» is one page at a time. The strip
+        of actions below stays ONE strip and follows the page on top, so «Собрать» is
+        never aimed at a row on a table that is not on screen.
         """
         # The action strip is packed FIRST, against the bottom: pack clips whatever was
         # packed last when the window is short, and the buttons are the one thing on the
         # tab that must never be the part that falls off the edge.
         acts = ttk.Frame(self.parent)
         acts.pack(side="bottom", fill="x", padx=10, pady=(4, 10))
-        panes = ttk.PanedWindow(self.parent, orient="vertical")
-        panes.pack(fill="both", expand=True, padx=10, pady=(0, 0))
-        wrap = ttk.Frame(panes)
-        panes.add(wrap, weight=3)
-        self._empty = self.tr(ttk.Label(wrap, foreground="#888"), "secrettasks.empty")
-        self._body = ttk.Frame(wrap)
+        book = ttk.Notebook(self.parent)
+        book.pack(fill="both", expand=True, padx=10, pady=(0, 0))
+        self._pages = book
+        self._page_keys = []
+
+        stars = ttk.Frame(book, padding=6)
+        self._add_page(stars, "secrettasks.page.stars")
+        self._empty = self.tr(ttk.Label(stars, foreground="#888"), "secrettasks.empty")
+        self._build_star_filters(stars)
+        self._body = ttk.Frame(stars)
         self._body.pack(fill="both", expand=True)
 
         tree = grid.make_tree(self._body)
@@ -627,7 +699,10 @@ class SecretTasksTab(PanelTab):
         tree.bind("<<TreeviewSelect>>", lambda _e: self._sync_actions())
         self._tree = tree
         self._retranslate_headings()
-        panes.add(self.alliance.build(panes), weight=2)
+        self._add_page(self.alliance.build(book), "secrettasks.page.alliance")
+        self._add_page(self.ghost.build(book), "secrettasks.page.ghost")
+        # Switching pages re-aims the strip below at whatever the new page has selected.
+        book.bind("<<NotebookTabChanged>>", lambda _e: self.sync_actions())
 
         self._goto_btn = self.tr(ttk.Button(acts, width=12, command=self._goto_selected),
                                  "secrettasks.goto")
@@ -649,6 +724,52 @@ class SecretTasksTab(PanelTab):
                                                command=self._collect_selected),
                                     "secrettasks.collect")
         self._collect_btn.pack(side="right")
+        self._sync_actions()
+
+    def _add_page(self, frame, key: str) -> None:
+        """Add one page to the notebook and remember the key its label is said from."""
+        self._pages.add(frame, text=self.t(key))
+        self._page_keys.append(key)
+
+    def _build_star_filters(self, parent) -> None:
+        """The ★ page's own box: «Скрывать со своего сервера», ON by default (#1251).
+
+        A DISPLAY rule and nothing else. «Не грабить на своём сервере» in the auto-loot
+        frame above gates the ROBBERIES and hides nothing; this hides rows and robs
+        nothing. Two settings, two places, deliberately — a tile at home stays
+        shareable, jumpable and collectable by hand whichever way this box is set.
+        """
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", pady=(0, 4))
+        self.tr(ttk.Label(bar), "secrettasks.filters").pack(side="left", padx=(0, 8))
+        self.tr(ttk.Checkbutton(bar, variable=self.hide_own_var,
+                                command=self._on_hide_own_change),
+                "secrettasks.filter.hide_own").pack(side="left")
+
+    def _on_hide_own_change(self) -> None:
+        """The box was flipped: redraw the ★ list, read nothing, rob nothing."""
+        self.rt.settings.changed()
+        self._render()
+        self._update_status()
+
+    def _current_page(self):
+        """The grid on the page now open, or None while the ★ page is (it is the tab).
+
+        The strip of buttons below the notebook is one strip for three pages, so it has
+        to know which table it is aimed at — otherwise «Собрать» acts on a row the
+        person cannot see.
+        """
+        book = self._pages
+        if book is None:
+            return None
+        try:
+            index = book.index(book.select())
+        except (tk.TclError, ValueError):
+            return None
+        return {1: self.alliance, 2: self.ghost}.get(index)
+
+    def sync_actions(self) -> None:
+        """Public name for the strip's re-aim — the pages call it when they redraw."""
         self._sync_actions()
 
     def _retranslate_headings(self) -> None:
@@ -823,7 +944,15 @@ class SecretTasksTab(PanelTab):
             menu.grab_release()
 
     def _selected(self):
-        """The row the table's selection is on, or None."""
+        """The row the OPEN page's selection is on, or None.
+
+        One strip of buttons serves three pages (#1251), so what it acts on is whatever
+        is selected on the page in front of the person — not whatever was left selected
+        on a table two pages back.
+        """
+        page = self._current_page()
+        if page is not None:
+            return page.selected()
         tree = self._tree
         if tree is None:
             return None
@@ -834,12 +963,19 @@ class SecretTasksTab(PanelTab):
         """Enable each button of the strip only where it means something.
 
         «Собрать» on a tile still counting down is a robbery the server would refuse, so
-        the button says so by being unavailable rather than by failing afterwards.
+        the button says so by being unavailable rather than by failing afterwards. On a
+        page that does not rob at all — the ghost list, whose press lives in «Командный
+        пункт» (#1188) — it stays out, and so does «Поделиться»: a ghost squad is not
+        what a secret-task share posts.
         """
+        page = self._current_page()
         row = self._selected()
+        can_take = bool(row) and (page.collectable(row) if page is not None
+                                  else self._collectable(row))
+        can_share = bool(row) and page is not self.ghost
         for widget, live in ((self._goto_btn, row is not None),
-                             (self._share_btn, row is not None),
-                             (self._collect_btn, bool(row and self._collectable(row)))):
+                             (self._share_btn, can_share),
+                             (self._collect_btn, can_take)):
             if widget is None:
                 continue
             try:
@@ -848,8 +984,12 @@ class SecretTasksTab(PanelTab):
                 pass
 
     def _collect_selected(self) -> None:
+        """«Собрать» on the strip — against the page's own rule about robbing (#1251)."""
+        page = self._current_page()
         row = self._selected()
-        if row is not None and self._collectable(row):
+        if row is None:
+            return
+        if page.collectable(row) if page is not None else self._collectable(row):
             self._collect(row)
 
     def _goto_selected(self) -> None:
@@ -1143,6 +1283,59 @@ class SecretTasksTab(PanelTab):
         if ok:
             self.alliance.apply(rows)
 
+    # -- the ghost-recon list (#1251) -------------------------------------------
+    def _ghost(self) -> None:
+        """Read the weekly event's squads, for the third page. Off the Tk thread.
+
+        One round trip: the dump carries the event's own state — open day, robberies
+        left — on its first line, so the page's status and its rows come from the same
+        answer (`ghost_recon_steal.roster`). Six days a week that answer is «closed»
+        and an empty list, which the page says rather than looking broken.
+        """
+        if self._ghost_busy:
+            return
+        self._ghost_busy = True
+        threading.Thread(target=self._ghost_work, daemon=True).start()
+
+    def _ghost_work(self) -> None:
+        try:
+            status, rows = self.ghost.fetch()
+            ok = True
+        except Exception:                     # noqa: BLE001 — no daemon, no game, no event
+            status, rows, ok = {}, [], False
+        self.after(lambda: self._ghost_landed(status, rows, ok))
+
+    def _ghost_landed(self, status, rows, ok: bool) -> None:
+        """Hand the read to the third page — but only a read that WORKED.
+
+        A failed one says nothing about the event, exactly as a failed roster read says
+        nothing about the alliance: emptying the table on it would turn «the daemon was
+        busy» into «no squads are out».
+        """
+        self._ghost_busy = False
+        if ok:
+            self.ghost.landed(status, rows)
+
+    # -- who I am, read once ------------------------------------------------------
+    def _prime_own_server(self) -> None:
+        """Learn the account's own server once, off the Tk thread (#1251).
+
+        «Скрывать со своего сервера» judges every row against it on every redraw, and
+        the reader behind it goes to the game while the answer is unknown — which on
+        the Tk thread would be a round trip per repaint. So it is asked for here, once,
+        beside the reads the tab already makes, and the redraw only ever consults the
+        cached number. An unreadable answer stays 0 and hides nothing.
+        """
+        if self._own_server:
+            return
+
+        def work() -> None:
+            srv = self.own_server()
+            if srv:
+                self.after(lambda: (self._render(), self._update_status()))
+
+        threading.Thread(target=work, daemon=True).start()
+
     def refresh_live(self) -> None:
         """A share landed: re-merge the checkpoint and re-read the raid list.
 
@@ -1157,13 +1350,15 @@ class SecretTasksTab(PanelTab):
     def refresh_both(self) -> None:
         """«Обновить»: every source the tab has, in one press.
 
-        The checkpoint merge (a file read), the raid list off the VM, and the alliance
-        roster below (#1244). Each guards its own path with its own flag, so none of the
-        three can silently skip because another happened to be in flight.
+        The checkpoint merge (a file read), the raid list off the VM, the alliance
+        roster (#1244) and the ghost-recon list (#1251). Each guards its own path with
+        its own flag, so none of them can silently skip because another happened to be
+        in flight.
         """
         self.refresh()
         self._snapshot()
         self._roster()
+        self._ghost()
 
     def refresh(self) -> None:
         """Merge the live capture checkpoint (the wire feed) into the list.
@@ -1418,6 +1613,7 @@ class SecretTasksTab(PanelTab):
                 "pill": ("secrettasks.spent" if spent
                          else "secrettasks.ready" if row.get("ready") else None),
             })
+        hidden = self._hidden_at_home()
         # What «Автолут ★» is doing, in the same words the window puts under the
         # checkbox. It is the reading somebody away from the machine most needs: the
         # tiles say what is on the map, this says whether anything is going to be taken
@@ -1425,25 +1621,51 @@ class SecretTasksTab(PanelTab):
         state_key, state_datum = self.autoloot.state()
         return {"cards": [{"title": "secret.autoloot.frame",
                            "rows": [{"label": state_key, "value": state_datum}]},
-                          {"title": None, "items": items,
+                          # The window's three pages, as the phone's three cards
+                          # (#1244, #1251) — a screen scrolls where a window switches,
+                          # so the pages become sections one under the other. Titled,
+                          # unlike the ★ list above them, because untitled lists of
+                          # coordinates on one screen are indistinguishable — and which
+                          # list a tile is in is the whole point of having three.
+                          # …and the ★ card says what the home-server rule is holding
+                          # back, for the same reason the window's count does: a phone
+                          # showing an empty list is otherwise unreadable.
+                          {"title": "secrettasks.page.stars", "items": items,
+                           "rows": ([{"label": "secrettasks.filter.hide_own",
+                                      "value": str(hidden)}] if hidden else []),
                            "empty": "secrettasks.empty"},
-                          # The window's second table, as the phone's second card
-                          # (#1244): who of the alliance is running what. Titled,
-                          # unlike the one above it, because two untitled lists of
-                          # coordinates on one screen are indistinguishable — and
-                          # which list a tile is in is the whole point of two.
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
-                           "empty": "secrettasks.alliance.empty"}],
+                           "empty": "secrettasks.alliance.empty"},
+                          # The ghost card carries the event's own two facts as well as
+                          # its squads: six days a week «событие закрыто» IS the
+                          # reading, and an empty list without it is a mystery.
+                          {"title": "secrettasks.ghost",
+                           "rows": self.ghost.web_rows(),
+                           "items": self.ghost.web_items(),
+                           "empty": "secrettasks.ghost.empty"}],
                 "now": now,
-                # The button names what pressing it will do, because a phone has no
+                # Each button names what pressing it will DO, because a phone has no
                 # checkbox to carry the state in: «Показать исчерпанные» while they are
-                # hidden, «Скрыть» while they are not.
+                # hidden, «Скрыть» while they are not — and the same for the three
+                # display rules the window's boxes hold (#1251).
                 "actions": [{"id": "refresh", "label": "tabx.refresh"},
                             {"id": "show_spent",
                              "label": ("secrettasks.hide_spent"
                                        if self.show_spent_var.get()
                                        else "secrettasks.show_spent")},
+                            {"id": "hide_own",
+                             "label": ("secrettasks.filter.show_own"
+                                       if self.hide_own_var.get()
+                                       else "secrettasks.filter.hide_own")},
+                            {"id": "ur_only",
+                             "label": ("secrettasks.filter.ur_off"
+                                       if self.alliance.ur_var.get()
+                                       else "secrettasks.filter.ur_on")},
+                            {"id": "star_only",
+                             "label": ("secrettasks.filter.star_off"
+                                       if self.alliance.star_var.get()
+                                       else "secrettasks.filter.star_on")},
                             {"id": "clear", "label": "secrettasks.clear"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
@@ -1462,6 +1684,12 @@ class SecretTasksTab(PanelTab):
         if action == "show_spent":
             self.post(self._toggle_show_spent)
             return {"ok": True}
+        if action == "hide_own":
+            self.post(self._toggle_hide_own)
+            return {"ok": True}
+        if action in ("ur_only", "star_only"):
+            self.post(lambda: self._toggle_alliance_filter(action))
+            return {"ok": True}
         if action == "clear":
             self.post(self._clear)
             return {"ok": True}
@@ -1475,6 +1703,21 @@ class SecretTasksTab(PanelTab):
         """
         self.show_spent_var.set(not self.show_spent_var.get())
         self._on_show_spent()
+
+    def _toggle_hide_own(self) -> None:
+        """Flip «Скрывать со своего сервера» from the phone (#1251).
+
+        The window's own box, not a copy of it — a phone that hid rows the machine
+        still shows is exactly the divergence the two front-ends must not have.
+        """
+        self.hide_own_var.set(not self.hide_own_var.get())
+        self._on_hide_own_change()
+
+    def _toggle_alliance_filter(self, action: str) -> None:
+        """Flip «UR» or «Звезда» on the alliance page from the phone (#1251)."""
+        var = self.alliance.ur_var if action == "ur_only" else self.alliance.star_var
+        var.set(not var.get())
+        self.alliance.refilter()
 
     # -- drawing ---------------------------------------------------------------
     def _render(self) -> None:
@@ -1577,20 +1820,57 @@ class SecretTasksTab(PanelTab):
         return bool(row.get("ready")) and not self._spent(row)
 
     def _visible_rows(self) -> list:
-        """The rows the tab shows: inside the level range, and not looted out.
+        """The rows the ★ page shows: in the level range, not looted out, not at home.
 
-        The second half is what «Показывать исчерпанные» lifts. It is off by default
-        because a 3/3 tile cannot pay anybody and only costs the eye a line, and it
-        exists at all so that a row that vanishes can be looked for rather than
-        guessed at (#1227).
+        «Показывать исчерпанные» lifts the second rule. It is off by default because a
+        3/3 tile cannot pay anybody and only costs the eye a line, and it exists at all
+        so that a row that vanishes can be looked for rather than guessed at (#1227).
+
+        «Скрывать со своего сервера» is the third, ON by default (#1251) — the raids
+        worth a march are the ones abroad. It is a DISPLAY rule: the tile it hides is
+        still robbed by hand, still shared and still jumped to, and the robberies obey
+        their own «Не грабить на своём сервере» over in the auto-loot frame.
+
+        A server the account's own could not be read from (0) hides nothing: a rule
+        that cannot tell home from abroad must not guess that everything is home.
         """
         show_spent = bool(self.show_spent_var.get())
+        # The CACHED reading only (`_own_server`), never `own_server()`: this runs on
+        # the Tk thread on every redraw, and the reader behind that method goes to the
+        # game whenever the answer is still unknown. It is primed once per profile by
+        # `_prime_own_server`, off the Tk thread, alongside the reads the tab already
+        # makes — so this rule costs no round trip of its own.
+        mine = self._own_server if self.hide_own_var.get() else 0
         return [r for r in self._rows.values()
-                if self._in_range(r["level"]) and (show_spent or not self._spent(r))]
+                if self._in_range(r["level"])
+                and (show_spent or not self._spent(r))
+                and not (mine and int(r["server"] or 0) == mine)]
 
     def _update_status(self) -> None:
+        """«секреток: N» — and how many of them the home-server rule is holding back.
+
+        A box that empties the table without saying so is indistinguishable from a tab
+        that read nothing (#1251): one live account has every star it can see on its
+        own server, and the whole list going blank on first open is exactly what that
+        looks like. The count says which of the two it is.
+        """
         n = len(self._visible_rows())
-        self._status_var.set(self.t("secrettasks.count", n=n) if n else "")
+        hidden = self._hidden_at_home()
+        line = self.t("secrettasks.count", n=n) if n else ""
+        if hidden:
+            mark = self.t("secrettasks.hidden_own", n=hidden)
+            line = "%s · %s" % (line, mark) if line else mark
+        self._status_var.set(line)
+
+    def _hidden_at_home(self) -> int:
+        """How many rows «Скрывать со своего сервера» is keeping off the table."""
+        if not (self.hide_own_var.get() and self._own_server):
+            return 0
+        show_spent = bool(self.show_spent_var.get())
+        return sum(1 for r in self._rows.values()
+                   if self._in_range(r["level"])
+                   and (show_spent or not self._spent(r))
+                   and int(r["server"] or 0) == self._own_server)
 
     # The uuid tail used to have a column of its own. It is gone with the table (#1209):
     # a tile is named by its coordinate and its server everywhere else in the panel — the
@@ -1659,9 +1939,10 @@ class SecretTasksTab(PanelTab):
             # under the checkbox catch up with it.
             self._refresh_autoloot_line()
             self._maybe_start_poll()
-            # The grid below counts down on the same second as this one — one chain for
+            # The other pages count down on the same second as this one — one chain for
             # the tab, not a timer per table.
             self.alliance.tick()
+            self.ghost.tick()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
             # reached.

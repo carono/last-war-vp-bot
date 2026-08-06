@@ -175,9 +175,16 @@ def test_the_ghost_standing_order_is_this_tabs_own():
     have created it. Now the page that shows the squads owns all three, so the check is
     that nothing outside this package mentions the variable at all.
     """
+    # The «Секретки» tab has a ghost page of its own now (#1251) and so it says the
+    # word — what it must not have is the ghost STANDING ORDER's switch, which is this
+    # page's. So the check names the thing rather than the word: a variable or a call
+    # that ties the two together anywhere in that package.
+    import re
+    tie = re.compile(r"ghost\w*[_.]?autoloot|autoloot\w*[_.]?ghost", re.IGNORECASE)
     for path in sorted((ROOT / "panel" / "tabs" / "secret_tasks").glob("*.py")):
-        assert "autoloot_var" not in path.read_text(encoding="utf-8") or \
-            "ghost" not in path.read_text(encoding="utf-8"), path.name
+        text = path.read_text(encoding="utf-8")
+        assert not tie.search(text), f"{path.name} holds the ghost standing order"
+        assert "GhostOrder" not in text, path.name
     assert '"panel/__main__.py has no ghost"' or True
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
     assert "_ghost_autoloot_var" not in shell, "the shell still holds the ghost switch"

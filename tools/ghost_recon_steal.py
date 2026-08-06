@@ -83,11 +83,27 @@ def read_targets(ev, refresh: bool = True) -> list[dict]:
     `refresh` asks the server for both task lists first; the reply needs a moment to
     land, which is why the read is a separate chunk after a settle.
     """
+    return read_list(ev, refresh)[1]
+
+
+def read_list(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
+    """`(status, targets)` — the event's state and its squads, from ONE dump.
+
+    The dump's own first line already carries the open day and the robberies left
+    (`ghost open=… left=… known=…`), so a caller that wants both — the panel's ghost
+    page (#1251) — pays for one read rather than for `read_status` and then this. The
+    per-squad fields are `read_targets`'s, unchanged.
+    """
     if refresh:
         ev.run(lua_actions.ghost_recon_refresh(), MARKER, 0.4)
         time.sleep(1.2)
+    status = {"open": False, "left": 0, "known": 0}
     out = []
     for ln in ev.run(lua_actions.ghost_recon_targets_dump(), MARKER, 2.0):
+        if " ghost open=" in ln:
+            status = {"open": "open=true" in ln, "left": _num(ln, "left"),
+                      "known": _num(ln, "known")}
+            continue
         if " G uuid=" not in ln:
             continue
         rec = {}
@@ -98,8 +114,91 @@ def read_targets(ev, refresh: bool = True) -> list[dict]:
         rec["mine"] = rec.get("mine") == "true"
         for key in ("cfg", "srv", "x", "y", "done", "ends", "looted", "state"):
             rec[key] = _int(rec.get(key))
+        # `raw` stays None when the line does not carry it — an OLDER dump, whose
+        # squads must not all be read as empty slots (0 is a meaningful value here).
+        rec["raw"] = _int(rec["raw"]) if "raw" in rec else None
         out.append(rec)
-    return out
+    return status, out
+
+
+# `actEndTime` on a ghost-recon squad is the EVENT's end, and while the event has no
+# announced end the client carries the int32 ceiling in milliseconds. It is not a
+# deadline anybody can count down to, so a record wearing it says «no expiry» instead
+# of a countdown of sixty-eight years (#1251).
+NEVER_MS = 2147483647 * 1000
+
+
+def roster(ev, refresh: bool = True, scanned=None) -> tuple[dict, list[dict]]:
+    """`(status, records)` — the squads in the shape a panel list draws from.
+
+    The same normalisation `dispatch_tasks.alliance_roster` does for the other
+    robbery, and here for the same reason (#1251): the panel's ghost page must not
+    have to know how a dump line is spelled, what the game's verdict enum means or
+    where the level hides in a cfgId.
+
+    **The level and the star come from the cfgId** — unlike a secret task, whose
+    config row the client carries, a ghost squad has only its template id, and
+    `ghost_recon_level` is what reads it (`MM + 2`, task #1137). `state` is the
+    game's own `GhostreconPointStealType`, kept as it came so the caller can say it
+    in words; `ready` is that verdict reaching «can steal» and nothing else.
+
+    **An empty dispatch slot is not a squad.** `taskList` holds my own three slots
+    whether or not anything is out in them, and a slot with `state == 0` has no tile,
+    no coordinate and no clock — while `GetPointStealType` still answers «robbable»
+    for it. They are dropped here rather than drawn as targets at @[0,0] (#1251).
+
+    ``scanned`` are extra squads read off a map-scan checkpoint (the client's own
+    list only knows this alliance's). They carry no verdict — the gate only answers
+    for a squad in `taskList` — so their readiness is their clock, which is what
+    `GhostReconMission.can_loot` already decided.
+    """
+    import lastwar_proto as proto
+
+    status, targets = read_list(ev, refresh)
+    seen = {str(t.get("uuid")) for t in targets}
+    records = [_as_record(t, proto) for t in targets
+               if t.get("raw") != proto.GHOST_STATE_EMPTY]
+    for extra in scanned or ():
+        if str(extra.get("uuid")) not in seen:
+            records.append(_as_record(extra, proto))
+    return status, records
+
+
+def _as_record(target: dict, proto) -> dict:
+    """One dump line (or one scanned tile) as a panel row record."""
+    family, level = proto.ghost_recon_level(target.get("cfg"))
+    ends = _int(target.get("ends"))
+    done = _int(target.get("done"))
+    scanned = bool(target.get("scanned"))
+    return {
+        "uuid": str(target.get("uuid")),
+        "server": _int(target.get("srv")),
+        "x": _int(target.get("x")), "y": _int(target.get("y")),
+        "cfg_id": _int(target.get("cfg")),
+        "level": level or 0,
+        "starred": family == proto.GHOST_STAR_FAMILY,
+        "loot_count": _int(target.get("looted")),
+        "completed_at": done or None,
+        "expires_at": ends if 0 < ends < NEVER_MS else None,
+        "owner_uid": str(target.get("owner") or ""),
+        # A ghost squad carries no avatar at all — the client has the owner's uid and
+        # nothing else — so the owner column stays empty rather than showing a number
+        # nobody can read as a name.
+        "owner_name": "",
+        "mine": bool(target.get("mine")),
+        "scanned": scanned,
+        "state": None if scanned else _int(target.get("state")),
+        # The task's OWN state — running or done (`GHOST_STATE_*`). What a reader says
+        # about MY squad, which has a verdict about robbing it that means nothing.
+        "task_state": None if scanned else target.get("raw"),
+        # MY OWN squad is never «robbable», whatever the verdict says: the gate answers
+        # about the tile, and `--all` skips my own separately (`robbable`). A row that
+        # said «готово к сбору» on my own squad would be offering a press the server
+        # refuses (#1251).
+        "ready": (bool(target.get("can")) if scanned
+                  else (not target.get("mine")
+                        and _int(target.get("state")) == lua_actions.GHOST_STEAL_CAN)),
+    }
 
 
 def _int(value) -> int:

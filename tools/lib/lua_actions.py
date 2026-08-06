@@ -1469,7 +1469,13 @@ def ghost_recon_targets_dump() -> str:
     Fields: `uuid`, `cfg` template id, `owner` uid, `srv` the owner's server, `x`/`y`
     (from `pointId`), `done` completion epoch-ms, `ends` the tile's expiry, `looted`
     how many of the template's slots are spent, `state` the game's
-    `GhostreconPointStealType`, and `mine` when the squad is my own.
+    `GhostreconPointStealType`, `raw` the task's OWN state (0 empty slot / 2 running /
+    3 done — `GHOST_STATE_*`), and `mine` when the squad is my own.
+
+    `raw` and `state` are different questions and both are wanted: an EMPTY dispatch
+    slot of mine has no squad, no tile and no coordinate, yet `GetPointStealType` still
+    answers 2 for it. A reader that shows one as a target shows «✅ готово» on a slot
+    nobody has filled (#1251).
 
     A robbery needs `uuid` + `ownerServer`, both of which are printed, so this is the
     list a queue is built from.
@@ -1491,6 +1497,7 @@ def ghost_recon_targets_dump() -> str:
         '.." x="..tostring(x).." y="..tostring(y)'
         '.." done="..tostring(t.completionTime).." ends="..tostring(t.actEndTime)'
         '.." looted="..tostring(n).." state="..tostring(ok and st or 0)'
+        '.." raw="..tostring(t.state)'
         '.." mine="..tostring(tostring(t.ownerId)==me)) end'
         % ghost_recon_steals_left()
     )
