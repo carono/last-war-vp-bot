@@ -40,7 +40,8 @@ SCENARIO = _REPO / "src" / "lastwar_bot" / "actions" / "read_daily_checklist.md"
 #: A reading with everything answered — the shape the live game sends back.
 FULL = ("base_ready=4 trucks_ready=0 donate_left=17 help_waiting=0 recruit_pending=2 "
         "gifts_pending=0 skills_ready=1 wounded=0 healed_ready=0 queues_help=3 "
-        "decorations=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5")
+        "decorations=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5 "
+        "trucks_send_left=5 trucks_send_cap=5 trucks_idle=3")
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +158,9 @@ def test_every_count_on_the_board_is_the_one_the_press_is_gated_on():
                  "hospital_healed_ready", "queues_needing_help",
                  "decoration_upgrade_ready_count", "secret_task_steals_left",
                  "secret_task_steal_cap", "ghost_recon_is_open",
-                 "ghost_recon_steals_left", "ghost_recon_steal_cap"):
+                 "ghost_recon_steals_left", "ghost_recon_steal_cap",
+                 "truck_dispatch_left", "truck_dispatch_cap",
+                 "truck_dispatch_ready"):
         expr = getattr(lua_actions, name)()
         assert expr in text, (
             f"{name}() is no longer what read_daily_checklist.md reads — "
@@ -214,8 +217,114 @@ def test_a_line_nothing_can_read_says_so_and_never_anything_else():
     # A full reading answers every readable line and none of the blind ones, so the
     # counted total is exactly the read half — however long the blind half grows.
     done, total = modelmod.progress(modelmod.states(modelmod.parse(FULL)))
-    assert total == len(modelmod.READ_ERRANDS), \
+    readable = [e for e in modelmod.ERRANDS if e.readable]
+    assert total == len(readable), \
         f"{len(modelmod.ERRANDS) - total} lines counted that nobody can read"
+
+
+# ---------------------------------------------------------------------------
+# «Отправка грузовиков» — the first group that is more than a list
+# ---------------------------------------------------------------------------
+def test_the_trucks_are_the_first_group_and_carry_their_own_line():
+    first = modelmod.GROUPS[0]
+    assert first.key == modelmod.TRUCKS
+    assert first.title_key == "checklist.group.send_trucks"
+    assert [e.key for e in first.errands] == ["send_trucks"]
+    # …and it left the blind half, because it is read now.
+    assert "send_trucks" not in [e.key for e in modelmod.BLIND_ERRANDS]
+    assert modelmod.BY_KEY["send_trucks"].readable
+
+
+def test_the_counter_is_the_quotas_own_two_halves():
+    """«0 из 5» is `used` of `cap` — the same numbers the row under it is drawn from."""
+    sent, cap, idle = modelmod.truck_counter(modelmod.parse(FULL))
+    assert (sent, cap, idle) == (0, 5, 3)
+    spent = modelmod.parse("trucks_send_left=0 trucks_send_cap=5 trucks_idle=0")
+    assert modelmod.truck_counter(spent) == (5, 5, 0)
+    assert modelmod.state_of(modelmod.BY_KEY["send_trucks"], spent).state == \
+        modelmod.DONE
+
+
+def test_a_locked_trade_station_is_never_drawn_as_nothing_sent_yet():
+    """The one lie this reading could tell: a feature the account has not unlocked.
+
+    The client answers «0 dispatched» whether the station is idle or absent, so the
+    scenario returns a dash for a locked one and the board must show that as unknown —
+    an errand nobody can ever finish is not a to-do.
+    """
+    locked = modelmod.parse("trucks_send_left=- trucks_send_cap=- trucks_idle=-")
+    assert modelmod.state_of(modelmod.BY_KEY["send_trucks"], locked).state == \
+        modelmod.UNKNOWN
+    assert modelmod.truck_counter(locked) == (None, None, None)
+    for reading in (None, modelmod.Reading(error="no daemon")):
+        assert modelmod.truck_counter(reading) == (None, None, None)
+
+
+def test_the_scenario_answers_the_field_beside_the_quota():
+    text = SCENARIO.read_text(encoding="utf-8")
+    assert ("put('%s'" % modelmod.TRUCK_IDLE_FIELD) in text
+
+
+def test_the_three_modes_are_exclusive_and_default_to_spending_nothing():
+    assert modelmod.TRUCK_MODES == (modelmod.TRUCK_MODE_UR_MANUAL,
+                                    modelmod.TRUCK_MODE_UR_AUTO,
+                                    modelmod.TRUCK_MODE_SLEIGH_AUTO)
+    assert len(set(modelmod.TRUCK_MODES)) == 3
+    # An automatic refresh spends contracts and diamonds; a profile nobody asked does not.
+    assert modelmod.TRUCK_MODE_DEFAULT == modelmod.TRUCK_MODE_UR_MANUAL
+    for junk in (None, "", "по-своему", 7, True, ["ur_auto"]):
+        assert modelmod.truck_mode(junk) == modelmod.TRUCK_MODE_DEFAULT
+    for mode in modelmod.TRUCK_MODES:
+        assert modelmod.truck_mode(mode) == mode
+
+
+def test_the_mode_is_kept_by_the_profile_and_nothing_else_is():
+    tab = _tab()
+    assert tab.config() == {"truck_mode": modelmod.TRUCK_MODE_DEFAULT}
+    tab.apply_config({"truck_mode": modelmod.TRUCK_MODE_SLEIGH_AUTO})
+    assert tab.config() == {"truck_mode": modelmod.TRUCK_MODE_SLEIGH_AUTO}
+    # A hand-edited profile cannot put the tab in a mode it has no words for.
+    tab.apply_config({"truck_mode": "whatever"})
+    assert tab.config() == {"truck_mode": modelmod.TRUCK_MODE_DEFAULT}
+    tab.apply_config("not a dict")
+    assert tab.config() == {"truck_mode": modelmod.TRUCK_MODE_DEFAULT}
+    assert tab.persist_vars() == [tab._truck_mode]
+
+
+def test_the_phone_sees_the_counter_the_press_and_the_mode_that_is_on():
+    tab = _tab()
+    tab.apply_config({"truck_mode": modelmod.TRUCK_MODE_UR_AUTO})
+    card = [c for c in tab.web_view()["cards"]
+            if c.get("title") == "checklist.group.send_trucks"]
+    assert len(card) == 1, "the trucks have no card of their own on the phone"
+    rows = {r["label"]: r["value"] for r in card[0]["rows"]}
+    assert rows["checklist.trucks.sent"] == "0 / 5"
+    assert rows["checklist.trucks.idle"] == "3"
+
+    items = {i["label"]: i for i in card[0]["items"]}
+    assert items["checklist.trucks.send"]["pill"] == "checklist.trucks.not_yet"
+    assert not items["checklist.trucks.send"].get("actions"), \
+        "the phone offers a dispatch the panel cannot do either"
+    chosen = [m for m in modelmod.TRUCK_MODES
+              if items["checklist.trucks.mode." + m]["pill"] ==
+              "checklist.trucks.chosen"]
+    assert chosen == [modelmod.TRUCK_MODE_UR_AUTO], chosen
+
+
+def test_a_game_that_did_not_answer_shows_a_dash_and_not_a_zero():
+    tab = _tab("base_ready=0")
+    rows = {r["label"]: r["value"]
+            for c in tab.web_view()["cards"] for r in c.get("rows") or ()}
+    assert rows["checklist.trucks.sent"] == "—"
+    assert rows["checklist.trucks.idle"] == "—"
+
+
+def test_the_board_hears_a_truck_go_out_rather_than_waiting_for_the_poll():
+    _tab_class()                        # SKIP where there is no tkinter, as the rest do
+    from panel.tabs.checklist import tab as tabmod
+
+    for pattern in ("train.data", "train.send", "train.batch.send"):
+        assert pattern in tabmod.WIRE_PATTERNS, pattern
 
 
 def test_every_word_the_board_can_say_is_in_every_locale():
@@ -226,6 +335,9 @@ def test_every_word_the_board_can_say_is_in_every_locale():
     wanted += [heading for heading, _errands in modelmod.GROUPS]
     wanted += ["checklist.state." + s for s in
                (modelmod.DONE, modelmod.TODO, modelmod.UNKNOWN, modelmod.CLOSED)]
+    wanted += ["checklist.trucks." + s for s in
+               ("sent", "idle", "send", "not_yet", "mode", "chosen", "unchosen")]
+    wanted += ["checklist.trucks.mode." + m for m in modelmod.TRUCK_MODES]
     for lang, table in sorted(shipped.items()):
         missing = [k for k in wanted if k not in table]
         assert not missing, f"{lang}.json does not translate {missing}"
@@ -277,6 +389,19 @@ def _tab_class():
     return ChecklistTab
 
 
+class _Var:
+    """A Tk variable's two methods, with no Tk under them."""
+
+    def __init__(self, value="") -> None:
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value) -> None:
+        self._value = value
+
+
 def _tab(raw=FULL, plays=True):
     """A tab holding one reading and nothing else — the path both screens take."""
     cls = _tab_class()
@@ -288,6 +413,7 @@ def _tab(raw=FULL, plays=True):
     tab._status = None
     tab._refresh_button = None
     tab._wire_off = []
+    tab._truck_mode = _Var(modelmod.TRUCK_MODE_DEFAULT)
     return tab
 
 

@@ -2924,6 +2924,82 @@ def trucks_ready_count() -> str:
             "return n end)()")
 
 
+# --------------------------------------------------------------------------
+# Sending trade trucks out ("Отправка грузовиков")
+# --------------------------------------------------------------------------
+# A DIFFERENT truck from the two above. `trucks_ready_count` counts the supply
+# trucks that have ARRIVED at the base and `truck_reward_*` empties the idle
+# accumulator parked on it; these three read the TRADE STATION — the fleet the
+# player dispatches to another server and other players rob on the way
+# (`UILWTruckSuperDeparture`, docs/research/ui-open.md).
+#
+# `DataCenter.LWMyStationDataManager` owns all of it, and the three numbers a
+# person actually wants are already computed there rather than derivable from the
+# fleet list (read live, #1249):
+#
+#   GetDepartureCount()      how many went out today
+#   GetMaxDailyCount()       today's allowance — the BASE four plus whatever the
+#                            «Extra Truck» tech adds, so never a constant
+#   GetRealReadyCount()      how many could go out RIGHT NOW: trucks standing at
+#                            the station in `TruckStationState.Ready`, capped by
+#                            what is left of the allowance
+#
+# Every one of them is nil-guarded on `IsTruckFunctionLock()` FIRST, and that
+# guard is the whole point: the trade station is locked until the base reaches
+# level 8, and a locked client still answers `GetDepartureCount() == 0`. Drawn
+# straight, that reads as «nothing sent yet today» on an account that cannot send
+# anything at all — a to-do the person can never tick off. Returning nil instead
+# makes the reading say `-`, which the checklist draws as «state unknown»
+# (`panel/tabs/checklist/model.py`: a feature this account has not unlocked is
+# exactly one of the things a dash is for).
+#
+# There is NO press here yet. Dispatching is `train.send` / `train.batch.send`
+# with an escorting squad per truck and a rarity refresh in front of it; until
+# that is a scenario, the panel reads these and offers no button (#1249).
+#
+# Every call is wrapped in its own parentheses before `tonumber`: these three
+# return TWO values, and `tonumber(a, b)` reads the second as a base, which fails
+# with «string expected, got number» rather than with a wrong count.
+
+_TRUCK_STATION = ("local M=DataCenter and DataCenter.LWMyStationDataManager "
+                  "if not M or M:IsTruckFunctionLock() then return nil end ")
+
+
+def truck_dispatch_left() -> str:
+    """Lua *expression* -> trade-truck dispatches still banked today, or nil.
+
+    The quota's remaining half, the same shape every other daily allowance on the
+    board is read in (`secret_task_steals_left`): allowance minus what has gone,
+    floored at zero so a cap that shrinks mid-day cannot show a negative.
+    """
+    return ("(function() " + _TRUCK_STATION +
+            "local cap=tonumber((M:GetMaxDailyCount())) or 0 "
+            "local used=tonumber((M:GetDepartureCount())) or 0 "
+            "local left=cap-used if left<0 then left=0 end return left end)()")
+
+
+def truck_dispatch_cap() -> str:
+    """Lua *expression* -> how many trade trucks may go out today at all, or nil.
+
+    Four to start with and more with the «Extra Truck» tech, which is why it is
+    read rather than written down: the number differs per account and grows.
+    """
+    return ("(function() " + _TRUCK_STATION +
+            "return tonumber((M:GetMaxDailyCount())) or 0 end)()")
+
+
+def truck_dispatch_ready() -> str:
+    """Lua *expression* -> trade trucks that could be dispatched right now, or nil.
+
+    The client's own `GetRealReadyCount`: trucks standing at the station in
+    `TruckStationState.Ready`, capped by what is left of today's allowance. So it
+    is «how many presses are available», not «how many trucks exist» — a fleet of
+    four with one dispatch left answers 1.
+    """
+    return ("(function() " + _TRUCK_STATION +
+            "return tonumber((M:GetRealReadyCount())) or 0 end)()")
+
+
 def secret_task_steal_cap() -> str:
     """Lua *expression* -> the daily robbery cap (5 on the live account).
 

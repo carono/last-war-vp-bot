@@ -20,22 +20,32 @@ open, when a push that changes one of these facts crosses the wire, and whenever
 person presses «Обновить». Every count in it is the SAME expression the matching press is
 gated on, so the checklist and the button can never disagree about how much work there is.
 
-**There is no press on this tab except «Обновить»,** and that one only reads again. No
-box to tick, no «Выполнить»: an errand is done because the game says so, and a button
-that started something would be a button somebody expects to have ticked a line. The
-abilities themselves live where they always did — on their own tabs and in «Таймеры» —
-and this is the board that says whether they still need to run.
+**No row has a press on it, and none ever will.** An errand is done because the game says
+so, and a «Выполнить» beside a line is a button somebody expects to have ticked that
+line. What a GROUP may carry is a different matter (below); the rows stay readings.
 
 **The list is fixed in code and the person does not edit it**, in the window or on the
 phone. It is the day, not somebody's notes about the day.
 
-**The second half of the list is the part nothing can read yet** — sending the trucks
-out, the radar, the arena, the alliance gifts, the treasures, the shop. Those lines say
-«состояние неизвестно» and will keep saying it until a reading exists for them: they are
-on the board rather than left off it because a checklist that quietly drops a third of
-the day looks finished when it is not, and because each of them is a candidate for the
-next reading (`docs/farming.md` is where the routine they come from is written down).
-Moving a line up into the read group is how this tab grows — never by giving it a box.
+**A group can be more than a heading over a list** (#1249). «Отправка грузовиков» is the
+first of them: the counter the game answers («0 из 5» sent today, and how many could go
+this minute), the press that will spend it, and the setting that says how the trucks are
+to be improved before they go. It is FIRST on the board because it is the errand with the
+shortest fuse — an idle fleet earns nothing and the allowance dies with the game's day.
+
+**Its press is drawn and disabled, and that is the honest state of it.** There is no
+dispatch scenario yet, so there is nothing for a button to play; a button that answered
+«not yet» when pressed would be the same emptiness with a click in front of it. The
+setting beside it manages only itself for now — the profile keeps it, and the day the
+ability lands it is what the ability will be told to do.
+
+**The last group is the part nothing can read yet** — the radar, the arena, the alliance
+gifts, the treasures, the shop. Those lines say «состояние неизвестно» and will keep
+saying it until a reading exists for them: they are on the board rather than left off it
+because a checklist that quietly drops a third of the day looks finished when it is not,
+and because each of them is a candidate for the next reading (`docs/farming.md` is where
+the routine they come from is written down). Moving a line up out of that group is how
+this tab grows — never by giving it a box.
 """
 from __future__ import annotations
 
@@ -63,7 +73,16 @@ _GLYPH = {
 #: poll and by «Обновить»; a wider set would mean carrying more of the game's chatter
 #: through the one capture all day for a board that is already never more than minutes
 #: stale (`panel/runtime/wire.py`).
-WIRE_PATTERNS = ("al.help", "visitor", "hospital")
+#:
+#: `train.data` is the trade station's own state and it carries the two halves of the
+#: truck counter: the client asks for it as `train.data` and the server pushes it back as
+#: `push.train.data`, so ONE pattern hears both. `train.send` and `train.batch.send` are
+#: the dispatches themselves — heard so that a truck sent from the phone, from the game
+#: on another screen or by the person standing at the machine moves the counter here
+#: within seconds instead of at the next poll. Without them the one number on this board
+#: that a person changes by hand would be the stalest thing on it.
+WIRE_PATTERNS = ("al.help", "visitor", "hospital",
+                 "train.data", "train.send", "train.batch.send")
 
 
 class ChecklistTab(PanelTab):
@@ -98,6 +117,10 @@ class ChecklistTab(PanelTab):
         self._status = None
         self._refresh_button = None
         self._wire_off: list = []
+        #: How the trucks are to be improved before they go — a choice, not a reading,
+        #: so it is a variable the profile keeps rather than something re-read.
+        self._truck_mode = tk_stringvar(self.rt.root)
+        self._truck_mode.set(modelmod.TRUCK_MODE_DEFAULT)
 
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
@@ -262,12 +285,66 @@ class ChecklistTab(PanelTab):
             return
         for child in list(self._body.winfo_children()):
             child.destroy()
-        for heading, states in modelmod.grouped(self._reading):
+        for group, states in modelmod.grouped(self._reading):
             self.tr(ttk.Label(self._body, font=ui_font(weight="bold")),
-                    heading).pack(anchor="w", padx=6, pady=(10, 2))
+                    group.title_key).pack(anchor="w", padx=6, pady=(10, 2))
             for state in states:
                 self._render_row(state)
+            if group.key == modelmod.TRUCKS:
+                self._render_trucks()
         self._refresh_status()
+
+    def _render_trucks(self) -> None:
+        """«Отправка грузовиков»: the counter, the press, and how to improve them first.
+
+        The first group of the board that is more than a list of rows. The counter is
+        the group's own quota drawn large enough to read across the room; the press is
+        DISABLED and says why; the three modes are a choice this tab keeps.
+        """
+        box = ttk.Frame(self._body)
+        box.pack(fill="x", padx=4, pady=(2, 6))
+
+        counter = ttk.Frame(box)
+        counter.pack(fill="x", padx=22, pady=(0, 2))
+        self.tr(ttk.Label(counter), "checklist.trucks.sent").pack(side="left")
+        ttk.Label(counter, text=self._truck_sent(),
+                  font=ui_font(weight="bold")).pack(side="left", padx=(6, 16))
+        self.tr(ttk.Label(counter, foreground="#888"),
+                "checklist.trucks.idle").pack(side="left")
+        ttk.Label(counter, text=self._truck_idle(), foreground="#888").pack(
+            side="left", padx=(6, 0))
+
+        press = ttk.Frame(box)
+        press.pack(fill="x", padx=22, pady=(2, 2))
+        # DISABLED, and that is the whole state of it: there is no dispatch scenario
+        # yet, so there is nothing for a press to play (`CLAUDE.md` — an ability is a
+        # scenario and the panel only plays them). A button that answered «not yet»
+        # when pressed would be the same emptiness with an extra click in front of it;
+        # a greyed one says so before anybody reaches for it. The phone shows the same
+        # button in the same state (`web_view`), and the day the scenario lands both
+        # come alive in the same commit.
+        self.tr(ttk.Button(press, state="disabled"),
+                "checklist.trucks.send").pack(side="left")
+        self.tr(ttk.Label(press, foreground="#888"),
+                "checklist.trucks.not_yet").pack(side="left", padx=(10, 0))
+
+        modes = ttk.Frame(box)
+        modes.pack(fill="x", padx=22, pady=(4, 0))
+        self.tr(ttk.Label(modes), "checklist.trucks.mode").pack(anchor="w")
+        for mode in modelmod.TRUCK_MODES:
+            self.tr(ttk.Radiobutton(modes, value=mode, variable=self._truck_mode),
+                    "checklist.trucks.mode." + mode).pack(anchor="w", padx=(12, 0))
+
+    def _truck_sent(self) -> str:
+        """«0 / 5», or a dash when the game did not answer. Digits need no language."""
+        sent, cap, _idle = modelmod.truck_counter(self._reading)
+        if sent is None or cap is None:
+            return "—"
+        return "%d / %d" % (sent, cap)
+
+    def _truck_idle(self) -> str:
+        _sent, _cap, idle = modelmod.truck_counter(self._reading)
+        return "—" if idle is None else str(idle)
 
     def _render_row(self, state) -> None:
         frame = ttk.Frame(self._body)
@@ -317,6 +394,22 @@ class ChecklistTab(PanelTab):
         return self.t("checklist.status.read", done=done, total=total,
                       ago=modelmod.ago(self._age()), left=left)
 
+    # -- remembering the one choice on the board ----------------------------
+    def config(self) -> dict:
+        """The tab as the profile keeps it — one line, because there is one choice.
+
+        Nothing else on this board is stored: every row is a reading, and a reading
+        that was written down would be a reading somebody could disagree with.
+        """
+        return {"truck_mode": modelmod.truck_mode(self._truck_mode.get())}
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        self._truck_mode.set(modelmod.truck_mode(raw.get("truck_mode")))
+
+    def persist_vars(self) -> list:
+        return [self._truck_mode]
+
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
         """The same board, drawn from the same reading — one card per group.
@@ -335,11 +428,41 @@ class ChecklistTab(PanelTab):
              "value": (modelmod.ago(self._age()) if self._reading is not None
                        and not self._reading.error else "—")},
         ]}]
-        for heading, states in modelmod.grouped(self._reading):
-            cards.append({"title": heading, "empty": "checklist.empty",
-                          "items": [self._web_item(s) for s in states]})
+        for group, states in modelmod.grouped(self._reading):
+            card = {"title": group.title_key, "empty": "checklist.empty",
+                    "items": [self._web_item(s) for s in states]}
+            if group.key == modelmod.TRUCKS:
+                card["rows"] = self._web_truck_rows()
+                card["items"] += self._web_truck_items()
+            cards.append(card)
         return {"cards": cards, "now": time.time(),
                 "actions": [{"id": "refresh", "label": "checklist.refresh"}]}
+
+    def _web_truck_rows(self) -> list:
+        """The group's counter, as the window draws it above the same rows."""
+        return [{"label": "checklist.trucks.sent", "value": self._truck_sent()},
+                {"label": "checklist.trucks.idle", "value": self._truck_idle()}]
+
+    def _web_truck_items(self) -> list:
+        """The press and the three modes — the same two things, and no button.
+
+        **The press is here and it carries no action**, exactly as the window's is drawn
+        greyed: there is no dispatch scenario yet, and `web_press` runs scenarios and
+        nothing else (`CLAUDE.md`). A phone that could press it would be reaching for an
+        ability the machine does not have either.
+
+        The mode is a READING here and a radio in the window — the same shape «Ралли»
+        settled on for its switches. The phone can see which of the three is on, which is
+        what somebody away from the machine needs; changing what the dispatch will spend
+        belongs where the person can see the fleet.
+        """
+        chosen = modelmod.truck_mode(self._truck_mode.get())
+        items = [{"label": "checklist.trucks.send", "pill": "checklist.trucks.not_yet"}]
+        items += [{"label": "checklist.trucks.mode." + mode,
+                   "pill": ("checklist.trucks.chosen" if mode == chosen
+                            else "checklist.trucks.unchosen")}
+                  for mode in modelmod.TRUCK_MODES]
+        return items
 
     def _web_item(self, state) -> dict:
         item = {"label": state.errand.title_key,

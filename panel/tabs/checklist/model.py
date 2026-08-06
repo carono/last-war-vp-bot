@@ -33,9 +33,17 @@ the parser that turns the line into states; the tab holds the words and the widg
   donations. Zero is done and STAYS done until the game's day rolls over, which is the
   one case where «done today» is literally what the game means.
 
+**The lines are gathered into GROUPS** (:class:`Group`), and a group can be more than a
+heading over a list. «Отправка грузовиков» is the first of the richer kind: it carries a
+counter of its own («0 из 5» — the same quota its row is drawn from), the press that will
+spend it, and the setting that says how the trucks are to be improved before they go. The
+widgets for all of that live in :mod:`.tab`; what is here is the catalogue, the numbers
+and the three modes, so they can be tested under a python with no display.
+
 The day is the game's (`tools/lib/game_clock.py`), and it is used for exactly one thing:
 saying when the quotas come back. Nothing is stored between runs — there is no tick to
-keep, because the answer is re-read.
+keep, because the answer is re-read. The one thing that IS stored is the truck setting,
+and the profile holds it: it is a choice, not a reading.
 """
 from __future__ import annotations
 
@@ -89,6 +97,49 @@ class Errand:
         return bool(self.field)
 
 
+#: «Отправка грузовиков» — the trade station's fleet, and the first group of the board
+#: to be more than a list of lines (#1249).
+#:
+#: A quota like any other: `trucks_send_left` of `trucks_send_cap`, so the counter beside
+#: the group («0 из 5») is the SAME reading the row is drawn from and the two cannot
+#: disagree. There is no gate field — an account whose trade station is still locked gets
+#: a dash out of the scenario rather than a zero, and a dash is «unknown» (above), which
+#: is what a feature this account does not have honestly looks like.
+TRUCK_ERRANDS: tuple = (
+    Errand("send_trucks", "trucks_send_left", QUOTA, cap="trucks_send_cap"),
+)
+
+#: The field beside the quota: how many trucks could go out RIGHT NOW. Not an errand of
+#: its own — it is the same errand's «and this much of it can be done this minute», which
+#: is what a person deciding whether to open the game actually wants.
+TRUCK_IDLE_FIELD = "trucks_idle"
+
+# -- how the trucks are to be improved before they go ------------------------
+#: The three ways of raising a truck's rarity before it is dispatched, exactly as the
+#: game offers them («Супер режим», `super_trucklaunch_*`): to UR by hand, to UR by
+#: itself, or all the way to the Reindeer Sleigh Ride by itself.
+#:
+#: **The setting manages ITSELF and nothing else so far.** There is no dispatch scenario
+#: yet, so nothing reads this to act on; it is stored in the profile and drawn, and the
+#: day the ability lands it is what the ability will be told to do. Kept here rather than
+#: in the tab so it is Tk-free and testable.
+TRUCK_MODE_UR_MANUAL = "ur_manual"
+TRUCK_MODE_UR_AUTO = "ur_auto"
+TRUCK_MODE_SLEIGH_AUTO = "sleigh_auto"
+
+TRUCK_MODES: tuple = (TRUCK_MODE_UR_MANUAL, TRUCK_MODE_UR_AUTO, TRUCK_MODE_SLEIGH_AUTO)
+
+#: What a profile that has never been asked does: nothing by itself. An automatic refresh
+#: spends Trade Contracts and diamonds, and a default that spends is a default nobody
+#: chose.
+TRUCK_MODE_DEFAULT = TRUCK_MODE_UR_MANUAL
+
+
+def truck_mode(raw) -> str:
+    """The stored mode, or the default — never something the panel cannot draw."""
+    return raw if raw in TRUCK_MODES else TRUCK_MODE_DEFAULT
+
+
 #: The errands the game ANSWERS, in the order a day is played: the base first, then the
 #: alliance, then what the person has banked, then the two robberies. Every one of these
 #: is a live reading and the same expression the matching press is gated on.
@@ -116,7 +167,6 @@ READ_ERRANDS: tuple = (
 #: candidate for a reading, and moving a line UP from here is the whole way this tab
 #: grows — never by giving it a box somebody can tick.
 BLIND_ERRANDS: tuple = (
-    Errand("send_trucks"),
     Errand("truck_reward"),
     Errand("gather"),
     Errand("secret_missions"),
@@ -139,13 +189,50 @@ BLIND_ERRANDS: tuple = (
     Errand("ministry"),
 )
 
-#: The two groups, in the order they are drawn, with the heading each is drawn under.
+class Group:
+    """One block of the board: a heading and the errands drawn under it.
+
+    A group used to be a pair — a heading key and a tuple — and it is a class now
+    because a block can be MORE than its lines (#1249). «Отправка грузовиков» carries a
+    counter of its own, the press that will spend it, and the setting that says how the
+    trucks are to be improved first; the rest carry nothing but their rows. What a group
+    is NOT is a thing the person edits: the board is the day, in the order a day is
+    played, and it is fixed in code (:mod:`.tab`).
+
+    ``key`` is what the tab tests to decide whether it draws anything extra under the
+    heading; the widgets themselves stay in the tab, because this module has no Tk.
+    """
+
+    __slots__ = ("key", "title_key", "errands")
+
+    def __init__(self, key: str, errands) -> None:
+        self.key = key
+        self.title_key = "checklist.group." + key
+        self.errands = tuple(errands)
+
+    def __iter__(self):
+        """So a group still unpacks as `(heading, errands)` where that reads better."""
+        return iter((self.title_key, self.errands))
+
+    def __repr__(self) -> str:
+        return f"<Group {self.key} ({len(self.errands)})>"
+
+
+#: The key of the one group that is more than a list — the tab hangs the counter, the
+#: press and the setting off it, and nothing else may be recognised by name.
+TRUCKS = "send_trucks"
+
+#: The groups, in the order they are drawn. The trucks go FIRST: it is the errand with
+#: the shortest fuse on it — the fleet is idle until it is sent and the allowance dies
+#: with the game's day — and it is the one block of the board that can be acted on from
+#: the board itself.
 GROUPS: tuple = (
-    ("checklist.group.read", READ_ERRANDS),
-    ("checklist.group.blind", BLIND_ERRANDS),
+    Group(TRUCKS, TRUCK_ERRANDS),
+    Group("read", READ_ERRANDS),
+    Group("blind", BLIND_ERRANDS),
 )
 
-ERRANDS: tuple = READ_ERRANDS + BLIND_ERRANDS
+ERRANDS: tuple = TRUCK_ERRANDS + READ_ERRANDS + BLIND_ERRANDS
 
 BY_KEY = {errand.key: errand for errand in ERRANDS}
 
@@ -291,9 +378,23 @@ def states(reading) -> list:
 
 
 def grouped(reading) -> list:
-    """``[(heading key, [state, …]), …]`` — the board as both front-ends draw it."""
-    return [(heading, [state_of(errand, reading) for errand in errands])
-            for heading, errands in GROUPS]
+    """``[(group, [state, …]), …]`` — the board as both front-ends draw it."""
+    return [(group, [state_of(errand, reading) for errand in group.errands])
+            for group in GROUPS]
+
+
+def truck_counter(reading) -> tuple:
+    """``(sent, cap, idle)`` for «Отправка грузовиков» — any of them ``None``.
+
+    The counter the group wears, «0 из 5»: how many trade trucks have gone out today,
+    how many may, and how many could go this minute. It is the QUOTA's own two halves
+    rather than a second reading of the same thing, so the counter and the row under it
+    cannot say different numbers — and ``None`` stays ``None`` all the way to the words,
+    because «nobody knows» must never be drawn as a zero.
+    """
+    state = state_of(TRUCK_ERRANDS[0], reading)
+    idle = reading.get(TRUCK_IDLE_FIELD) if reading is not None else None
+    return state.used, state.cap, idle
 
 
 def progress(states_) -> tuple:

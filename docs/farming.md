@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 33 of 112
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 33 of 113
 
-🟩 33 done · 🟨 35 partly · 🟥 44 not automated
+🟩 33 done · 🟨 36 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -168,6 +168,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - 🟡 Collecting arrived trucks — see Resources
 - ❌ Sending trucks out
+- 🟡 Counting the dispatches — the checklist says how many trade trucks have gone out today, how many the day allows and how many are standing ready to go, and the number moves by itself as trucks leave. Sending them is still done by hand
 - 🟡 Finding trucks worth robbing — the bot can list every truck on the map with its type, level, cargo and how many robberies it has left. Robbing one is not automated
 
 ### Store
