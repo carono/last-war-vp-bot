@@ -48,10 +48,11 @@ from . import debug_log
 _dbg = debug_log.get_logger("dashboard")
 
 # The marker the chunk logs its answer under (see tools/lib/lua_eval.py — the
-# evaluator returns the Player.log lines containing it).
+# evaluator returns the answer-log lines containing it).
 MARKER = "DASH"
-# How long to let the log settle after the call. One Debug.LogError, so this is
-# about the round trip and not about waiting on the server.
+# The DEADLINE the poll gives that answer, not a pause: the caller asks for it
+# `early`, so the wait ends the moment the line has landed (#1230, #1232). One
+# `Debug.LogError`, and the chunk answers itself — nothing here waits on the server.
 SETTLE = 0.6
 # A reading that could not be evaluated.
 UNREADABLE = "?"

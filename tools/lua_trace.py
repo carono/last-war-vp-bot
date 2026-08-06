@@ -154,6 +154,10 @@ def install_chunk(filter_kw, depth, hook_all, dedup=False, excludes=None):
     instead of falling back to `dedup`. See `split_filters` on choosing them.
     """
     return r"""
+-- LW_GAME_LOG: this chunk INSTALLS a logger that keeps firing long after the chunk has
+-- returned, and the tracer reads it by tailing Player.log. The sentinel keeps lua_eval
+-- from diverting our `Log` into its private answer file, where the shim would go on
+-- writing every traced call and nobody would ever read it (see tools/lib/lua_eval.py).
 local FILTERS = %(filters)s
 local EXCLUDES = %(excludes)s
 local MAXDEPTH = %(depth)d
@@ -363,6 +367,8 @@ end
 
 
 RESTORE_CHUNK = r"""
+-- LW_GAME_LOG: the tracer reads this confirmation out of Player.log along with
+-- everything else it tails, so this answer belongs there too (tools/lib/lua_eval.py).
 local T = _G.__XSTRACE
 if T then
   if T.hook then pcall(function() debug.sethook() end) end

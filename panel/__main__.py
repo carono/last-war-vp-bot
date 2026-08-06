@@ -2846,8 +2846,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if not running:
             return
         with self._rt.activity.step("activity.dashboard"):
+            # `early`: the chunk logs its whole answer in one line and the daemon holds
+            # its lock for the length of the call, so sitting out the rest of the settle
+            # is the strip making a press wait on it (#1230, #1232).
             lines = self._client.run(dashmod.build_chunk(), marker=dashmod.MARKER,
-                                     settle=dashmod.SETTLE)
+                                     settle=dashmod.SETTLE, early=True)
         values = dashmod.parse(lines, debug=self._rt.dbg("dashboard"))
         self._dash_err = ""
         self._dash_values = values

@@ -237,9 +237,15 @@ the Lua function live through `tools/lua_eval.py` and reading `Player.log`.
 > account. The ACE rule at the top still applies.
 
 **How it works.** Wrap the target with a shim that logs its args via
-`CS.UnityEngine.Debug.LogError(...)` (which lands in `Player.log`), keep the
-original in a global so you can restore it, perform the action in-game, then
-grep the log.
+`CS.UnityEngine.Debug.LogError(...)`, keep the original in a global so you can
+restore it, perform the action in-game, then grep the log.
+
+> **A shim that logs LATER must say so.** Put `LW_GAME_LOG` in a comment in the
+> install chunk, as `tools/lua_trace.py` does. Without it the shim captures the
+> `CS` that `lua_eval` shadows for the length of a chunk and writes the whole
+> recording into the private answer file instead of `Player.log`, where nothing
+> tails it — the trace simply comes out empty
+> (`../research/game-call-latency.md`).
 
 **Arm** the trace (one or many functions — add `wrap(...)` lines as needed):
 ```bash

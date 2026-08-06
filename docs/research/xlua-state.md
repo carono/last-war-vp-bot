@@ -473,7 +473,12 @@ Game/Player.log`):
   (arithmetic + concat + error all executed);
 - `CS.UnityEngine.Debug.LogError('XLUA_MARKER_1017')` → `XLUA_MARKER_1017` in the log.
 - Note `SafeDoString` **swallows Lua errors** (il2cpp `exc` is always 0) — verify via
-  the Player.log / a return value / observed state, not the `exc` slot.
+  the log / a return value / observed state, not the `exc` slot.
+- Since #1232 a chunk run through `lua_eval` no longer answers in `Player.log`: the
+  first `Debug.LogError` of a chunk costs the game's main thread ~120 ms, so the line is
+  diverted into `lw_answers.log` beside it and the chunk's own error is written there
+  too, no longer swallowed in silence (`game-call-latency.md`). The chunks are unchanged
+  — everything above still reads as written.
 
 So arbitrary Lua with full `CS.*` bindings runs in-process. This is the xLua route the
 earlier sections wanted; it was blocked only on reaching the VM, which the static

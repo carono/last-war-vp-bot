@@ -27,7 +27,7 @@ RESOURCE_ORDER = ("food", "wood", "metal", "oil", "gold")
 
 
 def _run_lua(rt, chunk: str, marker: str, settle: float = 0.6):
-    """Run ``chunk`` through the warm daemon and return the Player.log lines that carry
+    """Run ``chunk`` through the warm daemon and return the answered lines that carry
     ``marker``. Returns ``[]`` on any failure (no daemon / no game / error).
 
     `settle` is a deadline, not a pause (`early`): these are readings of what the game

@@ -192,9 +192,9 @@ fps, 75 at 21, and the client's frame rate is a `READ_LUA` away
 possible and is written up below; nothing else in the chain is worth more than a
 millisecond.
 
-## The next big one: the answer channel costs the game 120 ms a call
+## The answer channel cost the game 120 ms a call (task #1232)
 
-Found while measuring the above, and left for its own task because it changes how EVERY
+Found while measuring the above, and done as its own task because it changes how EVERY
 chunk in the repository reports its result.
 
 A chunk gets its answer back by writing a line to `Player.log`
@@ -211,8 +211,10 @@ a DataCenter read, no logging              p50  36 ms
 1 x Debug.LogError with 2 KB of text       p50 163 ms
 ```
 
-So the first log line of a chunk costs about 120 ms of the game's own main thread, and
-the rest are free. It is not the stack trace: `Application.SetStackTraceLogType(Error,
+So the first log line of a chunk costs about 120 ms and the rest are free. (This was
+written as "120 ms of the game's own main thread". It is not — the call itself takes a
+quarter of a millisecond there, and the cost is paid afterwards; see «What the 120 ms
+actually is» below.) It is not the stack trace either: `Application.SetStackTraceLogType(Error,
 None)` changed nothing, and a warning costs the same as an error. `Debug.Log` proper
 never reaches `Player.log` on this build at all, which is why the codebase uses
 `LogError` in the first place.
@@ -228,8 +230,149 @@ CS.UnityEngine.Debug.LogError('…')                   p50 214 ms
 CS.System.IO.File.AppendAllText('…', '…')            p50 103 ms
 ```
 
-Half. The chunks would keep their shape; what changes is the one place that builds the
-call and the one place that reads the answer back.
+Half. The chunks keep their shape; what changed is the one place that builds the call
+and the one place that reads the answer back.
+
+### How it was done without touching 280 chunks
+
+Every chunk in the tree still says `CS.UnityEngine.Debug.LogError('MARK …')`, and not one
+of them was edited. What is swapped is the `CS` they see: `lua_eval.wrap_chunk` puts a
+preamble in front of the chunk that declares a LOCAL `CS` — a table forwarding everything
+to the real one except `UnityEngine.Debug`, whose three logging functions buffer the line
+instead. The chunk itself runs inside a `pcall`ed vararg function, so a top-level `return`
+still returns and `...` is still legal, and the buffer is written out in ONE
+`File.AppendAllText` when it comes back. A line logged after that — by a callback the
+chunk installed — is appended on its own.
+
+The answer file sits beside `Player.log`, in this account's `LocalLow`: two clients are
+two Windows accounts with two folders, so the separation that stops two daemons reading
+each other's answers is the one their logs already have. It is emptied when it passes a
+megabyte, between calls.
+
+Three things keep the channel from being able to go silent, which matters more here than
+speed does — this is how every chunk in the repository answers:
+
+* a client whose xLua binding cannot reach `System.IO.File` logs to the game the way it
+  always did, and `LuaEval.run` reads `Player.log` whenever the private file came back
+  empty. Every reach into the CS bridge in the preamble is made inside a `pcall`,
+  *including the member access* — `pcall(File.AppendAllText, …)` resolves the method
+  before `pcall` can catch anything;
+* a failing append does the same, per call;
+* a chunk that RAISED has its error appended to the file, where `SafeDoString` used to
+  swallow it in silence. It carries no marker, so it reaches a person reading the file
+  and never a caller parsing lines.
+
+One kind of chunk must stay on the old channel and says so with the sentinel
+`LW_GAME_LOG` in a comment: one that INSTALLS something which logs later. The call shim
+of `tools/lua_trace.py` is the one in the tree — it would capture the shadowed `CS` and
+divert an entire recording into a file the tracer does not tail.
+`LW_ANSWER_CHANNEL=log` puts the whole panel back on `Debug.LogError`.
+
+Most of this needs no game to check: `tests/test_lua_answer_channel.py` runs the wrapped
+chunks in a real Lua VM (`lupa`) against a stand-in `CS`, and compiles the wrapped form
+of every chunk the repository can build offline — 75 of them — because a compile error
+here would break all of them at once and `SafeDoString` would swallow it.
+
+What a stand-in `CS` cannot answer is asked of the real one by
+`tools/dev/check_answer_channel.py`, which is the acceptance for this and is worth
+re-running after anything that touches `lua_eval`: the six shapes an answer comes in
+(nothing, one line, two hundred lines, a chunk that raised, one 8 KB line, one with
+Cyrillic/German/Turkish in it), each read back through BOTH channels and required to
+come out **identical** — plus the dashboard's thirteen readings through its own parser,
+three `read_*` scenarios through the interpreter, and a gated press on a button the
+dashboard has just reported empty. It presses nothing and moves nothing, so it is safe
+to run while somebody else is using the client. Live, all of it green:
+
+```
+nothing at all        file 0 line(s) | log 0   identical=True
+200 lines, in order   file 200       | log 200 identical=True
+a chunk that raised   file 1         | log 1   identical=True
+one 8 KB line         file 1         | log 1   identical=True
+unicode               file 1         | log 1   identical=True
+the dashboard's readings, through its own parser     13/13 resolved
+scenario read_graphics_load / read_squad_state / read_daily_checklist   all ok
+gated press 'help_ally_all' / 'recruit_survivor'     gate left=0, nothing pressed
+```
+
+To measure the two channels against each other again on one client, minutes apart:
+
+```
+C:\Python312\python.exe tools\dev\call_latency.py                  # the file
+C:\Python312\python.exe tools\dev\call_latency.py --via-game-log   # Player.log
+```
+
+### What the 120 ms actually is — it is NOT the game's main thread
+
+Re-measured live while doing the change, on a much busier client than #1230's (three
+profiles sharing one daemon, so read the MINIMUM and the low percentiles — the median is
+measuring the daemon's lock, not the call). Sixty samples of each, `settle=0` and no
+marker, so the round trip is the hijack and the chunk and nothing else:
+
+```
+                      min                p05      p10
+empty chunk          90.5 ms            109.0    130.6
+1 x Debug.LogError  135.1 ms  (+44.7)   208.7    275.0
+5 x Debug.LogError  134.3 ms  (+43.9)   187.4    249.6
+1 x AppendAllText    80.0 ms  (-10.5)   122.1    173.9
+5 x AppendAllText    29.9 ms  (-60.6)    63.1    111.2
+```
+
+**#1230's shape reproduces exactly: one log line and five cost the same** (135.1 against
+134.3), and the file writes cost nothing at all — five of them land under the empty
+chunk's own floor. The saving from swapping the channel is 55 ms at the minimum here and
+about 100 at p10, against #1230's ~120 on a quieter client.
+
+**On a REAL chunk it is harder to see than that, and worth saying so.** The same pairing
+run against the dashboard's own thirteen readings, thirty pairs, alternating:
+
+```
+after  (private file)   min 236.9   p10 374.4   p25 484.7   p50 677.4 ms
+before (Player.log)     min 328.1   p10 387.0   p25 425.7   p50 630.3 ms
+saved                      +91.2       +12.6       -59.0
+```
+
+Ninety milliseconds at the minimum, and nothing distinguishable above p10 — on a machine
+where three profiles share one daemon, so most of the distribution is measuring the lock
+rather than the call. The controlled comparison above is the honest measurement of the
+effect; this one is the honest measurement of **how much of it a person gets back on a
+busy box, which is less than the headline**. Re-run both on a quiet client before
+quoting a number at anybody:
+
+```
+C:\Python312\python.exe tools\dev\call_latency.py
+C:\Python312\python.exe tools\dev\call_latency.py --via-game-log
+```
+
+But the sentence #1230 wrote around those numbers — *"the first log line of a chunk costs
+about 120 ms of the game's own main thread"* — **is wrong**, and it is worth correcting
+because it points anybody optimising this at the wrong thing. Two measurements say so:
+
+* **timed inside the VM, on the main thread itself**, with
+  `System.Diagnostics.Stopwatch` (10 MHz) around each call: `Debug.LogError` takes
+  **0.18–0.26 ms** and `File.AppendAllText` **0.20–0.28 ms**. Neither costs the main
+  thread anything. (`Time.realtimeSinceStartup` is frame-cached on this build and reads
+  0.00 for both — it cannot measure this.)
+* **timed as visibility**: a chunk that writes BOTH, the log line first, then polling the
+  two files 500 times a second — the log line becomes readable a median of **0.0 ms**
+  after the file one (spread ±5 ms over ten runs). So it is not a flush delay either;
+  Unity's line is in `Player.log` as promptly as ours is in the file.
+
+The call is instant and the answer is readable instantly, yet a chunk *containing* one
+costs the caller 50–100 ms more, flat, however many lines it logs. So the cost is paid
+**after the chunk returns, in the main thread's availability for the NEXT hijack** —
+whatever Unity does with a log line at the frame boundary keeps the thread away from the
+safe park the following call has to wait for. Which is also why it is per chunk and not
+per line, and why nothing in the game looks slow while the panel does.
+
+The practical consequences are unchanged — the channel is worth swapping and it was —
+but two of them are worth spelling out. Chasing this further means looking at Unity's log
+handler and the frame boundary, not at how much text a chunk logs. And a chunk that
+writes its answer to the file is now genuinely free to write MORE of it: five appends
+measured cheaper than one log line by a factor of four.
+
+Also verified live, because eleven locales depend on it: both channels carry UTF-8
+intact — Cyrillic, German umlauts and Turkish dotless i all survive the round trip
+through the file and through `Player.log` alike.
 
 ## What is left on the table
 
@@ -240,12 +383,13 @@ call and the one place that reads the answer back.
   between the two hijacks, where a GC could in principle take it. Not done here because
   16 ms is below anything a person can feel and the change is live shellcode on somebody
   playing.
-* **Two background readers still hold the daemon's lock for their whole settle** — the
-  dashboard strip poll (`panel/dashboard.py`'s `SETTLE`, passed at its call site in
-  `panel/__main__.py`) and the trigger check in `panel/runtime/schedule.py`. Both are
-  pure reads and both want `early=True`; a press that arrives while one of them is
-  sleeping waits it out.
 * **The daemon holds its lock across the settle at all.** The lock is there because the
   hijack is not reentrant, and the settle is a wait AFTER the invoke — but two chunks
   reading the log at once would have to tell their lines apart, and every one of them
   writes under `ACT`. Worth doing only if the marker becomes per-call.
+
+Done since, and struck off this list: the two background readers that held the daemon's
+lock for the whole of their settle — the dashboard strip poll (`panel/__main__.py`) and
+the trigger check (`panel/runtime/schedule.py`). Both are pure reads whose chunk logs its
+own answer, and both ask for `early=True` now, so a press arriving while one of them is
+waiting no longer sits behind it.

@@ -446,7 +446,9 @@ flag, check it still exists before acting on it.
   | `LW_GAME_EXE` | `LastWar.exe` | the client's process name |
   | `LW_WINDOW_TITLE` | `Last War-Survival Game` | what a window search matches on |
   | `LW_WIN_PYTHON` | `C:\Python312\python.exe` | the interpreter child processes are started with |
-  | `LW_PLAYER_LOG` | `…\AppData\LocalLow\<game folder>\Player.log` | where Lua results are read back from |
+  | `LW_PLAYER_LOG` | `…\AppData\LocalLow\<game folder>\Player.log` | the game's own log — the fallback answer channel, and where a chunk that opted out is read from |
+  | `LW_ANSWER_LOG` | `…\AppData\LocalLow\<game folder>\lw_answers.log` | where Lua results are read back from: the game's log costs its main thread ~120 ms for a chunk's first line (#1232) |
+  | `LW_ANSWER_CHANNEL` | `file` | `log` puts every answer back in `Player.log`, the way it worked before |
   | `LW_LOCALLOW` | `…\AppData\LocalLow` | Unity's `persistentDataPath` root |
   | `LW_GAME_DATA_DIR` | `<LocalLow>\<game folder>` | what the client **downloads** — a different tree from the install |
   | `LW_CHAT_PHOTOS` | `<data dir>\ChatPhotos` | the chat photo / avatar cache |

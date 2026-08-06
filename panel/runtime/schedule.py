@@ -388,7 +388,11 @@ class Schedule:
                  'CS.UnityEngine.Debug.LogError("TRIGCHK=" .. tostring(ok and v and true or false))'
                  % trigger.check)
         try:
-            lines = self.rt.game.evaluator().run(chunk, marker="TRIGCHK", settle=0.6)
+            # `early`: the check answers itself in one line, and this runs on a timer in
+            # the background — the settle it used to sit out was held with the daemon's
+            # lock, in front of whatever the person pressed next (#1230, #1232).
+            lines = self.rt.game.evaluator().run(chunk, marker="TRIGCHK", settle=0.6,
+                                                 early=True)
         except Exception:                       # noqa: BLE001 — a bad read is not a kick
             return False
         return any("TRIGCHK=true" in ln.lower() for ln in (lines or []))

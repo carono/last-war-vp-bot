@@ -325,8 +325,10 @@ So there is no join key. What works, in order of effort:
 **The trace nominates candidates; it does not prove the API.** This is the
 fallback for a silent wire (§8.0 step 2 gate → §8.11), not part of the fast path —
 when the `up` command is on the wire, that command *is* the answer and you do not
-probe. When you must probe, results come back through `Player.log`, because
-`SafeDoString` returns nothing and swallows errors (`../research/xlua-state.md`).
+probe. When you must probe, results come back through a log line, because
+`SafeDoString` returns nothing and swallows errors (`../research/xlua-state.md`) —
+`lua_eval.py` prints them for you, so you never have to know which file they landed in
+(`lw_answers.log` beside `Player.log`, see `../research/game-call-latency.md`).
 
 ```bash
 # one chunk, results printed by marker
