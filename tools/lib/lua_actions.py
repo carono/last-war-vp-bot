@@ -84,13 +84,17 @@ FAST_STEP = 90
 #: each is FOR rather than by its number: a person choosing between them is choosing what
 #: they want to see, not a camera setting.
 #:
-#: The step of each is its measured shortest half-width, doubled and trimmed — ±15 tiles
-#: at `tile`, ±48 at `tasks`, and `bases` was swept live at 150 and found MORE bases than
-#: the narrower level did. A step belongs to its height and is meaningless without it.
+#: The step of each is what a live lap measured, not what the geometry suggested. At
+#: `tasks` a lap of step 90 finds every secret task a lap of step 45 finds (604 against
+#: 603 — the difference is tiles expiring mid-run), so 90 is complete for what that level
+#: is FOR. At `bases`, where the tiles are far denser, the count does keep climbing:
+#: 4 502 bases at step 150, **4 818 at 100**, 4 945 at 70 — so 100 is where the curve
+#: flattens against the clock (~5 s a lap against 13). A step belongs to its height and
+#: is meaningless without it.
 ZOOM_LEVELS: dict = {
     "tile": (JUMP_ZOOM, 24),
     "tasks": (SWEEP_ZOOM_MAX, FAST_STEP),
-    "bases": (BASE_ZOOM_MAX, 150),
+    "bases": (BASE_ZOOM_MAX, 100),
 }
 
 #: What a jump with no height asked for uses — the game's own, so that a coordinate

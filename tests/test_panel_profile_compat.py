@@ -76,7 +76,14 @@ def test_the_settings_knobs_read_back_exactly():
     assert abs(r._binder.opt_float("sniff_ready_timeout") - 30.0) < 1e-9
     assert r._opt_int("log_max_lines", low=200, high=200000) == 4000
     assert r._opt_bool("watchdog") is True
-    assert r._sweep_box() == (9, 3, 1.5, 12 * 60.0), r._sweep_box()
+    # The step is no longer read from the profile (#1265): it belongs to the camera
+    # height, and the pair is chosen on the «Секретки» coordinate bar. What this profile
+    # SAID (3) is ignored; what comes back is the default level's step, and the three
+    # knobs that really are the box's — radius, dwell, rest — still read back exactly.
+    radius, step, dwell, rest = r._sweep_box()
+    assert (radius, dwell, rest) == (9, 1.5, 12 * 60.0), r._sweep_box()
+    import lua_actions
+    assert step == lua_actions.zoom_level(lua_actions.DEFAULT_ZOOM_LEVEL)[1]
 
 
 def test_a_knob_the_profile_never_set_keeps_its_default():
@@ -145,6 +152,12 @@ def test_every_key_this_profile_carries_is_one_the_panel_knows():
         "rally_monitor", "rally_autojoin", "rally_alert",
         "ghost_autoloot", "chat_monitor",
         "map_sweep", "sweep_centre_x", "sweep_centre_y",
+        # RETIRED, and still carried by profiles written before it was (#1265).
+        # `sweep_step` was half of a pair — a step means nothing without the camera
+        # height it was measured at — and both halves moved to the «Секретки»
+        # coordinate bar as one control. Named here so an old profile does not read as
+        # a setting the panel has lost, which is what this test is for.
+        "sweep_step", "sweep_zoom",
         "scenario_selected", "scenario_args", "scenario_interval",
         "autorally", "rally_tab", "command_post",
     }

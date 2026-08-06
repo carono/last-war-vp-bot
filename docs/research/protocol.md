@@ -641,13 +641,20 @@ finds no trucks, and that is why: they were never tiles.
 
 ### Zoom
 
-> **`viewLvl` is NOT the camera's height** — measured directly in #1265
-> (docs/research/map-sweep-zoom.md §5). Sweeping the same box at camera heights 105 and
-> 600 — five LOD levels apart, one loading nine secret tasks a jump and the other 112 —
-> every single request carried `viewLvl = 0` and `bigMap = 1`. What the height changes is
-> the SIZE of the region asked for: the `index[]` of block ids goes from 12–16 entries to
-> a flat 132. The table below records real observations, so something does move `viewLvl`;
-> it is not the ordinary map camera, and a reader must not infer the zoom from it.
+> **Measured against the camera's height in #1265** (docs/research/map-sweep-zoom.md §8).
+> `viewLvl` is the camera's LOD band, and the three levels below map onto it exactly:
+>
+> | camera height | LOD | `viewLvl` | what comes back |
+> |---|---|---|---|
+> | ≤ 600 | 1–4 | **0** | every tile kind, secret tasks and ghost recon included |
+> | 601 – 1199 | 5 | **1** | bases, mines, cities, strongholds — no tasks, no ghost |
+> | ≥ 1200 | 6+ | **2** | **nothing**: whole-server squares, zero points |
+>
+> Within a band the height changes only the SIZE of the region asked for (`index[]` goes
+> from 12–16 block ids at height 105 to a flat 132 at 600, both `viewLvl 0`), which is
+> what an earlier revision of this note mistook for "`viewLvl` is not the height": it
+> sampled two heights that were both inside band 0. Beware the tween — a jump that also
+> changes the zoom fires its first request at the OLD band.
 
 `viewLvl` is the zoom level, and `blockSize` moves with it. Two levels were
 observed:

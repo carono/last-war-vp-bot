@@ -125,13 +125,18 @@ class SettingsTab(PanelTab):
         Read here only to describe the box in words under its knobs — the sweep itself
         reads its own (panel/tabs/secret_tasks/sweep.py), because a tab must not depend
         on another tab being present to know what it is doing.
+
+        The STEP is not a setting: it belongs to the camera height, which is the «Зум»
+        control on the «Секретки» coordinate bar (#1265). This page cannot see that tab
+        — it may not even be switched on — so the sentence under the knobs describes the
+        box with the default level's step, which is what a fresh profile sweeps at.
         """
+        import lua_actions
         opt = self.rt.settings
         return (
             opt.opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
                         high=mapsweepmod.MAX_RADIUS),
-            opt.opt_int("sweep_step", low=mapsweepmod.MIN_STEP,
-                        high=mapsweepmod.MAX_STEP),
+            lua_actions.zoom_level(lua_actions.DEFAULT_ZOOM_LEVEL)[1],
             opt.opt_float("sweep_dwell", low=mapsweepmod.MIN_DWELL,
                           high=mapsweepmod.MAX_DWELL),
             opt.opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
@@ -449,20 +454,16 @@ class SettingsTab(PanelTab):
         for row, (key, kwargs) in enumerate((
                 ("sweep_radius", {"spin": (mapsweepmod.MIN_RADIUS,
                                            mapsweepmod.MAX_RADIUS), "width": 10}),
-                ("sweep_step", {"spin": (mapsweepmod.MIN_STEP,
-                                         mapsweepmod.MAX_STEP), "width": 10}),
                 ("sweep_dwell", {"spin": (mapsweepmod.MIN_DWELL,
                                           mapsweepmod.MAX_DWELL), "width": 10}),
                 ("sweep_rest_min", {"spin": (0, 1440), "width": 10}),
-                ("sweep_zoom", {"spin": (mapsweepmod.MIN_ZOOM,
-                                         mapsweepmod.MAX_ZOOM), "width": 10}),
         )):
             self._opt_row(sweep, row, key, **kwargs)
         # The box in words, so the numbers above are not abstract.
         hint = ttk.Label(sweep, foreground="#888", wraplength=520, justify="left")
         hint.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self._sweep_settings_hint = hint
-        for key in ("sweep_radius", "sweep_step", "sweep_dwell"):
+        for key in ("sweep_radius", "sweep_dwell"):
             self.rt.settings.vars[key].trace_add(
                 "write", lambda *a: self._refresh_sweep_settings_hint())
         self._refresh_sweep_settings_hint()

@@ -140,12 +140,13 @@ the capture running, over the same box:
 The capture path agrees with the VM to the tile, and it is the panel's path — so «Автолут
 ★» gets the whole gain without a line changing in it.
 
-**And a correction to `docs/research/protocol.md` §7 «Zoom».** That section reads the
-camera's height off the request's `viewLvl` (0 zoomed in / 1 zoomed out / 2 whole world).
-It is not that: across 105 and 600 — five LOD levels apart — **every** request carried
-`viewLvl = 0` and `bigMap = 1`. What the height changes is the SIZE of the region asked
-for: the `index[]` of block ids goes from 12–16 entries to a flat 132, about nine times
-the ground per request. Whatever makes `viewLvl` 1 or 2, it is not the ordinary camera.
+**`viewLvl` and the height.** Across 105 and 600 every request carried `viewLvl = 0`;
+what changed was the SIZE of the region asked for — the `index[]` of block ids goes from
+12–16 entries to a flat 132, about nine times the ground per request. An earlier revision
+of this section read that as "`viewLvl` is not the camera's height". **It was wrong**, and
+sampling two heights that both sit inside band 0 is how: `viewLvl` is exactly the camera's
+LOD band, which §8 measures across all three. `docs/research/protocol.md` §7 carries the
+table.
 
 ## 6. What did NOT work, and what wasted the most time
 
@@ -169,6 +170,13 @@ the ground per request. Whatever makes `viewLvl` 1 or 2, it is not the ordinary 
   force a fetch.** All four exist and all four return without error; none produced a
   single byte on the wire while the client was in the stranded state below. They are not
   a repair.
+* **Sampling two heights and calling it a rule.** The claim that `viewLvl` is not the
+  camera's height came from measuring 105 and 600 — both inside band 0. A third height
+  would have shown it in one run. Corrected in §8 and in protocol.md; the mistake is
+  worth keeping because it is the cheap kind: two points, a straight line, no third.
+* **Reasoning about a step instead of measuring it.** The wide level's step was picked at
+  150 from a half-width, and 100 turns out to find 316 more bases for 2.5 s more. The
+  geometry says what CAN be covered; only a lap says what arrives.
 * **Measuring above LOD 5 with the point manager.** One view up there covers the whole
   server, so "bounce away to unload" unloads nothing: rungs at 1200 and 2200 returned
   byte-identical counts, which reads as a stable measurement and is the previous rung
@@ -205,23 +213,52 @@ which anything arrives, and the difference is worth a second setting: bases and 
 coming for another whole LOD, over four times the ground per jump. Measured on the wire,
 a full-map lap at each:
 
-| height | LOD | waypoints a lap needs | tiles delivered | tasks | ghost | **bases** | mines |
-|---|---|---|---|---|---|---|---|
-| 600 | 4 | 121 | 20 742 | **597** | **189** | 4 236 | 8 049 |
-| **1199** | **5** | **49** | 28 342 | 0 | 0 | **4 762** | 8 886 |
-| 1200 | 6 | — | **0** | 0 | 0 | **0** | 0 |
+Every lap below sets the height FIRST (the `WorldScene.Zoom` setter is instant) and then
+sweeps at that same number, so no request goes out while the zoom is still climbing. That
+matters: an uncorrected lap at 2200 came back with 819 tiles, all of them from its FIRST
+request, which fired at `viewLvl 1` while the camera was still on its way up. The other
+nine were `viewLvl 2` and empty. One tween, one whole wrong conclusion.
+
+| height | LOD | `viewLvl` | requests a lap | tiles | tasks | ghost | **bases** | mines |
+|---|---|---|---|---|---|---|---|---|
+| 600 | 4 | 0 | 122 | 21 110 | **604** | **213** | 4 251 | 8 112 |
+| **1199** | **5** | **1** | **50** | 26 799 | 0 | 0 | **4 502** | 8 405 |
+| 1200 | 6 | 2 | 25 | **0** | 0 | 0 | **0** | 0 |
+| 1500 | 6 | 2 | 26 | **0** | 0 | 0 | **0** | 0 |
+| 2200 | 7 | 2 | 9 | **0** | 0 | 0 | **0** | 0 |
+
+**So 1199 is the answer to "the last height at which player bases are still visible", and
+there is nothing above it to reach for**: from 1200 up the client asks `viewLvl 2` — whole
+server squares, one to four blocks a request — and gets back no points at all. The big map
+is drawn from a different message (`GetViewLevelWorldInfoMessage`), which this work did not
+decode. The camera itself clamps around **5000** in practice, whatever `ZoomMax = 17500`
+says, so the band above is small anyway.
 
 **1199 and not 1200, and that is not fussiness.** The client keeps the height as a float
 and hands back a hair more than it was given — ask for 1200 and it reads back as
-`1200.0001` — while the LOD ladder compares on `>=`. So exactly 1200 lands in LOD 6, where
-`world.get.block` answers with **no tiles whatever**: 22 responses, 0 tiles, and requests
-asking for 1–4 blocks instead of 132. The big map is drawn from a different message
-(`GetViewLevelWorldInfoMessage`), which this work did not decode.
+`1200.0001` — while the LOD ladder compares on `>=`. So exactly 1200 lands in LOD 6.
 
-That also traps the point manager: above LOD 5 one view covers the server, so "bounce away
-to unload" unloads nothing and every rung reads the one before it. Two rungs at 1200 and
-2200 returned byte-identical counts before that was noticed. **Above LOD 5, measure on the
-wire.**
+### The step that goes with 1199
+
+At `tasks` a step of 90 is complete (§9). At `bases` the tiles are far denser and the
+count keeps climbing, so the step was measured rather than reasoned:
+
+| step at 1199 | waypoints | lap | **distinct bases** |
+|---|---|---|---|
+| 150 | 49 | 2.5 s | 4 502 |
+| **100** | **101** | **5 s** | **4 818** |
+| 70 | 196 | 13 s | 4 945 |
+
+100 is where the curve flattens against the clock — 316 more bases for 2.5 s, against 127
+more for another 8 — so that is what `ZOOM_LEVELS["bases"]` carries. For comparison the
+narrow level's own lap finds 4 251 bases in 6 s, and a 4× denser narrow lap 4 536 in 27 s:
+**the wide mode is both faster and more complete for a base census**, which is what having
+it as a separate mode is for.
+
+Measuring above LOD 5 also traps the point manager: one view covers the server, so "bounce
+away to unload" unloads nothing and every rung reads the one before it. Two rungs at 1200
+and 2200 returned byte-identical counts before that was noticed. **Above LOD 5, measure on
+the wire.**
 
 ## 9. The fast swipe — the whole map in under three seconds
 
@@ -242,6 +279,11 @@ Not one request was lost at any rate. Below ~0.02 s the schedule outruns the wir
 buys nothing — 0.01 s scheduled the lap in 1.2 s and the traffic still took 2.9 s to
 drain, for one extra task. **The floor is the wire, not the camera.**
 
+Density does not buy anything either, for the thing the lap is FOR. A whole-map lap at
+step 45 — four times the waypoints, 27 s — found **603** secret tasks against step 90's
+**604** (the difference is tiles expiring mid-run, not coverage). Bases and mines do rise
+a few percent at the map's outer edge, which is what the wide mode in §8 is for.
+
 Against what the panel did before, over the same ground:
 
 | | ground covered | time | secret tasks |
@@ -250,15 +292,40 @@ Against what the panel did before, over the same ground:
 | zoom 600, step 80 (the #1265 sweep) | that box, one full lap | 78 s | 538 |
 | **zoom 600, step 90, scheduled in-game** | **the WHOLE 1000 × 1000 server** | **2.6 s** | **597** |
 
-### And the gesture was never needed
+### And the gesture was never needed — measured twice, two different ways
 
 The note under #1053 said a scripted camera move emits no `world.get.block` and only an
 interactive drag does, so a sweep had to be somebody's wrist. **That is not true of
 `GotoWorldPos`** — it is true only of the removed `GotoPos` camera crutch that note was
 written about. 121 scheduled jumps produced 121 requests and 121 responses with no
 gesture, no input, no window focus and no pixels: the Windows session was disconnected
-throughout (`mss` cannot even take a screenshot in that state). Nothing about a drag needs
-imitating — not the gesture, not the velocity, not the inertia.
+throughout (`mss` cannot even take a screenshot in that state).
+
+That answers "does a scripted move fetch anything at all". The second question is the one
+worth more: **a drag is CONTINUOUS, and a jump teleports — does the sliding view pick up
+ground along the way that a teleport skips?** It does not, and this is the measurement:
+the same 200 × 200 region, swept twice, counting only tiles that land INSIDE it.
+
+| lap | step | waypoints | requests | in-box tiles | bases | mines | tasks |
+|---|---|---|---|---|---|---|---|
+| teleporting | 90 | 9 | 10 | **741** | 284 | 318 | 124 |
+| sliding (≈ a drag) | 15 | 196 | 196 | **741** | 284 | 318 | 124 |
+
+**Identical, tile for tile.** A step of 15 against a view that reaches ±48 is a view that
+overlaps itself six times over — motion as continuous as a swipe, at 22× the sampling —
+and it collects not one extra tile. The client fetches what its view rect covers when it
+ARRIVES; nothing is gathered in transit. So there is nothing for a gesture to add, and no
+reason to imitate one: not the drag, not the velocity, not the inertia.
+
+The one thing that could not be tried here is a real mouse drag, because the Windows
+session was disconnected the whole night and this game ignores synthetic input that is not
+foreground ([[project_input_model]]). It does not change the answer: the extra thing a
+mouse has over a scheduled jump is continuity, and continuity is what the table above
+measures as worth nothing.
+
+(The in-engine drag path was looked at too — `WorldScene.TouchInputController` is a
+third-party asset, `BitBenderGames.TouchInputController`, and exposes nothing callable
+through xLua beyond `enabled`. Not needed, given the above.)
 
 ## 10. What shipped
 
@@ -279,6 +346,13 @@ imitating — not the gesture, not the velocity, not the inertia.
   beside it. The height governs every jump the tab makes, so a coordinate clicked in the
   table and one typed into the boxes arrive the same way. Mirrored on the phone as a
   cycling button and a press.
+* **One camera control, not two.** `sweep_zoom` and `sweep_step` are gone from Settings:
+  the height and the step are one decision — a step measured at one height means nothing
+  at another — and the box sweep now takes both from the level chosen on that bar. What
+  Settings keeps is what is genuinely about the box (radius) and the pace (dwell, rest).
+  A profile written before this still carries the two dead keys; they are named in
+  `tests/test_panel_profile_compat.py` as retired so an old profile does not read as a
+  setting the panel has lost.
 * `panel/runtime/daemon.py`, `panel/tabs/secret_tasks/sweep.py` — the sweep passes the
   height; every other jump still does not.
 * Settings → «Автообъезд карты» → «Высота камеры», bounded at 600 so the knob cannot be

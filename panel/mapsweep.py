@@ -17,13 +17,11 @@ Three decisions live here, and they are the whole module:
     where it lands, so stepping by roughly a screenful covers the box in the fewest
     jumps. :data:`DEFAULT_STEP` is deliberately shorter than a screen: overlap costs
     a jump, a gap costs the tiles in it, and only one of those is recoverable.
-  * **How big a screenful is, is a setting — and it has a ceiling.** The camera's
-    height decides how much map one jump asks the server for, and the client stops
-    asking for secret-task tiles above LOD 4, i.e. above a height of 600
-    (`lua_actions.SWEEP_ZOOM_MAX`, measured in docs/research/map-sweep-zoom.md). At
-    that height one jump loads roughly ±50 tiles in the shortest direction against
-    ±15 at the game's default 105 — which is why :data:`DEFAULT_STEP` is what it is.
-    Zoom out further and the sweep covers more ground while finding nothing.
+  * **How big a screenful is comes from the camera, and is not decided here.** The
+    height decides how much map one jump asks the server for — ±15 tiles at the game's
+    own 105, ±48 at 600, and above 1199 nothing arrives at all — so the step belongs to
+    the height. The pair lives in `lua_actions.ZOOM_LEVELS` and is chosen on the
+    «Секретки» coordinate bar (docs/research/map-sweep-zoom.md).
   * **Serpentine, not raster.** Row left-to-right then right-to-left, so every
     waypoint is next to the previous one. The camera travels the short way, the
     blocks load contiguously, and the sweep never teleports across the map between
@@ -55,25 +53,18 @@ import lua_actions      # noqa: E402
 MIN_COORD = 0
 MAX_COORD = 2000
 
-# The camera height a sweep jumps at. 600 is the last height at which the client still
-# asks for secret-task tiles (`lua_actions.SWEEP_ZOOM_MAX`); the ceiling below is the
-# same number, because a sweep that goes higher is a sweep that finds nothing.
-DEFAULT_ZOOM = lua_actions.SWEEP_ZOOM_MAX
-MIN_ZOOM, MAX_ZOOM = 105, lua_actions.SWEEP_ZOOM_MAX
-
-# How far apart two waypoints are, in tiles. Shorter than one screen of the world
-# map on purpose (see the module docstring): the sweep would rather jump twice than
-# leave a band of tiles nobody asked the server about.
+# The camera height and the step are ONE decision and live together in
+# `lua_actions.ZOOM_LEVELS`, chosen on the «Секретки» coordinate bar (#1265). Nothing
+# here holds a height any more: a step read apart from the height it was measured at is
+# a number that means nothing, and two knobs that must agree are two knobs that will not.
 #
-# 80 goes with :data:`DEFAULT_ZOOM`: at a height of 600 one jump loads ±48 tiles in its
-# shortest direction, so 80 leaves a band of about sixteen tiles overlapping at every
-# seam. At the game's own 105 the same measurement is ±15, which is where the old
-# default of 8 came from — a step is only ever readable next to the height it was
-# chosen for.
-DEFAULT_STEP = 80
-# Half the side of the box, in tiles. 120 with a step of 80 is a 4×4 grid — 16
-# waypoints, about a minute a pass — and covers a 241×241 neighbourhood, which is far
-# more than the 49×49 the old 24/8 pair walked in twice the time.
+# `DEFAULT_STEP` is what a fresh profile's level sweeps at, kept for the geometry's own
+# default argument and for `describe()` — the caller passes the level's real step.
+DEFAULT_STEP = lua_actions.ZOOM_LEVELS[lua_actions.DEFAULT_ZOOM_LEVEL][1]
+# Half the side of the box, in tiles. 120 with the secret-task level's step of 90 is a
+# 4×4 grid — sixteen waypoints, under a minute a pass — over a 241×241 neighbourhood,
+# where the old 24/8 pair walked 49×49 in forty-nine jumps. (For the WHOLE map,
+# «Обойти карту» is a lap of six seconds and this box is not the tool.)
 DEFAULT_RADIUS = 120
 # Bounds the UI offers, so a hand-typed number cannot ask for a sweep of one tile
 # or one that never comes round again.

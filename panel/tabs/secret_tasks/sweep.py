@@ -68,22 +68,25 @@ class Sweep:
         return int(cx), int(cy)
 
     def box(self) -> tuple:
-        """``(radius, step, dwell, rest, zoom)`` — the Settings page's five knobs, bounded.
+        """``(radius, step, dwell, rest, zoom)`` — the box, the pace, and the camera.
 
-        The zoom is bounded at `mapsweepmod.MAX_ZOOM` and not by the camera's own limit:
-        the client stops asking the server for secret-task tiles above that height, so a
-        sweep allowed to go higher would walk the box faster and come back with nothing
-        (task #1265, docs/research/map-sweep-zoom.md).
+        THE CAMERA IS NOT A SETTING OF ITS OWN (#1265). How far back it sits and how far
+        apart the waypoints go are one decision, not two — a step is meaningless without
+        the height it was measured at — and that decision is the «Зум» control on the
+        coordinate bar, where the person asked for it. So this reads the tab's level and
+        takes both numbers from it; Settings keeps only what is genuinely about the box
+        (how big) and the pace (how often).
         """
+        import lua_actions
         opt = self.rt.settings
+        zoom, step = lua_actions.zoom_level(getattr(self.tab, "_zoom_level", None))
         return (
             opt.opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
                         high=mapsweepmod.MAX_RADIUS),
-            opt.opt_int("sweep_step", low=1, high=mapsweepmod.MAX_STEP),
+            step,
             opt.opt_float("sweep_dwell", low=0.2, high=60.0),
             opt.opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
-            opt.opt_int("sweep_zoom", low=mapsweepmod.MIN_ZOOM,
-                        high=mapsweepmod.MAX_ZOOM),
+            zoom,
         )
 
     def rule_text(self) -> str:
