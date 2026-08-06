@@ -497,15 +497,12 @@ class Link:
 
     ``reason`` names WHY when the state alone does not say it (:data:`NOT_FOUND` and its
     neighbours), and it is an id rather than a sentence — the words belong to whoever is
-    drawing. ``user`` carries the Windows session the reading was taken in, because
-    every sentence that mentions one needs it and re-deriving it is how the two halves
-    come apart.
-
-    ``looked`` is the quietly important one. It is False where this machine could not
-    have known about the client at all — no `psutil` — and a caller that reads that as
-    «the client is gone» will refuse to work anywhere but the box the game is on.
-    Nothing here can tell that apart from a real absence, so it is said out loud instead
-    of guessed at.
+    drawing. It carries the distinction a caller most needs and cannot re-derive: a
+    :data:`NO_PSUTIL` reading is «this machine could not have known», not «the client is
+    gone», and treating the two alike is how a gate ends up refusing to work anywhere
+    except the box the game is on. ``user`` carries the Windows session the reading was
+    taken in, because every sentence that mentions one needs it and re-deriving it is
+    how the two halves come apart.
     """
 
     running: bool
@@ -516,7 +513,6 @@ class Link:
     dead: int = 0                # half-closed game sockets behind a LOST verdict
     user: "str | None" = None    # the Windows session this reading was taken in
     error: str = ""              # what blew up, when `reason` is PROBE_ERROR
-    looked: bool = True          # could this machine be asked at all?
 
     @property
     def online(self) -> bool:
@@ -549,7 +545,7 @@ def probe(game_exe: str = GAME_EXE, user: "str | None" = None) -> Link:
     try:
         import psutil  # noqa: F401 — every route below needs it
     except Exception:  # noqa: BLE001
-        return Link(False, OFFLINE, NO_PSUTIL, user=user, looked=False)
+        return Link(False, OFFLINE, NO_PSUTIL, user=user)
 
     try:
         found = pids(game_exe, user)
