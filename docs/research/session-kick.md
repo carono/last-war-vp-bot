@@ -129,15 +129,32 @@ GENERIC dialog and proves nothing on its own — the client uses it for anything
 pair is what makes it conclusive: **a lost link AND a message tip carrying text**. That
 is `lua_actions.kicked_out()`, and it is asked only while the link is already lost.
 
-Proven end to end by accident of timing: the panel was brought back up while the client
-was still kicked, and its very first poll said «выкинуло: вход с другого устройства»
-rather than «связь пропала».
+The READING was proven end to end by accident of timing: the panel was brought back up
+while the client was still kicked, and its very first poll said «выкинуло: вход с
+другого устройства» rather than «связь пропала».
+
+**The PRESS was not, and it was not happening at all.** Written here as proof of the
+whole flow, that sentence covered only half of it: the panel said the words and
+restarted nothing, because the caller tested `key == recovery.ACT` and `ACT_KICK` is
+not `ACT`. It was found the same night by asking the log a different question — WHAT
+RAN after each sentence — and the answer was the two ordinary hang-ups at 21:44 and
+22:15 ran `restart_game` in the second they were announced, and the two kicks at 22:49
+and 22:59 ran nothing at all. The client stayed deaf for nineteen minutes and was
+rescued by the process watchdog when it finally died on its own.
+
+**A log line is evidence that something was SAID, never that it was DONE.** Both
+readings above came out of the same log and only one of them was true; the difference
+is that «выкинуло» was checked against the game and «перезапускаю» was not checked
+against anything. Fixed with `recovery.RESTARTS` — the set of every act that means the
+press — so the next act added to the decision cannot be announced-only.
 
 ### What this does NOT fix
 
 A kick means the account is being played somewhere else, so restarting cannot win it
-back for long — it was watched failing at exactly that: restart, kicked again, «жду
-10 мин». Whether the automation should stand down entirely on a kick instead of
+back for long. This file used to say that had been watched failing — «restart, kicked
+again, жду 10 мин» — and it had not: those are the two kicks above, where no restart
+ever ran. **Nobody has yet seen what a real restart does against a live second
+device.** Whether the automation should stand down entirely on a kick instead of
 restarting is a decision for the person, and it is the same open question as §6.
 
 ## 5. The wrong conclusion this produced, and why it was convincing
