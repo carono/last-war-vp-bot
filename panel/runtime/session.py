@@ -81,7 +81,10 @@ class ProfileSession:
 
     def shutdown(self) -> None:
         """Everything this session holds, let go of: tabs, errands, daemon claim, files."""
-        for tab in self.rt.tabs.live:
+        # THE DRAWN ONES: a tab nobody opened was never built and never loaded, so it
+        # holds no child, no listener and no armed timer for this to let go of — and its
+        # `shutdown` would be the first line of it ever to run (`PanelTab.LAZY`, #1215).
+        for tab in self.rt.tabs.drawn:
             try:
                 tab.shutdown()
             except Exception:                # noqa: BLE001 — one tab, not the window

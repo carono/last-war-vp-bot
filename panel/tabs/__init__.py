@@ -20,6 +20,13 @@ Which tabs a window actually shows is the PROFILE's business
 from __future__ import annotations
 
 import importlib
+import threading
+
+
+def _on_tk_thread() -> bool:
+    """Is this the thread the event loop runs on? (The main one, in the panel and in
+    `python -m panel.tabs.<id>` alike.) A widget may be made nowhere else."""
+    return threading.current_thread() is threading.main_thread()
 
 
 class TabSpec:
@@ -67,18 +74,68 @@ class TabRegistry:
 
     def __init__(self) -> None:
         self._live: dict = {}
+        #: Told about every tab this registry draws, once each — the container's hook
+        #: for what can only be done to a tab that HAS widgets: tracing the variables
+        #: it makes for the auto-save. ``None`` in a window that does not persist.
+        self.on_realized = None
 
     def add(self, tab) -> None:
         self._live[tab.ID] = tab
 
     def get(self, tab_id: str):
-        """The live tab, or ``None`` if this window does not have it."""
+        """The live tab, or ``None`` if this window does not have it.
+
+        DRAWN BEFORE IT IS HANDED OVER, when the caller is the Tk thread: a tab reaching
+        for another one wants to read its widgets, and since #1215 a tab nobody has
+        opened has none yet (`PanelTab.LAZY`). Off the Tk thread nothing is drawn — a
+        widget may only be made where the event loop is — so a background caller gets
+        the tab as it stands and must hand the drawing over itself (`rt.post`) if it
+        needs more than the tab's own state.
+        """
+        tab = self._live.get(tab_id)
+        if tab is not None and _on_tk_thread():
+            self.realize(tab)
+        return tab
+
+    def peek(self, tab_id: str):
+        """The tab as it stands — undrawn if nobody has looked at it. ``None`` if absent.
+
+        For the container and for tests: everything else wants :meth:`get`, which hands
+        over a tab that is ready to be talked to.
+        """
         return self._live.get(tab_id)
+
+    def realize(self, tab) -> bool:
+        """Draw ``tab`` if it is not drawn, and tell the container. ``True`` if it drew.
+
+        The ONE door to `PanelTab.realize`, so that whatever the container has to do to
+        a freshly drawn tab happens however it came to be drawn — shown in the notebook,
+        opened on the phone, or reached for by another tab.
+
+        A stand-in that is not a `PanelTab` — a test's fake screen, say — counts as
+        drawn: it has no widgets to wait for and nothing here to draw them with.
+        """
+        if tab is None or getattr(tab, "built", True):
+            return False
+        tab.realize()
+        if self.on_realized is not None:
+            self.on_realized(tab)
+        return True
 
     @property
     def live(self) -> list:
-        """Every built tab, in the order they were added — what the lifecycle loops walk."""
+        """Every tab of this window, in the order they were added — drawn or not.
+
+        What the lifecycle loops walk, and they check `tab.built` before touching one:
+        an undrawn tab started nothing and holds nothing, so there is nothing in it for
+        «Стоп всё», a profile switch or a shutdown to reach.
+        """
         return list(self._live.values())
+
+    @property
+    def drawn(self) -> list:
+        """Only the tabs somebody has looked at — the ones with widgets to talk to."""
+        return [tab for tab in self._live.values() if tab.built]
 
     def __contains__(self, tab_id: str) -> bool:
         return tab_id in self._live

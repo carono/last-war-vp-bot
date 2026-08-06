@@ -136,6 +136,13 @@ class _Tabs:
     def get(self, tab_id: str):
         return None
 
+    def realize(self, tab) -> bool:
+        """The registry draws a tab before the phone is handed it (#1215). A screen in
+        this file is already whatever it is going to be, so this answers «nothing to
+        draw» — and being here at all is what keeps the stand-in the same shape as
+        `panel.tabs.TabRegistry`, which is what the API actually talks to."""
+        return False
+
 
 class _Actions:
     def resolve(self, name: str):

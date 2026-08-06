@@ -999,6 +999,7 @@
   "log.profile.closed": "profil fermé : {name}",
   "log.profile.folder_failed": "le dossier du profil n'a pas pu être ouvert : {error}",
   "log.profile.held_elsewhere": "{name} est ouvert dans un autre panneau — non ouvert ici",
+  "log.profile.held_stale": "{name} est retenu par un panneau qui ne répond plus (pid {pid}, silencieux depuis {mins} min) — fermez-le et le profil revient",
   "log.profile.last_one": "{name} est le seul profil ouvert — impossible de le fermer",
   "tab.web": "Web",
   "web.enabled": "Commande à distance depuis un téléphone",

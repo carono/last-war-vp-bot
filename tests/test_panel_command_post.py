@@ -321,10 +321,22 @@ def test_panel_keeps_the_saved_block_until_the_tab_exists():
     class _Built:
         _settings = {"tabs": {"config": {"command_post": block}}}
         _tabs_block = pm.Panel._tabs_block
+        # A DRAWN tab: `_tabs_block` asks every tab for `stored_config`, which is the
+        # widgets for one that has been looked at and the block it was given for one
+        # that has not (`PanelTab.LAZY`, #1215).
         _plugin_tabs = {"command_post": types.SimpleNamespace(
-            ID="command_post",
-            config=lambda: {"pages": {"treasure": {"squad": 1}},
-                            "ghost_autoloot": False})}
+            ID="command_post", built=True,
+            stored_config=lambda: {"pages": {"treasure": {"squad": 1}},
+                                   "ghost_autoloot": False})}
+
+    class _NeverOpened:
+        """The tab is in the window but nobody has looked at it: it hands back exactly
+        the block it was handed, so a save cannot flatten settings out of the profile."""
+
+        _settings = {"tabs": {"config": {"command_post": block}}}
+        _tabs_block = pm.Panel._tabs_block
+        _plugin_tabs = {"command_post": types.SimpleNamespace(
+            ID="command_post", built=False, stored_config=lambda: dict(block))}
 
     class _Fresh:                                        # a profile with nothing saved
         _settings = {}
@@ -332,6 +344,7 @@ def test_panel_keeps_the_saved_block_until_the_tab_exists():
 
     assert _NoTabYet()._tabs_block()["config"]["command_post"] == block
     assert _Built()._tabs_block()["config"]["command_post"]["ghost_autoloot"] is False
+    assert _NeverOpened()._tabs_block()["config"]["command_post"] == block
     fresh = _Fresh()._tabs_block()
     assert fresh["config"] == {}, fresh
     # Every save records which tabs this build offered, so an unticked one stays

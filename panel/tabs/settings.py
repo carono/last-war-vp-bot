@@ -152,8 +152,13 @@ class SettingsTab(PanelTab):
         pages = [(f"settings.tab.{key}", getattr(self, builder) if builder else None)
                  for key, builder in SHELL_PAGES]
         for tab in self.rt.tabs.live:
-            if tab.SETTINGS_PAGE_KEY:
-                pages.append((tab.SETTINGS_PAGE_KEY, tab.settings_page))
+            if not tab.SETTINGS_PAGE_KEY:
+                continue
+            # A contributor is DRAWN before it is asked to draw a page here: since #1215
+            # a tab nobody has opened has no widgets, and its page is usually a view of
+            # them. Only the contributors — the rest of the window stays undrawn.
+            self.rt.tabs.realize(tab)
+            pages.append((tab.SETTINGS_PAGE_KEY, tab.settings_page))
 
         for title_key, fill in pages:
             frame = ttk.Frame(sub_nb, padding=8)

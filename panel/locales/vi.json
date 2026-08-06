@@ -999,6 +999,7 @@
   "log.profile.closed": "đã đóng hồ sơ: {name}",
   "log.profile.folder_failed": "không mở được thư mục hồ sơ: {error}",
   "log.profile.held_elsewhere": "{name} đang mở ở bảng khác — không mở ở đây",
+  "log.profile.held_stale": "{name} đang bị một bảng ngừng phản hồi giữ (pid {pid}, im lặng {mins} phút) — đóng bảng đó thì hồ sơ sẽ trở lại",
   "log.profile.last_one": "{name} là hồ sơ duy nhất đang mở — không thể đóng",
   "tab.web": "Web",
   "web.enabled": "Điều khiển từ xa bằng điện thoại",

@@ -513,6 +513,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # a link built on the wrong one drives the wrong client for the rest of the run
         # (#1224). Only the half that needs nothing asked — see `_sort_out_clients`.
         self._client_notes = self._sort_out_clients(profiles)
+        # …and the same for the profiles this window is asked to reopen and cannot,
+        # because another panel holds them (`_profile_held_elsewhere`): kept here while
+        # the workspace is restoring and said once there is a page to say them on.
+        self._held_notes: list = []
         self._workspace = runtime.Workspace(
             self, defaults=SETTINGS_DEFAULTS, profiles=profiles,
             log=self._session_complaint,
@@ -522,6 +526,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._adopt(self._workspace.current)
         for key, fmt in self._client_notes:
             self._say("profile", key, **fmt)
+        # …and why a remembered profile is not here. Said now rather than during the
+        # restore, when there was no session to say it into and it went to a stderr
+        # nobody reads (#1215).
+        for key, fmt in self._held_notes:
+            self._say("profile", key, **fmt)
+        self._held_notes = []
         self.title(self._t("app.title"))
         self.geometry("760x600")
         self.minsize(640, 500)
@@ -679,10 +689,48 @@ class Panel(runtime.SessionScoped, tk.Tk):
         return not autostartmod.locked(self._workspace.profiles, name)
 
     def _profile_held_elsewhere(self, name: str) -> None:
+        """A remembered profile was NOT opened: somebody holds its instance lock.
+
+        SAID WHERE A PERSON WILL READ IT (#1215). This went straight into `_say`, and
+        `Workspace.restore` runs before any session has been adopted — so the line had
+        no log to land in and fell through to a stderr a windowed panel does not have.
+        The profile was simply missing, with nothing anywhere saying why; and because a
+        profile that was not restored has no page, every switch to it afterwards paid
+        for a whole page build.
+
+        And it says WHOSE lock it is, which is the difference between the two cases
+        that look identical from here: a second panel that is genuinely running (use
+        that window) and a lock held by a process that stopped answering its own event
+        loop (close it — until it is gone this profile cannot be opened at all). The
+        lock itself is never broken: it is the kernel's answer to «is a process holding
+        this profile», and overruling it on the strength of a file's timestamp is how
+        two panels end up writing one `config.json`.
+        """
+        note = self._holder_note(name)
+        if self._current_session is None:
+            # Still in `restore`: keep it until there is a page to say it on.
+            self._held_notes.append(note)
+            return
         try:
-            self._say("profile", "log.profile.held_elsewhere", name=name)
+            self._say("profile", note[0], **note[1])
         except Exception:                      # noqa: BLE001 — before there is a log
             print(f"[profile] {name} is open in another panel", file=sys.stderr)
+
+    def _holder_note(self, name: str) -> tuple:
+        """Which line to say about a profile this window could not open, and its values."""
+        profiles = self._workspace.profiles
+        try:
+            life = autostartmod.probe(profiles, name)
+            pid = life.pid or autostartmod.holder(profiles, name) or 0
+        except Exception:                      # noqa: BLE001 — a note, never the boot
+            return ("log.profile.held_elsewhere", {"name": name})
+        if life.running:
+            return ("log.profile.held_elsewhere", {"name": name})
+        # The lock is held and the panel behind it is not beating: it is hung, or it
+        # left something of its own holding the file. Either way the person has to go
+        # and close it, and nothing here can do it for them.
+        return ("log.profile.held_stale",
+                {"name": name, "pid": pid, "mins": int((life.age or 0) // 60)})
 
     def _adopt(self, session) -> None:
         """Point the window at ``session`` and fill in the names this file calls by hand.
@@ -992,8 +1040,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # the edges reach the log rather than every eight seconds of it
         # (see `_announce_link`).
         self._link_gone = 0
-        # Account dashboard: the last readings and the poller's stop flag.
+        # Account dashboard: the last readings and the poller's stop flag. The WIDGET is
+        # made when «Аккаунты» is first drawn and not before (`_on_tab_realized`,
+        # #1215), so the poller has to be able to run with nowhere to paint.
         self._dash_values: dict = {}
+        self._dash_view = None
         self._dash_stop = None
         self._dash_err = ""          # last complaint, so it is said once not per poll
         # THE SCHEDULE (panel/runtime/schedule.py): errands on a clock and errands
@@ -2191,7 +2242,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         block["known"] = [spec.id for spec in tabsreg.TABS]
         config = dict(block.get("config") or {})
         for tab in getattr(self, "_plugin_tabs", {}).values():
-            config[tab.ID] = tab.config()
+            # `stored_config`, not `config`: a tab nobody has opened has no widgets to
+            # read and hands back the block it was given instead of a screenful of
+            # defaults (`PanelTab.LAZY`, #1215).
+            config[tab.ID] = tab.stored_config()
         block["config"] = config
         return block
 
@@ -2218,7 +2272,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # widgets are, and a line here naming one of them is a crash waiting for the
             # release that moves it.
             for tab in getattr(self, "_plugin_tabs", {}).values():
-                tab.apply_config(
+                # `restore`, not `apply_config`: an undrawn tab keeps the block until it
+                # is drawn and then applies it, so a profile restored into a page nobody
+                # has opened is not lost (`PanelTab.LAZY`, #1215).
+                tab.restore(
                     self._binder.tab_config(tab.ID, type(tab).LEGACY_KEYS))
         finally:
             self._loading = False
@@ -2234,9 +2291,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
             var.trace_add("write", lambda *a: self._save_settings())
         # Every plugin tab's own settings, traced from here like any other bound
         # setting, so a tab stays free of the profile machinery.
-        for owner in getattr(self, "_plugin_tabs", {}).values():
-            for var in owner.persist_vars():
-                var.trace_add("write", lambda *a: self._save_settings())
+        #
+        # THE DRAWN ONES NOW, THE REST AS THEY ARE DRAWN. A `LAZY` tab makes its
+        # variables when somebody first looks at it (#1215), and a variable made after
+        # this ran would be untraced — the box would tick and nothing would be written.
+        # So the registry says when it draws one, and that tab is traced then.
+        self._rt.tabs.on_realized = self._bound(self._on_tab_realized)
+        for owner in self._rt.tabs.drawn:
+            self._trace_tab(owner)
         # …and what a tab changes that is NOT a variable — the «Авторалли» page's
         # tri-state squad buttons, the capture combo. A widget with no variable of its
         # own says so instead of being traced.
@@ -2272,8 +2334,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # Every plugin tab re-points itself: the rally monitor bounces onto the new
         # profile's log, the stats table re-reads that account's tally. One loop, so a
         # tab added later cannot be the one somebody forgot to list here.
+        #
+        # THE DRAWN ONES. A tab nobody has opened has nothing pointed at the old profile
+        # — no widgets, no child, no read — and it is handed the new profile's block
+        # anyway (`_apply_settings_to_ui`), so it comes up as that account's the first
+        # time somebody looks at it (#1215).
         for tab in getattr(self, "_plugin_tabs", {}).values():
-            tab.on_profile_switch()
+            if tab.built:
+                tab.on_profile_switch()
         # The schedule belongs to the account: its errands, their switches and periods,
         # the clock that says when each last ran, and the listeners a switch must not
         # leave watching on the previous profile's behalf. The Timers tab, if this
@@ -2582,7 +2650,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._stage(session, steps, staged)
 
     def _build_one_tab(self, spec, frame) -> None:
-        """One plugin tab: built, registered, and named on the strip while it is.
+        """One plugin tab: made, registered, and named on the strip while it is.
+
+        MADE, not necessarily DRAWN (#1215). A `LAZY` tab — every tab that has no reason
+        otherwise — is constructed here and handed its saved block, and its widgets wait
+        for the first person to look at it. What is left in this step is a class import
+        and an `__init__`: a page of fifteen tabs used to spend between one and a half
+        and eight seconds here, all of it on tabs nobody had asked to see.
 
         BEFORE the Settings page is drawn, because a tab contributes its own page to it
         (§6) and the aggregator can only draw the tabs that exist by then. That is what
@@ -2610,10 +2684,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
     def _finish_tabs(self, nb, frames: dict, done=None) -> None:
         """Everything about the tabs that can only be done once they are all there."""
         # The account summary strip goes into the «Аккаунты» tab, beside the list of
-        # characters it summarises — and only if this profile has that tab at all.
-        # AFTER that tab, so it sits under the list rather than above it.
-        if "accounts" in frames:
-            self._build_dashboard(frames["accounts"])
+        # characters it summarises. It is packed when that tab is DRAWN and not before
+        # (`_on_tab_realized`), for the reason it was here: it has to sit under the
+        # list, and a strip packed into a frame the tab has not filled yet sits above
+        # it. Until then the poller keeps reading — `_render_dashboard` finds no widget
+        # and simply holds the numbers.
         # Lazily loaded on first show, by the frame the notebook reports as selected.
         self._lazy_tabs = {str(frames[tab_id]): tab
                            for tab_id, tab in self._plugin_tabs.items()}
@@ -2628,10 +2703,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # said the remote control was on, and nothing was listening until somebody
         # clicked the tab (#1221). `ensure_loaded` is idempotent by contract, so the two
         # walks cost nothing where they overlap.
+        #
+        # AND DRAWN FIRST: what an EAGER tab starts asks its own checkbox whether it is
+        # switched on, so «load at boot» has to mean «exists at boot» too (#1215).
         for tab in self._plugin_tabs.values():
             if not tab.EAGER:
                 continue
             try:
+                self._rt.tabs.realize(tab)
                 tab.ensure_loaded()
             except Exception:                # noqa: BLE001 — one tab, not the window
                 self._dbg.error("eager load of %r failed", tab.ID, exc_info=True)
@@ -2648,13 +2727,43 @@ class Panel(runtime.SessionScoped, tk.Tk):
             cls = spec.load()
             self._binder.register(cls.SETTINGS)
             tab = cls(self._rt, frame)
-            tab.build()
-            tab.apply_config(self._binder.tab_config(cls.ID, cls.LEGACY_KEYS))
+            # The block first, whether or not the widgets follow now: a tab that is
+            # never opened hands this same block back when the profile is saved
+            # (`PanelTab.stored_config`), and a tab that IS opened has it applied as
+            # part of being drawn (`PanelTab.realize`).
+            tab.restore(self._binder.tab_config(cls.ID, cls.LEGACY_KEYS))
+            if not cls.LAZY:
+                self._rt.tabs.realize(tab)
             return tab
         except Exception as exc:                 # noqa: BLE001
             self._dbg.error("tab %r failed to build", spec.id, exc_info=True)
             self._say("panel", "log.tab.failed", tab=spec.id, error=exc)
             return None
+
+    def _on_tab_realized(self, tab) -> None:
+        """A tab has just been drawn — do to it what only a drawn tab can be done to.
+
+        The one hook the container has on `PanelTab.LAZY` (#1215). A tab is drawn the
+        first time somebody looks at it, which may be an hour after its page was made,
+        and two things have to happen at that moment rather than at the page's:
+
+        * its variables are traced, so ticking a box it has just made is still written
+          to the profile;
+        * «Аккаунты» gets the account strip packed under its list — it is the shell's
+          own widget in that tab's frame, and it can only go under a list that exists.
+        """
+        try:
+            self._trace_tab(tab)
+            if tab.ID == "accounts":
+                self._build_dashboard(tab.parent)
+        except Exception:                    # noqa: BLE001 — one tab, not the window
+            self._dbg.error("wiring up %r after it was drawn failed", tab.ID,
+                            exc_info=True)
+
+    def _trace_tab(self, tab) -> None:
+        """Save the profile whenever one of this tab's own variables changes."""
+        for var in tab.persist_vars():
+            var.trace_add("write", lambda *a: self._save_settings())
 
     # -- the account dashboard ----------------------------------------------
     #
@@ -3124,7 +3233,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
             if not tab.EAGER:
                 continue
             try:
-                self._on_tk(tab.ensure_loaded)
+                # Drawn on the Tk thread first, for the same reason the load is handed
+                # there: widgets are made nowhere else, and what an EAGER tab starts
+                # reads its own checkbox (#1215).
+                self._on_tk(lambda t=tab: (self._rt.tabs.realize(t), t.ensure_loaded()))
             except Exception:            # noqa: BLE001 — one tab, not the whole boot
                 self._dbg.error("eager load of %r failed", tab.ID, exc_info=True)
         # The schedule runs whenever the panel is open: the thread is started
@@ -3756,9 +3868,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
         with self._on(session):
             self._say("panel", "panic.log")
             # …and each plugin tab stops whatever it holds — one loop, so a tab added
-            # later cannot be the one «Стоп всё» quietly does not reach.
+            # later cannot be the one «Стоп всё» quietly does not reach. A tab nobody
+            # has opened holds nothing: it was never drawn and never loaded, so there is
+            # nothing in it to stop (#1215).
             for tab in getattr(self, "_plugin_tabs", {}).values():
-                tab.panic()
+                if tab.built:
+                    tab.panic()
             self._schedule.stop()
             # …and then whatever is STILL running, whoever started it. Each tab has just
             # stopped what it holds, but «Стоп всё» is pressed when something has gone
@@ -3788,9 +3903,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         with self._on(session):
             # Each tab puts back what IT switched off, and only what was on — the tab
             # owns the switch, so the tab is the only place that snapshot can live
-            # without drifting from it (panel/runtime/panic.py).
+            # without drifting from it (panel/runtime/panic.py). An undrawn tab was not
+            # asked to stop anything, so there is nothing of its to put back.
             for tab in getattr(self, "_plugin_tabs", {}).values():
-                tab.resume()
+                if tab.built:
+                    tab.resume()
             self._rt.panic.clear()
             self._paint_panic()
             self._say("panel", "panic.resumed")
@@ -4455,18 +4572,22 @@ class Panel(runtime.SessionScoped, tk.Tk):
         tabs = getattr(self, "_lazy_tabs", {})
         previous = getattr(self, "_shown_tab", None)
         if previous is not None and previous is not tabs.get(current):
-            previous.on_hide()
+            if previous.built:               # an undrawn tab was never on screen
+                previous.on_hide()
         tab = tabs.get(current)
         self._shown_tab = tab
         if tab is None:
             return
-        # BOTH of them under one step: a tab shown for the first time reads the game
-        # here, on the Tk thread, and that read is the longest freeze the panel has
-        # left in it. The strip is painted before the read starts (`_activity_changed`
-        # forces the redraw when it is reported from this thread), so the window says
-        # which tab it has gone quiet for instead of merely going quiet.
+        # ALL THREE under one step: a tab shown for the first time is DRAWN here as well
+        # as read (#1215), and both happen on the Tk thread — together they are the
+        # longest freeze the panel has left in it. The strip is painted before any of it
+        # starts (`_activity_changed` forces the redraw when it is reported from this
+        # thread), so the window says which tab it has gone quiet for instead of merely
+        # going quiet.
         with self._rt.activity.step("activity.tab.load",
                                     tab=self._t(type(tab).TITLE_KEY)):
+            begun = time.perf_counter()
+            self._rt.tabs.realize(tab)
             started = time.perf_counter()
             tab.ensure_loaded()
             loaded = time.perf_counter()
@@ -4475,8 +4596,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # and the difference is the one the contract is about (§3).
         dbg = getattr(self, "_dbg", None)
         if dbg is not None:
-            dbg.debug("tab %r shown: ensure_loaded %d ms, on_show %d ms", tab.ID,
-                      (loaded - started) * 1000, (time.perf_counter() - loaded) * 1000)
+            dbg.debug("tab %r shown: build %d ms, ensure_loaded %d ms, on_show %d ms",
+                      tab.ID, (started - begun) * 1000, (loaded - started) * 1000,
+                      (time.perf_counter() - loaded) * 1000)
 
     # -- «Настройки» is a plugin tab now (panel/tabs/settings.py) ------------
     #

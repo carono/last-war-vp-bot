@@ -999,6 +999,7 @@
   "log.profile.closed": "perfil fechado: {name}",
   "log.profile.folder_failed": "não foi possível abrir a pasta do perfil: {error}",
   "log.profile.held_elsewhere": "{name} está aberto noutro painel — aqui não é aberto",
+  "log.profile.held_stale": "{name} está retido por um painel que deixou de responder (pid {pid}, {mins} min em silêncio) — feche-o e o perfil volta",
   "log.profile.last_one": "{name} é o único perfil aberto — não pode ser fechado",
   "tab.web": "Web",
   "web.enabled": "Controlo remoto pelo telemóvel",

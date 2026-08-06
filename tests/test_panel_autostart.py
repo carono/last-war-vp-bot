@@ -34,6 +34,7 @@ import os
 import sys
 import tempfile
 import time
+import types
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -224,6 +225,76 @@ def test_the_holder_is_named_so_the_refusal_can_be_worded():
         finally:
             autostartmod.drop_lock(held)
         assert autostartmod.holder(profiles) is None
+
+
+def test_a_profile_that_could_not_be_reopened_says_so_on_the_page():
+    """A remembered profile that is NOT restored has to say why, where it can be read.
+
+    It did not (#1215). `Workspace.restore` runs before any session has been adopted, so
+    the refusal was said into a log that did not exist yet and fell through to a stderr a
+    windowed panel does not have: the profile was simply missing, with nothing anywhere
+    saying it had been asked for — and since a profile without a page is rebuilt from
+    scratch on every switch, the cost showed up as a freeze rather than as a message.
+
+    So the note waits for a page, and it says WHOSE lock it is: a second panel that is
+    genuinely running reads differently from one that has stopped answering, and only
+    the second is something the person has to go and close. The lock itself is never
+    broken on the strength of a heartbeat — it is the kernel's answer, and overruling it
+    is how two panels end up writing one `config.json`.
+    """
+    try:
+        from panel import __main__ as pm                  # needs tkinter and a display
+    except Exception as exc:                              # noqa: BLE001
+        print(f"  skip (panel.__main__ will not import here: {exc})")
+        return
+
+    class _Panel:
+        _profile_held_elsewhere = pm.Panel._profile_held_elsewhere
+        _holder_note = pm.Panel._holder_note
+
+        def __init__(self, profiles) -> None:
+            self._workspace = types.SimpleNamespace(profiles=profiles)
+            self._current_session = None       # …as it is while the workspace restores
+            self._held_notes: list = []
+            self.said: list = []
+
+        def _say(self, tag, key, **fmt) -> None:
+            self.said.append((key, fmt))
+
+    with _profiles_in_tmp() as profiles:
+        name = profiles.active
+        # A panel that is genuinely up: it holds the lock and it is beating. The lock is
+        # real — this process stands in for the one holding it — so «did the note leave
+        # it alone» is a question with an answer at the end.
+        held = autostartmod.take_lock(profiles, name)
+        assert held is not None, "could not take the lock to stand in with"
+        autostartmod.beat(profiles)
+        panel = _Panel(profiles)
+        panel._profile_held_elsewhere(name)
+        assert panel.said == [], "said into a log that does not exist yet"
+        assert [k for k, _f in panel._held_notes] == ["log.profile.held_elsewhere"], \
+            panel._held_notes
+        # …and once there is a page, it is said there.
+        panel._current_session = object()
+        panel._profile_held_elsewhere(name)
+        assert [k for k, _f in panel.said] == ["log.profile.held_elsewhere"], panel.said
+
+        # The other case: the lock is held and nothing has beaten for it in an hour.
+        _age(profiles, autostartmod.STALE_SEC + 3600)
+        panel = _Panel(profiles)
+        panel._current_session = object()
+        panel._profile_held_elsewhere(name)
+        key, fmt = panel.said[0]
+        assert key == "log.profile.held_stale", panel.said
+        assert fmt["name"] == name and fmt["mins"] >= 60, fmt
+        # Whatever it says, it did not take the profile over: a heartbeat is a nicety
+        # and the lock is the answer, so the lock is still exactly where it was.
+        try:
+            assert autostartmod.locked(profiles, name) is True, \
+                "the note broke the lock it was only supposed to describe"
+        finally:
+            autostartmod.drop_lock(held)
+        assert autostartmod.locked(profiles, name) is False
 
 
 def test_a_held_profile_is_never_opened_a_second_time():

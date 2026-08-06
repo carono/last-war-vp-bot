@@ -10,6 +10,14 @@ Every method has a no-op default, so a read-only tab implements `build`, `fetch`
 ONE HARD RULE: **`build()` must not touch the game.** A standalone tab has to open with
 no daemon, no client and no network, so everything live goes in `ensure_loaded()`. The
 contract test enforces it by building every tab against a cold runtime.
+
+AND ONE ABOUT WHEN IT RUNS: **`build()` happens the first time somebody looks at the
+tab, not when the page is made** (`LAZY`, #1215). A profile's page is fifteen tabs and
+the person is looking at one of them; the other fourteen used to be drawn — every
+widget, every layout pass — before the window would answer a click. What that costs a
+tab author is written under :attr:`PanelTab.LAZY`: whatever answers before anybody
+looks (a saved block, a trigger, the phone's screen) is made in ``__init__``, and
+``build()`` only draws.
 """
 from __future__ import annotations
 
@@ -68,8 +76,38 @@ class PanelTab:
     #: Load at boot rather than the first time the tab is shown. For the tabs whose
     #: `ensure_loaded` starts something that has to be RUNNING (a capture listening for
     #: an event that will not wait for somebody to click the tab), not for the ones
-    #: whose it is a read to draw.
+    #: whose it is a read to draw. An EAGER tab is also BUILT at boot, because what it
+    #: starts usually asks its own checkbox whether it is switched on.
     EAGER: bool = False
+    #: Is this tab's `build()` allowed to wait until somebody looks at it? (#1215)
+    #:
+    #: **Yes, for every tab that has no reason otherwise** — which is why it is the
+    #: default rather than something to opt into. A page is built when the panel opens
+    #: and again the first time a profile is switched to, and building fifteen tabs
+    #: there cost between one and a half and eight seconds of a window that answered
+    #: nothing, for fourteen tabs nobody had asked to see.
+    #:
+    #: WHAT IT ASKS OF A TAB is that the tab is ANSWERABLE before it is drawn, because
+    #: four things reach a tab that nobody has opened:
+    #:
+    #: * **its saved block.** The container hands it over with :meth:`restore` and asks
+    #:   for it back with :meth:`stored_config`; an undrawn tab hands back exactly what
+    #:   it was given, so a profile saved while a tab was never opened keeps its
+    #:   settings. Anything `config()` reads that is NOT a widget — a plan, a set, a
+    #:   catalogue — belongs in ``__init__``, and then it is right either way;
+    #: * **a trigger it declared.** It fires on the wire whether or not anybody is
+    #:   looking, so its handler must work with no widgets: keep the state in
+    #:   ``__init__`` and guard the repaint (`stats.track` / `DataTab.refresh_live` are
+    #:   the two that do it);
+    #: * **the phone.** `web_view` / `web_press` come through the runtime, which BUILDS
+    #:   the tab before asking it — the phone must not see less than the window;
+    #: * **the lifecycle.** `panic`, `resume`, `on_profile_switch`, `on_language_change`
+    #:   and `shutdown` are NOT called on an undrawn tab: it started nothing, holds
+    #:   nothing, and reads what it needs when it is first shown.
+    #:
+    #: Set it to ``False`` only for a tab that must exist before it is looked at, and
+    #: say beside it why. Nothing does today.
+    LAZY: bool = True
 
     # -- what it owns -------------------------------------------------------
     LOCALE_NS: tuple = ()
@@ -102,10 +140,51 @@ class PanelTab:
     def __init__(self, rt, parent) -> None:
         self.rt = rt
         self.parent = parent
+        #: Has :meth:`build` run? The container asks before it hands this tab anything
+        #: that would reach a widget (see :attr:`LAZY`).
+        self._built = False
+        #: The saved block this tab was handed while it was still undrawn, and what it
+        #: hands back when the profile is written. ``None`` means «never handed one».
+        self._saved_config = None
 
     # -- construction -------------------------------------------------------
     def build(self) -> None:
         """Widgets only. MUST NOT touch the game — see the module docstring."""
+
+    @property
+    def built(self) -> bool:
+        """Have this tab's widgets been drawn yet? (:attr:`LAZY`)"""
+        return self._built
+
+    def realize(self) -> bool:
+        """Draw the tab now if it is not drawn. ``True`` if this call is what drew it.
+
+        ON THE TK THREAD, always — it makes widgets. The container calls it the first
+        time the tab is shown, at boot for an `EAGER` one, and before it hands the tab
+        to anything that needs a drawn one (the phone's screen, another tab asking
+        `rt.tabs.get`). Idempotent, so nobody has to know who got there first.
+
+        THE WHOLE OF IT RUNS WITH THE BINDER TOLD IT IS LOADING. Drawing a tab is not a
+        person changing a setting, and neither is restoring one: a variable made and
+        filled in here must not write the profile back. It mattered less when every tab
+        was drawn during the page build, which was already inside the shell's own
+        loading window — a tab drawn an hour later is not.
+        """
+        if self._built:
+            return False
+        self._built = True
+        settings = getattr(self.rt, "settings", None)
+        was = getattr(settings, "loading", False)
+        if settings is not None:
+            settings.loading = True
+        try:
+            self.build()
+            if self._saved_config is not None:
+                self.apply_config(self._saved_config)
+        finally:
+            if settings is not None:
+                settings.loading = was
+        return True
 
     def settings_page(self, parent) -> None:
         """Draw this tab's page on the Settings tab (only if SETTINGS_PAGE_KEY is set)."""
@@ -215,6 +294,31 @@ class PanelTab:
 
     def apply_config(self, raw: dict) -> None: ...
 
+    # -- persistence, the container's side ----------------------------------
+    #
+    # A tab implements the two above and nothing here. These are what the container
+    # calls, and they are the whole of what makes `LAZY` safe: a tab nobody has opened
+    # is handed its block and hands the same one back, so a save that happens while it
+    # is undrawn writes what was on disk rather than a screenful of defaults.
+    def restore(self, raw: dict) -> None:
+        """Give the tab its saved block: applied now if drawn, kept for `realize` if not."""
+        self._saved_config = dict(raw or {})
+        if self._built:
+            self.apply_config(self._saved_config)
+
+    def stored_config(self) -> dict:
+        """What the profile writes for this tab — its widgets, or the block it was given.
+
+        THE UNDRAWN CASE IS THE ONE THAT MATTERS. `config()` reads widgets, and a tab
+        with none answers with whatever its variables were born with; writing that would
+        turn «this profile was saved while the tab was closed» into «this profile has no
+        such settings». So an undrawn tab is a pass-through, and every setting it holds
+        survives a run in which nobody opened it.
+        """
+        if self._built:
+            return self.config()
+        return dict(self._saved_config or {})
+
     def persist_vars(self) -> list:
         """Variables whose change means "save the profile now"."""
         return []
@@ -290,12 +394,11 @@ def run_tab(cls, argv=None) -> int:
     frame.pack(fill="both", expand=True)
     tab = cls(rt, frame)
     rt.tabs.add(tab)
-    tab.build()
-    rt.settings.loading = True          # an apply is not a change; do not save it back
-    try:
-        tab.apply_config(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
-    finally:
-        rt.settings.loading = False
+    # A window holding one tab IS a window where that tab is being looked at, so it is
+    # drawn straight away rather than lazily (`PanelTab.LAZY`). `realize` applies the
+    # saved block as part of drawing, with the binder told an apply is not a change.
+    tab.restore(rt.settings.tab_config(cls.ID, cls.LEGACY_KEYS))
+    tab.realize()
     # A window holding one tab IS somebody looking at it, so it hears `on_show` exactly
     # as it would in the panel. A tab that draws part of itself on first show — the
     # duel's week does, because building it cost the page two and a half seconds
@@ -307,7 +410,7 @@ def run_tab(cls, argv=None) -> int:
     # tab's block is written (plus its legacy flat keys), so a window holding one tab
     # can never overwrite what the others are set to.
     def _persist() -> None:
-        rt.settings.set_tab_config(cls.ID, tab.config(), cls.LEGACY_KEYS)
+        rt.settings.set_tab_config(cls.ID, tab.stored_config(), cls.LEGACY_KEYS)
         rt.settings.save()
 
     rt.settings.on_change = _persist

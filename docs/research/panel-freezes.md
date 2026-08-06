@@ -126,7 +126,35 @@ fires `<Configure>`, which re-wraps, which re-lays out.
 Fixed by giving every day frame of every tab its own style namespace, and by refusing to
 re-wrap a page that is not mapped (`on_show` wraps it when somebody actually looks).
 
-### 3. Why «280 ms» was true and useless
+### 3. Fifteen tabs were drawn so that one could be looked at (#1215)
+
+A page is built when the panel opens and again the first time a profile is switched to,
+and it drew every tab the profile had. The person is looking at one of them.
+
+Measured by building a real page (the `_Harness` of `tests/test_panel_page_build.py`,
+a temporary profile, `staged=False` so the whole build lands in one number):
+
+| | tabs drawn | page build, median of 3 | first build (cold imports) |
+|---|---|---|---|
+| before | 16 | 1334 ms | 4216 ms |
+| after | 4 | 471 ms | 1209 ms |
+
+The four that are left are the EAGER ones — a capture that has to be listening before
+anybody clicks. Everything else is `__init__` and a saved block handed over, some tens of
+milliseconds for the lot, and the widgets are made when the tab is first shown. What that
+costs when it is shown is what the tab always cost: 5–212 ms each, measured cold against
+a fake runtime, and the duel's week (0.5 s) which had already moved to `on_show` in this
+task's §2.
+
+The contract is `PanelTab.LAZY` (`panel/tabs/base.py`), and it is the default rather than
+something to opt into. What it asks of a tab is that four things answer before it is
+drawn — its saved block, a trigger it declared, the phone's screen and the lifecycle —
+and each of those has one line in the contract saying how. The half that would fail
+SILENTLY is the block: `config()` reads widgets, so a tab with none has to hand back what
+it was given (`stored_config`) or a panel opened and closed without a click would write
+defaults over every tab's settings at once.
+
+### 4. Why «280 ms» was true and useless
 
 `Notebook.select()` QUEUES `<<NotebookTabChanged>>`. A stopwatch around
 `_switch_profile` therefore stops before the switch has happened — it measures 0–5 ms.
@@ -168,14 +196,25 @@ merely sitting in a blocking call.
 
 ## What is left
 
-* **A switch to a profile that is not open builds its whole page** — fifteen tabs. Of
-  that build, one tab is most of it: VS Duel at 2.4–8.3 s against 50–450 ms for every
-  other tab, because its week is laid out (and re-laid out) as it is built. Building a
-  tab's content on first show instead of at page build is the fix, and it is a change to
-  the tab contract rather than to one tab.
-* **A profile is silently not restored when a stale `panel.lock` is left behind** by a
-  panel that was killed rather than closed. It reads as «open in another panel», so the
-  operator's every switch to it pays the full build above.
+* ~~A switch to a profile that is not open builds its whole page~~ — done in #1215: the
+  page makes every tab and draws the ones that have to be there, which is §3 above.
+* ~~A profile is silently not restored when a `panel.lock` is left behind~~ — half done
+  in #1215, and the half that was skipped was skipped on purpose. **The lock is not
+  broken on the strength of a heartbeat.** It is an exclusive OS lock on a file in the
+  profile directory, so the kernel drops it when its holder dies: a leftover `panel.lock`
+  FILE holds nothing, and a lock that is genuinely held is held by a process that is
+  genuinely there — usually a panel that has stopped answering its own event loop, which
+  a heartbeat cannot tell from a busy one either. Overruling it would put two panels on
+  one `config.json`, which is the failure the lock exists to prevent.
+
+  What WAS wrong is that the refusal was silent. `Workspace.restore` runs before any
+  session has been adopted, so `log.profile.held_elsewhere` was said into a log that did
+  not exist yet and fell through to a stderr a windowed panel does not have. The note is
+  kept now and said once there is a page, and it names the holder: an ordinary second
+  panel reads as one line, and a lock whose heartbeat has been silent for an hour as
+  another (`log.profile.held_stale`, with the pid and how long). The second is the one
+  the person has to go and close — and until they do, this panel opening that profile
+  anyway is the thing that must not happen.
 * ~~The machine-wide child sweep belongs off the panel's own lock~~ — done in #1212: it
   is a subprocess (see §1).
 * ~~The game-status probe's walk is still on the panel's lock at every start~~ — it never

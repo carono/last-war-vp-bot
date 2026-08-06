@@ -162,9 +162,11 @@ def _built(harness: "_Harness") -> None:
         tabs = app._plugin_tabs
         assert tabs, "no plugin tab was built at all"
         # Every tab built is known to the runtime, and reachable by the frame the
-        # notebook reports as selected.
+        # notebook reports as selected. `peek`, not `get`: `get` DRAWS the tab it hands
+        # over (#1215), and a test that asked for all sixteen would draw the whole
+        # window and then be measuring something else entirely.
         for tab_id, tab in tabs.items():
-            assert session.rt.tabs.get(tab_id) is tab, tab_id
+            assert session.rt.tabs.peek(tab_id) is tab, tab_id
         lazy = app._lazy_tabs
         assert len(lazy) == len(tabs), (len(lazy), len(tabs))
         assert set(lazy.values()) == set(tabs.values())
@@ -177,8 +179,14 @@ def _built(harness: "_Harness") -> None:
         # …and the settings were applied to it, with auto-save armed afterwards.
         assert app._loading is False, "the page was left in its loading state"
         # The account strip belongs to the «Аккаунты» tab and comes AFTER it, so it
-        # sits under the character list. Only if this profile has that tab at all.
+        # sits under the character list. Only if this profile has that tab at all —
+        # and only once somebody has LOOKED at that tab, because since #1215 the tab
+        # itself is not drawn before then and a strip packed into an empty frame would
+        # sit above the list rather than under it.
         if "accounts" in tabs:
+            assert app._dash_view is None, \
+                "the account strip was built before anybody opened «Аккаунты»"
+            session.rt.tabs.realize(tabs["accounts"])
             assert app._dash_view is not None, "the account summary strip is missing"
             frame = tabs["accounts"].parent
             children = [str(w) for w in frame.winfo_children()]
@@ -188,6 +196,53 @@ def _built(harness: "_Harness") -> None:
             assert block, "the summary strip was not built into the «Аккаунты» tab"
             assert children[-1] == block[0], \
                 "the summary strip was built before the tab it belongs under"
+
+
+def test_a_page_draws_only_the_tabs_that_have_to_be_there() -> None:
+    """The whole of #1215, in one page: fifteen tabs made, four of them drawn.
+
+    A page used to draw every tab it had — between one and a half and eight seconds of
+    Tk with the window answering nothing, for fourteen tabs nobody had asked to see.
+    Now a tab is drawn the first time somebody looks at it, and the only ones drawn
+    with the page are the EAGER ones, whose whole point is being up before anybody
+    clicks (a capture listening for a rally that will not wait).
+
+    What must NOT change with it: every tab is still MADE, still registered, still
+    carries its errands, and still hands back its saved block when the profile is
+    written — which is the half that would fail silently and is asserted here too.
+    """
+    harness = _open(staged=False)
+    if harness is None:
+        return
+    try:
+        app, session = harness.app, harness.session
+        with app._on(session):
+            tabs = app._plugin_tabs
+            drawn = {i for i, t in tabs.items() if t.built}
+            eager = {i for i, t in tabs.items() if type(t).EAGER}
+            assert drawn == eager, (sorted(drawn), sorted(eager))
+            assert len(tabs) - len(drawn) > 5, \
+                f"only {len(tabs) - len(drawn)} tabs were left undrawn — is LAZY on?"
+            # An undrawn tab still answers for the profile: what it was handed on the
+            # way up is what it writes back, so a save while nobody has opened it
+            # cannot flatten its settings into defaults.
+            block = app._tabs_block()["config"]
+            for tab_id, tab in tabs.items():
+                if tab.built:
+                    continue
+                assert block[tab_id] == tab._saved_config, tab_id
+
+            # …and looking at one draws it, applies its block and tells the container.
+            some = next(t for t in tabs.values() if not t.built)
+            app._main_nb.select(some.parent)
+            app._on_main_tab_changed()
+            assert some.built, f"{some.ID} was not drawn when it was shown"
+            assert some.parent.winfo_children(), f"{some.ID} drew nothing"
+            # Everything else stayed as it was: one look draws one tab.
+            still = {i for i, t in tabs.items() if not t.built}
+            assert still and some.ID not in still, sorted(still)
+    finally:
+        harness.close()
 
 
 def test_building_a_page_leaves_the_machines_own_panel_alone() -> None:

@@ -240,6 +240,121 @@ def test_every_tab_builds_cold_and_survives_the_lifecycle():
         root.destroy()
 
 
+def test_every_tab_is_drawn_when_it_is_looked_at_not_when_the_page_is_made():
+    """`LAZY` is the default and nothing opts out of it quietly (#1215).
+
+    A tab that must exist before anybody looks at it may say so — but then it says WHY,
+    beside the flag, exactly as the three tabs with no phone screen do. What may not
+    happen is a tab drifting out of the rule without a word, because then a page is
+    slow again and there is nothing in the diff to point at.
+    """
+    heavy = [spec.id for spec in tabsreg.TABS if not spec.load().LAZY]
+    assert heavy == [], (
+        f"{heavy} draw themselves when the page is made rather than when somebody "
+        f"looks. That is allowed and it is a decision: write why beside `LAZY = False` "
+        f"and name it here.")
+    # EAGER is the other half of the same sentence: what it starts has to be running
+    # before anybody clicks, so the container draws it at boot whatever LAZY says.
+    assert any(spec.load().EAGER for spec in tabsreg.TABS), "no tab loads at boot"
+
+
+def test_a_tab_nobody_opens_keeps_its_settings():
+    """The failure `LAZY` could have caused, pinned: a save must not flatten a profile.
+
+    `config()` reads widgets. A tab nobody has opened has none, so the container asks
+    `stored_config()` instead — and an undrawn tab hands back exactly the block it was
+    given. Get this wrong and a panel opened and closed without clicking anything
+    writes a screenful of defaults over every tab's settings at once, which is the kind
+    of loss nobody notices until the setting is needed.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+
+        root = tk.Tk()
+    except Exception as exc:                                # noqa: BLE001
+        _skip("no display", exc)
+        return
+    root.withdraw()
+    try:
+        for spec in tabsreg.TABS:
+            cls = spec.load()
+            # What this tab's own settings look like, taken from a drawn one so the
+            # block is the real shape rather than something invented here.
+            rt = fake_runtime.cold_runtime(root)
+            rt.settings.register(cls.SETTINGS)
+            drawn_frame = ttk.Frame(root)
+            drawn = cls(rt, drawn_frame)
+            drawn.realize()
+            block = drawn.config()
+            assert drawn.built, f"{spec.id}: realize() did not mark it drawn"
+            drawn.shutdown()
+            drawn_frame.destroy()
+
+            rt = fake_runtime.cold_runtime(root)
+            rt.settings.register(cls.SETTINGS)
+            frame = ttk.Frame(root)
+            tab = cls(rt, frame)
+            tab.restore(block)
+            assert not tab.built, f"{spec.id}: restore() drew the tab"
+            assert not frame.winfo_children(), f"{spec.id}: __init__ drew widgets"
+            assert tab.stored_config() == block, (
+                f"{spec.id}: an unopened tab did not hand back the block it was given")
+            # …and once somebody looks at it, the block is applied as part of drawing:
+            # the tab must not come up on its defaults with the saved values lost.
+            assert tab.realize() is True and tab.built, spec.id
+            assert tab.realize() is False, f"{spec.id}: realize() is not idempotent"
+            assert tab.stored_config() == tab.config(), spec.id
+            tab.shutdown()
+            frame.destroy()
+            print(f"    · {spec.id}")
+    finally:
+        root.destroy()
+
+
+def test_a_trigger_fires_into_a_tab_nobody_has_opened():
+    """A tab's standing order is offered while the tab is in the profile — not while it
+    is on screen. So its handler runs against an UNDRAWN tab and must survive that.
+
+    Two do it today and both were already written this way: the resource tracker keeps
+    tallying whether or not anybody is watching (its repaint is guarded), and the
+    data tabs' `refresh_live` does nothing until the tab has been opened once. This is
+    what stops the third one being written the other way.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+
+        root = tk.Tk()
+    except Exception as exc:                                # noqa: BLE001
+        _skip("no display", exc)
+        return
+    root.withdraw()
+    try:
+        seen = 0
+        for spec in tabsreg.TABS:
+            cls = spec.load()
+            rt = fake_runtime.cold_runtime(root)
+            rt.settings.register(cls.SETTINGS)
+            frame = ttk.Frame(root)
+            tab = cls(rt, frame)
+            for trigger in getattr(cls, "TRIGGERS", ()):
+                name = getattr(trigger, "handler", None)
+                if not name:
+                    continue
+                seen += 1
+                handler = getattr(tab, name, None)
+                assert callable(handler), f"{spec.id}: no handler {name!r}"
+                handler()                     # undrawn, cold game: must not raise
+                assert not tab.built, (
+                    f"{spec.id}: {name}() drew the tab — a push must not build a page "
+                    f"nobody asked for, and it would do it off the Tk thread")
+            frame.destroy()
+        assert seen >= 2, f"only {seen} trigger handlers found — did the scan break?"
+    finally:
+        root.destroy()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

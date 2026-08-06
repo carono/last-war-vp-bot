@@ -447,7 +447,10 @@ class WebApi:
         if timer is None:
             return {"error": "unknown"}
         tab = rt.tabs.get("timers")
-        if tab is not None and hasattr(tab, "set_enabled"):
+        # …AND DRAWN. An undrawn tab has no rows to tick (#1215) and no widgets for
+        # `Schedule.timer_config` to read either, so the file below IS the configuration
+        # — exactly the branch a profile without a Timers tab takes.
+        if tab is not None and getattr(tab, "built", True) and hasattr(tab, "set_enabled"):
             done: dict = {}
             self._on_tk(rt, lambda: done.update(ok=bool(tab.set_enabled(name, enabled))))
             if done.get("ok"):
@@ -572,6 +575,11 @@ class WebApi:
 
         def build() -> None:
             try:
+                # DRAWN FIRST, and here rather than above because this is the Tk thread:
+                # since #1215 a tab the person at the machine has not opened has no
+                # widgets, and most screens are a view of them. The phone must not see
+                # less than the window does — so opening a screen draws the tab, once.
+                rt.tabs.realize(tab)
                 box["view"] = tab.web_view()
             except Exception as exc:     # noqa: BLE001 — one screen, never the panel
                 box["error"] = str(exc)
@@ -595,6 +603,7 @@ class WebApi:
 
         def go() -> None:
             try:
+                rt.tabs.realize(tab)     # the same draw-before-asking as `screen`
                 box["result"] = tab.web_press(action, args or {})
             except Exception as exc:     # noqa: BLE001
                 box["result"] = {"error": "failed", "detail": str(exc)}

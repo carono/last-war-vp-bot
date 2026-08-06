@@ -999,6 +999,7 @@
   "log.profile.closed": "profil zamknięty: {name}",
   "log.profile.folder_failed": "nie udało się otworzyć folderu profilu: {error}",
   "log.profile.held_elsewhere": "{name} jest otwarty w innym panelu — tutaj nie otwieram",
+  "log.profile.held_stale": "{name} trzyma panel, który przestał odpowiadać (pid {pid}, milczy od {mins} min) — zamknij go, a profil wróci",
   "log.profile.last_one": "{name} to jedyny otwarty profil — nie można go zamknąć",
   "tab.web": "Sieć",
   "web.enabled": "Zdalne sterowanie z telefonu",

@@ -76,7 +76,8 @@ All of these are class attributes with defaults, so declare only what is true.
 | `SETTINGS_PAGE_KEY` | Locale key of the page this tab contributes to «Настройки». | If it has a settings page. Then implement `settings_page(parent)`. |
 | `AGGREGATES_TABS` | Does this tab draw parts contributed by OTHER tabs? Such a tab is built last, whatever its `ORDER` (below). | Only «Настройки» sets it. Set the matching `aggregates=True` on its registry entry too. |
 | `TIMERS` / `TRIGGERS` | Errands the tab brings with it (§3.2). | If it has any; see below. |
-| `EAGER` | Load at boot instead of on first show. | Only if `ensure_loaded` brings up something that must be RUNNING. |
+| `EAGER` | Load at boot instead of on first show — and be DRAWN at boot with it. | Only if `ensure_loaded` brings up something that must be RUNNING. |
+| `LAZY` | Is `build()` allowed to wait until somebody looks at the tab? **True by default**; see the section below for what it asks of you. | Never, unless your tab must exist before it is looked at — and then say why beside it. |
 | `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the three that must not (below). |
 
 `DEFAULT_ENABLED` is what a profile that has NEVER opened «Настройки → Вкладки»
@@ -93,13 +94,60 @@ tick list) keeps overriding the default exactly as before.
 
 ---
 
+## `build()` runs when somebody looks, not when the page is made
+
+**A tab is DRAWN the first time it is shown** (`LAZY`, #1215). The page makes every tab
+it has — the class is imported, `__init__` runs, the tab is registered, its errands are
+adopted, its saved block is handed over — and then stops. Fourteen of the fifteen are a
+frame with nothing in it until somebody clicks.
+
+That is not a micro-optimisation: a page is built when the panel opens and again the
+first time a profile is switched to, and drawing every tab cost between one and a half
+and eight seconds of a window that answered nothing
+([`panel-freezes.md`](research/panel-freezes.md) §3) — 1334 ms → 471 ms measured on a
+real page, 16 tabs drawn → 4.
+
+### What it asks of you
+
+Four things reach a tab that nobody has opened. Write for them and the flag needs no
+thought at all:
+
+| what reaches it | what that means for you |
+|---|---|
+| **its saved block** | The container hands it over with `restore()` and asks for it back with `stored_config()`. An undrawn tab hands back exactly what it was given, so nothing is lost. Anything `config()` reads that is not a widget — a plan, a set, a catalogue — goes in `__init__`, and then it is right either way. |
+| **a trigger it declared** | It fires on the wire whether or not anybody is looking. Keep the state in `__init__` and guard the repaint: `stats.track` tallies into a file and posts a redraw that returns early with no grid, `DataTab.refresh_live` does nothing until the tab has been opened once. |
+| **the phone** | `web_view` / `web_press` go through the runtime, which DRAWS the tab before asking it. The phone must not see less than the window. |
+| **the lifecycle** | `panic`, `resume`, `on_profile_switch`, `on_language_change` and `shutdown` are NOT called on an undrawn tab. It started nothing and holds nothing, and it reads what it needs when it is first shown. |
+
+So the rule of thumb is the one the duel already followed: **`__init__` makes the state,
+`build()` only draws it.** `VsDuelTab` makes every variable, default and key of its week
+in `__init__` and lays the six day frames out in `build()`; the plan its scenarios read
+answers the same before and after anybody opens the tab.
+
+### Reaching a tab that may not be drawn
+
+`rt.tabs.get(id)` **draws the tab before handing it over** when you are on the Tk thread,
+so ordinary cross-tab code needs no change. Off the Tk thread it hands over whatever is
+there — widgets are made nowhere but the event loop — so a background caller that needs
+more than the tab's own state hands the work over with `rt.post` first. `rt.tabs.peek(id)`
+is the one that never draws (the container and the tests use it), `rt.tabs.drawn` is the
+tabs somebody has looked at, and `rt.tabs.realize(tab)` draws one on purpose.
+
+`tests/test_panel_tab_contract.py` covers all of it for your tab the moment it is in the
+registry: that it is lazy, that an unopened one keeps its settings, and that a trigger
+firing into an undrawn one neither raises nor draws it.
+
+---
+
 ## `ensure_loaded` vs `on_show` — the one that bites
 
 They are not the same and the difference costs a game round trip on every start.
 
 * **`ensure_loaded()` — bring up what the tab is FOR.** A capture listening for an event
   that will not wait for a click; a watcher spending a daily budget. Called at boot for
-  an `EAGER` tab and on first show otherwise, so **it must be idempotent**.
+  an `EAGER` tab and on first show otherwise, so **it must be idempotent**. It always
+  runs on a DRAWN tab: an `EAGER` one is built at boot for exactly this reason — what it
+  starts usually asks its own checkbox whether it is switched on.
 * **`on_show()` — somebody is looking.** A read that only draws. Called on every show,
   so a one-time seed gates itself on its own flag.
 
@@ -304,7 +352,9 @@ next `after(0, …)` written.
 
 A tab's block lives at `tabs.config.<ID>` in the profile. `config()` returns it,
 `apply_config()` restores it, `persist_vars()` lists the variables whose change means
-"write now".
+"write now". Those three are yours; the container talks to them through `restore()` and
+`stored_config()`, which is what makes an unopened tab safe to save (above) — you
+implement the first three and never call the last two.
 
 When you are **moving** settings that already exist as flat keys, `LEGACY_KEYS` maps
 your block's key to the old flat one, and the binder reads either. Two rules:

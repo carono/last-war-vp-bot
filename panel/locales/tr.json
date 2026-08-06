@@ -999,6 +999,7 @@
   "log.profile.closed": "profil kapatıldı: {name}",
   "log.profile.folder_failed": "profil klasörü açılamadı: {error}",
   "log.profile.held_elsewhere": "{name} başka bir panelde açık — burada açılmadı",
+  "log.profile.held_stale": "{name} yanıt vermeyi bırakan bir panel tarafından tutuluyor (pid {pid}, {mins} dk sessiz) — onu kapatın, profil geri gelir",
   "log.profile.last_one": "{name} açık olan tek profil — kapatılamaz",
   "tab.web": "Web",
   "web.enabled": "Telefondan uzaktan kumanda",
