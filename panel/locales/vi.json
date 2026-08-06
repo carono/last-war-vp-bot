@@ -465,7 +465,7 @@
   "settings.tab.game": "Trò chơi",
   "settings.tab.general": "Chung",
   "settings.tab.tabs": "Các thẻ",
-  "settings.tabs.hint": "Hồ sơ này hiện những thẻ nào. Thẻ đã tắt thì không được dựng chút nào: không điều khiển, không trang cài đặt riêng, không bộ kích hoạt nào được mời, và không bản bắt hay người gác nào của nó chạy — «Nhiệm vụ bí mật» tắt nghĩa là một bản bắt và hai luồng gác không bao giờ chạy. Nếu không đụng vào ở đây, một thẻ sẽ theo lựa chọn riêng của hồ sơ MẶC ĐỊNH — chuyển nó ở đó để chạm tới mọi hồ sơ chưa từng tự đặt nó. Cột bên cạnh cho biết mỗi thẻ dựng lên cái gì khi bật.",
+  "settings.tabs.hint": "Hồ sơ này hiện những thẻ nào. Thẻ đã tắt thì không được dựng chút nào: không điều khiển, không trang cài đặt riêng, không bộ kích hoạt nào được mời, và không bản bắt hay người gác nào của nó chạy — «Nhiệm vụ bí mật» tắt nghĩa là một bản bắt và hai luồng gác không bao giờ chạy. Cột bên cạnh cho biết mỗi thẻ dựng lên cái gì khi bật.",
   "settings.tabs.restart": "Đã lưu. Danh sách có hiệu lực ở lần khởi động bảng kế tiếp — một thẻ dựng lên các lệnh thường trực của nó lúc được dựng, còn tháo nó giữa chừng lại là chuyện khác.",
   "standalone.started": "{tab} — cửa sổ riêng, hồ sơ «{profile}»",
   "splash.daemon": "Đang nối tới daemon…",

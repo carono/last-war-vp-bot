@@ -465,7 +465,7 @@
   "settings.tab.game": "Game",
   "settings.tab.general": "General",
   "settings.tab.tabs": "Tabs",
-  "settings.tabs.hint": "Which tabs this profile shows. A tab that is off is not built at all: no widgets, no settings page of its own, no triggers offered, and none of its captures or watchers started — «Secret Tasks» off is a capture and two watcher threads that never run. Untouched here, a tab follows the DEFAULT profile's own choice — switch it on or off there to reach every profile that has never set it for itself. The column beside each says what it brings up when it is on.",
+  "settings.tabs.hint": "Which tabs this profile shows. A tab that is off is not built at all: no widgets, no settings page of its own, no triggers offered, and none of its captures or watchers started — «Secret Tasks» off is a capture and two watcher threads that never run. The column beside each says what it brings up when it is on.",
   "settings.tabs.restart": "Saved. The list is applied the next time the panel starts — a tab brings up its own standing orders when it is built, and taking one down mid-flight is not the same thing.",
   "standalone.started": "{tab} — standalone window, profile «{profile}»",
   "splash.daemon": "Connecting to the daemon…",

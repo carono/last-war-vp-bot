@@ -465,7 +465,7 @@
   "settings.tab.game": "Jeu",
   "settings.tab.general": "Général",
   "settings.tab.tabs": "Onglets",
-  "settings.tabs.hint": "Quels onglets ce profil affiche. Un onglet désactivé n'est pas construit du tout : aucun widget, aucune page de réglages à lui, aucun déclencheur proposé, et aucune de ses captures ni de ses gardiens démarrés — « Tâches Secrètes » désactivé, c'est une capture et deux fils de garde qui ne tournent jamais. Non touché ici, un onglet suit le choix propre du profil PAR DÉFAUT — bascule-le là-bas pour atteindre chaque profil qui ne l'a jamais réglé lui-même. La colonne à côté dit ce que chacun met en route quand il est actif.",
+  "settings.tabs.hint": "Quels onglets ce profil affiche. Un onglet désactivé n'est pas construit du tout : aucun widget, aucune page de réglages à lui, aucun déclencheur proposé, et aucune de ses captures ni de ses gardiens démarrés — « Tâches Secrètes » désactivé, c'est une capture et deux fils de garde qui ne tournent jamais. La colonne à côté dit ce que chacun met en route quand il est actif.",
   "settings.tabs.restart": "Enregistré. La liste s'applique au prochain démarrage du panneau — un onglet met en route ses ordres permanents quand il est construit, et le démonter en vol n'est pas la même chose.",
   "standalone.started": "{tab} — fenêtre indépendante, profil « {profile} »",
   "splash.daemon": "Connexion au démon…",

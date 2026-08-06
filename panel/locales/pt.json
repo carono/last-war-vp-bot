@@ -465,7 +465,7 @@
   "settings.tab.game": "Jogo",
   "settings.tab.general": "Geral",
   "settings.tab.tabs": "Abas",
-  "settings.tabs.hint": "Quais abas este perfil mostra. Uma aba desligada não é montada de jeito nenhum: sem controles, sem página de ajustes própria, sem gatilhos oferecidos, e sem nenhuma das capturas ou vigias dela iniciados — «Tarefas Secretas» desligada é uma captura e duas linhas de vigia que nunca rodam. Sem ser tocada aqui, uma aba segue a própria escolha do perfil PADRÃO — mude-a lá para alcançar cada perfil que nunca a ajustou por conta própria. A coluna ao lado diz o que cada uma levanta quando está ligada.",
+  "settings.tabs.hint": "Quais abas este perfil mostra. Uma aba desligada não é montada de jeito nenhum: sem controles, sem página de ajustes própria, sem gatilhos oferecidos, e sem nenhuma das capturas ou vigias dela iniciados — «Tarefas Secretas» desligada é uma captura e duas linhas de vigia que nunca rodam. A coluna ao lado diz o que cada uma levanta quando está ligada.",
   "settings.tabs.restart": "Salvo. A lista vale a partir do próximo início do painel — uma aba levanta as próprias ordens permanentes quando é montada, e desmontá-la em pleno voo não é a mesma coisa.",
   "standalone.started": "{tab} — janela à parte, perfil «{profile}»",
   "splash.daemon": "Conectando ao daemon…",
