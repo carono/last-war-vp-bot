@@ -288,11 +288,14 @@ def _bench() -> None:
     walk = list(psutil.process_iter(["pid", "name"]))
     walk_sec = time.perf_counter() - t
 
+    # Plain ASCII, deliberately: this prints to whatever console the operator has, and
+    # a Windows one is cp1251 here — an em dash or a multiplication sign ends the run in
+    # a UnicodeEncodeError instead of a number.
     print(f"  proc_table.names()                  {cheap_sec:7.3f} s  ({len(cheap)})")
     print(f"  psutil.process_iter(pid, name)      {walk_sec:7.3f} s  ({len(walk)}) "
-          f"— cold; the second call is cached and costs nothing")
+          f"- cold; the second call is cached and costs nothing")
     if cheap_sec > 0:
-        print(f"  ratio                               {walk_sec / cheap_sec:7.1f}×")
+        print(f"  ratio                               {walk_sec / cheap_sec:7.1f}x")
 
 
 def _main() -> int:
