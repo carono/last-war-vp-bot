@@ -1309,11 +1309,13 @@ class CommandPostTab(PanelTab):
         reads and no round trip to the client — which is the rule for every screen
         (panel/tabs/base.py).
         """
-        import time as _time
-
         import coords
+        import game_clock
 
-        now = _time.time()
+        # The screen contract is epoch SECONDS (panel/tabs/base.py) on the GAME's clock —
+        # `expire_time`/`expires_at` below are the game's MILLISECONDS, and its clock runs
+        # ahead of this machine's (task #1227/#1228; docs/research/game-clock.md).
+        now = game_clock.now_ms() / 1000.0
         cards = [self._web_ghost(coords, now), self._web_shared(coords),
                  self._web_treasures(coords)]
         return {"cards": [c for c in cards if c], "now": now,
@@ -1348,7 +1350,7 @@ class CommandPostTab(PanelTab):
                 "facts": [{"label": "cmdpost.col.level", "value": str(m.level or 0)},
                           {"label": "cmdpost.col.robbed",
                            "value": str(m.steal_count or 0)}],
-                "until": float(m.expire_time) if m.expire_time else None,
+                "until": float(m.expire_time) / 1000.0 if m.expire_time else None,
             })
         return {"title": "cmdpost.tab.ghost", "rows": rows, "items": items,
                 "empty": "cmdpost.ghost.empty"}
@@ -1383,7 +1385,7 @@ class CommandPostTab(PanelTab):
             items.append({
                 "text": coords.fmt(chest.x, chest.y, chest.server_id),
                 "detail": str(chest.alliance_abbr or ""),
-                "until": float(chest.expires_at) if chest.expires_at else None,
+                "until": float(chest.expires_at) / 1000.0 if chest.expires_at else None,
             })
         return {"title": "cmdpost.tab.treasure", "items": items,
                 "empty": "cmdpost.treasure.empty"}
@@ -1477,7 +1479,6 @@ class CommandPostTab(PanelTab):
         listen = getattr(self._by_key["shared"], "_listen_var", None)
         if listen is not None and was.get("listen"):
             listen.set(True)
-
 
     def on_profile_switch(self) -> None:
         """A listener captures for one client and robs through one daemon, so it cannot

@@ -516,6 +516,89 @@ def test_the_scan_children_are_the_two_map_scanners():
     assert 30 <= cp.SCAN_SECONDS <= 900
 
 
+def test_web_view_reports_seconds_on_the_games_clock_not_local_ms():
+    """`until`/`now` are epoch SECONDS on the GAME's clock (#1227/#1228).
+
+    Both `GhostReconMission.expire_time` and `WorldTreasure.expires_at` are the game's
+    MILLISECONDS. The screen contract (`panel/tabs/base.py`) is SECONDS, and drawing
+    `now` from `time.time()` judges the game's stamps against the wrong clock — the two
+    ran twelve seconds apart live. Before this fix `until` went out as raw milliseconds
+    against a seconds `now`, drawing a multi-thousand-year countdown on the phone.
+    """
+    cp = _module()
+    if cp is None:
+        return
+    import json as _json
+    import tempfile
+    import time
+    import game_clock
+    import lastwar_proto as proto
+
+    tmp = Path(tempfile.mkdtemp())
+    ghost_path, treasure_path = tmp / "ghost.json", tmp / "treasure.json"
+
+    class Profiles:
+        def ghost_json(self):
+            return str(ghost_path)
+
+        def treasures_json(self):
+            return str(treasure_path)
+
+    class Rt:
+        profiles = Profiles()
+
+        # The ghost card carries the standing order's two facts now (#1256), and a
+        # value on a card is already in the person's language — so the stand-in has to
+        # answer for a key. Echoing it is enough: what is pinned here is the clock.
+        @staticmethod
+        def t(key, **fmt):
+            return key
+
+    now_ms = int(time.time() * 1000)
+    mission = proto.GhostReconMission(
+        uuid=111, cfg_id=60302, family="6", level=5, state=3, target_server=700,
+        owner_id="someone", owner_server=700, alliance_id=None, alliance_show=True,
+        point_id=500553, x=553, y=500, member_count=1, steal_count=0,
+        team_start_time=None, completion_time=1, expire_time=now_ms + 3_600_000)
+    ghost_path.write_text(
+        _json.dumps([mission.as_dict() | {"seen_at": int(time.time())}]),
+        encoding="utf-8")
+
+    fixture = _json.loads((ROOT / "tests" / "fixtures" /
+                           "world_treasure_points.json").read_text(encoding="utf-8"))
+    frame = [f for f in fixture["frames"]
+             if f["command"] == "push.world.point.update"][-1]
+    chest = next(iter(proto.world_treasure_points(frame["command"], frame["payload"])))
+    record = chest.as_dict() | {"seen_at": int(time.time()),
+                                "expires_at": now_ms + 1_800_000}
+    treasure_path.write_text(_json.dumps([record]), encoding="utf-8")
+
+    game_clock.reset()
+    try:
+        game_clock.note(now_ms + 60_000, time.time(), time.time())
+
+        tab = cp.CommandPostTab.__new__(cp.CommandPostTab)
+        tab.rt = Rt()
+        tab._by_key = {}
+        view = tab.web_view()
+
+        assert abs(view["now"] - game_clock.now_ms() / 1000.0) < 1, view["now"]
+        assert view["now"] < 10_000_000_000, "now is still milliseconds"
+
+        ghost_card = next(c for c in view["cards"] if c["title"] == "cmdpost.tab.ghost")
+        until = ghost_card["items"][0]["until"]
+        assert until < 10_000_000_000, "ghost 'until' is still milliseconds"
+        assert abs(until - (now_ms + 3_600_000) / 1000.0) < 1, until
+
+        treasure_card = next(c for c in view["cards"]
+                             if c["title"] == "cmdpost.tab.treasure")
+        t_until = treasure_card["items"][0]["until"]
+        assert t_until < 10_000_000_000, "treasure 'until' is still milliseconds"
+        assert abs(t_until - (now_ms + 1_800_000) / 1000.0) < 1, t_until
+    finally:
+        game_clock.reset()
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
