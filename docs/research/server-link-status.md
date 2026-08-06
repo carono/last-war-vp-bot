@@ -280,3 +280,63 @@ stale while the link is down, or decide whether a lost link should relaunch the 
 The cost of leaving those is measured — 31 minutes of a panel working on yesterday's
 numbers between the loss at 18:58:40 and the client being killed at 19:29:17 — and which
 of them to build is the person's call, not an agent's.
+
+## 4.3 The live kick, watched — and what it did NOT look like (#1259)
+
+On 2026-08-06 the person logged in, was thrown out «a couple of minutes later», logged
+in again and stayed. The whole thing is in one profile's log, and the first half is
+this panel's own doing — see §4.4. What matters here is the second half: the client was
+left holding a dead link, and it was READ IN THAT STATE, through the Lua VM, while the
+sockets were still half-closed:
+
+```
+top window   = nil            stack = (empty)
+scene        = city           UIMain open = true
+player uid   = set            server = <the account's own>
+sockets      = 6 half-closed, 0 established
+```
+
+**No modal. No disconnect window. Nothing on screen at all.** The client sat at the
+home base with its whole HUD, believing it was playing, while the server had not been
+on the other end for half an hour.
+
+That closes a branch of guesswork this file has carried since #1223: a kick and an
+ordinary hang-up are indistinguishable **not only by their sockets but by the client
+too**. There is no in-client signal to gate a restart on, which is why the socket table
+remains the only tell and why «is this a kick?» cannot currently be answered.
+
+**What to watch for next time.** The client HAS two window names for this —
+`UIDisconnect` and `UICrossDisconnect` (`UIChatKickUser` is a chat moderation thing and
+not this). Neither was open in the state above. They are the obvious candidates for a
+kick that announces itself, and the next live case should check them FIRST, while the
+client is still in the state, before anything restarts it:
+
+```lua
+UIManager.Instance:IsWindowOpen('UIDisconnect')
+UIManager.Instance:IsWindowOpen('UICrossDisconnect')
+```
+
+If one of them is up, that is the kick signal — and a kick means the account is being
+played somewhere else, which is the one case where restarting is the WRONG answer
+(§4.4). If neither is ever up, the honest conclusion is that this client does not
+distinguish the two at all.
+
+## 4.4 The restart closed a window somebody was playing in
+
+```
+21:44:08  связь с сервером пропала
+21:44:16  клиент не слышен серверу уже 24 с — перезапускаю     <- eight seconds later
+21:44:16  QUIT_GAME -> client pid … closed
+```
+
+An account being PLAYED is not an account in trouble. `panel/runtime/recovery.py` now
+holds a restart back while somebody has touched the client's own Windows session in the
+last five minutes (`game_link.idle_sec()`), and both front-ends say which of the two
+reasons is holding it — «за игрой человек» or «до следующего N мин» — because a restart
+that silently does not happen is indistinguishable from one that is broken.
+
+**IT DOES NOT SEE A PHONE.** Somebody playing the same account from another device is
+invisible to any local reading, and that case is the worse one: the restart takes the
+account back off them, and it is also exactly the case a kick creates. Whether the
+automation should hold off entirely on a suspected kick is a decision for the person
+and is deliberately not made here.
