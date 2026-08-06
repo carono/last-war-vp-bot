@@ -387,6 +387,21 @@ class ProfileManager:
         """Delete a profile. The last remaining profile cannot be deleted.
 
         Returns the name that is active afterwards.
+
+        **IT SAYS SO WHEN THE DIRECTORY DOES NOT GO** (#1253). This used to be one
+        `rmtree(..., ignore_errors=True)` and nothing else, and on Windows that is a
+        delete that reports success without having happened: a file something still
+        holds open cannot be unlinked — a `panel.log`, a `debug.log`, a capture's
+        checkpoint, the SQLite chat store — and every one of those is held by the very
+        session the person is deleting. The profile then came back in the list, kept its
+        settings, and the only clue was that nothing had changed.
+
+        So: try, look, and try again saying why. The second attempt is not superstition
+        — the first one deletes everything it can, and a handle released in between (a
+        child process ending, a log handler closing) makes the retry succeed. Only when
+        the directory is still there afterwards is this a refusal, and then the active
+        pointer has not been moved: a profile that is still on the disk must not have
+        been quietly stood down.
         """
         name = sanitize(name)
         if not self.exists(name):
@@ -396,7 +411,23 @@ class ProfileManager:
             raise ValueError(Message("profile.error.last_one",
                                      "cannot delete the last profile"))
         import shutil
-        shutil.rmtree(os.path.join(PROFILES_DIR, name), ignore_errors=True)
+        path = os.path.join(PROFILES_DIR, name)
+        shutil.rmtree(path, ignore_errors=True)
+        refused = None
+        if os.path.isdir(path):
+            try:
+                shutil.rmtree(path)
+            except OSError as exc:
+                refused = exc
+        if os.path.isdir(path):
+            # `error` is technical on purpose — the reason Windows gave, or, when it
+            # gave none, WHAT SURVIVED. Either one names the thing still holding the
+            # directory; a translated «could not delete» would not.
+            said = refused if refused is not None else _leftovers(path)
+            raise ValueError(Message(
+                "profile.error.not_removed",
+                f"the profile directory could not be removed: {said}",
+                name=name, path=path, error=said))
         if self._active == name:
             return self.set_active(self.list()[0])
         return self._active
@@ -571,6 +602,21 @@ class ProfileManager:
         if not os.path.exists(config_path):
             _write_json(config_path, {})
         return name
+
+
+def _leftovers(path: str, most: int = 5) -> str:
+    """What is still in a directory that would not delete — the useful half of «why».
+
+    Names, not a count: `chat_history_<uid>.db` says a chat window is still open and
+    `panel.log` says the session was not closed first, and those are different faults
+    with different fixes (#1253).
+    """
+    try:
+        names = sorted(os.listdir(path))
+    except OSError as exc:
+        return str(exc)
+    shown = ", ".join(names[:most])
+    return f"{shown}, …" if len(names) > most else shown or path
 
 
 def _write_json(path: str, data) -> None:

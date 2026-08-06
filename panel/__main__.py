@@ -1994,31 +1994,149 @@ class Panel(runtime.SessionScoped, tk.Tk):
         self._say("profile", "log.profile.renamed", old=cur, new=newn)
 
     def _delete_profile(self) -> None:
-        cur = self._profiles.active
-        # The confirmation used to name the profile and nothing else, while the delete
-        # is an `rmtree` of its whole directory — its chat history, its rally log, its
-        # panel.log and the record of when every timer last ran. Say what goes.
-        if not messagebox.askyesno(
-                self._t("profile.delete"),
-                self._t("profile.confirm_delete", name=cur,
-                        path=_repo_rel(self._profiles.dir(cur))), parent=self._profile_dialog_parent()):
-            return
-        try:
-            now_active = self._profiles.delete(cur)
-        except ValueError as exc:
-            messagebox.showerror(self._t("profile.delete"), self._error_text(exc),
+        """Delete a profile: its page, its session, and everything that session held.
+
+        THE PAGE WAS THE PART THAT NEVER WENT (#1253). This method predates the window
+        holding more than one profile (#1206): it deleted the directory and then
+        *re-pointed the one runtime*, which is what a panel with a single profile used
+        to need. With a workspace, nothing told the workspace — so the page stayed in
+        the notebook, its schedule went on firing errands, its captures went on writing,
+        it went on holding the game lease, and the profile came back in the list the
+        moment anything asked for its directory (`ProfileManager._ensure_dir` makes one).
+
+        The delete did not even reach the disk, and could not have. `self._profiles` is
+        the SHOWING SESSION's pinned manager, so the shared `panel/settings.json` was
+        never re-pointed and the next launch reopened the profile; and the `rmtree` ran
+        while that same session had `panel.log` and `debug.log` open, which on Windows is
+        a directory that cannot be removed — reported as success, because the store
+        ignored the errors (now it does not).
+
+        So the order below is the whole fix, and every step is load-bearing:
+
+        1. refuse early — the last profile on disk, and a delete with no page to fall
+           back to, are both refusals with words rather than half-done work;
+        2. keep a page: if this is the only one open, open another profile FIRST, since
+           a window with no page in it is a window with nothing in it;
+        3. stop the daemon, while the link that can still reach it is alive — but only
+           if no other profile drives that client;
+        4. close the session — errands, listeners, captures, children, the game lease,
+           the instance lock and both log files, then the page out of the notebook;
+        5. and only then the directory, through the WORKSPACE's unpinned manager, which
+           is the one allowed to write which profiles are open and which is showing.
+        """
+        profiles = self._workspace.profiles          # the unpinned one — see step 5
+        name = profilemod.sanitize(self._profile_var.get() or "")
+        if not name or not profiles.exists(name):
+            name = self._workspace.current.name
+        if len(profiles.list()) <= 1:
+            messagebox.showerror(self._t("profile.delete"),
+                                 self._t("profile.error.last_one"),
                                  parent=self._profile_dialog_parent())
             return
-        self._refresh_profile_combo(select=now_active)
+        # The confirmation names the whole directory, because the delete is an `rmtree`
+        # of it — the chat history, the rally log, panel.log and the record of when
+        # every timer last ran. Built by hand rather than through `profiles.dir()`,
+        # which CREATES the directory it names: a question about deleting something
+        # must not be the thing that brings it back.
+        path = os.path.join(profilemod.PROFILES_DIR, name)
+        if not messagebox.askyesno(
+                self._t("profile.delete"),
+                self._t("profile.confirm_delete", name=name, path=_repo_rel(path)),
+                parent=self._profile_dialog_parent()):
+            return
+        if name in self._workspace and not self._make_room_to_delete(name):
+            return
+
+        note = None
+        with self._activity.step("activity.profile.delete", name=name):
+            if name in self._workspace:
+                # Worked out while the link is alive, SAID once the page is gone: a line
+                # about the daemon put into the log of the profile being deleted is a
+                # line written into a file that is about to be removed.
+                note = self._stop_daemon_of(name)
+                self._close_profile(name)
+            if note is not None:
+                self._say("profile", note[0], **note[1])
+            try:
+                now_active = profiles.delete(name)
+            except ValueError as exc:
+                said = self._error_text(exc)
+                messagebox.showerror(self._t("profile.delete"), said,
+                                     parent=self._profile_dialog_parent())
+                self._say("profile", "log.profile.delete_failed", name=name, error=said)
+                self._refresh_profile_combo()
+                return
         # A per-profile task from #1203 goes with it — the one hourly task of #1207 stays,
         # because the panel it opens is still wanted; it simply has one page fewer now.
-        left = autostartmod.drop_legacy(cur)
+        left = autostartmod.drop_legacy(name)
         if left:
-            self._say("profile", "log.autostart.leftover", name=cur,
+            self._say("profile", "log.autostart.leftover", name=name,
                       error=", ".join(left))
-        self._settings = self._profiles.load()
-        self._reload_active_profile()
-        self._say("profile", "log.profile.deleted", name=cur, active=now_active)
+        self._refresh_profile_combo(select=self._workspace.current.name)
+        self._say("profile", "log.profile.deleted", name=name, active=now_active)
+
+    def _make_room_to_delete(self, name: str) -> bool:
+        """Make sure a page will be left once ``name``'s is gone. ``False`` = refuse.
+
+        `Workspace.close` will not close the last open session and is right not to. So
+        the profile that is about to go stops being the only one open: another is opened
+        beside it first, and the delete carries on from there. When there is no other
+        that this window may open — every one of them held by a second panel — the
+        honest answer is to say so and delete nothing.
+        """
+        if len(self._workspace) > 1:
+            return True
+        other = next((n for n in self._workspace.profiles.list()
+                      if n != name and self._profile_is_free(n)), None)
+        if other is None:
+            messagebox.showerror(self._t("profile.delete"),
+                                 self._t("profile.error.no_replacement", name=name),
+                                 parent=self._profile_dialog_parent())
+            return False
+        self._open_profile(other)
+        return len(self._workspace) > 1
+
+    def _stop_daemon_of(self, name: str):
+        """Ask this profile's daemon to exit — nothing will ever ask it for anything again.
+
+        A daemon deliberately outlives the panel (docs/research/multi-profile-panel.md
+        §4.2), because a profile CLOSED is a profile that will be opened again. A profile
+        DELETED is not: leaving its daemon up leaves a process holding a client, a game
+        lease and a port that `panel/runtime/provision.py` will then step around for ever.
+
+        Unless somebody else is on that port. Two profiles on one client is a state
+        installs made before #1252 are still in, and shutting the daemon down from under
+        the other one would take its game with it.
+
+        Fire-and-forget on a thread: the shutdown is an RPC to a process that answers and
+        then exits, and the person is waiting on a modal. Nothing in the profile
+        directory depends on it — the daemon's own log lives elsewhere — so the delete
+        below does not have to wait for it.
+
+        Returns ``(key, fmt)`` for the caller to say once the page is gone, or ``None``.
+        """
+        session = self._workspace.get(name)
+        rt = getattr(session, "rt", None)
+        if rt is None:
+            return None
+        port = rt.daemon_port()
+        others = runtime.provision.clients(self._workspace.profiles, exclude=name)
+        sharing = sorted(n for n, client in others.items() if client.port == port)
+        if sharing:
+            return ("log.profile.daemon_kept",
+                    {"port": port, "others": ", ".join(sharing)})
+        if not rt.game.up():
+            return None
+        client = rt.game.client
+
+        def work() -> None:
+            try:
+                client.shutdown()
+            except Exception:                # noqa: BLE001 — a daemon, not the window
+                pass
+
+        threading.Thread(target=work, name="panel-daemon-stop", daemon=True).start()
+        return ("log.profile.daemon_stopped", {"port": port})
 
     # -- persistent settings ------------------------------------------------
     def _collect_settings(self) -> dict:

@@ -346,6 +346,43 @@ parsed body contains a vision primitive takes a process-wide foreground lock bef
 runs, and an RDP profile is exempt because its desktop is its own. Cheap, and it stays
 correct if a vision scenario is ever blessed.
 
+### 4.7 Deleting a profile — the other end of §4.2 (#1253)
+
+Closing a profile and deleting one are not the same act, and the difference is exactly
+the daemon. A profile CLOSED will be opened again, so its warm daemon stays. A profile
+DELETED will not, so its daemon is asked to exit: leaving it up leaves a process holding
+a client, a game lease and a port that `provision.free_port` will then step around for
+ever. Unless another profile names that port — the state installs made before #1252 are
+still in — and then the daemon stays and the log says whose it also is.
+
+**The delete was written before there was a workspace, and it showed.** It removed the
+directory and re-pointed the one runtime, which is what a single-profile panel needed;
+nothing told the workspace, so the page stayed in the notebook with its session behind
+it still firing errands, still capturing, still holding the lease. Measured against
+`8a26490`: after deleting the profile that was showing, `Workspace.names` still listed
+it, `session.shutdown()` had never run, and `panel/settings.json` still said
+`active_profile: second` — so the next launch re-opened a profile that had been deleted
+and `_ensure_dir` made its directory again.
+
+Two things were wrong underneath that, and both are the kind that report success:
+
+* `self._profiles` in the shell is the SHOWING SESSION's **pinned** manager, and a
+  pinned `set_active` writes nothing. The panel-wide file is the workspace's manager's
+  to write, and only it;
+* `ProfileManager.delete` was `shutil.rmtree(..., ignore_errors=True)` and nothing else.
+  On Windows a file something still has open cannot be unlinked — and the things holding
+  the profile's files were that same live session's `panel.log`, `debug.log` and chat
+  store. It now looks afterwards, retries once (a handle released in between is the
+  ordinary case), and RAISES with what survived rather than returning as though the
+  profile had gone.
+
+So the order is the fix, and each step is load-bearing: refuse early (the last profile
+on disk; no other page to fall back to) → open another profile if this is the only one
+open, because `Workspace.close` will not close the last session → stop the daemon while
+the link that can reach it is still alive → close the session, which lets go of the
+errands, the children, the lease, the instance lock and both log files → and only then
+the directory, through the unpinned manager.
+
 ---
 
 ## 5. Timers and triggers
