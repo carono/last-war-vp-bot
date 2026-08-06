@@ -255,10 +255,30 @@ profiles (#1250). The answer is to settle **both halves at once**, which is what
 **What was already broken splits in two, and the split is the design.** A port two
 DIFFERENT clients both claim is repaired unasked, at boot, before a session is built —
 nothing changes but a number nobody was meant to see (`repair_ports`). Two profiles on
-ONE client cannot be separated without a login, so the boot only *says* so and the
-«Профиль» window has the button that asks (`needs_own_client`, «Развести клиенты…»).
-Never a modal on the way up: the hourly autostart opens this panel with nobody at the
-machine, and a question there is a panel that never finishes starting.
+ONE client cannot be separated without a login, so the boot only *says* so
+(`needs_own_client`) and names where the login is typed. Never a modal on the way up:
+the hourly autostart opens this panel with nobody at the machine, and a question there
+is a panel that never finishes starting.
+
+**Where it is typed is the profile's own Settings page, and that is the whole of #1263.**
+There was a «Развести клиенты…» in the «Профиль» window that asked a login for every
+shared profile at once and wrote the answers with `provision.provision`. It reported
+success and changed nothing, every time, and the reason is worth keeping: **an open
+profile's client is not in its file.** It is in the Tk variables its Settings page is
+bound to, and `_collect_settings` writes all of them back on the next save — including
+the save the window makes while closing. So the plan landed on disk, said so in the log,
+and was replaced by the old port and the old login before anybody looked again.
+
+So `provision.apply` is now for a profile nobody has open — the boot's repair, and
+creating one — and everything else goes through the binder of the profile it belongs to:
+«Настройки» → «Игра» → «Сессия Windows», where setting the bound variable is what
+persists it AND re-points the link. Two readings sit under the two knobs there:
+`sharing_with` says whether this profile is farming somebody else's account (computed
+from the WIDGETS, so it clears the moment the tick moves rather than one save later),
+and a sentence says what the pair currently amounts to and what is left — the panel
+re-points itself at once, but a client in a session nobody has raised still has to be
+raised. The phone gets the first of those on «Состояние» (`daemon.shared`) and no
+button: «Настройки» has no phone screen by decision.
 
 **And the paths went the same way.** `launcher`, `game_exe` and `win_python` were boxes
 too, and every one of them was a way to be quietly wrong — a profile here still carried

@@ -1516,12 +1516,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
                  "profile.delete").pack(side="left")
         self._tr(ttk.Button(btns, command=win.destroy),
                  "profile.close").pack(side="right")
-        # The fix for what predates «one profile, one client» — see `_sort_out_clients`.
-        # A second row, because it is not one of the five things a person came here to do.
-        fix = ttk.Frame(frm)
-        fix.grid(row=4, column=0, columnspan=2, sticky="we", pady=(8, 0))
-        self._tr(ttk.Button(fix, command=self._separate_clients),
-                 "profile.separate").pack(side="left")
+        # NOTHING ELSE GOES HERE (#1263). There used to be a «Развести клиенты…» below
+        # this row that asked a login per shared profile and wrote the answers to disk —
+        # under profiles that were open, whose widgets then put the old values back on
+        # the next save. It reported success and changed nothing. Which client a profile
+        # drives is now edited where the profile is configured: «Настройки» → «Игра» →
+        # «Сессия Windows», through that profile's own bound variables.
 
         win.protocol("WM_DELETE_WINDOW", win.destroy)
         win.bind("<Destroy>", self._on_profile_dialog_destroyed)
@@ -1542,7 +1542,12 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._profile_win = None
 
     def _paint_profile_client(self) -> None:
-        """Say which client the profile in the combo drives, in one line."""
+        """Say which client the profile in the combo drives — and if it is not alone.
+
+        The second half is what «Развести клиенты…» used to be a button for (#1263):
+        the state is named here, and the sentence says where it is put right, because
+        the fix belongs to the profile being configured and not to this window.
+        """
         label = getattr(self, "_profile_client_lbl", None)
         if label is None:
             return
@@ -1555,8 +1560,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
         else:
             text = self._t("session.client.session", user=client.user,
                            port=client.port)
+        others = runtime.provision.sharing_with(self._profiles, name) if client else []
+        if others:
+            text = text + "\n" + self._t(
+                "profile.client.shared", others=", ".join(others),
+                tab=self._t("tab.settings"), page=self._t("settings.tab.game"),
+                frame=self._t("session.frame"))
         try:
-            label.configure(text=text)
+            label.configure(text=text, foreground="#e0a84f" if others else "#888")
         except tk.TclError:
             pass
 
@@ -1784,10 +1795,20 @@ class Panel(runtime.SessionScoped, tk.Tk):
     #   number nobody was supposed to see;
     # * two profiles on ONE client cannot be separated without knowing the login of the
     #   Windows session the second one's client should live in, and that is the one thing
-    #   no amount of reading can answer. So the boot SAYS it and the «Профиль» window has
-    #   the button that asks — never a modal on the way up, because the hourly autostart
-    #   opens this panel with nobody at the machine and a question there is a panel that
-    #   never finishes starting.
+    #   no amount of reading can answer. So the boot SAYS it and names where it is
+    #   answered — never a modal on the way up, because the hourly autostart opens this
+    #   panel with nobody at the machine and a question there is a panel that never
+    #   finishes starting.
+    #
+    # WHERE IT IS ANSWERED IS THE PROFILE'S OWN SETTINGS PAGE (#1263). It used to be a
+    # «Развести клиенты…» button in the «Профиль» window that asked a login for each
+    # shared profile at once and wrote the answers to disk with `provision.provision`.
+    # Under a profile that is OPEN that write does not survive: its widgets still hold
+    # the old port and login, and `_collect_settings` puts them back on the next save —
+    # including the save this window does while closing. The person did it, was told it
+    # had worked, and nothing had changed. So the login is now typed on «Настройки» →
+    # «Игра» → «Сессия Windows» of the profile it belongs to, where setting the bound
+    # variable is what persists it and re-points the link.
 
     def _sort_out_clients(self, profiles) -> list:
         """Give every client its own port, and note what still needs a person.
@@ -1807,10 +1828,13 @@ class Panel(runtime.SessionScoped, tk.Tk):
             notes.append(("log.profile.port_moved",
                           {"name": name, "old": old, "new": new}))
         if stranded:
+            # …and where a person answers it. The path, not a button: the answer is one
+            # login per profile, typed on the profile it belongs to (#1263).
             notes.append(("log.profile.client_shared_boot",
                           {"names": ", ".join(stranded),
-                           "menu": self._t_boot("menu.profile"),
-                           "button": self._t_boot("profile.separate")}))
+                           "tab": self._t_boot("tab.settings"),
+                           "page": self._t_boot("settings.tab.game"),
+                           "frame": self._t_boot("session.frame")}))
         return notes
 
     def _t_boot(self, key: str) -> str:
@@ -1830,86 +1854,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
             cached = self._boot_i18n = runtime.Translator(lang, persist=False)
         return cached.t(key)
 
-    def _separate_clients(self) -> None:
-        """Ask a login for every profile that shares a client, and give it one of its own.
-
-        The person types logins; the panel decides the ports and writes both halves. A
-        profile left with an empty box is left alone — this is a fix offered, not one
-        imposed, and a person who has two panels on one client on purpose is allowed to.
-        """
-        stranded = runtime.provision.needs_own_client(self._profiles)
-        if not stranded:
-            messagebox.showinfo(self._t("profile.separate"),
-                                self._t("profile.separate.none"),
-                                parent=self._profile_dialog_parent())
-            return
-        logins = self._ask_client_logins(stranded)
-        if not logins:
-            return
-        for name, login in logins.items():
-            try:
-                plan = runtime.provision.provision(self._profiles, name, login=login)
-            except ValueError as exc:
-                messagebox.showerror(self._t("profile.separate"),
-                                     self._error_text(exc),
-                                     parent=self._profile_dialog_parent())
-                continue
-            self._say_client(name, plan)
-        # A profile whose port just moved is open in this window with a link pointed at
-        # the old one. Re-point the showing session now; the others pick their new port
-        # up the next time the window opens, which is said in the same breath.
-        self._rebind_daemon()
-        self._say("profile", "log.profile.separated")
-
-    def _ask_client_logins(self, names: list) -> dict:
-        """One row per profile — its name, and a box for the login of its session.
-
-        Returns ``{profile: login}`` for the rows that were filled in, empty if the
-        person closed the window.
-        """
-        win = tk.Toplevel(self)
-        win.title(self._t("profile.separate"))
-        win.resizable(False, False)
-        win.transient(self._profile_dialog_parent())
-
-        frm = ttk.Frame(win)
-        frm.pack(fill="both", expand=True, padx=16, pady=16)
-        frm.columnconfigure(1, weight=1)
-        ttk.Label(frm, text=self._t("profile.separate.hint"), foreground="#888",
-                  wraplength=420, justify="left").grid(row=0, column=0, columnspan=2,
-                                                       sticky="w", pady=(0, 10))
-        boxes = {}
-        for row, name in enumerate(names, start=1):
-            ttk.Label(frm, text=name).grid(row=row, column=0, sticky="w", pady=3)
-            var = tk.StringVar(master=win)
-            ttk.Entry(frm, textvariable=var, width=24).grid(row=row, column=1,
-                                                            sticky="we", padx=(12, 0))
-            boxes[name] = var
-
-        answer: dict = {}
-
-        def ok() -> None:
-            for profile, var in boxes.items():
-                login = var.get().strip()
-                if login:
-                    answer[profile] = login
-            win.destroy()
-
-        btns = ttk.Frame(frm)
-        btns.grid(row=len(names) + 1, column=0, columnspan=2, sticky="e", pady=(14, 0))
-        self._tr(ttk.Button(btns, command=ok), "profile.separate.apply").pack(side="left")
-        self._tr(ttk.Button(btns, command=win.destroy),
-                 "profile.cancel").pack(side="left", padx=(8, 0))
-        win.bind("<Escape>", lambda e: win.destroy())
-
-        win.update_idletasks()
-        x = self.winfo_rootx() + max(0, (self.winfo_width() - win.winfo_width()) // 2)
-        y = self.winfo_rooty() + max(0, (self.winfo_height() - win.winfo_height()) // 3)
-        win.geometry(f"+{x}+{y}")
-        win.grab_set()
-        win.focus_set()
-        self.wait_window(win)
-        return answer
+    # `_separate_clients` and `_ask_client_logins` stood here until #1263. They asked a
+    # login for every shared profile in one modal and wrote the answers with
+    # `provision.provision` — straight into the files, under profiles that were open.
+    # An open profile's client is not in its file, it is in the Tk variables its
+    # Settings page is bound to, and `_collect_settings` writes those back on the next
+    # save — including the one this window makes while closing. So the fix landed, said
+    # so in the log, and was gone by the next morning. It is done per profile now, on
+    # «Настройки» → «Игра» → «Сессия Windows», through that profile's own binder.
 
     def _say_client(self, name: str, plan) -> None:
         """One line naming the client a profile was given — which desktop, which port."""

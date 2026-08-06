@@ -49,7 +49,7 @@ import time
 from .. import __version__ as APP_VERSION
 from .. import i18n as i18nmod
 from .. import timers as timersmod
-from ..runtime import game_control, game_process, panel_control
+from ..runtime import game_control, game_process, panel_control, provision
 from ..runtime import panic as panicmod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
@@ -131,6 +131,7 @@ class WebApi:
         self._tail = tail
         self._feeds: dict = {}               # profile name -> _Feed
         self._status: dict = {}          # profile -> (read at, running, link, label)
+        self._shared: dict = {}          # profile -> (read at, [other profiles on its client])
         self._attached = False
 
     # -- which profiles there are -------------------------------------------
@@ -274,8 +275,16 @@ class WebApi:
                          link, str((step.fmt.get("name") if step else "") or ""))},
             # `busy` is a PROPERTY on the real link (panel/runtime/daemon.py) and a
             # method on none of them — read it, never call it.
+            #
+            # `shared` is the one fault about a profile that looks like nothing at all:
+            # two profiles on ONE client farm ONE account, and both report themselves
+            # healthy doing it (#1250). The phone gets the READING and no button — the
+            # login that separates them is typed on «Настройки» → «Игра», and that tab
+            # has no phone screen by decision (CLAUDE.md, «The three divergences there
+            # are»), so what it needs on the move comes here (#1263).
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
-                       "busy": bool(rt.game.busy)},
+                       "busy": bool(rt.game.busy),
+                       "shared": self._shared_client(name, rt)},
             # `name` is passed through raw beside the sentence: the page marks the
             # scenario card that is running with it, and matching on the translated
             # sentence would be matching on a language.
@@ -305,6 +314,25 @@ class WebApi:
 
     def _name_of(self, rt) -> str:
         return str(rt.profiles.active)
+
+    def _shared_client(self, name: str, rt) -> list:
+        """Which OTHER profiles drive this profile's client — cached like the status.
+
+        Off disk, so it costs a couple of small reads per profile and the state route
+        is polled every two seconds by every phone that has the page open. The cache is
+        the status poll's, for the same reason: a profile's client changes when somebody
+        edits it, not between two ticks.
+        """
+        when, names = self._shared.get(name, (0.0, []))
+        now = time.time()
+        if now - when < STATUS_TTL_SEC:
+            return names
+        try:
+            names = provision.sharing_with(rt.profiles, name)
+        except Exception:                    # noqa: BLE001 — a reading, never the server
+            names = []
+        self._shared[name] = (now, names)
+        return names
 
     def _client_status(self, name: str, rt) -> tuple:
         """Is this profile's client up and CONNECTED — cached per profile for

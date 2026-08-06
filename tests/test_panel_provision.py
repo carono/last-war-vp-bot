@@ -186,6 +186,63 @@ def test_two_sessions_on_one_port_are_repaired_without_asking() -> None:
         assert not provision.needs_own_client(env.profiles)
 
 
+def test_sharing_with_names_the_others_from_one_profile_s_point_of_view() -> None:
+    """`shared` asked the way a Settings page asks it: «am I alone on my client?»
+
+    The page is looking at ONE profile, so it needs the other names and not a table —
+    and it needs the answer for what its WIDGETS currently say, which is the truth one
+    save ahead of the file. That is what `client` is for.
+    """
+    with _Env() as env:
+        _console(env)
+        env.write("two", {})
+        env.write("three", {"daemon_port": provision.CONSOLE_PORT + 1,
+                            "rdp_session": True, "rdp_user": "u3"})
+        assert provision.sharing_with(env.profiles, "two") == ["default"]
+        assert provision.sharing_with(env.profiles, "default") == ["two"]
+        assert provision.sharing_with(env.profiles, "three") == []
+        # …and the tick moving on the page separates it BEFORE anything is written.
+        moved = provision.Client("u2", provision.CONSOLE_PORT + 2)
+        assert provision.sharing_with(env.profiles, "two", client=moved) == []
+        # Two profiles naming ONE login are shared however far apart their ports are:
+        # a Windows session holds one client.
+        same = provision.Client("u3", provision.CONSOLE_PORT + 9)
+        assert provision.sharing_with(env.profiles, "two", client=same) == ["three"]
+
+
+def test_the_profile_window_does_not_write_a_client_behind_a_page_s_back() -> None:
+    """No «Развести клиенты…» anywhere, and `provision` is written from one place only.
+
+    THE FAULT IT PINS (#1263). `apply` writes a profile's FILE. An open profile's client
+    is not in its file — it is in the Tk variables its Settings page is bound to, and
+    `_collect_settings` writes all of them back on the next save, including the one the
+    window makes while closing. So the old button wrote four profiles' clients, said so
+    in the log, and every one of them was back to the shared port by morning: a fix that
+    reported success and changed nothing.
+
+    Read over the source, because what is being pinned is which CALLERS exist. The one
+    that is allowed is `_create_profile`, where the profile is not open yet; the boot's
+    `repair_ports` runs before the workspace exists at all.
+    """
+    import ast
+
+    source = (_REPO / "panel" / "__main__.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    functions = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "_separate_clients" not in functions, \
+        "the modal that wrote clients under open profiles is back"
+    assert "_ask_client_logins" not in functions
+    callers = set()
+    for owner, node in functions.items():
+        for call in ast.walk(node):
+            if isinstance(call, ast.Call) and getattr(call.func, "attr", "") in (
+                    "provision", "apply"):
+                if getattr(getattr(call.func, "value", None), "attr", "") == "provision":
+                    callers.add(owner)
+    assert callers <= {"_create_profile"}, \
+        f"a profile's client is written outside its own binder: {sorted(callers)}"
+
+
 def test_repairing_ports_leaves_one_client_shared_alone() -> None:
     """Two profiles on the console are one client whatever ports they name."""
     with _Env() as env:
@@ -252,8 +309,11 @@ def test_the_boot_repairs_what_it_can_and_only_names_the_rest() -> None:
         assert provision.clients(env.profiles)["bbb"].user == "u4"
         # …and the login half is only reported, because it cannot be guessed.
         assert provision.needs_own_client(env.profiles) == ["two"]
+        # …and the note names WHERE it is answered. The path to the page, not a button:
+        # the login belongs to the profile it is typed on (#1263).
         said = dict(notes)["log.profile.client_shared_boot"]
-        assert said["names"] == "two" and said["button"], said
+        assert said["names"] == "two", said
+        assert said["tab"] and said["page"] and said["frame"], said
 
 
 # -- the paths nobody types ---------------------------------------------------

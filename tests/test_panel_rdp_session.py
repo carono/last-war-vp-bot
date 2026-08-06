@@ -307,6 +307,69 @@ def test_the_page_answers_in_sentences_and_greys_the_login_box():
             pass
 
 
+def test_the_page_names_a_shared_client_and_what_the_two_knobs_amount_to():
+    """The two sentences #1263 put under the knobs, on the real page.
+
+    They exist because «Развести клиенты…» was a modal that answered neither question:
+    a person could not see that this profile was farming somebody else's account, and
+    could not see whether what they had just done had applied. Both are readings now,
+    on the page where the login is typed — and the first one moves with the tick rather
+    than with the file, so ticking the box clears the warning at once.
+
+    Needs Tk and a display; says SKIP without one.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no tkinter: {exc}")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import fake_runtime
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no display: {exc}")
+        return
+    try:
+        root.withdraw()
+        rt = fake_runtime.cold_runtime(root)
+        rt.settings.save = lambda raw=None: None
+        # A second profile with a config of its own that says nothing — which is the
+        # whole bug (#1250): an empty file falls back to the default profile's port, so
+        # the two really do drive one client.
+        second = rt.profiles.create("shared-1263")
+        rt.profiles.save({}, second)
+
+        page = SettingsTab(rt, ttk.Frame(root))
+        page._build_session_settings(page.parent)
+
+        said = page._session_shared.cget("text")
+        assert second in said and not said.startswith("session."), said
+        assert "{" not in said, said
+        means = page._session_means.cget("text")
+        assert means and not means.startswith("session.") and "{" not in means, means
+
+        # Give this profile a session of its own: the warning goes, and the sentence
+        # under it changes to the one that names what is still left to do.
+        rt.settings.vars["rdp_user"].set("player2")
+        rt.settings.vars["rdp_session"].set(True)
+        assert page._session_shared.cget("text") == "", page._session_shared.cget("text")
+        means = page._session_means.cget("text")
+        assert "player2" in means and "{" not in means, means
+
+        # …and a login left empty is its own sentence rather than a silent nothing.
+        rt.settings.vars["rdp_user"].set("")
+        means = page._session_means.cget("text")
+        assert means and "{" not in means, means
+    finally:
+        try:
+            root.destroy()
+        except Exception:                   # noqa: BLE001
+            pass
+
+
 # -- the one call a caller wants --------------------------------------------
 
 def test_profile_status_honours_the_executable_and_the_session_together():

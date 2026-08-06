@@ -476,6 +476,20 @@ class SettingsTab(PanelTab):
         console's. And it cannot be turned off while ANOTHER profile has the console —
         there is one desktop, so there is one console profile, and the refusal names who
         it is instead of letting two profiles farm one account in silence (#1250).
+
+        AND THIS IS THE ONLY PLACE IT IS TYPED (#1263). There was a second one — «Профиль»
+        → «Развести клиенты…» — which asked a login for every shared profile at once and
+        wrote the answers with `provision.provision`, straight to the files. Under a
+        profile that is OPEN, that write is undone by the next save of that profile's own
+        widgets, so the person did it, was told it had worked, and nothing changed. Here
+        the edit goes through the bound variable, which is what persists it AND re-points
+        the link, so it applies to the profile it belongs to and to nothing else.
+
+        Three sentences under the two knobs, and each answers a question the person had
+        to guess at before: :meth:`_session_shared_text` — is this profile farming
+        somebody else's account; :meth:`_session_means_text` — what the two knobs
+        currently amount to and what is left to do about it; and «Проверить», which is
+        the same question asked of live Windows.
         """
         frame = self.tr(ttk.LabelFrame(parent, padding=8), "session.frame")
         frame.pack(fill="x", pady=(12, 0))
@@ -488,27 +502,44 @@ class SettingsTab(PanelTab):
         self._session_box.configure(command=self._on_session_toggle)
         self._session_user_entry = self._opt_row(frame, 1, "rdp_user", width=20)
 
+        # IS THIS PROFILE ALONE ON ITS CLIENT? (#1263) The one fault the two knobs above
+        # can be in that nothing else on the page would ever mention: a profile that
+        # shares its client with another farms that other account and looks perfectly
+        # healthy doing it (#1250). Named here, where it is also put right, and the
+        # sentence says which knob to move rather than leaving «непонятно, что делать».
+        self._session_shared = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
+                                         justify="left")
+        self._session_shared.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        # …and what the two knobs currently amount to, WITH what is still left to do —
+        # the panel re-points its own link the moment the tick moves, but a client in a
+        # session that has never been raised is not going to appear because a checkbox
+        # was ticked. Said here rather than left to be discovered as a profile that
+        # farmed nothing all night.
+        self._session_means = ttk.Label(frame, foreground="#888", wraplength=520,
+                                        justify="left")
+        self._session_means.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
         # «Проверить»: the settings answer for themselves, here, rather than being
         # discovered at three in the morning as a profile that farmed nothing. The
         # reading itself is the runtime's (`game_process.check`); this half only puts
         # words to the verdict it comes back with.
         self._session_check_btn = self.tr(
             ttk.Button(frame, command=self._check_session), "session.check")
-        self._session_check_btn.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        self._session_check_btn.grid(row=4, column=1, sticky="w", pady=(8, 0))
         # …and beside it the thing «Проверить» used to send the person to a terminal for
         # (#1231). The verdict says «поднимите сессию»; the button that does it belongs
         # in arm's reach of the sentence, not in a command line in a document.
         self._session_up_btn = self.tr(
             ttk.Button(frame, command=self._bring_up_session), "session.bring_up")
-        self._session_up_btn.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+        self._session_up_btn.grid(row=4, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
         self._session_verdict = ttk.Label(frame, foreground="#888", wraplength=520,
                                           justify="left")
-        self._session_verdict.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._session_verdict.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         # The port and the session are two halves of one answer, so the contradiction
         # between them is shown without waiting to be asked for.
         self._session_clash = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
                                         justify="left")
-        self._session_clash.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._session_clash.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         # The login is meaningless while the tick is off, and a box that still takes
         # typing says otherwise. Follow the checkbox — and the port — on every change.
@@ -559,6 +590,67 @@ class SettingsTab(PanelTab):
                 self.say("session", "log.session.client.own_port", port=port)
         self._refresh_session_user_state()
 
+    def _live_client(self):
+        """The client the WIDGETS name — the truth one save ahead of the files.
+
+        `provision.client_of` reads a config dict, and the three keys it wants are
+        exactly the three on this page. Handing it what the widgets hold is what makes
+        the two sentences below move with the tick instead of one edit behind it.
+        """
+        s = self.rt.settings
+        return runtime.provision.client_of(
+            {"rdp_session": s.opt_bool("rdp_session"),
+             "rdp_user": s.opt_str("rdp_user"),
+             "daemon_port": s.opt_int("daemon_port", low=1, high=65535)})
+
+    def _session_shared_text(self) -> str:
+        """«Этот профиль ведёт тот же клиент, что и …», or nothing when it is alone.
+
+        Two ways of being wrong, and they need different instructions: the tick is off
+        (or the login is empty), so this profile is on the console beside somebody else
+        — tick it and name a session; or two profiles genuinely name the SAME login,
+        which no port can separate because there is one client in that session.
+
+        The other profiles are read off disk and this runs on every keystroke in the
+        login box, so the answer is held for a second — keyed by the client the widgets
+        name, so the tick moving invalidates it at once rather than a second later.
+        """
+        try:
+            client = self._live_client()
+            now = time.monotonic()
+            seen = getattr(self, "_shared_seen", None)
+            if seen is None or seen[0] != client.user or now - seen[1] > 1.0:
+                seen = (client.user, now, runtime.provision.sharing_with(
+                    self.rt.profiles, self.rt.profiles.active, client=client))
+                self._shared_seen = seen
+            others = seen[2]
+        except Exception:                    # noqa: BLE001 — a sentence, never the page
+            return ""
+        if not others:
+            return ""
+        names = ", ".join(others)
+        if client.console:
+            return self.t("session.shared.console", others=names)
+        return self.t("session.shared.same_login", others=names, user=client.user)
+
+    def _session_means_text(self) -> str:
+        """What the two knobs amount to, and what is left for the person to do.
+
+        The panel re-points its own link the moment the port changes, so «применилось»
+        is true of the panel — and says so. What it is NOT true of is the client: a
+        session nobody has raised holds no game, and that is the step this sentence
+        exists to name rather than let it be found at three in the morning (#1263).
+        """
+        s = self.rt.settings
+        port = s.opt_int("daemon_port", low=1, high=65535)
+        if not s.opt_bool("rdp_session"):
+            return self.t("session.means.console", port=port)
+        user = s.opt_str("rdp_user").strip()
+        if not user:
+            return self.t("session.means.no_login")
+        return self.t("session.means.session", user=user, port=port,
+                      up=self.t("session.bring_up"))
+
     def _refresh_session_user_state(self) -> None:
         """Keep the login box, the port reading and the warning in step with the tick."""
         on = self.rt.settings.opt_bool("rdp_session")
@@ -569,6 +661,12 @@ class SettingsTab(PanelTab):
             port_lbl = getattr(self, "_port_lbl", None)
             if port_lbl is not None:
                 port_lbl.configure(text=self._port_text())
+            shared = getattr(self, "_session_shared", None)
+            if shared is not None:
+                shared.configure(text=self._session_shared_text())
+            means = getattr(self, "_session_means", None)
+            if means is not None:
+                means.configure(text=self._session_means_text())
             clash = getattr(self, "_session_clash", None)
             if clash is not None:
                 gp = runtime.game_process

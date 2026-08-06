@@ -215,7 +215,24 @@ def plan(profiles, login: str | None = None, exclude: str | None = None,
 
 
 def apply(profiles, name: str, one: Plan) -> Plan:
-    """Write a plan into a profile's config, leaving everything else in it alone."""
+    """Write a plan into a profile's config, leaving everything else in it alone.
+
+    **ONLY FOR A PROFILE NOBODY HAS OPEN.** An open profile's truth is not this file —
+    it is the Tk variables its Settings page is bound to, and the panel writes the whole
+    lot of them back on every save, including the one it does while closing
+    (`panel/__main__.py` `_collect_settings`). So a plan written straight to disk under
+    an open profile survives until the next save and is then silently replaced by the
+    port and the login the widgets still hold. That is exactly what «Развести
+    клиенты…» did: it wrote four profiles' clients, said so in the log, and the panel
+    put every one of them back when the window closed — a fix that reported success and
+    changed nothing (#1263).
+
+    Two callers, both safe: the boot's :func:`repair_ports`, which runs before any
+    session exists, and creating a profile, which happens before it is opened. A profile
+    that IS open is changed through its own binder instead — «Настройки» → «Игра» →
+    «Сессия Windows», where setting the bound variable is what persists it and re-points
+    the link.
+    """
     config = dict(profiles.load(name))
     config.update(one.settings)
     profiles.save(config, name)
@@ -242,6 +259,25 @@ def shared(profiles) -> dict:
     for name, client in clients(profiles).items():
         by_client.setdefault(client.user, []).append(name)
     return {user: names for user, names in by_client.items() if len(names) > 1}
+
+
+def sharing_with(profiles, name: str, client: Client | None = None) -> list:
+    """Which OTHER profiles drive the client ``name`` drives. ``[]`` when it is alone.
+
+    :func:`shared` said from one profile's point of view, which is the way the Settings
+    page needs it: the person is looking at ONE profile and the question is whether this
+    one is farming somebody else's account.
+
+    ``client`` overrides what is on disk for ``name``. The page reads the tick and the
+    login out of its widgets, and that is the truth a moment BEFORE the save lands — so
+    the warning moves with the tick instead of trailing it by one edit.
+    """
+    if client is None:
+        client = clients(profiles).get(name)
+    if client is None:
+        return []
+    return sorted(other for other, one in clients(profiles, exclude=name).items()
+                  if one.user == client.user)
 
 
 def port_clashes(profiles) -> dict:
