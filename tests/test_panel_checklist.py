@@ -1,21 +1,28 @@
-r"""The «Чеклист» tab: the day boundary, the ticks, and what the phone may do with them.
+r"""The «Чеклист» tab: a board that is READ, and the one lie it must never tell.
 
-No display and no widget: the list is :mod:`panel.tabs.checklist.model`, and the screen
-tests reach the tab class without ever building one. The tab MODULE still imports
-tkinter, which the WSL python does not ship — those tests say SKIP there and run under
-the Windows one, where the whole file passes:
+The rule this file exists to hold is that a line is done because the GAME says there is
+nothing left of it — never because somebody ticked a box, and never because a scenario
+was started. So the tests are mostly about the third state: a reading that did not
+arrive, a field the client would not answer, an event that is not on today. Each of
+those has to come out as «unknown» or «not on today» and NOT as done, because a
+checklist that quietly reports a dark client as a finished day is worse than no
+checklist at all.
+
+The other half pins the reading itself to the presses it describes: every count in
+`actions/read_daily_checklist.md` is the same expression `tools/lib/lua_actions.py`
+gates the matching press on, so the board and the button can never disagree about how
+much work there is.
+
+No display and no widget: the catalogue and the parser are Tk-free, and the screen tests
+reach the tab class without building one. The tab MODULE still imports tkinter, which the
+WSL python does not ship — those tests say SKIP there and run under the Windows one:
 
     C:\Python312\python.exe tests\test_panel_checklist.py
-
-The one test worth reading twice is the last: the phone gets ticking, running and the
-reset, and NOT the editing. That is an agreed divergence rather than an unfinished
-mirror (`CLAUDE.md`, «An edit travels between the window and the web»), and a rule
-nobody has pinned is a rule the next agent will «fix» by adding a button the renderer
-cannot draw.
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -24,146 +31,213 @@ for _p in (_REPO, _REPO / "src", _REPO / "tools", _REPO / "tools" / "lib"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import lua_actions                                     # noqa: E402
 from panel import i18n as i18nmod                      # noqa: E402
 from panel.tabs.checklist import model as modelmod     # noqa: E402
 
-DAY = modelmod.DAY_MS
-HOUR = modelmod.HOUR_MS
+SCENARIO = _REPO / "src" / "lastwar_bot" / "actions" / "read_daily_checklist.md"
+
+#: A reading with everything answered — the shape the live game sends back.
+FULL = ("base_ready=4 trucks_ready=0 donate_left=17 help_waiting=0 recruit_pending=2 "
+        "gifts_pending=0 skills_ready=1 wounded=0 healed_ready=0 queues_help=3 "
+        "decorations=0 steal_left=2 steal_cap=5 ghost_open=1 ghost_left=5 ghost_cap=5")
 
 
 # ---------------------------------------------------------------------------
-# the day
+# the reading
 # ---------------------------------------------------------------------------
-def test_the_day_turns_over_at_the_hour_the_operator_set():
-    """Midnight UTC by default, and wherever the box says otherwise."""
-    midnight = 20_000 * DAY                      # any whole day, exactly at 00:00
-    assert modelmod.day_of(midnight) == 20_000
-    assert modelmod.day_of(midnight - 1) == 19_999
-    assert modelmod.day_of(midnight + DAY - 1) == 20_000
-
-    # With the reset at 02:00 UTC, 01:59 still belongs to the day before.
-    assert modelmod.day_of(midnight + 1 * HOUR, reset_hour=2) == 19_999
-    assert modelmod.day_of(midnight + 2 * HOUR, reset_hour=2) == 20_000
-    assert modelmod.next_reset_ms(midnight + 3 * HOUR, reset_hour=2) == \
-        midnight + DAY + 2 * HOUR
-
-    # An hour that is not one is 0 rather than an exception: it is a typed-in box.
-    for junk in ("", "x", None, -1, 24, 99):
-        assert modelmod.hour_of(junk) == 0, junk
+def test_the_line_the_game_sends_back_is_read_as_numbers():
+    reading = modelmod.parse(FULL, at=100.0)
+    assert reading, "a full reading did not come out as one"
+    assert reading.get("base_ready") == 4
+    assert reading.get("steal_cap") == 5
+    assert reading.at == 100.0
 
 
-def test_a_tick_is_stamped_with_a_day_so_yesterday_is_not_today():
-    """The whole reason a tick is a day and not a boolean.
+def test_a_field_the_game_would_not_answer_is_not_a_zero():
+    """`-` means «nobody knows» and zero means «nothing left». Never the same thing."""
+    reading = modelmod.parse("base_ready=- wounded=0")
+    assert reading.get("base_ready") is None
+    assert reading.get("wounded") == 0
+    assert modelmod.state_of(modelmod.BY_KEY["base_resources"], reading).state == \
+        modelmod.UNKNOWN
+    assert modelmod.state_of(modelmod.BY_KEY["hospital_heal"], reading).state == \
+        modelmod.DONE
 
-    Nothing runs at the reset — the panel may have been closed all night — so «done»
-    has to be a comparison the next morning makes for itself.
+
+def test_a_reading_that_never_arrived_leaves_every_line_unknown():
+    """The one that matters: a dark client must not read as a finished day."""
+    for reading in (None, modelmod.Reading(error="no daemon"), modelmod.parse(None),
+                    modelmod.parse("")):
+        states = modelmod.states(reading)
+        assert states, "the catalogue came back empty"
+        assert all(s.state == modelmod.UNKNOWN for s in states), \
+            [s for s in states if s.state != modelmod.UNKNOWN]
+        assert modelmod.progress(states) == (0, 0), "unknown lines were counted"
+
+
+def test_junk_in_the_middle_costs_one_field_and_not_the_line():
+    reading = modelmod.parse("base_ready=4 nonsense wounded=x healed_ready=1")
+    assert reading.get("base_ready") == 4
+    assert reading.get("wounded") is None
+    assert reading.get("healed_ready") == 1
+
+
+# ---------------------------------------------------------------------------
+# the states
+# ---------------------------------------------------------------------------
+def test_a_queue_is_done_when_there_is_nothing_standing_in_it():
+    reading = modelmod.parse(FULL)
+    base = modelmod.state_of(modelmod.BY_KEY["base_resources"], reading)
+    assert base.state == modelmod.TODO and base.left == 4
+    trucks = modelmod.state_of(modelmod.BY_KEY["trucks"], reading)
+    assert trucks.state == modelmod.DONE and trucks.left == 0
+
+
+def test_a_quota_is_done_when_the_days_allowance_is_spent():
+    spent = modelmod.parse("steal_left=0 steal_cap=5")
+    state = modelmod.state_of(modelmod.BY_KEY["secret_steals"], spent)
+    assert state.state == modelmod.DONE
+    assert (state.used, state.cap) == (5, 5)
+
+    part = modelmod.state_of(modelmod.BY_KEY["secret_steals"],
+                             modelmod.parse("steal_left=2 steal_cap=5"))
+    assert part.state == modelmod.TODO
+    assert (part.used, part.cap) == (3, 5)
+
+    # A cap the game would not give leaves «used» unsaid rather than invented.
+    capless = modelmod.state_of(modelmod.BY_KEY["secret_steals"],
+                                modelmod.parse("steal_left=2 steal_cap=-"))
+    assert capless.state == modelmod.TODO and capless.used is None
+
+
+def test_an_event_that_is_not_on_today_is_not_an_errand_anybody_failed():
+    """Ghost Ops runs one day a week; «not done» on the other six is a lie."""
+    shut = modelmod.state_of(modelmod.BY_KEY["ghost_steals"],
+                             modelmod.parse("ghost_open=0 ghost_left=5 ghost_cap=5"))
+    assert shut.state == modelmod.CLOSED
+    open_ = modelmod.state_of(modelmod.BY_KEY["ghost_steals"],
+                              modelmod.parse("ghost_open=1 ghost_left=5 ghost_cap=5"))
+    assert open_.state == modelmod.TODO
+    # …and a gate the client would not answer is unknown, never «closed».
+    assert modelmod.state_of(modelmod.BY_KEY["ghost_steals"],
+                             modelmod.parse("ghost_open=- ghost_left=5")).state == \
+        modelmod.UNKNOWN
+
+
+def test_progress_counts_only_the_lines_that_were_actually_answered():
+    reading = modelmod.parse("base_ready=0 wounded=2 ghost_open=0 donate_left=-")
+    done, total = modelmod.progress(modelmod.states(reading))
+    assert (done, total) == (1, 2), "an unknown or a closed line was counted"
+
+
+def test_the_countdown_is_to_the_games_next_day():
+    day = modelmod.DAY_MS
+    assert modelmod.seconds_to_reset(20_000 * day) == 24 * 3600
+    assert modelmod.seconds_to_reset(20_000 * day + 23 * modelmod.HOUR_MS) == 3600
+    assert modelmod.hhmm(5 * 3600 + 7 * 60) == "5:07"
+    assert modelmod.ago(75) == "1:15"
+
+
+# ---------------------------------------------------------------------------
+# the reading and the presses cannot drift apart
+# ---------------------------------------------------------------------------
+def test_every_count_on_the_board_is_the_one_the_press_is_gated_on():
+    """The checklist copies `lua_actions`' expressions rather than inventing its own.
+
+    If this fails, somebody changed a count in one place: re-generate the scenario, do
+    not «fix» the test. A board that says four buildings are ready where the press finds
+    none is the one bug this whole design is meant to make impossible.
     """
-    lst = modelmod.Checklist([modelmod.Item("collect the base", uid="a")])
-    lst.set_done("a", True, day=100)
-    assert lst.done_count(100) == 1
-    assert lst.done_count(101) == 0, "yesterday's tick is showing as today's"
-    assert not lst.get("a").is_done(101)
+    text = SCENARIO.read_text(encoding="utf-8")
+    for name in ("base_collect_ready_count", "trucks_ready_count",
+                 "alliance_donate_rest", "alliance_help_waiting",
+                 "visitor_recruit_pending", "visitor_gift_pending",
+                 "occupation_skills_ready_count", "hospital_wounded_count",
+                 "hospital_healed_ready", "queues_needing_help",
+                 "decoration_upgrade_ready_count", "secret_task_steals_left",
+                 "secret_task_steal_cap", "ghost_recon_is_open",
+                 "ghost_recon_steals_left", "ghost_recon_steal_cap"):
+        expr = getattr(lua_actions, name)()
+        assert expr in text, (
+            f"{name}() is no longer what read_daily_checklist.md reads — "
+            f"the board and the press would disagree")
 
 
-def test_the_reset_only_clears_todays_ticks():
-    """An older stamp already reads as undone, and is the only record of when."""
-    lst = modelmod.Checklist([modelmod.Item("a", uid="1"), modelmod.Item("b", uid="2")])
-    lst.set_done("1", True, day=100)
-    lst.set_done("2", True, day=99)
-    assert lst.clear(day=100) == 1
-    assert lst.get("1").done_day is None
-    assert lst.get("2").done_day == 99, "an old stamp was thrown away"
+def test_the_scenario_answers_every_field_the_catalogue_asks_about():
+    text = SCENARIO.read_text(encoding="utf-8")
+    for errand in modelmod.ERRANDS:
+        for field in (errand.field, errand.cap, errand.gate):
+            if field:
+                assert ("put('%s'" % field) in text, \
+                    f"«{errand.key}» reads {field}, which the scenario does not answer"
+    assert "INTO %s" % modelmod.VARIABLE in text
+    assert (_REPO / "src" / "lastwar_bot" / "actions"
+            / (modelmod.ACTION + ".md")).exists()
 
 
-def test_toggle_answers_with_what_the_box_now_is():
-    lst = modelmod.Checklist([modelmod.Item("a", uid="1")])
-    assert lst.toggle("1", day=7) is True
-    assert lst.toggle("1", day=7) is False
-    assert lst.toggle("nobody", day=7) is None
+def test_the_scenario_is_a_read_and_presses_nothing():
+    """It runs on a poll and on a push, so it must never change anything."""
+    body = [line for line in SCENARIO.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    assert len(body) == 1 and body[0].startswith("READ_LUA "), body
+    for forbidden in ("TAP ", "SendMessage", "SendCollect", "OnClick", "SendLuaMessage"):
+        assert forbidden not in body[0], f"the reading contains «{forbidden}»"
 
 
-def test_the_countdown_is_the_time_left_of_the_day():
-    lst = modelmod.Checklist(reset_hour=0)
-    midnight = 20_000 * DAY
-    assert lst.seconds_to_reset(midnight) == 24 * 3600
-    assert lst.seconds_to_reset(midnight + 23 * HOUR) == 3600
-    assert modelmod.hhmm(5 * 3600 + 7 * 60 + 30) == "5:07"
-    assert modelmod.hhmm(-1) == "0:00"
+def test_every_errand_that_offers_a_press_names_a_scenario_that_exists():
+    actions = _REPO / "src" / "lastwar_bot" / "actions"
+    for errand in modelmod.ERRANDS:
+        if not errand.scenario:
+            continue
+        assert (actions / (errand.scenario + ".md")).exists(), \
+            f"«{errand.key}» offers {errand.scenario}, which is not a scenario"
 
 
-# ---------------------------------------------------------------------------
-# the list
-# ---------------------------------------------------------------------------
-def test_the_order_is_the_order_the_routine_is_played_in():
-    lst = modelmod.Checklist([modelmod.Item("a", uid="1"), modelmod.Item("b", uid="2"),
-                              modelmod.Item("c", uid="3")])
-    assert lst.move("3", -1) is True
-    assert [i.uid for i in lst.items] == ["1", "3", "2"]
-    assert lst.move("1", -1) is False, "a move off the top was made anyway"
-    assert lst.move("2", 1) is False
-    assert [i.uid for i in lst.items] == ["1", "3", "2"]
-
-
-def test_a_nameless_errand_is_refused():
-    lst = modelmod.Checklist()
-    assert lst.add("   ") is None
-    assert lst.add("") is None
-    assert not lst.items
-    assert lst.add(" heal the wounded ").title == "heal the wounded"
-
-
-def test_the_profile_survives_a_round_trip_and_a_hand_edit():
-    lst = modelmod.Checklist(reset_hour=2)
-    one = lst.add("collect the base", "collect_base_resources")
-    lst.add("say hello in chat")
-    lst.set_done(one.uid, True, day=42)
-
-    back = modelmod.Checklist.from_config(json.loads(json.dumps(lst.as_config())))
-    assert back.reset_hour == 2
-    assert [i.title for i in back.items] == ["collect the base", "say hello in chat"]
-    assert back.get(one.uid).scenario == "collect_base_resources"
-    assert back.get(one.uid).done_day == 42
-
-    # A profile is a file a person may edit. Nothing in it may raise.
-    broken = modelmod.Checklist.from_config(
-        {"items": ["not a dict", {"title": ""}, {}, {"title": "fine", "done_day": "x"}],
-         "reset_hour": "not an hour"})
-    assert [i.title for i in broken.items] == ["fine"]
-    assert broken.items[0].done_day is None
-    assert broken.reset_hour == 0
-    assert modelmod.Checklist.from_config(None).items == []
-
-    # …including the same uid twice, which would make one of the two rows dead.
-    twice = modelmod.Checklist.from_config(
-        {"items": [{"title": "a", "uid": "same"}, {"title": "b", "uid": "same"}]})
-    assert len({i.uid for i in twice.items}) == 2
+def test_every_word_the_board_can_say_is_in_every_locale():
+    """The item titles are built from the catalogue, so no scanner would see them."""
+    shipped = {p.stem: json.loads(p.read_text(encoding="utf-8"))
+               for p in Path(i18nmod.LOCALES_DIR).glob("*.json")}
+    wanted = [e.title_key for e in modelmod.ERRANDS]
+    wanted += ["checklist.state." + s for s in
+               (modelmod.DONE, modelmod.TODO, modelmod.UNKNOWN, modelmod.CLOSED)]
+    for lang, table in sorted(shipped.items()):
+        missing = [k for k in wanted if k not in table]
+        assert not missing, f"{lang}.json does not translate {missing}"
 
 
 # ---------------------------------------------------------------------------
-# the phone
+# the tab, and the phone
 # ---------------------------------------------------------------------------
-class _Settings:
+class _Tick:
     def __init__(self) -> None:
-        self.saves = 0
+        self.armed: dict = {}
 
-    def changed(self) -> None:
-        self.saves += 1
+    def arm(self, name, ms, fn) -> None:
+        self.armed[name] = (ms, fn)
+
+    def disarm(self, name) -> None:
+        self.armed.pop(name, None)
 
 
 class _Runtime:
-    """The three things a press reaches for. No Tk, no game, no claim."""
+    """What a press reaches for. No Tk, no game, no claim."""
 
-    def __init__(self) -> None:
-        self.settings = _Settings()
+    def __init__(self, plays=True) -> None:
+        self.tick = _Tick()
         self.said: list = []
         self.played: list = []
+        self._plays = plays
+
+    def t(self, key, **fmt) -> str:
+        return key
 
     def say(self, tag, key, **fmt) -> None:
-        self.said.append((tag, key))
+        self.said.append(key)
 
     def play_async(self, name, args=None, **kw) -> bool:
         self.played.append(name)
-        return True
+        return self._plays
 
 
 class _Skip(Exception):
@@ -171,7 +245,6 @@ class _Skip(Exception):
 
 
 def _tab_class():
-    """`ChecklistTab`, or a skip — the WSL python ships no tkinter to import it with."""
     try:
         from panel.tabs.checklist.tab import ChecklistTab
     except ImportError as exc:              # no tkinter: the model tests still ran
@@ -179,121 +252,114 @@ def _tab_class():
     return ChecklistTab
 
 
-def _tab(items=()):
-    """A tab with its list and nothing else — the path `web_view`/`web_press` take."""
-    ChecklistTab = _tab_class()
-
-    tab = ChecklistTab.__new__(ChecklistTab)
-    tab.rt = _Runtime()
-    tab._list = modelmod.Checklist(list(items))
+def _tab(raw=FULL, plays=True):
+    """A tab holding one reading and nothing else — the path both screens take."""
+    cls = _tab_class()
+    tab = cls.__new__(cls)
+    tab.rt = _Runtime(plays)
+    tab._reading = modelmod.parse(raw, at=1.0) if raw is not None else None
+    tab._busy = False
     tab._body = None
     tab._status = None
-    tab._hour_var = None
-    tab._rows = {}
-    tab._drawn_day = None
+    tab._refresh_button = None
+    tab._wire_off = []
     tab._running = set()
     return tab
 
 
 def test_the_screen_is_keys_and_data_and_every_button_is_answered():
-    """The same two rules `tests/test_panel_web_screens.py` holds every screen to —
-    which cannot check this tab, because its sampler only knows the `DataTab` six."""
-    import re
-
-    ChecklistTab = _tab_class()
-
     keyish = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)+$")
     english = json.loads(
         (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
-
-    tab = _tab([modelmod.Item("collect the base", "collect_base_resources", uid="1"),
-                modelmod.Item("send the trucks", uid="2")])
+    tab = _tab()
     view = tab.web_view()
     card = view["cards"][0]
-    assert [i["text"] for i in card["items"]] == ["collect the base", "send the trucks"]
 
-    keys = [card["title"], card["empty"]]
-    keys += [r["label"] for r in card["rows"]]
+    keys = [card["title"], card["empty"]] + [r["label"] for r in card["rows"]]
     for item in card["items"]:
-        keys.append(item["pill"])
-        keys += [a["label"] for a in item["actions"]]
+        keys += [item["label"], item["pill"]]
+        keys += [a["label"] for a in item.get("actions") or ()]
     keys += [a["label"] for a in view["actions"]]
     for key in keys:
         assert keyish.match(key), f"«{key}» is a sentence, not a locale key"
         assert key in english, f"«{key}» is in no locale"
 
-    # And nothing the renderer cannot draw.
     assert set(card) <= {"title", "head", "rows", "items", "empty", "search"}
     for item in card["items"]:
         assert set(item) <= {"text", "label", "detail", "note", "pill", "actions",
                              "facts", "until"}
+        assert "text" not in item, "a title of the panel's own must be a key, not data"
 
-    offered = [a["id"] for a in view["actions"]]
+    offered = {a["id"] for a in view["actions"]}
     for item in card["items"]:
-        offered += [a["id"] for a in item["actions"]]
-    for action in set(offered):
-        answer = ChecklistTab.web_press(_tab([modelmod.Item("x", "some_scenario",
-                                                            uid="1")]),
-                                        action, {"uid": "1"})
+        offered |= {a["id"] for a in item.get("actions") or ()}
+    for action in offered:
+        answer = _tab().web_press(action, {"key": "base_resources"})
         assert answer.get("error") != "unknown", f"«{action}» is a dead button"
     assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
 
 
-def test_a_tick_from_the_phone_is_the_same_tick_as_in_the_window():
-    tab = _tab([modelmod.Item("collect the base", uid="1")])
-    assert tab.web_press("toggle", {"uid": "1"}) == {"ok": True}
-    assert tab._list.done_count() == 1
-    assert tab.rt.settings.saves == 1, "the profile was never told"
-    tab.web_press("toggle", {"uid": "1"})
-    assert tab._list.done_count() == 0
-    assert tab.web_press("toggle", {"uid": "nobody"}) == {"error": "unknown"}
+def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
+    """There is no marking anywhere — not in the window, and not from a bus."""
+    tab = _tab("base_ready=0 wounded=2 ghost_open=0 donate_left=-")
+    pills = {i["label"]: i["pill"] for i in tab.web_view()["cards"][0]["items"]}
+    assert pills["checklist.item.base_resources"] == "checklist.state.done"
+    assert pills["checklist.item.hospital_heal"] == "checklist.state.todo"
+    assert pills["checklist.item.ghost_steals"] == "checklist.state.closed"
+    assert pills["checklist.item.alliance_donate"] == "checklist.state.unknown"
 
-    tab.web_press("toggle", {"uid": "1"})
-    assert tab.web_press("reset", {}) == {"ok": True}
-    assert tab._list.done_count() == 0
+    before = [s.state for s in tab.states()]
+    for marking in ("toggle", "tick", "done", "mark", "reset", "add", "delete"):
+        assert tab.web_press(marking, {"key": "base_resources"}) == {"error": "unknown"}
+    assert [s.state for s in tab.states()] == before
 
 
-def test_a_row_with_a_scenario_plays_that_scenario_and_nothing_else():
-    """The panel plays scenarios and writes none (`CLAUDE.md`): the name goes to the
-    runtime as it was typed, and a row with no scenario has nothing to press."""
-    tab = _tab([modelmod.Item("collect the base", "collect_base_resources", uid="1"),
-                modelmod.Item("by hand", uid="2")])
-    assert tab.web_press("run", {"uid": "1"}) == {"ok": True}
-    assert tab.rt.played == ["collect_base_resources"]
-    assert tab.web_press("run", {"uid": "2"}) == {"ok": False}
-    assert tab.rt.played == ["collect_base_resources"], "an empty scenario was played"
+def test_running_an_errand_plays_its_scenario_and_marks_nothing():
+    tab = _tab("wounded=2")
+    before = [s.state for s in tab.states()]
+    assert tab.web_press("run", {"key": "hospital_heal"}) == {"ok": True}
+    assert tab.rt.played == ["heal_units"]
+    assert [s.state for s in tab.states()] == before, \
+        "a press changed the board — the board is the GAME's answer"
 
-    # A scenario that failed leaves the box alone; one that worked ticks it.
+    # An errand with no scenario of its own has nothing to press.
+    assert tab.web_press("run", {"key": "trucks"}) == {"ok": False}
+    assert tab.web_press("run", {"key": "nobody"}) == {"ok": False}
+    assert tab.rt.played == ["heal_units"]
+
+
+def test_a_closed_event_offers_no_press_at_all():
+    tab = _tab("ghost_open=0 ghost_left=5 ghost_cap=5 wounded=1")
+    for item in tab.web_view()["cards"][0]["items"]:
+        if item["pill"] == "checklist.state.closed":
+            assert not item.get("actions"), "a dark event offered a button"
+
+
+def test_the_board_refreshes_itself_and_says_so_when_it_cannot():
+    tab = _tab()
+    assert tab.refresh() is True
+    assert tab.rt.played == [modelmod.ACTION]
+    # …and a game that is busy leaves the previous reading alone rather than clearing it.
+    busy = _tab(plays=False)
+    assert busy.refresh() is False
+    assert busy._reading.get("base_ready") == 4
+    assert busy._busy is False, "a refused read left the tab thinking it is reading"
+
+
+def test_a_read_that_failed_is_recorded_as_a_failure_not_as_an_empty_day():
     class _Outcome:
-        def __init__(self, ok):
-            self.ok = ok
+        def __init__(self, ok, raw=None, reason=""):
+            self.ok, self.reason = ok, reason
+            self.ctx = type("C", (), {"vars": {modelmod.VARIABLE: raw}})()
 
-    tab._ran("1", _Outcome(False))
-    assert tab._list.done_count() == 0
-    tab._ran("1", _Outcome(True))
-    assert tab._list.done_count() == 1
+    tab = _tab()
+    tab._read_back(_Outcome(False, reason="no daemon"))
+    assert tab._reading.error == "no daemon"
+    assert all(s.state == modelmod.UNKNOWN for s in tab.states())
 
-
-def test_the_phone_may_tick_run_and_reset_and_may_not_edit_the_list():
-    """THE AGREED DIVERGENCE, pinned so it cannot be quietly widened either way.
-
-    The web renderer has no text field at all (`panel/web/static/app.js`), so adding,
-    renaming, re-ordering and deleting stay in the window. That was agreed with the
-    operator and written into `CLAUDE.md` and `docs/panel-tabs.md`; if a later change
-    gives the phone an editing button, this test is where the decision gets re-taken.
-    """
-    tab = _tab([modelmod.Item("collect the base", "collect_base_resources", uid="1")])
-    view = tab.web_view()
-    offered = {a["id"] for a in view["actions"]}
-    for item in view["cards"][0]["items"]:
-        offered |= {a["id"] for a in item["actions"]}
-    assert offered == {"toggle", "run", "reset"}, offered
-
-    before = [i.title for i in tab._list.items]
-    for editing in ("add", "edit", "delete", "remove", "move", "rename"):
-        assert tab.web_press(editing, {"uid": "1", "title": "something"}) == \
-            {"error": "unknown"}, f"the phone can «{editing}»"
-    assert [i.title for i in tab._list.items] == before
+    tab._read_back(_Outcome(True, raw=FULL))
+    assert tab._reading.get("steal_left") == 2
+    assert not tab._reading.error
 
 
 def test_the_tab_is_registered_and_says_who_it_is():
@@ -305,6 +371,7 @@ def test_the_tab_is_registered_and_says_who_it_is():
     assert cls.TITLE_KEY == spec.title_key == "tab.checklist"
     assert cls.WEB_SCREEN is True
     assert cls.AGGREGATES_TABS == spec.aggregates is False
+    assert not cls.EAGER, "a board nobody has opened must not read the game at boot"
 
 
 def _main() -> int:

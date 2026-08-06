@@ -1,44 +1,125 @@
-"""The checklist itself — the list, the ticks, and the day a tick belongs to. **No Tk.**
+"""What the day still owes, read off the game — the catalogue and the parser. **No Tk.**
 
-Split out from the tab for the reason every model here is: a day boundary and a tick are
-worth testing without a window, and `tests/test_panel_checklist.py` runs under the WSL
-python that has no display.
+**Nothing here is ticked by a person.** An errand's state is the game's own answer to
+«is there any of this left», and the panel only draws it. A hand-ticked box records what
+somebody REMEMBERS doing, which is precisely the thing a checklist exists so that nobody
+has to; and the first time the two disagree — a collect that was pressed and refused, a
+second client that spent the quota — the box is the one that is wrong, with nothing on
+screen to say so.
 
-**A tick is stamped with a DAY, never with «done».** An item remembers the game-day it
-was last ticked on, and «done» is the comparison «that day is today». Nothing has to run
-at midnight for the list to clear itself: a panel started the next morning, or left open
-over the boundary, computes the same answer from the same stamp. A boolean would need
-somebody awake at the reset to clear it, and a panel that was closed at the time would
-show yesterday's ticks as today's — which is the one way a checklist can actively lie.
+So there are three states and they are not negotiable:
 
-The day is the GAME's day, not this computer's (`tools/lib/game_clock.py`): the machine
-this was written on runs eleven seconds behind the server, and a checklist judged by the
-PC clock would tick over at a different moment from the game whose reset it is about.
-The offset is only ever a correction of drift — nobody here reads the game to build a
-list — so an unsynced process simply uses the local clock and is no worse off than
-before.
+* **done** — the game says there is nothing outstanding (the queue is empty, the daily
+  quota is spent);
+* **todo** — it says there is, and how much;
+* **unknown** — it would not answer. A manager not loaded yet, a client at the login
+  screen, a feature this account has not unlocked. **Never drawn as done**, and never as
+  zero: «nobody knows» and «nothing left» are different answers and the whole value of a
+  read is that it can tell them apart.
 
-`reset_hour` is the hour of the day (UTC) the count rolls over at. Zero is the ordinary
-answer; it is a knob because a server's reset is not everybody's midnight, and an
-operator who knows theirs is at 02:00 UTC should not have to keep the offset in their
-head while reading the list.
+A fourth, `closed`, is for an errand that is not on today at all — Ghost Ops runs one day
+a week, and on the other six «not done» would be a lie about a thing nobody could do.
+
+The reading itself is `actions/read_daily_checklist.md`, one round trip, one line of
+`key=value` pairs. This module holds the catalogue that says what each field MEANS and
+the parser that turns the line into states; the tab holds the words and the widgets.
+
+**Two shapes of errand, and the difference matters:**
+
+* a **queue** — «how much work is standing there»: buildings ready to collect, mates
+  waiting for help, wounded in the hospital. Zero is done, and it can go back up an hour
+  later. This is a state, not a diary: it says «nothing to do now», never «you did it».
+* a **quota** — «how much of today's allowance is left»: five robberies, thirty
+  donations. Zero is done and STAYS done until the game's day rolls over, which is the
+  one case where «done today» is literally what the game means.
+
+The day is the game's (`tools/lib/game_clock.py`), and it is used for exactly one thing:
+saying when the quotas come back. Nothing is stored between runs — there is no tick to
+keep, because the answer is re-read.
 """
 from __future__ import annotations
 
-import uuid
-
-#: One day, and one hour, in the milliseconds every clock here counts in.
+#: One day, and one hour, in the milliseconds the game counts in.
 DAY_MS = 24 * 60 * 60 * 1000
 HOUR_MS = 60 * 60 * 1000
+
+#: The scenario that answers all of this in one round trip, and the variable it lands in.
+ACTION = "read_daily_checklist"
+VARIABLE = "daily"
+
+# -- the four states an errand can be in ------------------------------------
+DONE = "done"
+TODO = "todo"
+UNKNOWN = "unknown"
+CLOSED = "closed"
+
+# -- the two shapes ---------------------------------------------------------
+QUEUE = "queue"
+QUOTA = "quota"
+
+
+class Errand:
+    """One line of the checklist: what it is, which field answers it, what plays it.
+
+    ``field`` names a key of the reading; ``cap`` the field holding the day's allowance
+    for a quota. ``gate`` is a field that must be 1 for the errand to be on at all
+    (Ghost Ops and its one day a week). ``scenario`` is an `actions/*.md` the panel may
+    play for it, or ``""`` — and an errand with no scenario is a perfectly good line: the
+    reading is worth having whether or not the bot can do anything about it yet.
+    """
+
+    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate", "scenario")
+
+    def __init__(self, key: str, field: str, kind: str = QUEUE, cap: str = "",
+                 gate: str = "", scenario: str = "") -> None:
+        self.key = key
+        self.title_key = "checklist.item." + key
+        self.field = field
+        self.kind = kind
+        self.cap = cap
+        self.gate = gate
+        self.scenario = scenario
+
+
+#: The errands, in the order a day is actually played: the base first, then the
+#: alliance, then what the person themselves has banked, then the two robberies.
+#:
+#: EVERY ONE OF THESE IS READ, and that is the whole entry condition. An errand whose
+#: state the game will not tell us is NOT on this list — a row that could only ever say
+#: «unknown» is a row that teaches people to ignore the column. The ones that are missing
+#: for that reason are written up in the task and in the tab's docstring, so the list
+#: grows the day a reading for one of them exists rather than the day somebody feels like
+#: adding a box.
+ERRANDS: tuple = (
+    Errand("base_resources", "base_ready", QUEUE,
+           scenario="collect_base_resources"),
+    Errand("trucks", "trucks_ready", QUEUE),
+    Errand("hospital_collect", "healed_ready", QUEUE, scenario="heal_units"),
+    Errand("hospital_heal", "wounded", QUEUE, scenario="heal_units"),
+    Errand("queues_help", "queues_help", QUEUE),
+    Errand("alliance_help", "help_waiting", QUEUE, scenario="help_ally"),
+    Errand("alliance_donate", "donate_left", QUOTA,
+           scenario="donate_alliance_tech"),
+    Errand("visitors_recruit", "recruit_pending", QUEUE,
+           scenario="recruit_survivors"),
+    Errand("visitors_gifts", "gifts_pending", QUEUE,
+           scenario="collect_visitor_gifts"),
+    Errand("skills", "skills_ready", QUEUE, scenario="occupation_skills"),
+    Errand("decorations", "decorations", QUEUE, scenario="upgrade_decorations"),
+    Errand("secret_steals", "steal_left", QUOTA, cap="steal_cap"),
+    Errand("ghost_steals", "ghost_left", QUOTA, cap="ghost_cap", gate="ghost_open"),
+)
+
+BY_KEY = {errand.key: errand for errand in ERRANDS}
 
 
 def now_ms() -> int:
     """"Now" on the GAME's clock, in milliseconds — falling back to this machine's.
 
-    `game_clock` lives in `tools/lib`, which the panel's runtime puts on the path. It is
-    imported lazily so that this module stays importable on its own (a test, a tool), and
-    an import that fails is not an error: an unsynced offset is zero and the answer is
-    `time.time()`, which is exactly what every process did before the clock existed.
+    `game_clock` lives in `tools/lib`, which the panel's runtime puts on the path; it is
+    imported lazily so this module stays importable on its own. An unsynced offset is
+    zero and the answer is `time.time()`, which is what every process did before the
+    clock existed.
     """
     import time
 
@@ -52,184 +133,142 @@ def now_ms() -> int:
         return int(time.time() * 1000)
 
 
-def day_of(stamp_ms, reset_hour: int = 0) -> int:
-    """Which game-day `stamp_ms` falls in, counting days from the epoch."""
-    return int((int(stamp_ms) - hour_of(reset_hour) * HOUR_MS) // DAY_MS)
+def seconds_to_reset(stamp_ms=None) -> int:
+    """How long until the game's day turns over and the quotas come back."""
+    stamp = now_ms() if stamp_ms is None else int(stamp_ms)
+    return max(0, ((stamp // DAY_MS + 1) * DAY_MS - stamp) // 1000)
 
 
-def next_reset_ms(stamp_ms, reset_hour: int = 0) -> int:
-    """When the day `stamp_ms` is in ends — the moment every tick goes out."""
-    return (day_of(stamp_ms, reset_hour) + 1) * DAY_MS + hour_of(reset_hour) * HOUR_MS
+class Reading:
+    """One answer from `read_daily_checklist.md`, parsed.
+
+    ``values`` maps a field to a whole number, or to ``None`` for a field the game
+    refused — the reading's own `-`. ``error`` is set when the run itself failed, and
+    then EVERY errand reads as unknown rather than as done: a scenario that did not run
+    has not said that anything is finished.
+    """
+
+    __slots__ = ("values", "at", "error")
+
+    def __init__(self, values=None, at: float = 0.0, error: str = "") -> None:
+        self.values = dict(values or {})
+        #: The panel's own clock when this was read — what «прочитано N назад» counts.
+        self.at = at
+        self.error = error
+
+    def __bool__(self) -> bool:
+        return not self.error and bool(self.values)
+
+    def get(self, field: str):
+        """The number, or ``None`` for «the game would not say»."""
+        return self.values.get(field) if field else None
+
+    def __repr__(self) -> str:
+        return f"<Reading {len(self.values)} fields error={self.error!r}>"
 
 
-def hour_of(value) -> int:
-    """An hour of the day, whatever was typed into the box. Out of range is 0."""
-    try:
-        hour = int(value)
-    except (TypeError, ValueError):
-        return 0
-    return hour if 0 <= hour <= 23 else 0
+def parse(raw, at: float = 0.0) -> "Reading":
+    """Turn the scenario's one line into a :class:`Reading`.
 
-
-class Item:
-    """One errand of the day: what it is, what plays it, and when it was last done."""
-
-    __slots__ = ("uid", "title", "scenario", "done_day")
-
-    def __init__(self, title: str, scenario: str = "", uid: str = "",
-                 done_day: "int | None" = None) -> None:
-        self.uid = uid or uuid.uuid4().hex[:8]
-        self.title = title
-        #: The name of an `actions/*.md`, or "" for something the person does by hand.
-        self.scenario = scenario or ""
-        #: The game-day this was last ticked on; `None` for never.
-        self.done_day = done_day
-
-    def is_done(self, day: int) -> bool:
-        return self.done_day is not None and int(self.done_day) == int(day)
-
-    def as_dict(self) -> dict:
-        return {"uid": self.uid, "title": self.title, "scenario": self.scenario,
-                "done_day": self.done_day}
-
-    @classmethod
-    def from_dict(cls, raw) -> "Item | None":
-        """One saved item, or `None` if what was on disk is not one.
-
-        A profile is a file a person may edit, so anything unreadable is dropped rather
-        than raised on: a checklist that refuses to open is worse than one short of a
-        line somebody broke by hand.
-        """
-        if not isinstance(raw, dict):
-            return None
-        title = str(raw.get("title") or "").strip()
-        if not title:
-            return None
-        day = raw.get("done_day")
+    `key=value` pairs separated by spaces, a `-` for anything the game would not answer.
+    Anything unparseable is dropped rather than raised on — this is the client talking,
+    and a client that has just been restarted says all sorts of things (`#1227`).
+    """
+    if raw is None:
+        return Reading(error="no reading", at=at)
+    values = {}
+    for piece in str(raw).split():
+        key, _sep, value = piece.partition("=")
+        if not key or not _sep:
+            continue
+        if value == "-" or value == "":
+            values[key] = None
+            continue
         try:
-            day = int(day) if day is not None else None
-        except (TypeError, ValueError):
-            day = None
-        return cls(title, str(raw.get("scenario") or ""),
-                   uid=str(raw.get("uid") or ""), done_day=day)
+            values[key] = int(float(value))
+        except ValueError:
+            values[key] = None
+    if not values:
+        return Reading(error="unreadable", at=at)
+    return Reading(values, at=at)
 
 
-class Checklist:
-    """The list of a profile's daily errands and the state of today's ticks."""
+class ErrandState:
+    """What one line of the checklist says right now.
 
-    def __init__(self, items=None, reset_hour: int = 0) -> None:
-        self.items: list = list(items or ())
-        self.reset_hour = hour_of(reset_hour)
+    ``left`` is what the reading gave — outstanding work for a queue, allowance left for
+    a quota — and ``used`` / ``cap`` are the quota's two halves when the cap was read.
+    ``None`` everywhere means unknown, and the tab draws that as words rather than as a
+    number nobody can trust.
+    """
 
-    # -- the day ------------------------------------------------------------
-    def today(self, stamp_ms=None) -> int:
-        return day_of(now_ms() if stamp_ms is None else stamp_ms, self.reset_hour)
+    __slots__ = ("errand", "state", "left", "cap")
 
-    def seconds_to_reset(self, stamp_ms=None) -> int:
-        stamp = now_ms() if stamp_ms is None else int(stamp_ms)
-        return max(0, (next_reset_ms(stamp, self.reset_hour) - stamp) // 1000)
+    def __init__(self, errand, state: str, left=None, cap=None) -> None:
+        self.errand = errand
+        self.state = state
+        self.left = left
+        self.cap = cap
 
-    # -- the list -----------------------------------------------------------
-    def get(self, uid: str) -> "Item | None":
-        for item in self.items:
-            if item.uid == uid:
-                return item
-        return None
+    @property
+    def key(self) -> str:
+        return self.errand.key
 
-    def add(self, title: str, scenario: str = "") -> "Item | None":
-        """Append an errand. A blank title is not one, and is refused."""
-        title = (title or "").strip()
-        if not title:
+    @property
+    def used(self):
+        """A quota's spent half, when both numbers are known."""
+        if self.cap is None or self.left is None:
             return None
-        item = Item(title, scenario)
-        self.items.append(item)
-        return item
+        return max(0, self.cap - self.left)
 
-    def remove(self, uid: str) -> bool:
-        item = self.get(uid)
-        if item is None:
-            return False
-        self.items.remove(item)
-        return True
+    @property
+    def done(self) -> bool:
+        return self.state == DONE
 
-    def move(self, uid: str, delta: int) -> bool:
-        """Shift one errand up or down. A move off either end is simply not made.
+    def __repr__(self) -> str:
+        return f"<{self.errand.key} {self.state} left={self.left}>"
 
-        The order is the order the routine is played in, which is why this exists at
-        all — a checklist read top to bottom is a checklist that matches what the person
-        actually does next.
-        """
-        item = self.get(uid)
-        if item is None:
-            return False
-        at = self.items.index(item)
-        to = at + int(delta)
-        if not 0 <= to < len(self.items):
-            return False
-        self.items.pop(at)
-        self.items.insert(to, item)
-        return True
 
-    # -- the ticks ----------------------------------------------------------
-    def set_done(self, uid: str, done: bool, day=None) -> bool:
-        item = self.get(uid)
-        if item is None:
-            return False
-        item.done_day = (self.today() if day is None else int(day)) if done else None
-        return True
+def state_of(errand, reading) -> "ErrandState":
+    """One errand against one reading. Never guesses: no answer is `unknown`."""
+    if reading is None or reading.error:
+        return ErrandState(errand, UNKNOWN)
+    if errand.gate:
+        gate = reading.get(errand.gate)
+        if gate is None:
+            return ErrandState(errand, UNKNOWN)
+        if not gate:
+            return ErrandState(errand, CLOSED)
+    left = reading.get(errand.field)
+    if left is None:
+        return ErrandState(errand, UNKNOWN)
+    cap = reading.get(errand.cap) if errand.cap else None
+    return ErrandState(errand, DONE if left <= 0 else TODO, left=left, cap=cap)
 
-    def toggle(self, uid: str, day=None) -> "bool | None":
-        """Flip one tick and answer with what it now is. `None` — no such item."""
-        item = self.get(uid)
-        if item is None:
-            return None
-        today = self.today() if day is None else int(day)
-        done = not item.is_done(today)
-        item.done_day = today if done else None
-        return done
 
-    def clear(self, day=None) -> int:
-        """Untick everything ticked today and answer with how many were.
+def states(reading) -> list:
+    """Every errand against one reading, in the catalogue's order."""
+    return [state_of(errand, reading) for errand in ERRANDS]
 
-        Only TODAY's ticks: an item stamped with an older day already reads as not done,
-        and forgetting the stamp would lose the only record of when it was last played.
-        """
-        today = self.today() if day is None else int(day)
-        cleared = 0
-        for item in self.items:
-            if item.is_done(today):
-                item.done_day = None
-                cleared += 1
-        return cleared
 
-    def done_count(self, day=None) -> int:
-        today = self.today() if day is None else int(day)
-        return sum(1 for item in self.items if item.is_done(today))
+def progress(states_) -> tuple:
+    """``(done, counted)`` — how much of the day is finished.
 
-    # -- what the profile keeps ---------------------------------------------
-    def as_config(self) -> dict:
-        return {"items": [item.as_dict() for item in self.items],
-                "reset_hour": self.reset_hour}
-
-    @classmethod
-    def from_config(cls, raw) -> "Checklist":
-        raw = raw if isinstance(raw, dict) else {}
-        items = []
-        seen = set()
-        for entry in raw.get("items") or ():
-            item = Item.from_dict(entry)
-            if item is None:
-                continue
-            # A hand-edited profile can hold the same uid twice, and then every press
-            # would act on whichever came first — the other row would look dead.
-            while item.uid in seen:
-                item.uid = uuid.uuid4().hex[:8]
-            seen.add(item.uid)
-            items.append(item)
-        return cls(items, raw.get("reset_hour", 0))
+    An errand nobody could read, and one that is not on today, are left OUT OF BOTH
+    halves rather than counted as undone: «3 из 11» when two are unknown says something
+    false about the two, and a Ghost Ops day that is not today is not work anybody owes.
+    """
+    counted = [s for s in states_ if s.state in (DONE, TODO)]
+    return sum(1 for s in counted if s.done), len(counted)
 
 
 def hhmm(seconds) -> str:
     """`5:07` — a countdown short enough to sit at the end of a line."""
     seconds = max(0, int(seconds))
     return "%d:%02d" % (seconds // 3600, (seconds % 3600) // 60)
+
+
+def ago(seconds) -> str:
+    """`0:42` — how long ago something was read, in the same shape as the countdown."""
+    seconds = max(0, int(seconds))
+    return "%d:%02d" % (seconds // 60, seconds % 60)

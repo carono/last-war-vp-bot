@@ -2891,6 +2891,56 @@ def truck_reward_collect() -> str:
     )
 
 
+def base_collect_ready_count() -> str:
+    """Lua *expression* -> how many base buildings have something banked to collect.
+
+    THE SAME PREDICATE THE PRESS USES, deliberately: `collect_base_resources` sweeps
+    every production line whose `GetBuildingCurrStorage(uuid)` is at least 1, because
+    that is precisely what the server accepts (below 1 it answers 602026 «still in
+    production» and the client pops a toast per building — task #1087). Counting by
+    any other rule would give a checklist that says «4 ready» where the press finds
+    none, and the two would drift apart the first time either changed.
+
+    A read: it collects nothing and sends nothing.
+    """
+    return ("(function() local plm=DataCenter.ProductLineManager local n=0 "
+            "for _,u in pairs(plm:GetAllBuildUuids() or {}) do "
+            "local ok,stor=pcall(function() return plm:GetBuildingCurrStorage(u) end) "
+            "if ok and (stor or 0)>=1 then n=n+1 end end return n end)()")
+
+
+def trucks_ready_count() -> str:
+    """Lua *expression* -> how many supply trucks have arrived and are waiting.
+
+    The bubbles `collect_trucks` taps, counted rather than pressed:
+    `BuildBubbleType.TruckReward` / `TruckReady`. A truck still on the road wears
+    `TruckTravelling` and is not counted — it is not work the person can do yet.
+    """
+    return ("(function() local m=DataCenter.BuildBubbleManager local BT=_G.BuildBubbleType "
+            "if not m or not BT then return 0 end local n=0 "
+            "for _,v in pairs(m.allBuildBubble or {}) do "
+            "local ty=v.param and v.param.buildBubbleType "
+            "if ty==BT.TruckReward or ty==BT.TruckReady then n=n+1 end end "
+            "return n end)()")
+
+
+def secret_task_steal_cap() -> str:
+    """Lua *expression* -> the daily robbery cap (5 on the live account).
+
+    Split out from :func:`secret_task_steals_left` so a reading can show «2 из 5» and
+    not just «3 left»: a quota is only readable as spent-of-allowed, and the allowed
+    half is a server setting that has changed before.
+    """
+    return ("(tonumber(DataCenter.ActDispatchTaskDataManager:"
+            "GetDispatchSetting('steal_count')) or 0)")
+
+
+def ghost_recon_steal_cap() -> str:
+    """Lua *expression* -> the ghost-recon daily robbery cap. See the note above."""
+    return ("(function() local cfg=DataCenter.ActGhostreconManager:GetNowSettingCfg() "
+            "return tonumber(cfg and cfg.stealCount) or 0 end)()")
+
+
 # --- Base decorations: the handbook's upgrade press --------------------------
 # Session `20260730_142543_Повышение_украшений` recorded the press itself; the rest
 # of this was read out of the live Lua VM afterwards, because the first recipe built
