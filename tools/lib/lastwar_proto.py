@@ -493,7 +493,58 @@ SPECIAL_TASK_LEVEL = 99
 # This constant plus `SecretTask.starred` are the only places the rule lives.
 # To re-test, run `live_tshark.py --tasks --families` and compare the tally
 # with the stars actually drawn on that patch of map.
+#
+# ALL OF IT IS THE FALLBACK NOW (#1244, #1267). Where the reading comes from a live
+# CLIENT the answer is in the game's own `lw_dispatch_tasks` row — `level` and
+# `is_special`, reached through `v.cfg:getValue(...)` — and the digits are consulted
+# only when that row is missing (a template the client has not loaded) or when there
+# is no client at all, which is every pcap and every chat-share record. `task_rank`
+# below is where the two meet; nothing else may re-implement the precedence.
 STAR_TASK_FAMILIES = frozenset({"6000"})
+
+
+def starred_by_digits(family, level) -> bool:
+    """The star, worked out from a cfgId alone — the FALLBACK half of :func:`task_rank`.
+
+    Its own function because the callers that have nothing else are real and are not
+    going away: a pcap tile, a chat-share record, a capture's printed finding. None of
+    them is next to a client that could be asked for `is_special`, so all of them get
+    the family rule with the `99` class taken out (:data:`STAR_TASK_FAMILIES`) — and all
+    of them get it from HERE, so «the rule» stays one thing that can be corrected once.
+
+    It is wrong for some templates. That is not a defect of this function; it is why
+    anything reading a live client must go through :func:`task_rank` instead.
+    """
+    return family in STAR_TASK_FAMILIES and level != SPECIAL_TASK_LEVEL
+
+
+def task_rank(cfg_id, cfg_level=None, cfg_special=None) -> "tuple[str, int, bool]":
+    """``(family, level, starred)`` for a secret task — the CONFIG first, digits after.
+
+    THE ONE PLACE THAT RULE LIVES. It was written twice, and the two copies drifted:
+    #1244 taught the panel's read to prefer the config row and left the tool's own read
+    parsing `ACT VT …` lines that never carried one, so on 2026-08-06 the same live tile
+    was «level 7, no star» to the tab and «level 99» to `steal_secret_task --from-vm` —
+    four of fifty-two rows, and the tool sorts its targets by level, so the mislabelled
+    ones went to the head of the queue and spent the day's raids (#1267).
+
+    ``cfg_level`` / ``cfg_special`` are the `level` and `is_special` columns as the
+    client hands them over — 0 or None meaning «the client had no row for this
+    template», which is the only case the arithmetic is still allowed to answer.
+
+    The digits' answer is kept honest about its own limits: `LL` is read straight as the
+    level and the `99` class is excluded from the star, because family alone over-reports
+    (see :data:`STAR_TASK_FAMILIES`). Both of those are wrong for some templates — that
+    is exactly why the config wins whenever there is one.
+
+    Raises `ValueError`/`TypeError` for a cfgId that is not one, like `split_cfg_id`:
+    a caller that cannot rank a record must drop it rather than invent a rank.
+    """
+    family, level, _variant = split_cfg_id(cfg_id)
+    starred = starred_by_digits(family, level)
+    if cfg_level:                     # 0 / None / "" all mean «the config said nothing»
+        level, starred = int(cfg_level), bool(cfg_special)
+    return family, level, starred
 
 
 @dataclass(slots=True)
@@ -510,6 +561,11 @@ class SecretTask:
     alliance_id: str | None
     expires_at: int | None
     completed_at: int | None
+    #: The `is_special` column of the game's own config row, when the reading came from
+    #: a client that had one (`task_rank`). `None` is «nobody asked the game», not
+    #: «the game said no» — the two must not be the same value, or a pcap record would
+    #: silently claim the config had denied the star (#1267).
+    starred_cfg: "bool | None" = None
 
     @property
     def loot_count(self) -> int:
@@ -585,12 +641,17 @@ class SecretTask:
 
     @property
     def starred(self) -> bool:
-        """Drawn with a star on the map — see STAR_TASK_FAMILIES.
+        """Drawn with a star on the map — the game's own answer where there is one.
 
-        The `99` class is excluded: family alone over-reports. See the note by
-        STAR_TASK_FAMILIES for the sighting that settled it.
+        `starred_cfg` is `is_special` off the client's `lw_dispatch_tasks` row and
+        outranks everything below it (`task_rank`, #1244/#1267). Only a reading taken
+        without a client — a pcap, a chat share, a template the client had not loaded —
+        falls through to the digits, where the `99` class is excluded because family
+        alone over-reports (see the note by STAR_TASK_FAMILIES).
         """
-        return self.family in STAR_TASK_FAMILIES and not self.is_special
+        if self.starred_cfg is not None:
+            return self.starred_cfg
+        return starred_by_digits(self.family, self.level)
 
     @property
     def is_special(self) -> bool:
@@ -607,6 +668,9 @@ class SecretTask:
             "completed_at": self.completed_at, "loot_count": self.loot_count,
             "free_slots": self.free_slots, "can_loot": self.can_loot,
             "pending": self.pending, "starred": self.starred,
+            # …and WHERE the star came from, so a checkpoint written off a live client
+            # is not re-derived from the digits when it is read back (#1267).
+            "starred_cfg": self.starred_cfg,
         }
 
     @classmethod
@@ -627,6 +691,7 @@ class SecretTask:
             alliance_id=record.get("alliance_id"),
             expires_at=record.get("expires_at"),
             completed_at=record.get("completed_at"),
+            starred_cfg=record.get("starred_cfg"),
         )
 
 
@@ -856,10 +921,13 @@ class ShareMission:
 
         A shared mission that is *not* starred is unusual: sharing is what a
         player does with a raid worth a march, and those are the starred ones.
-        The rule lives in one place (STAR_TASK_FAMILIES) so a task and the
-        mission that references the same tile always agree on the star.
+        The rule lives in one place (`starred_by_digits`) so a task and the
+        mission that references the same tile always agree on the star. A share
+        push carries no config row — there is no client in it to ask — so this is
+        the fallback by necessity, and it is wrong on the templates whose digits
+        lie (#1267). Whoever robs off a share is robbing on the digits' word.
         """
-        return self.family in STAR_TASK_FAMILIES and not self.is_special
+        return starred_by_digits(self.family, self.level)
 
     def as_dict(self) -> dict:
         return {

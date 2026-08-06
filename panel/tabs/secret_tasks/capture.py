@@ -41,18 +41,25 @@ def _starred(line: str, level: int) -> bool:
     """Whether a finding line is a STARRED tile — the same rule the list itself uses.
 
     Read off the line rather than guessed: the capture prints the tile's `cfgId` family,
-    and `lastwar_proto` owns which families are drawn with a star. The level-99 class is
-    never one however its family reads — it is not a level but the one-per-player task
-    that shares the encoding (`SPECIAL_TASK_LEVEL`), and the list drops it for exactly
-    that reason.
+    and `lastwar_proto.starred_by_digits` owns the rule — the family, with the level-99
+    class taken out, because that is not a level but the one-per-player task sharing the
+    encoding.
+
+    IT IS THE FALLBACK RULE, AND HERE THAT IS THE ONLY ONE THERE IS (#1267). The star a
+    live client answers with is the `is_special` column of its config row, and a capture
+    has no client: it decodes a pcap in a child process of its own. So a tile whose
+    digits lie — `60009903`, which the game calls level 7 and the digits call 99 — is
+    filtered out of the findings log even though the tab's own list keeps it. Nothing
+    here can fix that; what the tab shows comes from its VM feed, which does ask.
     """
     import lastwar_proto as proto
 
-    if level == proto.SPECIAL_TASK_LEVEL:
-        return False
     found = _FAMILY.search(line)
     if found is not None:
-        return found.group(1) in proto.STAR_TASK_FAMILIES
+        return proto.starred_by_digits(found.group(1), level)
+    # No family token: fall back to the glyph the capture itself printed, which it took
+    # from `SecretTask.starred` — the same rule, already applied, `99` already excluded.
+    # Re-testing the level here was a third copy of it (#1267).
     return line.lstrip().startswith("*")
 
 

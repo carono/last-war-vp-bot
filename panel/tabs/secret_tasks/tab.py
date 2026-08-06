@@ -1705,7 +1705,13 @@ class SecretTasksTab(PanelTab):
         _write_json(self.rt.profiles.secret_tasks_state_json(), [
             {"uuid": r["uuid"], "server": r["server"], "x": r["x"], "y": r["y"],
              "level": r["level"], "cfg_id": r["cfg_id"], "loot_count": r["loot_count"],
-             "expires_at": r["expires_at"], "completed_at": r["completed_at"]}
+             "expires_at": r["expires_at"], "completed_at": r["completed_at"],
+             # …AND THE STAR (#1267). It used to be left out and re-derived from the
+             # cfgId on the way back in, which is the third copy of the rule #1244
+             # replaced: a tile the game calls level 7 whose digits read `99` was
+             # accepted by both feeds and then dropped by the restore, so a restart
+             # quietly shortened the list it had just promised to keep.
+             "starred": bool(r.get("starred", True))}
             for r in self._rows.values()])
 
     def _load_persisted(self) -> set:
@@ -1749,7 +1755,12 @@ class SecretTasksTab(PanelTab):
             exp = rec.get("expires_at")
             if exp is not None and exp <= now:
                 continue
-            if not _starred_cfg(rec.get("cfg_id")):
+            # What the LIST decided when the row was live outranks anything re-derived
+            # here (#1267). Only a checkpoint written before the star was kept — an
+            # older panel's — falls through to the digits.
+            starred = (bool(rec["starred"]) if "starred" in rec
+                       else _starred_cfg(rec.get("cfg_id")))
+            if not starred:
                 continue
             key = str(uuid)
             self._rows[key] = {
@@ -2505,14 +2516,16 @@ _fmt_left = grid.fmt_left
 def _starred_cfg(cfg_id) -> bool:
     """Whether a stored `cfgId` is a starred tile — `lastwar_proto`'s rule, not a copy.
 
-    What the working list is FOR: the tiles worth one of the day's five robberies. Both
-    feeds already keep only these, so this is for the one path that does not go through
-    a feed — a row restored from the checkpoint (:meth:`_load_persisted`).
+    ONLY FOR A CHECKPOINT THAT DOES NOT SAY (#1267). Since #1244 the star is the game's
+    `is_special` column and the digits are the fallback; a checkpoint written by this
+    panel carries `starred` and is believed. This answers for the one written before it
+    did — where re-deriving is all there is, and where it was silently dropping tiles
+    the game calls level 7 because their digits read `99`.
     """
     import lastwar_proto as proto
 
     try:
-        family, level, _variant = proto.split_cfg_id(cfg_id)
+        _family, _level, starred = proto.task_rank(cfg_id)
     except (TypeError, ValueError):
         return False                      # unusable id — never a row worth drawing
-    return family in proto.STAR_TASK_FAMILIES and level != proto.SPECIAL_TASK_LEVEL
+    return starred

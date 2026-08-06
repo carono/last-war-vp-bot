@@ -294,7 +294,17 @@ def _read_vt(ev, chunk: str) -> list:
 
 
 def _parse_vt_lines(lines) -> list:
-    """The shared `ACT VT …` -> `SecretTask` parser for both alliance reads above."""
+    """The shared `ACT VT …` -> `SecretTask` parser for both alliance reads above.
+
+    THE LEVEL AND THE STAR ARE THE GAME'S, not this id's digits (#1267). Both reads
+    carry `lvl` / `spec` — the `level` and `is_special` columns of the client's own
+    `lw_dispatch_tasks` row — and `proto.task_rank` is the same precedence the panel's
+    read has applied since #1244. Until this line existed the two disagreed on the same
+    live tile: `60009903` was «level 7, no star» to the tab and «level 99» here, and
+    since targets are sorted by level, the mislabelled ones went first and spent the
+    day's raids. A client too old to answer sends `lvl=0`, and then — and only then —
+    the digits are used, exactly as they are for a pcap.
+    """
     sys.path.insert(0, os.path.join(_HERE, "lib"))
     import lastwar_proto as proto
 
@@ -310,8 +320,9 @@ def _parse_vt_lines(lines) -> list:
                 rec[key] = value
         try:
             cfg_id = int(rec.get("cfg", "0"))
-            family, level, _variant = proto.split_cfg_id(cfg_id)
-        except (ValueError, KeyError):
+            family, level, starred = proto.task_rank(
+                cfg_id, _int(rec.get("lvl")), _int(rec.get("spec")))
+        except (ValueError, KeyError, TypeError):
             continue                       # shaped like a task, but no usable cfgId
         steals = _int(rec.get("steals"))
         done = _int(rec.get("done"))
@@ -322,7 +333,10 @@ def _parse_vt_lines(lines) -> list:
             cfg_id=cfg_id, family=family,
             looted_by=tuple(str(i) for i in range(steals)),
             owner_uid=None, alliance_id=None,
-            expires_at=exp or None, completed_at=done or None))
+            expires_at=exp or None, completed_at=done or None,
+            # Only when the client actually answered: `None` means «not asked», and a
+            # `False` there would tell every later reader the game had denied the star.
+            starred_cfg=starred if _int(rec.get("lvl")) else None))
     return out
 
 

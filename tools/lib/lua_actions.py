@@ -1279,9 +1279,16 @@ def secret_task_raidable_alliance() -> str:
         'if done > 0 and done <= now and (exp == 0 or now < exp) and steals < 3 then '
         'local x, y = 0, 0 '
         'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
+        # The task's OWN config row — `lw_dispatch_tasks`, by column name, exactly
+        # as `dispatch_tasks._DUMP_LUA` reads it. Without these two the parser has
+        # only the cfgId's digits, which call a level-7 tile «level 99» (#1267).
+        'local lvl, spec = 0, 0 '
+        'pcall(function() lvl = tonumber(v.cfg:getValue("level")) or 0 '
+        'spec = tonumber(v.cfg:getValue("is_special")) or 0 end) '
         'CS.UnityEngine.Debug.LogError("ACT VT uuid="..tostring(v.uuid)'
         '.." cfg="..tostring(v.cfgId).." srv="..tostring(v.targetServer)'
         '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
+        '.." lvl="..tostring(lvl).." spec="..tostring(spec)'
         '.." done="..tostring(done).." exp="..tostring(exp)) '
         'end end end)')
 
@@ -1314,9 +1321,16 @@ def secret_task_all_alliance() -> str:
         'if done > 0 and (exp == 0 or now < exp) and steals < 3 then '
         'local x, y = 0, 0 '
         'pcall(function() local tp = SceneUtils.IndexToTilePos(v.pointId) x, y = tp.x, tp.y end) '
+        # The task's OWN config row — `lw_dispatch_tasks`, by column name, exactly
+        # as `dispatch_tasks._DUMP_LUA` reads it. Without these two the parser has
+        # only the cfgId's digits, which call a level-7 tile «level 99» (#1267).
+        'local lvl, spec = 0, 0 '
+        'pcall(function() lvl = tonumber(v.cfg:getValue("level")) or 0 '
+        'spec = tonumber(v.cfg:getValue("is_special")) or 0 end) '
         'CS.UnityEngine.Debug.LogError("ACT VT uuid="..tostring(v.uuid)'
         '.." cfg="..tostring(v.cfgId).." srv="..tostring(v.targetServer)'
         '.." x="..tostring(x).." y="..tostring(y).." steals="..tostring(steals)'
+        '.." lvl="..tostring(lvl).." spec="..tostring(spec)'
         '.." done="..tostring(done).." exp="..tostring(exp)) '
         'end end end)')
 

@@ -109,12 +109,20 @@ def _parse_target(spec):
 
 
 def _decode_cfg(cfg):
-    """`(family, level)` for a cfgId, or `(None, None)` if it does not split."""
-    try:
-        family, level, _variant = proto.split_cfg_id(cfg)
-        return family, level
-    except (ValueError, TypeError):
-        return None, None
+    """`(family, level)` for a GHOST cfgId — the level the game shows, not the digits.
+
+    `split_cfg_id` reads `MM` straight and answers 1/2/3 where the client's own template
+    says 3/4/5; the mapping is `MM + 2` and it lives in `proto.ghost_recon_level`
+    (#1137). Splitting it by hand here made this dump the one place that disagreed with
+    every other ghost reading — the same class of drift that had the secret-task tool
+    calling a level-7 tile «level 99» (#1267).
+
+    Still arithmetic, because a dump reads TILES off the map and a tile carries a cfgId
+    and nothing else. Where the client's list is what is being read, the template's own
+    `level` column is (`lua_actions.ghost_recon_templates_dump`).
+    """
+    family, level = proto.ghost_recon_level(cfg)
+    return family, level
 
 
 def _jsonable(value):

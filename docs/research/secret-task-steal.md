@@ -299,6 +299,56 @@ The fix is the same one #1244 made on the other side: teach
 has not loaded. Filed separately; not folded into #1188, whose panel path is
 unaffected.
 
+### 6a.1 Fixed, and what the damage actually was
+
+Done exactly as prescribed above (#1267): both reads emit `lvl` / `spec` off
+`v.cfg:getValue(...)`, and the precedence now lives in ONE function —
+`lastwar_proto.task_rank(cfg_id, cfg_level, cfg_special)` — which both readers call.
+The two used to spell the same rule out separately, which is the whole reason one of
+them could be corrected and the other not. `SecretTask` carries `starred_cfg`
+alongside it: `None` means «no client was asked», deliberately not `False`, so a pcap
+record cannot look like a tile the game denied the star to.
+
+**The mechanism above is wrong in one place, and the correction matters because it
+changes which command hurts.** `--star-max` does NOT promote the mislabelled tile:
+`starred` excludes the `99` class, so a tile reading level 99 is not in the starred
+set at all and never becomes `top = max(level)`. Driven over the four live shapes,
+the pre-fix behaviour was:
+
+| command | what actually happened |
+|---|---|
+| `--from-vm` (any limit) | targets sort by `-level`, so the mislabelled 99 goes **first** and takes the raid a real level-7 star was meant to get |
+| `--from-vm --level-max 7` | the tile the panel calls level 7 is **dropped** — 99 > 7 |
+| `--from-vm --level-min 8` | it is **picked up** as if it were the best thing on the map |
+| `--from-vm --star-max` | unaffected: not starred by either reading |
+
+So the harm is the sort and the two level gates, not the star rule — and it is the
+same #1099 failure either way: no error, a raid spent in the wrong place.
+
+**Three more places computed a rank from the digits; two of them mattered.**
+
+* `panel/.../tab.py::_load_persisted` re-derived the star from the cfgId on the way
+  back in, while the checkpoint did not store one. A tile both feeds had accepted was
+  therefore dropped on restart — the restore quietly shortening the list #1242 exists
+  to keep. The star is checkpointed now and believed; the digits answer only for a
+  file written before it was.
+* `tools/dev/ghost_recon_tile_dump.py::_decode_cfg` split a GHOST cfgId by hand and
+  printed `MM` as the level, where the ghost mapping is `MM + 2` (#1137) — the one
+  ghost reading that disagreed with every other. It calls `proto.ghost_recon_level`.
+* `panel/.../capture.py::_starred` is the digits BY NECESSITY and stays: a capture
+  decodes a pcap in a child process with no client in it to ask. It goes through
+  `proto.starred_by_digits` now so the fallback rule also has one home, and the
+  consequence is written down rather than left to be rediscovered — **a tile whose
+  digits lie is filtered out of the findings log even though the tab's own list keeps
+  it.** The same holds for `ShareMission.starred`: a share push carries no config row,
+  so `secret_share_autoloot --star-max` is robbing on the digits' word.
+
+`tests/test_secret_task_rank.py` drives one table of records through BOTH readers and
+fails if they part company on the level or the star — checked against the commit
+before the fix, where it reports `cfg 60009903: tool (99, False) vs panel (7, False)`.
+It also fails on any file under `panel/` or `tools/` that reaches for
+`proto.STAR_TASK_FAMILIES` again.
+
 **The five reset at the server midnight, and the client will say when that is.**
 `UITimeManager:GetInstance():GetTomorrowZero()` is the next one — live on 2026-08-06 it
 read `2026-08-07 02:00:00 UTC`, so the server day runs **02:00 UTC → 02:00 UTC**.

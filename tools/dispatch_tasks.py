@@ -158,13 +158,13 @@ def alliance_roster(ev) -> list[dict]:
             continue
         cfg_id = task["cfgId"]
         try:
-            family, level, _variant = proto.split_cfg_id(cfg_id)
+            # The config-first rule, from the one place it lives (`task_rank`, #1267).
+            # It used to be spelled out here and nowhere else, which is precisely how
+            # the tool's own read went on believing the digits for two months.
+            family, level, starred = proto.task_rank(
+                cfg_id, task.get("lvl"), task.get("spec"))
         except (TypeError, ValueError):
             continue                       # shaped like a task, but no usable cfgId
-        starred = (family in proto.STAR_TASK_FAMILIES
-                   and level != proto.SPECIAL_TASK_LEVEL)
-        if task.get("lvl"):                # the config answered — it outranks the digits
-            level, starred = task["lvl"], bool(task.get("spec"))
         out.append({
             "uuid": task["uuid"], "server": task["srv"],
             "x": task["x"], "y": task["y"], "point_id": task["pointId"],
