@@ -29,7 +29,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "tools" / "lib"))
+
+import game_link                            # noqa: E402 — the reading itself (#1260)
 
 try:                                        # the WSL python3 has no tkinter, and the
     from panel.runtime import game_process as gp   # runtime package imports it
@@ -75,20 +79,24 @@ class _Machine:
         return exe.lower() == self.exe.lower()
 
     def __enter__(self):
-        self._saved = (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-                       gp._endpoint, gp._client_sockets)
-        gp.sessions = lambda: self.rows
-        gp._pids_in_session = lambda exe, session: (
+        # Stubbed where the reading lives (`tools/lib/game_link.py`, #1260) and read
+        # back through the panel: the resolution on top of these two calls is the real
+        # code, and there is exactly one copy of it to stub.
+        self._saved = (game_link.sessions, game_link._pids_in_session,
+                       game_link._pids_by_name, game_link.endpoint_of,
+                       game_link.client_sockets)
+        game_link.sessions = lambda: self.rows
+        game_link._pids_in_session = lambda exe, session: (
             list(self.processes.get(session, ())) if self._named(exe) else [])
-        gp._pids_by_name = lambda exe: ([pid for pids in self.processes.values()
-                                         for pid in pids] if self._named(exe) else [])
-        gp._endpoint = lambda found: None      # foreign sockets come back without a pid
-        gp._client_sockets = lambda found: []  # …so there is no verdict on the link here
+        game_link._pids_by_name = lambda exe: ([pid for pids in self.processes.values()
+                                                for pid in pids] if self._named(exe) else [])
+        game_link.endpoint_of = lambda found: None   # foreign sockets come back with no pid
+        game_link.client_sockets = lambda found: []  # …so there is no verdict on the link
         return self
 
     def __exit__(self, *exc):
-        (gp.sessions, gp._pids_in_session, gp._pids_by_name,
-         gp._endpoint, gp._client_sockets) = self._saved
+        (game_link.sessions, game_link._pids_in_session, game_link._pids_by_name,
+         game_link.endpoint_of, game_link.client_sockets) = self._saved
         return False
 
 
