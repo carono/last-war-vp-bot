@@ -1216,13 +1216,17 @@ def test_the_phone_is_shown_every_page_the_window_has():
     stars = {a["id"]: a["label"] for a in cards["secrettasks.page.stars"]["actions"]}
     assert {"monitor", "hide_own", "show_spent", "clear"} == set(stars), stars
     assert stars["hide_own"] == "secrettasks.filter.show_own"       # it is hiding now
-    assert stars["monitor"] == "secret.monitoring.on"               # not running yet
+    # …and it says WHICH monitoring it starts, not just «monitoring» (#1264): the
+    # screen has two of them and a thumb scrolls past the card titles.
+    assert stars["monitor"] == "secret.monitoring.stars.on"         # not running yet
     ally = {a["id"]: a["label"] for a in cards["secrettasks.alliance"]["actions"]}
     assert {"ur_only", "star_only"} == set(ally), ally
     assert ally["ur_only"] == "secrettasks.filter.ur_on"            # it is not on yet
-    # …and the ghost sniffer's switch is on the card its findings land on.
-    map_actions = {a["id"] for a in cards["secrettasks.ghost.map"]["actions"]}
-    assert map_actions == {"ghost_monitor"}, map_actions
+    # THE GHOST SWITCH IS ON BOTH GHOST CARDS (#1264): on the one its findings land on,
+    # and on the one named «Операция Призрак», which is where a person looks for it.
+    for title in ("secrettasks.ghost", "secrettasks.ghost.map"):
+        actions = {a["id"]: a["label"] for a in cards[title]["actions"]}
+        assert actions == {"ghost_monitor": "secret.monitoring.ghost.on"}, (title, actions)
     # What is left at the bottom belongs to the whole tab.
     assert [a["id"] for a in view["actions"]] == ["refresh"]
 

@@ -266,6 +266,25 @@ class GhostGrid(_GhostGrid):
     HINT_KEY = "secrettasks.ghost.hint"
     EMPTY_KEY = "secrettasks.ghost.empty"
 
+    def extra_filters(self, bar) -> None:
+        """The ghost sniffer's switch, on the page whose NAME people look under (#1264).
+
+        This page does not own that capture — «Призрак: карта» does, and the tiles it
+        finds land there. It is drawn here because «Операция Призрак» is what a person
+        searching for ghost monitoring reads first, and finding no switch on it they
+        report the switch missing rather than opening the fifth page.
+
+        **The same `monitor_var` and the same toggle as the map page**, never a second
+        one: one variable behind two checkbuttons is one switch drawn twice, and Tk
+        moves both whichever is pressed. Two independent boxes over one capture would
+        disagree the first time anything else changed the state — the day the capture
+        stops on its own, for instance — and then neither would be believable. See
+        docs/panel-tabs.md, «One state, several places».
+        """
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.tab.ghost_map.monitor_var,
+                                    command=self.tab.ghost_capture.toggle),
+                    "secret.monitoring.ghost").pack(side="left", padx=(16, 0))
+
 
 class GhostMapGrid(_GhostGrid):
     """WHAT A LAP OF THE MAP FOUND — the other sniffer, and the only one that sees
@@ -366,10 +385,15 @@ class GhostMapGrid(_GhostGrid):
         things into different checkpoints, and whoever is watching ghost tiles almost
         never wants the secret-task capture stopped in the same breath. The interval is
         this capture's own too — it is what its child is launched with.
+
+        Drawn a second time on «Операция Призрак» (:meth:`GhostGrid.extra_filters`,
+        #1264) out of THIS variable. The interval stays here alone: it belongs to the
+        capture this page owns, and a number in two places invites two answers where a
+        checkbutton bound to one variable cannot have them.
         """
         self.tab.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
                                     command=self.tab.ghost_capture.toggle),
-                    "secret.monitoring").pack(side="left", padx=(16, 0))
+                    "secret.monitoring.ghost").pack(side="left", padx=(16, 0))
         self.tab.tr(ttk.Label(bar), "secret.interval").pack(
             side="left", padx=(12, 2))
         numeric_spinbox(bar, from_=1, to=3600, width=5,

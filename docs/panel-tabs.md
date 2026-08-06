@@ -209,6 +209,58 @@ and not an oversight.
 
 ---
 
+## One state, several places — a control may be drawn twice, never copied
+
+A switch may appear in more than one place on a tab, and sometimes it should. What may
+never appear twice is the STATE behind it.
+
+**Why it comes up.** A control lives where it belongs to — the ★ sniffer's switch on the
+★ page, the ghost sniffer's on the page its findings land on. That is correct and it is
+not always findable. Live (#1264) the person reported both monitoring switches
+«missing»: the ★ one had moved off the frame at the top of the tab, which still stood
+there under its old title «Секретные задания» holding only the map sweep, and the ghost
+one sat on a fifth page called «Призрак: карта» while the page anyone searches under is
+called «Операция Призрак». Both boxes were built, mapped, and 400 px down a notebook
+nobody had a reason to open. **A control in the right place that nobody finds is worse
+than one in a slightly wrong place, because everything about it looks fine.**
+
+**How to draw it twice.** Bind both widgets to the ONE variable the tab already has, and
+give both the same `command`:
+
+```python
+# ✅ the frame at the top, and the page it belongs to — one variable, one toggle
+self.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
+                        command=self.capture.toggle), "secret.monitoring.stars")
+self.tr(ttk.Checkbutton(page, variable=self.monitor_var,
+                        command=self.capture.toggle), "secret.monitoring.stars")
+```
+
+```python
+# ❌ the version that rots: a second variable, kept in step by hand
+self._monitor_top = tk.BooleanVar(value=self.monitor_var.get())   # agrees today
+```
+
+Tk moves every checkbutton bound to one variable, so the pair cannot disagree even in
+the cases nobody wrote code for — a capture that stops on its own, a config restored on
+start-up, a press arriving from the phone. A hand-synchronised copy agrees until the
+first of those, and then one of the two is lying with no way to tell which.
+
+Same on the phone: the SAME action `id` on both cards, built by one small method rather
+than two literals, so the next edit to that button lands in both places
+(`_ghost_monitor_action`). And say what it turns on rather than just «Мониторинг» — a
+screen with two of them is scrolled past its own card titles.
+
+**A duplicate is a decision, not clutter.** Write beside it why the second one is there
+and that it shares the variable; `tests/test_panel_secret_tasks_switches.py` counts the
+boxes and asserts they name one variable, so removing a copy as «tidying» fails rather
+than quietly returning the tab to the state that was reported as broken.
+
+**This is not the mirror rule.** Window ↔ web is about the same control existing on
+BOTH front-ends. This is about the same control appearing more than once on ONE of them
+— and both rules end in the same place: one state, however many places show it.
+
+---
+
 ## Coming back from a background thread
 
 A tab reads the game off the Tk thread and then has to paint what it found. **That

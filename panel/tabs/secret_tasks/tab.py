@@ -658,19 +658,39 @@ class SecretTasksTab(PanelTab):
         self._set_jump_history(self._jump_hist)
 
     def _build_monitor_bar(self) -> None:
-        """What is left of the shared control bar: the map sweep, and nothing else.
+        """The ★ sniffer's switch where the eye goes for it, and the map sweep.
 
-        THE SWITCHES MOVED TO THEIR OWN PAGES (#1251). One «Мониторинг» box with a
-        dropdown beside it meant choosing which sniffer to watch STOPPED the other one,
-        and one «уровень от / до» narrowed lists it had nothing to do with — ghost
-        squads are levels 3-5 where secret tasks run 1-7. Each page carries its own
-        switch, its own interval and its own range now.
+        THE SWITCHES BELONG TO THEIR PAGES (#1251). One «Мониторинг» box with a dropdown
+        beside it meant choosing which sniffer to watch STOPPED the other one, and one
+        «уровень от / до» narrowed lists it had nothing to do with — ghost squads are
+        levels 3-5 where secret tasks run 1-7. Each page carries its own switch, its own
+        interval and its own range.
+
+        AND THE ★ ONE IS DRAWN HERE AS WELL (#1264). Moving it off this frame left the
+        frame standing with its old title and only the sweep inside, so whoever had been
+        pressing «Мониторинг» here for months found nothing and reported the switch
+        gone — it was four hundred pixels down, inside a page of a five-page notebook.
+        **This is the SAME `monitor_var` and the same `capture.toggle`, not a second
+        box**: Tk drives every checkbutton bound to one variable, so the two are one
+        switch drawn twice and cannot disagree. Do not «tidy» either away — see
+        docs/panel-tabs.md, «One state, several places».
 
         The sweep stays shared on purpose: it is one camera, it feeds both captures at
         once, and two boxes driving one camera would fight each other.
         """
         sec = self.tr(ttk.LabelFrame(self.parent, padding=8), "secret.frame")
         sec.pack(fill="x", padx=10, pady=(0, 4))
+
+        mon = ttk.Frame(sec)
+        mon.pack(fill="x", pady=(0, 6))
+        self.tr(ttk.Checkbutton(mon, variable=self.monitor_var,
+                                command=self.capture.toggle),
+                "secret.monitoring.stars").pack(side="left")
+        self.tr(ttk.Label(mon), "secret.interval").pack(side="left", padx=(12, 2))
+        numeric_spinbox(mon, from_=1, to=3600, width=5,
+                        textvariable=self.interval_var).pack(side="left")
+        self.tr(ttk.Label(mon, foreground="#888", wraplength=520,
+                          justify="left"), "secret.hint").pack(side="left", padx=10)
 
         # «Автообъезд карты»: the passive scan only learns tiles while the map moves, so
         # this walks the camera over a box around a centre.
@@ -833,17 +853,18 @@ class SecretTasksTab(PanelTab):
                                 command=self._on_hide_own_change),
                 "secrettasks.filter.hide_own").pack(side="left", padx=(16, 0))
 
-        # …and the SECRET-TASK sniffer's own switch, on the page it feeds (#1251).
+        # …and the SECRET-TASK sniffer's own switch, on the page it feeds (#1251) — the
+        # SAME variable as the copy in «Секретные задания» above (#1264), so whichever
+        # one is pressed, both move. Same label too: two boxes reading the same words
+        # and moving together say «one switch» where two spellings would say «two».
         mon = ttk.Frame(parent)
         mon.pack(fill="x", pady=(0, 4))
         self.tr(ttk.Checkbutton(mon, variable=self.monitor_var,
                                 command=self.capture.toggle),
-                "secret.monitoring").pack(side="left")
+                "secret.monitoring.stars").pack(side="left")
         self.tr(ttk.Label(mon), "secret.interval").pack(side="left", padx=(12, 2))
         numeric_spinbox(mon, from_=1, to=3600, width=5,
                         textvariable=self.interval_var).pack(side="left")
-        self.tr(ttk.Label(mon, foreground="#888", wraplength=520,
-                          justify="left"), "secret.hint").pack(side="left", padx=10)
 
     def _on_hide_own_change(self) -> None:
         """The box was flipped: redraw the ★ list, read nothing, rob nothing."""
@@ -1832,10 +1853,14 @@ class SecretTasksTab(PanelTab):
                            "rows": ([{"label": "secrettasks.filter.hide_own",
                                       "value": str(hidden)}] if hidden else []),
                            "empty": "secrettasks.empty",
+                           # …and the button says WHAT it turns on (#1264). «Включить
+                           # мониторинг» on a screen with two of them is a button whose
+                           # meaning depends on which card it happens to be under, and a
+                           # phone is scrolled past the titles.
                            "actions": [{"id": "monitor",
-                                        "label": ("secret.monitoring.off"
+                                        "label": ("secret.monitoring.stars.off"
                                                   if self.monitor_var.get()
-                                                  else "secret.monitoring.on")},
+                                                  else "secret.monitoring.stars.on")},
                                        {"id": "show_spent",
                                         "label": ("secrettasks.hide_spent"
                                                   if self.show_spent_var.get()
@@ -1859,25 +1884,40 @@ class SecretTasksTab(PanelTab):
                           # The two ghost cards carry the event's own facts as well as
                           # their squads: six days a week «событие закрыто» IS the
                           # reading, and an empty list without it is a mystery.
+                          # …and the ghost switch is on BOTH ghost cards (#1264), the
+                          # window's two boxes said in the phone's own idiom. The same
+                          # `id`, so both are the same press through the same branch of
+                          # `web_press` into the same variable — the phone cannot grow a
+                          # second state here any more than the window can.
                           {"title": "secrettasks.ghost",
                            "rows": self.ghost.web_rows(),
                            "items": self.ghost.web_items(),
-                           "empty": "secrettasks.ghost.empty"},
+                           "empty": "secrettasks.ghost.empty",
+                           "actions": [self._ghost_monitor_action()]},
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
                            "empty": "secrettasks.ghost.allies.empty"},
-                          # …and the other sniffer's own card, with the switch that
-                          # feeds it (#1251).
+                          # …and the sniffer's own card, where its tiles land (#1251).
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
                            "empty": "secrettasks.ghost.map.empty",
-                           "actions": [{"id": "ghost_monitor",
-                                        "label": ("secret.monitoring.off"
-                                                  if self.ghost_map.monitor_var.get()
-                                                  else "secret.monitoring.on")}]}],
+                           "actions": [self._ghost_monitor_action()]}],
                 "now": now,
                 # What is left at the bottom is what belongs to the WHOLE tab.
                 "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+
+    def _ghost_monitor_action(self) -> dict:
+        """The ghost sniffer's button, built once and drawn on both ghost cards (#1264).
+
+        A method rather than two literals for the reason the whole change exists: the
+        NEXT thing done to this button — a different word, a confirmation, a state — is
+        done once and lands in both places, instead of landing in one and quietly
+        splitting the pair.
+        """
+        return {"id": "ghost_monitor",
+                "label": ("secret.monitoring.ghost.off"
+                          if self.ghost_map.monitor_var.get()
+                          else "secret.monitoring.ghost.on")}
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить», and the two display rules the phone may change.
