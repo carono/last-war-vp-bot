@@ -130,16 +130,38 @@ def test_the_cure_is_not_blocked_by_the_symptom():
     — this test reads the recipe rather than a list, so a step added to it is covered
     whether or not anybody remembers this file.
     """
-    driving = {"LUA", "TAP", "GAME", "JUMP"}
-    body = [line.strip() for line in
-            (ROOT / "src" / "lastwar_bot" / "actions" / "restart_game.md")
-            .read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")]
-    assert body, "restart_game.md is empty"
-    for line in body:
-        assert line.split()[0].upper() not in driving, (
-            f"restart_game.md now drives the game («{line}») — it would be gated, and "
-            f"the cure would be blocked by the symptom")
+    text = (ROOT / "src" / "lastwar_bot" / "actions" / "restart_game.md").read_text(
+        encoding="utf-8")
+    gated = (script_engine.GameSceneStmt, script_engine.JumpStmt,
+             script_engine.TapStmt, script_engine.LuaStmt)
+    statements = script_engine.parse_text(script_engine.prepare_source(text, {})[0])
+    assert statements, "restart_game.md is empty"
+
+    def walk(block):
+        for stmt in block:
+            yield stmt
+            for attr in ("body", "then_body", "else_body", "steps"):
+                inner = getattr(stmt, attr, None)
+                if isinstance(inner, list):
+                    yield from walk(inner)
+
+    for stmt in walk(statements):
+        assert not isinstance(stmt, gated), (
+            f"restart_game.md now drives the game ({type(stmt).__name__}) — it would be "
+            f"gated, and the cure would be blocked by the symptom")
+
+
+def test_the_cure_runs_with_a_lost_link_and_with_no_client_at_all():
+    """The two states it exists to get out of, asserted against the gate itself.
+
+    Both are the same question from opposite ends: a client that answers but is not
+    heard, and no client to answer at all. The recipe has to be runnable in each.
+    """
+    for state in (game_link.LOST, game_link.OFFLINE):
+        assert _gate(state, pid=None) is None, f"blocked with no client, link={state}"
+    # …and with a client that IS there and IS deaf, the gate speaks — but only for the
+    # primitives that send, which `restart_game.md` (above) has none of.
+    assert _gate(game_link.LOST, pid=4242) is not None
 
 
 def test_the_gate_stands_on_the_driving_primitives_and_not_on_the_run():
