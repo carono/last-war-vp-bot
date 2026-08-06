@@ -161,6 +161,32 @@ Two rules keep it there:
   `online`, so a relaunched client is the watchdog's «клиент снова на связи» and not two
   lines saying the same thing.
 
+## 4.1 What still does NOT read it: everything that SENDS (#1259)
+
+The strip says it. The watchdog says it. **A scenario does not ask, and neither does the
+thing running the scenario** — `script_engine` has no notion of the link at all, so a
+recipe on a stranded client presses its way to the end, gets `true` from every send, and
+then fails on the one honest step it has: the count it was going to prove itself by
+never moves.
+
+That is not a harmless "it fails anyway". It fails with the WRONG REASON, and the wrong
+reason is a very believable one. #1259 spent an afternoon concluding «the server silently
+refuses this march», wrote it up as a finding, and tried five variants of the message
+against a client the panel had already declared dead in its own log two hours earlier —
+`связь с сервером пропала — клиент жив, но всё, что он читает, вчерашнее`. On a
+restarted client the very same call raised an ordinary Lua error on its first try.
+
+So the rule this file has been making since #1223 needs one more line: **a reading taken
+without the link beside it is not evidence, and a send made without it is not a test.**
+Any live check that ends in «the game did not react» has to say which of the two it was
+before it is believed, and the answer is one `probe()` away.
+
+Where the gate belongs is an open question and a conversation to have with the person,
+because the probe lives in `panel/runtime/game_process.py` and the sender lives in
+`src/lastwar_bot/script_engine.py` — the panel is the player, so the engine importing
+from it is backwards, and the probe cannot simply move because it answers in
+`panel.i18n.Message`.
+
 ## 5. Putting it back
 
 Not automated, and deliberately so — the fix is the one from the original session:

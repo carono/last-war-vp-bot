@@ -572,16 +572,27 @@ BUTTONS: dict[str, Button] = {
         wait=2.0, label="launch the rally",
     ),
     # --- «Кодовое имя»: attack the event's world boss -------------------------
-    # The same five-press walk as a rally, because it is the same popup and the same
-    # squad screen — only the target type differs, and the target is found in the
-    # event's own list rather than through the map search:
+    # Three, and none of them opens a window:
     #
-    #     codename_arm -> codename_select -> codename_attack -> codename_squad
-    #                  -> codename_launch
+    #     codename_fetch -> codename_arm -> codename_send
+    #
+    # A person walks five screens for this — the event window, its «Атака» (which only
+    # flies the camera), the boss on the map, the popup's «Атака», the squad screen —
+    # and every one of those ends at a single send. #1259 recorded that send while the
+    # player made one attack by hand, and it needs none of the walk: the boss is
+    # addressed by uuid, so there is no tile to wait for and no camera to move.
     #
     # WHICH boss and WHICH squad are parked in `DataCenter.__lw_codename` by the arm,
     # because `TAP` carries no arguments. The recipe is actions/attack_codename_boss.md
     # and the reverse-engineering is docs/research/codename-event.md.
+    "codename_fetch": Button(
+        # Not a press either: the ASK. Every reading of this event is worthless until
+        # the server's reply has landed, because the manager starts empty and the
+        # client only fills it when it opens the event's own screen. Both the reading
+        # and the attack send this first (#1259).
+        lua=_lua_actions.codename_fetch(),
+        wait=1.2, label="ask the server for the event's boss and stage",
+    ),
     "codename_arm": Button(
         # Not a press in the game: the run's setup. It picks the boss out of the
         # event's list, picks the first squad standing in the base, and notes how many
@@ -589,21 +600,14 @@ BUTTONS: dict[str, Button] = {
         lua=_lua_actions.codename_arm(),
         wait=0.2, label="arm the boss attack (target + free squad)",
     ),
-    "codename_select": Button(
-        lua=_lua_actions.codename_select(),
-        wait=1.4, label="tap the boss on the map",
-    ),
-    "codename_attack": Button(
-        lua=_lua_actions.codename_attack_press(),
-        wait=1.8, label="«Атаковать» on the boss",
-    ),
-    "codename_squad": Button(
-        lua=_lua_actions.codename_squad_pick(),
-        wait=1.0, label="pick the free squad",
-    ),
-    "codename_launch": Button(
-        lua=_lua_actions.codename_launch(),
-        wait=2.0, label="launch the attack",
+    "codename_send": Button(
+        # The attack itself, in ONE call and with no window: the very send the squad
+        # screen makes when a person taps «Марш», with the arguments read off the wire
+        # while the player made one attack by hand (#1259).
+        lua=_lua_actions.codename_send(),
+        # The server answers with the refreshed count a beat later, which is what the
+        # recipe then measures — so the pause is part of the proof, not politeness.
+        wait=2.0, label="send the squad at the boss",
     ),
     # --- base decorations: the handbook's upgrade press -----------------------
     # One press upgrades the first decoration that is ready: the button finds the

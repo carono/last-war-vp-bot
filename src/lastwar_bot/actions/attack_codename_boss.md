@@ -1,63 +1,76 @@
 # Attack the «Кодовое имя» boss once, with a squad standing in the base.
 # ru: Одна атака по боссу события «Кодовое имя» отрядом, стоящим в базе.
 #
-# The event puts one boss on the world map for a few hours at a time and asks for
-# THREE attacks on it; attempts themselves are not rationed («кол-во попыток в день
-# не ограничено» — the game's own rules), and only the biggest single hit counts for
-# the daily ranking. This recipe is ONE attack: run it three times for the day's
-# credit, or as often as there is a squad free for a better hit.
+# The event puts one boss on the world map and asks for THREE attacks on it; attempts
+# themselves are not rationed («кол-во попыток в день не ограничено» — the game's own
+# rules), and only the biggest single hit counts for the daily ranking. This recipe is
+# ONE attack: run it three times for the day's credit, or as often as there is a squad
+# free for a better hit.
 #
-# It takes no arguments. «A free squad» is not a choice the person should have to
-# make three times a window: the run finds the first squad standing in the base and
-# sends that one. A squad already marching, gathering, standing in a rally or wiped
-# cannot be sent at all, and there is nothing to choose between the ones that can.
+# It takes no arguments. «A free squad» is not a choice the person should have to make
+# three times a day: the run finds the first squad standing in the base and sends that
+# one. A squad already marching, gathering, standing in a rally or wiped cannot be sent
+# at all, and there is nothing to choose between the ones that can.
 #
-# It does what a player does, in the same order, and each step waits for the game to
-# actually be in the next state rather than sleeping a guessed amount:
+# NO WINDOW IS OPENED AND THE CAMERA IS NOT MOVED, and that is not a shortcut — it is
+# what the game itself turns out to do. A person walks five screens for this: the event
+# window, its «Атака» (which sends nothing, it only flies the camera to the boss), the
+# boss on the map, «Атака» in its popup, then the squad screen. All five end at ONE
+# call, and #1259 read that call off the wire while the player made an attack by hand:
 #
-#   0. is the event even running? Outside a window there is no boss on the map, and
-#      the read that says so is the same one the panel draws (read_codename_event.md);
-#   1. find the boss in the event's own list and a squad standing in the base;
-#   2. tap the boss on the map — the server opens its popup;
-#   3. press «Атаковать» there, with the popup still on top;
-#   4. the squad screen comes up: pick the squad on it and read the pick back;
-#   5. launch, and confirm by looking — the attack COUNT has to move.
+#     world.march.formation.new  <-  SendCreateMarchMessage(formation, 33, point, uuid,
+#                                    1, 1, false, server, nil)
+#
+# The boss is addressed by its uuid, so none of the walk is load-bearing: there is no
+# tile to wait for the client to stream in, and the server works the path out itself.
+# The recipe sends exactly that, and the count it proves itself by then moves.
+#
+# Three steps, and each waits for the game to be in the next state rather than sleeping
+# a guessed amount:
+#
+#   1. ASK. The event's manager is EMPTY until something asks the server for the day's
+#      boss, and it answers «no boss, event shut» until then — read_codename_event.md
+#      has the whole trap. Every later step reads what this brings back;
+#   2. arm — the boss out of the event's own list, and the first squad standing in the
+#      base, both before anything is sent;
+#   3. send, and let the SERVER say whether an attack went out.
 #
 # Nothing is claimed from a press that returned cleanly. The run ends as a FAILURE,
-# naming the step, when the event is not running, when the boss is not in the list,
-# when no squad is standing in the base, when the tap opens something else, when
-# «Атаковать» does not bring up the squad screen, when that screen will not take the
-# squad, or when everything was pressed and the count did not move. A timer therefore
-# keeps its place and tries again instead of counting an attack that never went out.
+# naming the step, when the event is not running (Sunday), when the boss is not in the
+# list yet, when no squad is standing in the base, and when everything was sent and the
+# count did not move. A timer therefore keeps its place and tries again instead of
+# counting an attack that never went out.
 #
-# The presses live in tools/lib/game_buttons.py (`codename_*`) and their engine calls
-# in tools/lib/lua_actions.py; the reverse-engineering is
-# docs/research/codename-event.md. The panel plays this from «События» and from the
-# «Кодовое имя» block on «Чеклист».
+# **A count that does not move can also mean the client is no longer talking to the
+# server** — a stranded client goes on answering every getter with yesterday's numbers
+# and returning `true` from every send (docs/research/server-link-status.md). That is
+# not a state this recipe can read, and it cost #1259 an afternoon of blaming the
+# server for a refusal it never made; the panel's status strip is what says it, and it
+# is worth a glance before believing the failure below.
 #
-# UNPROVEN: every call behind it is one the game itself makes — the popup and the
-# squad screen are the very ones a rally walks (actions/create_rally.md, proven live),
-# and the target type is the event's own `DIRECT_ATTACK_ACT_BOSS`. But the event has
-# not been open since this was written, so no squad has gone out on it yet.
+# The presses live in tools/lib/game_buttons.py (`codename_*`) and their engine calls in
+# tools/lib/lua_actions.py; the reverse-engineering is docs/research/codename-event.md.
+# The panel plays this from «События» and from the «Кодовое имя» block on «Чеклист».
 
-# --- 0. Is the event running at all? ----------------------------------------------
-# First, before anything is opened. Outside a window there is no boss on the map, and
-# every later step would fail on a press instead of on a state.
+# --- 1. Ask, then believe the answer ----------------------------------------------
+# First, before anything is read or sent. Without it the gate below refuses on every day
+# of the week, which is exactly what it did until #1259.
+TAP codename_fetch
+
+READ_LUA ((type(DataCenter.ActBossDataManager.stageTimeList) == 'table') and 1 or 0) INTO cn_loaded
+
+WHILE cn_loaded == 0 LIMIT 4
+    WAIT 0.6
+    READ_LUA ((type(DataCenter.ActBossDataManager.stageTimeList) == 'table') and 1 or 0) INTO cn_loaded
+
 READ_LUA (function() local ok, v = pcall(function() return DataCenter.ActBossDataManager:IsBossAvailable() end) if not ok then return nil end return (v and 1 or 0) end)() INTO cn_open
 
 IF cn_open != 1
-    FAIL "«Кодовое имя» is not running right now — there is no boss on the map"
+    FAIL "«Кодовое имя» is not running — the event takes Sunday off"
 
-# The boss stands on the world map, so the map has to be up: in the city the tap would
-# resolve nothing.
-IF scene != world
-    GAME WORLD
-    WAIT scene == world WITHIN 30s
-
-# --- 1. Which boss, and which squad -----------------------------------------------
-# Both readings before any window is opened, for the reason create_rally.md takes its
-# own first: a run that finds out at the last press that there was no squad has already
-# flown the camera across the map and left a popup open on it.
+# --- 2. Which boss, and which squad -----------------------------------------------
+# Both before anything is sent: a run that finds out at the send that there was no squad
+# has already told the server it was coming.
 TAP codename_arm
 
 READ_LUA (function() local p = DataCenter.__lw_codename or {} if p.uuid == nil or p.point == nil then return 0 end if p.formation == nil then return -1 end return 1 end)() INTO armed
@@ -67,56 +80,30 @@ IF armed == 0
 IF armed < 0
     FAIL "no squad is standing in the base — every one of them is already out"
 
-# --- 2. Tap the boss --------------------------------------------------------------
-# The popup lands a beat before the data inside it, so «up but empty» polls as «not
-# yet» rather than being pressed into.
-TAP codename_select
-
-READ_LUA (function() local p = DataCenter.__lw_codename or {} local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl if c == nil then return 0 end local pid = tonumber(c.pointId) if pid == nil then return 0 end if p.point ~= nil and pid ~= tonumber(p.point) then return -1 end return 1 end)() INTO popup
-
-WHILE popup == 0 LIMIT 10
-    WAIT 1
-    READ_LUA (function() local p = DataCenter.__lw_codename or {} local w = UIManager.Instance:GetStackTopWindow() if not w or w.Name ~= 'UIWorldPoint' then return 0 end local c = w.Ctrl if c == nil then return 0 end local pid = tonumber(c.pointId) if pid == nil then return 0 end if p.point ~= nil and pid ~= tonumber(p.point) then return -1 end return 1 end)() INTO popup
-
-IF popup == 0
-    FAIL "the boss did not open — the map has nothing at that place"
-IF popup < 0
-    TAP close
-    FAIL "the tap opened something else — the boss is not where the event said it was"
-
-# --- 3. Press «Атаковать», with the popup still open ------------------------------
-TAP codename_attack
-
-READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end if _isformation(UIManager.Instance:GetStackTopWindow()) then return 1 end return 0 end)() INTO panel
-
-WHILE panel == 0 LIMIT 8
-    WAIT 1
-    READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end if _isformation(UIManager.Instance:GetStackTopWindow()) then return 1 end return 0 end)() INTO panel
-
-IF panel == 0
-    FAIL "«Атаковать» did not bring up the squad screen — nothing was sent"
-
-# --- 4. Pick the squad, and read the pick back ------------------------------------
-TAP codename_squad
-
-READ_LUA (function() local function _isformation(w) return w ~= nil and (w.Name == 'UIFormationSelectListV2' or w.Name == 'UIFormationSelectListNew') end local p = DataCenter.__lw_codename or {} local w = UIManager.Instance:GetStackTopWindow() if not _isformation(w) then return 0 end if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) then return 1 end return 0 end)() INTO picked
-
-IF picked == 0
-    TAP close
-    FAIL "the squad screen would not take the free squad — nothing was sent"
-
-# --- 5. Launch, and let the game say whether an attack went out -------------------
-# The proof is the SERVER's own attack count moving, not the press returning cleanly:
+# --- 3. Send, and let the game say whether an attack went out ---------------------
+# The proof is the SERVER's own attack count moving, not the send returning cleanly:
 # the count is what the reward is paid against and what the board draws.
-TAP codename_launch
+#
+# EACH POLL ASKS AGAIN, and that is the whole reason this loop works. The count is the
+# server's, and the client does not learn the new one on its own — no push arrived in
+# the ten seconds this waited before the ask was put in, and the run failed reporting
+# «the count did not move» over an attack that had already gone out and could be seen in
+# the game. Asking is how the client itself finds out; a poll that only re-reads is
+# polling a number nothing is updating.
+TAP codename_send
+
+TAP codename_fetch
 
 READ_LUA (((function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() or 0) - ((DataCenter.__lw_codename or {}).before or 0)) INTO sent
 
-WHILE sent < 1 LIMIT 6
-    WAIT 1.2
+# Twelve, not six: the server took eight seconds to own up to the first attack proven
+# this way, which is six asks — a limit that only just cleared it is a run that reports
+# a false failure the first time the server is busy.
+WHILE sent < 1 LIMIT 12
+    TAP codename_fetch
     READ_LUA (((function() local ok, v = pcall(function() return DataCenter.ActBossDataManager.actBossTransTimes end) if not ok then return nil end return math.floor(tonumber(v) or 0) end)() or 0) - ((DataCenter.__lw_codename or {}).before or 0)) INTO sent
 
 IF sent < 1
-    FAIL "everything was pressed and the attack count did not move"
+    FAIL "the squad was sent and the attack count did not move — check the client is still talking to the server"
 
 LOG "A squad is on its way to the «Кодовое имя» boss"

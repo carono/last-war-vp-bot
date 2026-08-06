@@ -4,23 +4,61 @@ The game's own name, out of the client's own tables: key `100086` — **Codename
 English, **«Кодовое имя»** in Russian, and nine more in
 [`docs/game-glossary.md`](../game-glossary.md). The panel may not call it anything else.
 
-Task #1257. Everything below was read out of a live client through the Lua VM
-(`tools/lib/lua_client.py`), on a day when the event was **shut** — which is why the
-reading is proven and the attack is not (see «What is unproven», last).
+Task #1257, then #1259. Everything below was read out of a live client through the Lua
+VM (`tools/lib/lua_client.py`).
+
+**#1257 read it on a day the client SAID the event was shut, and the client was
+wrong.** That mistake is the most useful thing in this file, so it is written up
+before anything else — see «The client answers «shut» until it is asked», below. The
+schedule and the four «windows» in the first version of this document came from
+reading a manager that had never been filled in.
 
 ---
 
+## The client answers «shut» until it is asked
+
+`IsBossAvailable()` walks `self.stageTimeList` against the server clock. **That list is
+not there when the client starts.** It arrives in the reply to `user.get.act.boss.march`
+— the get the game sends for itself when it opens the event's own screen — and until
+something asks, the list is `nil`, `GetActBossDataList()` is empty, and every reading
+answers exactly as it would on a Sunday:
+
+```
+avail=false  actBossTransTimes=0  targets=0  stage=nostage      <- never asked
+avail=true   actBossTransTimes=0  targets=1                     <- after one get
+             stage start=…02:00Z end=…01:00Z (23 h)
+```
+
+Nothing distinguishes the two zeros from the client's side, which is why #1257 shipped a
+reading that greyed the whole feature out on a running event and looked right doing it.
+`RefreshTransTime()` does not rescue it either: it returns early when the stage list is
+nil, so a client nobody asks stays empty for the entire session.
+
+**So the ask is part of the reading.** `codename_fetch()` sends it,
+`codename_loaded()` says when the reply has landed, and both
+`read_codename_event.md` and the attack begin with them. The wait is bounded — on a
+Sunday there is no stage to send, and running out of tries is the answer.
+
 ## What the event is
 
-One boss stands on the world map for a few hours at a time. Which boss depends on the
-weekday, and the client's own rules text (`worldboss_rules_desc_new_87` / `_39` / `_64`)
-spells the whole thing out:
+One boss stands on the world map, and which boss depends on the weekday
+(`worldboss_rules_desc_new_87` / `_39` / `_64`):
 
-| boss | days | windows |
-|---|---|---|
-| «Кодовое имя 87» | Monday, Thursday | 00:00, 06:00, 12:00, 18:00 server time |
-| «Кодовое имя 64» | Tuesday, Friday | the same four |
-| «Кодовое имя 39» | Wednesday, Saturday | the same four |
+| boss | days |
+|---|---|
+| «Кодовое имя 87» | Monday, Thursday |
+| «Кодовое имя 64» | Tuesday, Friday |
+| «Кодовое имя 39» | Wednesday, Saturday |
+
+**It runs Monday to Saturday and it is open all day.** One stage covers the whole
+server day — `IsAllDayFuncOpen` is true, `NewStartTime = 0`, `NewDurationTime = 23`, and
+the live stage read back as 23 hours from the server's midnight. Sunday is the only day
+there is nothing to attack.
+
+The four times the client keeps in `bossRefreshTimeSvr` (00:00, 06:00, 12:00, 18:00
+server; `bossRefreshTimeLocal` holds the same four converted for display) are when the
+boss RESPAWNS during the day — **not four separate windows**. Reading them as windows is
+what the first version of this document did, on a client whose stage list was empty.
 
 Three things in that text decide the shape of everything the panel does with it:
 
@@ -52,7 +90,7 @@ bossId=2000001  activityId=80001  actBossTransTimes=0  targets=0
 
 | what | how | what it means |
 |---|---|---|
-| is it running now | `IsBossAvailable()` | `GetAttackStageData()` against the server clock: a stage with a `startTime` and an `endTime`, and «now» inside it. **Not «is today a boss day»** — the boss comes and goes four times a day, and outside a window there is nothing on the map. |
+| is it running now | `IsBossAvailable()` | `GetAttackStageData()` against the server clock: a stage with a `startTime` and an `endTime`, and «now» inside it. The stage is the whole server day, so this is «is it not Sunday» — **and «has anything asked yet», which is the trap at the top of this file**. |
 | attacks made | `actBossTransTimes` | The count the reward is paid against. **The server owns it**: `RefreshTransTime` sends `UserGetActBossMarch` and broadcasts `OnActBossAttackTimesRefresh`, so it counts an attack sent from anywhere — this panel, the phone, or the person playing. |
 | attacks needed | `rewardMaxTimes` | Three, from `lw_worldboss_config` `k21`. Read rather than written down. |
 | attempts left | `GetRestTransNum()` | `attackMaxNum - actBossTransTimes`, and `attackMaxNum` is **−1** — the unlimited attempts, in the client's own words. |
@@ -86,28 +124,67 @@ tables together are what identify it as the attack count.
 
 ## The attack
 
-Same five steps as raising a rally, because it is the same popup and the same squad
-screen ([`rally-create.md`](rally-create.md), proven live). Only the target and the march
-type differ:
+What a person does, in their own words: **open the event, go to the «Кодовое имя» tab,
+press «Атака» there — which does not send anything, it FLIES THE CAMERA to the boss —
+then click the boss on the map, «Атака» in its popup, pick a squad, march.** So the only
+part that belongs to the event is the camera flight; from the popup onwards it is the
+ordinary world-map target of [`world-monsters.md`](world-monsters.md) and
+[`rally-create.md`](rally-create.md).
 
-1. **find the boss** — `GetActBossDataList()`; the map index comes from the entry's
-   `startPos` (`pointId = y * 1000 + x`, as everywhere else on the map);
-2. **tap it** — `GoToUtil.OnClickWorldPoint(pointId, WorldPointType.WorldBoss, uuid)`,
-   the arg-routed handler from [`world-monsters.md`](world-monsters.md) Finding 7. The
-   server resolves the point and opens the populated `UIWorldPoint` popup — the same one
-   `UI.UIWorldPoint.Component.WorldActBossDes` decorates for this event;
-3. **press «Атаковать»** — `MarchUtil.OnClickStartMarch(kind, pointId, uuid)` with
-   `kind = MarchTargetType.DIRECT_ATTACK_ACT_BOSS` (33), or
-   `CROSS_DIRECT_ATTACK_ACT_BOSS` (152) when the boss is standing on another server.
-   **The popup must still be on top**, exactly as for a rally;
-4. **pick the squad** on `UIFormationSelectListV2`, and read the pick back;
-5. **launch** with `Ctrl:OnCheckTime(formationUuid, nil)`, and confirm by the SERVER's
-   count moving — `actBossTransTimes` going up by one. A press that returned cleanly
-   proves nothing.
+### What it actually takes: ONE call
+
+The five screens all end at a single send, and #1259 read it off the wire while the
+player made one attack by hand — then reproduced it byte for byte:
+
+```
+MARCH  <formation> , 33 , <boss point> , <boss uuid> , 1 , 1 , false , <server> , nil
+SFS    world.march.formation.new , <formation> , 33 , <boss uuid> ,
+       "<our point>;<boss point>" , 1 , true , <army table> , <server> , -1
+```
+
+i.e. `MarchUtil.SendCreateMarchMessage(formation, DIRECT_ATTACK_ACT_BOSS, point, uuid,
+timeIndex = 1, autoBackHome = 1, needSoldier = false, targetServerId = server,
+destroyTimeIndex = nil)`, scheduled on the main thread. **The boss is addressed by
+uuid**, and the server works the path out itself — the `start;target` pair in the
+message is built from the formation, not from anything the client had to have on screen.
+So none of the walk is load-bearing: no camera flight, no tile to stream in, no popup,
+no squad screen. `CROSS_DIRECT_ATTACK_ACT_BOSS` (152) for a boss on another server.
+
+Proven live, three times over: the reading went `attacks=1 → 2` on the first headless
+send, and the whole recipe run end to end took it `3 → 4`.
+
+### The count is the SERVER's, and nothing pushes it
+
+The first end-to-end run FAILED — «the squad was sent and the attack count did not
+move» — over an attack that had gone out and was visible in the game. `actBossTransTimes`
+had not changed in the client for the ten seconds the run polled it, and changed the
+instant the next reading asked.
+
+So the client learns the new count from the reply to `user.get.act.boss.march` and, as
+far as ten seconds of watching goes, from nothing else. **A proof loop has to ASK on
+every turn**, not merely re-read; the recipe does, and the server took eight seconds —
+six asks — to own up to the attack, which is why the limit is twelve and not six.
+
+### `maxDamage` is a record, not a counter
+
+It did not move across four attacks, and that is correct: it is the biggest single hit
+ever landed, so it only changes when a hit beats it. Useful to show, useless as proof
+that an attack happened — the count is the proof. (Whether the daily ranking uses this
+number or a per-day one the client keeps elsewhere is not established.)
+
+### Two wrong turns worth not repeating
+
+* **`CheckCanBattle` takes the squad's uuid as an ARGUMENT.** Called bare it reads a nil
+  formation, decides the stamina check failed, and pops tip `300007`
+  («STAMINA_IS_NOT_ENOUGH») over squads holding 116 stamina against a cost of 0. A wrong
+  answer that names a real, plausible cause costs more than an error does.
+* **Driving `UIFormationSelectListV2` by hand does not work and is not needed.** Setting
+  `currentFormationUuid` and calling `OnCreateClick()` raises
+  `UIFormationSelectListV2Ctrl.lua:873: attempt to compare number with nil` — the screen
+  fills in state the caller cannot see. The send above skips the screen entirely.
 
 «A free squad» is the first formation with `state == 0` and `IsFree()`. A squad already
-marching, gathering, standing in a rally or wiped cannot be sent, and the game only says
-so at the last press — which is a camera flight and an open popup later.
+marching, gathering, standing in a rally or wiped cannot be sent.
 
 ---
 
@@ -127,23 +204,22 @@ so at the last press — which is a camera flight and an open popup later.
 
 ## What is proven, and what is not
 
-**Proven against a live client:** the reading, end to end. The scenario runs and answers
+**Proven against a live client:** the reading, once it asks. On a running event, with the
+stage list deliberately wiped first so the read had to earn its answer, the scenario
+sends the get, waits for the reply and answers with `open=1` and the day's counts. The
+same read without the get answers `open=0` on the same running event — that is the bug
+#1259 fixed, and it is the reason the numbers in the first version of this file
+described a shut event that was not shut.
 
-```
-open=0 attacks=0 need=3 left=3 maxdmg=12607399171 targets=0 until=-
-```
+**Proven against a live client: the attack.** Squads went out and the server's own count
+moved for each — `1 → 2` on the first headless send, and `3 → 4` on a full run of
+`attack_codename_boss.md` end to end. No window was opened and the camera was not moved
+for any of them. The recipe's failure path was proven too, and by accident: it reported
+«the count did not move» over an attack that had gone out, which is how the ask-on-every-
+poll rule above was found.
 
-which is exactly the state of a shut event — and the panel greys the block on it. Every
-field, the manager behind it and the constant tables above were read from the running
-game.
+**Not established:** whether the daily ranking reads `maxDamage` or some per-day number
+kept elsewhere. `maxDamage` did not move across four attacks because none of them beat
+the record — which is what a record does, and why it is drawn but never used as proof.
 
-**Not proven:** the attack. No squad has gone out at this boss, because the event has not
-been open since the work was done. What IS established is that each call it makes is one
-the game itself makes — the popup and the squad screen are the ones a live rally walked,
-the march type is the event's own, and the gate («the event is not running») was watched
-refusing the run on the live client. What has never been watched is the middle: the boss
-entry's `startPos` turning into a point index the tap resolves, and the popup's attack
-button accepting `DIRECT_ATTACK_ACT_BOSS`. Both stay guesses of the right shape until a
-window opens.
-
-`docs/farming.md` therefore marks «Кодовое имя» 🟡 and not ✅.
+`docs/farming.md` marks «Кодовое имя» ✅.

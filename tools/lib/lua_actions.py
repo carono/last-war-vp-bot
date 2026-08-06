@@ -3518,11 +3518,22 @@ def account_roles_dump() -> str:
 # Everything below reads or presses `DataCenter.ActBossDataManager`, which is where
 # the client keeps the whole event:
 #
-#   IsBossAvailable()      is the attack window open RIGHT NOW (a stage with a
-#                          start and an end, checked against the server's clock).
-#                          Not «is today a boss day» — the boss comes and goes
-#                          several times a day, and outside a window there is
-#                          nothing to attack.
+#   IsBossAvailable()      is the boss attackable RIGHT NOW: a stage with a start
+#                          and an end, checked against the server's clock. The event
+#                          runs Monday to Saturday and the stage covers the whole day
+#                          (23 hours from the server's midnight), so outside it means
+#                          Sunday, not «between windows». The four times in
+#                          `bossRefreshTimeSvr` are when the boss RESPAWNS during the
+#                          day, not four separate windows.
+#
+#                          IT ANSWERS «no» ON A CLIENT THAT HAS NOT ASKED. The stage
+#                          list it reads (`stageTimeList`) arrives only in the reply to
+#                          `user.get.act.boss.march`, which the game itself sends when
+#                          it opens the event's own screen. A panel that never asked
+#                          reads a nil list and draws «событие не идёт» over a running
+#                          event — which is exactly what happened until #1259. Every
+#                          reading of this manager therefore sends `codename_fetch()`
+#                          first and waits for `codename_loaded()`.
 #   actBossTransTimes      attacks made in the current window. The server owns it:
 #                          it is refreshed by `UserGetActBossMarch` and announced as
 #                          `OnActBossAttackTimesRefresh`, so it counts an attack sent
@@ -3539,8 +3550,40 @@ _CODENAME_MGR = "DataCenter.ActBossDataManager"
 _CODENAME_PARAMS = "local p = DataCenter.__lw_codename or {} "
 
 
+def codename_fetch() -> str:
+    """Ask the server for the event's bosses and its stage — the game's own get.
+
+    `user.get.act.boss.march` is what the client sends for itself (`RefreshTransTime`)
+    and what the reply handler `RefreshActBossDataList` fills BOTH `stageTimeList` and
+    `actBossDataList` from. Nothing is changed by it: it is a read of the server's
+    state, and the game fires it whenever it opens the event's screen.
+
+    It has to be sent by us because nothing else will. `RefreshTransTime` returns early
+    on a client whose stage list is still nil — the very state a panel-driven client is
+    always in — so the manager would sit empty for the whole session and every reading
+    beside it would be last session's or none. Send this, wait for `codename_loaded()`,
+    then read.
+    """
+    return ('pcall(function() SFSNetwork.SendMessage(MsgDefines.UserGetActBossMarch) end) '
+            'CS.UnityEngine.Debug.LogError("ACT codename_fetch sent")')
+
+
+def codename_loaded() -> str:
+    """Lua *expression* -> 1 once the fetch's reply has landed, else 0.
+
+    The stage list is the thing the reply brings and the thing `IsBossAvailable()`
+    reads, so its arrival is what «the answer is now worth reading» means. It stays 0
+    on a day the event does not run — there is no stage to send — which is why every
+    caller waits for it with a LIMIT rather than until it turns 1.
+    """
+    return ("((type(%s.stageTimeList) == 'table') and 1 or 0)" % _CODENAME_MGR)
+
+
 def codename_open() -> str:
     """Lua *expression* -> 1 while the boss can be attacked right now, else 0.
+
+    Ask `codename_fetch()` first and wait for `codename_loaded()`, or this answers «no»
+    on a running event — the stage list it reads arrives only in that reply.
 
     The gate the whole feature hangs off: outside a window there is no boss on the
     map, and every count beside it is last window's. Drawn as «событие не идёт»
@@ -3655,96 +3698,44 @@ def codename_armed() -> str:
     )
 
 
-def codename_select() -> str:
-    """Tap the boss on the map — the same handler a finger on the tile runs.
+def codename_send() -> str:
+    """Send the squad at the boss — the whole attack, in one call, with no window.
 
-    `GoToUtil.OnClickWorldPoint(pointId, type, uuid)` is arg-routed: it resolves the
-    exact point passed and opens its populated popup (docs/research/world-monsters.md,
-    Finding 7). `WorldPointType.WorldBoss` is what the event's boss resolves to.
+    This is the LAST thing the squad screen does when a person taps «Марш», with the
+    arguments it passes, read off the wire while the player made one attack by hand
+    (#1259) and then reproduced byte for byte:
+
+        SendCreateMarchMessage(formation, DIRECT_ATTACK_ACT_BOSS, point, uuid,
+                               timeIndex = 1, autoBackHome = 1, needSoldier = false,
+                               targetServerId = server, destroyTimeIndex = nil)
+
+    so nothing between the event's «Атака» and that call has to be walked at all: no
+    camera flight, no tile waiting to be streamed in, no popup, no squad screen. The
+    boss is addressed by uuid, and the server builds the path itself — the message that
+    leaves carries `start;target` as a pair it works out from the formation.
+
+    `CROSS_DIRECT_ATTACK_ACT_BOSS` when the boss stands on another server; the arm parks
+    its `serverId` so this can tell.
+
+    Scheduled on the main thread through `TimerManager:DelayInvoke`, for the reason
+    every other launch in this file is (`attack.py`): a cold send from the hijack
+    thread returns `true` and is dropped by the server.
     """
     return (
         _CODENAME_PARAMS +
-        "if p.point == nil then error('no boss parked for this run') end "
-        "GoToUtil.OnClickWorldPoint(p.point, WorldPointType.WorldBoss, p.uuid) "
-        'CS.UnityEngine.Debug.LogError("ACT codename_select point="..tostring(p.point))'
-    )
-
-
-def codename_popup_state() -> str:
-    """Lua *expression* -> 1 the boss's popup is up, 0 not yet, -1 something else opened.
-
-    The popup lands a beat before the data inside it, so «up but empty» has to read
-    as «not yet» or the run presses into a window that cannot answer.
-    """
-    return (
-        "(function() " + _CODENAME_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not w or w.Name ~= 'UIWorldPoint' then return 0 end "
-        "local c = w.Ctrl if c == nil then return 0 end "
-        "local pid = tonumber(c.pointId) "
-        "if pid == nil then return 0 end "
-        "if p.point ~= nil and pid ~= tonumber(p.point) then return -1 end "
-        "return 1 end)()"
-    )
-
-
-def codename_attack_press() -> str:
-    """Press «Атаковать» on the boss's open popup.
-
-    The same call the popup's own button makes, with the target type the event boss
-    uses: `DIRECT_ATTACK_ACT_BOSS` at home, `CROSS_DIRECT_ATTACK_ACT_BOSS` when the
-    boss is standing on another server. THE POPUP MUST STILL BE ON TOP — closing it
-    first is what made the rally target «hide» with nothing pressed.
-    """
-    return (
-        _CODENAME_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not w or w.Name ~= 'UIWorldPoint' then "
-        "error('the boss popup is not open (top is '..tostring(w and w.Name)..')') end "
+        "if p.formation == nil or p.uuid == nil then error('nothing armed for this run') end "
         "local kind = MarchTargetType.DIRECT_ATTACK_ACT_BOSS "
-        "local home = nil pcall(function() home = tonumber(LuaEntry.Player.serverId) end) "
+        "local home = nil pcall(function() home = tonumber(LuaEntry.Player:GetSelfServerId()) end) "
         "if p.server ~= nil and home ~= nil and tonumber(p.server) ~= home then "
         "kind = MarchTargetType.CROSS_DIRECT_ATTACK_ACT_BOSS end "
-        "MarchUtil.OnClickStartMarch(kind, w.Ctrl.pointId, w.Ctrl.uuid) "
-        'CS.UnityEngine.Debug.LogError("ACT codename_attack kind="..tostring(kind)'
-        '.." point="..tostring(w.Ctrl.pointId))'
-    )
-
-
-def codename_squad_pick() -> str:
-    """Pick the free squad the arm found, on the squad screen the attack opened."""
-    return (
-        _FORMATION_WIN + _CODENAME_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then "
-        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
-        "if p.formation == nil then error('no squad parked for this run') end "
-        "pcall(function() w.View:OnSelectClick(p.formation) end) "
-        "w.Ctrl:SetSelectFormationUuid(p.formation) "
-        'CS.UnityEngine.Debug.LogError("ACT codename_squad sel="..tostring(w.Ctrl.selectFormationUuid))'
-    )
-
-
-def codename_squad_picked() -> str:
-    """Lua *expression* -> 1 when the squad screen really holds the parked squad."""
-    return (
-        "(function() " + _FORMATION_WIN + _CODENAME_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then return 0 end "
-        "if p.formation ~= nil and tostring(w.Ctrl.selectFormationUuid) == tostring(p.formation) "
-        "then return 1 end return 0 end)()"
-    )
-
-
-def codename_launch() -> str:
-    """Press the squad screen's launch. The screen closes itself when the send goes."""
-    return (
-        _FORMATION_WIN + _CODENAME_PARAMS +
-        "local w = UIManager.Instance:GetStackTopWindow() "
-        "if not _isformation(w) then "
-        "error('the squad screen is not open (top is '..tostring(w and w.Name)..')') end "
-        "w.Ctrl:OnCheckTime(p.formation, nil) "
-        'CS.UnityEngine.Debug.LogError("ACT codename_launch formation="..tostring(p.formation))'
+        "TimerManager:GetInstance():DelayInvoke(function() "
+        "local ok, err = pcall(function() "
+        "MarchUtil.SendCreateMarchMessage(p.formation, kind, p.point, p.uuid, "
+        "1, 1, false, p.server, nil) end) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_send ok="..tostring(ok).." err="..tostring(err)) '
+        "end, 0.4) "
+        'CS.UnityEngine.Debug.LogError("ACT codename_send scheduled squad="..tostring(p.squad)'
+        '.." boss="..tostring(p.uuid).." kind="..tostring(kind))'
     )
 
 

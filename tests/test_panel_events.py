@@ -120,14 +120,38 @@ def test_the_counter_says_nothing_rather_than_a_zero_it_does_not_know():
 # ---------------------------------------------------------------------------
 # the scenarios behind it
 # ---------------------------------------------------------------------------
-def test_the_reading_is_a_read_and_presses_nothing():
-    """It runs on a poll, so it must never change anything."""
+def test_the_reading_asks_the_server_before_it_believes_the_answer():
+    """#1259: the manager answers «shut» to a client that never asked it.
+
+    `IsBossAvailable()` reads a stage list that only arrives in the reply to
+    `user.get.act.boss.march`, so a reading that skips the ask reports a running event
+    as shut every single day — which is what it did, and what greyed the whole feature
+    out. The ask has to come FIRST and the answer has to be waited for.
+    """
     body = [line for line in READ.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")]
-    assert len(body) == 1 and body[0].startswith("READ_LUA "), body
-    for forbidden in ("TAP ", "SendMessage", "OnClickStartMarch", "SendLuaMessage"):
-        assert forbidden not in body[0], f"the reading contains «{forbidden}»"
-    assert "INTO %s" % modelmod.CODENAME_VARIABLE in body[0]
+    assert body[0] == "TAP codename_fetch", body[0]
+    waits = [i for i, line in enumerate(body) if line.startswith("WHILE cn_loaded")]
+    answer = [i for i, line in enumerate(body)
+              if line.startswith("READ_LUA ") and "INTO %s" % modelmod.CODENAME_VARIABLE in line]
+    assert waits and answer, body
+    assert waits[0] < answer[0], "the reading answers before the reply has landed"
+    # The wait is BOUNDED: on the one day the event does not run there is no stage to
+    # send, and an unbounded wait would hang the poll for ever.
+    assert "LIMIT" in body[waits[0]], body[waits[0]]
+
+
+def test_the_reading_changes_nothing_it_only_asks():
+    """It runs on a poll, so the one message it sends must be a GET."""
+    body = [line for line in READ.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    for line in body:
+        for forbidden in ("OnClickStartMarch", "SendLuaMessage", "SendCreateMarchMessage"):
+            assert forbidden not in line, f"the reading contains «{forbidden}»"
+    for line in body:
+        if line.startswith("TAP "):
+            assert line == "TAP codename_fetch", f"the reading presses «{line}»"
+    assert "SendMessage(MsgDefines.UserGetActBossMarch)" in lua_actions.codename_fetch()
 
 
 def test_the_reading_is_the_same_expressions_the_press_is_gated_on():
@@ -150,11 +174,34 @@ def test_the_attack_is_a_scenario_and_the_panel_only_plays_it():
     """`CLAUDE.md`: the ability is one file, and the tab runs it by name."""
     assert ATTACK.exists()
     text = ATTACK.read_text(encoding="utf-8")
-    # It gates on the event being open before anything is opened or pressed.
+    # It ASKS before it believes the gate — the manager is empty until it does (#1259).
+    assert text.index("TAP codename_fetch") < text.index(lua_actions.codename_open())
+    # It gates on the event being open before anything is armed or sent.
     gate = text.index(lua_actions.codename_open())
-    for press in ("TAP codename_select", "TAP codename_attack", "TAP codename_launch"):
+    for press in ("TAP codename_arm", "TAP codename_send"):
         assert press in text
         assert text.index(press) > gate, f"«{press}» comes before the open gate"
+    # …and it opens NOTHING. A person walks five screens; the send needs none of them,
+    # and a recipe that flew the camera would need a tile the client may never stream in.
+    for gone in ("codename_select", "codename_attack", "codename_squad", "codename_launch",
+                 "OnClickWorldPoint", "UIWorldPoint", "UIFormationSelectList"):
+        assert gone not in text, f"the attack still walks the UI: «{gone}»"
+
+
+def test_the_attack_proves_itself_by_ASKING_not_by_waiting():
+    """#1259: the count is the server's, and nothing pushes it to the client.
+
+    The first run of this recipe reported «the count did not move» over an attack that
+    had gone out and was visible in the game — it polled a number that only changes when
+    the client asks. So every turn of the proof loop asks again.
+    """
+    text = ATTACK.read_text(encoding="utf-8")
+    body = [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    loop = [i for i, line in enumerate(body) if line.startswith("WHILE sent < 1")]
+    assert loop, body
+    inside = body[loop[0] + 1:loop[0] + 3]
+    assert "TAP codename_fetch" in inside, inside
     # …and it proves the attack by the SERVER's count rather than by a clean press.
     assert lua_actions.codename_sent() in text
 
