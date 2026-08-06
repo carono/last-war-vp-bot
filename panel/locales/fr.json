@@ -225,6 +225,7 @@
   "log.game.link_back": "la connexion au serveur est revenue",
   "log.game.deaf_restart": "le client n'est plus entendu par le serveur depuis {secs}s — redémarrage",
   "log.game.deaf_hold": "le client n'est pas entendu, mais il vient d'être redémarré — attente de {mins} min",
+  "log.game.deaf_busy": "le client n'est pas entendu, mais quelqu'un est à la machine — on n'y touche pas pendant {mins} min",
   "log.game.gone": "le client a disparu — le processus du jeu n'est plus là",
   "log.game.kill_failed": "le processus n'a pas pu être tué : {error}",
   "log.game.killing": "arrêt de {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Feux d'artifice",
   "checklist.item.vip_daily": "Le cadeau VIP quotidien",
   "checklist.item.battle_pass": "Missions du Passe de Combat",
-  "checklist.item.ministry": "Postuler à un ministère"
+  "checklist.item.ministry": "Postuler à un ministère",
+  "status.recovery.wait": "redémarrage retenu : encore {mins} min",
+  "status.recovery.player": "redémarrage retenu : quelqu'un joue",
+  "web.ui.recovery.wait": "redémarrage retenu : encore {mins} min",
+  "web.ui.recovery.player": "redémarrage retenu : quelqu'un joue"
 }

@@ -225,6 +225,7 @@
   "log.game.link_back": "связь с сервером восстановилась",
   "log.game.deaf_restart": "клиент не слышен серверу уже {secs} с — перезапускаю",
   "log.game.deaf_hold": "клиент не слышен, но недавно уже перезапускался — жду {mins} мин",
+  "log.game.deaf_busy": "клиент не слышен, но за машиной кто-то есть — не трогаю ещё {mins} мин",
   "log.game.gone": "клиент пропал — процесса игры больше нет",
   "log.game.kill_failed": "не удалось снять процесс: {error}",
   "log.game.killing": "снимаю {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Фейерверки",
   "checklist.item.vip_daily": "Ежедневный VIP-подарок",
   "checklist.item.battle_pass": "Задания боевого пропуска",
-  "checklist.item.ministry": "Заявка в министерство"
+  "checklist.item.ministry": "Заявка в министерство",
+  "status.recovery.wait": "перезапуск отложен: до следующего {mins} мин",
+  "status.recovery.player": "перезапуск отложен: за игрой человек",
+  "web.ui.recovery.wait": "перезапуск отложен: до следующего {mins} мин",
+  "web.ui.recovery.player": "перезапуск отложен: за игрой человек"
 }

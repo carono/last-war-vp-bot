@@ -112,6 +112,64 @@ def test_after_the_cooldown_it_restarts_again():
     assert r.restarts == 2
 
 
+def test_a_link_that_never_comes_back_is_retried_after_every_cooldown():
+    """The latch that left a deaf client sitting for an hour (#1259, live).
+
+    The first version said «too soon» once and then suppressed EVERYTHING, so a link
+    that never recovered was restarted once and abandoned. Live: restarted 21:44:16,
+    «жду 7 мин» at 21:47:53, and then nothing at all while the cooldown expired and the
+    schedule failed every errand against the same dead client.
+    """
+    r = rec.Recovery()
+    acts = [i for i in range(400)
+            if (said := r.note(LOST, 1000.0 + i * 8, idle_sec=9999.0))
+            and said[0] == rec.ACT]
+    hours = 400 * 8 / 3600.0
+    assert r.restarts >= int(hours * 3600 / rec.COOLDOWN_SEC) - 1, (
+        f"{r.restarts} restarts in {hours:.1f} h at a {rec.COOLDOWN_SEC / 60:.0f} min "
+        f"cooldown — it gave up")
+    assert len(acts) == r.restarts
+
+
+def test_nobody_is_thrown_out_of_a_game_they_are_playing():
+    """The restart CLOSES the window. On 2026-08-06 at 21:44:16 it closed a live one.
+
+    A person had logged in, the link dropped a couple of minutes later, and the panel
+    «fixed» it by ending their session. An account being played is not an account in
+    trouble.
+    """
+    r = rec.Recovery()
+    said = [r.note(LOST, 1000.0 + i * 8, idle_sec=10.0) for i in range(20)]
+    assert r.restarts == 0, "it restarted the client under somebody's hands"
+    spoken = [s for s in said if s]
+    assert spoken and spoken[0][0] == rec.BUSY, spoken
+    assert len(spoken) == 1, f"it said it every poll: {spoken}"
+
+
+def test_an_unreadable_idle_reading_never_lets_a_restart_through():
+    """«Cannot tell» must not read as «nobody is there» — the gate only ever holds back."""
+    r = rec.Recovery()
+    for i in range(rec.STRIKES):
+        r.note(LOST, 1000.0 + i * 8, idle_sec=None)
+    assert r.restarts == 1, "None must behave exactly as it did before the gate existed"
+
+
+def test_the_reason_a_restart_is_being_withheld_is_readable():
+    """«Не перезапускается» must never be unexplained — the person asked for this."""
+    r = rec.Recovery()
+    for i in range(rec.STRIKES):
+        r.note(LOST, 1000.0 + i * 8, idle_sec=10.0)
+    assert r.state(1000.0)["held_by"] == "player"
+
+    r2 = rec.Recovery()
+    for i in range(rec.STRIKES):
+        r2.note(LOST, 2000.0 + i * 8, idle_sec=9999.0)
+    for i in range(rec.STRIKES):
+        r2.note(LOST, 2100.0 + i * 8, idle_sec=9999.0)
+    st = r2.state(2100.0)
+    assert st["held_by"] == "cooldown" and st["cooldown_left"] > 0, st
+
+
 def test_a_healthy_client_is_never_touched_however_long_it_runs():
     r = rec.Recovery()
     for i in range(500):
@@ -131,11 +189,16 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     r = rec.Recovery()
     _deaf(r, rec.STRIKES)
     st = r.state(1000.0 + 60)
-    assert set(st) == {"deaf_for", "strikes", "restarts", "cooldown_left"}, st
+    assert set(st) == {"deaf_for", "strikes", "restarts", "cooldown_left",
+                       "held_by"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
-    for value in st.values():
-        assert isinstance(value, int), st
+    for key, value in st.items():
+        # Numbers, and one id — never a sentence. `held_by` names WHY a restart is
+        # being withheld so each front-end can word it itself; it is "", "cooldown"
+        # or "player", which is a key and not a language.
+        assert isinstance(value, int if key != "held_by" else str), (key, value)
+    assert st["held_by"] in ("", "cooldown", "player"), st
 
 
 def test_the_lost_it_watches_for_is_the_shared_one():

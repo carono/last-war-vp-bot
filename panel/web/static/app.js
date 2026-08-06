@@ -143,9 +143,11 @@ function paintState(state) {
    * (panel/runtime/recovery.py). Silent while nothing is wrong. */
   const rec = state.game.recovery || {};
   const recEl = $('game-recovery');
-  if (rec.cooldown_left) {
-    recEl.textContent = T('web.ui.recovery.hold', { mins: Math.ceil(rec.cooldown_left / 60),
-                                                    n: rec.restarts || 0 });
+  if (rec.held_by === 'player') {
+    recEl.textContent = T('web.ui.recovery.player');
+  } else if (rec.held_by === 'cooldown' || rec.cooldown_left) {
+    recEl.textContent = T('web.ui.recovery.wait',
+                          { mins: Math.ceil((rec.cooldown_left || 0) / 60) });
   } else if (rec.deaf_for) {
     recEl.textContent = T('web.ui.recovery.deaf', { n: rec.deaf_for, of: rec.strikes || 0 });
   } else if (rec.restarts) {
@@ -169,6 +171,17 @@ function paintState(state) {
   daemon.textContent = state.daemon.up ? T('web.ui.on') : T('web.ui.off');
   daemon.className = 'pill ' + (state.daemon.up ? 'ok' : 'off');
   $('daemon-text').textContent = T('web.ui.port', { port: state.daemon.port });
+  /* Two profiles on ONE client farm ONE account and both look healthy doing it
+   * (#1250). The phone gets the reading and no button: the login that separates them
+   * is typed on the «Настройки» tab, which has no phone screen by decision — so the
+   * line says where in the window to go rather than pretending it can be fixed here. */
+  const shared = state.daemon.shared || [];
+  $('daemon-shared').hidden = shared.length === 0;
+  $('daemon-shared').textContent = shared.length
+    ? T('web.ui.daemon.shared', { others: shared.join(', '),
+                                  tab: T('tab.settings'), page: T('settings.tab.game'),
+                                  frame: T('session.frame') })
+    : '';
 
   const busy = $('busy-dot');
   const working = !!state.activity || state.daemon.busy;

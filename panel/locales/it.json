@@ -225,6 +225,7 @@
   "log.game.link_back": "la connessione al server è tornata",
   "log.game.deaf_restart": "il server non sente il client da {secs}s — riavvio",
   "log.game.deaf_hold": "il client non si sente, ma è stato riavviato da poco — attendo {mins} min",
+  "log.game.deaf_busy": "il client non si sente, ma c'è qualcuno alla macchina — non lo tocco per {mins} min",
   "log.game.gone": "il client è sparito — il processo del gioco non c'è più",
   "log.game.kill_failed": "non è stato possibile terminare il processo: {error}",
   "log.game.killing": "termino {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Fuochi d'artificio",
   "checklist.item.vip_daily": "Il regalo VIP giornaliero",
   "checklist.item.battle_pass": "Incarichi del Pass Battaglia",
-  "checklist.item.ministry": "Candidarsi a un ministero"
+  "checklist.item.ministry": "Candidarsi a un ministero",
+  "status.recovery.wait": "riavvio trattenuto: mancano {mins} min",
+  "status.recovery.player": "riavvio trattenuto: qualcuno sta giocando",
+  "web.ui.recovery.wait": "riavvio trattenuto: mancano {mins} min",
+  "web.ui.recovery.player": "riavvio trattenuto: qualcuno sta giocando"
 }

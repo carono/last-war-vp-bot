@@ -225,6 +225,7 @@
   "log.game.link_back": "die Serververbindung ist wieder da",
   "log.game.deaf_restart": "der Client ist seit {secs}s für den Server nicht erreichbar — Neustart",
   "log.game.deaf_hold": "der Client ist nicht erreichbar, wurde aber kürzlich neu gestartet — warte {mins} Min",
+  "log.game.deaf_busy": "der Client ist nicht erreichbar, aber jemand sitzt am Rechner — noch {mins} Min unangetastet",
   "log.game.gone": "der Client ist weg — den Spielprozess gibt es nicht mehr",
   "log.game.kill_failed": "der Prozess ließ sich nicht beenden: {error}",
   "log.game.killing": "beende {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Feuerwerk",
   "checklist.item.vip_daily": "Das tägliche VIP-Geschenk",
   "checklist.item.battle_pass": "Aufträge des Kampfpasses",
-  "checklist.item.ministry": "Sich um ein Ministerium bewerben"
+  "checklist.item.ministry": "Sich um ein Ministerium bewerben",
+  "status.recovery.wait": "Neustart zurückgehalten: noch {mins} Min",
+  "status.recovery.player": "Neustart zurückgehalten: jemand spielt",
+  "web.ui.recovery.wait": "Neustart zurückgehalten: noch {mins} Min",
+  "web.ui.recovery.player": "Neustart zurückgehalten: jemand spielt"
 }

@@ -225,6 +225,7 @@
   "log.game.link_back": "sunucu bağlantısı geri geldi",
   "log.game.deaf_restart": "istemci {secs}sn'dir sunucuya ulaşamıyor — yeniden başlatılıyor",
   "log.game.deaf_hold": "istemci duyulmuyor ama az önce yeniden başlatıldı — {mins} dk bekleniyor",
+  "log.game.deaf_busy": "istemci duyulmuyor ama makine başında biri var — {mins} dk dokunulmuyor",
   "log.game.gone": "istemci gitti — oyun süreci artık orada değil",
   "log.game.kill_failed": "süreç öldürülemedi: {error}",
   "log.game.killing": "{exe} öldürülüyor…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Havai fişekler",
   "checklist.item.vip_daily": "Günlük VIP hediyesi",
   "checklist.item.battle_pass": "Savaş Bileti görevleri",
-  "checklist.item.ministry": "Bakanlığa başvur"
+  "checklist.item.ministry": "Bakanlığa başvur",
+  "status.recovery.wait": "yeniden başlatma bekletildi: {mins} dk kaldı",
+  "status.recovery.player": "yeniden başlatma bekletildi: biri oynuyor",
+  "web.ui.recovery.wait": "yeniden başlatma bekletildi: {mins} dk kaldı",
+  "web.ui.recovery.player": "yeniden başlatma bekletildi: biri oynuyor"
 }

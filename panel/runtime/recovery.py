@@ -66,6 +66,20 @@ STRIKES = 3
 #: anything touches it again.
 COOLDOWN_SEC = 600.0
 
+#: How recently somebody must have touched this machine for the client to be left alone.
+#:
+#: THE RESTART CLOSES THE WINDOW SOMEBODY MAY BE PLAYING IN. On 2026-08-06 it did: the
+#: person logged in, the link dropped a couple of minutes later, and at 21:44:16 this
+#: threw them out of the game to «fix» it. An account being played is not an account in
+#: trouble, and the automation must never be the thing that ends a session.
+#:
+#: Five minutes of no keyboard and no mouse in the client's own Windows session. It does
+#: NOT see somebody playing the same account from a PHONE — nothing local can — and that
+#: case is worse, because restarting here takes the account back off them. Whether to
+#: hold off on a kick for that reason is a decision for the person, written up in
+#: docs/research/server-link-status.md rather than guessed at here.
+PLAYER_QUIET_SEC = 300.0
+
 
 class Recovery:
     """One client's answer to «has it been deaf long enough to restart?»
@@ -75,7 +89,7 @@ class Recovery:
     a lock nobody needs.
     """
 
-    __slots__ = ("_run", "_last", "_restarts", "_held")
+    __slots__ = ("_run", "_last", "_restarts", "_held", "_why")
 
     def __init__(self) -> None:
         #: Consecutive `lost` readings so far.
@@ -88,6 +102,8 @@ class Recovery:
         #: Whether the current run has already said «too soon», so the wait is reported
         #: once rather than every poll.
         self._held = False
+        #: "" | "cooldown" | "player" — what the front-ends draw as the reason.
+        self._why = ""
 
     # -- reading -------------------------------------------------------------
     @property
@@ -111,10 +127,14 @@ class Recovery:
         if self._last:
             left = max(0, int(self._last + COOLDOWN_SEC - now))
         return {"deaf_for": self._run, "strikes": STRIKES,
-                "restarts": self._restarts, "cooldown_left": left}
+                "restarts": self._restarts, "cooldown_left": left,
+                # Why nothing is happening, when nothing is: the person asked to see
+                # that a restart is being WITHHELD rather than simply not occurring.
+                "held_by": self._why}
 
     # -- deciding ------------------------------------------------------------
-    def note(self, link: str, now: float) -> "tuple | None":
+    def note(self, link: str, now: float,
+             idle_sec: "float | None" = None) -> "tuple | None":
         """Feed one link reading. Returns what to SAY and DO, or ``None`` for nothing.
 
         The answer is `(locale_key, fmt)` when something should be said, and the caller
@@ -128,16 +148,32 @@ class Recovery:
             # not both relaunch the same client.
             self._run = 0
             self._held = False
+            self._why = ""
             return None
 
         self._run += 1
         if self._run < STRIKES:
             return None
-        if self._run > STRIKES and self._held:
-            return None                      # already waiting, already said so
+
+        # SOMEBODY IS AT THE MACHINE. Not a reason to restart — a reason not to: the
+        # restart would close the window they are playing in, which is what it did once.
+        if idle_sec is not None and idle_sec < PLAYER_QUIET_SEC:
+            if self._why == "player":
+                return None
+            self._why = "player"
+            return (BUSY, {"mins": int((PLAYER_QUIET_SEC - idle_sec) // 60) + 1})
 
         since = now - self._last if self._last else None
         if since is not None and since < COOLDOWN_SEC:
+            # Waiting. Said ONCE per wait, not once a poll — but the wait is re-checked
+            # every time, which is the whole of the bug that was here: `_held` used to
+            # suppress the ACT as well, so a link that never came back was restarted
+            # once, told «жду 7 мин» once, and then left alone FOR EVER. Live, on
+            # 2026-08-06, that left a deaf client sitting from 21:47 with the cooldown
+            # long expired and the schedule failing every errand against it.
+            self._why = "cooldown"
+            if self._held:
+                return None
             self._held = True
             return (HOLD, {"mins": int((COOLDOWN_SEC - since) // 60) + 1})
 
@@ -145,6 +181,7 @@ class Recovery:
         self._restarts += 1
         self._run = 0                        # the next reading starts a fresh run
         self._held = False
+        self._why = ""
         return (ACT, {"secs": STRIKES * 8})
 
 
@@ -152,3 +189,5 @@ class Recovery:
 ACT = "log.game.deaf_restart"
 #: …and this when it may not yet, so a wait never looks like nothing happening.
 HOLD = "log.game.deaf_hold"
+#: …and this when somebody is playing. The client is left exactly alone.
+BUSY = "log.game.deaf_busy"

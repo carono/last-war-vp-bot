@@ -562,3 +562,38 @@ def probe(game_exe: str = GAME_EXE, user: "str | None" = None) -> Link:
 
     state, conn, dead = link_of(found)
     return Link(True, state, pid=found[0], conn=conn, dead=dead, user=user)
+
+
+def idle_sec() -> "float | None":
+    """Seconds since the last keyboard or mouse input in THIS Windows session.
+
+    «Is somebody at the machine» — the one question that says whether restarting the
+    client would close a window a person is playing in. It answers for the session the
+    CALLING process is in, which is the client's own: the panel and the client it drives
+    live in the same session (a second account's client has its own, and its own panel
+    process with it).
+
+    ``None`` where it cannot be asked — not Windows, no ctypes, an API that refused.
+    Callers must read that as «cannot tell» and NOT as «nobody is there»: this gate only
+    ever holds a restart back, so failing to answer must never be what lets one through.
+
+    It cannot see somebody playing the same account from a PHONE. Nothing local can, and
+    that case is the worse one — see `panel/runtime/recovery.py`.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Info(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+
+        info = _Info()
+        info.cbSize = ctypes.sizeof(_Info)
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return None
+        ticks = ctypes.windll.kernel32.GetTickCount()
+        # GetTickCount wraps at 49.7 days; the subtraction is done in 32 bits so the
+        # wrap comes out as a small positive number rather than a negative age.
+        return ((ticks - info.dwTime) & 0xFFFFFFFF) / 1000.0
+    except Exception:                      # noqa: BLE001 — «cannot tell», never «nobody»
+        return None

@@ -225,6 +225,7 @@
   "log.game.link_back": "a ligação ao servidor voltou",
   "log.game.deaf_restart": "o servidor não ouve o cliente há {secs}s — reiniciando",
   "log.game.deaf_hold": "o cliente não é ouvido, mas foi reiniciado há pouco — aguardando {mins} min",
+  "log.game.deaf_busy": "o cliente não é ouvido, mas há alguém no computador — sem lhe tocar por {mins} min",
   "log.game.gone": "o cliente sumiu — o processo do jogo não está mais lá",
   "log.game.kill_failed": "não deu para matar o processo: {error}",
   "log.game.killing": "matando {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Fogos de artifício",
   "checklist.item.vip_daily": "O presente VIP diário",
   "checklist.item.battle_pass": "Missões do Passe de Batalha",
-  "checklist.item.ministry": "Candidatar-se a um ministério"
+  "checklist.item.ministry": "Candidatar-se a um ministério",
+  "status.recovery.wait": "reinício retido: faltam {mins} min",
+  "status.recovery.player": "reinício retido: alguém está a jogar",
+  "web.ui.recovery.wait": "reinício retido: faltam {mins} min",
+  "web.ui.recovery.player": "reinício retido: alguém está a jogar"
 }

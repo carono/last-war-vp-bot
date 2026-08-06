@@ -225,6 +225,7 @@
   "log.game.link_back": "kết nối tới máy chủ đã trở lại",
   "log.game.deaf_restart": "máy chủ không nghe thấy client đã {secs}s — đang khởi động lại",
   "log.game.deaf_hold": "không nghe thấy client, nhưng vừa khởi động lại — chờ {mins} phút",
+  "log.game.deaf_busy": "không nghe thấy client, nhưng có người đang ở máy — để yên {mins} phút",
   "log.game.gone": "client biến mất — tiến trình trò chơi không còn đó",
   "log.game.kill_failed": "không giết được tiến trình: {error}",
   "log.game.killing": "đang giết {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Pháo hoa",
   "checklist.item.vip_daily": "Quà VIP hằng ngày",
   "checklist.item.battle_pass": "Nhiệm vụ Battle Pass",
-  "checklist.item.ministry": "Nộp đơn vào bộ"
+  "checklist.item.ministry": "Nộp đơn vào bộ",
+  "status.recovery.wait": "hoãn khởi động lại: còn {mins} phút",
+  "status.recovery.player": "hoãn khởi động lại: có người đang chơi",
+  "web.ui.recovery.wait": "hoãn khởi động lại: còn {mins} phút",
+  "web.ui.recovery.player": "hoãn khởi động lại: có người đang chơi"
 }

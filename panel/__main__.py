@@ -102,6 +102,8 @@ from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
 from .runtime import panel_control as panelctl
 from .runtime import panic as panicmod
+
+import game_link
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -3374,7 +3376,9 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         now = time.time()
         self._paint_recovery(self._rt.recovery.state(now))
-        said = self._rt.recovery.note(found.link, now)
+        # «Is somebody at the machine» — the gate that stops this closing a window
+        # a person is playing in, which it did once (#1259).
+        said = self._rt.recovery.note(found.link, now, idle_sec=game_link.idle_sec())
         if said is None:
             return
         key, fmt = said
@@ -3386,9 +3390,14 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
     def _paint_recovery(self, st: dict) -> None:
         """Say the restart bookkeeping on the strip — and nothing at all while it is idle."""
-        if st.get("cooldown_left"):
-            text = self._t("status.recovery.hold",
-                           mins=int(st["cooldown_left"] // 60) + 1, n=st.get("restarts", 0))
+        why = st.get("held_by") or ""
+        if why == "player":
+            # «Не перезапускается» must never be unexplained: this one is deliberate,
+            # and it is the reason a person at the machine keeps their session (#1259).
+            text = self._t("status.recovery.player")
+        elif why == "cooldown" or st.get("cooldown_left"):
+            text = self._t("status.recovery.wait",
+                           mins=int(st.get("cooldown_left", 0) // 60) + 1)
         elif st.get("deaf_for"):
             text = self._t("status.recovery.deaf", n=st["deaf_for"], of=st.get("strikes", 0))
         elif st.get("restarts"):

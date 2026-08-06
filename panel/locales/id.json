@@ -225,6 +225,7 @@
   "log.game.link_back": "koneksi ke server kembali",
   "log.game.deaf_restart": "klien tidak terdengar oleh server selama {secs}d — memulai ulang",
   "log.game.deaf_hold": "klien tidak terdengar, tetapi baru saja dimulai ulang — menunggu {mins} mnt",
+  "log.game.deaf_busy": "klien tidak terdengar, tetapi ada orang di mesin — dibiarkan {mins} mnt",
   "log.game.gone": "klien hilang — proses permainan sudah tidak ada",
   "log.game.kill_failed": "proses tidak bisa dimatikan: {error}",
   "log.game.killing": "mematikan {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Kembang api",
   "checklist.item.vip_daily": "Hadiah VIP harian",
   "checklist.item.battle_pass": "Misi Battle Pass",
-  "checklist.item.ministry": "Ajukan diri jadi sekretaris"
+  "checklist.item.ministry": "Ajukan diri jadi sekretaris",
+  "status.recovery.wait": "mulai ulang ditahan: sisa {mins} mnt",
+  "status.recovery.player": "mulai ulang ditahan: ada yang bermain",
+  "web.ui.recovery.wait": "mulai ulang ditahan: sisa {mins} mnt",
+  "web.ui.recovery.player": "mulai ulang ditahan: ada yang bermain"
 }

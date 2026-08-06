@@ -225,6 +225,7 @@
   "log.game.link_back": "the server connection is back",
   "log.game.deaf_restart": "the client cannot be heard by the server for {secs}s — restarting it",
   "log.game.deaf_hold": "the client cannot be heard, but it was restarted recently — waiting {mins} min",
+  "log.game.deaf_busy": "the client cannot be heard, but somebody is at the machine — leaving it alone for {mins} min",
   "log.game.gone": "the client is gone — the game process is no longer there",
   "log.game.kill_failed": "the process could not be killed: {error}",
   "log.game.killing": "killing {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Fireworks",
   "checklist.item.vip_daily": "The daily VIP gift",
   "checklist.item.battle_pass": "Battle Pass missions",
-  "checklist.item.ministry": "Apply for a ministry"
+  "checklist.item.ministry": "Apply for a ministry",
+  "status.recovery.wait": "restart held: {mins} min of cooldown left",
+  "status.recovery.player": "restart held: somebody is playing",
+  "web.ui.recovery.wait": "restart held: {mins} min of cooldown left",
+  "web.ui.recovery.player": "restart held: somebody is playing"
 }

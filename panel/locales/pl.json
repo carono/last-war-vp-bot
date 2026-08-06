@@ -225,6 +225,7 @@
   "log.game.link_back": "połączenie z serwerem wróciło",
   "log.game.deaf_restart": "serwer nie słyszy klienta od {secs}s — restartuję",
   "log.game.deaf_hold": "klient jest niesłyszalny, ale był niedawno restartowany — czekam {mins} min",
+  "log.game.deaf_busy": "klient jest niesłyszalny, ale ktoś jest przy komputerze — nie ruszam przez {mins} min",
   "log.game.gone": "klient zniknął — procesu gry już nie ma",
   "log.game.kill_failed": "nie udało się zabić procesu: {error}",
   "log.game.killing": "zabijam {exe}…",
@@ -1206,5 +1207,9 @@
   "checklist.item.fireworks": "Fajerwerki",
   "checklist.item.vip_daily": "Codzienny prezent VIP",
   "checklist.item.battle_pass": "Zadania Karnetu Bojowego",
-  "checklist.item.ministry": "Złożyć wniosek o ministerstwo"
+  "checklist.item.ministry": "Złożyć wniosek o ministerstwo",
+  "status.recovery.wait": "restart wstrzymany: jeszcze {mins} min",
+  "status.recovery.player": "restart wstrzymany: ktoś gra",
+  "web.ui.recovery.wait": "restart wstrzymany: jeszcze {mins} min",
+  "web.ui.recovery.player": "restart wstrzymany: ktoś gra"
 }
