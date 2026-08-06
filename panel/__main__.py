@@ -252,6 +252,12 @@ RESIZE_SETTLE_MS = 160
 PAINT_OFF_MAX_MS = 500
 WM_SETREDRAW = 0x000B
 RDW_REPAINT_ALL = 0x0001 | 0x0004 | 0x0080 | 0x0400
+# …and PAINT IT NOW rather than marking it dirty and hoping (#1210). Without
+# RDW_UPDATENOW the flags above only queue a WM_PAINT, which Windows delivers when
+# the message queue next runs dry — and the Tk thread of this panel does not run dry
+# on any schedule worth trusting. The pixels Tk drew into a window that was not
+# painting are gone until that WM_PAINT lands, so it is made to land here.
+RDW_UPDATENOW = 0x0100
 
 # -- the account dashboard --------------------------------------------------
 # How often the strip is re-read. One game-VM call for all of it (panel/dashboard.py
@@ -704,6 +710,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 # anything, so this one `update_idletasks` stays.
                 session.page.update_idletasks()
                 self._apply_sash(self._saved_sash())
+                # …and DRAW IT, rather than trusting that it drew itself. A page built
+                # while another profile was in front is laid out here for the first
+                # time, and whatever Tk painted while it was doing so may never have
+                # reached the glass — see `_repaint_page` (#1210).
+                self._repaint_page(session.page)
         except (tk.TclError, RuntimeError):
             pass
         try:
@@ -3649,12 +3660,26 @@ class Panel(runtime.SessionScoped, tk.Tk):
         until the drag settles. Pausing mid-drag fills it in, letting go of the
         frame fills it in, and it beats the alternative of a few frames a second.
 
-        A one-off resize (maximise, restore, a geometry set from code) is a drag of
-        one step as far as this is concerned: it shows its result a settle-time
-        later. Windows only; elsewhere the damper is simply not installed.
+        ONLY A DRAG IS DAMPED, and that is the whole of #1210. A size change that
+        arrives on its own — maximise, restore, a geometry set from code, the reveal
+        at boot, a page whose contents ask the window for a different size — used to
+        switch painting off for a settle-time too, and a settle-time is exactly long
+        enough for Tk to lay out and DRAW a page inside it. Tk draws a ttk widget once,
+        at idle, and clears its own «needs redrawing» flag whether or not the pixels
+        reached the glass; a page that was drawn into a window with its painting off is
+        therefore blank until something invalidates it again — which is why a profile
+        switched to for the first time showed empty «Игра» and «Обновление» blocks and
+        stayed that way until the frame was dragged. So the first size change paints
+        normally (it costs one repaint, and a drag never actually performs it — the
+        next step arrives long before the message queue runs dry), and painting goes
+        off only once a SECOND change arrives while the first is still settling, which
+        no one-off resize ever produces.
+
+        Windows only; elsewhere the damper is simply not installed.
         """
         self._resize_size = (self.winfo_width(), self.winfo_height())
         self._resize_job = None         # settle timer, while a resize is in flight
+        self._resize_run = False        # …and «this size change has one behind it»
         self._paint_off = False
         self._paint_hwnd = None
         if os.name != "nt":
@@ -3682,11 +3707,17 @@ class Panel(runtime.SessionScoped, tk.Tk):
         except (tk.TclError, ValueError):
             pass
         self._resize_job = self.after(RESIZE_SETTLE_MS, self._settle_resize)
-        self._suspend_painting()
+        # THE SECOND STEP ONWARDS — see `_install_resize_damper`. One size change on its
+        # own is not a drag, and damping it is what left a background page unpainted
+        # (#1210); a drag has hardly begun by the time its second step arrives.
+        if self._resize_run:
+            self._suspend_painting()
+        self._resize_run = True
 
     def _settle_resize(self) -> None:
         """The size has been still long enough — put the picture back up."""
         self._resize_job = None
+        self._resize_run = False
         self._resume_painting()
 
     def _window_handle(self) -> int:
@@ -3738,7 +3769,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
         hwnd = self._window_handle()
         try:
             ctypes.windll.user32.SendMessageW(hwnd, WM_SETREDRAW, 1, 0)
-            ctypes.windll.user32.RedrawWindow(hwnd, None, None, RDW_REPAINT_ALL)
+            ctypes.windll.user32.RedrawWindow(hwnd, None, None,
+                                              RDW_REPAINT_ALL | RDW_UPDATENOW)
         except Exception:            # noqa: BLE001
             pass
         # A window that is not painting IS a frozen panel as far as anybody looking at
@@ -3749,6 +3781,35 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if dbg is not None and held > 0.3:
             dbg.debug("window painted nothing for %d ms (resize damper, sizes %s)",
                       held * 1000, getattr(self, "_paint_sizes", [])[:6])
+
+    def _repaint_page(self, page) -> None:
+        """Repaint one profile's page, from its own frame down (#1210).
+
+        A page that comes to the front is drawn by Tk once, at idle, and Tk then
+        believes it is on the glass. Anything that swallowed those pixels — the damper
+        above, a WM_PAINT that was queued while the window was busy, a page mapped
+        while Windows had this window's painting off — leaves a page that is laid out
+        correctly, answers the mouse, and shows blank blocks. Nothing in Tk repairs
+        that on its own, because as far as Tk is concerned nothing is out of date; only
+        an invalidation from the window manager makes it draw again, which is what this
+        is. `RDW_ALLCHILDREN` takes the whole subtree, `RDW_UPDATENOW` paints it before
+        this call returns rather than leaving a WM_PAINT for a quiet moment that may
+        not come.
+
+        Windows only, and never fatal: a page that cannot be invalidated is a page that
+        draws whenever the window next tells it to, exactly as before.
+        """
+        if page is None or os.name != "nt":
+            return
+        try:
+            hwnd = page.winfo_id()
+        except (tk.TclError, RuntimeError):        # the page is going away
+            return
+        try:
+            ctypes.windll.user32.RedrawWindow(hwnd, None, None,
+                                              RDW_REPAINT_ALL | RDW_UPDATENOW)
+        except Exception:            # noqa: BLE001 — a repaint is never worth a crash
+            pass
 
     # -- scenarios tab (run .md action scripts) -----------------------------
 
