@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Tarefas Secretas",
   "tab.rally": "Mobilização",
   "triggers.item.secret_task_share": "Acrescentar ao vivo as tarefas secretas compartilhadas",
+  "triggers.item.ghost_recon_alliance": "Atualizar ao vivo os esquadrões fantasma da aliança",
   "secrettasks.hint": "As tarefas secretas COM ESTRELA da aliança, lidas ao vivo do jogo, cada uma com uma contagem regressiva até ficar saqueável. Quando a contagem chega a zero a linha acende: a casa pode ser roubada, e com «Saque automático ★» marcado ela é roubada sozinha. Ligue «secret_task_share» na lista de gatilhos para que o que um companheiro compartilhar apareça aqui também.",
   "secrettasks.clear": "Limpar a lista",
   "secrettasks.empty": "nenhuma tarefa com estrela — aperte Atualizar (o jogo precisa estar rodando)",

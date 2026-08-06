@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Tugas Rahasia",
   "tab.rally": "Reli",
   "triggers.item.secret_task_share": "Menambahkan langsung tugas rahasia yang dibagikan",
+  "triggers.item.ghost_recon_alliance": "Perbarui langsung regu hantu aliansi",
   "secrettasks.hint": "Tugas rahasia aliansi YANG BERBINTANG, dibaca langsung dari permainan, masing-masing dengan hitung mundur sampai bisa dirampas. Begitu hitung mundurnya nol barisnya menyala: petaknya bisa dirampok, dan dengan «Rampasan otomatis ★» tercentang ia dirampok sendiri. Hidupkan «secret_task_share» di daftar Pemicu supaya yang dibagikan rekan juga muncul di sini.",
   "secrettasks.clear": "Bersihkan daftar",
   "secrettasks.empty": "tidak ada tugas berbintang — tekan Segarkan (permainan harus berjalan)",

@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Attività Segrete",
   "tab.rally": "Rally",
   "triggers.item.secret_task_share": "Aggiungere dal vivo le attività segrete condivise",
+  "triggers.item.ghost_recon_alliance": "Aggiornare in tempo reale le squadre fantasma dell'alleanza",
   "secrettasks.hint": "Le attività segrete CON LA STELLA dell'alleanza, lette dal vivo dal gioco, ognuna con un conto alla rovescia fino a quando diventa saccheggiabile. Quando il conto arriva a zero la riga si accende: la casella si può derubare, e con «Saccheggio automatico ★» spuntato lo fa da sé. Accendi «secret_task_share» nell'elenco degli inneschi perché compaia qui anche ciò che condivide un compagno.",
   "secrettasks.clear": "Svuota l'elenco",
   "secrettasks.empty": "nessuna attività con la stella — premi Aggiorna (il gioco deve essere in funzione)",

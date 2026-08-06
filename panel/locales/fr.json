@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Tâches Secrètes",
   "tab.rally": "Ralliement",
   "triggers.item.secret_task_share": "Ajouter en direct les tâches secrètes partagées",
+  "triggers.item.ghost_recon_alliance": "Mettre à jour en direct les escouades fantômes de l'alliance",
   "secrettasks.hint": "Les tâches secrètes ÉTOILÉES de l'alliance, lues en direct dans le jeu, chacune avec un compte à rebours jusqu'au moment où elle devient pillable. Quand le compte à rebours tombe à zéro la ligne s'allume : la case peut être pillée, et avec « Pillage auto ★ » coché elle l'est toute seule. Active « secret_task_share » dans la liste des déclencheurs pour que le partage d'un camarade apparaisse ici aussi.",
   "secrettasks.clear": "Vider la liste",
   "secrettasks.empty": "aucune tâche étoilée — appuie sur Rafraîchir (le jeu doit tourner)",

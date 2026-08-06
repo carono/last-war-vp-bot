@@ -101,10 +101,17 @@ class _GhostGrid(grid.TaskGrid):
         row["state_key"] = self._state_key(record)
         row["loot_max"] = int(record.get("loot_max") or 0)
         row["owner_server"] = record.get("owner_server")
+        # None where the list does not carry it at all — the alliance's own list has no
+        # steal list on its records (#1251). «Not answered» and «nobody has robbed it»
+        # are different facts, and a 0 would be the wrong one.
+        row["loot_count"] = record.get("loot_count")
 
     def update_row(self, row, record) -> None:
         super().update_row(row, record)
         row["starred"] = bool(record.get("starred"))
+        # …and the same «unknown stays unknown» as in `decorate`, which the shared
+        # helper cannot know about.
+        row["loot_count"] = record.get("loot_count")
 
     @staticmethod
     def _state_key(record) -> str:
@@ -150,9 +157,16 @@ class _GhostGrid(grid.TaskGrid):
         if row.get("shared"):
             where = "%s %s" % (grid.SHARED_GLYPH, where)
         cap = int(row.get("loot_max") or 0)
-        looted = int(row.get("loot_count") or 0)
-        slots = (self.tab.t("secrettasks.ghost.slots", n=looted, max=cap) if cap
-                 else self.tab.t("secrettasks.ghost.looted", n=looted))
+        looted = row.get("loot_count")
+        if looted is None:
+            # Nothing to say: the list this row came from does not carry it. An empty
+            # cell is the honest form of «не прочитано» — a 0/3 would read as «nobody
+            # has touched it», which is a claim the game never made.
+            slots = ""
+        elif cap:
+            slots = self.tab.t("secrettasks.ghost.slots", n=int(looted), max=cap)
+        else:
+            slots = self.tab.t("secrettasks.ghost.looted", n=int(looted))
         return (row.get("owner_name") or "",
                 where,
                 self.tab.t("secrettasks.server", srv=row["server"]),
@@ -172,15 +186,18 @@ class _GhostGrid(grid.TaskGrid):
                           key=lambda r: (not r.get("ready"),
                                          r.get("completed_at") or float("inf"))):
             cap = int(row.get("loot_max") or 0)
+            looted = row.get("loot_count")
             facts = [{"label": "secrettasks.col.owner",
                       "value": row.get("owner_name") or "—"},
                      {"label": "secrettasks.col.level", "value": self.tab._rank(row)},
                      {"label": "secrettasks.col.state",
                       "value": self.tab.t(row.get("state_key")
-                                          or "secrettasks.ghost.state.not_shown")},
-                     {"label": "secrettasks.col.slots",
-                      "value": (f"{int(row.get('loot_count') or 0)}/{cap}" if cap
-                                else str(int(row.get("loot_count") or 0)))}]
+                                          or "secrettasks.ghost.state.not_shown")}]
+            # …and the loot count only where there is one to give (see `row_values`).
+            if looted is not None:
+                facts.append({"label": "secrettasks.col.slots",
+                              "value": (f"{int(looted)}/{cap}" if cap
+                                        else str(int(looted)))})
             done, exp = row.get("completed_at"), row.get("expires_at")
             items.append({
                 "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
@@ -213,13 +230,24 @@ class GhostGrid(_GhostGrid):
 
 
 class GhostAllianceGrid(_GhostGrid):
-    """MY ALLIANCEMATES' squads — «кто из альянса что послал» (#1251).
+    """WHAT THE ALLIANCE HAS SENT OUT — the list the game's own window draws (#1251).
 
-    The same table again, and deliberately so: what changes between the two pages is
-    whose squads are in them, not how a squad is drawn. The owner column is the point
-    of this one, exactly as it is on the alliance secret-task page — and it is filled
-    here, because a ghost squad's own member list carries the owner's name even though
-    the task record does not.
+    Not a filtered copy of the page beside it. That one is `ActGhostreconManager`'s
+    `taskList`, which is what THIS account is mixed up in; this one is
+    `ActGhostreconAllianceManager.allianceTaskList`, which the game's «задания
+    альянса» window reads and which holds the whole alliance at once — live, the two
+    were 3 rows and 13.
+
+    **Read from the client, kept current by the push.** Nothing here asks the server:
+    the list is already in the client, and `push.ghost.recon.alliance.single`
+    (add/change/remove) is what moves it, so the tab's own trigger re-reads the local
+    list on each push instead of polling.
+
+    Two things this list does not carry, and which therefore stay blank: how many times
+    a tile has been robbed (no steal list on these records) and an expiry. What it does
+    carry is the leader's name, which is the whole point of the page's owner column,
+    and when the squad set out — the config says how long one is out, so the countdown
+    is two read values added rather than a guess.
     """
 
     TITLE_KEY = "secrettasks.ghost.allies"

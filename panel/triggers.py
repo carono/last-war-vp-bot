@@ -421,6 +421,19 @@ DEFAULT_TRIGGERS: tuple[Trigger, ...] = (
         enabled=False,
         label_key="triggers.item.secret_task_share",
     ),
+    Trigger(
+        name="ghost_recon_alliance",
+        # The alliance's ghost-recon squads announce themselves on the wire
+        # (push.ghost.recon.alliance.single, add/change/remove). The client keeps the
+        # full list itself, so this trigger re-READS that local list rather than asking
+        # the server anything — which is what makes it cheap enough to run on a push.
+        # Python handler on the «Secret Tasks» tab (`refresh_ghost_allies`). Opt-in.
+        kind=KIND_WIRE,
+        event_pattern="push.ghost.recon.alliance.single",
+        scenario=("__ghost_recon_alliance__",),
+        enabled=False,
+        label_key="triggers.item.ghost_recon_alliance",
+    ),
 )
 
 

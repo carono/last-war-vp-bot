@@ -190,6 +190,92 @@ def roster(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
                     if t.get("raw") != proto.GHOST_STATE_EMPTY]
 
 
+def alliance_roster(ev, seed_if_empty: bool = False) -> list[dict]:
+    """Every ghost-recon squad the ALLIANCE has out, in the shape a panel list draws.
+
+    A different list from :func:`roster` and a different question. That one is what
+    THIS account is mixed up in — my own three slots and whatever else the client was
+    told; this one is `ActGhostreconAllianceManager.allianceTaskList`, which is what
+    the game's own «задания альянса» window draws: the whole alliance, all of it at
+    once. Live, the two read 3 and 13 (#1251).
+
+    **It asks the server nothing** — the list is already in the client and the
+    `push.ghost.recon.alliance.single` stream keeps it current, so this is a read of
+    local state, which is why the panel can afford it on every push. The single
+    exception is `seed_if_empty`: a client whose event window has not been opened this
+    session has never been SENT the list, and an empty table then means «never asked»
+    rather than «nothing out». One request, only when the local list is empty, and
+    never on a push.
+
+    The level, the rarity, the star and the loot capacity are the event's own config
+    row, as everywhere else here. Two things this list genuinely does not carry, and
+    which are therefore left empty rather than invented:
+
+    * **how many times the tile has been robbed** — there is no steal list on these
+      records at all, so `loot_count` is None, not 0: «not answered» and «nobody has
+      robbed it» are different facts, and a zero would be the wrong one;
+    * **an expiry** — the record has no end time; what it has is when the squad set
+      out (`teamStartTime`), and the config says how long one is out (`time`), so
+      `completed_at` is those two added and `expires_at` stays None.
+    """
+    import lastwar_proto as proto
+
+    rows = _alliance_lines(ev)
+    if not rows and seed_if_empty:
+        # An empty list is ambiguous on a client whose event window has never been
+        # opened this session: the server has simply never sent it. One request — the
+        # same one the game's own window makes on open — and then read again. Never on
+        # a push, and never when the list already has something in it.
+        ev.run(lua_actions.ghost_recon_alliance_request(), MARKER, 0.4)
+        time.sleep(1.2)
+        rows = _alliance_lines(ev)
+
+    out = []
+    for ln in rows:
+        rec = {}
+        for token in ln.split(" A ", 1)[1].split(" "):
+            key, sep, value = token.partition("=")
+            if sep:
+                rec[key] = value
+        for key in ("cfg", "srv", "x", "y", "start", "lvl", "colour", "spec",
+                    "slots", "dur", "state", "members"):
+            rec[key] = _int(rec.get(key))
+        family, level = proto.ghost_recon_level(rec.get("cfg"))
+        done = (rec["start"] + rec["dur"]) if rec["start"] and rec["dur"] else None
+        out.append({
+            "uuid": str(rec.get("uuid")),
+            # Where the TILE is — the squad was sent there, and that is where a camera
+            # goes. This list carries no owner server at all, so a robbery aimed from
+            # here would have nothing to address; it is a reading, and says so.
+            "server": rec["srv"],
+            "x": rec["x"], "y": rec["y"],
+            "cfg_id": rec["cfg"],
+            "level": rec["lvl"] or level or 0,
+            "starred": bool(rec["spec"]) if "spec" in rec else
+                       family == proto.GHOST_STAR_FAMILY,
+            "colour": rec["colour"],
+            "loot_max": rec["slots"],
+            # Not on this list at all — see the docstring. None, never 0.
+            "loot_count": None,
+            "completed_at": done,
+            "expires_at": None,
+            "owner_uid": str(rec.get("owner") or ""),
+            "owner_name": _hexdec(rec.get("name")),
+            "members": rec["members"],
+            "mine": False,
+            "state": rec["state"],
+            "task_state": None,
+            "ready": rec["state"] == lua_actions.GHOST_STEAL_CAN,
+        })
+    return out
+
+
+def _alliance_lines(ev) -> list:
+    """The dump's own `ACT A …` lines, unparsed."""
+    return [ln for ln in ev.run(lua_actions.ghost_recon_alliance_dump(), MARKER, 2.5)
+            if " A uuid=" in ln]
+
+
 def _as_record(target: dict, proto) -> dict:
     """One dump line as a panel row record.
 

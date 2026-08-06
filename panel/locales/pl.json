@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Tajne zadania",
   "tab.rally": "Rajd",
   "triggers.item.secret_task_share": "Dodawać na żywo udostępnione tajne zadania",
+  "triggers.item.ghost_recon_alliance": "Aktualizuj na żywo oddziały Ducha sojuszu",
   "secrettasks.hint": "Tajne zadania sojuszu Z GWIAZDKĄ, czytane na żywo z gry, każde z odliczaniem do chwili, gdy da się je ograbić. Gdy odliczanie dojdzie do zera, wiersz się zapala: pole można ograbić, a przy zaznaczonej «Automatycznej grabieży ★» dzieje się to samo. Włącz «secret_task_share» na liście wyzwalaczy, aby pojawiało się tu także to, co udostępni towarzysz.",
   "secrettasks.clear": "Wyczyść listę",
   "secrettasks.empty": "brak zadań z gwiazdką — naciśnij Odśwież (gra musi działać)",

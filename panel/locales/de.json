@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Geheime Missionen",
   "tab.rally": "Versammlung",
   "triggers.item.secret_task_share": "Geteilte Geheime Missionen live aufnehmen",
+  "triggers.item.ghost_recon_alliance": "Geister-Trupps der Allianz live aktualisieren",
   "secrettasks.hint": "Die Geheimen Missionen der Allianz MIT STERN, live aus dem Spiel gelesen, jede mit einem Countdown bis zu dem Augenblick, in dem sie plünderbar wird. Steht der Countdown auf null, leuchtet die Zeile auf: das Feld lässt sich ausrauben, und mit angehaktem «Autoplünderung ★» geschieht das von selbst. Schalte «secret_task_share» in der Liste der Auslöser ein, damit auch das Geteilte eines Mitglieds hier erscheint.",
   "secrettasks.clear": "Liste leeren",
   "secrettasks.empty": "keine Mission mit Stern — drücke «Auffrischen» (das Spiel muss laufen)",

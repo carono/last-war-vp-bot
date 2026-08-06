@@ -1045,7 +1045,7 @@ def test_each_read_clears_only_its_own_flag():
     assert (tab._busy, tab._vm_busy, tab._roster_busy) == (True, True, False)
 
     tab._roster_busy = True
-    tab._ghost_landed({}, [], True)
+    tab._ghost_landed({}, [], [], True)
     assert (tab._busy, tab._vm_busy, tab._roster_busy, tab._ghost_busy) == (
         True, True, True, False)
 
@@ -1715,9 +1715,14 @@ def test_the_ghost_row_says_whose_squad_it_is_and_how_often_it_was_robbed():
     assert cells["slots"] == g2.tab.t("secrettasks.ghost.looted", n=1)
 
 
-def test_the_two_ghost_pages_split_one_read_by_whose_squad_it_is():
-    """«не не, это разные гриды» — mine on one page, the alliance's on the other, and
-    one round trip behind both (#1251)."""
+def test_the_two_ghost_pages_are_two_lists_from_two_managers():
+    """«не не, это разные гриды» — and they are not one list filtered twice (#1251).
+
+    My own page is what THIS account is mixed up in; the alliance page is the list the
+    game's own window draws, which is the whole alliance at once. A squad of mine that
+    turns up in both is kept off the alliance page, because that is the page that
+    answers «what has somebody ELSE sent out».
+    """
     import types
     from panel.tabs.secret_tasks import ghost as gh
 
@@ -1730,8 +1735,9 @@ def test_the_two_ghost_pages_split_one_read_by_whose_squad_it_is():
         landed=lambda status, rows: allies_page.extend(rows))
 
     tab._ghost_landed({"open": True, "left": 5},
-                      [_ghost_record(1, mine=True), _ghost_record(2, mine=False),
-                       _ghost_record(3, mine=False)], True)
+                      [_ghost_record(1, mine=True), _ghost_record(9, mine=False)],
+                      [_ghost_record(2, mine=False), _ghost_record(3, mine=False),
+                       _ghost_record(1, mine=True)], True)
 
     assert [r["uuid"] for r in mine_page] == ["1"]
     assert [r["uuid"] for r in allies_page] == ["2", "3"]
@@ -1739,6 +1745,138 @@ def test_the_two_ghost_pages_split_one_read_by_whose_squad_it_is():
     # The two pages are two classes, so neither can quietly become the other.
     assert issubclass(gh.GhostAllianceGrid, gr.TaskGrid)
     assert gh.GhostAllianceGrid.TITLE_KEY != gh.GhostGrid.TITLE_KEY
+
+
+def test_neither_ghost_read_asks_the_server():
+    """«читай из пушей и из общего списка, не с сервера» — the client holds both lists
+    already, so the tab reads local state and requests nothing (#1251)."""
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    work = src.split("def _ghost_work")[1].split("def _ghost_landed")[0]
+    assert "refresh=False" in work, "the ghost read still asks the server"
+    # The seed is the one request there is, and it fires only on an EMPTY list.
+    assert "seed_if_empty=True" in work
+    allies = src.split("def _ghost_allies_work")[1].split("\n    def ")[0]
+    assert "alliance_roster" in allies
+    assert "seed_if_empty" not in allies, "a push must never ask the server"
+    assert "refresh" not in allies
+
+
+def test_the_push_is_what_keeps_the_alliance_page_current():
+    """The alliance's squads arrive as a push, so the tab contributes a wire trigger
+    for it — and the handler re-reads the LOCAL list rather than polling (#1251)."""
+    import panel.triggers as trg
+
+    specs = {t.name: t for t in st.SecretTasksTab.TRIGGERS}
+    assert "ghost_recon_alliance" in specs, specs
+    spec = specs["ghost_recon_alliance"]
+    assert spec.event == "push.ghost.recon.alliance.single"
+    assert spec.handler == "refresh_ghost_allies"
+
+    catalogued = trg.default_catalogue().by_name("ghost_recon_alliance")
+    assert catalogued is not None, "the trigger is not offered in the catalogue"
+    assert catalogued.kind == trg.KIND_WIRE
+    assert catalogued.event_pattern == "push.ghost.recon.alliance.single"
+    assert catalogued.enabled is False           # opt-in, like the other listeners
+
+    # …and it does nothing at all until somebody has opened the tab.
+    tab = object.__new__(st.SecretTasksTab)
+    tab.loaded = False
+    tab._ghost_allies_work = lambda: (_ for _ in ()).throw(AssertionError("read!"))
+    tab.refresh_ghost_allies()
+
+
+def test_the_alliance_list_is_read_off_the_window_s_own_manager():
+    """13 rows where the other list carried 4: the page reads what the game draws."""
+    import ghost_recon_steal as tool
+
+    lines = [
+        "ACT ghost_alliance n=2",
+        # Invented ids of the real shape (CLAUDE.md); `name` is hex, as the dump sends
+        # it, and there is deliberately no steal count on these records.
+        "ACT A uuid=1000000000000001 cfg=50306 owner=1000000000000002 srv=955 "
+        "x=941 y=300 start=1700000000000 lvl=5 colour=5 spec=0 slots=3 dur=2100000 "
+        "state=4 members=2 name=506c6179657231",
+        "ACT A uuid=1000000000000003 cfg=60301 owner=1000000000000004 srv=947 "
+        "x=1 y=2 start=1700000000000 lvl=5 colour=6 spec=1 slots=3 dur=2100000 "
+        "state=2 members=1 name=506c6179657232",
+    ]
+    ev = __import__("types").SimpleNamespace(run=lambda *_a, **_k: lines)
+    rows = tool.alliance_roster(ev)
+
+    assert [r["uuid"] for r in rows] == ["1000000000000001", "1000000000000003"]
+    first = rows[0]
+    assert first["owner_name"] == "Player1"
+    assert (first["x"], first["y"], first["server"]) == (941, 300, 955)
+    # The config answers the level, the rarity, the star and the capacity.
+    assert first["level"] == 5 and first["colour"] == 5 and first["loot_max"] == 3
+    assert first["starred"] is False and rows[1]["starred"] is True
+    # No completion field on these records — it is «set out» plus the config's own
+    # duration, which is two READ values rather than a guess.
+    assert first["completed_at"] == 1700000000000 + 2100000
+    # …and what the list does not carry stays unanswered rather than becoming a zero.
+    assert first["loot_count"] is None
+    assert first["expires_at"] is None
+    # The game's own verdict rides along: «can steal» is ready, anything else is not.
+    assert first["ready"] is False and rows[1]["ready"] is True
+
+
+def test_an_empty_alliance_list_is_seeded_once_and_never_on_a_push():
+    """«Never asked» and «nothing out» look the same in an empty table (#1251).
+
+    A client whose event window has not been opened this session has never been sent
+    the list, so ONE request seeds it — the same message the game's own window makes on
+    open. A list that already has rows is never re-requested, and neither is one being
+    re-read because a push landed.
+    """
+    import ghost_recon_steal as tool
+
+    asked, empty = [], ["ACT ghost_alliance n=0"]
+
+    def run(chunk, *_a, **_k):
+        if "GhostReconGetAllianceTaskList" in chunk:
+            asked.append("request")
+            return []
+        return empty
+
+    ev = __import__("types").SimpleNamespace(run=run)
+    tool.time = __import__("types").SimpleNamespace(sleep=lambda _s: None)
+
+    tool.alliance_roster(ev)                      # a push's re-read: never asks
+    assert asked == [], asked
+
+    tool.alliance_roster(ev, seed_if_empty=True)  # an empty list: asked once
+    assert asked == ["request"], asked
+
+    asked.clear()
+    full = ["ACT A uuid=1000000000000001 cfg=50306 owner=1000000000000002 srv=955 "
+            "x=1 y=2 start=1700000000000 lvl=5 colour=5 spec=0 slots=3 dur=2100000 "
+            "state=4 members=1 name="]
+
+    def run_full(chunk, *_a, **_k):
+        if "GhostReconGetAllianceTaskList" in chunk:
+            asked.append("request")
+            return []
+        return full
+
+    rows = tool.alliance_roster(
+        __import__("types").SimpleNamespace(run=run_full), seed_if_empty=True)
+    assert asked == [] and len(rows) == 1, (asked, rows)
+
+
+def test_an_unread_loot_count_draws_an_empty_cell_not_a_zero():
+    """A «0/3» on a row nobody counted reads as «nobody has robbed it» — which is a
+    claim the game never made (#1251)."""
+    from panel.tabs.secret_tasks import ghost as gh
+
+    g = _ghost_grid(gh.GhostAllianceGrid)
+    g.apply([dict(_ghost_record(1, mine=False), loot_count=None)])
+    g._refresh_timers()
+    cells = dict(zip([c[0] for c in gr.COLUMNS], g.row_values(g._rows["1"])))
+    assert cells["slots"] == "", cells
+    # …and the phone leaves the fact out altogether rather than saying nothing badly.
+    facts = {f["label"] for f in g.web_items()[0]["facts"]}
+    assert "secrettasks.col.slots" not in facts, facts
 
 
 def test_the_allies_page_names_who_sent_the_squad():

@@ -689,6 +689,7 @@
   "tab.secret_tasks": "Secret Tasks",
   "tab.rally": "Rally",
   "triggers.item.secret_task_share": "Live-add shared secret tasks",
+  "triggers.item.ghost_recon_alliance": "Live-update the alliance's ghost squads",
   "secrettasks.hint": "The STARRED alliance secret tasks, read live from the game, each with a countdown to when it becomes raidable. When the countdown hits zero the row lights up: the tile can be robbed, and with «Auto-loot ★» ticked it is robbed on its own. Switch on «secret_task_share» in the Triggers list to have a mate's share appear here too.",
   "secrettasks.clear": "Clear list",
   "secrettasks.empty": "no starred task — press Refresh (needs the game running)",

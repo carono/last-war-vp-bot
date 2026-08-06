@@ -1532,6 +1532,82 @@ def ghost_recon_targets_dump() -> str:
     )
 
 
+def ghost_recon_alliance_request() -> str:
+    """Ask the server for the alliance's ghost-recon list — ONCE, to seed an empty one.
+
+    The list normally needs no asking: the client keeps it and
+    `push.ghost.recon.alliance.single` moves it, which is why the panel reads local
+    state (:func:`ghost_recon_alliance_dump`) and polls nothing. But a client that has
+    not had the event's window opened this session has never been sent the list at all,
+    and an empty table is then indistinguishable from «the alliance has nothing out».
+    The game's own window does exactly this in its `OnEnable`; this is that one message
+    and nothing else (#1251).
+
+    Fire-and-forget: read the result from a SEPARATE chunk after a settle.
+    """
+    return ("pcall(function() "
+            "SFSNetwork.SendMessage(MsgDefines.GhostReconGetAllianceTaskList) end) "
+            'CS.UnityEngine.Debug.LogError("ACT ghost_alliance_requested")')
+
+
+def ghost_recon_alliance_dump() -> str:
+    """Reader chunk: one `ACT A …` line per ghost-recon squad the ALLIANCE has out.
+
+    A different manager from :func:`ghost_recon_targets_dump` and a different question.
+    `ActGhostreconManager.taskList` is what THIS account is involved in — my own three
+    slots and whatever else the client happens to have been told about. The window the
+    player actually reads («Операция Призрак» → задания альянса) draws
+    `ActGhostreconAllianceManager.allianceTaskList`, which is the whole alliance's, all
+    of it at once — twelve rows live where the other list carried four (#1251).
+
+    **Nothing here asks the server.** The list is already in the client and a push
+    (`push.ghost.recon.alliance.single`) keeps it that way; the window's own
+    `OnEnable` re-requests it, this does not.
+
+    Fields: `uuid`, `cfg` template id, `owner` uid, `name` the leader's nickname
+    (hex-encoded — it may hold spaces), `srv` the server the squad was sent to, `x`/`y`
+    (from `pointId`), `start` when the squad set out, `state` the game's
+    `GhostreconPointStealType`, `members` how many are on it — and the template's own
+    `lvl` / `colour` / `spec` / `slots` / `dur`.
+
+    **The clock is `start + dur`, not a field.** This record has no completion time at
+    all; the event's config row carries how long a squad is out (`time`), so when it is
+    back is arithmetic over two READ values rather than a guess. What is genuinely not
+    in this list is how many times the tile has been robbed — there is no `stealList`
+    on it — so a reader must leave that empty rather than invent it.
+    """
+    return (
+        "local A=DataCenter.ActGhostreconAllianceManager "
+        "local M=DataCenter.ActGhostreconManager "
+        "local function hex(s) return (tostring(s):gsub('.',function(c) "
+        "return string.format('%02x',c:byte()) end)) end "
+        'CS.UnityEngine.Debug.LogError("ACT ghost_alliance n="'
+        "..tostring(#(A.allianceTaskList or {}))) "
+        "for _,t in ipairs(A.allianceTaskList or {}) do "
+        "local x,y=0,0 pcall(function() local tp=SceneUtils.IndexToTilePos(t.pointId) "
+        "x,y=tp.x,tp.y end) "
+        "local lvl,colour,spec,slots,dur=0,0,0,0,0 "
+        "pcall(function() local c=M:GetTaskTemplate(t.cfgId) "
+        "lvl=tonumber(c.level) or 0 colour=tonumber(c.color) or 0 "
+        "spec=c.special and 1 or 0 slots=tonumber(c.stealMaxtimes) or 0 "
+        "dur=tonumber(c.time) or 0 end) "
+        "local ok,st=pcall(function() "
+        "return M:GetPointStealType(t.cfgId, t.teamStartTime+dur, {}) end) "
+        "local who='' pcall(function() "
+        "who=tostring(((t.leaderMemberInfo or {}).memberInfo or {}).name or '') end) "
+        "local n=0 for _ in pairs(t.memberList or {}) do n=n+1 end "
+        'CS.UnityEngine.Debug.LogError("ACT A uuid="..tostring(t.uuid)'
+        '.." cfg="..tostring(t.cfgId).." owner="..tostring(t.ownerId)'
+        '.." srv="..tostring(t.targetServer)'
+        '.." x="..tostring(x).." y="..tostring(y)'
+        '.." start="..tostring(t.teamStartTime)'
+        '.." lvl="..tostring(lvl).." colour="..tostring(colour)'
+        '.." spec="..tostring(spec).." slots="..tostring(slots).." dur="..tostring(dur)'
+        '.." state="..tostring(ok and st or 0).." members="..tostring(n)'
+        '.." name="..hex(who)) end'
+    )
+
+
 def ghost_recon_steal(uuid: int, owner_server: int) -> str:
     """Rob ghost-recon squad `uuid` on `owner_server` — one `ghost.recon.steal`.
 

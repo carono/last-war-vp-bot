@@ -139,9 +139,15 @@ class SecretTasksTab(PanelTab):
 
     #: An alliancemate sharing a task is a push, not something to poll for — so the
     #: tab offers the standing order that re-merges the checkpoint when one lands.
+    #: The alliance's ghost squads are a push too (#1251): the client keeps the whole
+    #: list itself and `push.ghost.recon.alliance.single` is what changes it, so the
+    #: page re-reads LOCAL state on each one and asks the server nothing.
     TRIGGERS = (TriggerSpec(name="secret_task_share",
                             event="alliance.share.mission.add",
-                            handler="refresh_live"),)
+                            handler="refresh_live"),
+                TriggerSpec(name="ghost_recon_alliance",
+                            event="push.ghost.recon.alliance.single",
+                            handler="refresh_ghost_allies"))
 
     ID = "secret_tasks"
     TITLE_KEY = "tab.secret_tasks"
@@ -1309,30 +1315,64 @@ class SecretTasksTab(PanelTab):
     def _ghost_work(self) -> None:
         try:
             import ghost_recon_steal as ghost_tool
-            status, rows = ghost_tool.roster(self.rt.game.evaluator())
+            evaluator = self.rt.game.evaluator()
+            # Neither read asks the SERVER anything (#1251): the client already holds
+            # both lists and the pushes keep them current, so `refresh=False`. The
+            # window's own «задания альянса» re-requests on open; the panel does not
+            # need to, and a tab that re-requested on every push would be chattier than
+            # the game itself.
+            status, mine = ghost_tool.roster(evaluator, refresh=False)
+            # …with one exception, and only when the local list is EMPTY: a client
+            # whose event window has not been opened this session was never sent the
+            # alliance list at all, and «never asked» would show as «nothing out».
+            allies = ghost_tool.alliance_roster(evaluator, seed_if_empty=True)
             ok = True
         except Exception:                     # noqa: BLE001 — no daemon, no game, no event
-            status, rows, ok = {}, [], False
-        self.after(lambda: self._ghost_landed(status, rows, ok))
+            status, mine, allies, ok = {}, [], [], False
+        self.after(lambda: self._ghost_landed(status, mine, allies, ok))
 
-    def _ghost_landed(self, status, rows, ok: bool) -> None:
-        """Split the read between the two ghost pages — a read that WORKED, at least.
+    def _ghost_landed(self, status, mine, allies, ok: bool) -> None:
+        """Hand each ghost page its own list — a read that WORKED, at least.
 
         A failed one says nothing about the event, exactly as a failed roster read says
         nothing about the alliance: emptying the tables on it would turn «the daemon was
         busy» into «nobody has a squad out».
 
-        `mine` is the whole of the split. It is the client's own answer — the owner's
-        uid against this account's — not a guess from a server number or an alliance id,
-        either of which a squad shares with plenty of tiles that are not mine.
+        The two lists come from two different managers and answer two different
+        questions — «where are my own three» and «what has the alliance sent out» —
+        which is why they are two pages. What lands here is already split; the tab only
+        keeps my own rows out of the alliance page, since the client puts a squad of
+        mine in both when I am the one who started it.
         """
         self._ghost_busy = False
         if not ok:
             return
-        mine = [r for r in rows if r.get("mine")]
-        allies = [r for r in rows if not r.get("mine")]
-        self.ghost.landed(status, mine)
-        self.ghost_allies.landed(status, allies)
+        self.ghost.landed(status, [r for r in mine if r.get("mine")])
+        self.ghost_allies.landed(status, [r for r in allies if not r.get("mine")])
+
+    def refresh_ghost_allies(self) -> None:
+        """A push moved the alliance's ghost list: re-read it, locally, and redraw.
+
+        This is what «читай из пушей» means in practice (#1251) — the push itself
+        carries one squad, but the client has already applied it to the list the window
+        draws, so the honest thing to re-read is that list. No server round trip, and
+        nothing at all while the tab has never been opened.
+        """
+        if not self.loaded:
+            return
+        threading.Thread(target=self._ghost_allies_work, daemon=True).start()
+
+    def _ghost_allies_work(self) -> None:
+        try:
+            import ghost_recon_steal as ghost_tool
+            rows = ghost_tool.alliance_roster(self.rt.game.evaluator())
+            ok = True
+        except Exception:                     # noqa: BLE001 — no daemon, no game
+            rows, ok = [], False
+        if ok:
+            self.after(lambda: self.ghost_allies.landed(self.ghost_allies.status,
+                                                        [r for r in rows
+                                                         if not r.get("mine")]))
 
     # -- who I am, read once ------------------------------------------------------
     def _prime_own_server(self) -> None:
