@@ -119,6 +119,51 @@ def _gate(state, pid=4242):
             sys.modules["game_client"] = saved
 
 
+def test_the_cure_is_not_blocked_by_the_symptom():
+    """`restart_game.md` must run ON a lost link — it is what FIXES one.
+
+    The first version of this gate stood at the top of `run_action`, which refused every
+    recipe including that one: `QUIT_GAME` / `CALL launch_game` / `ATTACH_GAME` send
+    nothing to the server, they repair the client. The six-hourly restart timer would
+    have stopped working in exactly the case it exists for. So the gate stands on the
+    four primitives that reach the game, and the lifecycle ones are free by construction
+    — this test reads the recipe rather than a list, so a step added to it is covered
+    whether or not anybody remembers this file.
+    """
+    driving = {"LUA", "TAP", "GAME", "JUMP"}
+    body = [line.strip() for line in
+            (ROOT / "src" / "lastwar_bot" / "actions" / "restart_game.md")
+            .read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+    assert body, "restart_game.md is empty"
+    for line in body:
+        assert line.split()[0].upper() not in driving, (
+            f"restart_game.md now drives the game («{line}») — it would be gated, and "
+            f"the cure would be blocked by the symptom")
+
+
+def test_the_gate_stands_on_the_driving_primitives_and_not_on_the_run():
+    src = (ROOT / "src" / "lastwar_bot" / "script_engine.py").read_text(encoding="utf-8")
+    where = src.index("def run_action")
+    assert "_require_link" not in src[where:src.index("def ", where + 10)], (
+        "the gate is back at the top of run_action — see the test above")
+    for stmt in ("GameSceneStmt", "JumpStmt", "TapStmt", "LuaStmt"):
+        at = src.index(f"case {stmt}():")
+        assert "_require_link" in src[at:at + 200], f"{stmt} is not gated"
+    # …and a READ is not a send: blinding the diagnosis is not the answer to a lie.
+    at = src.index("case ReadLuaStmt():")
+    assert "_require_link" not in src[at:at + 200], "reads must not be gated"
+
+
+def test_the_link_is_read_once_per_run_not_once_per_press():
+    interp = script_engine.Interpreter(script_engine.new_context(0, lambda _e: None))
+    calls = []
+    interp._link_lost = lambda: calls.append(1) or None
+    for _ in range(5):
+        interp._require_link(type("S", (), {"line_no": 1})())
+    assert len(calls) == 1, f"the socket table was walked {len(calls)} times"
+
+
 def test_a_lost_link_stops_the_run_and_says_why():
     said = _gate(game_link.LOST)
     assert said and "no longer talking to the game server" in said

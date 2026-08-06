@@ -786,6 +786,11 @@ class Context:
     # uses, so the run ends the way a script's own STOP ends: cleanly, with a
     # reason, and reported as halted rather than failed.
     cancel: Any = None
+    # Has the server link been read for this run yet? The gate on the driving
+    # primitives (`_require_link`) is once per context, not once per press: a recipe
+    # that taps thirty times must not walk the socket table thirty times, and a
+    # caller chaining several actions through one context pays for it once.
+    link_checked: bool = False
 
 
 class _HaltSignal(Exception):
@@ -828,11 +833,6 @@ class Interpreter:
         path = resolve_action(name)
         if path is None:
             self.ctx.on_event(f"!! action not found: {name} (looked in {ACTIONS_DIR} and dev/)")
-            return False
-        lost = self._link_lost()
-        if lost:
-            self._log(f"> action: {name}")
-            self._log(f"< action: {name} FAILED — {lost}")
             return False
         self._log(f"> action: {name}")
         self._depth += 1
@@ -916,13 +916,19 @@ class Interpreter:
                 self._do_scan_missions(stmt)
             case WhileStmt():
                 self._do_while(stmt)
+            # The four that DRIVE the game. The link gate stands here and nowhere else
+            # — see `_require_link` for why «here» is the primitive and not the run.
             case GameSceneStmt():
+                self._require_link(stmt)
                 self._do_game_scene(stmt)
             case JumpStmt():
+                self._require_link(stmt)
                 self._do_jump(stmt)
             case TapStmt():
+                self._require_link(stmt)
                 self._do_tap(stmt)
             case LuaStmt():
+                self._require_link(stmt)
                 self._do_lua(stmt)
             case ReadLuaStmt():
                 self._do_read_lua(stmt)
@@ -1480,6 +1486,35 @@ class Interpreter:
             return None
         c = _coerce(raw)
         return float(c) if isinstance(c, (int, float)) else None
+
+    def _require_link(self, stmt) -> None:
+        """FAIL before a primitive that DRIVES the game, if the client cannot be heard.
+
+        THE PLACEMENT IS THE POINT, and the first version got it wrong. Standing at the
+        top of `run_action` this refused every recipe — including `restart_game.md`,
+        whose `QUIT_GAME` / `CALL launch_game` / `ATTACH_GAME` send nothing to the server
+        at all: they REPAIR the client. A lost link would have blocked the one cure for
+        a lost link, and the six-hourly restart timer would have stopped working in
+        exactly the case it exists for. It also re-probed on every nested `CALL`.
+
+        So the gate stands on the four primitives that actually reach the game — `LUA`,
+        `TAP`, `GAME`, `JUMP` — and the lifecycle primitives are free by construction
+        rather than by an exception somebody has to remember to keep up to date. Reads
+        (`READ_LUA`) are deliberately NOT gated: a stranded client answers them with
+        yesterday's numbers, which is a lie, but the answer to that is to MARK the
+        reading stale rather than to blind the diagnosis that is trying to find out why.
+
+        Once per run, not once per press: a recipe that taps thirty times must not walk
+        the socket table thirty times, and a link that dies mid-recipe is caught by the
+        next run rather than mid-press.
+        """
+        if self.ctx.link_checked:
+            return
+        self.ctx.link_checked = True
+        lost = self._link_lost()
+        if lost:
+            self._log(f"line {getattr(stmt, 'line_no', '?')}: {lost}")
+            self._fail(lost)
 
     def _link_lost(self) -> "str | None":
         """A sentence when this client has demonstrably lost the server, else ``None``.
