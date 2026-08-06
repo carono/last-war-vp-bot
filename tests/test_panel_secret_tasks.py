@@ -13,6 +13,12 @@ import panel.triggers as trg                        # noqa: E402
 import panel.__main__ as pm                         # noqa: E402
 from panel.tabs.secret_tasks import tab as st       # noqa: E402
 
+# The persistence tests build rows the same way `_merge`/`_load_persisted` do, and
+# those call `tk_stringvar` for every row they touch — a real `tk.StringVar` needs a
+# live root, which is exactly what `_make_tab`'s docstring says this file goes out of
+# its way not to need. A plain `.get()`/`.set()` stand-in is all any of them read.
+st.tk_stringvar = lambda master: _Var()
+
 
 def test_trigger_is_registered_on_the_share_push():
     t = trg.default_catalogue().by_name("secret_task_share")
@@ -139,6 +145,10 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     tab._rendered = 0
     tab._render = lambda: setattr(tab, "_rendered", tab._rendered + 1)
     tab._update_status = lambda: None
+    # `_persist_rows` runs after every structural change now (#1242) — a throwaway file
+    # so the timer / poll paths this fixture is FOR do not have to know that, and a test
+    # that cares about persistence itself overrides this with its own `_FakeProfiles`.
+    tab.rt = _fake_rt(_state_path())
     return tab
 
 
@@ -510,6 +520,194 @@ def test_room_ids_from_cached_self_ids():
     tab._ids = ("", "")                             # nothing read -> no room, no send
     assert tab._room_id(None, st.SHARE_WORLD) == ""
     assert tab._room_id(None, st.SHARE_ALLIANCE) == ""
+
+
+# -- surviving a restart (#1242) ---------------------------------------------------
+
+class _FakeProfiles:
+    """The one thing `_persist_rows`/`_load_persisted` ask of `rt.profiles`: a path."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    def secret_tasks_state_json(self, name=None) -> str:
+        return self._path
+
+
+class _FakeOrder:
+    """A stand-in for `Capture`/`AutoLoot`/`Sweep`: only `start`/`stop` are called."""
+
+    def __init__(self) -> None:
+        self.started = self.stopped = 0
+
+    def start(self) -> None:
+        self.started += 1
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
+class _StubTask:
+    """What `_fetch_vm`/`_fetch_scan` hand `_merge` — just the fields a row copies."""
+
+    def __init__(self, uuid, server_id=1, x=1, y=2, level=7, cfg_id=16003,
+                loot_count=1, expires_at=999_000, completed_at=1_000):
+        self.uuid = uuid
+        self.server_id = server_id
+        self.x, self.y, self.level, self.cfg_id = x, y, level, cfg_id
+        self.loot_count = loot_count
+        self.expires_at, self.completed_at = expires_at, completed_at
+
+
+def _state_path() -> str:
+    import os
+    import tempfile
+    return os.path.join(tempfile.mkdtemp(), "secret_tasks_state.json")
+
+
+def _fake_rt(path: str):
+    """`rt.profiles.secret_tasks_state_json()` and `rt.root` — the only two things
+    `_persist_rows`/`_load_persisted`/`_merge` ask of the runtime; `root` is never
+    inspected once `tk_stringvar` is patched to `_Var` above, only passed through."""
+    import types
+    return types.SimpleNamespace(profiles=_FakeProfiles(path), root=None)
+
+
+def test_persist_writes_a_checkpoint_load_persisted_reads_it_back():
+    """A row's own fields survive a round trip through the profile's checkpoint file."""
+    path = _state_path()
+    tab = _make_tab({"11": _row(11, 6, 120_000, 600_000)})
+    import types
+    tab.rt = _fake_rt(path)
+    tab._persist_rows()
+
+    fresh = _make_tab({})
+    fresh.rt = _fake_rt(path)
+    restored = fresh._load_persisted()
+    assert restored == {"11"}, restored
+    row = fresh._rows["11"]
+    assert (row["level"], row["x"], row["y"]) == (6, 1, 2)
+    # Never trusted stored — `on_show`'s live check decides these, same as a freshly
+    # merged row does; a restored one starts exactly as uncertain.
+    assert row["ready"] is False and row["soon"] is False
+
+
+def test_load_persisted_drops_a_row_already_expired_while_the_panel_was_shut():
+    """Nothing a live check could confirm about a tile the map itself says is gone —
+    dropped on load rather than shown and pulled a moment later (#1242)."""
+    import json
+
+    import game_clock
+    game_clock.reset()
+    try:
+        now = game_clock.now_ms()
+        path = _state_path()
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump([
+                {"uuid": 1, "server": 1, "x": 1, "y": 2, "level": 7, "cfg_id": 1,
+                 "loot_count": 0, "expires_at": now - 1_000, "completed_at": now - 5_000},
+                {"uuid": 2, "server": 1, "x": 3, "y": 4, "level": 6, "cfg_id": 1,
+                 "loot_count": 0, "expires_at": now + 600_000, "completed_at": now - 5_000},
+            ], fh)
+        tab = _make_tab({})
+        import types
+        tab.rt = _fake_rt(path)
+        restored = tab._load_persisted()
+        assert restored == {"2"}, restored
+        assert list(tab._rows) == ["2"]
+    finally:
+        game_clock.reset()
+
+
+def test_load_persisted_tolerates_a_missing_or_malformed_file():
+    """No prior session, or one before #1242 — "nothing to restore", not a crash."""
+    import types
+    tab = _make_tab({})
+    tab.rt = _fake_rt(_state_path())  # never written
+    assert tab._load_persisted() == set()
+    assert tab._rows == {}
+
+    path = _state_path()
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("not json")
+    tab.rt = _fake_rt(path)
+    assert tab._load_persisted() == set()
+
+
+def test_merge_with_verify_drops_unconfirmed_rows_and_refreshes_confirmed_ones():
+    """The live check `on_show` runs on whatever was restored (#1242): a row the game
+    still backs is refreshed in place, one it does not confirm comes off the list
+    rather than sit there unverified."""
+    import types
+    rows = {"1": _row(1, 7, -5_000, 600_000), "2": _row(2, 6, -5_000, 600_000)}
+    tab = _make_tab(rows)
+    tab.rt = _fake_rt(_state_path())
+
+    confirmed = _StubTask(1, loot_count=2, expires_at=222_000, completed_at=111_000)
+    tab._merge([confirmed], verify={"1", "2"})
+
+    assert set(tab._rows) == {"1"}, tab._rows
+    assert tab._rows["1"]["loot_count"] == 2
+    assert tab._rows["1"]["expires_at"] == 222_000
+
+
+def test_merge_without_verify_still_only_adds_new_ones():
+    """The wire nudge / «Обновить» path (no `verify`) keeps its old ADD-only behaviour —
+    #1242 must not turn every rescan into an unwanted reconciliation."""
+    import types
+    existing = _row(1, 7, -5_000, 600_000)
+    tab = _make_tab({"1": existing})
+    tab.rt = _fake_rt(_state_path())
+
+    # A stale copy of the SAME row, as the wire might resend — must not clobber it —
+    # plus a genuinely new tile.
+    tab._merge([_StubTask(1, loot_count=99), _StubTask(2)])
+
+    assert tab._rows["1"] is existing, "an un-verified merge overwrote an existing row"
+    assert tab._rows["1"]["loot_count"] != 99
+    assert "2" in tab._rows
+
+
+def test_a_failed_verifying_read_leaves_restored_rows_alone():
+    """A dead daemon right after the panel starts is not evidence a restored tile is
+    gone — `_snapshot_work` must not hand `_merge` a `verify` set for a read that
+    raised, or every restart with a slow-to-load game would empty the list on its own."""
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab._restore_pending = {"1"}
+    tab._fetch_vm = lambda: (_ for _ in ()).throw(RuntimeError("no daemon yet"))
+    captured = {}
+    tab.after = lambda fn: captured.setdefault("fn", fn)
+    tab._snapshot_work()
+    # `after` hands back the merge closure rather than running it (real `after` marshals
+    # onto the Tk thread) — call it now, with a spy in place of the real `_merge`, to see
+    # what `_snapshot_work` decided to pass it.
+    merges = []
+    tab._merge = lambda tasks, verify=None: merges.append((tasks, verify))
+    captured["fn"]()
+    assert merges == [([], None)], merges
+    assert tab._restore_pending == {"1"}, "a failed read must not clear the pending set"
+
+
+def test_on_profile_switch_drops_the_old_profiles_rows():
+    """Every row's coordinate and server belongs to the OLD account — left in place it
+    would be checkpointed straight back out under the NEW profile's own file (#1242)."""
+    import types
+    tab = _make_tab({"9": _row(9, 5, -5_000, 600_000)})
+    tab.rt = _fake_rt(_state_path())
+    tab.loaded = True
+    tab.capture, tab.autoloot, tab.sweep = _FakeOrder(), _FakeOrder(), _FakeOrder()
+    tab.monitor_var, tab.sweep_var = _Var(False), _Var(False)
+    tab._sweep_hint = tab._rule_lbl = tab._rule_line = None
+    tab._ids, tab._own_server = ("1", "a"), 1
+    tab._snapshot = lambda: None          # the live re-seed is its own test, not this one
+
+    tab.on_profile_switch()
+
+    assert tab._rows == {}, "the old profile's rows leaked into the new one"
+    assert tab._collected == set() and tab._auto_attempted == set()
+    assert tab._ids is None and tab._own_server == 0
+    assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
 
 
 if __name__ == "__main__":

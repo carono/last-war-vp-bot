@@ -21,8 +21,19 @@ budget, so it wants the game's authoritative word, not a stale checkpoint), dist
 the wire feed that populates the list. It runs only while at least one row is ready, so an
 idle tab never touches the daemon.
 
-What is on the tab is an in-memory list for the session, not a store — closing the panel
-forgets it, which is fine: the first-open VM snapshot re-seeds it and the wire refills it.
+THE LIST SURVIVES THE PANEL CLOSING (#1242). It used to be in-memory only — closing the
+panel forgot it, and the first open of a new session started from a blank table until the
+VM snapshot or the wire caught back up. Now every structural change to :attr:`_rows` (a
+merge, a collect, a row expiring, the ready-row poll updating one) is checkpointed whole
+to the profile's own `secret_tasks_state.json` (:meth:`_persist_rows`), and the tab's
+`on_show` reads it back FIRST (:meth:`_load_persisted`) — before the VM snapshot even
+starts — so the table is not empty the moment the tab opens. What is restored is not
+trusted blind, though: the very next VM snapshot doubles as the actuality check, the
+same reconciliation the ready-row poll already does on a live tile — a restored row the
+game no longer confirms (expired, looted out, or simply gone while the panel was shut)
+is dropped rather than left to mislead, and one it does confirm has its countdown and
+loot count brought up to date. A restored row already past its own `expires_at` is
+dropped on load, before it is ever drawn.
 
 THE THREE STANDING ORDERS ARE THIS TAB'S OWN NOW. The capture, «Автолут ★» and
 «Автообъезд карты» used to be checkboxes here whose every variable and every handler
@@ -49,6 +60,7 @@ the list empty and never crashes the tab.
 """
 from __future__ import annotations
 
+import json
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -158,6 +170,11 @@ class SecretTasksTab(PanelTab):
         # StringVar and the row's frame, so a tick can update the timer in place and a
         # collect/clear can drop the row without a full re-read.
         self._rows: dict = {}
+        # Keys `_load_persisted` restored from disk that the next VM snapshot has not
+        # yet confirmed live (#1242) — `_merge` reconciles exactly these against it
+        # (drop what is no longer there, refresh what still is) rather than treating
+        # them as new finds. Cleared the moment that snapshot lands, read or not.
+        self._restore_pending: set = set()
         # Tasks robbed by hand this session: a rescan must not re-add one the server has
         # not yet dropped from `allianceTask`.
         self._collected: set = set()
@@ -250,16 +267,24 @@ class SecretTasksTab(PanelTab):
             self.sweep.start()
 
     def on_show(self) -> None:
-        """Somebody opened the tab: start the countdown and seed the list, once.
+        """Somebody opened the tab: restore the last session's list, start the
+        countdown, and check what was restored against the live game, once.
 
-        The seed is a one-time VM snapshot — the game's parsed table, richest and
-        available even before the capture has flushed a checkpoint. After it the wire
+        `_load_persisted` costs nothing but a file read, so it runs first — the table
+        is not empty while the VM snapshot is still in flight (#1242). That snapshot is
+        still a one-time read, the game's parsed table, richest and available even
+        before the capture has flushed a checkpoint; it now ALSO doubles as the
+        actuality check for whatever was just restored (`_merge`). After it the wire
         feeds the list (the capture's nudge, «Обновить», the share trigger), which is
         why this is the only game read the tab makes on its own behalf.
         """
         if self.loaded:
             return
         self.loaded = True
+        self._restore_pending = self._load_persisted()
+        if self._restore_pending:
+            self._render()
+            self._update_status()
         self._start_clock_sync()
         self._start_ticking()
         self._snapshot()
@@ -279,6 +304,22 @@ class SecretTasksTab(PanelTab):
         # server is what the robbery prohibition is judged against.
         self._ids = None
         self._own_server = 0
+        # THE LIST ITSELF BELONGS TO THE OLD ACCOUNT TOO (#1242): every row's coordinate
+        # and server is that profile's map, and left in place it would be checkpointed
+        # right back out under the NEW profile's own file the next time anything here
+        # writes. Dropped and restored from the new profile's own checkpoint instead —
+        # exactly what `on_show` does for a tab opened fresh — but only when this tab has
+        # actually been shown; an unopened one has nothing on screen to drop, and
+        # `on_show` seeds it from the right profile whenever it next is.
+        self._rows.clear()
+        self._collected.clear()
+        self._auto_attempted.clear()
+        self._restore_pending = set()
+        if self.loaded:
+            self._restore_pending = self._load_persisted()
+            self._render()
+            self._update_status()
+            self._snapshot()
         self._refresh_rule_hints()
         if self.monitor_var.get():
             self.capture.start()
@@ -1008,9 +1049,17 @@ class SecretTasksTab(PanelTab):
     def _snapshot_work(self) -> None:
         try:
             tasks = self._fetch_vm()
+            read_ok = True
         except Exception:                     # noqa: BLE001 — a failed read is an empty tab
-            tasks = []
-        self.after(lambda: self._merge(tasks))
+            tasks, read_ok = [], False
+        # A failed read (no daemon, no game up yet — routine right after the panel
+        # starts) is not evidence a restored row is gone, exactly like a failed poll
+        # read is not (`_poll_apply`) — so nothing restored is reconciled against it,
+        # and the pending set survives for whenever a read next succeeds.
+        pending = self._restore_pending if read_ok else None
+        if read_ok:
+            self._restore_pending = set()
+        self.after(lambda: self._merge(tasks, pending))
 
     def refresh_live(self) -> None:
         """A share landed: re-merge the checkpoint — but only if the tab has been
@@ -1060,7 +1109,7 @@ class SecretTasksTab(PanelTab):
         tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
         return [t for t in tasks if t.starred]
 
-    def _merge(self, tasks) -> None:
+    def _merge(self, tasks, verify: "set | None" = None) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
 
         A rescan only ADDS — an existing row keeps its place and its timer, a tile robbed
@@ -1070,10 +1119,30 @@ class SecretTasksTab(PanelTab):
         A looted-out (3/3) tile is merged like any other and hidden by the display rule
         instead (:meth:`_visible_rows`), so «Показывать исчерпанные» has something to
         show. Only the wire feed carries them at all — the VM read drops them itself.
+
+        ``verify`` is the one exception to "only ADDS" (#1242): the keys `on_show`
+        restored from disk, still unconfirmed by a live read. A key in it that IS in
+        ``tasks`` is a restored row the game just confirmed — refreshed in place, the
+        same fields the ready-row poll refreshes (:meth:`_poll_apply`) — and one that is
+        NOT is a restored row the game does not back any more (expired, looted out, or
+        simply gone while the panel was shut) and comes off the list rather than sit
+        there unconfirmed.
         """
         self._busy = False
-        for t in tasks:
-            key = str(t.uuid)
+        incoming = {str(t.uuid): t for t in tasks}
+        if verify:
+            for key in verify:
+                row = self._rows.get(key)
+                if row is None:                    # already gone some other way
+                    continue
+                task = incoming.pop(key, None)
+                if task is None:
+                    self._rows.pop(key, None)
+                    continue
+                row["expires_at"] = task.expires_at
+                row["completed_at"] = task.completed_at
+                row["loot_count"] = task.loot_count
+        for key, t in incoming.items():
             if key in self._rows or key in self._collected:
                 continue
             self._rows[key] = {
@@ -1092,6 +1161,70 @@ class SecretTasksTab(PanelTab):
         # about a game that may be perfectly up.
         self._update_status()
         self._maybe_start_poll()
+        self._persist_rows()
+
+    # -- surviving a restart (#1242) --------------------------------------------
+    def _persist_rows(self) -> None:
+        """Checkpoint the session list whole, so the panel closing does not forget it.
+
+        Called after every structural change (`_merge`, a collect, an expiry, the
+        ready-row poll) — the same "rewrite the whole small file" pattern every other
+        profile checkpoint here uses (`panel/profile.py`), not a diff. Only the fields
+        `_load_persisted` needs to rebuild a row are kept; the countdown StringVar and
+        the `ready`/`soon` flags are UI state, recomputed from `expires_at`/
+        `completed_at` the moment the row is drawn again.
+        """
+        from ...profile import _write_json
+        _write_json(self.rt.profiles.secret_tasks_state_json(), [
+            {"uuid": r["uuid"], "server": r["server"], "x": r["x"], "y": r["y"],
+             "level": r["level"], "cfg_id": r["cfg_id"], "loot_count": r["loot_count"],
+             "expires_at": r["expires_at"], "completed_at": r["completed_at"]}
+            for r in self._rows.values()])
+
+    def _load_persisted(self) -> set:
+        """Read back the last session's list; return the keys still needing a live check.
+
+        A row already past its own `expires_at` is dropped here rather than shown and
+        then dropped a moment later by the first tick — there is nothing a live check
+        could confirm about a tile the map itself says is gone. Judged against the
+        GAME's clock (#1227), like every other timestamp on this tab, not this
+        machine's — `game_clock` needs no game read to answer, only the drift it last
+        measured (0 the first time this profile is ever opened).
+
+        Malformed or missing (no prior session, or one before #1242) reads as "nothing
+        to restore" rather than raising — a checkpoint is a convenience, never a
+        requirement the tab depends on to open.
+        """
+        import game_clock
+        try:
+            with open(self.rt.profiles.secret_tasks_state_json(), encoding="utf-8") as fh:
+                records = json.load(fh)
+        except (OSError, ValueError):
+            return set()
+        if not isinstance(records, list):
+            return set()
+        now = game_clock.now_ms()
+        restored: set = set()
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            try:
+                uuid = int(rec["uuid"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            exp = rec.get("expires_at")
+            if exp is not None and exp <= now:
+                continue
+            key = str(uuid)
+            self._rows[key] = {
+                "uuid": uuid, "server": rec.get("server"), "x": rec.get("x"),
+                "y": rec.get("y"), "level": rec.get("level"),
+                "cfg_id": rec.get("cfg_id"), "loot_count": rec.get("loot_count") or 0,
+                "expires_at": exp, "completed_at": rec.get("completed_at"),
+                "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
+            }
+            restored.add(key)
+        return restored
 
     # -- the phone ---------------------------------------------------------------
     #
@@ -1349,6 +1482,12 @@ class SecretTasksTab(PanelTab):
                 self._update_status()
             else:
                 self._paint_timers()
+            # Only an expiry is a structural change worth a write — `changed` alone is
+            # the ready/soon flags flipping, which the checkpoint does not carry and
+            # `_load_persisted` recomputes anyway, so writing on it would be a rewrite
+            # of the same file every second for no reader to ever see (#1242).
+            if expired:
+                self._persist_rows()
             # The standing order reports from its own thread; this is where the words
             # under the checkbox catch up with it.
             self._refresh_autoloot_line()
@@ -1466,6 +1605,7 @@ class SecretTasksTab(PanelTab):
         if removed:
             self._render()
             self._update_status()
+        self._persist_rows()
 
     def _auto_loot(self, live) -> None:
         """Rob the raidable, in-range rows — but only at the range's TOP level, once each.
@@ -1523,6 +1663,7 @@ class SecretTasksTab(PanelTab):
             self._render()
             self.rt.put("[secret] " + self.t("secrettasks.collect_ok"))
             self._update_status()
+            self._persist_rows()
         else:
             self.rt.put("[secret] " + self.t("secrettasks.collect_fail"))
 
@@ -1627,6 +1768,7 @@ class SecretTasksTab(PanelTab):
         self._collected.clear()
         self._render()
         self._update_status()
+        self._persist_rows()
 
 
 def _fmt_left(ms: int) -> str:

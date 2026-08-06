@@ -70,6 +70,14 @@ CHAT_DB = "chat_history.db"
 # Unlike the *_log.jsonl files this one is rewritten whole each tick: it is the
 # current state of the map, which is what an auto-loot decision has to read.
 TASKS_JSON = "secret_tasks.json"
+# The «Секретки» tab's OWN session list — the starred tiles it is showing, each with the
+# countdown fields a restart needs to pick up where it left off (#1242). Not the same
+# thing as TASKS_JSON above: that is the capture's raw scan of everything on the map,
+# this is the tab's own filtered, deduplicated list. Rewritten whole on every change the
+# tab makes to its rows, so the list is never more than one merge behind what is on
+# screen; read back once, on the tab's next `on_show`, and verified against a live game
+# read before any of it is trusted (panel/tabs/secret_tasks/tab.py).
+SECRET_TASKS_STATE = "secret_tasks_state.json"
 # The same shape for the other two map scans the «Командный пункт» tab drives: the
 # ghost-recon squad tiles (f2 = 29, tools/dev/secret_mission_capture.py) and the
 # detect-event treasures (f2 = 21, tools/dev/treasure_capture.py). Separate files
@@ -463,6 +471,10 @@ class ProfileManager:
     def tasks_json(self, name: str | None = None) -> str:
         """Where the secret-task capture checkpoints what it currently sees."""
         return os.path.join(self.dir(name), TASKS_JSON)
+
+    def secret_tasks_state_json(self, name: str | None = None) -> str:
+        """Where the «Секретки» tab checkpoints its own session list (#1242)."""
+        return os.path.join(self.dir(name), SECRET_TASKS_STATE)
 
     def ghost_json(self, name: str | None = None) -> str:
         """Where the ghost-recon tile scan checkpoints the squads it can see."""
