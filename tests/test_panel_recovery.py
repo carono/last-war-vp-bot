@@ -287,6 +287,89 @@ def test_every_act_that_means_a_restart_is_in_the_set():
     assert not missing, f"not in recovery.RESTARTS: {missing}"
 
 
+class _Press:
+    """The shell, reduced to what `_recovery_check` touches. Records what it played."""
+
+    def __init__(self, watchdog=True):
+        self.played, self.said = [], []
+        self._watchdog = watchdog
+        self._rt = self
+
+    # -- the runtime half
+    recovery = None                       # set per case, below
+    def play_async(self, name, **kw):     # noqa: E301,D102 — the press being pinned
+        self.played.append(name)
+        return True
+
+    # -- the window half
+    def _paint_recovery(self, _state):    # noqa: D102 — drawing, not deciding
+        pass
+
+    def _opt_bool(self, _key):            # noqa: D102 — the profile's «watchdog»
+        return self._watchdog
+
+    def _say(self, tag, key, **fmt):      # noqa: D102
+        self.said.append(key)
+
+
+class _Found:
+    def __init__(self, link):
+        self.link, self.running = link, True
+
+
+def _drive(link, kicked, watchdog=True, idle=10_000.0):
+    """Run the SHELL's own `_recovery_check` over a run of readings, unbound.
+
+    The wiring is what is being pinned, not the decision — «`ACT_KICK` was announced and
+    never played» lived entirely between the two, in a method that greps clean.
+    """
+    import panel.__main__ as pm            # by name: safe, and what the other tests do
+
+    app = _Press(watchdog=watchdog)
+    app.recovery = rec.Recovery()
+    real_idle = pm.game_link.idle_sec
+    pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
+    try:
+        for _ in range(rec.STRIKES):
+            pm.Panel._recovery_check(app, _Found(link), kicked)
+    finally:
+        pm.game_link.idle_sec = real_idle
+    return app
+
+
+def test_a_kick_is_actually_restarted_and_not_only_announced():
+    """THE BUG THIS FILE MISSED, in the only terms that could have caught it.
+
+    Live on 2026-08-06 the panel said «выкинуло: вход с другого устройства —
+    перезапускаю» at 22:49:02 and at 22:59:05 and played nothing either time: the
+    caller tested `key == recovery.ACT`, and a kick answers `ACT_KICK`. Nineteen
+    minutes of a deaf client, rescued in the end by the process watchdog when it died
+    on its own. Every assertion in this file passed throughout — they all stopped at
+    the decision, and the decision was right.
+    """
+    app = _drive(LOST, kicked=True)
+    assert app.said == [rec.ACT_KICK], app.said
+    assert app.played == ["restart_game"], f"announced and not played: {app.played}"
+
+
+def test_an_ordinary_hang_up_is_restarted_too():
+    """The path that always worked — pinned beside the one that did not, so a fix to
+    either cannot quietly cost the other."""
+    app = _drive(LOST, kicked=False)
+    assert app.said == [rec.ACT] and app.played == ["restart_game"], (app.said, app.played)
+
+
+def test_nothing_is_played_while_the_watchdog_switch_is_off():
+    """One promise, one switch: «поднимать игру при падении» governs both halves."""
+    app = _drive(LOST, kicked=True, watchdog=False)
+    assert app.played == [], app.played
+
+
+def test_a_healthy_client_is_neither_announced_nor_played():
+    app = _drive(ONLINE, kicked=False)
+    assert (app.said, app.played) == ([], []), (app.said, app.played)
+
+
 def test_both_its_sentences_are_in_every_shipped_locale():
     import json
 
