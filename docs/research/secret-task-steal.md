@@ -349,6 +349,11 @@ before the fix, where it reports `cfg 60009903: tool (99, False) vs panel (7, Fa
 It also fails on any file under `panel/` or `tools/` that reaches for
 `proto.STAR_TASK_FAMILIES` again.
 
+**Confirmed against the live client, both readers over one list:** 62 rows compared,
+62 agree, 0 disagree — and 9 of those 62 (every one of them a `60009903`) are rows the
+digits-only reader would still be calling level 99. The share of the list that was
+being mis-sorted is not small: an eighth of it, all of it to the head of the queue.
+
 **The five reset at the server midnight, and the client will say when that is.**
 `UITimeManager:GetInstance():GetTomorrowZero()` is the next one — live on 2026-08-06 it
 read `2026-08-07 02:00:00 UTC`, so the server day runs **02:00 UTC → 02:00 UTC**.
