@@ -26,7 +26,7 @@ This is what makes a knob "central": switching a tab on or off, or changing any
 other setting, in the DEFAULT profile's own Settings page reaches every profile
 that never touched that setting itself the next time it starts — instead of every
 profile carrying its own full copy of the same fifteen tab ids and silently
-drifting apart, which is how profile "casper" ended up rebuilding NO tabs at all
+drifting apart, which is how one profile here ended up rebuilding NO tabs at all
 (its own ``tabs.enabled`` had gone empty, and there was no shared base underneath
 it to fall back to). A profile that DOES set its own value for a setting keeps
 overriding the default with it, same as it always could.

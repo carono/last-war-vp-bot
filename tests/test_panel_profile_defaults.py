@@ -1,6 +1,6 @@
 r"""The default profile is the base, every other one stores only its overrides (#1246).
 
-Written after profile "casper" rebuilt NO tabs at all: its own ``tabs.enabled`` had
+Written after one profile here rebuilt NO tabs at all: its own ``tabs.enabled`` had
 gone empty, and — before this — there was no shared base underneath a profile for it
 to fall back to, so an empty list meant "every known tab explicitly switched off"
 rather than "nothing of my own to say here". Three things had to change together,
@@ -94,12 +94,12 @@ def test_an_untouched_setting_comes_from_the_default_profile() -> None:
     with _Profiles() as env:
         mgr = profilemod.ProfileManager()
         mgr.save({"tabs": {"known": ["a", "b"], "enabled": ["a"]}}, name="default")
-        mgr.create("casper")
-        assert mgr.load("casper")["tabs"]["enabled"] == ["a"]
+        mgr.create("second")
+        assert mgr.load("second")["tabs"]["enabled"] == ["a"]
 
-        # …and changing the default reaches "casper" without touching it at all.
+        # …and changing the default reaches "second" without touching it at all.
         mgr.save({"tabs": {"known": ["a", "b"], "enabled": ["a", "b"]}}, name="default")
-        assert mgr.load("casper")["tabs"]["enabled"] == ["a", "b"]
+        assert mgr.load("second")["tabs"]["enabled"] == ["a", "b"]
 
 
 def test_a_profile_that_overrides_a_setting_keeps_overriding_it() -> None:
