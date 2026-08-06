@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "от альянса пока ничего — нажми «Обновить» (нужна запущенная игра)",
   "secrettasks.count": "секреток: {n}",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "особое задание",
+  "secrettasks.level": "ур. {n}",
   "secrettasks.until_ready": "готово через {t}",
   "secrettasks.ready": "готово к сбору",
   "secrettasks.ready_expires": "готово к сбору · истекает через {t}",

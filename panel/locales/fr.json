@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "rien de l'alliance pour l'instant — appuie sur Rafraîchir (le jeu doit tourner)",
   "secrettasks.count": "{n} tâches",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "tâche spéciale",
+  "secrettasks.level": "niv. {n}",
   "secrettasks.until_ready": "prête dans {t}",
   "secrettasks.ready": "prête à piller",
   "secrettasks.ready_expires": "prête à piller · expire dans {t}",

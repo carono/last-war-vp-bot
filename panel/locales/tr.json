@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "ittifaktan henüz bir şey yok — Tazele'ye bas (oyunun çalışıyor olması gerekir)",
   "secrettasks.count": "{n} görev",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "özel görev",
+  "secrettasks.level": "sv. {n}",
   "secrettasks.until_ready": "{t} sonra hazır",
   "secrettasks.ready": "yağmalanmaya hazır",
   "secrettasks.ready_expires": "yağmalanmaya hazır · {t} sonra dolar",

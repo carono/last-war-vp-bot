@@ -164,6 +164,11 @@ def new_row(record, timer) -> dict:
             "expires_at": record.get("expires_at"),
             "completed_at": record.get("completed_at"),
             "owner_name": record.get("owner_name") or "",
+            # Whether the GAME draws a star on this tile (#1244, live report). The list
+            # above is starred-only by construction; the roster below holds every task
+            # the alliance has out, and a row wearing a star the player cannot see in
+            # the game is worse than no mark at all.
+            "starred": bool(record.get("starred")),
             # Whether the alliance has already been shown this tile (#1245). Not read
             # off the record — a tile knows nothing about who has talked about it — but
             # stamped on afterwards by `SharedMarks.apply` from the profile's own store,

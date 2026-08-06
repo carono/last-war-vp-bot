@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "od sojuszu jeszcze nic — naciśnij Odśwież (gra musi działać)",
   "secrettasks.count": "{n} zadań",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "zadanie specjalne",
+  "secrettasks.level": "poz. {n}",
   "secrettasks.until_ready": "gotowe za {t}",
   "secrettasks.ready": "gotowe do ograbienia",
   "secrettasks.ready_expires": "gotowe do ograbienia · wygasa za {t}",

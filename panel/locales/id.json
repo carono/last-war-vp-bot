@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "dari aliansi belum ada apa-apa — tekan Segarkan (permainan harus berjalan)",
   "secrettasks.count": "{n} tugas",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "tugas khusus",
+  "secrettasks.level": "lv {n}",
   "secrettasks.until_ready": "siap dalam {t}",
   "secrettasks.ready": "siap dirampas",
   "secrettasks.ready_expires": "siap dirampas · habis dalam {t}",

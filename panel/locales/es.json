@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "de la alianza todavía nada — pulsa Refrescar (el juego tiene que estar en marcha)",
   "secrettasks.count": "{n} tareas",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "tarea especial",
+  "secrettasks.level": "niv. {n}",
   "secrettasks.until_ready": "lista en {t}",
   "secrettasks.ready": "lista para saquear",
   "secrettasks.ready_expires": "lista para saquear · caduca en {t}",

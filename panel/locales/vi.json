@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "chưa có gì từ liên minh — hãy bấm Làm mới (trò chơi phải đang chạy)",
   "secrettasks.count": "{n} nhiệm vụ",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "nhiệm vụ đặc biệt",
+  "secrettasks.level": "cấp {n}",
   "secrettasks.until_ready": "sẵn sàng sau {t}",
   "secrettasks.ready": "sẵn sàng để cướp",
   "secrettasks.ready_expires": "sẵn sàng để cướp · hết hạn sau {t}",

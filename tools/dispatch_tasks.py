@@ -63,11 +63,26 @@ pcall(function()
         x, y = tp.x, tp.y
       end)
       local av = v.avatar or {}
+      -- The task's OWN config row, which is what the game draws the tile from:
+      -- `lw_dispatch_tasks`, reached through `v.cfg` and read by column name. The
+      -- cfgId cannot be decoded into these (task #1244, live report): `60009903`
+      -- reads as "level 99" by its digits and is a LEVEL-7 task of another type,
+      -- and the star is `is_special`, not a family. Absent config -> zeros, and
+      -- the Python side falls back to the old arithmetic.
+      local lvl, spec, colour, star = 0, 0, 0, 0
+      pcall(function()
+        lvl = tonumber(v.cfg:getValue("level")) or 0
+        spec = tonumber(v.cfg:getValue("is_special")) or 0
+        colour = tonumber(v.cfg:getValue("color")) or 0
+        star = tonumber(v.cfg:getValue("task_star")) or 0
+      end)
       L("T kind="..kind.." uuid="..tostring(v.uuid).." cfgId="..tostring(v.cfgId)
         .." pointId="..tostring(v.pointId).." x="..tostring(x).." y="..tostring(y)
         .." srv="..tostring(v.targetServer).." owner="..tostring(v.ownerId)
         .." done="..tostring(v.completionTime).." expires="..tostring(v.actEndTime)
         .." steals="..tostring(#(v.stealInfoList or {}))
+        .." lvl="..tostring(lvl).." spec="..tostring(spec)
+        .." colour="..tostring(colour).." tstar="..tostring(star)
         .." name="..hex(tostring(av.name or "")).." abbr="..hex(tostring(av.abbr or "")))
     end
   end
@@ -108,7 +123,8 @@ def read_tasks(ev) -> tuple[list[dict], int]:
                 continue
             rec[key] = _hexdec(value) if key in ("name", "abbr") else value
         rec["uuid"] = rec.get("uuid", "0")
-        for key in ("cfgId", "pointId", "x", "y", "srv", "done", "expires", "steals"):
+        for key in ("cfgId", "pointId", "x", "y", "srv", "done", "expires", "steals",
+                    "lvl", "spec", "colour", "tstar"):
             rec[key] = _num(rec.get(key))
         tasks.append(rec)
     return tasks, now_ms
@@ -123,10 +139,16 @@ def alliance_roster(ev) -> list[dict]:
     been robbed already. The panel's «Секретки» tab draws exactly this in its second
     table (#1244) — hence a function rather than a second copy of the loop over there.
 
-    `level` and `starred` are split off `cfgId` by the one rule that owns them
-    (`lastwar_proto`), so a task's star means the same thing here as it does to the
-    scanner and to the robbery. A record with no owner name — the client has the task
-    but not the avatar behind it yet — keeps an empty string rather than inventing one.
+    **`level` and `starred` come from the GAME's own config row, not from the cfgId.**
+    The digits lie about both, and a live report caught them doing it (#1244): the
+    client's `lw_dispatch_tasks` row says `level = 7` for a `60009903` whose digits read
+    as level 99, and the star is the `is_special` column rather than a family — a
+    conclusion the wire could never reach, because it carries neither. The arithmetic
+    stays as the fallback for a record whose config the client has not loaded, which is
+    also all the pcap route has ever had.
+
+    A record with no owner name — the client has the task but not the avatar behind it
+    yet — keeps an empty string rather than inventing one.
     """
     import lastwar_proto as proto
 
@@ -139,12 +161,19 @@ def alliance_roster(ev) -> list[dict]:
             family, level, _variant = proto.split_cfg_id(cfg_id)
         except (TypeError, ValueError):
             continue                       # shaped like a task, but no usable cfgId
+        starred = (family in proto.STAR_TASK_FAMILIES
+                   and level != proto.SPECIAL_TASK_LEVEL)
+        if task.get("lvl"):                # the config answered — it outranks the digits
+            level, starred = task["lvl"], bool(task.get("spec"))
         out.append({
             "uuid": task["uuid"], "server": task["srv"],
             "x": task["x"], "y": task["y"], "point_id": task["pointId"],
-            "cfg_id": cfg_id, "family": family, "level": level,
-            "starred": family in proto.STAR_TASK_FAMILIES
-            and level != proto.SPECIAL_TASK_LEVEL,
+            "cfg_id": cfg_id, "family": family, "level": level, "starred": starred,
+            # What the game colours the tile by (3/4/5 live) and which star tier the
+            # task belongs to — carried because they are what tells one TYPE of
+            # level-7 task from another, which is the whole of the «особое задание»
+            # confusion this fixed.
+            "colour": task.get("colour") or 0, "star_tier": task.get("tstar") or 0,
             "loot_count": task["steals"],
             "completed_at": task["done"] or None,
             "expires_at": task["expires"] or None,

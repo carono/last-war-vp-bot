@@ -683,6 +683,17 @@ class SecretTasksTab(PanelTab):
         """The rows in the order the table shows them (`grid.sort_rows`)."""
         return grid.sort_rows(rows, self._sort)
 
+    def _rank(self, row) -> str:
+        """One row's level, wearing a star only if the GAME draws one (#1244).
+
+        Both front-ends say it the same way — the window's level cell and the phone's
+        «Уровень» fact — so a tile cannot look like a star on one and a plain task on
+        the other.
+        """
+        level = int(row.get("level") or 0)
+        key = "secrettasks.stars" if row.get("starred") else "secrettasks.level"
+        return self.t(key, n=level)
+
     def _row_values(self, row) -> tuple:
         """One row as the cells of the table, in the order COLUMNS declares.
 
@@ -694,10 +705,18 @@ class SecretTasksTab(PanelTab):
         and the raid read carry no name, so the table above leaves the column blank
         rather than filling it with a guess.
 
-        Level 99 is not a level — it is the one-per-player task class that shares the
-        encoding (`lastwar_proto.SPECIAL_TASK_LEVEL`) — so it is named rather than drawn
-        as «⭐×99». The alliance table is where they turn up; the list above filters them
-        out with the star rule.
+        THE STAR IS DRAWN ONLY WHERE THE GAME DRAWS ONE (#1244, live report). The level
+        cell used to read «⭐×7» on every row, because the star glyph was part of the
+        LEVEL format — honest in the list above, where every row is a starred raid by
+        construction, and a plain lie in the roster below, where 167 of 200 tasks carry
+        no star in the game at all. A row the game does not star now says its level and
+        nothing more.
+
+        And the level is the level the GAME gives, not the one the cfgId's digits spell:
+        `60009903` reads as «99» by arithmetic and is a level-7 task of another type,
+        which is what «есть "особое задание", это не особое, это такое же 7 уровня»
+        was about. The roster's records carry the config's own answer
+        (`dispatch_tasks.alliance_roster`), so there is nothing left here to name.
 
         A tile the alliance has already been shown carries `SHARED_GLYPH` in front of
         its coordinate (#1245) — the words are in the state cell, this is what makes the
@@ -705,12 +724,9 @@ class SecretTasksTab(PanelTab):
         `coords.parse` still finds it and the cell still jumps the camera.
         """
         import coords as coords_fmt
-        import lastwar_proto as proto
         ready = bool(row.get("ready"))
         can_take = self._collectable(row)
-        level = int(row["level"] or 0)
-        rank = (self.t("secrettasks.special") if level == proto.SPECIAL_TASK_LEVEL
-                else self.t("secrettasks.stars", n=level))
+        rank = self._rank(row)
         where = coords_fmt.fmt(row["x"], row["y"])
         if row.get("shared"):
             where = "%s %s" % (grid.SHARED_GLYPH, where)
@@ -1251,6 +1267,10 @@ class SecretTasksTab(PanelTab):
                 # straight into the cell: it is what `_refresh_timers` decides, and the
                 # table then paints it. A tile off screen (out of the level range) keeps
                 # counting all the same.
+                # Starred by construction: both feeds of THIS list keep only the
+                # tiles the game draws a star on (#1244), so a row here always wears
+                # one — unlike the roster below, where most rows do not.
+                "starred": True,
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
         self._render()
@@ -1328,6 +1348,8 @@ class SecretTasksTab(PanelTab):
                 "y": rec.get("y"), "level": rec.get("level"),
                 "cfg_id": rec.get("cfg_id"), "loot_count": rec.get("loot_count") or 0,
                 "expires_at": exp, "completed_at": rec.get("completed_at"),
+                # Restored rows are starred too — anything else was dropped above.
+                "starred": True,
                 "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
             restored.add(key)
@@ -1371,7 +1393,7 @@ class SecretTasksTab(PanelTab):
         for row in sorted(self._visible_rows(),
                           key=lambda r: (not r.get("ready"),
                                          r.get("expires_at") or float("inf"))):
-            facts = [{"label": "secrettasks.col.level", "value": str(row.get("level"))},
+            facts = [{"label": "secrettasks.col.level", "value": self._rank(row)},
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
             # The same mark the window puts on the row (#1245): the glyph on the

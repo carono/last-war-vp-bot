@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "von der Allianz noch nichts — drücke «Auffrischen» (das Spiel muss laufen)",
   "secrettasks.count": "{n} Missionen",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "Sondermission",
+  "secrettasks.level": "Lvl {n}",
   "secrettasks.until_ready": "bereit in {t}",
   "secrettasks.ready": "bereit zum Plündern",
   "secrettasks.ready_expires": "bereit zum Plündern · läuft ab in {t}",

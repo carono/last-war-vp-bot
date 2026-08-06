@@ -279,8 +279,10 @@ class AllianceGrid:
             # a name, the way the window's list is read to find a countdown.
             facts = [{"label": "secrettasks.col.owner",
                       "value": row.get("owner_name") or "—"},
+                     # The rank the window draws in its own cell — the star only
+                     # where the game puts one (#1244), never as decoration.
                      {"label": "secrettasks.col.level",
-                      "value": str(row.get("level"))},
+                      "value": self.tab._rank(row)},
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
             # …and the same «уже поделились» the window draws on this table (#1245):

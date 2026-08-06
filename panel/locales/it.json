@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "dall'alleanza ancora niente — premi Aggiorna (il gioco deve essere in funzione)",
   "secrettasks.count": "{n} attività",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "attività speciale",
+  "secrettasks.level": "liv. {n}",
   "secrettasks.until_ready": "pronta fra {t}",
   "secrettasks.ready": "pronta da saccheggiare",
   "secrettasks.ready_expires": "pronta da saccheggiare · scade fra {t}",

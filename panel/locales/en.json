@@ -691,7 +691,7 @@
   "secrettasks.alliance.empty": "nothing from the alliance yet — press Refresh (needs the game running)",
   "secrettasks.count": "{n} tasks",
   "secrettasks.stars": "⭐×{n}",
-  "secrettasks.special": "special task",
+  "secrettasks.level": "lvl {n}",
   "secrettasks.until_ready": "ready in {t}",
   "secrettasks.ready": "ready to loot",
   "secrettasks.ready_expires": "ready to loot · expires in {t}",
