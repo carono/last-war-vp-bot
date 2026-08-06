@@ -66,6 +66,69 @@ A player who routes the game through a proxy on their own machine therefore read
 `unknown` (amber, «связь не подтверждена») rather than `online`. That is the honest
 answer: from outside, that client's only remote peer is a program on the same computer.
 
+### 2.2 …and the same trap once more, from OUTSIDE the machine (found 2026-08-06)
+
+The loopback exclusion above closed the near case. The far case was still open, and it
+cost a whole night of farming before anybody looked at a socket.
+
+Caught while trying to spend a robbery for task #1188. The panel had been writing
+`game=up link=online daemon=warm timers_on=8` into `debug.log` every eight seconds all
+evening, every timer was reporting success, and every one of them was pressing nothing:
+
+```
+[timer] donate_alliance_tech:   TAP Donate 1000 xall -> 0 press(es)
+[timer] donate_alliance_tech: < action: donate_alliance_tech OK
+[timer] apply_ministry_interior:   WHILE post != 10007 -> LIMIT 4 reached, giving up
+```
+
+The socket table said what the readings would not:
+
+```
+TCP  <lan>:61136  <gateway-a>:10012  CLOSE_WAIT   147680
+…six of them, and not one ESTABLISHED on :10012
+```
+
+And `probe()` said, at that exact moment:
+
+```
+Link(running=True, link='online', reason='', pid=147680,
+     conn='<chat-host>:17935', dead=0, …)
+```
+
+**The live socket was a DIFFERENT SERVICE.** `:17935` is the chat / control channel
+(`docs/research/chat-system.md`); the game's own traffic is `:10012`. The client had
+lost every game socket and kept the control one, so `live_endpoint` found an
+established, remote, non-80/443 peer and `classify` returned `ONLINE, dead=0` —
+without even counting the six half-closed ones, because it returns before it gets
+there.
+
+So §2.1's rule — «an established connection outranks any pile of half-closed ones» —
+holds only while «established» and «half-closed» are the SAME conversation. They were
+not. The port-agnostic rule that made the check survive `:17935 → :10012` is exactly
+what let a leftover `:17935` vouch for a dead `:10012`.
+
+Two consequences, both observed rather than reasoned:
+
+* **the automatic recovery (#1259) can never fire**, because it waits for three
+  consecutive readings of a lost link and the link never reads lost;
+* **the «client is on the link» gate in front of `LUA` / `TAP` / `GAME` / `JUMP` is
+  defeated by the same reading**, so every scenario ran and every scenario pressed into
+  a socket the far end had closed. That is precisely the state §1 says has no symptom —
+  rebuilt, in a feature written to prevent it.
+
+The cure was the documented one and it worked: `restart_game` → the client came back,
+self-restarted into a new pid after login (as it always does), and came up with six
+ESTABLISHED sockets on `:10012`. The Lua daemon had to be restarted alongside it —
+attached to the dead pid it answered `snapshot failed err=5`, which is an access
+failure and not a state anything reads as «lost» either.
+
+**What a fix has to establish, and this file cannot decide for it:** whether «connected»
+means *any* remote peer, or a peer on the port the client's own game traffic uses. The
+second is knowable without hard-coding a port — the client tells us which endpoint it is
+playing through — and it is the only version that would have caught this. Not done here:
+`tools/lib/game_link.py` was being changed by another task at the time, and a reading
+this load-bearing must not be edited by two hands at once.
+
 ## 3. The four answers, and why not two
 
 `game_link.probe()` returns a `Link`: the old `running` boolean, plus a `link` that is
