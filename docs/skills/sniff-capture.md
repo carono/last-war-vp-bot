@@ -30,8 +30,8 @@ analysis half of §8 — §8.0 and §8.4-§8.11 — is in `sniff.md`; the two sh
 | **Interpreter for capture** | `/mnt/c/Python312/python.exe` — the **Windows** Python. Sees `C:` and `D:`, has scapy + npcap. |
 | **Never** use for capture | The WSL `python3`. WSL2 is a NAT'd VM; its sockets **cannot see** the Windows game's packets — it captures nothing, silently. |
 | **Capture interface** | `#13 "vEthernet (Создать виртуальный коммутатор)"` — the Hyper-V virtual-switch adapter. Confirm with `--list-ifaces`; the number can shift, the name is the anchor. |
-| **Game endpoint** | TCP `<server-ip5>:17935` (server IP changes per session — match by **port 17935**, not IP). |
-| **Game running?** | The game process holds an **ESTABLISHED** connection to `:17935` (`netstat -ano | findstr 17935`). No such line = not logged in = nothing to capture. |
+| **Game endpoint** | One plain-TCP connection to the gateway. **Both halves of it move**: the IP is dialled without DNS and changes per session, and the port moves between builds *in both directions* (`:17935` for years, `:10012` on one build, `:17935` again on the next — and a client can hold established sockets on both, only one of them talking). Never write either down — the tools read the port off the running client (`map_capture.detect_game_ports`), which is why they take `--all-tcp` and `--port` rather than a constant. See [`../research/protocol.md`](../research/protocol.md) §1. |
+| **Game running?** | The game process holds an **ESTABLISHED** connection to that gateway. Find it by process, not by port: `netstat -ano | findstr <pid of LastWar.exe>`, or `python3 -c "import sys; sys.path[:0]=['tools','tools/lib']; import map_capture; print(map_capture.detect_game_ports())"` on the **Windows** interpreter. Nothing but `:443`/`:80` = not logged in = nothing to capture. |
 
 One-time on the Windows interpreter:
 `C:\Python312\python.exe -m pip install scapy zstandard`
@@ -97,10 +97,12 @@ When no ready tool fits, reuse the transport — don't reimplement sniffing.
 
 **Building blocks** (all in `tools/`):
 - `map_capture.start_capture(index, args)` → starts scapy sniffer threads,
-  returns `(stop_event, bpf)`. BPF defaults to `tcp port 17935` (`--all-tcp`
-  widens it). Exits the process on `--list-ifaces`.
+  returns `(stop_event, bpf)`. The BPF is **read off the running client** —
+  every ESTABLISHED non-web port it holds — and only falls back to
+  `LW_GAME_PORT` when there is no client to ask. `--port N` pins one,
+  `--all-tcp` drops the filter entirely. Exits the process on `--list-ifaces`.
 - `map_capture.add_capture_arguments(ap)` → adds `--iface / --list-ifaces /
-  --seconds / --dump / --all-tcp` to your argparser.
+  --seconds / --dump / --port / --client-pid / --all-tcp` to your argparser.
 - `live_sniffer.LiveDecoder` → base decoder: per-flow TCP reassembly, finds the
   game stream **by frame shape** (not port), calls `emit(direction, env)` per
   decoded envelope. Subclass it and override `emit`.
@@ -178,10 +180,10 @@ jq -c 'select(.name == null)' traffic.jsonl                    # unnamed (only .
 | 0 packets / 0 frames, no error | Ran under the **WSL** Python | Use `/mnt/c/Python312/python.exe`. WSL sees none of the game's packets. |
 | `scapy is not installed on this interpreter` | The capturing Python lacks scapy | `pip install scapy zstandard` on that interpreter (npcap itself ships with Wireshark). All four tools share this one transport. |
 | `Unable to guess datalink type` / "npcap delivered N packets but none decoded" | scapy mis-maps the npcap linktype | Already worked around (frames re-parsed as Ethernet). If it persists, pin the right adapter with `--iface`. |
-| "No packets at all" | Game not running, or wrong interface | Check the `:17935` ESTABLISHED line; `--list-ifaces` and pin `#13 vEthernet (…)`. |
+| "No packets at all" | Game not running, wrong interface, or a **stale port** in a hand-written filter | Check the client has an ESTABLISHED non-web connection at all; `--list-ifaces` and pin `#13 vEthernet (…)`. A filter pinned to yesterday's port captures nothing and looks identical to «nobody is playing». |
 | Empty capture, game clearly online | Idle base sends only keepalives; map tiles need motion | **Pan the map / open the screen** during the run. |
 | Big server frames warn/fail to decode | `zstandard` missing | `pip install zstandard` on the **capturing** interpreter. |
-| pcap decodes as mostly `tls` | Wrong pcap — some other process | The game is **not** TLS; re-capture the `:17935` socket only. |
+| pcap decodes as mostly `tls` | Wrong pcap — some other process | The game is **not** TLS; re-capture the gateway socket only (the port the client is actually on). |
 | "unknown TLV tags" counter > 0 | **False alarm** — counts frames the decoder already discarded | Ignore; never document those tags. |
 
 ---
@@ -190,7 +192,7 @@ jq -c 'select(.name == null)' traffic.jsonl                    # unnamed (only .
 
 Full spec: [`../research/protocol.md`](../research/protocol.md).
 
-**Transport:** one TCP connection to `…:17935`; XOR-masked, length-prefixed TLV
+**Transport:** one TCP connection to the gateway (port read live, §1); XOR-masked, length-prefixed TLV
 envelopes `{c, a, p:{…}}`, big frames zstd-compressed. **Not TLS.** Chat rides
 the same socket. `_id` in a payload pairs a request with its reply; server
 **pushes** carry none.
@@ -348,8 +350,8 @@ confirmed within 25 s the panel says so instead of waiting silently.
 
 Prerequisites, in the order they bite:
 
-1. The game is running **and logged in** — an ESTABLISHED `:17935` line (§1).
-   No socket, no traffic.
+1. The game is running **and logged in** — an ESTABLISHED gateway connection
+   (§1; the port is whatever the client is on today). No socket, no traffic.
 2. Windows Python for the traffic side (§1). The WSL `python3` captures nothing,
    silently.
 3. The Lua tracer needs the VM: it goes through `get_evaluator()`, i.e. the warm

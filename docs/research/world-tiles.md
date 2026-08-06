@@ -7,6 +7,16 @@ via `tools/lua_goto_world.py`, then pan the map with `pydirectinput` drags to fo
 `world.get.block` fetches. Three captures (120 s + 90 s wide sweep + 70 s over a
 monster-containing view), 242 tiles total.
 
+> **The drags in that method are history — a scripted camera move fetches tiles
+> just as well** (#1053 → #1265). `GoToUtil.GotoWorldPos`, the game's own
+> coordinate jump, emits one `world.get.block` per arrival with no gesture, no
+> focus and the Windows session disconnected; the earlier «only an interactive
+> drag makes the client fetch» reading was a property of the `GotoPos` camera
+> crutch alone. A whole 1000×1000 server is one scheduled lap of ~2.6 s —
+> `actions/scan_map.md`, measured in
+> [`map-sweep-zoom.md`](map-sweep-zoom.md) §§7-9. Use that to move the map for
+> any capture; `pydirectinput` panning is needed for nothing here any more.
+
 **Headline:** the only *new* block kind is **`f2=25` = alliance city**. Roaming
 **monsters are NOT `world.get.block` tiles at all** — they are a separate world-entity
 system on their own streams. The task's guess (monsters at `f2=8/9/10`) conflated the

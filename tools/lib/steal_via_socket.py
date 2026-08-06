@@ -27,10 +27,14 @@ Read `docs/research/socket-duplication.md` for the write-up. What was measured
      AFD IOCTL is needed. WSADuplicateSocket stays cooperative-only and unused.
 
   4. What still blocks a real send is ENVIRONMENTAL, not ACE: a local VPN/proxy
-     rewrites every socket's peer to a :443 tunnel endpoint, so the game's
-     :17935 socket cannot be singled out by peer port, and getsockname (local
-     port) blocks on this machine. Disable the tunnel for a clean go.to.world
-     test.
+     rewrites every socket's peer to a :443 tunnel endpoint, so the game's own
+     socket cannot be singled out by peer port, and getsockname (local port)
+     blocks on this machine. Disable the tunnel for a clean go.to.world test.
+
+  6. The server port is READ, never assumed (#1053). It has already moved once
+     under this file, and a stale number matches no socket at all — which reads
+     as «the client is not on the world map» rather than as a wrong filter. See
+     `game_port` below; `--port` pins one by hand.
 
   5. Send-only is safe. A duplicated socket shares ONE kernel receive buffer
      with the game; any recv() would steal bytes and desync it mid-frame. We
@@ -44,24 +48,25 @@ defaults to the safe one.
 
 Usage (default is safe recon; nothing below --probe touches the game):
 
-    python tools/steal_via_socket.py                 # recon + verdict
-    python tools/steal_via_socket.py --sniff-id       # next _id off the wire (passive)
-    python tools/steal_via_socket.py --build \
+    python tools/lib/steal_via_socket.py              # recon + verdict
+    python tools/lib/steal_via_socket.py --sniff-id   # next _id off the wire (passive)
+    python tools/lib/steal_via_socket.py --port 10012 # …with the port pinned by hand
+    python tools/lib/steal_via_socket.py --build \
         --server-id <serverId> --k1 0x5a --k2 0x00 --id 181  # build go.to.world test frame
-    python tools/steal_via_socket.py --command steal --build \
-        --uuid 1394584906709054020 --target-server 946 \
+    python tools/lib/steal_via_socket.py --command steal --build \
+        --uuid <tile uuid, field f100> --target-server <the server it sits on> \
         --server-id <serverId> --k1 0x5a --k2 0x00 --id 9159 # build the steal frame
-    python tools/steal_via_socket.py --probe-access    # ACE access probe (touches game)
-    python tools/steal_via_socket.py --find-handle      # needs PROCESS_DUP_HANDLE
-    python tools/steal_via_socket.py --sniff-and-inject --force          # live-sniff _id → inject
-    python tools/steal_via_socket.py --send --command go.to.world --force \
+    python tools/lib/steal_via_socket.py --probe-access    # ACE access probe (touches game)
+    python tools/lib/steal_via_socket.py --find-handle      # needs PROCESS_DUP_HANDLE
+    python tools/lib/steal_via_socket.py --sniff-and-inject --force          # live-sniff _id → inject
+    python tools/lib/steal_via_socket.py --send --command go.to.world --force \
         --server-id <serverId> --k1 0x11 --k2 0x22 --id 181   # manual send (need --id)
-    python tools/steal_via_socket.py --command steal --send \
+    python tools/lib/steal_via_socket.py --command steal --send \
         --force --i-understand-ban-risk ...             # send steal (gated harder)
 
 Run it with the Windows Python, not WSL's — it uses Win32/NT APIs directly:
 
-    /mnt/c/Python312/python.exe tools/steal_via_socket.py
+    /mnt/c/Python312/python.exe tools/lib/steal_via_socket.py
 """
 
 from __future__ import annotations
@@ -76,10 +81,76 @@ sys.path.insert(0, "tools/lib")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import game_paths  # noqa: E402  (the game's port and process name)
 
-# Both from the resolver: the port has moved before (LW_GAME_PORT), and the
-# process name is the same answer every other tool in the repo asks it for.
-GAME_PORT = game_paths.game_port()
+# The process name is the same answer every other tool in the repo asks it for.
 GAME_PROCESS = game_paths.game_exe().lower()
+
+#: The server port, once it has been READ off the running client. Everything below
+#: matches a socket by its peer port, so the whole run has to agree on one number —
+#: hence a cache rather than a fresh probe per call. Only a successful read is kept:
+#: a client that is not up yet must not pin the fallback for the rest of the run.
+_GAME_PORT: "int | None" = None
+
+
+def game_port(pid: "int | None" = None) -> int:
+    """The port this client is ACTUALLY talking to the server on.
+
+    It moves — :17935 for years, :10012 on one build, :17935 again on the next —
+    and every failure that follows from getting it wrong is silent: no socket
+    matches, and the tool says «is the client on the world map?» about a client
+    that is sitting on it. So the live TCP table answers first
+    (`map_capture.primary_game_port`, the same read the capture tools use) and
+    `game_paths.game_port()` / `LW_GAME_PORT` is only the last resort.
+
+    When the table cannot say — nothing established, or two candidates with equal
+    weight — it SAYS so rather than choosing, because the one thing worse than an
+    unmatched socket here is a matched wrong one: this file writes into whatever it
+    picked. `--port` (`set_game_port`) is how the operator settles it.
+    """
+    global _GAME_PORT
+    if _GAME_PORT is not None:
+        return _GAME_PORT
+    try:
+        from map_capture import detect_game_ports, primary_game_port
+        found = primary_game_port(pid)
+        candidates = sorted(detect_game_ports(pid)) if found is None else []
+    except Exception:
+        found, candidates = None, []
+    if found is None:
+        # Nothing to pin yet — a client that has not connected out, or one holding
+        # two equally plausible sockets. Answer with the fallback, say why once,
+        # and keep probing: the next call may find the client settled.
+        _warn_unread_port(candidates)
+        return game_paths.game_port()
+    _GAME_PORT = found
+    return found
+
+
+#: One warning per run, not one per socket the enumeration walks.
+_WARNED_PORT = False
+
+
+def _warn_unread_port(candidates: list) -> None:
+    global _WARNED_PORT
+    if _WARNED_PORT:
+        return
+    _WARNED_PORT = True
+    fallback = game_paths.game_port()
+    if candidates:
+        print(f"{C_WARN}the client is established on several ports "
+              f"({', '.join(':' + str(p) for p in candidates)}) and the socket table "
+              f"cannot say which is the game — using :{fallback}. Pass --port N to "
+              f"settle it.{C_RESET}", file=sys.stderr)
+    else:
+        print(f"{C_DIM}could not read the game's port off a running client — "
+              f"using :{fallback}. Pass --port N if nothing matches.{C_RESET}",
+              file=sys.stderr)
+
+
+def set_game_port(port: "int | None") -> None:
+    """Pin the port for this run — what `--port` does. `None` re-opens the probe."""
+    global _GAME_PORT, _WARNED_PORT
+    _GAME_PORT = None if port is None else int(port)
+    _WARNED_PORT = False
 
 C_OK = "\033[92m"
 C_WARN = "\033[93m"
@@ -115,18 +186,22 @@ def find_game():
 
 
 def game_socket(pid: int):
-    """Return the (laddr, raddr) tuple of the game's :17935 connection.
+    """Return the (laddr, raddr) tuple of the game's server connection.
 
     Uses the TCP table (GetExtendedTcpTable under the hood, via psutil), which
     maps a connection to a pid without touching the owning process. It tells us
     the endpoints and that the socket exists — it does NOT give the in-process
     handle value; that is what step 2 is for, and why step 2 needs elevated
     access to the game.
+
+    The port is THIS client's, read live (`game_port`), because the number in the
+    environment is only a fallback and a wrong one matches nothing at all.
     """
     import psutil
 
+    port = game_port(pid)
     for c in psutil.net_connections(kind="tcp"):
-        if c.pid == pid and c.raddr and c.raddr.port == GAME_PORT:
+        if c.pid == pid and c.raddr and c.raddr.port == port:
             return c.laddr, c.raddr, c.status
     return None
 
@@ -139,7 +214,8 @@ def recon() -> int:
     print(f"{C_OK}game{C_RESET}   pid={pid}  {exe}")
     sock = game_socket(pid)
     if not sock:
-        print(f"{C_WARN}no established :{GAME_PORT} socket — is the client on the world map?{C_RESET}")
+        print(f"{C_WARN}no established :{game_port(pid)} socket — is the client on "
+              f"the world map?{C_RESET}")
         return 1
     laddr, raddr, status = sock
     print(f"{C_OK}socket{C_RESET} {laddr.ip}:{laddr.port} -> {raddr.ip}:{raddr.port}  [{status}]")
@@ -748,7 +824,7 @@ def dup_game_socket_by_lport(pid: int, local_port: int,
                 _e.set()
             _th.Thread(target=_pc, daemon=True).start()
             _pe.wait(0.2)
-            if _pr[0] and _pr[0][1] == GAME_PORT:
+            if _pr[0] and _pr[0][1] == game_port(pid):
                 print(f"  dbg hval=0x{hval:x} getpeername={_pr[0]} → game socket",
                       flush=True)
                 found = (hval, dup)
@@ -858,12 +934,12 @@ def dup_game_sockets(pid: int, match_port: int | None = None):
 
     Returns [(orig_handle_value, dup_handle, (ip, port))]. The caller owns the
     dup handles and must CloseHandle them. If `match_port` is given, only
-    sockets whose peer port equals it are kept (e.g. 17935 for the game
-    connection when no VPN/proxy is rewriting the endpoint).
+    sockets whose peer port equals it are kept (`game_port()` for the game
+    connection, when no VPN/proxy is rewriting the endpoint).
 
     Note (measured 2026-07-19): with a local VPN/proxy in the path, every
-    socket's peer reads as the tunnel endpoint (198.19.x / 101.32.x : 443), so
-    the game's :17935 does not surface here. Matching then needs getsockname's
+    socket's peer reads as the tunnel endpoint (a :443 tunnel address), so the
+    game's own port does not surface here. Matching then needs getsockname's
     local port — which blocks on this machine — or the tunnel disabled.
     """
     win = _win()
@@ -900,8 +976,8 @@ def find_handle(pid: int) -> int:
     Empirically (2026-07-19) this works: DUP_HANDLE is granted, DuplicateHandle
     succeeds, and ws2_32.getpeername answers on the duplicates — proving the
     duplicated handles are usable through Winsock. What it cannot do on this
-    machine is single out the :17935 game socket, because a VPN/proxy rewrites
-    every peer to a :443 tunnel endpoint.
+    machine is single out the game socket, because a VPN/proxy rewrites every
+    peer to a :443 tunnel endpoint.
     """
     if not _is_windows():
         print(f"{C_ERR}--find-handle needs the Windows Python.{C_RESET}")
@@ -914,16 +990,17 @@ def find_handle(pid: int) -> int:
         print(f"{C_ERR}{exc}{C_RESET}")
         return 1
     from collections import Counter
-    eps = Counter(f"{ip}:{port}" for _, _, (ip, port) in socks)
-    game = [(h, d, p) for (h, d, p) in socks if p[1] == GAME_PORT]
+    port = game_port(pid)
+    eps = Counter(f"{ip}:{p}" for _, _, (ip, p) in socks)
+    game = [(h, d, p) for (h, d, p) in socks if p[1] == port]
     for _h, d, _p in socks:
         _win()["k32"].CloseHandle(d)
     print(f"{C_OK}{len(socks)} duplicated socket(s){C_RESET}; peer endpoints: {dict(eps)}")
     if game:
-        print(f"{C_OK}game socket handle(s) at :{GAME_PORT}: "
+        print(f"{C_OK}game socket handle(s) at :{port}: "
               f"{[hex(h) for h, _, _ in game]}{C_RESET}")
         return 0
-    print(f"{C_WARN}no socket shows peer :{GAME_PORT} — a VPN/proxy is rewriting "
+    print(f"{C_WARN}no socket shows peer :{port} — a VPN/proxy is rewriting "
           f"endpoints. Disable it (or add getsockname local-port matching) to "
           f"pin the game socket. The duplication mechanic itself works.{C_RESET}")
     return 1
@@ -955,12 +1032,12 @@ def _object_type_name(ntdll, handle: int) -> str | None:
 
 
 def send_via_dup(pid: int, frame: bytes) -> int:
-    """Duplicate the game's :17935 socket and send `frame` down it.
+    """Duplicate the game's server socket and send `frame` down it.
 
     Uses the reliable dup-all-then-filter path (same as --find-handle): duplicate
-    every game handle, then select those whose peer port is GAME_PORT. The earlier
-    match_port= variant was flaky because it applied the port filter inside the
-    enumeration loop, where a transient getpeername hang stalled the whole scan.
+    every game handle, then select those whose peer port is the live game port. The
+    earlier match_port= variant was flaky because it applied the port filter inside
+    the enumeration loop, where a transient getpeername hang stalled the whole scan.
     Now _peer() has a 200 ms per-call timeout, and the filter runs after the full
     enumeration completes.
 
@@ -968,17 +1045,18 @@ def send_via_dup(pid: int, frame: bytes) -> int:
     """
     win = _win()
     k32, ws2 = win["k32"], win["ws2"]
+    port = game_port(pid)
     try:
         socks = dup_game_sockets(pid)           # dup all, filter by port after
     except OSError as exc:
         print(f"{C_ERR}{exc}{C_RESET}")
         return 1
-    game = [(h, d, p) for (h, d, p) in socks if p[1] == GAME_PORT]
+    game = [(h, d, p) for (h, d, p) in socks if p[1] == port]
     for _h, d, p in socks:
-        if p[1] != GAME_PORT:
+        if p[1] != port:
             k32.CloseHandle(d)
     if not game:
-        print(f"{C_ERR}could not pin the :{GAME_PORT} game socket "
+        print(f"{C_ERR}could not pin the :{port} game socket "
               f"(VPN/proxy rewrites peers — disable the tunnel).{C_RESET}")
         return 1
     _hval, dup, peer = game[0]
@@ -1065,23 +1143,27 @@ def sniff_and_inject(pid: int, args) -> int:
     # timing block that makes DuplicateHandle hang for > 75 s.  Without it,
     # DuplicateHandle succeeds quickly (confirmed: task #961, 61 bytes sent).
     import psutil as _psutil
+    _port = game_port(pid)
     _local_port: int | None = None
     _local_ip: str | None = None
     _server_ip: str | None = None
     _game_pid: int | None = None
-    for _conn in _psutil.net_connections(kind="tcp"):
-        if (_conn.raddr and _conn.raddr.port == GAME_PORT
-                and _conn.status == "ESTABLISHED"):
-            _local_port = _conn.laddr.port
-            _local_ip = _conn.laddr.ip
-            _server_ip = _conn.raddr.ip
-            _game_pid = _conn.pid
-            break
+    # This client's connection first: another account's client on the machine dials
+    # the SAME server port, and injecting into the wrong one is not recoverable.
+    # Falls back to any connection on the port when psutil cannot attribute pids.
+    _open = [c for c in _psutil.net_connections(kind="tcp")
+             if c.raddr and c.raddr.port == _port and c.status == "ESTABLISHED"]
+    for _conn in ([c for c in _open if c.pid == pid] or _open):
+        _local_port = _conn.laddr.port
+        _local_ip = _conn.laddr.ip
+        _server_ip = _conn.raddr.ip
+        _game_pid = _conn.pid
+        break
     if _local_port:
         print(f"{C_DIM}game local port: :{_local_port} "
-              f"({_local_ip} → {_server_ip}:{GAME_PORT}){C_RESET}", flush=True)
+              f"({_local_ip} → {_server_ip}:{_port}){C_RESET}", flush=True)
     else:
-        print(f"{C_WARN}no :{GAME_PORT} ESTABLISHED found via psutil{C_RESET}")
+        print(f"{C_WARN}no :{_port} ESTABLISHED found via psutil{C_RESET}")
 
     # Phase 1: enumerate socket-type handles for the game process via
     # NtQuerySystemInformation (global read, no OpenProcess).  Done here so
@@ -1217,7 +1299,7 @@ def sniff_and_inject(pid: int, args) -> int:
                         and _ip.src == _local_ip
                         and _tcp.sport == _local_port
                         and _ip.dst == _server_ip
-                        and _tcp.dport == GAME_PORT):
+                        and _tcp.dport == _port):
                     # Upstream: game → server
                     state["up_next_seq"] = (_tcp.seq + _payload_len) & 0xFFFFFFFF
                     state["up_ack"] = _tcp.ack
@@ -1257,7 +1339,7 @@ def sniff_and_inject(pid: int, args) -> int:
                     except Exception:
                         pass
                 elif (_ip.src == _server_ip
-                        and _tcp.sport == GAME_PORT
+                        and _tcp.sport == _port
                         and _ip.dst == _local_ip
                         and _tcp.dport == _local_port):
                     # Downstream: server → game.  Track server's ack# to verify
@@ -1278,7 +1360,7 @@ def sniff_and_inject(pid: int, args) -> int:
 
     def _sniff_forever(iface):
         try:
-            sniff(filter=f"tcp port {GAME_PORT}", iface=iface, prn=_make_feed(iface),
+            sniff(filter=f"tcp port {_port}", iface=iface, prn=_make_feed(iface),
                   store=False, stop_filter=lambda _p: stop.is_set())
         except Exception as exc:  # one dead interface must not end the run
             if not stop.is_set():
@@ -1677,7 +1759,7 @@ def verdict() -> None:
          "above replaces it."),
     ]
     blocked = [
-        ("pinning the :17935 game socket",
+        ("pinning the game socket by its peer port",
          "a local VPN/proxy rewrites every peer to a :443 tunnel endpoint, so "
          "the game socket does not surface by peer port; getsockname (local "
          "port) blocks on this machine. Disable the tunnel for a clean test."),
@@ -1748,7 +1830,14 @@ def main() -> int:
     ap.add_argument("--req-id", type=int, dest="req_id",
                     help="force the request _id without waiting for upstream sniff "
                          "(use when game is on base screen and generates no named upstream traffic)")
+    ap.add_argument("--port", type=int,
+                    help="pin the server port instead of reading it off the live "
+                         "client (the port moves between builds; only needed when "
+                         "the socket table cannot be read)")
     args = ap.parse_args()
+
+    if args.port:
+        set_game_port(args.port)
 
     if args.build:
         return cmd_build(args)

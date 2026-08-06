@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import live_tshark as lt  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 import lastwar_proto as proto  # noqa: E402
+from map_capture import detect_game_ports  # noqa: E402  (the live port, not a guess)
 
 # Commands the interface's rally UI is built on. Matched as a substring against
 # the decoded command name, so "alliance.march" also catches
@@ -172,9 +173,11 @@ def main() -> int:
     ap.add_argument("--iface", help="interface number from `tshark.exe -D`; omitted = all")
     ap.add_argument("--duration", type=int, default=600,
                     help="stop after N seconds (default 600 = 10 min)")
-    ap.add_argument("--filter", default="port 17935",
-                    help="capture BPF (default matches the game port; the gateway IP "
-                         "changes per session, so match by port, not host)")
+    ap.add_argument("--filter",
+                    help="capture BPF (default: the port the client is currently "
+                         "connected out on, read off its own sockets — the gateway IP "
+                         "changes per session and the port changes per build, so a "
+                         "written-down number captures nothing and says nothing)")
     ap.add_argument("--log", help="append every matched message as JSONL here")
     ap.add_argument("--tshark", help="path to tshark.exe")
     ap.add_argument("--dumpcap", help="path to dumpcap.exe")
@@ -192,6 +195,18 @@ def main() -> int:
         print(f"{C_ERR}no capture interfaces found{C_RESET}", file=sys.stderr)
         return 1
     targets = [(args.iface, f"iface {args.iface}")] if args.iface else ifaces
+
+    # The port the client is on RIGHT NOW, unless the caller pinned a filter. With
+    # the client down there is nothing to read, and "tcp" (everything) is the only
+    # honest answer — a filter that silently matches nothing is this tool's worst
+    # failure mode, because it looks exactly like an alliance with no rallies.
+    if not args.filter:
+        ports = detect_game_ports()
+        args.filter = (" or ".join(f"port {p}" for p in sorted(ports)) if ports
+                       else "tcp")
+        if not ports:
+            print(f"{C_DIM}could not read the game's port off a running client — "
+                  f"capturing all TCP{C_RESET}", file=sys.stderr)
 
     decoder = RallyWatcher(args.log)
     stop = threading.Event()

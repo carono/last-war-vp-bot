@@ -44,40 +44,77 @@ GAME_PROCESS = game_paths.game_exe().lower()
 NON_GAME_PORTS = frozenset({80, 443})
 
 
-def detect_game_ports() -> set:
-    """The remote TCP port(s) the game is currently connected out on.
+def detect_game_ports(pid: "int | None" = None) -> set:
+    """The remote TCP port(s) the game could be talking to a server on.
 
     The endpoint IP is dialled without DNS and the port is not stable across
-    builds — it was :17935 historically and is :10012 on the current client —
-    so a hard-coded port is a standing way for a capture to sniff the right
-    interface and hear nothing while looking exactly like "nobody was panning".
-    Read the live port straight off the game's own ESTABLISHED connections
-    instead: the same TCP table Task Manager shows, no handle opened. Falls back
-    to an empty set (caller then uses GAME_PORT) when the process is gone or
-    psutil is not installed.
+    builds — :17935 for years, :10012 on one build, :17935 again on the next — so
+    a hard-coded port is a standing way for a capture to sniff the right interface
+    and hear nothing while looking exactly like "nobody was panning". Read it
+    straight off the client's own ESTABLISHED connections instead: the same TCP
+    table Task Manager shows, no handle opened. Falls back to an empty set (caller
+    then uses GAME_PORT) when the process is gone or psutil is not installed.
 
-    Web ports (see NON_GAME_PORTS) are excluded — the client keeps HTTP/TLS
-    connections open for translation and assets that are not the game stream.
+    A capture filters on ALL of them — the BPF is an `or` — because a port left
+    out is a stream nobody hears, and a spare candidate costs a few frames the
+    decoder discards. Three kinds of socket are dropped, each of them measured
+    rather than reasoned (#1053, on a client that had been up for hours):
+
+      * **web ports** (NON_GAME_PORTS) — the client keeps HTTP/TLS open for
+        assets and translation all day;
+      * **loopback peers** — a couple of `127.0.0.1 → 127.0.0.1` sockets whose two
+        ends are BOTH the client's own pid. Not a server at all;
+      * **anything but ESTABLISHED** — the same client held CLOSE_WAIT leftovers
+        naming the gateway it had already left.
+
+    `pid` narrows to a single client: two accounts on this machine dial the same
+    port, and a caller pointing at ONE socket must ask about the client it means.
     """
     try:
         import psutil
     except ImportError:
         return set()
     try:
-        pids = {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
-                if (p.info["name"] or "").lower() == GAME_PROCESS}
+        pids = ({int(pid)} if pid is not None else
+                {p.info["pid"] for p in psutil.process_iter(["pid", "name"])
+                 if (p.info["name"] or "").lower() == GAME_PROCESS})
         if not pids:
             return set()
         ports = set()
         for c in psutil.net_connections(kind="tcp"):
             if (c.pid in pids and c.raddr and c.status == "ESTABLISHED"
-                    and c.raddr.port not in NON_GAME_PORTS):
+                    and c.raddr.port not in NON_GAME_PORTS
+                    and not _is_loopback(getattr(c.raddr, "ip", ""))):
                 ports.add(c.raddr.port)
         return ports
     except Exception:
         # psutil raises AccessDenied / OSError on some Windows setups; a failed
         # probe must degrade to the fallback port, not take down the capture.
         return set()
+
+
+def _is_loopback(ip: str) -> bool:
+    """A peer on this machine is never the game's gateway."""
+    return ip.startswith("127.") or ip in ("::1", "0:0:0:0:0:0:0:1")
+
+
+def primary_game_port(pid: "int | None" = None) -> "int | None":
+    """ONE port — for a caller that has to recognise a single socket, or None.
+
+    A capture listens to every candidate at once; anything that matches a peer
+    address (`steal_via_socket`) has to commit to one, and committing to the wrong
+    one writes into a socket that is not the game.
+
+    **So this answers only when the client leaves no choice, and None otherwise.**
+    The obvious tie-break — most sockets wins — was tried and DISPROVED live
+    (#1053): a client held six established sockets on :10012 and one on :17935,
+    and a 25 s capture on each showed :10012 carrying nothing at all while the
+    single :17935 socket carried the alliance pushes. The socket table knows
+    which ports are open, never which one is answering; only traffic knows that.
+    A caller with two candidates asks the operator (`--port`) instead of guessing.
+    """
+    ports = detect_game_ports(pid)
+    return ports.pop() if len(ports) == 1 else None
 
 
 class OwnPorts:

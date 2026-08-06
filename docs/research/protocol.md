@@ -24,6 +24,28 @@ Custom binary over **plain TCP — no TLS**. Observed endpoint
 IP directly with **no preceding DNS lookup**, so SNI/DNS filters will not find
 it — filter by frame shape or port instead.
 
+**And the port moves too — in both directions** (#1053). `:17935` held for years,
+then a build came up on `:10012`, and a later one was back on `:17935`; same
+protocol, same kind of gateway. A capture pinned to the number written down here
+hears *nothing*, which on screen is indistinguishable from an idle account — the
+most expensive false lead this repository has produced. So the port is **read off
+the running client**: `map_capture.detect_game_ports()` returns its ESTABLISHED,
+non-web, non-loopback peers, and `LW_GAME_PORT` / `game_paths.game_port()` answers
+only when there is no client to ask. Every capture tool does this by default;
+`--port N` pins one and `--all-tcp` drops the filter entirely.
+
+**An open socket is not a talking one, and counting them proves nothing.**
+Measured 2026-08-07 on a client that had been up for hours: it held *six*
+ESTABLISHED sockets on `:10012` and *one* on `:17935`, plus CLOSE_WAIT leftovers
+on `:10012` and two `127.0.0.1 → 127.0.0.1` sockets whose both ends were its own
+pid. A 25 s capture on each port settled it — `:10012` delivered **0 packets with
+payload**, while the lone `:17935` socket carried nine alliance pushes. Twenty
+minutes later the `:10012` sockets were gone. Hence the rule in the code: a
+capture filters on **every** candidate (a spare costs a few discarded frames),
+and anything that must pick exactly one socket — `steal_via_socket` — refuses to
+choose when there are two and asks for `--port` instead. The socket table knows
+which ports are open, never which one is answering.
+
 Gameplay, alliance events and map queries all multiplex over this **single
 connection**. Chat is only **partly** here: the game gateway carries chat
 control (room registry, DM send/ack, system mails, notifications), but the
