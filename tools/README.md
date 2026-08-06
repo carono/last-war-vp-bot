@@ -504,16 +504,22 @@ tripped is simply absent). See
 [`../docs/research/command-injection-vectors.md`](../docs/research/command-injection-vectors.md)
 (Vector A) for the full rationale.
 
+The relay is **archived** (`tools/archive/relay.py`), and the port in every line
+below is an example, not a constant: it was the gateway of the day and the game
+has moved since (`../docs/research/protocol.md` §1). Read the client's current one
+first — `python -c "import sys; sys.path[:0]=['tools','tools/lib']; import
+map_capture; print(map_capture.detect_game_ports())"` — and substitute it.
+
 ```bash
 # observe only — decode and log every frame through both legs
-python tools/relay.py --upstream <gateway-ip>:17935
+python tools/archive/relay.py --upstream <gateway-ip>:<port>
 
 # inject a safe go.to.world 20s after the client connects, then swallow its reply
-python tools/relay.py --upstream <gateway-ip>:17935 --inject-cmd go.to.world --inject-after 20
+python tools/archive/relay.py --upstream <gateway-ip>:<port> --inject-cmd go.to.world --inject-after 20
 
 # Linux / Android emulator: iptables REDIRECT front-end, gateway read off the socket
-sudo iptables -t nat -A OUTPUT -p tcp --dport 17935 -j REDIRECT --to-ports 17935
-python3 tools/relay.py --transparent --inject-cmd go.to.world --inject-after 20
+sudo iptables -t nat -A OUTPUT -p tcp --dport <port> -j REDIRECT --to-ports <port>
+python3 tools/archive/relay.py --transparent --inject-cmd go.to.world --inject-after 20
 ```
 
 **Getting the game onto the relay is a separate, unsolved-on-PC step.** The

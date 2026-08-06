@@ -12,7 +12,7 @@ proven; end-to-end delivery is not confirmed.** Three facts summarise it:
 1. **Mechanic proven.** Every step through the write works — `OpenProcess`,
    `DuplicateHandle`, and finally `ws2_32.send`, which returned **61 bytes,
    err 0**: the full `go.to.world` frame was written into the game's real
-   socket (both the direct `:17935` and the proxy loopback).
+   socket (both the direct gateway connection and the proxy loopback).
 2. **Delivery unconfirmed.** The server's reply to `go.to.world` was never
    observed, so it is unproven that the frame reached the server. The blocker is
    a **local transparent proxy/VPN** in the path (see topology below), not the
@@ -25,6 +25,36 @@ proven; end-to-end delivery is not confirmed.** Three facts summarise it:
 
 This overturns the first-pass write-up, which assumed ACE would kill it;
 empirically it does not on this build.
+
+> ## Point 2 above is OUT OF DATE — delivery WAS confirmed, two days later
+>
+> **#971, 2026-07-21: the injected command reached the server and the server
+> acted on it.** The proof sat only in `results/socket_dup/RESULTS.md` for a
+> fortnight — a git-ignored tree, so the repository went on saying «unconfirmed»
+> while the machine that ran it held the opposite (found writing up #963).
+>
+> What the run recorded, in order: the tool read the client's own next `_id` off
+> the wire, duplicated the game's socket, and sent a 60-byte `go.to.world` frame
+> — and **scapy saw the client's upstream sequence number advance by exactly
+> those bytes**, on the game's own connection. Seconds later the client received
+> a full **world-init burst** (`init`, the shop/notice/dispatch batch,
+> `world.get.march.infos`) and was on the world map. Nothing else asked for it.
+>
+> **What was NOT obtained, and the distinction matters:** the reply carrying
+> *our* `_id` back. The scene reload restarts the counter, so the burst arrived
+> with fresh low `_id`s and the tool's own success line pairs its inject id with
+> one of them (`world.get.march.infos _id=86 << inject_id=176`) — that pairing is
+> presentation, not evidence. So delivery is proven **by effect**, which point 3
+> above says a screenshot cannot do — but a whole scene load is not a screenshot,
+> and it is the thing the command exists to cause. The `_id`-matched reply, the
+> stricter proof that task #963 asked for, was never seen and is not worth
+> another live run (below).
+>
+> Two footnotes for anyone re-reading the log: that run was on the gateway port
+> of the day, and **the port has moved since** — the tool reads it live now
+> (#1053, `docs/research/protocol.md` §1). And the harness that drove it lives in
+> `tools/archive/` (`run_world_inject.py`, `test_sniff_inject.py`), where the
+> tools split put it; it still speaks of the old port and predates `game_paths`.
 
 Test scope note: only the safe, reversible test command `go.to.world` is in
 play. `steal` is deliberately not sent until the mechanic is confirmed on the
@@ -85,9 +115,13 @@ tool never `recv()`s, so it cannot steal bytes the game is mid-frame on.
 
 ## To finish the proof (next session)
 
-- **Disable the VPN/proxy** so the game socket is a direct `:17935` connection.
-  Then `--find-handle` pins it every run and `--send` (go.to.world, `--force`)
-  can write to it.
+*Written before #971 did finish it. Kept because the recipe is still the right
+one if this channel is ever picked up again — see the closing section for why it
+should not be.*
+
+- **Disable the VPN/proxy** so the game socket is a direct connection to the
+  gateway. Then `--find-handle` pins it every run and `--send` (go.to.world,
+  `--force`) can write to it.
 - Observe the result either by the **screenshot** (the client flips to the
   world map) or by a **separate-process** capture watching for the
   `go.to.world {success, _id:<ours>}` reply — kept out of the sending process to
@@ -104,3 +138,41 @@ assumption did not hold: ACE granted `PROCESS_DUP_HANDLE` and the duplication
 succeeded. The remaining wall is the user's own VPN, which is removable. The
 posture is still active work, so the emulator + throwaway-account rule stands
 for `steal`; `go.to.world` is reversible and low-stakes by comparison.
+
+## Where this direction stands now (#963, 2026-08-07)
+
+**The question it was opened to answer is answered, and not by this.** «Can the
+game be commanded at all» is settled by the Lua route — `GameEntry.get_Lua()` →
+`XLuaManager.SafeDoString` runs a chunk inside the client, and everything the bot
+does rides it: 30 abilities in `src/lastwar_bot/actions/*.md`, played by
+`script_engine`, pressed from the panel, gated on the link (#1259/#1266). The very
+command this harness injected is one line of DSL today —
+`SceneUtils.ChangeToWorld()` (`docs/dsl.md`) — with no capture, no handle and no
+`_id` race.
+
+| | socket duplication | the Lua route |
+|---|---|---|
+| what it can send | one hand-built wire frame at a time | anything the client itself can do |
+| what it needs | live `_id` off a capture, a duplicated handle, the VPN off, capture in a separate process | a warm daemon |
+| answer channel | none — it never `recv()`s, so the reply lands in the client | the call returns its value |
+| proven | delivery, once, by effect (#971) | every day, by every scenario |
+
+So `--sniff-and-inject` is **a research artefact, not a transport**, and the
+autonomous harness task #963 asked for was written (`tools/archive/`), run, and
+succeeded before being archived. Two things in this file are still worth keeping,
+and they are the reasons the tool is not deleted:
+
+* **the frame builders and `--sniff-id`** — `build_command_frame` round-trips
+  through the reference decoder, which is how a new command's bytes get
+  understood before anybody tries to send one. That is protocol work, and it does
+  not touch the game;
+* **the finding itself** — ACE grants `PROCESS_DUP_HANDLE` on this build. It is
+  the thing to re-measure first if the Lua route ever stops working after a game
+  update, and the fallback is then a known quantity rather than a new project.
+
+**Not recommended to finish.** Chasing the `_id`-matched reply costs live runs
+against the operator's own account for a proof whose practical value is now nil,
+and the environmental blockers (§ above) are the operator's VPN and a
+capture/`ws2` conflict in one process — real work for a channel nothing would
+use. If the direction is ever reopened, reopen it against the fallback question
+(«does this still work when the Lua route does not»), not against the proof.
