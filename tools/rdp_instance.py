@@ -339,6 +339,43 @@ def session_of(user: str) -> dict | None:
     return None
 
 
+def local_users() -> list[str]:
+    """Every account of THIS machine that could hold a session, as Windows lists them.
+
+    Asked of Windows every time and kept nowhere: a login is the one thing about this
+    machine that no default can be right about (`CLAUDE.md`, «Nothing about one machine
+    is written into the code»), so there is no list in this repository to go stale, to
+    leak somebody's account, or to disagree with the accounts that actually exist.
+
+    Disabled accounts are dropped — `Guest` and the built-in service ones are disabled on
+    an ordinary install, and offering a login that cannot sign in is exactly the mistake
+    a picker is here to remove. What is left is sorted, case-insensitively, so the order
+    does not move between two openings of the page.
+
+    Raises whatever pywin32 raises. The caller decides what a machine that will not
+    answer means; here it must not come back as «no accounts», which is a different
+    thing and reads as a fresh install.
+    """
+    import win32net       # noqa: PLC0415 — Windows-only, pywin32
+    import win32netcon    # noqa: PLC0415
+
+    names, resume = [], 0
+    while True:
+        # Level 1 carries `flags`, which is where UF_ACCOUNTDISABLE lives; level 0 is
+        # names alone and would offer the disabled ones too.
+        info, _total, resume = win32net.NetUserEnum(
+            None, 1, win32netcon.FILTER_NORMAL_ACCOUNT, resume)
+        for entry in info:
+            if int(entry.get("flags") or 0) & win32netcon.UF_ACCOUNTDISABLE:
+                continue
+            name = str(entry.get("name") or "").strip()
+            if name:
+                names.append(name)
+        if not resume:
+            break
+    return sorted(set(names), key=str.casefold)
+
+
 def console_session() -> int:
     """The session that should own the console — this one, whoever is running us."""
     import ctypes

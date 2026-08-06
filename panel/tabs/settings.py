@@ -500,7 +500,16 @@ class SettingsTab(PanelTab):
         # same lesson).
         self._session_box = self._opt_row(frame, 0, "rdp_session")
         self._session_box.configure(command=self._on_session_toggle)
-        self._session_user_entry = self._opt_row(frame, 1, "rdp_user", width=20)
+        self._session_user_entry = self._build_user_picker(frame, 1)
+        # …and, ONLY when the list could not be had, why there is a box to type in
+        # instead of a list to pick from. Silent while the picker works, because a line
+        # explaining a control that is behaving normally is noise.
+        self._session_users = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
+                                        justify="left")
+        self._session_users.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        if getattr(self, "_users_error", ""):
+            self._session_users.configure(
+                text=self.t("session.users.failed", error=self._users_error))
 
         # IS THIS PROFILE ALONE ON ITS CLIENT? (#1263) The one fault the two knobs above
         # can be in that nothing else on the page would ever mention: a profile that
@@ -509,7 +518,7 @@ class SettingsTab(PanelTab):
         # sentence says which knob to move rather than leaving «непонятно, что делать».
         self._session_shared = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
                                          justify="left")
-        self._session_shared.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self._session_shared.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
         # …and what the two knobs currently amount to, WITH what is still left to do —
         # the panel re-points its own link the moment the tick moves, but a client in a
         # session that has never been raised is not going to appear because a checkbox
@@ -517,7 +526,7 @@ class SettingsTab(PanelTab):
         # farmed nothing all night.
         self._session_means = ttk.Label(frame, foreground="#888", wraplength=520,
                                         justify="left")
-        self._session_means.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self._session_means.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # «Проверить»: the settings answer for themselves, here, rather than being
         # discovered at three in the morning as a profile that farmed nothing. The
@@ -525,21 +534,21 @@ class SettingsTab(PanelTab):
         # words to the verdict it comes back with.
         self._session_check_btn = self.tr(
             ttk.Button(frame, command=self._check_session), "session.check")
-        self._session_check_btn.grid(row=4, column=1, sticky="w", pady=(8, 0))
+        self._session_check_btn.grid(row=5, column=1, sticky="w", pady=(8, 0))
         # …and beside it the thing «Проверить» used to send the person to a terminal for
         # (#1231). The verdict says «поднимите сессию»; the button that does it belongs
         # in arm's reach of the sentence, not in a command line in a document.
         self._session_up_btn = self.tr(
             ttk.Button(frame, command=self._bring_up_session), "session.bring_up")
-        self._session_up_btn.grid(row=4, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+        self._session_up_btn.grid(row=5, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
         self._session_verdict = ttk.Label(frame, foreground="#888", wraplength=520,
                                           justify="left")
-        self._session_verdict.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._session_verdict.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
         # The port and the session are two halves of one answer, so the contradiction
         # between them is shown without waiting to be asked for.
         self._session_clash = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
                                         justify="left")
-        self._session_clash.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._session_clash.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 0))
         # WHOSE PASSWORD IS ON THIS PROFILE'S ADDRESS (#1263). Windows keys a saved RDP
         # password by the address and by nothing else, so a slot holding another
         # account's password is the whole reason every «Поднять сессию» used to come up
@@ -547,7 +556,7 @@ class SettingsTab(PanelTab):
         # live Windows — reading credentials on every keystroke would not be free.
         self._session_cred = ttk.Label(frame, foreground="#888", wraplength=520,
                                        justify="left")
-        self._session_cred.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self._session_cred.grid(row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         # The login is meaningless while the tick is off, and a box that still takes
         # typing says otherwise. Follow the checkbox — and the port — on every change.
@@ -555,6 +564,49 @@ class SettingsTab(PanelTab):
             self.rt.settings.vars[key].trace_add(
                 "write", lambda *a: self._refresh_session_user_state())
         self._refresh_session_user_state()
+
+    def _build_user_picker(self, frame: ttk.Frame, row: int):
+        """The login row: PICKED from this machine's accounts, not typed.
+
+        A typed login looks configured and is not: one letter wrong and the bring-up
+        goes looking for a session of an account that does not exist, reports the
+        ordinary «клиент не запущен», and there is nothing on screen to say which of the
+        two states it is in. A list Windows itself answers with cannot be misspelt.
+
+        THE LIST IS NEVER IN THIS REPOSITORY. It is read live
+        (`game_process.local_users`), so it holds this machine's accounts on this
+        machine and somebody else's on theirs, and no login is committed anywhere.
+
+        Two things it must not do. It must not turn a machine that cannot be asked into
+        «there are no accounts» — a panel with no pywin32 falls back to a box to type in
+        and says why, rather than a picker with nothing in it and no explanation. And it
+        must not drop a login that is already saved: a profile configured against an
+        account since renamed, or against a domain one the enumeration does not return,
+        keeps what it has and can still be read.
+
+        The variable is the profile's own (`rt.settings.vars["rdp_user"]`), which is what
+        persists the choice — the same route the tick takes, and the reason a change here
+        is not undone by the next save (#1263).
+        """
+        self.tr(ttk.Label(frame), "opt.rdp_user").grid(row=row, column=0, sticky="w",
+                                                       padx=(0, 8), pady=3)
+        var = self.rt.settings.vars["rdp_user"]
+        users, error = runtime.game_process.local_users()
+        self._users_error = error
+        if users:
+            saved = str(var.get() or "").strip()
+            if saved and saved not in users:
+                users = sorted([*users, saved], key=str.casefold)
+            widget = ttk.Combobox(frame, textvariable=var, values=users, width=22,
+                                  state="readonly")
+        else:
+            # No list, so the login has to be typed — and the row below says whether
+            # that is because the machine would not answer or because it has nobody.
+            widget = ttk.Entry(frame, textvariable=var, width=22)
+        widget.grid(row=row, column=1, sticky="w")
+        self.tr(ttk.Label(frame, foreground="#888", wraplength=340, justify="left"),
+                "opt.rdp_user.hint").grid(row=row, column=2, sticky="w", padx=(10, 0))
+        return widget
 
     def _on_session_toggle(self) -> None:
         """A person moved the tick: give this profile the client it now asks for.
@@ -665,7 +717,11 @@ class SettingsTab(PanelTab):
         entry = getattr(self, "_session_user_entry", None)
         try:
             if entry is not None:
-                entry.configure(state="normal" if on else "disabled")
+                # A picker's «on» is `readonly`: it opens and it chooses, and it cannot
+                # be typed into — which is the whole point of it being a list (#1263).
+                # The typed fallback is an ordinary Entry and wants `normal`.
+                live = "readonly" if isinstance(entry, ttk.Combobox) else "normal"
+                entry.configure(state=live if on else "disabled")
             port_lbl = getattr(self, "_port_lbl", None)
             if port_lbl is not None:
                 port_lbl.configure(text=self._port_text())

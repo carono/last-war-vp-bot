@@ -332,6 +332,33 @@ not the hard one: a different Windows session means a different desktop, so the 
 clients never compete for the foreground, and the daemon is reachable over TCP exactly
 like a local one.
 
+**The login is picked, not typed (#1263).** It was a text box, and a text box is how a
+login gets one letter wrong and stays wrong: the profile looks configured, the bring-up
+goes looking for a session of an account that does not exist, and the report is the
+ordinary «клиент не запущен» — the same sentence as a client that is merely down, with
+nothing on screen to tell the two apart. It is a list now, answered live by Windows
+(`rdp_instance.local_users` → `NetUserEnum`, disabled accounts dropped because offering
+a login that cannot sign in is the mistake a picker is here to remove).
+
+Three properties it must keep, and each is a way the picker could be worse than the box
+it replaced:
+
+* **nothing is stored in this repository.** The list is read every time the page is
+  built and kept nowhere, so it holds this machine's accounts here and somebody else's
+  there, and no login is committed anywhere (`CLAUDE.md`, «Nothing about one machine is
+  written into the code»);
+* **a machine that cannot be asked is not a machine with no accounts.**
+  `game_process.local_users` answers `(names, error)` and the page shows a box to type
+  in plus the reason — an empty picker with no explanation would be the same silent
+  dead end in a new costume;
+* **a saved login that is not in the list survives.** A profile pointed at a domain
+  account, or one since renamed, keeps what it has: the value is added to the list
+  rather than dropped, or the next save would blank a configured profile.
+
+The phone shows which account a profile is pointed at (`daemon.user` on «Состояние») and
+no way to change it — «Настройки» has no phone screen by decision, and the picker is a
+list of THIS machine's accounts, which a phone has no business editing.
+
 Two things still owed:
 
 * **Bringing one up from the panel.** Today `--bring-up` is a command line. A profile

@@ -96,6 +96,27 @@ def profile_user(settings) -> str | None:
         return None
 
 
+def local_users() -> tuple:
+    """``(logins, error)`` — the accounts of THIS machine, for the login picker.
+
+    Two separate answers, and folding them together is the failure this signature
+    exists to prevent: a machine that cannot be asked must NOT come back as «there are
+    no accounts». One is a reason to offer typing instead; the other is a fresh install,
+    and a picker that shows an empty list for either says nothing about which.
+
+    ``error`` is the exception in the machine's own words — a panel with no pywin32, a
+    Windows that refuses the enumeration — for the page to show. Nothing is cached: the
+    list costs one API call, and an account added five minutes ago is an account a
+    person expects to see (`CLAUDE.md`, «Nothing about one machine is written into the
+    code»).
+    """
+    try:
+        import rdp_instance                # noqa: PLC0415 — Windows-only, pywin32
+        return list(rdp_instance.local_users()), ""
+    except Exception as exc:               # noqa: BLE001 — a page, not a crash
+        return [], str(exc) or type(exc).__name__
+
+
 def profile_pids(settings) -> list:
     """This profile's client pids — for a capture that must decode only ITS account.
 

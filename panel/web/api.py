@@ -282,9 +282,17 @@ class WebApi:
             # login that separates them is typed on «Настройки» → «Игра», and that tab
             # has no phone screen by decision (CLAUDE.md, «The three divergences there
             # are»), so what it needs on the move comes here (#1263).
+            #
+            # `user` is WHICH WINDOWS SESSION this profile's client lives in, empty for
+            # the one on the panel's own desktop. A reading and not a control: it is
+            # PICKED from this machine's accounts on «Настройки» → «Игра» (#1263), and
+            # that tab has no phone screen by decision — but which account a profile is
+            # pointed at is exactly what somebody away from the machine needs to be able
+            # to check, because getting it wrong looks identical to «клиент не запущен».
             "daemon": {"up": rt.game.up(), "port": self._port(rt),
                        "busy": bool(rt.game.busy),
-                       "shared": self._shared_client(name, rt)},
+                       "shared": self._shared_client(name, rt),
+                       "user": self._client_args(rt)[1] or ""},
             # `name` is passed through raw beside the sentence: the page marks the
             # scenario card that is running with it, and matching on the translated
             # sentence would be matching on a language.

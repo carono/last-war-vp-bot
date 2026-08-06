@@ -171,6 +171,14 @@ function paintState(state) {
   daemon.textContent = state.daemon.up ? T('web.ui.on') : T('web.ui.off');
   daemon.className = 'pill ' + (state.daemon.up ? 'ok' : 'off');
   $('daemon-text').textContent = T('web.ui.port', { port: state.daemon.port });
+  /* WHICH Windows account this profile's client belongs to — the login picked on
+   * «Настройки» → «Игра» (#1263). A reading, not a control: the picker is a list of
+   * this machine's own accounts and that tab has no phone screen. Hidden for a profile
+   * whose client is on the panel's own desktop, where there is no session to name. */
+  const sessionUser = state.daemon.user || '';
+  $('daemon-user').hidden = !sessionUser;
+  $('daemon-user').textContent = sessionUser
+    ? T('web.ui.daemon.user', { user: sessionUser }) : '';
   /* Two profiles on ONE client farm ONE account and both look healthy doing it
    * (#1250). The phone gets the reading and no button: the login that separates them
    * is typed on the «Настройки» tab, which has no phone screen by decision — so the

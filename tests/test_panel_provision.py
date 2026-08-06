@@ -388,8 +388,18 @@ def test_no_settings_row_takes_typing_for_a_port_or_a_path() -> None:
                 typed.add(arg.value)
     forbidden = (settingsmod.MACHINE_KEYS | {"daemon_port"}) & typed
     assert not forbidden, f"still a box to type into: {sorted(forbidden)}"
-    # …and the tick that DOES stay is the one thing a person answers about the client.
-    assert "rdp_session" in typed and "rdp_user" in typed
+    # …and the tick that DOES stay is one of the two things a person answers about the
+    # client. The other is the login, and it is no longer an `_opt_row` either — it is
+    # PICKED from this machine's accounts (#1263), which is a control of its own. What
+    # matters is that it is still bound to the profile's own variable: that is what
+    # persists a choice and what a typed box and a picker have to have in common.
+    assert "rdp_session" in typed
+    assert "rdp_user" not in typed, "the login is picked from a list, never typed"
+    picker = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_build_user_picker")
+    bound = {a.value for a in ast.walk(picker)
+             if isinstance(a, ast.Constant) and isinstance(a.value, str)}
+    assert "rdp_user" in bound, "the picker does not name the knob it writes"
 
 
 def _main() -> int:

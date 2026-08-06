@@ -295,11 +295,15 @@ def test_the_page_answers_in_sentences_and_greys_the_login_box():
         finally:
             gp.check = saved
 
-        # The login box follows the tick, both ways.
+        # The login control follows the tick, both ways. WHICH control it is depends on
+        # the machine — a picker of this machine's accounts where Windows will list
+        # them, a box to type in where it will not (#1263) — so the live state is
+        # «usable», not one particular word for it.
         rt.settings.vars["rdp_session"].set(False)
         assert str(page._session_user_entry.cget("state")) == "disabled"
         rt.settings.vars["rdp_session"].set(True)
-        assert str(page._session_user_entry.cget("state")) == "normal"
+        assert str(page._session_user_entry.cget("state")) in ("normal", "readonly"), \
+            page._session_user_entry.cget("state")
     finally:
         try:
             root.destroy()
@@ -608,6 +612,140 @@ def test_the_words_for_a_slot_somebody_else_owns_exist_everywhere():
         # …and the command that fixes it carries the port, because the port is what
         # decides which address the password lands on.
         assert "{port}" in loc["log.session.save_hint"], path.name
+
+
+# -- the login is picked, not typed (#1263) -----------------------------------
+
+def test_the_account_list_comes_from_windows_and_drops_the_disabled_ones():
+    """`local_users` enumerates live and keeps nothing — there is no list to go stale.
+
+    Disabled accounts are dropped because offering a login that cannot sign in is the
+    mistake a picker exists to remove: `Guest` and the built-in service accounts are
+    disabled on an ordinary install and would otherwise sit in the list looking usable.
+    """
+    R = _rdp()
+    if R is None:
+        return
+    try:
+        import win32net
+        import win32netcon
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no pywin32: {exc}")
+        return
+    page = [
+        [{"name": "beta", "flags": 0},
+         {"name": "alpha", "flags": win32netcon.UF_ACCOUNTDISABLE},
+         {"name": "Gamma", "flags": 0},
+         {"name": "  ", "flags": 0}],
+        [{"name": "delta", "flags": 0}, {"name": "beta", "flags": 0}],
+    ]
+    calls = {"n": 0}
+
+    def fake_enum(server, level, flt, resume=0):
+        # Two pages, so the resume handle is exercised: a machine with more accounts
+        # than one call returns must not lose the tail.
+        calls["n"] += 1
+        return (page[resume], len(page[0]) + len(page[1]), 0 if resume else 1)
+
+    saved = win32net.NetUserEnum
+    win32net.NetUserEnum = fake_enum
+    try:
+        assert R.local_users() == ["beta", "delta", "Gamma"], R.local_users()
+    finally:
+        win32net.NetUserEnum = saved
+    assert calls["n"] == 2, calls          # both pages were read
+
+
+def test_a_machine_that_cannot_be_asked_is_not_a_machine_with_no_accounts():
+    """`game_process.local_users` answers `(names, error)`, and the two are different.
+
+    Folding them together is the failure this signature prevents: an empty list with no
+    reason reads as a fresh install, and the page would offer a picker with nothing in
+    it instead of a box to type in and a sentence saying why.
+    """
+    try:
+        from panel.runtime import game_process as gpmod
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no runtime: {exc}")
+        return
+    R = _rdp()
+    if R is None:
+        return
+    saved = R.local_users
+    try:
+        R.local_users = lambda: (_ for _ in ()).throw(OSError("pywin32 is not here"))
+        names, error = gpmod.local_users()
+        assert names == [] and "pywin32" in error, (names, error)
+        R.local_users = lambda: ["one", "two"]
+        names, error = gpmod.local_users()
+        assert names == ["one", "two"] and error == "", (names, error)
+    finally:
+        R.local_users = saved
+
+
+def test_the_page_offers_a_list_and_falls_back_to_typing():
+    """The real page, both ways round — and the saved login survives either.
+
+    A profile pointed at an account the enumeration does not return (a domain one, or
+    one since renamed) must keep what it has: a picker that silently dropped it would
+    turn a configured profile into a blank one on the next save.
+
+    Needs Tk and a display; says SKIP without one.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no tkinter: {exc}")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import fake_runtime
+        from panel.runtime import game_process as gpmod
+        from panel.tabs.settings import SettingsTab
+        root = tk.Tk()
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no display: {exc}")
+        return
+    saved = gpmod.local_users
+    try:
+        root.withdraw()
+        rt = fake_runtime.cold_runtime(root)
+        rt.settings.save = lambda raw=None: None
+
+        # A list, and a saved login that is NOT in it.
+        gpmod.local_users = lambda: (["one", "two"], "")
+        rt.settings.vars["rdp_user"].set("elsewhere")
+        page = SettingsTab(rt, ttk.Frame(root))
+        page._build_session_settings(page.parent)
+        picker = page._session_user_entry
+        assert isinstance(picker, ttk.Combobox), type(picker)
+        values = list(picker.cget("values"))
+        assert set(values) == {"one", "two", "elsewhere"}, values
+        assert page._session_users.cget("text") == "", "a working list needs no excuse"
+        # Picked, never typed — and the tick governs it.
+        rt.settings.vars["rdp_session"].set(True)
+        assert str(picker.cget("state")) == "readonly", picker.cget("state")
+        rt.settings.vars["rdp_session"].set(False)
+        assert str(picker.cget("state")) == "disabled", picker.cget("state")
+        # Choosing writes the profile's own variable, which is what persists it (#1263).
+        picker.set("two")
+        assert rt.settings.opt_str("rdp_user") == "two"
+
+        # …and a machine that will not answer gets a box and a reason, not an empty list.
+        gpmod.local_users = lambda: ([], "pywin32 is not here")
+        page2 = SettingsTab(rt, ttk.Frame(root))
+        page2._build_session_settings(page2.parent)
+        assert isinstance(page2._session_user_entry, ttk.Entry), \
+            type(page2._session_user_entry)
+        said = page2._session_users.cget("text")
+        assert said and "pywin32" in said and "{" not in said, said
+    finally:
+        gpmod.local_users = saved
+        try:
+            root.destroy()
+        except Exception:                   # noqa: BLE001
+            pass
 
 
 def _main() -> int:
