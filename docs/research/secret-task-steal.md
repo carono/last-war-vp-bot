@@ -299,6 +299,19 @@ The fix is the same one #1244 made on the other side: teach
 has not loaded. Filed separately; not folded into #1188, whose panel path is
 unaffected.
 
+**The five reset at the server midnight, and the client will say when that is.**
+`UITimeManager:GetInstance():GetTomorrowZero()` is the next one — live on 2026-08-06 it
+read `2026-08-07 02:00:00 UTC`, so the server day runs **02:00 UTC → 02:00 UTC**.
+`GetLocalUTCOffset()` gives this machine's offset (5 hours there, so 07:00 by the
+panel's clock). Corroborated by `protocol.md` §7: 597 of 636 tile expiries share the
+timestamp `01:59:59 UTC`, one second before the same boundary. Ask those two rather
+than counting from the PC — it was 17.9 s slow when this was measured.
+
+Note the difference from the OTHER robbery: this budget genuinely comes back every
+midnight, so «wait for the reset» is a real plan here. It is not for ghost recon, whose
+event day ends at the very instant its budget resets
+(`ghost-recon-steal.md` §4.1).
+
 The gate is judged on the GAME's clock, which is not this computer's — the two were
 eleven seconds apart when measured, with the PC the slow one (`game-clock.md`,
 task #1227). Against `time.time()` the same `completionTime` reads as "not yet" for

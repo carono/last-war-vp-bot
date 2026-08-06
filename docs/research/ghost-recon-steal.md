@@ -144,10 +144,52 @@ The remaining conditions are read straight off the manager:
 
 * `IsOpenDay()` — the event runs one day a week; off-day, everything is dark;
 * `stealTimes` vs `GetNowSettingCfg().stealCount` — the daily budget;
+  **and the two run out at the SAME INSTANT** — see below, it is why an unspent
+  ghost budget is not a thing you can come back to in the morning;
 * `dispatchStealRange[server]` — the set of servers the event lets you rob
   (live: 421–676 plus 8053–8084; the account's own server is in it). This is
   the ghost-recon analogue of the secret task's "not in the same sector" refusal;
 * `ownerId ~= my uid` — robbing my own squad is not a thing.
+
+### 4.1 When the day ends — asked of the client, not counted on a PC clock
+
+Measured 2026-08-06 for #1188, because «wait for the daily reset» turned out to be the
+wrong plan for this event and nobody could have known that from the outside.
+
+`IsOpenDay` is one comparison, read out of its own bytecode
+(`string.dump`, the trick in `secret-task-steal.md` §2):
+
+```
+openTime · UITimeManager · GetInstance · GetServerTime · IsSameDayForServer · self
+```
+
+— «is `self.openTime` on the same SERVER day as now». So both answers are readable
+without guessing at a timezone:
+
+| what | how | live value |
+|---|---|---|
+| the event's day | `DataCenter.ActGhostreconManager.openTime` | `2026-08-06 02:00:00 UTC` |
+| the next server midnight | `UITimeManager:GetInstance():GetTomorrowZero()` | `2026-08-07 02:00:00 UTC` |
+| this machine's offset | `UITimeManager:GetInstance():GetLocalUTCOffset()` | `5` (hours) |
+
+The server day therefore runs **02:00 UTC → 02:00 UTC**, and `openTime` is exactly the
+start of the day the event is on. Independently corroborated: `protocol.md` §7 recorded
+597 of 636 tile expiries sharing one timestamp, `01:59:59 UTC` — one second before this
+same boundary.
+
+**The consequence is the point.** The daily steal budget resets at the server midnight,
+and `IsOpenDay()` goes false at the same instant, because the event's day is the day
+that just ended. So a ghost budget spent on the event day is spent for the WEEK: there
+is no moment at which `left > 0` and `IsOpenDay()` are both true again until the next
+`openTime`. Anything waiting on «the quota comes back at midnight» — a person, a
+standing order, a task's acceptance — is waiting for a state that will not occur.
+
+`openTime` is pushed by the server with the activity list, so next week's is not
+readable today; the next window is *expected* one week on and should be confirmed by
+reading `openTime` again rather than assumed.
+
+Never compute any of this from the PC clock: the game's is the authority and the two
+were 17.9 s apart when this was measured, with the PC the slow one (`game-clock.md`).
 
 ## 5. What is automated
 
