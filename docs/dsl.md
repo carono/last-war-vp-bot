@@ -530,6 +530,26 @@ one-off flow. A finished recipe should read like a list of button presses.
 > client. Loop in the DSL instead — `TAP ... xN`, or `WHILE` + `WAIT` — so the
 > round-trip lands between calls. Each `TAP` already pauses after every press.
 
+**These four ask whether the client is still on the server first.** A client that has
+lost its session goes on answering every getter with yesterday's numbers and returning
+`true` from every send while nothing arrives, so `LUA`, `TAP`, `GAME` and `JUMP` read the
+link before they drive anything, and a run against a stranded client FAILs in words
+instead of pressing its way to the end and blaming the game
+(`docs/research/server-link-status.md`). Three things worth knowing when you write a
+recipe:
+
+* **only a proven loss stops it.** «Cannot tell» — a client 45 seconds into starting up,
+  a machine that will not show its socket table, no client found — lets the run through.
+  The gate fails open by construction and can never itself be the fault.
+* **the lifecycle statements are not gated at all.** `QUIT_GAME`, `START_GAME`,
+  `ATTACH_GAME`, `LAUNCH`, `CLOSE_WINDOW` send nothing to the server — they repair the
+  client — so `restart_game.md` is exactly what you want to run on a lost link and it
+  runs.
+* **`READ_LUA` is not gated either.** A read on a stranded client is stale rather than
+  refused, because a diagnosis has to be able to look at a broken client.
+
+It is read once per run, not once per press, so a `TAP … xall` costs one reading.
+
 ### `TAP <button> [xN | xall]`
 
 Press a named button from the catalogue — once (default), `N` times, or `xall`. This
