@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Świat",
   "secrettasks.collect_ok": "odbiór wysłany",
   "secrettasks.collect_fail": "odbiór niewysłany — dzienny limit wyczerpany albo brak gry",
+  "secrettasks.shared_mark": "już udostępnione",
   "secrettasks.shared_ok": "udostępnione na {where}",
   "secrettasks.share_fail": "udostępnienie na {where} nie powiodło się",
   "tab.command_post": "Tajne stanowisko dowodzenia",

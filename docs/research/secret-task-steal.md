@@ -259,6 +259,46 @@ task #1227). Against `time.time()` the same `completionTime` reads as "not yet" 
 that long after the server would already pay out, and the countdown on the tab
 disagrees with the one the game draws beside it.
 
+## 6b. «Уже поделились» — the mark on a tile that has been forwarded (task #1245)
+
+Forwarding a raid to the alliance is worth doing once. The second post reaches the
+same people and tells them nothing, so both tables on the tab mark the tiles that
+have already been shared — a badge on the coordinate cell and
+`secrettasks.shared_mark` beside the countdown, mirrored on the phone.
+
+The mark is a FACT ABOUT THE TILE, not a memory of the panel's own button, so it has
+two producers and they write the same file:
+
+| producer | when | what it writes |
+|---|---|---|
+| the tab (`_share_done`) | the panel's «Поделиться» succeeded | `via = "panel"` |
+| `tools/secret_task_capture.py` («Мониторинг») | `push.alliance.share.mission.add` **and** the `get.alliance.share.mission.list` backlog | `via = "game"`, `uid = shareUid` |
+| `tools/secret_share_autoloot.py` (the auto-loot listener) | every `…mission.add` it decodes, **before** the level rule | `via = "game"`, `uid = shareUid` |
+
+That is what covers the half the panel cannot see by itself: a share pressed in the
+game — by this player or by an alliancemate — never touches the panel, and the only
+place it is observable is the broadcast the server sends the alliance. Both captures
+already decode that stream for other reasons, so the mark costs no extra read and no
+extra child; the price is that the game-side half is only recorded while one of those
+two standing orders is running.
+
+The login snapshot is included **for marking only**. `secret_share_autoloot` refuses
+to ROB from `get.alliance.share.mission.list` on purpose (a backlog replayed on every
+reconnect would re-rob yesterday), but «this has already been shared» is exactly what
+a backlog is good for — it is the only source for shares made while nothing here was
+listening.
+
+Storage is `panel/profiles/<name>/secret_shared.jsonl`, append-only because three
+processes write it (`tools/lib/share_marks.py`): one JSON line per share, newest line
+per uuid wins, marks age out after 48 h, and the reader compacts the file once it has
+grown past its contents. The tab re-reads it on the per-second countdown pass, but
+only when the mtime moved — so an idle tab pays one `os.stat` a second, and a share
+pressed in the game shows up within a second of the capture writing it.
+
+Stamped on the machine's own clock, unlike everything else on this tab: the timestamp
+is ours rather than the game's, and it is only ever used to age a mark out long after
+the tile itself is gone.
+
 ## 7. Open
 
 * **Finding targets is still the weak half.** The queue has to be filled from a

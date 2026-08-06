@@ -94,7 +94,11 @@ def _Watcher(checkpoint: Path, level_from: str = "", level_to: str = "",
     import panel.__main__ as pm
     settings = rtmod.SettingsBinder(profiles=None, defaults=pm.SETTINGS_DEFAULTS)
     rt = types.SimpleNamespace(
-        profiles=types.SimpleNamespace(tasks_json=lambda: str(checkpoint)),
+        # `secret_shared_json` is where the listener records «уже поделились» (#1245) —
+        # beside the checkpoint, since both belong to the same profile.
+        profiles=types.SimpleNamespace(
+            tasks_json=lambda: str(checkpoint),
+            secret_shared_json=lambda: str(checkpoint.parent / "secret_shared.jsonl")),
         game=game, settings=settings, log=bus, put=bus.put,
         children=types.SimpleNamespace(python=lambda: "python", spawn_raw=None),
         tick=types.SimpleNamespace(arm=lambda *a, **k: None))

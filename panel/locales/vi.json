@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Thế giới",
   "secrettasks.collect_ok": "đã gửi lệnh thu",
   "secrettasks.collect_fail": "chưa gửi được lệnh thu — hết hạn mức ngày hoặc không có trò chơi",
+  "secrettasks.shared_mark": "đã chia sẻ",
   "secrettasks.shared_ok": "đã chia sẻ tới {where}",
   "secrettasks.share_fail": "chia sẻ tới {where} thất bại",
   "tab.command_post": "Sở Chỉ Huy Bí Mật",

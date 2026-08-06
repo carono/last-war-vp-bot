@@ -66,6 +66,7 @@ sys.path.insert(0, _HERE)
 import coords  # noqa: E402  (canonical #server X:x Y:y token — clickable in the panel log)
 import lastwar_proto as proto  # noqa: E402
 import lua_actions  # noqa: E402
+import share_marks  # noqa: E402  (the «already shared» mark this listener also writes)
 import lua_client  # noqa: E402
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET, LiveDecoder  # noqa: E402
 from map_capture import add_capture_arguments, check_platform, start_capture  # noqa: E402
@@ -122,9 +123,17 @@ class ShareAutoloot(LiveDecoder):
     """
 
     def __init__(self, ev, star_max: bool, level_min, level_max,
-                 limit: int, dry_run: bool, skip_own_server: bool = False):
+                 limit: int, dry_run: bool, skip_own_server: bool = False,
+                 shared_json: str | None = None):
         super().__init__()
         self._ev = ev
+        # Where «this task has already been shared» is recorded (#1245), or None to
+        # record nothing. Written for EVERY share this listener decodes, before the
+        # auto-loot rule is consulted: a mission outside the rule is still a mission
+        # the alliance has already been told about, and the mark is what stops the
+        # person forwarding it a second time.
+        self._shared_json = shared_json
+        self.marked = 0
         self._star_max = star_max
         self._level_min = level_min
         self._level_max = level_max
@@ -161,6 +170,13 @@ class ShareAutoloot(LiveDecoder):
             print(f"{_stamp()} {C_DIM}share push with no uuid/server — skipped"
                   f"{C_RESET}", flush=True)
             return
+        # The mark first, and unconditionally: whether this mission is worth one of the
+        # day's five robberies is a separate question from whether the alliance has
+        # already been shown it (#1245).
+        if self._shared_json and share_marks.mark(
+                self._shared_json, uuid, share_marks.VIA_GAME,
+                str(mission.share_uid or "")):
+            self.marked += 1
         star = "*" if mission.starred else " "
         lvl = mission.level if mission.level is not None else "?"
         where = coords.fmt(0, 0, server).split()[0]  # "#<server>" prefix for the log
@@ -263,6 +279,10 @@ class ShareAutoloot(LiveDecoder):
         print(f"{C_OK}{self.hits} shared mission(s) matched, "
               f"{self.robbed} robbery/robberies sent{C_RESET} "
               f"from {self.packets} packet(s) with payload")
+        # Counted apart from the hits on purpose: a mission outside the rule is marked
+        # as shared and never robbed, so the two numbers answer different questions.
+        if self._shared_json:
+            print(f"{self.marked} share(s) marked in {self._shared_json}")
         if not self.hits:
             print(f"{C_DIM}No shared secret task matched — the push only arrives when an "
                   f"alliance member presses share on a raidable one while capturing."
@@ -293,6 +313,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="decode and decide, but never send a robbery (for verifying the "
                          "wire path without spending the budget)")
+    ap.add_argument("--shared-json", default=None, metavar="PATH",
+                    help="append a mark to this file for every shared secret task seen, "
+                         "whoever shared it and whether or not the rule takes it "
+                         "(default: shares are not recorded)")
     args = ap.parse_args()
     # After parsing, so --help / --list-ifaces read from the WSL interpreter rather than
     # being refused by the capture-only platform check.
@@ -311,7 +335,8 @@ def main() -> int:
 
     monitor = ShareAutoloot(ev, star_max=args.star_max, level_min=args.level_min,
                             level_max=args.level_max, limit=args.limit,
-                            dry_run=args.dry_run, skip_own_server=args.skip_own_server)
+                            dry_run=args.dry_run, skip_own_server=args.skip_own_server,
+                            shared_json=args.shared_json)
     stop, bpf = start_capture(monitor, args)
 
     print("Shared-secret-task auto-loot — scapy/npcap, no dumpcap")

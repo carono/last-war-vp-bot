@@ -87,6 +87,7 @@ from . import grid
 from .alliance import AllianceGrid
 from .autoloot import AutoLoot
 from .capture import Capture
+from .shared import SharedMarks
 from .sweep import Sweep
 
 # The table itself — its columns, its colours, its sort keys and its countdown — is
@@ -235,6 +236,10 @@ class SecretTasksTab(PanelTab):
         # The second table (#1244): what the alliancemates are running, filled by its
         # own read — see `_roster`.
         self.alliance = AllianceGrid(self)
+        # Which tiles the alliance has already been shown (#1245). Both tables read it,
+        # the panel's own «Поделиться» writes it, and so do the two capture children —
+        # which is what makes a share pressed in the GAME show up here.
+        self.shared = SharedMarks(rt)
 
     # -- getting onto the Tk thread ------------------------------------------
     def after(self, func) -> None:
@@ -322,6 +327,10 @@ class SecretTasksTab(PanelTab):
         # The roster below belongs to the old account just as much — a different account
         # is a different alliance, and those are not this one's alliancemates (#1244).
         self.alliance.clear()
+        # …and so do the shares: «уже поделились» is about an alliance chat this account
+        # is not in (#1245). Dropped rather than re-read, because the new profile's own
+        # file is read by the next countdown pass anyway.
+        self.shared.clear()
         if self.loaded:
             self._restore_pending = self._load_persisted()
             self._render()
@@ -689,6 +698,11 @@ class SecretTasksTab(PanelTab):
         encoding (`lastwar_proto.SPECIAL_TASK_LEVEL`) — so it is named rather than drawn
         as «⭐×99». The alliance table is where they turn up; the list above filters them
         out with the star rule.
+
+        A tile the alliance has already been shown carries `SHARED_GLYPH` in front of
+        its coordinate (#1245) — the words are in the state cell, this is what makes the
+        answer readable down a column. The token itself is left untouched behind it, so
+        `coords.parse` still finds it and the cell still jumps the camera.
         """
         import coords as coords_fmt
         import lastwar_proto as proto
@@ -697,8 +711,11 @@ class SecretTasksTab(PanelTab):
         level = int(row["level"] or 0)
         rank = (self.t("secrettasks.special") if level == proto.SPECIAL_TASK_LEVEL
                 else self.t("secrettasks.stars", n=level))
+        where = coords_fmt.fmt(row["x"], row["y"])
+        if row.get("shared"):
+            where = "%s %s" % (grid.SHARED_GLYPH, where)
         return (row.get("owner_name") or "",
-                coords_fmt.fmt(row["x"], row["y"]),
+                where,
                 self.t("secrettasks.server", srv=row["server"]),
                 "%s %s" % (READY_GLYPH if ready else TYPE_GLYPH, rank),
                 row["timer"].get(),
@@ -1357,13 +1374,22 @@ class SecretTasksTab(PanelTab):
             facts = [{"label": "secrettasks.col.level", "value": str(row.get("level"))},
                      {"label": "secrettasks.col.slots",
                       "value": f"{row.get('loot_count')}/3"}]
+            # The same mark the window puts on the row (#1245): the glyph on the
+            # coordinate, the words in the line under it. Whoever is reading the phone
+            # is the one most likely to forward a tile twice — they cannot see the
+            # alliance chat they would be posting into.
+            if row.get("shared"):
+                facts.append({"label": "secrettasks.shared_mark", "value": ""})
             done, exp = row.get("completed_at"), row.get("expires_at")
             # A spent tile says so instead of saying «готово»: it is on the list only
             # because the box asked for it, and «ready» on a row nobody can rob is the
             # single most misleading word the screen could carry.
             spent = self._spent(row)
+            text = coords.fmt(row.get("x"), row.get("y"), row.get("server"))
+            if row.get("shared"):
+                text = "%s %s" % (grid.SHARED_GLYPH, text)
             items.append({
-                "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
+                "text": text,
                 "facts": facts,
                 # Ready: how long is left to take it. Not ready: when it becomes one.
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
@@ -1624,8 +1650,15 @@ class SecretTasksTab(PanelTab):
 
         The arithmetic is `grid.refresh_timers` — the grid below runs the very same one
         on its own rows every second (#1244).
+
+        The «уже поделились» mark is stamped on first (#1245), because the state cell
+        the timer writes carries it: a share pressed in the GAME reaches the panel as a
+        line appended to the profile's store by a capture child, so a flip of that flag
+        counts as a change worth redrawing exactly like a tile maturing does.
         """
-        return grid.refresh_timers(self._rows, self.t)
+        marked = self.shared.apply(self._rows)
+        expired, changed = grid.refresh_timers(self._rows, self.t)
+        return expired, changed or marked
 
     # -- the ready-row poll ----------------------------------------------------
     def _maybe_start_poll(self) -> None:
@@ -1791,15 +1824,26 @@ class SecretTasksTab(PanelTab):
                 ok = bool(room) and chat_share.share_point(ev, room, att)
             except Exception:                 # noqa: BLE001
                 ok = False
-            self.after(lambda: self._share_done(scope, ok))
+            self.after(lambda: self._share_done(row, scope, ok))
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _share_done(self, scope: str, ok: bool) -> None:
+    def _share_done(self, row, scope: str, ok: bool) -> None:
+        """Say what happened — and, if it went, remember that this tile has been shown.
+
+        The mark is the same fact a share pressed in the game leaves behind (#1245), so
+        it goes into the same store; both tables draw it, and the redraw is immediate
+        rather than on the next tick, because the operator is looking at the row they
+        just shared.
+        """
         where = self.t("secrettasks.share_alliance" if scope == SHARE_ALLIANCE
                        else "secrettasks.share_world")
         key = "secrettasks.shared_ok" if ok else "secrettasks.share_fail"
         self.rt.put("[secret] " + self.t(key, where=where))
+        if ok and row is not None:
+            self.shared.mark_panel(row.get("uuid"))
+            self._render()
+            self.alliance.render()
 
     def _room_id(self, ev, scope: str) -> str:
         srv, aid = self._self_ids(ev)

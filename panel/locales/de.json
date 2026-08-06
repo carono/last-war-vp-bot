@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Welt",
   "secrettasks.collect_ok": "das Einsammeln ist raus",
   "secrettasks.collect_fail": "das Einsammeln ging nicht raus — die Tagesgrenze ist verbraucht oder es läuft kein Spiel",
+  "secrettasks.shared_mark": "bereits geteilt",
   "secrettasks.shared_ok": "geteilt nach {where}",
   "secrettasks.share_fail": "das Teilen nach {where} ist fehlgeschlagen",
   "tab.command_post": "Geheimer Kommandoposten",

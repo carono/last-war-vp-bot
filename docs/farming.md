@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 33 of 113
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 33 of 114
 
-🟩 33 done · 🟨 36 partly · 🟥 44 not automated
+🟩 33 done · 🟨 37 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -147,6 +147,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 - 🟡 Seeing what the alliance is running, in a table of its own under the starred raids — one row per task an alliancemate has out, with their name on it, its rank, when it finishes and how many times it has already been robbed. Nothing is left out of it: the plain tiles as well as the starred ones, the ones already picked clean, and the odd one-per-player task, which is named rather than dressed up as a level. Same countdown, same colours and the same click on a coordinate that walks the camera there as the list above. It is redrawn whole every time it is read, so a task that has ended is simply not in it, and the phone shows the same two lists. Read live off a real alliance — 200 tasks from 52 members, every one with a name — but not yet lived with through a real session
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
+- 🟡 Marking the tasks the alliance has already been shown — on both lists, with a badge on the coordinate and the words beside the countdown, so the same raid is not forwarded to the same people twice. It counts a share made from the panel and a share pressed in the game itself, by this player or by an alliancemate: the game announces every one of them to the alliance, and the panel hears it while either the map monitor or the star auto-loot is running, so a tile shared from the game window is marked here without anybody telling the panel about it. The marks belong to the account, survive a restart, disappear on their own once the tile is long gone, and the phone shows them exactly as the window does. Not yet seen against a live share
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
 - 🟡 Robbing a ghost-recon squad — one press per squad, no window opened, and it holds its fire unless it is the event day, the five-a-day budget still has room and the game itself says the squad can be robbed. Every one of those checks is confirmed against the live game (including that it does nothing at all while the event is closed), but the event runs one day a week and no real squad was on the map to rob, so the robbery itself is still unproven
 - ✅ Robbing a secret task — the whole robbery runs without a window ever opening, five a day, and stops on its own at the daily cap. Targets come from a map scan or from coordinates handed to the bot

@@ -78,6 +78,12 @@ TASKS_JSON = "secret_tasks.json"
 # screen; read back once, on the tab's next `on_show`, and verified against a live game
 # read before any of it is trusted (panel/tabs/secret_tasks/tab.py).
 SECRET_TASKS_STATE = "secret_tasks_state.json"
+# Which secret tasks have already been forwarded to the alliance (#1245). Append-only,
+# because three separate processes write it — the panel, when its own «Поделиться»
+# lands, and the two capture children, when the game announces a share somebody made in
+# the client. One line per share; `tools/lib/share_marks.py` owns the shape, ages the
+# marks out and compacts the file.
+SECRET_SHARED = "secret_shared.jsonl"
 # The same shape for the other two map scans the «Командный пункт» tab drives: the
 # ghost-recon squad tiles (f2 = 29, tools/dev/secret_mission_capture.py) and the
 # detect-event treasures (f2 = 21, tools/dev/treasure_capture.py). Separate files
@@ -475,6 +481,14 @@ class ProfileManager:
     def secret_tasks_state_json(self, name: str | None = None) -> str:
         """Where the «Секретки» tab checkpoints its own session list (#1242)."""
         return os.path.join(self.dir(name), SECRET_TASKS_STATE)
+
+    def secret_shared_json(self, name: str | None = None) -> str:
+        """Which secret tasks have already been shared with the alliance (#1245).
+
+        Written by the panel and by the capture children alike, so the mark on a row is
+        the same whether the share was made from here or pressed in the game itself.
+        """
+        return os.path.join(self.dir(name), SECRET_SHARED)
 
     def ghost_json(self, name: str | None = None) -> str:
         """Where the ghost-recon tile scan checkpoints the squads it can see."""

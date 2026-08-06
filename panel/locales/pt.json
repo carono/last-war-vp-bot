@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Mundo",
   "secrettasks.collect_ok": "recolhimento enviado",
   "secrettasks.collect_fail": "recolhimento não enviado — limite diário gasto ou sem jogo",
+  "secrettasks.shared_mark": "já compartilhada",
   "secrettasks.shared_ok": "compartilhada em {where}",
   "secrettasks.share_fail": "compartilhar em {where} falhou",
   "tab.command_post": "Posto de Comando Secreto",

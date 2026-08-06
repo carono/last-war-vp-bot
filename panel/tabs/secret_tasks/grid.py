@@ -26,6 +26,13 @@ STAR_GLYPH = "⭐"
 TYPE_GLYPH = "🗡️"
 READY_GLYPH = "✅"
 
+# The tile has already been forwarded to the alliance — from this panel or by somebody
+# pressing share in the game itself (#1245). In front of the coordinate, where the eye
+# lands first: the question it answers is «have they been shown this one already?», and
+# it has to be answerable without reading the whole row. The words are in the state
+# cell beside it, because a glyph on its own is a rebus.
+SHARED_GLYPH = "📣"
+
 # The amber the countdown is drawn in, and the green a ready row switches to.
 TIMER_COLOR = "#e0a84f"
 READY_COLOR = "#4fe08a"
@@ -157,7 +164,11 @@ def new_row(record, timer) -> dict:
             "expires_at": record.get("expires_at"),
             "completed_at": record.get("completed_at"),
             "owner_name": record.get("owner_name") or "",
-            "timer": timer, "ready": False, "soon": False}
+            # Whether the alliance has already been shown this tile (#1245). Not read
+            # off the record — a tile knows nothing about who has talked about it — but
+            # stamped on afterwards by `SharedMarks.apply` from the profile's own store,
+            # which is where the panel's shares and the game's own meet.
+            "timer": timer, "ready": False, "soon": False, "shared": False}
 
 
 def refresh_timers(rows, t) -> tuple:
@@ -196,13 +207,20 @@ def refresh_timers(rows, t) -> tuple:
             row["soon"] = soon
             changed = True
         if done is None:
-            row["timer"].set(t("secrettasks.until_ready", t="—"))
+            state = t("secrettasks.until_ready", t="—")
         elif not ready:
-            row["timer"].set(t("secrettasks.until_ready", t=fmt_left(done - now)))
+            state = t("secrettasks.until_ready", t=fmt_left(done - now))
         elif exp is not None:
-            row["timer"].set(t("secrettasks.ready_expires", t=fmt_left(exp - now)))
+            state = t("secrettasks.ready_expires", t=fmt_left(exp - now))
         else:
-            row["timer"].set(t("secrettasks.ready"))
+            state = t("secrettasks.ready")
+        # «уже поделились» rides in the state cell rather than a column of its own
+        # (#1245). It is the cell rewritten every second, so a mark that landed since
+        # the last full redraw — an alliancemate pressing share in the game — shows
+        # within the second without the table being rebuilt.
+        if row.get("shared"):
+            state = "%s · %s" % (state, t("secrettasks.shared_mark"))
+        row["timer"].set(state)
     return expired, changed
 
 

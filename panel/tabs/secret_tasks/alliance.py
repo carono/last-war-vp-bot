@@ -137,7 +137,7 @@ class AllianceGrid:
         """
         if self._tree is None:
             return
-        expired, changed = grid.refresh_timers(self._rows, self.tab.t)
+        expired, changed = self._refresh_timers()
         for key in expired:
             self._rows.pop(key, None)
         if expired or changed:
@@ -145,13 +145,24 @@ class AllianceGrid:
         else:
             grid.paint_timers(self._tree, self._rows)
 
+    def _refresh_timers(self) -> tuple:
+        """The countdowns, with the «уже поделились» mark stamped on first (#1245).
+
+        The very same two steps the table above takes (`SecretTasksTab._refresh_timers`)
+        — one store of shared tiles, read by both grids, so a task marked on one of them
+        is marked on the other in the same second.
+        """
+        marked = self.tab.shared.apply(self._rows)
+        expired, changed = grid.refresh_timers(self._rows, self.tab.t)
+        return expired, changed or marked
+
     # -- drawing ------------------------------------------------------------------
     def render(self) -> None:
         """Rebuild the table from the current rows, in the order the headings ask for."""
         tree = self._tree
         if tree is None:
             return
-        grid.refresh_timers(self._rows, self.tab.t)
+        self._refresh_timers()
         chosen = set(tree.selection())
         for iid in tree.get_children(""):
             tree.delete(iid)
@@ -264,16 +275,23 @@ class AllianceGrid:
                           key=lambda r: (not r.get("ready"),
                                          r.get("expires_at") or float("inf"))):
             done, exp = row.get("completed_at"), row.get("expires_at")
+            # Who is running it comes first: on the phone this list is read to find
+            # a name, the way the window's list is read to find a countdown.
+            facts = [{"label": "secrettasks.col.owner",
+                      "value": row.get("owner_name") or "—"},
+                     {"label": "secrettasks.col.level",
+                      "value": str(row.get("level"))},
+                     {"label": "secrettasks.col.slots",
+                      "value": f"{row.get('loot_count')}/3"}]
+            # …and the same «уже поделились» the window draws on this table (#1245):
+            # the glyph on the coordinate, the words in the line under it.
+            text = coords.fmt(row.get("x"), row.get("y"), row.get("server"))
+            if row.get("shared"):
+                text = "%s %s" % (grid.SHARED_GLYPH, text)
+                facts.append({"label": "secrettasks.shared_mark", "value": ""})
             items.append({
-                "text": coords.fmt(row.get("x"), row.get("y"), row.get("server")),
-                # Who is running it comes first: on the phone this list is read to find
-                # a name, the way the window's list is read to find a countdown.
-                "facts": [{"label": "secrettasks.col.owner",
-                           "value": row.get("owner_name") or "—"},
-                          {"label": "secrettasks.col.level",
-                           "value": str(row.get("level"))},
-                          {"label": "secrettasks.col.slots",
-                           "value": f"{row.get('loot_count')}/3"}],
+                "text": text,
+                "facts": facts,
                 "until": ((exp if row.get("ready") else done) or 0) / 1000.0 or None,
                 "pill": "secrettasks.ready" if row.get("ready") else None,
             })

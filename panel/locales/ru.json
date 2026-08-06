@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Мир",
   "secrettasks.collect_ok": "запрос на сбор отправлен",
   "secrettasks.collect_fail": "сбор не отправлен — исчерпан дневной лимит или игра не запущена",
+  "secrettasks.shared_mark": "уже поделились",
   "secrettasks.shared_ok": "отправлено в «{where}»",
   "secrettasks.share_fail": "не удалось отправить в «{where}»",
   "tab.command_post": "Секретный командный пункт",

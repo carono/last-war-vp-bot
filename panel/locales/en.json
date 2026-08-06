@@ -715,6 +715,7 @@
   "secrettasks.share_world": "World",
   "secrettasks.collect_ok": "collect sent",
   "secrettasks.collect_fail": "collect not sent — daily limit spent or no game",
+  "secrettasks.shared_mark": "already shared",
   "secrettasks.shared_ok": "shared to {where}",
   "secrettasks.share_fail": "share to {where} failed",
   "tab.command_post": "Secret Command Post",

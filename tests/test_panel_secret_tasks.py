@@ -156,7 +156,17 @@ def _make_tab(rows, lo="", hi="", autoloot=False):
     # so the timer / poll paths this fixture is FOR do not have to know that, and a test
     # that cares about persistence itself overrides this with its own `_FakeProfiles`.
     tab.rt = _fake_rt(_state_path())
+    # The «уже поделились» store (#1245): every countdown pass consults it, so the tab
+    # carries one whatever the fixture is testing. It is empty unless a test marks
+    # something, and it reads its own throwaway file like the checkpoint above.
+    tab.shared = _shared_marks(tab)
     return tab
+
+
+def _shared_marks(tab):
+    """A real `SharedMarks` over the fixture's runtime — no Tk, no game, just a file."""
+    from panel.tabs.secret_tasks.shared import SharedMarks
+    return SharedMarks(tab.rt)
 
 
 def _row(uuid, level, done_off, exp_off):
@@ -547,13 +557,22 @@ def test_room_ids_from_cached_self_ids():
 # -- surviving a restart (#1242) ---------------------------------------------------
 
 class _FakeProfiles:
-    """The one thing `_persist_rows`/`_load_persisted` ask of `rt.profiles`: a path."""
+    """The paths `rt.profiles` is asked for: the checkpoint and the shared-mark store.
+
+    The second one is the «уже поделились» file (#1245), which the panel and the two
+    capture children all append to; it lives beside the checkpoint so a fixture that
+    writes one has somewhere to put the other.
+    """
 
     def __init__(self, path: str) -> None:
         self._path = path
 
     def secret_tasks_state_json(self, name=None) -> str:
         return self._path
+
+    def secret_shared_json(self, name=None) -> str:
+        import os
+        return os.path.join(os.path.dirname(self._path), "secret_shared.jsonl")
 
 
 class _FakeOrder:
@@ -846,11 +865,15 @@ def _alliance_grid(tree=None):
     """An `AllianceGrid` with no Tk behind it — the rows and the arithmetic only."""
     import types
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
-    tab = types.SimpleNamespace(t=i18n.t, rt=types.SimpleNamespace(root=None),
+    rt = types.SimpleNamespace(root=None, profiles=_FakeProfiles(_state_path()))
+    tab = types.SimpleNamespace(t=i18n.t, rt=rt,
                                 _collectable=lambda row: bool(row.get("ready")),
                                 _row_values=lambda row: tuple(
                                     str(row[c]) for c in ("x", "y", "level", "uuid",
                                                           "loot_count", "server")))
+    # The store both grids read the «уже поделились» mark from (#1245) — a real one over
+    # a throwaway file, so a test can mark a tile and see the table say so.
+    tab.shared = _shared_marks(tab)
     g = object.__new__(al.AllianceGrid)
     g.tab = tab
     g._rows, g._tree, g._sort = {}, tree, None
@@ -1201,6 +1224,152 @@ def test_a_restored_row_that_is_not_a_star_is_dropped():
         assert list(tab._rows) == ["1"], tab._rows
     finally:
         game_clock.reset()
+
+
+# ---------------------------------------------------------------------------
+# «Уже поделились» (#1245) — the mark, its two producers and both front-ends
+# ---------------------------------------------------------------------------
+
+def test_a_share_the_panel_made_marks_the_tile():
+    """The panel's own «Поделиться» records the fact; a failed one records nothing."""
+    tab = _make_tab({"11": _row(11, 7, -5_000, 600_000)})
+    drawn = []
+    tab._render = lambda: drawn.append("window")
+    tab.alliance = __import__("types").SimpleNamespace(
+        render=lambda: drawn.append("alliance"))
+    tab.rt.put = lambda _line: None
+    row = tab._rows["11"]
+
+    tab._share_done(row, st.SHARE_ALLIANCE, False)
+    assert not tab.shared.has(11), "a failed share must not claim the tile was shown"
+    assert drawn == []
+
+    tab._share_done(row, st.SHARE_ALLIANCE, True)
+    assert tab.shared.has(11)
+    # Both tables, at once: the same tile can be on either, and it is one fact.
+    assert drawn == ["window", "alliance"]
+
+
+def test_a_share_pressed_in_the_game_reaches_the_list_too():
+    """The mark a capture child appends is read by the tab — nobody presses anything.
+
+    That is the whole of #1245: a tile forwarded from the game's own share button
+    never touches the panel, so the fact arrives through the profile's store, written
+    by the capture that was already decoding the stream.
+    """
+    tab = _make_tab({"11": _row(11, 7, -5_000, 600_000)})
+    _mark_as_the_game_would(tab, 11)
+
+    expired, changed = tab._refresh_timers()
+    assert expired == []
+    assert changed is True, "a mark that landed since the last pass must redraw the row"
+    assert tab._rows["11"]["shared"] is True
+    assert tab.t("secrettasks.shared_mark") in tab._rows["11"]["timer"].get()
+    # And it does not keep announcing itself: nothing changed on the second pass.
+    assert tab._refresh_timers()[1] is False
+
+
+def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
+    """CLAUDE.md: the window and the web say the same thing, in the same commit."""
+    import types
+    tab = _make_tab({"11": _row(11, 7, -5_000, 600_000)})
+    tab._collectable = lambda row: True
+    _mark_as_the_game_would(tab, 11)
+    tab._refresh_timers()
+
+    # The window's table above: the glyph rides the coordinate cell, which still holds
+    # the token `coords.parse` reads back — the cell is the camera link.
+    cells = tab._row_values(tab._rows["11"])
+    coords_cell = cells[[c[0] for c in st.COLUMNS].index("coords")]
+    assert coords_cell.startswith(gr.SHARED_GLYPH), coords_cell
+    import coords as coords_fmt
+    assert coords_fmt.parse(coords_cell), "the coordinate stopped being clickable"
+
+    # The phone's copy of the very same row.
+    tab.show_spent_var = _Var(False)
+    tab._visible_rows = lambda: list(tab._rows.values())
+    tab._spent = lambda _row: False
+    tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
+    tab.alliance = types.SimpleNamespace(web_items=lambda: [])
+    item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
+    assert item["text"].startswith(gr.SHARED_GLYPH), item
+    assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
+
+    # …and the table below, which is the same table drawn twice.
+    g = _alliance_grid()
+    now = int(__import__("time").time() * 1000)
+    g.apply([_member_task(11, completed_at=now - 5_000, expires_at=now + 600_000)])
+    _mark_as_the_game_would(g.tab, 11)
+    g._refresh_timers()
+    assert g._rows["11"]["shared"] is True
+    web = g.web_items()[0]
+    assert web["text"].startswith(gr.SHARED_GLYPH), web
+    assert {"label": "secrettasks.shared_mark", "value": ""} in web["facts"], web
+
+
+def test_the_mark_belongs_to_the_profile_that_made_it():
+    """A switched profile does not inherit the other one's shares.
+
+    The store's path is part of what the reload compares, so a runtime pointed at
+    another profile empties the marks rather than showing that profile the shares
+    somebody made in a different account.
+    """
+    tab = _make_tab({"11": _row(11, 7, -5_000, 600_000)})
+    _mark_as_the_game_would(tab, 11)
+    assert tab.shared.apply(tab._rows) is True
+    assert tab.shared.has(11)
+
+    tab.shared.rt = _fake_rt(_state_path())     # a different profile's paths
+    assert tab.shared.apply(tab._rows) is True  # …and the flag comes back off
+    assert not tab.shared.has(11)
+    assert tab._rows["11"]["shared"] is False
+
+
+def test_the_capture_marks_every_share_the_game_announces():
+    """Both share commands count — the live broadcast and the login backlog.
+
+    The payloads are invented, of the shape `docs/research/protocol.md` records: a
+    made-up mission uuid, a made-up cfgId that splits into a starred level.
+    """
+    import os
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    for extra in (str(root / "tools"), str(root / "tools" / "lib")):
+        if extra not in sys.path:
+            sys.path.insert(0, extra)
+    import share_marks
+    import secret_task_capture as capture
+
+    path = os.path.join(os.path.dirname(_state_path()), "secret_shared.jsonl")
+    index = object.__new__(capture.TaskIndex)
+    index._shared_json = path
+    index.shares_marked = 0
+
+    index.on_response("push.alliance.share.mission.add",
+                      {"missionCfgId": 60000701, "missionUuid": 1000000000000001,
+                       "missionCurrentServerId": 100, "shareUid": "1000000000000009"})
+    index.on_response("get.alliance.share.mission.list",
+                      {"shareMissionArr": [{"missionCfgId": 60000701,
+                                            "missionUuid": 1000000000000002}]})
+    index.on_response("world.get.detail.new", {"missionUuid": 1000000000000003})
+
+    marks = share_marks.load(path)
+    assert set(marks) == {"1000000000000001", "1000000000000002"}, marks
+    assert index.shares_marked == 2
+    assert marks["1000000000000001"]["via"] == share_marks.VIA_GAME
+    assert marks["1000000000000001"]["uid"] == "1000000000000009"
+
+
+def _mark_as_the_game_would(tab, uuid) -> None:
+    """Append a mark the way a capture child does — a line, from another process."""
+    import sys
+    root = Path(__file__).resolve().parents[1]
+    for extra in (str(root / "tools"), str(root / "tools" / "lib")):
+        if extra not in sys.path:
+            sys.path.insert(0, extra)
+    import share_marks
+    assert share_marks.mark(tab.rt.profiles.secret_shared_json(), uuid,
+                            share_marks.VIA_GAME, "1000000000000009")
 
 
 if __name__ == "__main__":

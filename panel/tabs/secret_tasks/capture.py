@@ -108,6 +108,12 @@ class Capture:
         # shape, and auto-loot must never be handed that by mistake.
         if script == capturemod.SECRET_TASK_CAPTURE:
             cmd += ["--json", self.rt.profiles.tasks_json()]
+            # …and, from the same decoded stream, «who has already been shown this
+            # tile» (#1245). The game announces every share an alliancemate presses in
+            # the client, and hands over the standing list on login, so the capture
+            # that is already reading this traffic is what lets a row on the tab say
+            # «уже поделились» without the panel having done the sharing.
+            cmd += ["--shared-json", self.rt.profiles.secret_shared_json()]
         # Capture tick interval from the tab (falls back to the child's own default if
         # the field is blank or non-numeric).
         interval = self.tab.interval_var.get().strip()

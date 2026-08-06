@@ -117,7 +117,12 @@ class AutoLoot:
             return
         cmd = [self.rt.children.python(), "-u",
                os.path.join(TOOLS, "secret_share_autoloot.py"),
-               "--star-max", "--limit", str(self.limit())]
+               "--star-max", "--limit", str(self.limit()),
+               # Every share it decodes is marked as shared, whether or not the rule
+               # takes it (#1245): «worth one of my five robberies» and «the alliance
+               # has already been shown this» are different questions, and the tab
+               # draws the second on both of its tables.
+               "--shared-json", self.rt.profiles.secret_shared_json()]
         lo, hi = self.levels()
         if lo is not None:
             cmd += ["--level-min", str(lo)]

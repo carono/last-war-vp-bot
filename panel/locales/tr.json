@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Dünya",
   "secrettasks.collect_ok": "toplama gönderildi",
   "secrettasks.collect_fail": "toplama gönderilmedi — günlük sınır tükendi ya da oyun yok",
+  "secrettasks.shared_mark": "zaten paylaşıldı",
   "secrettasks.shared_ok": "{where} ile paylaşıldı",
   "secrettasks.share_fail": "{where} ile paylaşım başarısız",
   "tab.command_post": "Gizli Komuta Merkezi",

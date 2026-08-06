@@ -715,6 +715,7 @@
   "secrettasks.share_world": "Dunia",
   "secrettasks.collect_ok": "pengambilan dikirim",
   "secrettasks.collect_fail": "pengambilan tidak dikirim — batas harian habis atau permainan tidak ada",
+  "secrettasks.shared_mark": "sudah dibagikan",
   "secrettasks.shared_ok": "dibagikan ke {where}",
   "secrettasks.share_fail": "berbagi ke {where} gagal",
   "tab.command_post": "Pos Komando Rahasia",

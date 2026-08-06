@@ -61,6 +61,7 @@ sys.path.insert(0, _HERE)
 
 import coords  # noqa: E402  (canonical #server X:x Y:y token — one format for every script)
 import lastwar_proto as proto  # noqa: E402
+import share_marks  # noqa: E402  (the «already shared» mark this capture also writes)
 from live_sniffer import C_DIM, C_ERR, C_OK, C_RESET  # noqa: E402
 from map_capture import (  # noqa: E402
     MapIndex, add_capture_arguments, check_platform, diagnose,
@@ -89,19 +90,47 @@ class TaskIndex(MapIndex):
     each other.
     """
 
-    def __init__(self, stale_after: float = STALE_AFTER_SECONDS) -> None:
+    def __init__(self, stale_after: float = STALE_AFTER_SECONDS,
+                 shared_json: str | None = None) -> None:
         super().__init__()
         self.stale_after = stale_after
         self._tasks: dict[tuple, proto.SecretTask] = {}
         # Wall-clock of the last time the map re-sent each task, so stale ones
         # can be evicted rather than served as if still live.
         self._seen_at: dict[tuple, float] = {}
+        # Where to record «this task has already been shared with the alliance»
+        # (#1245), or None to record nothing. See `on_response`.
+        self._shared_json = shared_json
+        self.shares_marked = 0
 
     def on_blocks(self, payload, blocks, now: float) -> None:
         for task in proto.secret_tasks(payload):
             key = (task.server_id, task.uuid)
             self._tasks[key] = task
             self._seen_at[key] = now
+
+    def on_response(self, command, payload) -> None:
+        """Every non-map answer — which is where the game announces a share.
+
+        A secret task is forwarded to the alliance from two places and this capture
+        cannot tell them apart, which is exactly why it listens: the panel's own
+        «Поделиться» and the client's share button both end as the same broadcast, so
+        a tile shared by hand in the game is marked on the panel's list without the
+        panel having done anything (#1245).
+
+        Both share commands count. `push.alliance.share.mission.add` is the live
+        broadcast; `get.alliance.share.mission.list` is the standing list the client
+        pulls on login, and it is the only source for the shares that happened while
+        nothing here was running. Neither is an event a robbery should replay — the
+        auto-loot listener deliberately ignores the list for that reason — but as a
+        record of «this one has been shared» the backlog is precisely what is wanted.
+
+        `_index_lock` is held; the write is one appended line (`share_marks`).
+        """
+        if not self._shared_json or command not in proto.SHARE_MISSION_COMMANDS:
+            return
+        self.shares_marked += share_marks.mark_missions(
+            self._shared_json, proto.share_missions(command, payload))
 
     def on_server_left(self, server: int) -> None:
         """Drop everything indexed for the map nobody is looking at any more.
@@ -206,6 +235,11 @@ def main() -> int:
                     help="only tasks about to become raidable (dispatch "
                          "finishing within ~10 min); combine with --can-loot "
                          "for either")
+    ap.add_argument("--shared-json", default=None, metavar="PATH",
+                    help="append a mark to this file for every secret task the "
+                         "game says has been shared with the alliance — the "
+                         "live broadcast and the list pulled on login alike "
+                         "(default: shares are not recorded)")
     args = ap.parse_args()
     # After parsing, so `--help` is readable from the WSL interpreter
     # rather than refused by a check about capturing packets.
@@ -218,7 +252,7 @@ def main() -> int:
     except Exception:
         pass
 
-    index = TaskIndex()
+    index = TaskIndex(shared_json=args.shared_json)
     stop, bpf = start_capture(index, args)
 
     print("Last War direct capture — scapy/npcap, no dumpcap")
@@ -282,7 +316,7 @@ def main() -> int:
                 # unchanged tick stays silent.
                 sig = (index.current_server, index.blocks_seen,
                        index.tiles_seen, len(index.current_tasks),
-                       index.starred_awaiting)
+                       index.starred_awaiting, index.shares_marked)
                 changed = sig != last_progress_sig
                 last_progress_sig = sig
                 if changed:
@@ -291,12 +325,17 @@ def main() -> int:
                     where = (f"server {index.current_server}"
                              if index.current_server is not None
                              else "server unknown yet")
+                    # The share tally is only ever mentioned once there is one:
+                    # a capture run without --shared-json must read exactly as
+                    # it always did.
+                    shares = (f", {index.shares_marked} share(s) marked"
+                              if index.shares_marked else "")
                     print(f"{C_DIM}  {left} — {where}, "
                           f"{index.blocks_seen} map response(s), "
                           f"{index.tiles_seen} tile(s), "
                           f"{len(index.current_tasks)} task(s), "
                           f"{index.starred_awaiting} star(s) still on "
-                          f"timer{C_RESET}")
+                          f"timer{shares}{C_RESET}")
                 if args.json and not dump_tasks(index.records(), args.json):
                     print(f"{C_DIM}  (checkpoint locked, skipped this "
                           f"flush){C_RESET}")
