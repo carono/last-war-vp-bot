@@ -457,12 +457,31 @@ class SecretTasksTab(PanelTab):
 
     def panic(self) -> None:
         """«Стоп всё»: every standing order down, and the boxes say so."""
-        for var, order in ((self.monitor_var, self.capture),
-                           (self.ghost_map.monitor_var, self.ghost_capture),
-                           (self.autoloot_var, self.autoloot),
-                           (self.sweep_var, self.sweep)):
+        self._was = {}
+        for name, var, order in (("monitor", self.monitor_var, self.capture),
+                                 ("ghost", self.ghost_map.monitor_var, self.ghost_capture),
+                                 ("autoloot", self.autoloot_var, self.autoloot),
+                                 ("sweep", self.sweep_var, self.sweep)):
+            self._was[name] = bool(var.get())
             var.set(False)
             order.stop()
+        self._sync_autoloot_controls()
+
+    def resume(self) -> None:
+        """«Включить обратно»: put back exactly the standing orders that were standing.
+
+        Ticking the box is what starts the order — the same path a finger takes — so
+        nothing here has to know how any of the four are run.
+        """
+        was, self._was = getattr(self, "_was", None), None
+        if not was:
+            return
+        for name, var in (("monitor", self.monitor_var),
+                          ("ghost", self.ghost_map.monitor_var),
+                          ("autoloot", self.autoloot_var),
+                          ("sweep", self.sweep_var)):
+            if was.get(name):
+                var.set(True)
         self._sync_autoloot_controls()
 
     def shutdown(self) -> None:

@@ -212,8 +212,15 @@ class ChatTab(PanelTab):
             self._start_chat()
 
     def panic(self) -> None:
+        self._was_watching = bool(self._chat_var.get())
         self._chat_var.set(False)
         self._stop_chat()
+
+    def resume(self) -> None:
+        """«Включить обратно»: the chat monitor comes back if it was running."""
+        if getattr(self, "_was_watching", False):
+            self._was_watching = False
+            self._chat_var.set(True)
 
     def shutdown(self) -> None:
         self._stop_chat()

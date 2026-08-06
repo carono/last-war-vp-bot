@@ -101,6 +101,7 @@ from .splash import SplashScreen
 from .runtime import autostart as autostartmod
 from .runtime import game_control as gamectl
 from .runtime import panel_control as panelctl
+from .runtime import panic as panicmod
 from . import dashboard as dashmod
 from . import debug_log as dbgmod
 from . import i18n as i18nmod
@@ -455,6 +456,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
         "_shown_tab",
         # the two strips
         "_status_var", "_status_lbl", "_status_msg", "_status_busy", "_recovery_var",
+        "_panic_var", "_panic_lbl", "_resume_btn",
         "_daemon_var", "_daemon_lbl",
         # the account summary
         "_dash_values", "_dash_stop", "_dash_err", "_dash_view",
@@ -554,6 +556,10 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # read; this is the one thing in the process that can carry it out, so this is
         # where it is registered (#1258).
         panelctl.set_handler(self._restart_now)
+        # …and the same for «Включить обратно»: only the shell knows which profiles
+        # are open and which tabs each has, so it says how, and the phone only asks
+        # whether anybody can (panel/runtime/panic.py).
+        panicmod.set_handler(self._resume)
         self._splash_step("splash.daemon", 0.6)
         # Bringing the systems up is the slow half of the boot — the monitors, the
         # schedule, the trigger listeners, the chat history, the daemon, the account
@@ -2403,6 +2409,18 @@ class Panel(runtime.SessionScoped, tk.Tk):
         # which is exactly the wrong shape for the moment you actually need it.
         self._tr(ttk.Button(top, command=self._panic),
                  "panic.stop_all").pack(side="right", padx=(0, 6))
+        # …and the half that was missing (#1262): the same place, the other direction.
+        # «Стоп всё» left a state nobody could see and nothing could undo but hand, from
+        # one log line that scrolls away — which is how a stopped panel sat in front of
+        # somebody for seven hours with a dead client behind it.
+        self._resume_btn = self._tr(ttk.Button(top, command=self._resume),
+                                    "panic.resume")
+        self._resume_btn.pack(side="right", padx=(0, 6))
+        # A MARK, not a log line: it stays until the profile is running again.
+        self._panic_var = tk.StringVar(value="")
+        self._panic_lbl = ttk.Label(top, textvariable=self._panic_var,
+                                    foreground="#c33", font=ui_font(weight="bold"))
+        self._panic_lbl.pack(side="right", padx=(0, 6))
 
         # A PAGE WITH NOTHING BELOW THIS LINE (`LW_PANEL_BARE=1`) — the floor of a
         # bisection. Switching a tab off takes that tab out of the page; this takes the
@@ -3294,6 +3312,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
                 self._recovery_check(found),
+                self._paint_panic(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
 
@@ -3742,7 +3761,39 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # step whose thread was asked to stop mid-way would otherwise sit on the
             # bottom strip for the rest of the session.
             self._rt.activity.clear()
+            self._rt.panic.mark(time.time())
+            self._paint_panic()
             self._say("panel", "panic.done")
+
+    def _resume(self) -> None:
+        """«Включить обратно» — put back exactly what «Стоп всё» switched off.
+
+        Every open profile, like its opposite: the emergency button stops them all, so
+        the one that brings them back has to reach all of them or half the machine stays
+        held with nothing on screen to say which half.
+        """
+        self._workspace.each(self._resume_session)
+
+    def _resume_session(self, session) -> None:
+        with self._on(session):
+            # Each tab puts back what IT switched off, and only what was on — the tab
+            # owns the switch, so the tab is the only place that snapshot can live
+            # without drifting from it (panel/runtime/panic.py).
+            for tab in getattr(self, "_plugin_tabs", {}).values():
+                tab.resume()
+            self._rt.panic.clear()
+            self._paint_panic()
+            self._say("panel", "panic.resumed")
+
+    def _paint_panic(self) -> None:
+        """The mark, and the button that only exists while there is something to undo."""
+        st = self._rt.panic.state(time.time())
+        if st["stopped"]:
+            self._panic_var.set(self._t("panic.mark", mins=st["for_sec"] // 60))
+            self._resume_btn.pack(side="right", padx=(0, 6))
+        else:
+            self._panic_var.set("")
+            self._resume_btn.pack_forget()
 
     # -- one way to run a child ---------------------------------------------
     # -- the secret-task capture went with its tab (panel/tabs/secret_tasks/) -

@@ -516,11 +516,27 @@ class RallyTab(PanelTab):
 
     def panic(self) -> None:
         """«Стоп всё»: the capture off, and a run in flight asked to stop."""
+        self._was = {"monitor": bool(self._monitor_var.get()),
+                     "alert": bool(self._alert_var.get()),
+                     "autojoin": bool(self._autojoin_var.get())}
         self._monitor_var.set(False)
         self._alert_var.set(False)
         self._autojoin_var.set(False)
         self._stop_capture()
         self._stop_run()
+
+    def resume(self) -> None:
+        """«Включить обратно»: the standing orders that WERE standing, and no others.
+
+        A run that was asked to stop stays stopped — starting it again is a press, not
+        an undo.
+        """
+        was, self._was = getattr(self, "_was", None), None
+        if not was:
+            return
+        self._monitor_var.set(was["monitor"])
+        self._alert_var.set(was["alert"])
+        self._autojoin_var.set(was["autojoin"])
 
     def shutdown(self) -> None:
         self._stop_run()

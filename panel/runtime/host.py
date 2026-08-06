@@ -19,6 +19,7 @@ from .. import profile as profilemod
 from . import game_process
 from .actions import ActionRunner, Outcome
 from .activity import Activity
+from .panic import Panic as PanicState
 from .recovery import Recovery as RecoveryState
 from .bus import EventBus
 from .children import ChildFactory
@@ -100,6 +101,11 @@ class PanelRuntime:
         # object, and a second copy of that bookkeeping is a second answer waiting to
         # disagree with the first.
         self.recovery = RecoveryState()
+        # …and whether «Стоп всё» is holding this profile still, since when
+        # (panel/runtime/panic.py). Both front-ends put a MARK on it: the one
+        # line in the log that used to say it scrolls away, and a profile that
+        # is stopped looks exactly like one that is merely idle.
+        self.panic = PanicState()
         # `token` and `target` are read lazily on purpose: both answer off `self.game`,
         # which is built on the next line. They are what makes this runtime's children
         # and this runtime's scenarios press THIS profile's client rather than whichever

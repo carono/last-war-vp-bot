@@ -154,6 +154,16 @@ function paintState(state) {
     recEl.textContent = '';
   }
   paintGameControls(state.game.controls || []);
+  /* «Стоп всё» and its undo. The mark is the point: the log line that used to be the
+   * only trace of a stopped profile scrolls away, and seven hours once went past it
+   * with a dead client behind (panel/runtime/panic.py). The button appears only while
+   * there is something to undo — pressing it into a running profile would put back
+   * switches somebody has since turned off by hand. */
+  const pan = state.panic || {};
+  $('panic-mark').textContent = pan.stopped
+    ? T('panic.mark', { mins: Math.floor((pan.for_sec || 0) / 60) }) : '';
+  $('panic-mark').className = 'small' + (pan.stopped ? ' bad' : '');
+  paintPanicControls(pan);
 
   const daemon = $('daemon-dot');
   daemon.textContent = state.daemon.up ? T('web.ui.on') : T('web.ui.off');
@@ -779,3 +789,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('login').hidden = false;
   }
 });
+
+
+/* «Включить обратно», the phone's half. One button, and only while it means something:
+ * the window has the same pair in the same place (panel/__main__.py), out of the same
+ * state, so neither front-end can come to mean something of its own by it. */
+function paintPanicControls(pan) {
+  const box = $('panic-controls');
+  box.innerHTML = '';
+  if (!pan.stopped || !pan.can_resume) return;
+  const btn = document.createElement('button');
+  btn.textContent = T('panic.resume');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try { await post('/api/panic', {}); } finally { btn.disabled = false; }
+    tick();
+  };
+  box.appendChild(btn);
+}

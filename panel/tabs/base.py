@@ -132,7 +132,28 @@ class PanelTab:
     def on_profile_switch(self) -> None: ...
     def on_language_change(self) -> None: ...
     def panic(self) -> None:
-        """What «Стоп всё» has to stop here."""
+        """What «Стоп всё» has to stop here.
+
+        Whatever is switched off here should be REMEMBERED here too, so :meth:`resume`
+        can put back what was actually on rather than everything the tab has. The tab
+        owns its own switches, so the tab is the only place that snapshot can live
+        without drifting from them.
+        """
+
+    def resume(self) -> None:
+        """«Включить обратно»: undo this tab's :meth:`panic`, and nothing else.
+
+        The half that was missing until #1262. «Стоп всё» is pressed when something has
+        gone wrong, and the state it leaves — every monitor down, the schedule off —
+        used to be undone by hand, tab by tab, from one line in the log that scrolled
+        away. Seven hours of a dead client went past that way, with the panel running
+        and nothing switched on.
+
+        **Put back what was ON, not everything there is.** A tab whose watcher the
+        person had deliberately left off must not find it running afterwards: «Включить
+        обратно» is an undo, not a start-everything. A tab with nothing to restore
+        leaves this alone.
+        """
 
     def shutdown(self) -> None:
         """The window is closing: children, listeners, subscriptions."""

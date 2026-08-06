@@ -112,9 +112,20 @@ class TimersTab(PanelTab):
 
     def panic(self) -> None:
         """«Стоп всё» stops the schedule — and the switch has to say so, or it would be
-        silently dead for the rest of the session with nothing to bring it back."""
+        silently dead for the rest of the session with nothing to bring it back.
+
+        What it WAS is remembered here, for :meth:`resume`: this is the switch whose
+        staying off cost seven hours of a dead client (#1262).
+        """
         if self._sched_var is not None:
+            self._was_scheduling = bool(self._sched_var.get())
             self._sched_var.set(False)
+
+    def resume(self) -> None:
+        """«Включить обратно»: the schedule goes back on IF it was on."""
+        if self._sched_var is not None and getattr(self, "_was_scheduling", False):
+            self._sched_var.set(True)
+            self._was_scheduling = False
 
     def shutdown(self) -> None:
         self.rt.tick.disarm("timer_rows")

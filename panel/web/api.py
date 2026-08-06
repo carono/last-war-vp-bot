@@ -50,6 +50,7 @@ from .. import __version__ as APP_VERSION
 from .. import i18n as i18nmod
 from .. import timers as timersmod
 from ..runtime import game_control, game_process, panel_control
+from ..runtime import panic as panicmod
 from ..runtime.actions import list_actions
 from ..runtime.log import severity_of, strip_ansi, tag_of
 
@@ -292,6 +293,13 @@ class WebApi:
             # goes on «Состояние». Empty `controls` in a process that is not a panel —
             # a tab launched on its own answers this route too.
             "panel": {"version": APP_VERSION, "controls": panel_control.state()},
+            # «Стоп всё» and its undo. A MARK rather than a log line, because the
+            # line scrolls away and a stopped profile looks exactly like an idle
+            # one — which is how seven hours went past with a dead client behind
+            # it (panel/runtime/panic.py). The button is offered only while there
+            # is something to undo, and only where somebody can carry it out.
+            "panic": {**rt.panic.state(time.time()),
+                      "can_resume": panicmod.available()},
             "time": time.time(),
         }
 
@@ -558,6 +566,21 @@ class WebApi:
         self._on_tk(rt, go)
         return box.get("result") or {"error": "unknown"}
 
+    def resume(self, profile: str | None = None) -> dict:
+        """«Включить обратно» from the phone — the shell's own press, asked for politely.
+
+        The same vocabulary the client's lifecycle presses answer in: `ok` it was done,
+        `unavailable` there is nothing to undo or nobody here to undo it. The phone must
+        not be able to press it into a profile that is already running — that would put
+        back switches somebody has since turned off by hand.
+        """
+        rt = self._runtime(profile)
+        if not rt.panic.stopped or not panicmod.available():
+            return {"error": "unavailable"}
+        box: dict = {}
+        self._on_tk(rt, lambda: box.__setitem__("ok", panicmod.run()))
+        return {"ok": bool(box.get("ok"))}
+
     # -- the words -----------------------------------------------------------
     def words(self, profile: str | None = None) -> dict:
         """The whole locale table the page draws itself with.
@@ -615,6 +638,8 @@ class WebApi:
                 return _answer(self.game(str(body.get("action") or ""), who))
             if path == "/api/panel":
                 return _answer(self.panel(str(body.get("action") or ""), who))
+            if path == "/api/panic":
+                return _answer(self.resume(who))
             if path == "/api/screen/press":
                 return _answer(self.press(str(body.get("id") or ""),
                                           str(body.get("action") or ""),

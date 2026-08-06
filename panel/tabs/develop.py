@@ -284,10 +284,21 @@ class DevelopTab(PanelTab):
         Lua and the stop is what takes them back out. A running or looping
         scenario is asked to halt at its next step, same as its own Stop button.
         """
+        self._was_sniffing = bool(self._sniff_var.get())
         self._sniff_var.set(False)
         self._stop_sniff()
         self._stop_scenario_loop()
         self._stop_scenario()
+
+    def resume(self) -> None:
+        """«Включить обратно»: the recording resumes if it was recording.
+
+        The scenario and its loop do NOT: a run that was asked to halt has halted, and
+        starting it again is a press, not an undo.
+        """
+        if getattr(self, "_was_sniffing", False):
+            self._was_sniffing = False
+            self._sniff_var.set(True)
 
     def shutdown(self) -> None:
         # A debounced edit is still pending for up to a second — write it before the

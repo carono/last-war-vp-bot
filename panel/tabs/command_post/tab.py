@@ -1454,11 +1454,30 @@ class CommandPostTab(PanelTab):
 
     def panic(self) -> None:
         """«Стоп всё»: every child and every watcher this tab holds, boxes unticked."""
-        self.ghost.autoloot_var.set(False)
         listen = getattr(self._by_key["shared"], "_listen_var", None)
+        self._was = {"autoloot": bool(self.ghost.autoloot_var.get()),
+                     "listen": bool(listen.get()) if listen is not None else False}
+        self.ghost.autoloot_var.set(False)
         if listen is not None:
             listen.set(False)
         self.shutdown()
+
+    def resume(self) -> None:
+        """«Включить обратно»: the two standing orders that WERE standing.
+
+        Ticking the box is what starts each of them, so nothing here has to know how.
+        The children `shutdown` ended are not restarted by hand — the boxes bring back
+        what they own.
+        """
+        was, self._was = getattr(self, "_was", None), None
+        if not was:
+            return
+        if was.get("autoloot"):
+            self.ghost.autoloot_var.set(True)
+        listen = getattr(self._by_key["shared"], "_listen_var", None)
+        if listen is not None and was.get("listen"):
+            listen.set(True)
+
 
     def on_profile_switch(self) -> None:
         """A listener captures for one client and robs through one daemon, so it cannot
