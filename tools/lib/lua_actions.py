@@ -3754,35 +3754,56 @@ def codename_sent() -> str:
 # «Вход с другого устройства» — the kick, as the CLIENT shows it
 # ---------------------------------------------------------------------------
 # The game is single-session: logging the account in elsewhere kicks this client and
-# puts a modal on it. The player sees it plainly, which is how this was found — the
-# panel had concluded from ONE look at an already-restarted client that there was no
-# in-client signal at all, and that was simply looking at the wrong moment.
+# puts a modal on it. CAUGHT LIVE on 2026-08-06 with the player kicking it on purpose
+# while this polled twice a second — the whole recording, and the two guesses it
+# disproved, is docs/research/session-kick.md.
 #
-# The text is the game's own key `E100083`, «В ваш аккаунт был выполнен вход с другого
-# устройства» (`tools/game_locale.py`; the same table docs/game-glossary.md comes from).
-# Nothing in the client's Lua mentions either that key or the windows below: the
-# disconnect flow belongs to the C# connection layer, which is why there is no manager
-# to read and no field to poll. What Lua CAN see is the window itself — `UIManager`
-# holds it whoever opened it — and that is the flag.
+# THE WINDOW IS `UICommonMessageTip`, and it is NOT `UIDisconnect` or
+# `UICrossDisconnect` — those two exist, and stayed shut. Its `View.tipText` carries the
+# message, word for word:
 #
-# `UIDisconnect` is the ordinary one and `UICrossDisconnect` the cross-server variant.
-# Which of the two a kick raises has not been watched live; both are asked, so whichever
-# it is answers. A client that is merely stranded shows NEITHER — that much was watched,
-# on a live half-closed client with its whole HUD up and an empty window stack.
+#     Внимание
+#     В ваш аккаунт был выполнен вход с другого устройства     (the game's key E100083)
+#
+# AND IT IS INVISIBLE TO THE WINDOW STACK. The window sets `DontPushWindowStack`, so
+# `GetStackTopWindow()` answers nil and `WindowStack` is empty with the modal plainly on
+# screen. That is exactly how the earlier reading concluded «a kick leaves no trace in
+# the client» — wrong accessor as well as wrong moment. `IsWindowOpen` is the only one
+# that sees it.
+#
+# `UICommonMessageTip` is a GENERIC dialog and is not, by itself, proof of a kick — the
+# client uses it for anything. What makes the pair conclusive is that it is asked ONLY
+# while the link is already `lost`, and a merely stranded client shows NO window at all
+# (watched live, twice). So: lost link + a message tip with text = kicked.
 
 def kicked_out() -> str:
-    """Lua *expression* -> 1 when the client is showing a disconnect modal, else 0.
+    """Lua *expression* -> 1 when the client is showing the «logged in elsewhere» modal.
 
     The difference between «the server stopped answering» and «somebody took the
     account», which matters because they want opposite things done: a stranded client
-    should be restarted, and a kicked one means a person is playing somewhere else and
-    restarting takes it off them.
+    should be restarted, and a kicked one means a person is playing somewhere else.
 
     Answers 0 for anything it cannot read, so it can only ever ADD a reason, never
     remove one.
     """
     return ("(function() local ok, v = pcall(function() "
             "local m = UIManager.Instance "
-            "if m:IsWindowOpen('UIDisconnect') then return 1 end "
-            "if m:IsWindowOpen('UICrossDisconnect') then return 1 end "
-            "return 0 end) if not ok then return 0 end return v end)()")
+            "if not m:IsWindowOpen('UICommonMessageTip') then return 0 end "
+            "local w = m:GetWindow('UICommonMessageTip') "
+            "local t = w and w.View and w.View.tipText "
+            "if t == nil or tostring(t) == '' then return 0 end "
+            "return 1 end) if not ok then return 0 end return v end)()")
+
+
+def kick_message() -> str:
+    """Lua *expression* -> the text the modal is showing, or '' — for the log and a trace.
+
+    Read alongside :func:`kicked_out` when something is being written down: the WORDS are
+    what a person recognises, and they are what proved this flag rather than any amount
+    of reasoning about sockets.
+    """
+    return ("(function() local ok, v = pcall(function() "
+            "local w = UIManager.Instance:GetWindow('UICommonMessageTip') "
+            "local t = w and w.View and w.View.tipText "
+            "return t == nil and '' or tostring(t) end) "
+            "if not ok then return '' end return v end)()")

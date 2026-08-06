@@ -66,25 +66,79 @@ the client renders whatever the table says. That is why the next step found noth
   belongs to the **C# connection layer**, so there is no data manager holding a
   «kicked» field and nothing to poll the way an event's state is polled.
 
-## 4. Where the flag IS
+## 4. Where the flag IS — caught live, 2026-08-06
 
-The WINDOW, because `UIManager` holds it whoever opened it:
+The player kicked this client on purpose while a watcher polled it **twice a second**.
+The whole recording:
 
-```lua
-UIManager.Instance:IsWindowOpen('UIDisconnect')
-UIManager.Instance:IsWindowOpen('UICrossDisconnect')
+```
+22:43:15   link=online  dead=0   no window          city     <- baseline
+22:45:08   link=lost    dead=6   no window*         city     <- the kick
+                                                             (*by the stack; see below)
+22:48:53   the panel, restarted, calls it: «связь с сервером пропала»
+22:49:02                                  «выкинуло: вход с другого устройства»
+22:52+     window STILL open, 7+ minutes later
 ```
 
-That is `tools/lib/lua_actions.py::kicked_out()`. `UIChatKickUser` is chat moderation
-and NOT this. The panel asks it only while the link is already `lost` — it is a round
-trip into the VM and a healthy client always answers the same — and it fails CLOSED, so
-anything unreadable is «no kick» and it can only ever ADD a reason.
+**The sockets and the modal are simultaneous** — one poll apart at 0.5 s resolution.
+Six half-closed, zero established, and the client sitting in the city with its HUD up.
 
-**Not yet watched, and not to be assumed:** which of the two windows a real kick raises,
-and whether it survives long enough for an eight-second poll to see it. The July
-observation says the modal blocks until confirmed, which suggests it does — but nobody
-has held a stopwatch to it. **The next live kick answers both, and the moment to look is
-BEFORE anything restarts the client.**
+### The window is `UICommonMessageTip` — not either of the guesses
+
+`UIDisconnect` and `UICrossDisconnect` both stayed SHUT through the whole kick. What
+opened was the client's generic message dialog, and its `View.tipText` carries the
+message word for word:
+
+```
+Внимание
+В ваш аккаунт был выполнен вход с другого устройства
+```
+
+Buttons `text1=110006`, `text2=110106`. Read it with
+`UIManager.Instance:GetWindow('UICommonMessageTip').View.tipText`.
+
+### Why it looked like «no window at all»
+
+**`UICommonMessageTip` sets `DontPushWindowStack`.** So `GetStackTopWindow()` answers
+`nil` and `WindowStack` is empty **with the modal plainly on screen**. That is what the
+earlier reading did — it asked the stack, saw nothing, and concluded the kick leaves no
+trace. Wrong accessor as well as wrong moment.
+
+**`IsWindowOpen` is the only accessor that sees it**, and it has to be asked BY NAME:
+sweeping all 2 221 names in `UIWindowNames` is what found it
+(`TouchScreenEffect, UICommonMessageTip, UIMain, UINpcTalkLayer` were the four open).
+
+### How long it holds, and whether a poll catches it
+
+**Over seven minutes and still up when this was written**, unattended. The July
+observation said the modal blocks until confirmed, and this agrees: it does not
+self-dismiss. **The panel's ordinary eight-second poll catches it with room to spare** —
+no fast polling is needed in production, and #1259's design (ask only while the link is
+already `lost`) is comfortably enough.
+
+### Is it distinguishable from an ordinary hang-up? Yes
+
+| | stranded (server hung up) | kicked (logged in elsewhere) |
+|---|---|---|
+| sockets | half-closed, none established | the same |
+| `UICommonMessageTip` | **not open** (watched live, twice) | **open, with text** |
+| stack / `GetStackTopWindow` | empty / nil | empty / nil — no help |
+
+The sockets alone cannot tell them apart; the window can. `UICommonMessageTip` is a
+GENERIC dialog and proves nothing on its own — the client uses it for anything — so the
+pair is what makes it conclusive: **a lost link AND a message tip carrying text**. That
+is `lua_actions.kicked_out()`, and it is asked only while the link is already lost.
+
+Proven end to end by accident of timing: the panel was brought back up while the client
+was still kicked, and its very first poll said «выкинуло: вход с другого устройства»
+rather than «связь пропала».
+
+### What this does NOT fix
+
+A kick means the account is being played somewhere else, so restarting cannot win it
+back for long — it was watched failing at exactly that: restart, kicked again, «жду
+10 мин». Whether the automation should stand down entirely on a kick instead of
+restarting is a decision for the person, and it is the same open question as §6.
 
 ## 5. The wrong conclusion this produced, and why it was convincing
 
