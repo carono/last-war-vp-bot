@@ -508,8 +508,16 @@ Three things bound it:
 * **Three tabs have no screen, and they are what a legal exception looks like:**
   `settings`, `web`, `develop` were proposed, argued and agreed, and the reasons are
   written in `CLAUDE.md`. `tests/test_panel_web_screens.py` fails if one of them grows
-  a screen quietly — and a fourth exception is added the same way: ask, agree, write it
+  a screen quietly — and another exception is added the same way: ask, agree, write it
   in both files, pin it in the test.
+* **One screen is deliberately short of a control, which is the same rule in the other
+  shape.** «Чеклист» gives the phone the list, the ticks, a row's «Выполнить» and the
+  reset, and NOT the editing of the list — adding, renaming, re-ordering and deleting
+  stay in the window, because the renderer has no text field anywhere and inventing a
+  form primitive is a change to every screen rather than to that tab. Asked and agreed
+  when it was written (#1239), written into `CLAUDE.md` too, and pinned by
+  `tests/test_panel_checklist.py`, which fails if the offered actions stop being exactly
+  `toggle` / `run` / `reset`.
 
 ## Reaching another tab
 

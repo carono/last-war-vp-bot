@@ -89,6 +89,7 @@ class TabRegistry:
 
 # Order numbers are spaced so a tab can be slotted between two without renumbering.
 TABS: tuple = (
+    TabSpec("checklist", "panel.tabs.checklist", "ChecklistTab", order=20),
     TabSpec("timers",    "panel.tabs.timers",    "TimersTab",    order=30),
     TabSpec("settings",  "panel.tabs.settings",  "SettingsTab",  order=40,
             aggregates=True),

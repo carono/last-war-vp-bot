@@ -181,21 +181,34 @@ scenario, then the button appears in the web. A second copy of a hand-driven pre
 reachable from outside the house, is not an improvement — it is the same debt in two
 places.
 
-### The three divergences there are, and how they got there
+### The divergences there are, and how they got there
 
 They are the model for the paragraph above: each was **proposed, argued and agreed with
 the person**, and then written down here — not decided in passing by whoever was in the
 file at the time.
 
-`settings` — paths, interpreters and ports: breaking a profile with one thumb is easier
-than fixing it from a bus. `web` — the door the person came in through; managing it from
-the far side is how somebody locks themselves out. `develop` — two sniffers for working
-on the bot itself, switched off even in the window.
+**Three tabs have no screen at all.** `settings` — paths, interpreters and ports:
+breaking a profile with one thumb is easier than fixing it from a bus. `web` — the door
+the person came in through; managing it from the far side is how somebody locks
+themselves out. `develop` — two sniffers for working on the bot itself, switched off even
+in the window.
 
 All three declare `WEB_SCREEN = False`, `tests/test_panel_web_screens.py` fails if one
 of them quietly grows a screen, and what those three genuinely need on the move goes on
-«Состояние» as a switch rather than as a page. A fourth exception is added the same way:
-ask, agree, write it in both files, pin it in the test.
+«Состояние» as a switch rather than as a page.
+
+**One tab has a screen that is deliberately short of a control.** «Чеклист» hands the
+phone the list, the ticks, the «Выполнить» of a row and the reset — everything the day is
+actually read and spent through — and NOT the editing of the list: adding, renaming,
+re-ordering and deleting stay in the window. The reason is the renderer, not a
+preference: `panel/web/static/app.js` draws cards and buttons and has no text field
+anywhere, so «add an item» would mean inventing a form primitive for every screen at
+once. Asked and agreed with the operator when the tab was written (#1239);
+`tests/test_panel_checklist.py` pins the offered actions to exactly `toggle` / `run` /
+`reset`, so widening them is a decision somebody re-takes rather than one that happens.
+
+Another exception is added the same way, whichever kind it is: ask, agree, write it in
+both files, pin it in the test.
 
 ### Definition of done
 
