@@ -57,11 +57,26 @@ def _starred(line: str, level: int) -> bool:
 
 
 class Capture:
-    """The capture child, its line filter and the findings log."""
+    """ONE capture child — its line filter, its findings log and its own switch.
 
-    def __init__(self, rt, tab) -> None:
+    One per sniffer since #1251, not one with a dropdown. The two capture different
+    things (a secret task is a hero dispatch on a player's tile; a ghost squad is the
+    weekly event's) into different checkpoints, and the person watching one of them
+    almost never wants the other switched off in the same breath. So each page carries
+    the switch for the sniffer that feeds IT, each remembers its own interval, and
+    either may run while the other does not.
+    """
+
+    def __init__(self, rt, tab, index: int = 0, switch=None, interval=None) -> None:
         self.rt = rt
         self.tab = tab
+        #: Which of `captures.CAPTURE_OPTIONS` this one runs — its script, and the
+        #: shape of the records it writes.
+        self.index = index
+        #: The tk variables this capture reads: its own checkbox and its own interval,
+        #: owned by the page that draws them.
+        self.switch = switch
+        self.interval = interval
         self._proc = None
         #: A launch is in flight on its own thread — see :meth:`start`. Without it, two
         #: presses in the second the game takes to answer are two captures.
@@ -71,9 +86,14 @@ class Capture:
     def running(self) -> bool:
         return self._proc is not None or self._starting
 
+    @property
+    def wanted(self) -> bool:
+        """Whether this profile asked for THIS capture."""
+        return bool(self.switch.get()) if self.switch is not None else False
+
     # -- start / stop --------------------------------------------------------
     def toggle(self) -> None:
-        if self.tab.monitor_var.get():
+        if self.wanted:
             self.start()
         else:
             self.stop()
@@ -90,8 +110,7 @@ class Capture:
         """
         if self._proc is not None:
             return
-        idx = self.tab.kind_index()
-        script = capturemod.CAPTURE_OPTIONS[idx]["script"]
+        script = capturemod.CAPTURE_OPTIONS[self.index]["script"]
         # NO --all-tcp. It sets the BPF to a bare "tcp", so on a busy adapter (this box
         # sees ~280 tcp frames/s) scapy's Python callback cannot keep up and npcap's ring
         # overflows — ~98% of packets, the game's map frames among them, are dropped
@@ -124,7 +143,7 @@ class Capture:
             cmd += ["--shared-json", self.rt.profiles.secret_shared_json()]
         # Capture tick interval from the tab (falls back to the child's own default if
         # the field is blank or non-numeric).
-        interval = self.tab.interval_var.get().strip()
+        interval = (self.interval.get().strip() if self.interval is not None else "")
         if interval.isdigit() and int(interval) > 0:
             cmd += ["--interval", interval]
         # …and the rest — the game and the spawn — off the Tk thread. `_starting` is what
@@ -154,7 +173,7 @@ class Capture:
             mon = self.rt.children.spawn("secret", cmd, on_line=self.on_line,
                                          on_exit=self._on_exit)
             if not mon.start():
-                self.tab.post(lambda: self.tab.monitor_var.set(False))
+                self.tab.post(self._untick)
                 return
             self._proc = mon
             # Confirm the child really started (so a silent monitor is never mistaken for
@@ -166,7 +185,7 @@ class Capture:
         except Exception as exc:          # noqa: BLE001 — a capture, never the window
             self.tab.say("secret", "log.secret.ended")
             self.rt.dbg("secret").error("capture start failed: %s", exc, exc_info=True)
-            self.tab.post(lambda: self.tab.monitor_var.set(False))
+            self.tab.post(self._untick)
         finally:
             self._starting = False
 
@@ -184,7 +203,12 @@ class Capture:
     def _on_exit(self) -> None:
         self.tab.say("secret", "log.secret.ended")
         self._proc = None
-        self.tab.monitor_var.set(False)
+        self._untick()
+
+    def _untick(self) -> None:
+        """Clear THIS capture's own box — never the other sniffer's (#1251)."""
+        if self.switch is not None:
+            self.switch.set(False)
 
     # -- the lines -----------------------------------------------------------
     def passes(self, line: str) -> bool:

@@ -24,7 +24,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ...widgets import tk_stringvar
+from ...widgets import NumericEntry, tk_stringvar
 
 # The star glyph in front of a row and the icons for the two row states: a tile still
 # counting down to raidability, and one that is ready to loot now.
@@ -324,8 +324,18 @@ class TaskGrid:
     HINT_KEY = ""
     EMPTY_KEY = ""
 
+    #: The key this page's own settings are stored under, so two pages' filters never
+    #: land in one another's slot (#1251).
+    CONFIG_KEY = ""
+
     def __init__(self, tab) -> None:
         self.tab = tab
+        # EVERY page carries its own level range (#1251). One range on top of the tab
+        # meant «уровень от / до» narrowed lists it had nothing to do with — the ghost
+        # squads are levels 3-5 and the secret tasks 1-7, so one pair of boxes could
+        # not be right for both. A blank box is no bound, as everywhere else here.
+        self.level_from = tk_stringvar(tab.rt.root)
+        self.level_to = tk_stringvar(tab.rt.root)
         # uuid (str) -> the row record `new_row` makes. Replaced wholesale by `apply`;
         # nothing here outlives the game's own answer.
         self._rows: dict = {}
@@ -365,7 +375,47 @@ class TaskGrid:
         return frame
 
     def build_filters(self, parent) -> None:
-        """The page's own boxes, between the hint and the table. None by default."""
+        """The page's own boxes, between the hint and the table.
+
+        The level range is every page's, so it is drawn here; a subclass adds its own
+        beside it by overriding :meth:`extra_filters`.
+        """
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", pady=(4, 0))
+        self.tab.tr(ttk.Label(bar), "secrettasks.filters").pack(side="left", padx=(0, 8))
+        self.tab.tr(ttk.Label(bar), "secret.filter_level_from").pack(side="left",
+                                                                    padx=(0, 2))
+        NumericEntry(bar, textvariable=self.level_from, width=4).pack(side="left")
+        self.tab.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
+        NumericEntry(bar, textvariable=self.level_to, width=4).pack(side="left")
+        self.extra_filters(bar)
+        for var in (self.level_from, self.level_to):
+            var.trace_add("write", lambda *_a: self.refilter())
+
+    def extra_filters(self, bar) -> None:
+        """Whatever else THIS page filters by, beside the level range. None by default."""
+
+    def in_level_range(self, row) -> bool:
+        """Whether a row is inside this page's own level range (blank box = no bound)."""
+        level = int(row.get("level") or 0)
+        low, high = str(self.level_from.get()).strip(), str(self.level_to.get()).strip()
+        if low.isdigit() and level < int(low):
+            return False
+        if high.isdigit() and level > int(high):
+            return False
+        return True
+
+    def config(self) -> dict:
+        """This page's own settings, under its own key (#1251)."""
+        return {"level_from": self.level_from.get(), "level_to": self.level_to.get()}
+
+    def apply_config(self, raw) -> None:
+        raw = raw if isinstance(raw, dict) else {}
+        self.level_from.set(str(raw.get("level_from", "")))
+        self.level_to.set(str(raw.get("level_to", "")))
+
+    def persist_vars(self) -> list:
+        return [self.level_from, self.level_to]
 
     def retranslate(self) -> None:
         """(Re)write the headings in the language now on, and re-arm their sorts."""
@@ -450,8 +500,13 @@ class TaskGrid:
 
     # -- what the boxes let through -----------------------------------------------
     def visible_rows(self) -> list:
-        """The rows this page shows — every one of them unless a subclass narrows it."""
-        return list(self._rows.values())
+        """The rows this page shows: inside its own level range, and whatever else its
+        own boxes ask for (:meth:`narrow`)."""
+        return self.narrow([r for r in self._rows.values() if self.in_level_range(r)])
+
+    def narrow(self, rows) -> list:
+        """A subclass's own display rules, applied after the level range."""
+        return rows
 
     def collectable(self, row) -> bool:
         """Whether «Собрать» means anything on a row of THIS list."""

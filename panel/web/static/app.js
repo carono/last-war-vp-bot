@@ -476,7 +476,33 @@ function renderCard(card, needle) {
     empty.textContent = T(card.empty);
     box.appendChild(empty);
   }
+  // A card may carry buttons of its own (#1251): a tab whose pages each have their own
+  // switches and filters cannot put them all in one strip at the bottom of the screen,
+  // because then nobody can tell which list a press belongs to.
+  if ((card.actions || []).length) {
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    for (const action of card.actions) foot.appendChild(pressButton(action));
+    box.appendChild(foot);
+  }
   return box;
+}
+
+function pressButton(action) {
+  const button = document.createElement('button');
+  button.className = 'go';
+  button.textContent = T(action.label);
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const answer = await post('/api/screen/press',
+                                { id: SCREEN, action: action.id,
+                                  args: action.args || {} });
+      toast(answer.ok ? T('web.ui.done') : T('web.ui.refused'));
+      setTimeout(drawScreen, 900);
+    } finally { button.disabled = false; }
+  });
+  return button;
 }
 
 function renderItem(item) {

@@ -32,9 +32,10 @@ reason: they are what a robbery is aimed at, and this is not where robbing happe
 """
 from __future__ import annotations
 
+import tkinter as tk
 from tkinter import ttk
 
-from ...widgets import tk_stringvar
+from ...widgets import numeric_spinbox, tk_stringvar
 from . import grid
 
 # `GhostreconPointStealType` -> the locale key that spells it out. The same four values
@@ -60,10 +61,16 @@ class _GhostGrid(grid.TaskGrid):
 
     # -- the event's own line ---------------------------------------------------------
     def build_filters(self, parent) -> None:
-        """Not a filter but the same place: whether the event is on, and what is left."""
+        """This page's own filters — and, above them, whether the event is on at all.
+
+        `super()` FIRST and not instead: the level range belongs to every page (#1251),
+        and an override that forgot to call it left three pages with no filters and no
+        monitor switch at all.
+        """
         ttk.Label(parent, textvariable=self._status_var,
                   foreground="#888").pack(anchor="w", pady=(4, 0))
         self._paint_status()
+        super().build_filters(parent)
 
     def retranslate(self) -> None:
         super().retranslate()
@@ -223,6 +230,7 @@ class _GhostGrid(grid.TaskGrid):
 class GhostGrid(_GhostGrid):
     """MY OWN squads: where my three are, and when each of them is back."""
 
+    CONFIG_KEY = "ghost"
     TITLE_KEY = "secrettasks.ghost"
     HINT_KEY = "secrettasks.ghost.hint"
     EMPTY_KEY = "secrettasks.ghost.empty"
@@ -250,13 +258,55 @@ class GhostMapGrid(_GhostGrid):
     from the event's config table, read once.
     """
 
+    CONFIG_KEY = "ghost_map"
     TITLE_KEY = "secrettasks.ghost.map"
     HINT_KEY = "secrettasks.ghost.map.hint"
     EMPTY_KEY = "secrettasks.ghost.map.empty"
 
+    def __init__(self, tab) -> None:
+        super().__init__(tab)
+        # The ghost sniffer's own switch and its own interval, both this page's (#1251).
+        self.monitor_var = tk.BooleanVar(master=tab.rt.root, value=False)
+        self.interval_var = tk_stringvar(tab.rt.root)
+        self.interval_var.set("15")
+
     def _state_key(self, record) -> str:          # noqa: D102 — see the base
         return ("secrettasks.ghost.state.map_ready" if record.get("ready")
                 else "secrettasks.ghost.state.map_running")
+
+    # -- this page's own sniffer ------------------------------------------------------
+    def extra_filters(self, bar) -> None:
+        """The GHOST capture's own switch, on the page it feeds (#1251).
+
+        One switch per sniffer, not one with a dropdown: the two capture different
+        things into different checkpoints, and whoever is watching ghost tiles almost
+        never wants the secret-task capture stopped in the same breath. The interval is
+        this capture's own too — it is what its child is launched with.
+        """
+        self.tab.tr(ttk.Checkbutton(bar, variable=self.monitor_var,
+                                    command=self.tab.ghost_capture.toggle),
+                    "secret.monitoring").pack(side="left", padx=(16, 0))
+        self.tab.tr(ttk.Label(bar), "secret.interval").pack(
+            side="left", padx=(12, 2))
+        numeric_spinbox(bar, from_=1, to=3600, width=5,
+                        textvariable=self.interval_var).pack(side="left")
+        # A capture is launched with its interval, so a change only lands on the next
+        # start: bounce a running one rather than waiting for a manual toggle.
+        self.interval_var.trace_add(
+            "write", lambda *_a: self.tab._on_ghost_interval_change())
+
+    def config(self) -> dict:
+        return dict(super().config(), monitor=bool(self.monitor_var.get()),
+                    interval=self.interval_var.get())
+
+    def apply_config(self, raw) -> None:
+        super().apply_config(raw)
+        raw = raw if isinstance(raw, dict) else {}
+        self.monitor_var.set(bool(raw.get("monitor", False)))
+        self.interval_var.set(str(raw.get("interval", "15")))
+
+    def persist_vars(self) -> list:
+        return super().persist_vars() + [self.monitor_var, self.interval_var]
 
 
 class GhostAllianceGrid(_GhostGrid):
@@ -280,6 +330,7 @@ class GhostAllianceGrid(_GhostGrid):
     is two read values added rather than a guess.
     """
 
+    CONFIG_KEY = "ghost_allies"
     TITLE_KEY = "secrettasks.ghost.allies"
     HINT_KEY = "secrettasks.ghost.allies.hint"
     EMPTY_KEY = "secrettasks.ghost.allies.empty"

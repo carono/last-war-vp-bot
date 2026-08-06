@@ -90,7 +90,6 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ...runtime import captures as capturemod
 from ...widgets import (NumericEntry, numeric_spinbox, tk_stringvar,
                         font as ui_font)
 from ..base import PanelTab, TriggerSpec
@@ -209,7 +208,6 @@ class SecretTasksTab(PanelTab):
         # сервере» compares a tile against. 0 = not read yet / unreadable.
         self._own_server = 0
         self._status_var = tk_stringvar(master)
-        self._combo = None
         # -- the table ------------------------------------------------------
         self._tree = None
         self._body = None
@@ -266,11 +264,6 @@ class SecretTasksTab(PanelTab):
         self._jump_hist_var = tk_stringvar(master)
         self._jump_hist_combo = None
 
-        self.capture = Capture(rt, self)
-        self.autoloot = AutoLoot(rt, self)
-        self.sweep = Sweep(rt, self)
-        # The second table (#1244): what the alliancemates are running, filled by its
-        # own read — see `_roster`.
         self.alliance = AllianceGrid(self)
         # The third and fourth pages (#1251): the weekly event's squads — mine, and my
         # alliancemates'. Two tables, ONE read: the client keeps both in a single list
@@ -281,6 +274,21 @@ class SecretTasksTab(PanelTab):
         # …and the OTHER sniffer (#1251): what a lap of the map found, which is the
         # only one of the three that sees other alliances at all.
         self.ghost_map = GhostMapGrid(self)
+
+        # TWO SNIFFERS, TWO SWITCHES (#1251). The secret-task capture belongs to the ★
+        # page and the ghost one to the map page; either may run while the other does
+        # not, and each remembers its own interval. It used to be one capture with a
+        # dropdown, which meant switching sniffer stopped the one you were watching.
+        self.capture = Capture(rt, self, index=0, switch=self.monitor_var,
+                               interval=self.interval_var)
+        self.ghost_capture = Capture(rt, self, index=1,
+                                     switch=self.ghost_map.monitor_var,
+                                     interval=self.ghost_map.interval_var)
+        self.autoloot = AutoLoot(rt, self)
+        self.sweep = Sweep(rt, self)
+        # The second table (#1244): what the alliancemates are running, filled by its
+        # own read — see `_roster`.
+
         # Which tiles the alliance has already been shown (#1245). The tables read it,
         # the panel's own «Поделиться» writes it, and so do the two capture children —
         # which is what makes a share pressed in the GAME show up here.
@@ -310,6 +318,10 @@ class SecretTasksTab(PanelTab):
         """
         if self.monitor_var.get():
             self.capture.start()
+        # …and the ghost sniffer, whose switch lives on its own page (#1251). Two
+        # independent orders: a profile may have either, both or neither ticked.
+        if self.ghost_map.monitor_var.get():
+            self.ghost_capture.start()
         if self.autoloot_var.get():
             self.autoloot.start()
         if self.sweep_var.get():
@@ -353,6 +365,7 @@ class SecretTasksTab(PanelTab):
         under the old account — a restart clears both.
         """
         self.capture.stop()
+        self.ghost_capture.stop()
         self.autoloot.stop()
         self.sweep.stop()
         # Another account is another server and another alliance: both cached readings
@@ -400,7 +413,6 @@ class SecretTasksTab(PanelTab):
             self.sweep.start()
 
     def on_language_change(self) -> None:
-        self._retranslate_combo()
         self._retranslate_headings()
         self._retranslate_pages()
         self._refresh_rule_hints()
@@ -430,6 +442,7 @@ class SecretTasksTab(PanelTab):
     def panic(self) -> None:
         """«Стоп всё»: every standing order down, and the boxes say so."""
         for var, order in ((self.monitor_var, self.capture),
+                           (self.ghost_map.monitor_var, self.ghost_capture),
                            (self.autoloot_var, self.autoloot),
                            (self.sweep_var, self.sweep)):
             var.set(False)
@@ -438,6 +451,7 @@ class SecretTasksTab(PanelTab):
 
     def shutdown(self) -> None:
         self.capture.stop()
+        self.ghost_capture.stop()
         self.autoloot.stop()
         self.sweep.stop()
         for name in ("secret_tick", "secret_poll", "secret_nudge",
@@ -448,16 +462,20 @@ class SecretTasksTab(PanelTab):
     # -- persistence ----------------------------------------------------------
     def config(self) -> dict:
         return {
-            "monitor_kind": self.kind_index(),
+            # The ★ page's own sniffer. `monitor_kind` is gone with the dropdown
+            # (#1251): each sniffer has a switch of its own now, and «which one is
+            # selected» is not a question any more.
             "monitor_interval": self.interval_var.get(),
             "secret_monitor": bool(self.monitor_var.get()),
+            # …and every page's own filters, each under its own key, so switching one
+            # on cannot reach into another's (#1251).
+            "grids": {page.CONFIG_KEY: page.config()
+                      for page in self._grid_pages()},
             "show_spent": bool(self.show_spent_var.get()),
             # The three display rules the pages carry (#1251) — what is SHOWN, never
             # what is robbed. The robbery's own rule is `autoloot_skip_own_server`
             # below, and the two are kept apart on purpose.
             "hide_own_server": bool(self.hide_own_var.get()),
-            "alliance_ur_only": bool(self.alliance.ur_var.get()),
-            "alliance_star_only": bool(self.alliance.star_var.get()),
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
             "autoloot": bool(self.autoloot_var.get()),
@@ -475,20 +493,32 @@ class SecretTasksTab(PanelTab):
 
     def apply_config(self, raw) -> None:
         raw = raw if isinstance(raw, dict) else {}
-        idx = raw.get("monitor_kind", 0)
-        if isinstance(idx, int) and 0 <= idx < len(capturemod.CAPTURE_OPTIONS) \
-                and self._combo is not None:
-            self._combo.current(idx)
         self.interval_var.set(str(raw.get("monitor_interval", "15")))
-        self.monitor_var.set(bool(raw.get("secret_monitor", False)))
+        blocks = raw.get("grids") if isinstance(raw.get("grids"), dict) else {}
+        for page in self._grid_pages():
+            page.apply_config(blocks.get(page.CONFIG_KEY, {}))
+        # A profile saved while the two sniffers were ONE box with a dropdown carries
+        # `secret_monitor` and `monitor_kind` (#1251). Which capture that switch meant
+        # is what `monitor_kind` said, so it is honoured once, here, and then each
+        # sniffer keeps its own box: index 1 was the ghost one.
+        was_on = bool(raw.get("secret_monitor", False))
+        was_ghost = raw.get("monitor_kind") == 1
+        if "grids" not in raw and was_on and was_ghost:
+            self.ghost_map.monitor_var.set(True)
+            self.ghost_map.interval_var.set(str(raw.get("monitor_interval", "15")))
+            self.monitor_var.set(False)
+        else:
+            self.monitor_var.set(was_on and not was_ghost if "grids" not in raw
+                                 else was_on)
         self.show_spent_var.set(bool(raw.get("show_spent", False)))
         # ON for a profile that has never been asked (#1251): a raid at home is not
         # what this list is read for, and the box is how somebody says otherwise.
         self.hide_own_var.set(bool(raw.get("hide_own_server", True)))
-        # …and the alliance mirror shows everything until asked, which is why these two
-        # default the other way.
-        self.alliance.ur_var.set(bool(raw.get("alliance_ur_only", False)))
-        self.alliance.star_var.set(bool(raw.get("alliance_star_only", False)))
+        # A profile written before the pages kept their own settings spelled these two
+        # flat; the page's own block wins where there is one (#1251).
+        if "grids" not in raw:
+            self.alliance.ur_var.set(bool(raw.get("alliance_ur_only", False)))
+            self.alliance.star_var.set(bool(raw.get("alliance_star_only", False)))
         self.filter_from_var.set(raw.get("filter_level_from", ""))
         self.filter_to_var.set(raw.get("filter_level_to", ""))
         # A profile saved before the display filter and the robbery rule were split has
@@ -514,9 +544,18 @@ class SecretTasksTab(PanelTab):
         self._refresh_rule_hints()
         self._sync_autoloot_controls()
 
+    def _grid_pages(self) -> tuple:
+        """The pages that keep settings of their own — every table but the ★ one.
+
+        The ★ page's boxes are the tab's own variables (they predate the split and the
+        profile spells them flat), so it is not in here; everything it saves is above.
+        """
+        return (self.alliance, self.ghost, self.ghost_allies, self.ghost_map)
+
     def persist_vars(self) -> list:
-        return [self.monitor_var, self.interval_var, self.show_spent_var,
-                self.hide_own_var, self.alliance.ur_var, self.alliance.star_var,
+        pages = [v for page in self._grid_pages() for v in page.persist_vars()]
+        return pages + [self.monitor_var, self.interval_var, self.show_spent_var,
+                self.hide_own_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_from_var, self.level_to_var,
                 self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
@@ -577,44 +616,24 @@ class SecretTasksTab(PanelTab):
         self._set_jump_history(self._jump_hist)
 
     def _build_monitor_bar(self) -> None:
-        """The capture block: which capture, how often, what reaches the log — and the
-        «Автообъезд карты» that keeps it fed."""
+        """What is left of the shared control bar: the map sweep, and nothing else.
+
+        THE SWITCHES MOVED TO THEIR OWN PAGES (#1251). One «Мониторинг» box with a
+        dropdown beside it meant choosing which sniffer to watch STOPPED the other one,
+        and one «уровень от / до» narrowed lists it had nothing to do with — ghost
+        squads are levels 3-5 where secret tasks run 1-7. Each page carries its own
+        switch, its own interval and its own range now.
+
+        The sweep stays shared on purpose: it is one camera, it feeds both captures at
+        once, and two boxes driving one camera would fight each other.
+        """
         sec = self.tr(ttk.LabelFrame(self.parent, padding=8), "secret.frame")
         sec.pack(fill="x", padx=10, pady=(0, 4))
-        row1 = ttk.Frame(sec)
-        row1.pack(fill="x")
-        self._combo = ttk.Combobox(
-            row1, state="readonly", width=20,
-            values=[self.t(o["key"]) for o in capturemod.CAPTURE_OPTIONS])
-        self._combo.current(0)
-        self._combo.pack(side="left", padx=(0, 8))
-        # Which capture is a saved choice like any other; a combo has no variable, so it
-        # says so itself.
-        self._combo.bind("<<ComboboxSelected>>",
-                         lambda _e: self.rt.settings.changed(), add="+")
-        self.rt.i18n.hook(self._retranslate_combo, key="secret-capture-combo")
-        self.tr(ttk.Checkbutton(row1, variable=self.monitor_var,
-                                command=self.capture.toggle),
-                "secret.monitoring").pack(side="left")
-        self.tr(ttk.Label(row1), "secret.interval").pack(side="left", padx=(12, 2))
-        numeric_spinbox(row1, from_=1, to=3600, width=5,
-                        textvariable=self.interval_var).pack(side="left")
-        self.tr(ttk.Label(row1, foreground="#888"), "secret.hint").pack(
-            side="left", padx=10)
-
-        row2 = ttk.Frame(sec)
-        row2.pack(fill="x", pady=(6, 0))
-        self.tr(ttk.Label(row2), "secret.filters").pack(side="left")
-        self.tr(ttk.Label(row2), "secret.filter_level_from").pack(
-            side="left", padx=(0, 2))
-        NumericEntry(row2, textvariable=self.filter_from_var, width=4).pack(side="left")
-        self.tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
-        NumericEntry(row2, textvariable=self.filter_to_var, width=4).pack(side="left")
 
         # «Автообъезд карты»: the passive scan only learns tiles while the map moves, so
         # this walks the camera over a box around a centre.
         sweep = self.tr(ttk.LabelFrame(sec, padding=6), "sweep.frame")
-        sweep.pack(fill="x", pady=(8, 0))
+        sweep.pack(fill="x")
         self.tr(ttk.Checkbutton(sweep, variable=self.sweep_var,
                                 command=self.sweep.toggle),
                 "sweep.enabled").pack(side="left")
@@ -762,9 +781,25 @@ class SecretTasksTab(PanelTab):
         bar = ttk.Frame(parent)
         bar.pack(fill="x", pady=(0, 4))
         self.tr(ttk.Label(bar), "secrettasks.filters").pack(side="left", padx=(0, 8))
+        self.tr(ttk.Label(bar), "secret.filter_level_from").pack(side="left", padx=(0, 2))
+        NumericEntry(bar, textvariable=self.filter_from_var, width=4).pack(side="left")
+        self.tr(ttk.Label(bar), "secret.level_to").pack(side="left", padx=(6, 2))
+        NumericEntry(bar, textvariable=self.filter_to_var, width=4).pack(side="left")
         self.tr(ttk.Checkbutton(bar, variable=self.hide_own_var,
                                 command=self._on_hide_own_change),
-                "secrettasks.filter.hide_own").pack(side="left")
+                "secrettasks.filter.hide_own").pack(side="left", padx=(16, 0))
+
+        # …and the SECRET-TASK sniffer's own switch, on the page it feeds (#1251).
+        mon = ttk.Frame(parent)
+        mon.pack(fill="x", pady=(0, 4))
+        self.tr(ttk.Checkbutton(mon, variable=self.monitor_var,
+                                command=self.capture.toggle),
+                "secret.monitoring").pack(side="left")
+        self.tr(ttk.Label(mon), "secret.interval").pack(side="left", padx=(12, 2))
+        numeric_spinbox(mon, from_=1, to=3600, width=5,
+                        textvariable=self.interval_var).pack(side="left")
+        self.tr(ttk.Label(mon, foreground="#888", wraplength=520,
+                          justify="left"), "secret.hint").pack(side="left", padx=10)
 
     def _on_hide_own_change(self) -> None:
         """The box was flipped: redraw the ★ list, read nothing, rob nothing."""
@@ -1039,24 +1074,15 @@ class SecretTasksTab(PanelTab):
         self.say("secret", "log.coord.clicked", where=coords_fmt.fmt(x, y, srv))
         self._jump(x, y, srv)
 
-    def _retranslate_combo(self) -> None:
-        if self._combo is None:
-            return
-        idx = self._combo.current()
-        self._combo.configure(values=[self.t(o["key"])
-                                      for o in capturemod.CAPTURE_OPTIONS])
-        self._combo.current(idx if idx >= 0 else 0)
-
-    def kind_index(self) -> int:
-        """Which capture is selected — 0 when the combo does not exist yet."""
-        if self._combo is None:
-            return 0
-        idx = self._combo.current()
-        return idx if idx >= 0 else 0
-
     def _on_interval_change(self) -> None:
+        """The ★ page's own interval was typed: bounce ITS capture, not the other one."""
         if not self.rt.settings.loading and self.capture.running:
             self.capture.restart()
+
+    def _on_ghost_interval_change(self) -> None:
+        """…and the same for the ghost sniffer's own interval (#1251)."""
+        if not self.rt.settings.loading and self.ghost_capture.running:
+            self.ghost_capture.restart()
 
     def _on_show_spent(self) -> None:
         """«Показывать исчерпанные» was flipped: redraw the list, nothing else.
@@ -1735,65 +1761,61 @@ class SecretTasksTab(PanelTab):
         state_key, state_datum = self.autoloot.state()
         return {"cards": [{"title": "secret.autoloot.frame",
                            "rows": [{"label": state_key, "value": state_datum}]},
-                          # The window's three pages, as the phone's three cards
-                          # (#1244, #1251) — a screen scrolls where a window switches,
-                          # so the pages become sections one under the other. Titled,
-                          # unlike the ★ list above them, because untitled lists of
-                          # coordinates on one screen are indistinguishable — and which
-                          # list a tile is in is the whole point of having three.
-                          # …and the ★ card says what the home-server rule is holding
-                          # back, for the same reason the window's count does: a phone
-                          # showing an empty list is otherwise unreadable.
+                          # The window's pages, as the phone's cards (#1244, #1251) — a
+                          # screen scrolls where a window switches. EACH CARD CARRIES
+                          # ITS OWN PAGE'S SWITCHES, for the same reason the window
+                          # stopped having one strip on top: a press has to say which
+                          # list it is about.
                           {"title": "secrettasks.page.stars", "items": items,
                            "rows": ([{"label": "secrettasks.filter.hide_own",
                                       "value": str(hidden)}] if hidden else []),
-                           "empty": "secrettasks.empty"},
+                           "empty": "secrettasks.empty",
+                           "actions": [{"id": "monitor",
+                                        "label": ("secret.monitoring.off"
+                                                  if self.monitor_var.get()
+                                                  else "secret.monitoring.on")},
+                                       {"id": "show_spent",
+                                        "label": ("secrettasks.hide_spent"
+                                                  if self.show_spent_var.get()
+                                                  else "secrettasks.show_spent")},
+                                       {"id": "hide_own",
+                                        "label": ("secrettasks.filter.show_own"
+                                                  if self.hide_own_var.get()
+                                                  else "secrettasks.filter.hide_own")},
+                                       {"id": "clear", "label": "secrettasks.clear"}]},
                           {"title": "secrettasks.alliance",
                            "items": self.alliance.web_items(),
-                           "empty": "secrettasks.alliance.empty"},
-                          # The ghost card carries the event's own two facts as well as
-                          # its squads: six days a week «событие закрыто» IS the
+                           "empty": "secrettasks.alliance.empty",
+                           "actions": [{"id": "ur_only",
+                                        "label": ("secrettasks.filter.ur_off"
+                                                  if self.alliance.ur_var.get()
+                                                  else "secrettasks.filter.ur_on")},
+                                       {"id": "star_only",
+                                        "label": ("secrettasks.filter.star_off"
+                                                  if self.alliance.star_var.get()
+                                                  else "secrettasks.filter.star_on")}]},
+                          # The two ghost cards carry the event's own facts as well as
+                          # their squads: six days a week «событие закрыто» IS the
                           # reading, and an empty list without it is a mystery.
                           {"title": "secrettasks.ghost",
                            "rows": self.ghost.web_rows(),
                            "items": self.ghost.web_items(),
                            "empty": "secrettasks.ghost.empty"},
-                          # …and the alliancemates' squads as a card of their own
-                          # (#1251), for the same reason they are a page of their own:
-                          # «where are my three» and «who of the alliance is running
-                          # what» are two questions, and one list answers neither.
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
                            "empty": "secrettasks.ghost.allies.empty"},
-                          # …and the other sniffer's own card (#1251): what a lap of
-                          # the map found, which is the only list here that sees other
-                          # alliances at all.
+                          # …and the other sniffer's own card, with the switch that
+                          # feeds it (#1251).
                           {"title": "secrettasks.ghost.map",
                            "items": self.ghost_map.web_items(),
-                           "empty": "secrettasks.ghost.map.empty"}],
+                           "empty": "secrettasks.ghost.map.empty",
+                           "actions": [{"id": "ghost_monitor",
+                                        "label": ("secret.monitoring.off"
+                                                  if self.ghost_map.monitor_var.get()
+                                                  else "secret.monitoring.on")}]}],
                 "now": now,
-                # Each button names what pressing it will DO, because a phone has no
-                # checkbox to carry the state in: «Показать исчерпанные» while they are
-                # hidden, «Скрыть» while they are not — and the same for the three
-                # display rules the window's boxes hold (#1251).
-                "actions": [{"id": "refresh", "label": "tabx.refresh"},
-                            {"id": "show_spent",
-                             "label": ("secrettasks.hide_spent"
-                                       if self.show_spent_var.get()
-                                       else "secrettasks.show_spent")},
-                            {"id": "hide_own",
-                             "label": ("secrettasks.filter.show_own"
-                                       if self.hide_own_var.get()
-                                       else "secrettasks.filter.hide_own")},
-                            {"id": "ur_only",
-                             "label": ("secrettasks.filter.ur_off"
-                                       if self.alliance.ur_var.get()
-                                       else "secrettasks.filter.ur_on")},
-                            {"id": "star_only",
-                             "label": ("secrettasks.filter.star_off"
-                                       if self.alliance.star_var.get()
-                                       else "secrettasks.filter.star_on")},
-                            {"id": "clear", "label": "secrettasks.clear"}]}
+                # What is left at the bottom is what belongs to the WHOLE tab.
+                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить», and the two display rules the phone may change.
@@ -1814,6 +1836,13 @@ class SecretTasksTab(PanelTab):
         if action == "hide_own":
             self.post(self._toggle_hide_own)
             return {"ok": True}
+        if action == "monitor":
+            self.post(lambda: self._toggle_capture(self.monitor_var, self.capture))
+            return {"ok": True}
+        if action == "ghost_monitor":
+            self.post(lambda: self._toggle_capture(self.ghost_map.monitor_var,
+                                                   self.ghost_capture))
+            return {"ok": True}
         if action in ("ur_only", "star_only"):
             self.post(lambda: self._toggle_alliance_filter(action))
             return {"ok": True}
@@ -1830,6 +1859,17 @@ class SecretTasksTab(PanelTab):
         """
         self.show_spent_var.set(not self.show_spent_var.get())
         self._on_show_spent()
+
+    def _toggle_capture(self, var, capture) -> None:
+        """Flip one sniffer's own switch from the phone, on the Tk thread (#1251).
+
+        The window's own variable, so the two front-ends cannot disagree — and the
+        capture it belongs to, so switching the ghost sniffer on from a phone does not
+        stop the secret-task one.
+        """
+        var.set(not var.get())
+        capture.toggle()
+        self.rt.settings.changed()
 
     def _toggle_hide_own(self) -> None:
         """Flip «Скрывать со своего сервера» from the phone (#1251).

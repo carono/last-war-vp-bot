@@ -791,6 +791,9 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab.rt = _fake_rt(_state_path())
     tab.loaded = True
     tab.capture, tab.autoloot, tab.sweep = _FakeOrder(), _FakeOrder(), _FakeOrder()
+    # The ghost sniffer is a second, independent capture since #1251 — its switch lives
+    # on the map page, so the fixture carries both.
+    tab.ghost_capture = _FakeOrder()
     tab.monitor_var, tab.sweep_var = _Var(False), _Var(False)
     tab._sweep_hint = tab._rule_lbl = tab._rule_line = None
     tab._ids, tab._own_server = ("1", "a"), 1
@@ -800,6 +803,7 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab.alliance, tab.ghost = _FakeAllianceGrid(), _FakeAllianceGrid()
     tab.ghost_allies = _FakeAllianceGrid()
     tab.ghost_map = _FakeAllianceGrid()
+    tab.ghost_map.monitor_var = _Var(False)
 
     tab.on_profile_switch()
 
@@ -905,6 +909,9 @@ def _alliance_grid(tree=None):
     g._rows, g._tree, g._sort = {}, tree, None
     g._body = g._empty = None
     g._count_var = _Var()
+    # Every page carries its own level range now (#1251) — blank here, so a test that
+    # does not mention it sees every row.
+    g.level_from, g.level_to = _Var(""), _Var("")
     # The page's own two display rules (#1251) — off, which is how a fresh profile has
     # them, so a test that does not mention them sees the whole mirror.
     g.ur_var, g.star_var = _Var(False), _Var(False)
@@ -1129,6 +1136,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab._rows = {}
     tab.show_spent_var = _Var(False)
     tab.hide_own_var = _Var(True)
+    tab.monitor_var = _Var(False)       # the ★ page's own sniffer switch (#1251)
     tab._own_server = 0                 # unread here, so the rule holds nothing back
     tab._visible_rows = lambda: []
     tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
@@ -1143,6 +1151,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
     tab.ghost_map = types.SimpleNamespace(
+        monitor_var=_Var(False),
         web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
                             "pill": None}])
 
@@ -1160,12 +1169,20 @@ def test_the_phone_is_shown_every_page_the_window_has():
     assert cards["secrettasks.ghost.allies"]["items"][0]["text"] == "#6 X:7 Y:8"
     assert "secrettasks.ghost.map" in cards, cards
     assert cards["secrettasks.ghost.map"]["items"][0]["text"] == "#9 X:1 Y:1"
-    # Every box the window has is a button here, named by what pressing it will do.
-    ids = [a["id"] for a in view["actions"]]
-    assert {"hide_own", "ur_only", "star_only"} <= set(ids), ids
-    labels = {a["id"]: a["label"] for a in view["actions"]}
-    assert labels["hide_own"] == "secrettasks.filter.show_own"      # it is hiding now
-    assert labels["ur_only"] == "secrettasks.filter.ur_on"          # it is not on yet
+    # EVERY BOX IS A BUTTON ON ITS OWN CARD (#1251) — a press has to say which list it
+    # is about, exactly as the window's switches sit on their own pages.
+    stars = {a["id"]: a["label"] for a in cards["secrettasks.page.stars"]["actions"]}
+    assert {"monitor", "hide_own", "show_spent", "clear"} == set(stars), stars
+    assert stars["hide_own"] == "secrettasks.filter.show_own"       # it is hiding now
+    assert stars["monitor"] == "secret.monitoring.on"               # not running yet
+    ally = {a["id"]: a["label"] for a in cards["secrettasks.alliance"]["actions"]}
+    assert {"ur_only", "star_only"} == set(ally), ally
+    assert ally["ur_only"] == "secrettasks.filter.ur_on"            # it is not on yet
+    # …and the ghost sniffer's switch is on the card its findings land on.
+    map_actions = {a["id"] for a in cards["secrettasks.ghost.map"]["actions"]}
+    assert map_actions == {"ghost_monitor"}, map_actions
+    # What is left at the bottom belongs to the whole tab.
+    assert [a["id"] for a in view["actions"]] == ["refresh"]
 
 
 def test_the_phone_reads_the_alliance_rows_the_same_way_as_the_window():
@@ -1268,6 +1285,7 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
 
     # The phone's copy of the very same row.
     tab.show_spent_var = _Var(False)
+    tab.monitor_var = _Var(False)
     tab._visible_rows = lambda: list(tab._rows.values())
     tab._spent = lambda _row: False
     tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
@@ -1275,7 +1293,8 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
                                          star_var=_Var(False))
     tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
     tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
-    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [],
+                                          monitor_var=_Var(False))
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
     assert item["text"].startswith(gr.SHARED_GLYPH), item
     assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
@@ -1539,6 +1558,9 @@ def test_the_display_rule_is_not_the_robbery_rule():
     keys = st.SecretTasksTab.config(_config_stub())
     assert keys["hide_own_server"] is True          # what is SHOWN
     assert keys["autoloot_skip_own_server"] is False  # what is ROBBED
+    # …and each page's own filters live under its own key, so one page's box can never
+    # land in another's slot (#1251).
+    assert set(keys["grids"]) == {"alliance", "ghost", "ghost_allies", "ghost_map"}
     src = (Path(__file__).resolve().parents[1] /
            "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
     assert "hide_own_var" in src and "skip_own_var" in src
@@ -1562,8 +1584,20 @@ def _config_stub():
     stub.sweep_cx_var = stub.sweep_cy_var = _Var("")
     stub.coord_x_var = stub.coord_y_var = stub.coord_srv_var = _Var("")
     stub._jump_hist = []
-    stub.alliance = __import__("types").SimpleNamespace(ur_var=_Var(False),
-                                                        star_var=_Var(False))
+    # Every page keeps its own settings block now (#1251), so `config()` asks each of
+    # them for one. A stand-in that answers is all this fixture needs.
+    types = __import__("types")
+
+    def _page(key):
+        return types.SimpleNamespace(CONFIG_KEY=key, config=lambda: {"level_from": "",
+                                                                     "level_to": ""},
+                                     ur_var=_Var(False), star_var=_Var(False),
+                                     monitor_var=_Var(False), interval_var=_Var("15"))
+
+    stub.alliance = _page("alliance")
+    stub.ghost = _page("ghost")
+    stub.ghost_allies = _page("ghost_allies")
+    stub.ghost_map = _page("ghost_map")
     return stub
 
 
@@ -1624,6 +1658,9 @@ def _ghost_grid(cls=None):
     g._count_var = _Var()
     g._status_var = _Var()
     g.status = {}
+    g.level_from, g.level_to = _Var(""), _Var("")
+    # The map page also owns the ghost sniffer's switch and interval (#1251).
+    g.monitor_var, g.interval_var = _Var(False), _Var("15")
     return g
 
 
@@ -2139,6 +2176,88 @@ def test_the_phone_can_flip_the_same_three_boxes_the_window_has():
     assert tab.hide_own_var.get() is False
     assert tab.alliance.ur_var.get() is True
     assert tab.alliance.star_var.get() is True
+
+
+def test_the_two_sniffers_have_two_independent_switches():
+    """«В секретках и операциях свои фильтры и мониторы» (#1251).
+
+    One box with a dropdown meant choosing which sniffer to watch STOPPED the other.
+    Now each capture has a switch of its own, on the page it feeds, and either may run
+    while the other does not.
+    """
+    from panel.tabs.secret_tasks import capture as cap
+
+    made = []
+
+    class _Child:
+        def __init__(self, *a, **k):
+            made.append(k)
+            self.started = self.stopped = 0
+
+    tab = object.__new__(st.SecretTasksTab)
+    star_switch, ghost_switch = _Var(False), _Var(False)
+    star = cap.Capture.__new__(cap.Capture)
+    star.switch, star.interval, star._proc, star._starting = star_switch, _Var("15"), None, False
+    ghost = cap.Capture.__new__(cap.Capture)
+    ghost.switch, ghost.interval, ghost._proc, ghost._starting = ghost_switch, _Var("15"), None, False
+
+    # Each capture reads ITS OWN box, and knows which script it is.
+    assert star.wanted is False and ghost.wanted is False
+    ghost_switch.set(True)
+    assert ghost.wanted is True and star.wanted is False
+
+    # …and a child that dies clears only its own box.
+    ghost._untick()
+    assert ghost_switch.get() is False and star_switch.get() is False
+
+    # The two are told apart by index, which is what picks the script and the
+    # checkpoint (`captures.CAPTURE_OPTIONS`).
+    from panel.runtime import captures as capturemod
+    assert len(capturemod.CAPTURE_OPTIONS) == 2
+    assert capturemod.CAPTURE_OPTIONS[0]["script"] == capturemod.SECRET_TASK_CAPTURE
+
+
+def test_every_page_filters_by_its_own_level_range():
+    """One range on top of the tab narrowed lists it had nothing to do with: ghost
+    squads are levels 3-5 where secret tasks run 1-7 (#1251)."""
+    from panel.tabs.secret_tasks import ghost as gh
+
+    ally = _alliance_grid()
+    ally.apply([_member_task(1, level=6), _member_task(2, level=7)])
+    assert len(ally.visible_rows()) == 2
+    ally.level_from.set("7")
+    assert [int(r["uuid"]) for r in ally.visible_rows()] == [2]
+
+    # …and the ghost page's own range is a different box entirely: narrowing one must
+    # not touch the other.
+    squads = _ghost_grid(gh.GhostAllianceGrid)
+    squads.apply([_ghost_record(5, level=5), _ghost_record(6, level=3)])
+    assert len(squads.visible_rows()) == 2
+    squads.level_to.set("4")
+    assert [r["uuid"] for r in squads.visible_rows()] == ["6"]
+    assert [int(r["uuid"]) for r in ally.visible_rows()] == [2], "the ranges are shared"
+
+
+def test_each_page_saves_its_filters_under_its_own_key():
+    """A monitor ticked on one page must not travel with another's settings (#1251)."""
+    from panel.tabs.secret_tasks import ghost as gh
+
+    page = _ghost_grid(gh.GhostMapGrid)
+    page.level_from.set("4")
+    page.monitor_var.set(True)
+    page.interval_var.set("7")
+    saved = page.config()
+    assert saved == {"level_from": "4", "level_to": "", "monitor": True,
+                     "interval": "7"}, saved
+
+    fresh = _ghost_grid(gh.GhostMapGrid)
+    fresh.apply_config(saved)
+    assert fresh.level_from.get() == "4" and fresh.monitor_var.get() is True
+    assert fresh.interval_var.get() == "7"
+
+    # …and a page with no block of its own reads as a fresh one, not as a crash.
+    fresh.apply_config(None)
+    assert fresh.level_from.get() == "" and fresh.monitor_var.get() is False
 
 
 if __name__ == "__main__":

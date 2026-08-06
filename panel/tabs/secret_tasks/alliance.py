@@ -48,6 +48,7 @@ from . import grid
 class AllianceGrid(grid.TaskGrid):
     """The alliance's own secret tasks as the same table, filled by the VM read."""
 
+    CONFIG_KEY = "alliance"
     TITLE_KEY = "secrettasks.alliance"
     HINT_KEY = "secrettasks.alliance.hint"
     EMPTY_KEY = "secrettasks.alliance.empty"
@@ -60,33 +61,40 @@ class AllianceGrid(grid.TaskGrid):
         self.star_var = tk.BooleanVar(master=tab.rt.root, value=False)
 
     # -- the boxes ----------------------------------------------------------------
-    def build_filters(self, parent) -> None:
-        """«UR» and «Звезда», between the hint and the table.
+    def extra_filters(self, bar) -> None:
+        """«UR» and «Звезда», beside this page's own level range.
 
-        Here rather than beside the tab's own level range on purpose: they narrow THIS
-        list and nothing else, and a box that reached across pages would be a different
-        feature wearing the same two words.
+        On the page rather than on the tab, like every filter here since #1251: they
+        narrow THIS list and nothing else, and a box that reached across pages would be
+        a different feature wearing the same two words.
         """
-        bar = ttk.Frame(parent)
-        bar.pack(fill="x", pady=(4, 0))
-        self.tab.tr(ttk.Label(bar), "secrettasks.filters").pack(side="left",
-                                                                padx=(0, 8))
         self.tab.tr(ttk.Checkbutton(bar, variable=self.ur_var,
                                     command=self.refilter),
-                    "secrettasks.filter.ur").pack(side="left")
+                    "secrettasks.filter.ur").pack(side="left", padx=(16, 0))
         self.tab.tr(ttk.Checkbutton(bar, variable=self.star_var,
                                     command=self.refilter),
                     "secrettasks.filter.star").pack(side="left", padx=(12, 0))
 
-    def visible_rows(self) -> list:
+    def narrow(self, rows) -> list:
         """The rows the two boxes let through — everything while neither is ticked."""
-        ur_only, star_only = bool(self.ur_var.get()), bool(self.star_var.get())
-        rows = list(self._rows.values())
-        if ur_only:
+        if self.ur_var.get():
             rows = [r for r in rows if grid.is_ur(r)]
-        if star_only:
+        if self.star_var.get():
             rows = [r for r in rows if r.get("starred")]
         return rows
+
+    def config(self) -> dict:
+        return dict(super().config(), ur_only=bool(self.ur_var.get()),
+                    star_only=bool(self.star_var.get()))
+
+    def apply_config(self, raw) -> None:
+        super().apply_config(raw)
+        raw = raw if isinstance(raw, dict) else {}
+        self.ur_var.set(bool(raw.get("ur_only", False)))
+        self.star_var.set(bool(raw.get("star_only", False)))
+
+    def persist_vars(self) -> list:
+        return super().persist_vars() + [self.ur_var, self.star_var]
 
     # -- what a right-click offers -------------------------------------------------
     def fill_menu(self, menu, row) -> None:
