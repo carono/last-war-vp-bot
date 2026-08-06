@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Codename»: the game is busy — the attack was not started",
   "checklist.refresh": "Refresh",
   "checklist.run": "Run",
+  "checklist.run.ministry": "Apply",
   "checklist.empty": "nothing has been read yet",
   "checklist.state.done": "done",
   "checklist.state.todo": "to do",

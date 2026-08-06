@@ -91,6 +91,12 @@ class Errand:
     information, not a bug. An errand with no scenario is a perfectly good line: the
     reading is worth having whether or not the bot can act on it yet.
 
+    **The two are independent, in both directions.** A ``field`` with no ``scenario`` is
+    the common case above; a ``scenario`` with no ``field`` is the other one, and it is
+    just as legitimate — the bot can do the thing and cannot see it (see
+    :data:`BLIND_ERRANDS`). Such a row says «состояние неизвестно» before the press and
+    after it, which is the truth: nothing was read, so nothing may be claimed.
+
     ``run_key`` is the button's own wording. Most say «Выполнить»; «Кодовое имя» says
     «Атаковать сейчас», because that is what its scenario does — the same mechanism, a
     different verb.
@@ -210,8 +216,24 @@ READ_ERRANDS: tuple = (
 #: is below is exactly the part of a real day the bot is still blind to. Each one is a
 #: candidate for a reading, and moving a line UP from here is the whole way this tab
 #: grows — never by giving it a box somebody can tick.
+#:
+#: **Three of them carry a scenario all the same** (#1247), and that pair — a press with
+#: no reading beside it — is deliberate rather than a half-finished row. Blind is a
+#: statement about what can be SEEN, and the two halves fail independently: the bot can
+#: empty the base's resource truck, claim the alliance gifts and apply for a ministry
+#: post, and can see none of the three afterwards. Refusing the button until the reading
+#: exists would punish the player for a gap in the reverse-engineering, and the only
+#: other door to those three was the script list on «Разработка» — a tab that is off
+#: unless a profile asks for it, so for an ordinary panel the abilities were simply
+#: unreachable.
+#:
+#: What such a line says stays honest: «состояние неизвестно» before the press and after
+#: it, because the row follows the reading and there is none. The scenario is what knows
+#: whether it may run and says so in the log (`tab._may_run`) — `apply_ministry_interior`
+#: refuses while another post is held or the cooldown is running, and names the reason.
+#: A press here is «сделай», never «отметь».
 BLIND_ERRANDS: tuple = (
-    Errand("truck_reward"),
+    Errand("truck_reward", scenario="collect_truck_resources"),
     Errand("gather"),
     Errand("secret_missions"),
     Errand("secret_tasks_help"),
@@ -220,7 +242,7 @@ BLIND_ERRANDS: tuple = (
     Errand("attack_marked"),
     Errand("treasures"),
     Errand("treasure_maps"),
-    Errand("alliance_gifts"),
+    Errand("alliance_gifts", scenario="collect_alliance_gifts"),
     Errand("chat_gifts"),
     Errand("arms_race"),
     Errand("arena"),
@@ -230,7 +252,12 @@ BLIND_ERRANDS: tuple = (
     Errand("fireworks"),
     Errand("vip_daily"),
     Errand("battle_pass"),
-    Errand("ministry"),
+    # The ability the panel has is for ONE post, so the button says «Подать заявку»
+    # rather than «Выполнить» over a choice nobody made: the recipe asks for Secretary
+    # of Interior and nothing else (`actions/apply_ministry_interior.md`, and the game's
+    # own name for the post is in `docs/game-glossary.md`).
+    Errand("ministry", scenario="apply_ministry_interior",
+           run_key="checklist.run.ministry"),
 )
 
 #: «Кодовое имя» — the world-boss event, and the SECOND group of the board to be more

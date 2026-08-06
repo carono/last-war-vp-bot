@@ -255,6 +255,30 @@ can spend them (#1188), so a bare press of the recipe would succeed and rob noth
 beside the catalogue, and pinned by a test — because «no button here» has to be a reason
 and not an oversight.
 
+**A press does not need a reading beside it.** The two halves fail apart, and a line that
+can be DONE but not SEEN is a real state: the checklist's «resource truck», «alliance
+gifts» and «ministry» rows carry a scenario with no field at all (#1247). Such a row says
+«состояние неизвестно» before the press and after it — nothing was read, so nothing is
+claimed — and the scenario is what knows whether it may run and says so in the log. The
+alternative was leaving the ability reachable only from the script list on «Разработка»,
+which is off unless a profile asks for it; refusing the button until somebody works out
+how to read the state punishes the player for a gap in the reverse-engineering.
+
+### Where an ability's press belongs
+
+**A new `actions/*.md` is not finished when it runs from «Разработка».** That list is the
+tab for working on the bot, `DEFAULT_ENABLED = False`, so an ability whose only button is
+there is one an ordinary panel does not have. Give it a press on the tab its theme
+belongs to — a row on «Чеклист» for a daily errand, «Ралли» / «Секретки» /
+«Командный пункт» for one that needs a target chosen first — and mirror it into
+`web_view` / `web_press` like any other control.
+
+A timer or a trigger is not that home. Both are real ways an ability runs, and neither is
+a way for a person to say «сделай это сейчас»; three abilities lived in the timer
+catalogue and nowhere else until #1247. `tests/test_scenario_homes.py` fails on a
+scenario with no home, and its `EXEMPT` table is where a deliberate exception is written
+down with its reason.
+
 ---
 
 ## One state, several places — a control may be drawn twice, never copied

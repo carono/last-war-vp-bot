@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Kryptonim»: gra jest zajęta — atak nie został uruchomiony",
   "checklist.refresh": "Odśwież",
   "checklist.run": "Wykonaj",
+  "checklist.run.ministry": "Złóż wniosek",
   "checklist.empty": "jeszcze nic nie odczytano",
   "checklist.state.done": "zrobione",
   "checklist.state.todo": "do zrobienia",

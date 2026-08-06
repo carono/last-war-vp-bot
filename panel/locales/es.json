@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Nombre Clave»: el juego está ocupado — el ataque no se inició",
   "checklist.refresh": "Actualizar",
   "checklist.run": "Ejecutar",
+  "checklist.run.ministry": "Solicitar",
   "checklist.empty": "aún no se ha leído nada",
   "checklist.state.done": "hecho",
   "checklist.state.todo": "pendiente",

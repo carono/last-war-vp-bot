@@ -259,9 +259,16 @@ def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not()
     assert codename.scenario == modelmod.CODENAME_ATTACK
     assert codename.run_key == "checklist.codename.attack"
 
-    # Nothing in the blind group can be run — there is no ability to hang off a line
-    # nothing can even read.
-    assert not [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
+    # Three of the blind group CAN be run, and which three is a decision too (#1247).
+    # Blind is a statement about what can be seen, and the two halves fail apart: the
+    # bot empties the base's resource truck, claims the alliance gifts and applies for
+    # the ministry post without being able to read any of the three afterwards. The row
+    # still says «неизвестно» before the press and after it — nothing was read, so
+    # nothing is claimed — but the ability is reachable without «Разработка», which is
+    # off unless a profile asks for it.
+    blind = [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
+    assert blind == ["truck_reward", "alliance_gifts", "ministry"], blind
+    assert modelmod.BY_KEY["ministry"].run_key == "checklist.run.ministry"
 
 
 def test_a_line_nothing_can_read_says_so_and_never_anything_else():

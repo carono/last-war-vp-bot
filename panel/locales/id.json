@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Kodenama»: game sedang sibuk — serangan tidak dimulai",
   "checklist.refresh": "Segarkan",
   "checklist.run": "Jalankan",
+  "checklist.run.ministry": "Ajukan",
   "checklist.empty": "belum ada yang dibaca",
   "checklist.state.done": "selesai",
   "checklist.state.todo": "belum",

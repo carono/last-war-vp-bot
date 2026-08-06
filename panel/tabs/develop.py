@@ -33,6 +33,15 @@ switched on keeps the merged one switched on too — `SettingsBinder.tab_list` /
 `tab_config` in `panel/runtime/settings.py` carry both the visibility and the
 remembered script/args/interval across the merge, so nobody loses what they had.
 
+**This list is a door for the person WRITING a recipe, never the only door to one**
+(task #1247). Because the tab is off unless a profile asks for it, an ability whose only
+button is here is an ability an ordinary panel does not have — so every shipped
+`actions/*.md` also has a press on the tab its theme belongs to: «Чеклист» for the day's
+errands, «Ралли», «Секретки», «Командный пункт» for the ones that need a target chosen
+first. `tests/test_scenario_homes.py` fails on a scenario that has no home outside this
+file, and it does not accept a timer or a trigger as one — running by itself on a clock
+is not a way for anybody to say «сделай это сейчас».
+
 Three things about the scenario half worth keeping straight:
 
 * **the editor writes itself back**, a second after the last keystroke, having PARSED

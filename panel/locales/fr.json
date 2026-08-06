@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Nom de code» : le jeu est occupé — l'attaque n'a pas été lancée",
   "checklist.refresh": "Rafraîchir",
   "checklist.run": "Lancer",
+  "checklist.run.ministry": "Postuler",
   "checklist.empty": "rien n'a encore été lu",
   "checklist.state.done": "fait",
   "checklist.state.todo": "à faire",

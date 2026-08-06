@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Mã»: game đang bận — chưa khởi động đòn đánh",
   "checklist.refresh": "Làm mới",
   "checklist.run": "Chạy",
+  "checklist.run.ministry": "Nộp đơn",
   "checklist.empty": "chưa đọc được gì",
   "checklist.state.done": "xong",
   "checklist.state.todo": "chưa xong",

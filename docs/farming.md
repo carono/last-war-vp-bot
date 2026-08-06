@@ -55,7 +55,7 @@ not on the schedule is still something a human starts.
 
 ### Ministry
 
-- ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask
+- ✅ Applying for a post — one press asks for any of the eight ministry posts; the queue and how long the current holder has sat are readable too, so a script can decide when to ask. The daily checklist has «Apply for a ministry» with a button beside it, which asks for Secretary of Interior; whether the post was granted is not something the checklist can show, so the line stays «unknown» and the log carries the answer
 - 🟡 Asking for Minister of the Interior on a schedule — one switch in the panel and every half hour the bot asks for the post by itself, with nobody watching. Only a post actually granted counts as done; an application the game turns down is asked again half an hour later instead of being written off as a run, so the panel's log tells a schedule that is working from one that has never once got in. A doomed application is never sent: while you hold another ministry post, and while the game's own half-hour wait between applications is still running, the bot asks for nothing — the game would refuse, and asking anyway only earns you a message on screen. The tab shows how the last attempt went and how long until the next one. Switched off until you turn it on; the refusals are proven live, a granted application on the schedule has not been seen yet
 - ❌ Notification about an appointment
 - ❌ Applying during the alliance duel
@@ -72,7 +72,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 ### Alliance support
 
-- ✅ Collecting alliance gifts — both ordinary and premium
+- ✅ Collecting alliance gifts — both ordinary and premium. The daily checklist has a button for it, though it cannot read how much is waiting, so the line beside the button stays «unknown»
 - ✅ Helping the alliance — a single press answers every pending request at once
 - ✅ Answering help requests the second they arrive — a panel checkbox («Авто-помощь союзникам») notices a new request by itself and makes that same press about two seconds later, so a request is answered while it is still worth points and nobody has to be watching. Proven live: five requests in a row answered right as they appeared. It also turned up why the press-on-demand version kept helping nobody, and that is fixed
 - ✅ Donating to the alliance's priority technology — spends every attempt currently banked
@@ -138,7 +138,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 
 - ✅ Collecting the basic resources — iron, food, gold
 - ✅ Collecting the extra resources — drone components, seasonal, ore and the rest. The base sweep covers every production line, not a fixed list
-- 🟡 Collecting the resources from the truck parked at the base — one press takes the whole load at once, no window opens and there is no congratulation modal left to close; it does not need the base on screen. Not yet re-run in a live session
+- 🟡 Collecting the resources from the truck parked at the base — one press takes the whole load at once, no window opens and there is no congratulation modal left to close; it does not need the base on screen. The daily checklist has a button for it; how much the truck is holding cannot be read, so the line beside the button stays «unknown». Not yet re-run in a live session
 - 🟡 Sending squads out to gather on the map — the march goes out correctly, but the bot does not choose where to send it
 
 ### Secret missions

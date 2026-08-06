@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Кодовое имя»: игра занята — атака не запущена",
   "checklist.refresh": "Обновить",
   "checklist.run": "Выполнить",
+  "checklist.run.ministry": "Подать заявку",
   "checklist.empty": "пока ничего не прочитано",
   "checklist.state.done": "сделано",
   "checklist.state.todo": "осталось",

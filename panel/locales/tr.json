@@ -1156,6 +1156,7 @@
   "events.codename.log.busy": "«Kod adı»: oyun meşgul — saldırı başlatılmadı",
   "checklist.refresh": "Yenile",
   "checklist.run": "Çalıştır",
+  "checklist.run.ministry": "Başvur",
   "checklist.empty": "henüz hiçbir şey okunmadı",
   "checklist.state.done": "tamam",
   "checklist.state.todo": "kaldı",
