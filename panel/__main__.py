@@ -3386,9 +3386,15 @@ class Panel(runtime.SessionScoped, tk.Tk):
 
         def work() -> None:
             kicked = False
+            stale = False
             try:
                 found = self._game_probe()
                 warm = self._daemon_up()
+                # IS THE DAEMON ON THE CLIENT THAT IS RUNNING? One loopback round trip,
+                # on THIS thread because it is a socket. Two pids, compared — the fault
+                # that cost six pointless client restarts is a fact, not an inference
+                # (#1268, panel/runtime/recovery.py).
+                stale = self._daemon_stale(found, warm)
                 # ONLY when the link is already lost, and on THIS thread: it is a round
                 # trip into the game VM, and asking it every eight seconds of a healthy
                 # client would be paying for an answer that is always the same. What it
@@ -3407,7 +3413,7 @@ class Panel(runtime.SessionScoped, tk.Tk):
                 self._dbg_status(ok, warm, found.link),
                 self._paint_game_buttons(found.link),
                 self._announce_link(found),
-                self._recovery_check(found, kicked),
+                self._recovery_check(found, kicked, stale),
                 self._paint_panic(),
                 self._watchdog_check(ok)))
         threading.Thread(target=self._bound(work), daemon=True).start()
@@ -3449,7 +3455,31 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if getattr(self, "_status_msg", None) is not None:
             self._status_var.set(i18nmod.translated(self._t, self._status_msg))
 
-    def _recovery_check(self, found, kicked: bool = False) -> None:
+    def _daemon_stale(self, found, warm: bool) -> bool:
+        """Is this profile's daemon holding a client that is not the one running?
+
+        The positive half of #1268, and it is two integers rather than a diagnosis: the
+        pid `{"op":"ping"}` names against the pid the probe just found. Anything missing
+        — no daemon, no client, a daemon that will not say — is ``False``, because the
+        cure is a restart and «I could not tell» is never a reason for one (the rule
+        `panel/runtime/recovery.py` already keeps for `unknown` link readings).
+
+        Runs on the status thread: it is a socket, and `attached_pid` guards itself with
+        `up()` so a profile whose daemon is down pays nothing for asking.
+        """
+        if not warm or not found.running or not found.pid:
+            return False
+        held = self._rt.game.attached_pid()
+        if not held:
+            # A warm daemon that names NO client while one is running is the same fault
+            # wearing a different answer — it never attached, or it let go — and the
+            # same restart fixes it. But it is also what a daemon says in the seconds
+            # after a client is replaced, which is exactly what DAEMON_STRIKES is for.
+            return True
+        return int(held) != int(found.pid)
+
+    def _recovery_check(self, found, kicked: bool = False,
+                        stale: bool = False) -> None:
         """Restart a client the server has stopped hearing — the other half of a crash.
 
         The watchdog below notices the PROCESS going away. This notices the account
@@ -3470,22 +3500,41 @@ class Panel(runtime.SessionScoped, tk.Tk):
         """
         now = time.time()
         self._paint_recovery(self._rt.recovery.state(now))
+        # THE DAEMON FIRST. It is asked on every poll, not only on a lost link, because
+        # its fault is true while the link is perfectly ONLINE — which is the shape it
+        # had live, and the reason a decision hung off `link == lost` would never have
+        # been asked at all (#1268).
+        self._act_on(self._rt.recovery.note_daemon(stale, now))
         # «Is somebody at the machine» — the gate that stops this closing a window
         # a person is playing in, which it did once (#1259).
-        said = self._rt.recovery.note(found.link, now,
-                                      idle_sec=game_link.idle_sec(), kicked=kicked)
+        self._act_on(self._rt.recovery.note(found.link, now,
+                                            idle_sec=game_link.idle_sec(),
+                                            kicked=kicked))
+
+    def _act_on(self, said) -> None:
+        """Say what the recovery decided, and do it. One door for both decisions.
+
+        ASK THE SETS, never a constant. `ACT_KICK` was added beside `ACT` and the panel
+        went on testing `key == ACT`, so a kicked client was told it was being restarted
+        and never was (#1259). There are four acts now and two cures, and the only way
+        that stays true as a fifth arrives is for the wiring to ask which set the key is
+        in rather than to enumerate keys.
+        """
         if said is None:
             return
         key, fmt = said
         if not self._opt_bool("watchdog"):
             return
         self._say("game", key, **fmt)
-        # ASK THE SET, never one constant (`recovery.RESTARTS`). Both acts mean the same
-        # press and only one of them used to be wired, so a kicked client was told it was
-        # being restarted and was not — with the cooldown armed for a restart that never
-        # happened, which is «жду 10 мин» over a client nothing is going to touch.
         if key in runtime.recovery.RESTARTS:
             self._rt.play_async("restart_game")
+        elif key in runtime.recovery.DAEMON_RESTARTS:
+            # THE SAME METHOD THE «⭮» BUTTON PRESSES, deliberately — the cure already
+            # existed beside the daemon indicator and only the decision to reach for it
+            # was missing. A second one here would be a second thing to keep in step,
+            # and the first draft of this actually wrote one: a duplicate `def` that
+            # silently overrode the button's.
+            self._restart_daemon()
 
     def _read_kicked(self) -> bool:
         """Is the client showing the game's own «вход с другого устройства» modal?
@@ -3511,6 +3560,21 @@ class Panel(runtime.SessionScoped, tk.Tk):
             # «Не перезапускается» must never be unexplained: this one is deliberate,
             # and it is the reason a person at the machine keeps their session (#1259).
             text = self._t("status.recovery.player")
+        elif why == "daemon_cooldown":
+            text = self._t("status.recovery.daemon_wait",
+                           mins=int(st.get("daemon_cooldown_left", 0) // 60) + 1)
+        elif st.get("blame") == "daemon":
+            # WHAT is being restarted, not just that something is. A person watching the
+            # strip during the six pointless restarts had no way to learn that the panel
+            # was reaching for the wrong thing (#1268).
+            text = self._t("status.recovery.daemon",
+                           n=st.get("daemon_stale", 0),
+                           of=st.get("daemon_strikes", 0),
+                           done=st.get("daemon_restarts", 0))
+        elif st.get("fruitless"):
+            # The evidence, while it is still evidence: two restarts spent with the link
+            # never back means the panel is about to change its mind about the diagnosis.
+            text = self._t("status.recovery.fruitless", n=st["fruitless"])
         elif why == "cooldown" or st.get("cooldown_left"):
             text = self._t("status.recovery.wait",
                            mins=int(st.get("cooldown_left", 0) // 60) + 1)

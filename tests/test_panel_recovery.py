@@ -226,15 +226,18 @@ def test_the_state_both_front_ends_draw_is_numbers_and_not_words():
     _deaf(r, rec.STRIKES)
     st = r.state(1000.0 + 60)
     assert set(st) == {"deaf_for", "strikes", "restarts", "kicks", "cooldown_left",
-                       "held_by"}, st
+                       "held_by", "blame", "daemon_stale", "daemon_strikes",
+                       "daemon_restarts", "daemon_cooldown_left", "fruitless"}, st
     assert st["restarts"] == 1 and st["strikes"] == rec.STRIKES
     assert 0 < st["cooldown_left"] <= rec.COOLDOWN_SEC
+    words = ("held_by", "blame")
     for key, value in st.items():
-        # Numbers, and one id — never a sentence. `held_by` names WHY a restart is
-        # being withheld so each front-end can word it itself; it is "", "cooldown"
-        # or "player", which is a key and not a language.
-        assert isinstance(value, int if key != "held_by" else str), (key, value)
-    assert st["held_by"] in ("", "cooldown", "player"), st
+        # Numbers, and two ids — never a sentence. `held_by` names WHY a restart is
+        # being withheld and `blame` names WHAT is thought to be broken, so each
+        # front-end can word both itself; each is a key and not a language.
+        assert isinstance(value, int if key not in words else str), (key, value)
+    assert st["held_by"] in ("", "cooldown", "player", "daemon_cooldown"), st
+    assert st["blame"] in ("", "client", "daemon"), st
 
 
 def test_the_lost_it_watches_for_is_the_shared_one():
@@ -265,26 +268,66 @@ def test_it_travels_to_BOTH_front_ends_out_of_ONE_object():
     assert "state.game.recovery" in page, "the page ignores what the api sends"
 
 
-def test_the_restart_it_asks_for_is_the_lifecycle_recipe():
-    """Not a hand-rolled kill-and-launch: the panel presses scenarios (`CLAUDE.md`)."""
+def _shell_method(name: str) -> str:
+    """One method's source out of the shell, for the wiring assertions below."""
     shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
-    at = shell.index("def _recovery_check")
-    body = shell[at:shell.index("\n    def ", at + 10)]
+    at = shell.index("def %s" % name)
+    return shell[at:shell.index("\n    def ", at + 10)]
+
+
+def test_the_restart_it_asks_for_is_the_lifecycle_recipe():
+    """Not a hand-rolled kill-and-launch: the panel presses scenarios (`CLAUDE.md`).
+
+    Both decisions go through ONE door now (`_act_on`), which is the point: there are
+    two cures and four acts, and a second place that turned keys into presses would be
+    a second place to forget one.
+    """
+    check = _shell_method("_recovery_check")
+    assert "_act_on(" in check, "the decision never reaches the door that acts on it"
+    body = _shell_method("_act_on")
     assert 'play_async("restart_game")' in body, body[-400:]
-    # …and on EVERY act that means it, never on the «too soon» answer. The set, not one
+    # …and on EVERY act that means it, never on the «too soon» answer. The sets, not one
     # constant: `key == recovery.ACT` is what left a kicked client announced and never
     # restarted, and this assertion used to pass over that bug because `recovery.ACT`
     # is a substring of the very line that was missing it.
     assert "recovery.RESTARTS" in body, body[-400:]
+    assert "recovery.DAEMON_RESTARTS" in body, "the daemon's cure is never wired"
     assert "== runtime.recovery.ACT" not in body, "one act is wired, the others are not"
 
 
+def test_the_daemons_cure_is_the_daemons_own_restart():
+    """…and it is `DaemonLink.restart`, not a kill: the daemon is asked to go and a
+    fresh one is started, which is what re-attaches it to the client that is running.
+
+    It is also the SAME method the «⭮» button beside the daemon indicator presses. The
+    cure already existed and only the decision to reach for it was missing, so the count
+    of definitions is pinned: the first draft of #1268 added a second `_restart_daemon`
+    that silently overrode the button's, which is the failure mode `docs/panel-tabs.md`
+    calls «a control drawn twice, never copied».
+    """
+    shell = (ROOT / "panel" / "__main__.py").read_text(encoding="utf-8")
+    assert shell.count("def _restart_daemon") == 1, "two daemon restarts, one wins"
+    body = _shell_method("_restart_daemon")
+    assert "_game.restart" in body, body
+    assert "taskkill" not in body and "terminate" not in body, body
+    daemon = (ROOT / "panel" / "runtime" / "daemon.py").read_text(encoding="utf-8")
+    assert "def attached_pid" in daemon, "nothing can tell which client the daemon holds"
+
+
 def test_every_act_that_means_a_restart_is_in_the_set():
-    """A new `ACT_*` is a new press. The set is how a caller finds out about it."""
+    """A new `ACT_*` is a new press. A set is how a caller finds out about it.
+
+    There are two sets now — one cure per thing that can be broken (#1268) — and the
+    check is that every act belongs to EXACTLY one. An act in neither is announced and
+    never done, which is the 2026-08-06 bug; an act in both is a client and a daemon
+    restarted for one reading, which is the same carelessness pointing the other way.
+    """
     acts = {name for name in vars(rec)
             if name == "ACT" or name.startswith("ACT_")}
-    missing = sorted(n for n in acts if getattr(rec, n) not in rec.RESTARTS)
-    assert not missing, f"not in recovery.RESTARTS: {missing}"
+    for name in sorted(acts):
+        key = getattr(rec, name)
+        homes = [s for s in ("RESTARTS", "DAEMON_RESTARTS") if key in getattr(rec, s)]
+        assert len(homes) == 1, f"{name} is in {homes or 'no set'}, expected exactly one"
 
 
 class _Press:
@@ -292,6 +335,9 @@ class _Press:
 
     def __init__(self, watchdog=True):
         self.played, self.said = [], []
+        #: Daemon restarts asked for — the second cure, which has no recipe and so
+        #: cannot show up in `played` (#1268).
+        self.daemons = 0
         self._watchdog = watchdog
         self._rt = self
 
@@ -311,27 +357,35 @@ class _Press:
     def _say(self, tag, key, **fmt):      # noqa: D102
         self.said.append(key)
 
+    def _restart_daemon(self):            # noqa: D102 — the OTHER cure
+        self.daemons += 1
+
+    def _act_on(self, said):              # noqa: D102 — the real one, borrowed below
+        raise AssertionError("replaced by the real Panel._act_on in _drive")
+
 
 class _Found:
-    def __init__(self, link):
-        self.link, self.running = link, True
+    def __init__(self, link, pid=4242):
+        self.link, self.running, self.pid = link, True, pid
 
 
-def _drive(link, kicked, watchdog=True, idle=10_000.0):
+def _drive(link, kicked, watchdog=True, idle=10_000.0, stale=False, rounds=None):
     """Run the SHELL's own `_recovery_check` over a run of readings, unbound.
 
     The wiring is what is being pinned, not the decision — «`ACT_KICK` was announced and
-    never played» lived entirely between the two, in a method that greps clean.
+    never played» lived entirely between the two, in a method that greps clean, and the
+    same gap is where a daemon restart would go missing.
     """
     import panel.__main__ as pm            # by name: safe, and what the other tests do
 
     app = _Press(watchdog=watchdog)
     app.recovery = rec.Recovery()
+    app._act_on = lambda said: pm.Panel._act_on(app, said)
     real_idle = pm.game_link.idle_sec
     pm.game_link.idle_sec = lambda: idle   # nobody at the machine, deterministically
     try:
-        for _ in range(rec.STRIKES):
-            pm.Panel._recovery_check(app, _Found(link), kicked)
+        for _ in range(rounds if rounds is not None else rec.STRIKES):
+            pm.Panel._recovery_check(app, _Found(link), kicked, stale)
     finally:
         pm.game_link.idle_sec = real_idle
     return app
@@ -370,10 +424,217 @@ def test_a_healthy_client_is_neither_announced_nor_played():
     assert (app.said, app.played) == ([], []), (app.said, app.played)
 
 
+# ---------------------------------------------------------------------------
+# #1268 — restarting the RIGHT thing
+#
+# Live on 2026-08-07 the client was relaunched six times in fifty minutes and the link
+# never came back: the fault was the daemon holding a dead pid. Two readings now tell
+# that apart from a broken client, and each gets both halves pinned — the decision, and
+# the wiring that turns it into a press.
+# ---------------------------------------------------------------------------
+def test_one_stale_reading_is_not_a_reason_either():
+    """The same patience as a link reading, and for a narrower reason: a daemon is
+    legitimately a step behind a client that has just been replaced."""
+    r = rec.Recovery()
+    assert r.note_daemon(True, 1000.0) is None
+    assert r.state(1000.0)["daemon_restarts"] == 0
+
+
+def test_a_run_of_stale_readings_restarts_the_daemon_and_not_the_client():
+    r = rec.Recovery()
+    said = [r.note_daemon(True, 1000.0 + i * 8) for i in range(rec.DAEMON_STRIKES)]
+    key, _fmt = said[-1]
+    assert key == rec.ACT_DAEMON
+    assert key in rec.DAEMON_RESTARTS and key not in rec.RESTARTS, \
+        "the daemon's fault must never be answered with a client restart"
+
+
+def test_the_daemon_is_judged_while_the_link_is_perfectly_online():
+    """THE SHAPE THAT WAS MISSED. Six sockets established, the strip saying «онлайн»,
+    and every errand failing — a decision hung off `link == lost` is never even asked."""
+    app = _drive(ONLINE, kicked=False, stale=True, rounds=rec.DAEMON_STRIKES)
+    assert app.daemons == 1, f"daemon never restarted: {app.daemons}"
+    assert app.played == [], f"the client must not be touched: {app.played}"
+    assert rec.ACT_DAEMON in app.said
+
+
+def test_a_matching_pid_says_nothing_and_clears_the_run():
+    r = rec.Recovery()
+    r.note_daemon(True, 1000.0)
+    assert r.note_daemon(False, 1008.0) is None
+    assert r.state(1008.0)["daemon_stale"] == 0
+    assert r.state(1008.0)["blame"] == ""
+
+
+def test_a_second_daemon_restart_waits_out_its_own_cooldown_and_says_so_once():
+    r = rec.Recovery()
+    for i in range(rec.DAEMON_STRIKES):
+        r.note_daemon(True, 1000.0 + i * 8)
+    said = [r.note_daemon(True, 1100.0 + i * 8) for i in range(rec.DAEMON_STRIKES + 2)]
+    holds = [s for s in said if s and s[0] == rec.HOLD_DAEMON]
+    assert len(holds) == 1, f"the wait must be said once, not per reading: {said}"
+    assert r.state(1100.0)["daemon_restarts"] == 1
+
+
+def test_a_daemon_that_stays_stale_is_restarted_again_after_the_cooldown():
+    """The 2026-08-06 bug, guarded against in the new half before it can happen: a hold
+    that suppressed the ACT as well left a broken thing broken for ever."""
+    r = rec.Recovery()
+    now = 1000.0
+    acts = 0
+    for _ in range(6):
+        for i in range(rec.DAEMON_STRIKES):
+            said = r.note_daemon(True, now + i * 8)
+            if said and said[0] == rec.ACT_DAEMON:
+                acts += 1
+        now += rec.DAEMON_COOLDOWN_SEC + 1
+    assert acts >= 5, f"a permanently stale daemon was restarted {acts}× in six rounds"
+
+
+def _cures(r, rounds, t0=1000.0):
+    """Which cure each restart round reached for: "client" or "daemon", in order."""
+    out, now = [], t0
+    for _ in range(rounds):
+        for i in range(rec.STRIKES):
+            said = r.note(LOST, now + i * 8, idle_sec=10_000.0)
+            if said and said[0] in rec.RESTARTS:
+                out.append("client")
+            elif said and said[0] in rec.DAEMON_RESTARTS:
+                out.append("daemon")
+        now += rec.COOLDOWN_SEC + 1
+    return out
+
+
+def test_client_restarts_that_change_nothing_move_the_blame_to_the_daemon():
+    """THE ANTI-LOOP. Not «restart harder» — a different diagnosis.
+
+    The link never returns, so every strike run ends in a restart. The first
+    :data:`FRUITLESS` are the client's; then something else is tried.
+    """
+    cures = _cures(rec.Recovery(), rec.FRUITLESS + 1)
+    assert cures[:rec.FRUITLESS] == ["client"] * rec.FRUITLESS, cures
+    assert cures[rec.FRUITLESS] == "daemon", f"the blame never moved: {cures}"
+
+
+def test_neither_cure_is_ever_abandoned_for_the_other():
+    """ALTERNATION, not replacement — the regression the first draft of this shipped.
+
+    Booking the daemon and leaving the count where it was meant the client was never
+    restarted again: one stuck loop swapped for another, and the worse one, because a
+    client restart is the cure that works most of the time. So the pattern repeats —
+    client, client, daemon, client, client, daemon — and a permanently deaf client goes
+    on being retried for ever, which is what `test_a_link_that_never_comes_back…`
+    already promised and what caught this.
+    """
+    cures = _cures(rec.Recovery(), rec.FRUITLESS * 3 + 3)
+    assert cures.count("client") >= rec.FRUITLESS * 2, f"client abandoned: {cures}"
+    assert cures.count("daemon") >= 2, f"daemon abandoned: {cures}"
+    # …and no cure is ever repeated more than FRUITLESS times without the other
+    # being tried in between.
+    run, last = 0, None
+    for cure in cures:
+        run = run + 1 if cure == last else 1
+        last = cure
+        assert run <= rec.FRUITLESS, f"{cure} repeated {run}× in a row: {cures}"
+
+
+def test_the_blame_moves_back_the_moment_the_link_returns():
+    """A cure that WORKED is the only thing that clears the evidence — and it has to be
+    ONLINE, not merely «not lost»: a relaunching client is `offline` then `unknown` for
+    most of a minute, and counting those would reset the count every single restart."""
+    r = rec.Recovery()
+    for i in range(rec.STRIKES):
+        r.note(LOST, 1000.0 + i * 8, idle_sec=10_000.0)
+    assert r.state(1000.0)["fruitless"] == 1
+    r.note(OFFLINE, 1040.0)                     # …still on its way back
+    assert r.state(1040.0)["fruitless"] == 1, "a relaunching client is not a success"
+    r.note(UNKNOWN, 1048.0)
+    assert r.state(1048.0)["fruitless"] == 1
+    r.note(ONLINE, 1056.0)                      # …and now it is
+    assert r.state(1056.0)["fruitless"] == 0
+    assert r.state(1056.0)["blame"] == ""
+
+
+def test_the_anti_loop_is_wired_all_the_way_to_the_press():
+    """The decision reaching the shell, which is where the last one was lost."""
+    import panel.__main__ as pm
+
+    app = _Press()
+    app.recovery = rec.Recovery()
+    app._act_on = lambda said: pm.Panel._act_on(app, said)
+    real_idle = pm.game_link.idle_sec
+    pm.game_link.idle_sec = lambda: 10_000.0
+    try:
+        now = 1000.0
+        for _ in range(rec.FRUITLESS + 1):
+            for _ in range(rec.STRIKES):
+                pm.Panel._recovery_check(app, _Found(LOST), False, False)
+            # let the client cooldown expire so the run is decided on the blame and
+            # not on the wait
+            app.recovery._last -= rec.COOLDOWN_SEC + 1
+            now += 1
+    finally:
+        pm.game_link.idle_sec = real_idle
+    assert len(app.played) == rec.FRUITLESS, f"client restarts: {app.played}"
+    assert app.daemons >= 1, "the seventh client restart happened instead"
+
+
+def test_nothing_at_all_happens_while_the_watchdog_switch_is_off():
+    """One promise, one switch — and the daemon half obeys it too."""
+    app = _drive(ONLINE, kicked=False, stale=True, watchdog=False,
+                 rounds=rec.DAEMON_STRIKES)
+    assert (app.daemons, app.played) == (0, []), (app.daemons, app.played)
+
+
+def test_the_state_says_what_is_being_blamed_and_how_hard_it_has_tried():
+    """Both front-ends draw out of this one dict, and «что чинится» is half the answer."""
+    r = rec.Recovery()
+    st = r.state(1000.0)
+    for field in ("blame", "daemon_stale", "daemon_strikes", "daemon_restarts",
+                  "daemon_cooldown_left", "fruitless"):
+        assert field in st, f"the front-ends cannot draw {field}"
+    for i in range(rec.DAEMON_STRIKES):
+        r.note_daemon(True, 1000.0 + i * 8)
+    st = r.state(1008.0)
+    assert st["blame"] == "daemon" and st["daemon_restarts"] == 1
+    assert st["daemon_cooldown_left"] > 0
+    assert all(not isinstance(v, str) or k in ("blame", "held_by")
+               for k, v in st.items()), "the state is numbers, the words are the locales'"
+
+
+def test_a_daemon_that_will_not_say_which_client_is_never_a_reason():
+    """`unknown` is never a reason — the rule the link half already keeps.
+
+    `_daemon_stale` answers False for every «could not tell»: no daemon, no client,
+    no pid. A restart loop built on an unanswered question has no bottom.
+    """
+    import panel.__main__ as pm
+
+    app = _Press()
+    app._rt = app
+    app.game = type("G", (), {"attached_pid": staticmethod(lambda: None)})()
+    assert pm.Panel._daemon_stale(app, _Found(ONLINE), False) is False, "no daemon"
+    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=0), True) is False, "no client"
+    dead = type("F", (), {"link": ONLINE, "running": False, "pid": 7})()
+    assert pm.Panel._daemon_stale(app, dead, True) is False, "client not running"
+
+
+def test_the_pids_are_compared_and_nothing_else_is():
+    """The positive reading: two integers. Equal is healthy, different is the fault."""
+    import panel.__main__ as pm
+
+    app = _Press()
+    app._rt = app
+    app.game = type("G", (), {"attached_pid": staticmethod(lambda: 4242)})()
+    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=4242), True) is False
+    assert pm.Panel._daemon_stale(app, _Found(ONLINE, pid=9999), True) is True
+
+
 def test_both_its_sentences_are_in_every_shipped_locale():
     import json
 
-    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK)
+    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK,
+            rec.ACT_DAEMON, rec.ACT_DAEMON_STUCK, rec.HOLD_DAEMON)
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
         locale = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in keys if k not in locale]

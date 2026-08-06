@@ -145,6 +145,18 @@ function paintState(state) {
   const recEl = $('game-recovery');
   if (rec.held_by === 'player') {
     recEl.textContent = T('web.ui.recovery.player');
+  } else if (rec.held_by === 'daemon_cooldown') {
+    recEl.textContent = T('web.ui.recovery.daemon_wait',
+                          { mins: Math.ceil((rec.daemon_cooldown_left || 0) / 60) });
+  } else if (rec.blame === 'daemon') {
+    /* WHICH thing is being restarted. A client restart and a daemon restart are both
+     * «панель что-то перезапускает» from here, and they mean opposite things about
+     * where the fault is — the phone has no log to read the difference off (#1268). */
+    recEl.textContent = T('web.ui.recovery.daemon',
+                          { n: rec.daemon_stale || 0, of: rec.daemon_strikes || 0,
+                            done: rec.daemon_restarts || 0 });
+  } else if (rec.fruitless) {
+    recEl.textContent = T('web.ui.recovery.fruitless', { n: rec.fruitless });
   } else if (rec.held_by === 'cooldown' || rec.cooldown_left) {
     recEl.textContent = T('web.ui.recovery.wait',
                           { mins: Math.ceil((rec.cooldown_left || 0) / 60) });

@@ -493,3 +493,95 @@ invisible to any local reading, and that case is the worse one: the restart take
 account back off them, and it is also exactly the case a kick creates. Whether the
 automation should hold off entirely on a suspected kick is a decision for the person
 and is deliberately not made here.
+
+---
+
+## 5. The pattern behind all of it: **the panel confidently fixing the wrong thing**
+
+Three separate incidents in twenty-four hours, and they were treated as three bugs until
+the third one made the shape obvious. They are one failure mode, and it is worth naming
+because a fourth is likelier than not.
+
+| # | What the panel believed | What was actually true | What it did about it |
+|---|---|---|---|
+| 2.2 | «the link is fine» — an established socket vouched for it | the socket belonged to ANOTHER service; the game link was long dead | nothing, for hours: every errand failed and the strip said online (#1266) |
+| 4.3 | «the client was kicked, restarting» | it was — and the restart was announced and never played | nineteen minutes deaf, rescued only when the client died on its own (#1259) |
+| 5.1 | «the client is broken, restarting it» | the CLIENT was fine; the daemon held a dead pid | six relaunches in fifty minutes, each ending in a five-minute scene timeout (#1268) |
+
+The common shape, in one sentence: **a reading that cannot distinguish two states was
+used to choose between two cures, and the wrong cure left no trace that it was wrong.**
+
+Each of the three has the same three ingredients, and they are what to look for next
+time:
+
+1. **A proxy stood in for the thing itself.** A socket for a conversation; a log line for
+   a press; a link state for «can this be driven». The proxy is always cheaper to read,
+   which is why it got chosen, and it is always true slightly less often than the thing.
+2. **The failure was SILENT AND PLAUSIBLE.** Every one of these produced exactly the
+   output a healthy system produces — «онлайн», «перезапускаю», a restart happening. None
+   of them produced an error anybody could grep for. That is why they ran for hours.
+3. **Repetition looked like persistence.** The panel doing the same useless thing on a
+   timer reads, from outside, as the panel working on the problem. Nothing counted how
+   many times a cure had been applied without the symptom changing — so nothing could
+   notice that the cure was not one.
+
+### The guards that come out of it
+
+Written as rules rather than as fixes, because the next instance will not be about
+sockets, presses or daemons:
+
+* **Read the thing, not a proxy for it.** Where a proxy is unavoidable, say so in the
+  reading's own name and make the caller opt into it. `game_link` now looks at the game's
+  CONVERSATION rather than at any live socket (§2.2); `recovery` now compares the pid the
+  daemon holds against the pid that is running rather than inferring from the link.
+* **An act must be announced BY the thing that performs it, never beside it.** The kick
+  bug lived entirely in the gap between «said» and «did». One door — `Panel._act_on` —
+  turns every decision into its press, and the acts are grouped in sets (`RESTARTS`,
+  `DAEMON_RESTARTS`) so a new one cannot be announced without a caller finding it.
+* **Count the cures, not just the symptoms.** A cure applied N times with the symptom
+  unchanged is evidence about the DIAGNOSIS. `recovery.FRUITLESS` is that count made
+  explicit: after two client restarts with the link never once back, the next act is a
+  different cure. Both front-ends draw the count while it is still evidence
+  («перезапусков впустую: 2»), so a person can see the panel about to change its mind.
+* **Alternate; never replace.** The first draft of that guard stopped restarting the
+  client entirely once it blamed the daemon — one stuck loop swapped for another, and the
+  worse one, since the client cure is right most of the time. A pre-existing test
+  (`test_a_link_that_never_comes_back_is_retried_after_every_cooldown`) caught it. The
+  rule is that no cure is repeated more than `FRUITLESS` times without another being
+  tried in between, and none is ever abandoned.
+* **Say WHAT is being fixed, not just that something is.** «Панель что-то перезапускает»
+  is the same sentence for opposite diagnoses. `recovery.state()["blame"]` is `client` or
+  `daemon`, and both front-ends word it.
+
+### 5.1 The incident (2026-08-07, 03:14 → 04:05)
+
+```
+03:14:37  связь с сервером пропала
+03:16:06  клиент не слышен серверу уже 24 с — перезапускаю      <- #1
+03:26:09  … — перезапускаю                                      <- #2
+03:31:18  restart_game (the six-hourly timer, on top of the watchdog)
+03:36:22  launch_game FAILED — WAIT scene == city timed out after 300.0s
+03:36:22  collect_alliance_gifts: the client this daemon drives is not there any more
+…                                                               <- #3 … #6
+04:05     one {"op":"shutdown"} on the daemon; the next reading came back OK
+```
+
+Six client restarts, fifty minutes, and the link never came back. Meanwhile the SAME
+daemon happily answered `{"op":"ping"}` with the pid of a client killed at 03:31 — the
+fault was legible on the wire the entire time and nothing asked.
+
+The two readings that now tell it apart:
+
+* **the pid comparison** — `{"op":"ping"}` names the client the daemon holds
+  (`DaemonClient.target_pid`, which already existed); the status poll already knows the
+  pid that is running. Two integers. `GameLink.attached_pid` and `Panel._daemon_stale`;
+* **the fruitless count** — above.
+
+The positive one matters most because of WHEN it is true: during the incident the link
+read `online` for minutes at a time, with six established sockets. Any decision hung off
+`link == lost` would never have been asked at all.
+
+**The cure is the button that was already there.** «⭮» beside the daemon indicator has
+always called `DaemonLink.restart` — shut the daemon down politely, start a fresh one,
+which attaches to whatever client is actually running. It takes about two seconds.
+Nothing was missing but the decision to press it.

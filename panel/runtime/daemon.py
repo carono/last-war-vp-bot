@@ -237,6 +237,33 @@ class GameLink:
         """Drop the remembered answer — something just changed the daemon's existence."""
         self._up_seen = (0.0, None, False)
 
+    def attached_pid(self) -> "int | None":
+        """Which client THIS profile's daemon is driving, or ``None``.
+
+        One `{"op":"ping"}`, which the daemon has always answered with the pid it holds
+        — nothing new on the wire, only nobody in the panel had ever asked (#1268).
+
+        ``None`` for every «no answer»: daemon down, daemon not warm, socket refused.
+        The caller compares this with the pid that is actually running, and a comparison
+        against ``None`` must come out as «nothing to say» rather than as «stale» — a
+        daemon that is not there is `ensure`'s business, and restarting one that does
+        not exist is a loop with no bottom.
+
+        Called from the status poll, so it is one loopback round trip every eight
+        seconds — the same cost as :meth:`up`, which the poll already pays. Guarded by
+        `up()` so a profile whose daemon is down does not pay a connect timeout for it
+        (#1226: that is a second of frozen window, per profile).
+        """
+        if not self.up():
+            return None
+        client = self.client
+        if client is None:
+            return None
+        try:
+            return client.target_pid()
+        except Exception:                             # noqa: BLE001 — a reading, never the panel
+            return None
+
     def evaluator(self):
         """The warm evaluator, on this profile's port and under THIS link's lease.
 
