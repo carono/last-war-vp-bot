@@ -1297,22 +1297,26 @@ class SecretTasksTab(PanelTab):
                             {"id": "show_spent",
                              "label": ("secrettasks.hide_spent"
                                        if self.show_spent_var.get()
-                                       else "secrettasks.show_spent")}]}
+                                       else "secrettasks.show_spent")},
+                            {"id": "clear", "label": "secrettasks.clear"}]}
 
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить», and the one display rule the phone may change.
+        """«Обновить», and the two display rules the phone may change.
 
         Still no «Ограбить» — the robbery on this tab spawns its own tool because the
         recipe only spends a queue that tool fills (`CLAUDE.md`, #1188), and a second
         copy of that reached from outside the house is the same debt twice.
-        «Показывать исчерпанные» is the opposite: it decides nothing in the game, only
-        what the screen draws, so the phone gets the same switch the window has.
+        «Показывать исчерпанные» and «Очистить список» decide nothing in the game, only
+        the local list, so the phone gets the same two the window has.
         """
         if action == "refresh":
             self.refresh()
             return {"ok": True}
         if action == "show_spent":
             self.post(self._toggle_show_spent)
+            return {"ok": True}
+        if action == "clear":
+            self.post(self._clear)
             return {"ok": True}
         return {"error": "unknown"}
 
@@ -1753,19 +1757,18 @@ class SecretTasksTab(PanelTab):
         return (srv, aid)
 
     def _clear(self) -> None:
-        """«Очистить список»: drop the expired and hand-collected rows.
+        """«Очистить список» (#1243): wipe every row, on screen and on the checkpoint.
 
-        Expired tiles fall off on their own each second; this is the manual «tidy now»
-        that also forgets the session's collected set, so a task robbed earlier can be
-        re-listed by the next scan if the server still shows it raidable.
+        Not a tidy-up of the stale ones — expired tiles already fall off on their own
+        each second, so a button that only swept those away had nothing left to do. This
+        empties the table outright and forgets the session's collected set, so a task
+        robbed earlier can be re-listed by the next scan if the server still shows it
+        raidable. Nothing here is lost for good: the wire feed and the next VM snapshot
+        repopulate the list from the live game, same as a fresh «Обновить».
         """
-        import time
-        now = int(time.time() * 1000)
-        for key in list(self._rows):
-            exp = self._rows[key]["expires_at"]
-            if exp is not None and exp <= now:
-                self._rows.pop(key, None)
+        self._rows.clear()
         self._collected.clear()
+        self._restore_pending = set()
         self._render()
         self._update_status()
         self._persist_rows()

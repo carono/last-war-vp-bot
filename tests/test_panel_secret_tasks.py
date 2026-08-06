@@ -689,6 +689,43 @@ def test_a_failed_verifying_read_leaves_restored_rows_alone():
     assert tab._restore_pending == {"1"}, "a failed read must not clear the pending set"
 
 
+def test_clear_wipes_every_row_including_ones_not_expired():
+    """#1243: «Очистить список» empties the table outright, not just the stale rows.
+
+    The button used to only sweep out already-expired tiles — which the countdown
+    drops on its own each second anyway, so it had nothing left to do. Now it wipes
+    the whole list, on screen and on the checkpoint `_persist_rows` writes.
+    """
+    path = _state_path()
+    rows = {"1": _row(1, 7, 120_000, 600_000),      # far from expiring
+            "2": _row(2, 6, -100_000, -1_000)}      # already expired
+    tab = _make_tab(rows)
+    tab.rt = _fake_rt(path)
+    tab._collected = {"9"}
+    tab._restore_pending = {"1"}
+
+    tab._clear()
+
+    assert tab._rows == {}, tab._rows
+    assert tab._collected == set()
+    assert tab._restore_pending == set()
+    assert tab._rendered == 1
+
+    fresh = _make_tab({})
+    fresh.rt = _fake_rt(path)
+    assert fresh._load_persisted() == set(), "the wipe must reach the checkpoint too"
+
+
+def test_web_press_clear_runs_the_wipe_on_the_tk_thread():
+    """The phone gets the same «Очистить список» the window has (CLAUDE.md)."""
+    tab = object.__new__(st.SecretTasksTab)
+    posted = []
+    tab.post = lambda fn: posted.append(fn)
+    result = tab.web_press("clear", {})
+    assert result == {"ok": True}
+    assert posted == [tab._clear]
+
+
 def test_on_profile_switch_drops_the_old_profiles_rows():
     """Every row's coordinate and server belongs to the OLD account — left in place it
     would be checkpointed straight back out under the NEW profile's own file (#1242)."""
