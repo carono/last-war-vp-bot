@@ -42,6 +42,16 @@ and its own loop (docs/research/panel-tabs-refactor.md §9.1/§9.3). The «ур�
 range doubles as the list's display filter — a starred tile shows only while its level is
 inside it, so the operator sees exactly the tiles auto-loot is about to weigh.
 
+THERE ARE TWO TABLES (#1244). The one described above is a WORKING list — the starred
+raids, gathered from two sources, kept across a restart, spent by «Собрать». Under it is
+a second, identical table holding the alliance's whole list — every live secret task the
+game itself lists, stars and plain tiles alike — because «what has my alliance got out
+right now?» is a different question from «what is worth one of my five robberies?».
+It costs nothing extra to answer: the very same VM read fills both (`_snapshot_work`),
+the stars going up into the working list and the whole reply down into the mirror
+(:mod:`~panel.tabs.secret_tasks.alliance`). It keeps no checkpoint of its own — the game
+is its checkpoint — and it is replaced whole by every read rather than merged into.
+
 THE LIST IS A TABLE (#1209). It was a stack of hand-packed rows, each label carrying its
 own width, which is why nothing lined up under anything: a `ttk.Treeview` gives the
 columns one width apiece, a heading that sorts, and a header that stays put. The two
@@ -69,45 +79,21 @@ from ...runtime import captures as capturemod
 from ...widgets import (NumericEntry, numeric_spinbox, tk_stringvar,
                         font as ui_font)
 from ..base import PanelTab, TriggerSpec
+from . import grid
+from .alliance import AllianceGrid
 from .autoloot import AutoLoot
 from .capture import Capture
 from .sweep import Sweep
 
-# The star glyph in front of a row and the icons for the two row states: a tile still
-# counting down to raidability, and one that is ready to loot now.
-STAR_GLYPH = "⭐"
-TYPE_GLYPH = "🗡️"
-READY_GLYPH = "✅"
-
-# The amber the countdown is drawn in, and the green a ready row switches to.
-TIMER_COLOR = "#e0a84f"
-READY_COLOR = "#4fe08a"
-
-# A row under ten minutes from the moment it needs attention — either about to become
-# raidable, or about to expire while still raidable — turns this yellow instead, so it
-# stands out from the rest of a list that is otherwise always shown in full (#1241).
-SOON_COLOR = "#e0d84f"
-SOON_MS = 10 * 60_000
-
-# The table's columns: (id, locale key of the heading, width in px, anchor, stretch).
-# The state column is the one that takes the slack — it carries the longest sentence
-# («готово к сбору · истекает через 1:02:03») and the one that varies most by language.
-# The server has a column of its own rather than a `#534` glued to the coordinate: it is
-# what tells a neighbour's tile from a stranger's at a glance, and it is what «не грабить
-# на своём сервере» is about.
-COLUMNS = (
-    ("coords", "secrettasks.col.coords", 150, "w", False),
-    ("server", "secrettasks.col.server", 90, "w", False),
-    ("lvl", "secrettasks.col.level", 110, "w", False),
-    ("state", "secrettasks.col.state", 250, "w", True),
-    ("slots", "secrettasks.col.slots", 90, "center", False),
-    ("action", "secrettasks.col.action", 110, "center", False),
-)
-
-# The two columns a click DOES something in (task #1209). Named rather than indexed, so
-# re-ordering COLUMNS cannot silently make «Ограблено» the link.
-LINK_COLUMN = "coords"
-ACTION_COLUMN = "action"
+# The table itself — its columns, its colours, its sort keys and its countdown — is
+# `grid.py` now (#1244), because the tab draws it TWICE: once for the starred raid
+# targets and once for the alliance's own list below them. Re-exported here under the
+# names the tab has always used, so nothing that reads this module has to know.
+STAR_GLYPH, TYPE_GLYPH, READY_GLYPH = grid.STAR_GLYPH, grid.TYPE_GLYPH, grid.READY_GLYPH
+TIMER_COLOR, READY_COLOR = grid.TIMER_COLOR, grid.READY_COLOR
+SOON_COLOR, SOON_MS = grid.SOON_COLOR, grid.SOON_MS
+COLUMNS = grid.COLUMNS
+LINK_COLUMN, ACTION_COLUMN = grid.LINK_COLUMN, grid.ACTION_COLUMN
 
 # How many jumps the «куда ходил» list remembers. One account's tiles are not another's,
 # so it belongs to the profile like every other setting here.
@@ -165,6 +151,10 @@ class SecretTasksTab(PanelTab):
         master = rt.root
         self.loaded = False
         self._busy = False
+        # The VM read has a flag of its own (#1244): «Обновить» now runs both sources —
+        # the checkpoint (cheap, `_busy`) and the game's own table (`_vm_busy`) — and one
+        # flag for the two would let the first to start silence the other.
+        self._vm_busy = False
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -236,6 +226,9 @@ class SecretTasksTab(PanelTab):
         self.capture = Capture(rt, self)
         self.autoloot = AutoLoot(rt, self)
         self.sweep = Sweep(rt, self)
+        # The second table (#1244): the alliance's own list, filled by the very same VM
+        # read that seeds the one above it — see `_snapshot_work`.
+        self.alliance = AllianceGrid(self)
 
     # -- getting onto the Tk thread ------------------------------------------
     def after(self, func) -> None:
@@ -315,6 +308,9 @@ class SecretTasksTab(PanelTab):
         self._collected.clear()
         self._auto_attempted.clear()
         self._restore_pending = set()
+        # The alliance below belongs to the old account just as much — a different
+        # account is a different alliance, and its tiles are not this one's (#1244).
+        self.alliance.clear()
         if self.loaded:
             self._restore_pending = self._load_persisted()
             self._render()
@@ -333,8 +329,10 @@ class SecretTasksTab(PanelTab):
         self._retranslate_headings()
         self._refresh_rule_hints()
         # The rows themselves carry words too («⭐×7», «готово через …»), and a heading
-        # is only half the table.
+        # is only half the table. Both tables, for the same reason.
         self._render()
+        self.alliance.retranslate()
+        self.alliance.render()
 
     def panic(self) -> None:
         """«Стоп всё»: every standing order down, and the boxes say so."""
@@ -423,7 +421,7 @@ class SecretTasksTab(PanelTab):
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self.tr(ttk.Label(bar, font=ui_font(size=15, weight="bold")),
                 "tab.secret_tasks").pack(side="left")
-        self.tr(ttk.Button(bar, width=12, command=self.refresh),
+        self.tr(ttk.Button(bar, width=12, command=self.refresh_both),
                 "tabx.refresh").pack(side="right")
         self.tr(ttk.Button(bar, width=12, command=self._clear),
                 "secrettasks.clear").pack(side="right", padx=(0, 6))
@@ -566,7 +564,7 @@ class SecretTasksTab(PanelTab):
 
     # -- the table -------------------------------------------------------------
     def _build_table(self) -> None:
-        """The found secret tasks as a real table: fixed header, sortable, one row deep.
+        """The two tables: the starred raid targets, and the alliance's own list (#1244).
 
         A `ttk.Treeview` rather than a stack of frames (#1209). The rows used to be packed
         by hand, each label carrying its own width, so nothing lined up under anything and
@@ -575,31 +573,27 @@ class SecretTasksTab(PanelTab):
 
         What a Treeview cannot hold is a widget, so the two row actions live under it and
         act on the selection — plus the right-click menu, and the coordinate link.
+
+        The second grid is the same table again (`grid.py`, `alliance.py`) with the
+        alliance's whole list in it, stars and plain tiles alike. The two share the height
+        through a `PanedWindow` rather than splitting it in a fixed ratio: which of the
+        two is being read changes by the hour, and dragging the sash is how the operator
+        says which one it is right now.
         """
         # The action strip is packed FIRST, against the bottom: pack clips whatever was
         # packed last when the window is short, and the buttons are the one thing on the
         # tab that must never be the part that falls off the edge.
         acts = ttk.Frame(self.parent)
         acts.pack(side="bottom", fill="x", padx=10, pady=(4, 10))
-        wrap = ttk.Frame(self.parent)
-        wrap.pack(fill="both", expand=True, padx=10, pady=(0, 0))
+        panes = ttk.PanedWindow(self.parent, orient="vertical")
+        panes.pack(fill="both", expand=True, padx=10, pady=(0, 0))
+        wrap = ttk.Frame(panes)
+        panes.add(wrap, weight=3)
         self._empty = self.tr(ttk.Label(wrap, foreground="#888"), "secrettasks.empty")
         self._body = ttk.Frame(wrap)
         self._body.pack(fill="both", expand=True)
 
-        tree = ttk.Treeview(self._body, columns=[c[0] for c in COLUMNS],
-                            show="headings", selectmode="browse")
-        bar = ttk.Scrollbar(self._body, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y")
-        tree.pack(side="left", fill="both", expand=True)
-        for col, _key, width, anchor, stretch in COLUMNS:
-            tree.column(col, width=width, anchor=anchor, stretch=stretch)
-        # A ready tile is green and a counting-down one amber, exactly as the packed rows
-        # were — the colour is the fastest read on the tab.
-        tree.tag_configure("ready", foreground=READY_COLOR)
-        tree.tag_configure("waiting", foreground=TIMER_COLOR)
-        tree.tag_configure("soon", foreground=SOON_COLOR)
+        tree = grid.make_tree(self._body)
         tree.bind("<Button-1>", self._on_click)
         tree.bind("<Double-Button-1>", self._on_double_click)
         tree.bind("<Button-3>", self._on_right_click)
@@ -607,6 +601,7 @@ class SecretTasksTab(PanelTab):
         tree.bind("<<TreeviewSelect>>", lambda _e: self._sync_actions())
         self._tree = tree
         self._retranslate_headings()
+        panes.add(self.alliance.build(panes), weight=2)
 
         self._goto_btn = self.tr(ttk.Button(acts, width=12, command=self._goto_selected),
                                  "secrettasks.goto")
@@ -654,35 +649,13 @@ class SecretTasksTab(PanelTab):
             self._sort = (column, False)
         self._render()
 
-    #: How each column orders. `state` sorts by "how soon this row wants attention" —
-    #: the ready ones first, then the shortest countdown — which is what the eye is
-    #: after, rather than the alphabet of a translated sentence. The action column is
-    #: not in here: a button is not an order, so its heading does not sort.
-    SORT_KEYS = {
-        "coords": lambda r: (int(r["x"] or 0), int(r["y"] or 0)),
-        "server": lambda r: int(r["server"] or 0),
-        "lvl": lambda r: int(r["level"] or 0),
-        "state": lambda r: (0 if r.get("ready") else 1,
-                            (r["expires_at"] if r.get("ready")
-                             else r["completed_at"]) or 0),
-        "slots": lambda r: int(r["loot_count"] or 0),
-    }
+    #: How each column orders — `grid.SORT_KEYS`, kept under the name the headings ask
+    #: for it by.
+    SORT_KEYS = grid.SORT_KEYS
 
     def _sorted_rows(self, rows) -> list:
-        """The rows in the order the table shows them.
-
-        Untouched headings keep the order auto-loot prizes them in — the highest star
-        first, and within a level the tile that expires soonest — so the tab opens on the
-        best raid without anybody having to ask for it.
-        """
-        if self._sort is None:
-            return sorted(rows, key=lambda r: (-int(r["level"] or 0),
-                                               r["expires_at"] or float("inf")))
-        column, backwards = self._sort
-        key = self.SORT_KEYS.get(column)
-        if key is None:
-            return list(rows)
-        return sorted(rows, key=key, reverse=backwards)
+        """The rows in the order the table shows them (`grid.sort_rows`)."""
+        return grid.sort_rows(rows, self._sort)
 
     def _row_values(self, row) -> tuple:
         """One row as the cells of the table, in the order COLUMNS declares.
@@ -717,14 +690,7 @@ class SecretTasksTab(PanelTab):
     # -- what a click on the table does ----------------------------------------
     def _column_at(self, event) -> str:
         """Which column the pointer is over, "" when it is not over a cell."""
-        tree = self._tree
-        if tree is None or tree.identify("region", event.x, event.y) != "cell":
-            return ""
-        col = tree.identify_column(event.x)          # "#1" … "#5"
-        try:
-            return COLUMNS[int(col[1:]) - 1][0]
-        except (ValueError, IndexError):
-            return ""
+        return grid.column_at(self._tree, event)
 
     def _row_at(self, event):
         return self._rows.get(self._tree.identify_row(event.y)) if self._tree else None
@@ -1039,10 +1005,14 @@ class SecretTasksTab(PanelTab):
 
     # -- reading the wire / the game ------------------------------------------
     def _snapshot(self) -> None:
-        """The one-time first-open seed: read the VM once and merge it."""
-        if self._busy:
+        """Read the game's own alliance table once: the seed above, the mirror below.
+
+        One round trip fills both grids (#1244) — the starred tasks are merged into the
+        working list, and the whole answer replaces the alliance grid.
+        """
+        if self._vm_busy:
             return
-        self._busy = True
+        self._vm_busy = True
         self._status_var.set(self.t("tabx.loading"))
         threading.Thread(target=self._snapshot_work, daemon=True).start()
 
@@ -1059,13 +1029,42 @@ class SecretTasksTab(PanelTab):
         pending = self._restore_pending if read_ok else None
         if read_ok:
             self._restore_pending = set()
-        self.after(lambda: self._merge(tasks, pending))
+        self.after(lambda: self._vm_landed(tasks, pending, read_ok))
+
+    def _vm_landed(self, tasks, pending, read_ok: bool) -> None:
+        """The VM read, back on the Tk thread: the stars up, the whole list down.
+
+        The alliance grid is only touched by a read that WORKED. A failed one says
+        nothing about the alliance's tasks — emptying the table on it would turn "the
+        daemon was busy for a second" into "your alliance has nothing out", which is the
+        same lie `_merge` refuses to tell about a restored row.
+        """
+        self._vm_busy = False
+        self._merge([t for t in tasks if t.starred], pending)
+        if read_ok:
+            self.alliance.apply(tasks)
 
     def refresh_live(self) -> None:
-        """A share landed: re-merge the checkpoint — but only if the tab has been
-        opened. An unopened one reads fresh when it is first shown."""
+        """A share landed: re-read both lists — but only if the tab has been opened.
+
+        An unopened one reads fresh when it is first shown. The VM read is in here as
+        well as the checkpoint merge because the push that fires this is exactly the
+        event that changes the game's own alliance table (#1244).
+        """
         if self.loaded:
             self.refresh()
+            self._snapshot()
+
+    def refresh_both(self) -> None:
+        """«Обновить»: the wire feed for the list above, the game's table for the one below.
+
+        One press, both grids (#1244) — the checkpoint merge costs a file read, the VM
+        read one round trip through the warm daemon. They are deliberately NOT one flag:
+        each guards its own path, so neither can silently skip because the other happened
+        to be in flight.
+        """
+        self.refresh()
+        self._snapshot()
 
     def refresh(self) -> None:
         """Merge the live capture checkpoint (the wire feed) into the list.
@@ -1084,7 +1083,17 @@ class SecretTasksTab(PanelTab):
             tasks = self._fetch_scan()
         except Exception:                     # noqa: BLE001 — a failed read is an empty tab
             tasks = []
-        self.after(lambda: self._merge(tasks))
+        self.after(lambda: self._wire_landed(tasks))
+
+    def _wire_landed(self, tasks) -> None:
+        """The checkpoint read, back on the Tk thread — and the flag it was holding.
+
+        Clearing `_busy` is this path's own business rather than `_merge`'s since #1244:
+        the VM read merges through the very same method, and one path clearing the
+        other's flag is how a refresh in flight quietly gets a second thread.
+        """
+        self._busy = False
+        self._merge(tasks)
 
     def _fetch_scan(self) -> list:
         """The live, starred secret tasks off the capture checkpoint — the wire feed.
@@ -1099,15 +1108,19 @@ class SecretTasksTab(PanelTab):
         return [t for t in tasks if t.starred]
 
     def _fetch_vm(self) -> list:
-        """The first-open snapshot: every live starred alliance task straight from the VM.
+        """Every live alliance secret task straight from the VM — stars and plain alike.
 
-        Every tile on the map with a free slot — the ones already raidable AND the ones
-        still counting down — so a row can carry its «готово через …» timer and flip to
-        raidable in place.
+        Every tile the game still lists with a free slot: the ones already raidable AND
+        the ones still counting down, so a row can carry its «готово через …» timer and
+        flip to raidable in place.
+
+        Unfiltered since #1244, because the answer feeds BOTH grids: the caller keeps
+        the starred ones for the working list above and hands the whole reply to the
+        alliance grid below. The star filter used to live here, which is why the lower
+        list could not exist without a second round trip.
         """
         import steal_secret_task
-        tasks = steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
-        return [t for t in tasks if t.starred]
+        return steal_secret_task._vm_all_alliance_tasks(self.rt.game.evaluator())
 
     def _merge(self, tasks, verify: "set | None" = None) -> None:
         """Add tiles the list does not have yet; keep the ones it does.
@@ -1127,8 +1140,10 @@ class SecretTasksTab(PanelTab):
         NOT is a restored row the game does not back any more (expired, looted out, or
         simply gone while the panel was shut) and comes off the list rather than sit
         there unconfirmed.
+
+        Whichever read it came from is that read's own affair: the two paths land here
+        through `_wire_landed` / `_vm_landed`, and each clears the flag it was holding.
         """
-        self._busy = False
         incoming = {str(t.uuid): t for t in tasks}
         if verify:
             for key in verify:
@@ -1288,7 +1303,16 @@ class SecretTasksTab(PanelTab):
         return {"cards": [{"title": "secret.autoloot.frame",
                            "rows": [{"label": state_key, "value": state_datum}]},
                           {"title": None, "items": items,
-                           "empty": "secrettasks.empty"}],
+                           "empty": "secrettasks.empty"},
+                          # The window's second table, as the phone's second card
+                          # (#1244): the alliance's whole list, stars and plain tiles
+                          # alike. Titled, unlike the one above it, because two
+                          # untitled lists of coordinates on one screen are
+                          # indistinguishable — and which list a tile is in is the
+                          # whole point of there being two.
+                          {"title": "secrettasks.alliance",
+                           "items": self.alliance.web_items(),
+                           "empty": "secrettasks.alliance.empty"}],
                 "now": now,
                 # The button names what pressing it will do, because a phone has no
                 # checkbox to carry the state in: «Показать исчерпанные» while they are
@@ -1310,7 +1334,8 @@ class SecretTasksTab(PanelTab):
         the local list, so the phone gets the same two the window has.
         """
         if action == "refresh":
-            self.refresh()
+            # The window's «Обновить» refreshes both tables, so the phone's does too.
+            self.refresh_both()
             return {"ok": True}
         if action == "show_spent":
             self.post(self._toggle_show_spent)
@@ -1351,9 +1376,8 @@ class SecretTasksTab(PanelTab):
             tree.delete(iid)
         rows = self._sorted_rows(self._visible_rows())
         for row in rows:
-            tag = "soon" if row.get("soon") else "ready" if row.get("ready") else "waiting"
             tree.insert("", "end", iid=str(row["uuid"]), values=self._row_values(row),
-                        tags=(tag,))
+                        tags=(grid.row_tag(row),))
         back = [iid for iid in chosen if tree.exists(iid)]
         if back:
             tree.selection_set(back)
@@ -1366,15 +1390,7 @@ class SecretTasksTab(PanelTab):
         Only the state cell changes as a second passes; the ready-transition is what asks
         for a full :meth:`_render`, because it re-colours the row and re-sorts it.
         """
-        tree = self._tree
-        if tree is None:
-            return
-        for key, row in self._rows.items():
-            try:
-                if tree.exists(key):
-                    tree.set(key, "state", row["timer"].get())
-            except tk.TclError:
-                return
+        grid.paint_timers(self._tree, self._rows)
 
     def _in_range(self, level) -> bool:
         """Whether `level` falls inside the «уровень от / до» range (either end open).
@@ -1496,57 +1512,21 @@ class SecretTasksTab(PanelTab):
             # under the checkbox catch up with it.
             self._refresh_autoloot_line()
             self._maybe_start_poll()
+            # The grid below counts down on the same second as this one — one chain for
+            # the tab, not a timer per table.
+            self.alliance.tick()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
             # reached.
             self.rt.tick.arm("secret_tick", 1000, self._tick)
 
     def _refresh_timers(self) -> tuple:
-        """Rewrite every row's timer; return (expired keys, did ready/soon change on any row).
+        """Rewrite every row's timer; return (expired keys, did ready/soon change on any).
 
-        The countdown runs to `completed_at` — the moment the tile becomes raidable — not
-        to expiry: «готово через …» while it is ahead, then «готово к сбору» (with how
-        long is left to loot) once it is past. `expires_at` still governs removal.
-
-        Against the GAME's clock, not this computer's (#1227). Both timestamps are stamped
-        by the game, and the machine's own clock was measured eleven seconds slow against
-        it — so a countdown drawn from `time.time()` disagreed with the one the game draws
-        beside it by however far the drift had got, which the operator was reading as
-        25-30 s.
+        The arithmetic is `grid.refresh_timers` — the grid below runs the very same one
+        on its own rows every second (#1244).
         """
-        import game_clock
-        now = game_clock.now_ms()
-        expired, changed = [], False
-        for key, row in self._rows.items():
-            exp = row["expires_at"]
-            if exp is not None and exp <= now:
-                expired.append(key)
-                continue
-            done = row["completed_at"]
-            ready = done is not None and done <= now
-            if ready != row.get("ready"):
-                row["ready"] = ready
-                changed = True
-            # «Soon»: under ten minutes from whatever this row is waiting on next — being
-            # raidable while it still counts down, losing its loot once it is raidable.
-            # Recomputed every second like the ready flag, and a flip repaints the row the
-            # same way a flip of `ready` does — the colour is the whole point (#1241).
-            soon = (not ready and done is not None and done - now < SOON_MS) or \
-                   (ready and exp is not None and exp - now < SOON_MS)
-            if soon != row.get("soon"):
-                row["soon"] = soon
-                changed = True
-            if done is None:
-                row["timer"].set(self.t("secrettasks.until_ready", t="—"))
-            elif not ready:
-                row["timer"].set(self.t("secrettasks.until_ready",
-                                        t=_fmt_left(done - now)))
-            elif exp is not None:
-                row["timer"].set(self.t("secrettasks.ready_expires",
-                                        t=_fmt_left(exp - now)))
-            else:
-                row["timer"].set(self.t("secrettasks.ready"))
-        return expired, changed
+        return grid.refresh_timers(self._rows, self.t)
 
     # -- the ready-row poll ----------------------------------------------------
     def _maybe_start_poll(self) -> None:
@@ -1664,6 +1644,8 @@ class SecretTasksTab(PanelTab):
         if ok:
             self._collected.add(key)
             self._rows.pop(key, None)
+            # The same tile can be on both tables — one robbery, so it leaves both.
+            self.alliance.drop(key)
             self._render()
             self.rt.put("[secret] " + self.t("secrettasks.collect_ok"))
             self._update_status()
@@ -1765,6 +1747,10 @@ class SecretTasksTab(PanelTab):
         robbed earlier can be re-listed by the next scan if the server still shows it
         raidable. Nothing here is lost for good: the wire feed and the next VM snapshot
         repopulate the list from the live game, same as a fresh «Обновить».
+
+        The alliance table below is deliberately untouched: it accumulates nothing to
+        clear — every read replaces it whole — so wiping it would only blank a mirror
+        until the next round trip redrew exactly the same rows (#1244).
         """
         self._rows.clear()
         self._collected.clear()
@@ -1774,15 +1760,6 @@ class SecretTasksTab(PanelTab):
         self._persist_rows()
 
 
-def _fmt_left(ms: int) -> str:
-    """Milliseconds remaining as ``H:MM:SS`` (or ``MM:SS`` under an hour).
-
-    Locale-neutral on purpose: the surrounding «expires in …» carries the language, the
-    clock itself does not need translating.
-    """
-    total = max(0, ms // 1000)
-    h, rem = divmod(total, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return "%d:%02d:%02d" % (h, m, s)
-    return "%02d:%02d" % (m, s)
+# The countdown's own formatting moved to `grid.py` with the rest of the table (#1244);
+# it is still reachable under the name every caller and test here knows it by.
+_fmt_left = grid.fmt_left

@@ -40,12 +40,15 @@ def test_refresh_only_when_the_tab_was_opened():
     tab = object.__new__(st.SecretTasksTab)
     tab.loaded = False
     calls = []
-    tab.refresh = lambda: calls.append(1)
+    tab.refresh = lambda: calls.append("wire")
+    tab._snapshot = lambda: calls.append("vm")
     tab.refresh_live()                              # unopened -> no read
     assert calls == []
     tab.loaded = True
-    tab.refresh_live()                              # opened -> re-merge
-    assert calls == [1]
+    tab.refresh_live()                              # opened -> both lists
+    # The push that fires this is the event that changes the game's own alliance table,
+    # so the share re-reads it as well as re-merging the checkpoint (#1244).
+    assert calls == ["wire", "vm"]
 
 
 def test_the_schedule_calls_the_tab_and_skips_the_daemon_gate():
@@ -548,15 +551,20 @@ class _FakeOrder:
 
 
 class _StubTask:
-    """What `_fetch_vm`/`_fetch_scan` hand `_merge` — just the fields a row copies."""
+    """What `_fetch_vm`/`_fetch_scan` hand `_merge` — just the fields a row copies.
+
+    `starred` is what `_vm_landed` splits the one read on (#1244): the stars go up into
+    the working list, the whole reply goes down into the alliance grid.
+    """
 
     def __init__(self, uuid, server_id=1, x=1, y=2, level=7, cfg_id=16003,
-                loot_count=1, expires_at=999_000, completed_at=1_000):
+                loot_count=1, expires_at=999_000, completed_at=1_000, starred=True):
         self.uuid = uuid
         self.server_id = server_id
         self.x, self.y, self.level, self.cfg_id = x, y, level, cfg_id
         self.loot_count = loot_count
         self.expires_at, self.completed_at = expires_at, completed_at
+        self.starred = starred
 
 
 def _state_path() -> str:
@@ -738,13 +746,273 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab._sweep_hint = tab._rule_lbl = tab._rule_line = None
     tab._ids, tab._own_server = ("1", "a"), 1
     tab._snapshot = lambda: None          # the live re-seed is its own test, not this one
+    tab.alliance = _FakeAllianceGrid()
 
     tab.on_profile_switch()
 
     assert tab._rows == {}, "the old profile's rows leaked into the new one"
+    assert tab.alliance.cleared == 1, "the alliance grid kept the old account's tiles"
     assert tab._collected == set() and tab._auto_attempted == set()
     assert tab._ids is None and tab._own_server == 0
     assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
+
+
+# -- the alliance grid (#1244) -------------------------------------------------------
+#
+# The tab has two tables now: the starred working list above, and a mirror of the game's
+# own alliance table below. These pin the three things that make the second one a mirror
+# rather than a second working list — one read fills both, it is replaced whole, and it
+# keeps the plain tiles the list above drops.
+
+from panel.tabs.secret_tasks import alliance as al   # noqa: E402
+from panel.tabs.secret_tasks import grid as gr       # noqa: E402
+
+# Same reason as `st.tk_stringvar` above: a row's countdown variable is made here too,
+# and a real one needs a live Tk root.
+al.tk_stringvar = lambda master: _Var()
+
+
+class _FakeAllianceGrid:
+    """What the tab asks of the grid below it — nothing that needs a widget."""
+
+    def __init__(self) -> None:
+        self.applied, self.dropped = [], []
+        self.cleared = self.ticks = 0
+
+    def apply(self, tasks) -> None:
+        self.applied.append(list(tasks))
+
+    def clear(self) -> None:
+        self.cleared += 1
+
+    def drop(self, key) -> None:
+        self.dropped.append(str(key))
+
+    def tick(self) -> None:
+        self.ticks += 1
+
+
+class _FakeTable:
+    """Enough of a Treeview for a grid to draw itself into without a display."""
+
+    def __init__(self) -> None:
+        self.rows: list = []
+
+    def selection(self):
+        return ()
+
+    def selection_set(self, _iids):
+        pass
+
+    def get_children(self, _parent=""):
+        return list(self.rows)
+
+    def delete(self, iid):
+        self.rows.remove(iid)
+
+    def insert(self, _parent, _where, iid=None, values=(), tags=()):
+        self.rows.append(iid)
+
+    def exists(self, iid):
+        return iid in self.rows
+
+    def set(self, _iid, _column, _value):
+        pass
+
+
+def _alliance_grid(tree=None):
+    """An `AllianceGrid` with no Tk behind it — the rows and the arithmetic only."""
+    import types
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    tab = types.SimpleNamespace(t=i18n.t, rt=types.SimpleNamespace(root=None),
+                                _collectable=lambda row: bool(row.get("ready")),
+                                _row_values=lambda row: tuple(
+                                    str(row[c]) for c in ("x", "y", "level", "uuid",
+                                                          "loot_count", "server")))
+    g = object.__new__(al.AllianceGrid)
+    g.tab = tab
+    g._rows, g._tree, g._sort = {}, tree, None
+    g._body = g._empty = None
+    g._count_var = _Var()
+    return g
+
+
+def test_one_vm_read_fills_both_grids():
+    """The stars go up into the working list, the WHOLE reply goes down into the mirror.
+
+    The star filter used to live in `_fetch_vm`, which is why the lower table could not
+    exist without a second round trip (#1244).
+    """
+    tab = object.__new__(st.SecretTasksTab)
+    tab._vm_busy = True
+    merges = []
+    tab._merge = lambda tasks, verify=None: merges.append((list(tasks), verify))
+    tab.alliance = _FakeAllianceGrid()
+
+    star, plain = _StubTask(1, starred=True), _StubTask(2, starred=False)
+    tab._vm_landed([star, plain], {"7"}, True)
+
+    assert [t.uuid for t in merges[0][0]] == [1], merges
+    assert merges[0][1] == {"7"}, "the restored-row check must survive the split"
+    assert [t.uuid for t in tab.alliance.applied[0]] == [1, 2], tab.alliance.applied
+    assert tab._vm_busy is False
+
+
+def test_a_failed_vm_read_leaves_the_alliance_grid_alone():
+    """A dead daemon is not evidence the alliance has nothing out — the same lie
+    `_merge` refuses to tell about a restored row."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._vm_busy = True
+    tab._merge = lambda tasks, verify=None: None
+    tab.alliance = _FakeAllianceGrid()
+
+    tab._vm_landed([], None, False)
+
+    assert tab.alliance.applied == [], "a failed read emptied the alliance table"
+
+
+def test_refresh_presses_both_sources():
+    """«Обновить» — and the phone's — refresh the wire feed AND the game's own table."""
+    tab = object.__new__(st.SecretTasksTab)
+    calls = []
+    tab.refresh = lambda: calls.append("wire")
+    tab._snapshot = lambda: calls.append("vm")
+
+    tab.refresh_both()
+    assert calls == ["wire", "vm"], calls
+
+    calls.clear()
+    assert tab.web_press("refresh", {}) == {"ok": True}
+    assert calls == ["wire", "vm"], calls
+
+
+def test_the_two_reads_do_not_silence_each_other():
+    """Two paths, two flags: the checkpoint merge in flight must not skip the VM read."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._busy, tab._vm_busy = True, False          # the wire feed is already running
+    tab._status_var = _Var()
+    tab.t = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru").t
+    started = []
+    import threading as _t
+    real = _t.Thread
+    _t.Thread = lambda target=None, daemon=None, args=(): type(
+        "T", (), {"start": lambda self: started.append(target)})()
+    try:
+        tab._snapshot()
+    finally:
+        _t.Thread = real
+    assert started and tab._vm_busy is True, "the VM read skipped because of `_busy`"
+
+
+def test_each_read_clears_only_its_own_flag():
+    """`_merge` is shared by both paths, so it clears neither: one read finishing must
+    not tell the other it is free to start a second thread (#1244)."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._merge = lambda tasks, verify=None: None
+    tab.alliance = _FakeAllianceGrid()
+
+    tab._busy = tab._vm_busy = True
+    tab._wire_landed([])
+    assert (tab._busy, tab._vm_busy) == (False, True)
+
+    tab._busy = True
+    tab._vm_landed([], None, True)
+    assert (tab._busy, tab._vm_busy) == (True, False)
+
+
+def test_the_alliance_grid_is_replaced_whole_by_each_read():
+    """A mirror, not a working list: a tile the game stopped listing is gone from it,
+    and one that survived keeps its countdown variable so its cell does not blink."""
+    g = _alliance_grid()
+    g.apply([_StubTask(1), _StubTask(2, starred=False)])
+    assert set(g._rows) == {"1", "2"}, g._rows
+    # …and the plain tile the list above filters out is exactly what this one is for.
+    kept = g._rows["1"]["timer"]
+
+    g.apply([_StubTask(1, loot_count=2, expires_at=222_000)])
+
+    assert set(g._rows) == {"1"}, g._rows
+    assert g._rows["1"]["timer"] is kept, "the countdown variable was thrown away"
+    assert g._rows["1"]["loot_count"] == 2 and g._rows["1"]["expires_at"] == 222_000
+
+
+def test_the_alliance_grid_counts_down_and_drops_the_expired():
+    """The same per-second arithmetic as the table above — `grid.refresh_timers`."""
+    tree = _FakeTable()
+    g = _alliance_grid(tree)
+    now = int(__import__("time").time() * 1000)
+    g.apply([_StubTask(1, completed_at=now + 120_000, expires_at=now + 600_000),
+             _StubTask(2, completed_at=now - 100_000, expires_at=now - 1_000)])
+    assert set(g._rows) == {"1", "2"}
+
+    g.tick()
+
+    assert set(g._rows) == {"1"}, "the expired tile stayed on the mirror"
+    assert tree.rows == ["1"], tree.rows
+    assert "готово через" in g._rows["1"]["timer"].get()
+
+
+def test_a_robbery_takes_the_tile_off_both_tables():
+    """One tile can be on both lists; one robbery, so it leaves both."""
+    tab = object.__new__(st.SecretTasksTab)
+    tab._rows = {"11": _row(11, 7, -5_000, 600_000)}
+    tab._collected = set()
+    tab.alliance = _FakeAllianceGrid()
+    tab._render = lambda: None
+    tab._update_status = lambda: None
+    tab._persist_rows = lambda: None
+    import types
+    tab.rt = types.SimpleNamespace(put=lambda _line: None)
+    tab.t = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru").t
+
+    tab._collect_done("11", True)
+
+    assert tab._rows == {} and tab.alliance.dropped == ["11"]
+
+
+def test_the_phone_is_shown_the_alliance_list_too():
+    """CLAUDE.md: what the window grew, the web grows in the same commit."""
+    import types
+    tab = object.__new__(st.SecretTasksTab)
+    tab._rows = {}
+    tab.show_spent_var = _Var(False)
+    tab._visible_rows = lambda: []
+    tab.autoloot = types.SimpleNamespace(state=lambda: ("secret.autoloot", "off"))
+    tab.alliance = types.SimpleNamespace(
+        web_items=lambda: [{"text": "X:1 Y:2", "facts": [], "until": None, "pill": None}])
+
+    view = tab.web_view()
+    cards = {c.get("title"): c for c in view["cards"]}
+    assert "secrettasks.alliance" in cards, cards
+    assert cards["secrettasks.alliance"]["items"][0]["text"] == "X:1 Y:2"
+    assert cards["secrettasks.alliance"]["empty"] == "secrettasks.alliance.empty"
+
+
+def test_the_phone_reads_the_alliance_rows_the_same_way_as_the_window():
+    """Same facts, same countdown, same ready pill — one list drawn two ways."""
+    g = _alliance_grid()
+    now = int(__import__("time").time() * 1000)
+    g.apply([_StubTask(1, level=6, loot_count=1,
+                       completed_at=now - 5_000, expires_at=now + 600_000)])
+    g._rows["1"]["ready"] = True
+
+    item = g.web_items()[0]
+    # The same coordinate token the card above prints — server included, because a tile
+    # on somebody else's server is a different tile.
+    assert item["text"] == "#1 X:1 Y:2", item
+    assert {f["value"] for f in item["facts"]} == {"6", "1/3"}, item
+    assert item["pill"] == "secrettasks.ready"
+    assert abs(item["until"] - (now + 600_000) / 1000.0) < 1
+
+
+def test_both_grids_are_literally_the_same_table():
+    """«Грид точно такой же» (#1244): one column set, one sort rule, one set of colours."""
+    assert st.COLUMNS is gr.COLUMNS
+    assert (st.LINK_COLUMN, st.ACTION_COLUMN) == (gr.LINK_COLUMN, gr.ACTION_COLUMN)
+    assert st.SecretTasksTab.SORT_KEYS is gr.SORT_KEYS
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "alliance.py").read_text(encoding="utf-8")
+    assert "grid.make_tree" in src, "the second grid builds a table of its own"
 
 
 if __name__ == "__main__":

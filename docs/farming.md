@@ -3,9 +3,9 @@
 > На русском: [`farming.ru.md`](farming.ru.md)
 
 <!-- progress:start -->
-🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **30%** — 33 of 111
+🟩🟩🟩🟩🟩🟩🟨🟨🟨🟨🟨🟨🟥🟥🟥🟥🟥🟥🟥🟥  **29%** — 33 of 112
 
-🟩 33 done · 🟨 34 partly · 🟥 44 not automated
+🟩 33 done · 🟨 35 partly · 🟥 44 not automated
 <!-- progress:end -->
 
 A plain feature list: what is automated today, what is half-way there, and what
@@ -144,6 +144,7 @@ minister hands out" — the recording shows it is the profession tree, not a pos
 ### Secret missions
 
 - ✅ Listing the secret tasks the game already knows about — own and alliance, instantly, without panning the map
+- 🟡 That whole alliance list on screen, in a table of its own under the starred raids — every task the alliance has out, plain tiles included, with the same countdown, the same right-click and the same click on a coordinate that walks the camera there. It costs no extra asking: the same reading that fills the raid list fills this one, and it is redrawn whole each time, so a task that has ended is simply not in it. The phone shows the same two lists. Not yet lived with through a real session
 - ✅ Finding raidable tasks on the map, with filters by level, star rank and whether a slot is actually free
 - ✅ Sharing a task's coordinates in chat as a tappable pin
 - 🟡 Spotting ghost-recon missions ("Операция Призрак") as they appear
