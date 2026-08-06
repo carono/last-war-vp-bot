@@ -1767,9 +1767,10 @@ class SecretTasksTab(PanelTab):
     # -- the phone ---------------------------------------------------------------
     #
     # READING ONLY, and that is a decision rather than an omission. The robbery on this
-    # tab spawns its own tool because the recipe only spends a queue that tool fills
-    # (`CLAUDE.md`, task #1188) — a «Ограбить» button on the phone would be a SECOND
-    # copy of that debt, in a second place, reached from outside the house. The tiles,
+    # tab presses through `actions/steal_secret_task.md` now, but it still spawns a tool
+    # first to PARK the chosen tiles — the recipe cannot fill the queue it spends
+    # (`CLAUDE.md`, task #1188) — and a «Ограбить» button on the phone would carry that
+    # spawn outside the house, which is the half of the ability `web_press` may not run. The tiles,
     # their countdowns and how many robberies are left is what somebody away from the
     # machine actually needs: it is what decides whether to go home and press it.
     WEB_SCREEN = True
@@ -1922,9 +1923,9 @@ class SecretTasksTab(PanelTab):
     def web_press(self, action: str, args: dict) -> dict:
         """«Обновить», and the two display rules the phone may change.
 
-        Still no «Ограбить» — the robbery on this tab spawns its own tool because the
-        recipe only spends a queue that tool fills (`CLAUDE.md`, #1188), and a second
-        copy of that reached from outside the house is the same debt twice.
+        Still no «Ограбить» — the robbery on this tab presses through a scenario, but it
+        parks its targets with a spawned tool first (`CLAUDE.md`, #1188), and a second
+        copy of THAT reached from outside the house is the same debt twice.
         «Показывать исчерпанные» and «Очистить список» decide nothing in the game, only
         the local list, so the phone gets the same two the window has.
         """

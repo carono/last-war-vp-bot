@@ -599,6 +599,135 @@ def test_web_view_reports_seconds_on_the_games_clock_not_local_ms():
         game_clock.reset()
 
 
+# --- the robbery is a scenario now (#1188) ----------------------------------
+
+class _Proc:
+    """A `spawn_raw` child that has already said its piece and gone."""
+
+    def __init__(self, lines) -> None:
+        self.stdout = iter(list(lines))
+        self.returncode = 0
+
+    def terminate(self) -> None: ...
+
+
+class _Children:
+    """The child factory, remembering the ONE command line it was handed."""
+
+    def __init__(self, lines) -> None:
+        self.lines, self.cmd = lines, None
+
+    def python(self) -> str:
+        return "python"
+
+    def spawn_raw(self, cmd, tag):
+        self.cmd = list(cmd)
+        return _Proc(self.lines)
+
+
+class _Actions:
+    """`rt.actions`, remembering which scenarios were played."""
+
+    def __init__(self, ok: bool = True, reason: str = "") -> None:
+        self.played, self._ok, self._reason = [], ok, reason
+
+    def play(self, name, args=None, **kw):
+        from panel.runtime.actions import Outcome
+        self.played.append(name)
+        return Outcome(self._ok, self._reason)
+
+
+def _order(lines, ok: bool = True, reason: str = ""):
+    """A `GhostOrder` over a runtime that spawns nothing and presses nothing.
+
+    ``None`` where there is no tkinter — importing the page reaches the panel runtime.
+    """
+    try:
+        from panel.tabs.command_post.ghost import GhostOrder
+    except Exception as exc:            # noqa: BLE001 — no tkinter is a skip, not a fail
+        _skip(exc)
+        return None, None, None
+    said = []
+    rt = types.SimpleNamespace(
+        children=_Children(lines), actions=_Actions(ok, reason),
+        settings=types.SimpleNamespace(opt_int=lambda key, low=0, high=0: 5),
+        say=lambda tag, key, **fmt: said.append(key), put=lambda line: None)
+    return GhostOrder(rt, pane=None), rt, said
+
+
+def _drain(order) -> None:
+    """Wait for the reader thread `rob()` started — the whole two-step lives on it."""
+    import time as _time
+    for _ in range(200):
+        if order._proc is None:
+            return
+        _time.sleep(0.01)
+    raise AssertionError("the robbery never finished")
+
+
+def test_the_ghost_robbery_parks_with_the_tool_and_presses_with_the_recipe():
+    """#1188: the tool selects and parks, `actions/steal_ghost_recon.md` robs.
+
+    The event runs one day a week, so a swap that quietly robbed nothing would not be
+    noticed for six days. The tool keeps what is genuinely the game's answer — the event
+    day and the daily budget — and the pressing is the scenario's.
+    """
+    order, rt, _said = _order(["ghost recon: open   robberies left today: 5   queued: 0",
+                               "  target uuid=1 srv=100",
+                               "queued 1 target(s) — run actions/…"])
+    if order is None:
+        return
+    order.rob([{"uuid": "1", "srv": 100}])
+    _drain(order)
+
+    assert "--queue-only" in rt.children.cmd, rt.children.cmd
+    assert "ghost_recon_steal.py" in " ".join(rt.children.cmd)
+    # …and the chosen squad still travels by name, never «--all» (#1256).
+    assert "--targets" in rt.children.cmd and "1:100" in rt.children.cmd
+    assert "--all" not in rt.children.cmd, rt.children.cmd
+    assert rt.actions.played == ["steal_ghost_recon"], rt.actions.played
+
+
+def test_a_shut_event_parks_nothing_and_presses_nothing():
+    """Six days out of seven the tool says so and never reaches the queue — and a recipe
+    played over a stale one is the only way this order could rob the wrong squad."""
+    order, rt, _said = _order(["ghost recon: CLOSED (not an event day)   robberies left "
+                               "today: 5   queued: 0",
+                               "the event is not running today — nothing to rob"])
+    if order is None:
+        return
+    order.rob([{"uuid": "1", "srv": 100}])
+    _drain(order)
+    assert rt.actions.played == [], rt.actions.played
+
+
+def test_a_ghost_run_that_queued_nothing_presses_nothing():
+    """«queued 0 target(s)» — the tool reached the queue and left it empty.
+
+    It happens on a spent budget: the tool slices the named squads to what is left, and
+    «ограбить всё» does not gate on the budget the way the standing order does. The count
+    is what the reader steers by, not the word.
+    """
+    order, rt, _said = _order(["queued 0 target(s) — run actions/…"])
+    if order is None:
+        return
+    order.rob([{"uuid": "1", "srv": 100}])
+    _drain(order)
+    assert rt.actions.played == [], rt.actions.played
+
+
+def test_a_ghost_recipe_that_failed_says_so_in_the_scenarios_own_words():
+    """The scenario is the authority on why it stopped; the panel repeats it."""
+    order, rt, said = _order(["queued 1 target(s) — run actions/…"],
+                             ok=False, reason="no daemon")
+    if order is None:
+        return
+    order.rob([{"uuid": "1", "srv": 100}])
+    _drain(order)
+    assert rt.actions.played == ["steal_ghost_recon"]
+    assert "log.ghost.spend_failed" in said, said
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

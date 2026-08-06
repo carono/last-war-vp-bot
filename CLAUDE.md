@@ -89,10 +89,14 @@ are debt, not precedent. Do not rewrite them all at once, but when a task takes
 you into one of those paths, move the game logic out into a scenario and leave the
 panel calling it. **Never add a new one.**
 
-Two of them are itemised and NOT free, whatever a plan may say: the secret-task
-and ghost-recon robberies spawn their tool because the recipe only spends a queue
-the tool fills (task #1188). Read that before "just" swapping a spawn for
-`rt.actions.run(...)`.
+Two of them are itemised and were NOT free, whatever a plan may say: the secret-task
+and ghost-recon robberies. **The robbery itself is a scenario now (#1188)** — both
+orders play `actions/steal_secret_task.md` / `actions/steal_ghost_recon.md` — but they
+still SPAWN their tool first, with `--queue-only`, because the recipe spends a queue and
+cannot fill one: `TAP` takes no arguments, so a robbery cannot name its victim in the
+DSL, and the tool is what parks the chosen targets in the game VM. Two steps, on purpose.
+Read #1188 before "just" swapping a spawn for `rt.actions.run(...)`: the one-line version
+of that swap plays a recipe over an empty queue, robs nothing, and says nothing.
 
 ## Every panel tab is a plugin
 
@@ -190,9 +194,10 @@ def web_press(self, action, args) -> dict:
 ### A press travels only when the ability is a scenario
 
 `web_press` runs what `rt.actions` / `rt.play_async` runs and nothing else. Where a tab
-still drives the game by hand — the secret-task and ghost robberies spawn their tool
-because the recipe only spends a queue the tool fills (#1188) — **the web gets the
-READING and no button**, and the tab's own reading is mirrored as usual.
+still drives the game by hand — or half by hand: the secret-task and ghost robberies
+press through a scenario but still spawn a tool to PARK the targets first, because the
+recipe cannot fill the queue it spends (#1188) — **the web gets the READING and no
+button**, and the tab's own reading is mirrored as usual.
 
 This is an ORDER OF WORK, not a way out of the rule: first the ability becomes a
 scenario, then the button appears in the web. A second copy of a hand-driven press,

@@ -612,6 +612,40 @@ exist and the panel bypasses them:
 > where the rule that CHOOSES the targets lives" — is therefore only true of the tool's
 > own `--from-vm` / `--from-scan` route, which is what a person uses from the shell.
 
+> **Done, #1188 — and the correction above is what it was built from.** Both orders now
+> run their tool with `--queue-only` (select and park, then stop) and play the recipe
+> themselves: `panel/tabs/secret_tasks/autoloot.py::_spend` and
+> `panel/tabs/command_post/ghost.py::_spend`, both `rt.actions.play(…)` on the reader
+> thread the parking run already had. Four things worth writing down, because each of
+> them was a decision and not an obvious step:
+>
+> * **the reader tells «parked» from «declined» by the tool's own «queued …» line**, not
+>   by an exit code. Every way either tool can refuse — not logged in, own server
+>   unreadable, event shut, nothing named — leaves the queue untouched and says so in its
+>   own words, and the queue is the only thing the recipe can act on. Both tools carry a
+>   comment saying that line is now a contract (`QUEUED_MARK` in the two tabs);
+> * **the budget detection survives untouched.** `steal_secret_task.py` prints
+>   `robberies left today: %d` BEFORE it parks, so `--queue-only` still emits
+>   «robberies left today: 0», the watcher still pauses on it, and a spent budget
+>   deliberately does NOT go on to play the recipe. The ghost watcher never read the
+>   child at all — it asks the VM before it starts — so nothing there changed;
+> * **`_proc` stays set across BOTH halves.** It is what `tick` reads as «a robbery is in
+>   flight»; clearing it between the park and the press would let the next poll park a
+>   second set of targets on top of the queue the first one is pressing;
+> * **`rt.actions.play`, not `rt.play_async`.** The tool drove the game with no panel
+>   claim (it takes the daemon's lease itself, like every child); claiming for the second
+>   half alone would invent a «занят» refusal in the middle of a robbery whose targets are
+>   already parked — and with the uuids in `_seen`, nothing would retry it.
+>
+> **What is deliberately NOT converted**, so it does not read as an omission:
+> `tools/secret_share_autoloot.py`, the event-driven listener, still robs with a single
+> addressed `secret_task_steal(uuid, server)`. It is a standalone tool rather than panel
+> code, and it exists to beat a human to a share that crossed the wire less than a second
+> ago; park-then-play would put a second round trip inside exactly that second. The
+> remaining step for the two panel orders is the queue itself: a DSL primitive that parks
+> targets would let `ARGS` carry them and drop the spawn altogether — that is a task, not
+> a leftover of this one.
+
 Rule for the migration: **a wave may move debt; it may not create it.** No new direct
 game logic may be added under `panel/`. The version of this rule that said the top
 three rows were a one-line swap is retracted: of the three, only rally was, and only

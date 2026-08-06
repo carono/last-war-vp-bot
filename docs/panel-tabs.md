@@ -202,8 +202,8 @@ the refresh, and no path at all where anything writes a state.
 
 Which lines get a button is a decision to be written down: nine of the checklist's
 thirteen read errands have one. Two of the rest have no ability at all yet, and the
-other two have one that only spends a queue their own tool fills (#1188), so a press
-would succeed and rob nothing. That is in `.model`'s comments
+other two have an ability that has to PARK its targets with a tool before the recipe
+can spend them (#1188), so a bare press of the recipe would succeed and rob nothing. That is in `.model`'s comments
 beside the catalogue, and pinned by a test — because «no button here» has to be a reason
 and not an oversight.
 
@@ -587,9 +587,10 @@ Three things bound it:
 
 * **A press travels only when the ability is a scenario.** `web_press` runs
   `rt.actions` / `rt.play_async` and nothing else. Where a tab still drives the game by
-  hand (#1188 — the secret-task and ghost robberies spawn their tool because the recipe
-  only spends a queue that tool fills), the web gets the reading and no button. First
-  the scenario, then the button.
+  hand — or half by hand (#1188 — the secret-task and ghost robberies press through a
+  scenario, but still spawn a tool to park the targets, because the recipe cannot fill
+  the queue it spends), the web gets the reading and no button. First the whole ability
+  through `rt.actions`, then the button.
 * **A DIVERGENCE IS NOT YOURS TO DECIDE.** When the two sides genuinely should differ —
   something impossible on a phone, something pointless in a window — that is a
   conversation with the person, not a judgement call. Ask, agree, then write the

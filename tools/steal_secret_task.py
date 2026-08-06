@@ -578,6 +578,12 @@ def main() -> int:
     ev.run(lua_actions.secret_task_queue_set([(u, s) for u, s, _ in targets]), MARKER, 0.6)
     if args.queue_only:
         _, queued = read_status(ev)
+        # THIS LINE IS A CONTRACT, not just a report. The panel's auto-loot runs this
+        # tool with `--queue-only` and then plays `actions/steal_secret_task.md` itself
+        # (#1188), and «queued …» at the start of a line is how its reader tells «the
+        # targets are parked» from every way this run can decline — none of which
+        # touches the queue. Reword the opening word and the standing order silently
+        # stops robbing (panel/tabs/secret_tasks/autoloot.py, QUEUED_MARK).
         print("queued %d target(s) — run actions/steal_secret_task.md to spend them"
               % queued)
         return 0

@@ -1293,11 +1293,12 @@ class CommandPostTab(PanelTab):
 
     # -- the phone ------------------------------------------------------------
     #
-    # READING ONLY, for the same reason the secret tasks are: the ghost robbery spawns
-    # its own tool because the recipe spends a queue that tool fills (`CLAUDE.md`, task
-    # #1188). A «Ограбить» here would be a second copy of that debt, reachable from
-    # outside the house. What travels is what decides whether to go home: which raids
-    # are up, at what level, and how long they last.
+    # READING ONLY, for the same reason the secret tasks are: the ghost robbery presses
+    # through `actions/steal_ghost_recon.md` now, but it still spawns a tool first to PARK
+    # the chosen squads — the recipe cannot fill the queue it spends (`CLAUDE.md`, task
+    # #1188). A «Ограбить» here would carry that spawn outside the house, which is the
+    # half of the ability `web_press` may not run. What travels is what decides whether to
+    # go home: which raids are up, at what level, and how long they last.
     WEB_SCREEN = True
 
     def web_view(self) -> "dict | None":
@@ -1326,7 +1327,8 @@ class CommandPostTab(PanelTab):
 
         The standing order's two facts ride with the tiles (#1256). They are a READING,
         like everything else on this screen: the switch and the level box stay in the
-        window, because this is the page whose robbery is not a scenario yet (#1188) —
+        window, because this is the page whose robbery still parks its targets with a tool
+        before the recipe presses (#1188) —
         but «что вообще будет взято» is precisely what somebody away from the machine
         needs to know, and a list of squads without it says nothing about it.
         """

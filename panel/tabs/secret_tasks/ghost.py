@@ -22,9 +22,9 @@ star and a «level 99».
 закрыто» and two empty tables, which the pages say in as many words rather than looking
 broken.
 
-**Reading and walking the camera, and no robbery.** Ghost-recon's press is not a
-scenario yet — it spends a queue a standalone tool fills (`CLAUDE.md`, #1188) — and the
-rule about that debt is that it does not get more doorways. The two it already has (the
+**Reading and walking the camera, and no robbery.** Ghost-recon's press is a scenario
+now, but it still spawns a tool to park its targets first (`CLAUDE.md`, #1188) — and the
+rule about that half is that it does not get more doorways. The two it already has (the
 «Командный пункт» page and the standing order behind it) stay the only ones; these
 pages show what is out there and take the camera to it. The tiles of OTHER alliances,
 which a map scan finds and these two lists cannot know, are on that tab for the same
@@ -141,8 +141,9 @@ class _GhostGrid(grid.TaskGrid):
     def collectable(self, row) -> bool:
         """Never from here — the ghost robbery lives in «Командный пункт» (#1188).
 
-        Not an oversight: its press spends a queue a standalone tool fills, and another
-        copy of that debt, in another place, is the thing the rule about it forbids. The
+        Not an oversight: its press SPENDS a queue a standalone tool has to park the
+        targets in, and another copy of those two steps, in another place, is the thing
+        the rule about it forbids. The
         row still says whether the game would allow the robbery — that is what the state
         cell is for — and the coordinate still walks the camera there.
         """

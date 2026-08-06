@@ -130,8 +130,9 @@ class AllianceGrid(grid.TaskGrid):
     def web_items(self) -> list:
         """The rows as the phone's card items — same shape, and under the same boxes.
 
-        A reading, like everything else this tab hands the web: the robbery still
-        spawns its own tool (`CLAUDE.md`, #1188), so no grid offers a press there.
+        A reading, like everything else this tab hands the web: the robbery still spawns
+        its own tool to park the targets before the recipe presses (`CLAUDE.md`, #1188),
+        so no grid offers a press there.
         """
         import coords
 

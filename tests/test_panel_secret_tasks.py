@@ -1772,8 +1772,9 @@ def test_a_squad_that_never_expires_is_not_dropped_by_the_countdown():
 
 
 def test_the_ghost_page_never_offers_the_robbery():
-    """It lives in «Командный пункт» because it spends a queue a tool fills (#1188) —
-    a third doorway to it is the thing that rule forbids."""
+    """It lives in «Командный пункт» because a robbery there is two steps — a tool parks
+    the targets, the recipe spends them (#1188) — and a third doorway to that is the thing
+    the rule forbids."""
     g = _ghost_grid()
     g.apply([_ghost_record(1, state=2)])
     assert g.collectable(g._rows["1"]) is False
@@ -2411,6 +2412,152 @@ def test_the_map_page_keeps_its_own_list_and_checkpoints_it():
     assert set(ally._rows) == {"1", "2", "3"}
 
     # The secret-task alliance page IS still a mirror — see the test below.
+
+
+# ---------------------------------------------------------------------------
+# The robbery is a scenario now (#1188)
+# ---------------------------------------------------------------------------
+class _Proc:
+    """A `spawn_raw` child that has already said its piece and gone."""
+
+    def __init__(self, lines) -> None:
+        self.stdout = iter(list(lines))
+        self.returncode = 0
+
+    def terminate(self) -> None: ...
+
+
+class _Children:
+    """The child factory, remembering the ONE command line it was handed."""
+
+    def __init__(self, lines) -> None:
+        self.lines, self.cmd = lines, None
+
+    def python(self) -> str:
+        return "python"
+
+    def spawn_raw(self, cmd, tag):
+        self.cmd = list(cmd)
+        return _Proc(self.lines)
+
+
+class _Actions:
+    """`rt.actions`, remembering which scenarios were played."""
+
+    def __init__(self, ok: bool = True, reason: str = "") -> None:
+        self.played, self._ok, self._reason = [], ok, reason
+
+    def play(self, name, args=None, **kw):
+        from panel.runtime.actions import Outcome
+        self.played.append(name)
+        return Outcome(self._ok, self._reason)
+
+
+def _order(lines, ok: bool = True, reason: str = ""):
+    """An `AutoLoot` over a runtime that spawns nothing and presses nothing.
+
+    Everything the two halves of a robbery touch, and not one thing more: the child
+    factory (which records the argv), `rt.actions` (which records the scenario), the
+    settings the limit and the pause come from, and a tab that can say a locale key.
+    """
+    import types
+
+    from panel.tabs.secret_tasks.autoloot import AutoLoot
+
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    said, put = [], []
+    rt = types.SimpleNamespace(
+        children=_Children(lines), actions=_Actions(ok, reason),
+        settings=types.SimpleNamespace(opt_int=lambda key, low=0, high=0: 5),
+        put=put.append)
+    tab = types.SimpleNamespace(
+        t=i18n.t, level_min_var=_Var("7"), skip_own_var=_Var(False),
+        say=lambda tag, key, **fmt: said.append(key))
+    order = AutoLoot(rt, tab)
+    return order, rt, said, put
+
+
+def _drain(order) -> None:
+    """Wait for the reader thread `run()` started — the whole two-step lives on it."""
+    import time as _time
+    for _ in range(200):
+        if order._proc is None:
+            return
+        _time.sleep(0.01)
+    raise AssertionError("the robbery never finished")
+
+
+def test_the_robbery_parks_with_the_tool_and_presses_with_the_recipe():
+    """#1188: the tool SELECTS and parks, `actions/steal_secret_task.md` robs.
+
+    The refactor plan promised one line — swap the spawn for `run_action` — and it would
+    have thrown the target selection away: the recipe opens by reading a queue and logs
+    «run tools/steal_secret_task.py first» when there is none. So the tool still runs,
+    with `--queue-only`, and the pressing is the scenario's.
+    """
+    order, rt, _said, _put = _order(["robberies left today: 4",
+                                     "  target @[1,2|100]  uuid=1 srv=100",
+                                     "queued 1 target(s) — run actions/…"])
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
+
+    assert "--queue-only" in rt.children.cmd, rt.children.cmd
+    assert "steal_secret_task.py" in " ".join(rt.children.cmd)
+    # …and the chosen target still travels by name, not re-derived (#1256).
+    assert "--targets" in rt.children.cmd and "1:100" in rt.children.cmd
+    # The ability itself is the scenario, played once.
+    assert rt.actions.played == ["steal_secret_task"], rt.actions.played
+
+
+def test_a_parking_run_that_declined_is_not_followed_by_a_press():
+    """No «queued …» line, no recipe. A tool that refused — a client that is not logged
+    in, an own server it could not read — left the queue alone, and playing the recipe
+    over somebody else's leftovers is how a raid gets spent on the wrong tile."""
+    order, rt, _said, _put = _order(
+        ["the client is not logged in (it cannot say what time it is) — nothing read "
+         "and nothing robbed; log the game in and run this again"])
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
+    assert rt.actions.played == [], rt.actions.played
+
+
+def test_a_spent_budget_pauses_instead_of_pressing():
+    """The one line this watcher steers by survives the split.
+
+    `--queue-only` returns before the tool's own «the day's robberies are spent», but it
+    prints the budget BEFORE it parks — so «robberies left today: 0» still arrives, the
+    order pauses, and it does not play a recipe that could only press nothing.
+    """
+    order, rt, said, _put = _order(["robberies left today: 0",
+                                    "queued 1 target(s) — run actions/…"])
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
+    assert rt.actions.played == [], rt.actions.played
+    assert "log.autoloot.spent" in said, said
+    assert order._pause_until > 0
+
+
+def test_queued_nothing_is_not_a_parked_queue():
+    """«queued 0 target(s)» is the tool saying it left nothing behind.
+
+    It prints the line whether or not anything survived its own gates, so the COUNT is
+    what the reader steers by — a recipe played over an empty queue is a round trip that
+    presses nothing and reports success, which reads exactly like a robbery.
+    """
+    order, rt, _said, _put = _order(["queued 0 target(s) — run actions/…"])
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
+    assert rt.actions.played == [], rt.actions.played
+
+
+def test_a_recipe_that_failed_says_so_in_the_scenarios_own_words():
+    """The scenario is the authority on why it stopped; the panel repeats it."""
+    order, rt, said, _put = _order(["queued 1 target(s) — run actions/…"],
+                                   ok=False, reason="no daemon")
+    order.run([(1, 100, "@[1,2|100]")])
+    _drain(order)
+    assert rt.actions.played == ["steal_secret_task"]
+    assert "log.autoloot.spend_failed" in said, said
 
 
 if __name__ == "__main__":

@@ -182,10 +182,11 @@ def truck_mode(raw) -> str:
 #: * `trucks` and `queues_help` — no ability exists for either yet. The reading is
 #:   still worth having, which is the whole point of `scenario` being optional.
 #: * `secret_steals` and `ghost_steals` — the scenarios exist, and they are deliberately
-#:   NOT offered here. Each only spends a queue that its own tool has to fill first
-#:   (#1188, `CLAUDE.md`), so a press from this board with an empty queue would run,
-#:   succeed and rob nothing — a button that reports success for doing nothing is worse
-#:   than no button. They belong to «Командный пункт», where the queue is filled.
+#:   NOT offered here. Each only SPENDS a queue that its own tool has to park the targets
+#:   in first (#1188, `CLAUDE.md`), so a press from this board with an empty queue would
+#:   run, succeed and rob nothing — a button that reports success for doing nothing is
+#:   worse than no button. They belong to «Командный пункт» and «Секретки», where the
+#:   targets are chosen and the two steps are played in order.
 READ_ERRANDS: tuple = (
     Errand("base_resources", "base_ready", scenario="collect_base_resources"),
     Errand("trucks", "trucks_ready"),

@@ -243,8 +243,8 @@ def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not()
     """Which lines have a button is a decision, not an accident — so it is pinned.
 
     The four without: `trucks` and `queues_help` have no ability at all yet, and the two
-    robberies have one that only spends a queue their own tool fills (#1188) — a press
-    from this board would succeed and rob nothing.
+    robberies have one that only SPENDS a queue their own tool has to park the targets in
+    first (#1188) — a press from this board would succeed and rob nothing.
     """
     runnable = [e.key for e in modelmod.READ_ERRANDS if e.runnable]
     assert runnable == ["base_resources", "hospital_collect", "hospital_heal",

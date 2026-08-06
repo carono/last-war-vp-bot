@@ -283,10 +283,11 @@ a fourth is added the same way (ask, agree, write it in `CLAUDE.md` and
 `docs/panel-tabs.md`, pin it in the test), and the test fails if one of the three quietly
 grows a screen.
 
-Where a tab still drives the game by hand rather than through a scenario — the
-secret-task and ghost robberies spawn their tool, because the recipe only spends a queue
-the tool fills (#1188) — the phone gets the READING and no button. That is an order of
-work, not an exemption: the ability becomes a scenario first, and the button follows.
+Where a tab still drives the game by hand rather than through a scenario — or half by
+hand: the secret-task and ghost robberies press through a scenario now, but still spawn a
+tool to park the targets, because the recipe cannot fill the queue it spends (#1188) —
+the phone gets the READING and no button. That is an order of work, not an exemption: the
+whole ability goes through `rt.actions` first, and the button follows.
 
 The contract a tab author writes against is `docs/panel-tabs.md`, «The phone's copy of
 this tab, and keeping it in step».

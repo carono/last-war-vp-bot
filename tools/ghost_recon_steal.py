@@ -567,6 +567,12 @@ def main() -> int:
     ev.run(lua_actions.ghost_recon_queue_set(pairs), MARKER, 0.6)
 
     if args.queue_only:
+        # THIS LINE IS A CONTRACT, not just a report — see the same note in
+        # tools/steal_secret_task.py. «Командный пункт» runs this tool with
+        # `--queue-only` and then plays `actions/steal_ghost_recon.md` itself (#1188);
+        # «queued …» at the start of a line is how its reader tells «the targets are
+        # parked» from a shut event or an empty list, neither of which touches the
+        # queue (panel/tabs/command_post/ghost.py, QUEUED_MARK).
         print("queued %d target(s) — run actions/steal_ghost_recon.md to spend them"
               % len(pairs))
         return 0
