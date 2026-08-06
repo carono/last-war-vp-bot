@@ -283,6 +283,10 @@ of them to build is the person's call, not an agent's.
 
 ## 4.3 The kick DOES announce itself — and how that was nearly missed
 
+> **The whole of it, including the locale key, the two dead ends and the two live
+> observations, is [`session-kick.md`](session-kick.md).** It was looked for twice;
+> read that before going into the client for it a third time.
+
 **The player sees a plain message: «В ваш аккаунт был выполнен вход с другого
 устройства».** It is the game's own string, key `E100083`, in the tables
 `tools/game_locale.py` reads. So a kick is not silent and never was.

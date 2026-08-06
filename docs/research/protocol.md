@@ -499,6 +499,7 @@ Ordering (t+ from the first frame):
 0.86  --> check.device.change
 1.36  --> common.chat.room.id                  -> country_100, custom_lang_ru_100
 1.49  --> login.other {alliance}               -> full alliance record
+      # NOT the session kick, twice looked for here: docs/research/session-kick.md
 1.58  --> login.ext   {hardware fingerprint}   -> {success: true}
 1.49-2.5 ~90 parallel UI-population calls (activities, shops, heroes, season…)
 2.64  --> meteorite.enter.world                 enter the world map

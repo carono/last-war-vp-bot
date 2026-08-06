@@ -44,7 +44,7 @@ Notes:
 - **Do not launch a second instance** while one is already running.
 - **Single-session game:** if the same account logs in elsewhere, this client gets a
   *"В ваш аккаунт был выполнен вход с другого устройства"* modal and its network
-  session is kicked (see §5). Launching here can itself trigger that on another
+  session is kicked (see §5, and [`session-kick.md`](session-kick.md) for its flag). Launching here can itself trigger that on another
   device. Use a throwaway account for anything you would not want kicked.
 
 Verify it is up:

@@ -133,7 +133,8 @@ holding; only a low obstacle (a barrel) is hoppable. `detect()` therefore report
 vs barrier/truck top ≲0.46·H) and `decide()` jumps only when it is set. Slide (↓) is wired
 (`run … down`, `BOXED_ACTION`) but its effect on the on-legs construction barriers is
 **unverified**: the live slide test was cut short when a **concurrent login from another
-device kicked the session** («В ваш аккаунт был выполнен вход с другого устройства» — the
+device kicked the session** (the flag and the key are
+[`session-kick.md`](session-kick.md)) («В ваш аккаунт был выполнен вход с другого устройства» — the
 client froze mid-run, then closed on confirm). Re-testing needs sole possession of the
 account. The dominant real killer remains the detector *over-blocking an escape lane*
 (false positive on the right, where a parallel truck / kerb rock reads as blocked), which
