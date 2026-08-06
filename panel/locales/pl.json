@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "gotowy (z mapy)",
   "secrettasks.ghost.state.map_running": "wciąż w terenie (z mapy)",
   "secrettasks.empty_hidden": "nic nie pokazano: {n} na własnym serwerze, ukryte przez «Ukryj własny serwer»",
+  "secrettasks.seen_ago": "widziane {n} min temu",
   "tab.command_post": "Tajne stanowisko dowodzenia",
   "cmdpost.tab.ghost": "Operacja Widmo",
   "cmdpost.tab.shared": "Tajny oddział mobilny",

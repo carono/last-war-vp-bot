@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "hazır (haritadan)",
   "secrettasks.ghost.state.map_running": "hâlâ sahada (haritadan)",
   "secrettasks.empty_hidden": "hiçbir şey gösterilmiyor: {n} kendi sunucunda, «Kendi sunucumu gizle» tarafından gizlendi",
+  "secrettasks.seen_ago": "{n} dk önce görüldü",
   "tab.command_post": "Gizli Komuta Merkezi",
   "cmdpost.tab.ghost": "Hayalet Operasyonu",
   "cmdpost.tab.shared": "Gizli Mobil Takım",

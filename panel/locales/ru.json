@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "готов (с карты)",
   "secrettasks.ghost.state.map_running": "ещё идёт (с карты)",
   "secrettasks.empty_hidden": "ничего не показано: {n} на своём сервере, скрыты фильтром «Скрывать со своего сервера»",
+  "secrettasks.seen_ago": "данные {n} мин назад",
   "tab.command_post": "Секретный командный пункт",
   "cmdpost.tab.ghost": "Операция Призрак",
   "cmdpost.tab.shared": "Секретный мобильный отряд",

@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "sẵn sàng (từ bản đồ)",
   "secrettasks.ghost.state.map_running": "vẫn đang đi (từ bản đồ)",
   "secrettasks.empty_hidden": "không hiển thị gì: {n} trên máy chủ của mình, bị ẩn bởi «Ẩn máy chủ của mình»",
+  "secrettasks.seen_ago": "thấy {n} phút trước",
   "tab.command_post": "Sở Chỉ Huy Bí Mật",
   "cmdpost.tab.ghost": "Chiến Dịch Linh Hồn",
   "cmdpost.tab.shared": "Đội Cơ Động Bí Mật",

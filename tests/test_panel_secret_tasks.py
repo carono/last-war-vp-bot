@@ -854,6 +854,10 @@ class _FakeAllianceGrid:
     def tick(self) -> None:
         self.ticks += 1
 
+    def restore(self) -> None:
+        """The map page keeps a list of its own and reads it back (#1251)."""
+        self.restored = getattr(self, "restored", 0) + 1
+
 
 class _FakeTable:
     """Enough of a Treeview for a grid to draw itself into without a display."""
@@ -2258,6 +2262,91 @@ def test_each_page_saves_its_filters_under_its_own_key():
     # …and a page with no block of its own reads as a fresh one, not as a crash.
     fresh.apply_config(None)
     assert fresh.level_from.get() == "" and fresh.monitor_var.get() is False
+
+
+def test_the_capture_only_fills_the_list_and_never_empties_it():
+    """«Мониторинг только наполняет наши таблицы» (#1251).
+
+    A finding that reached the list STAYS in it: the checkpoint reader hands over
+    everything it holds, however long ago the map was last driven past it. The list
+    empties by its own rules — an expiry, a robbery, a live read that stops confirming
+    — and «нас давно не сканировали» is not one of them.
+    """
+    import json as _json
+    import tempfile
+    import time as _time
+    import lastwar_proto as proto
+
+    old_seen = _time.time() - 3 * proto.TASK_FRESH_SECONDS
+    record = dict(_row(1, 7, -5_000, 600_000))
+    record.pop("timer"), record.pop("frame")
+    record = {"uuid": 1, "server_id": 1, "x": 1, "y": 2, "level": 7,
+              "cfg_id": 60000701, "family": "6000", "looted_by": [],
+              "owner_uid": "1000000000000001", "alliance_id": "AL1",
+              "expires_at": None, "completed_at": None, "seen_at": old_seen}
+    path = tempfile.mktemp(suffix=".json")
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump([record], fh)
+
+    # The window still exists for whoever asks for it — a robbery does…
+    assert proto.load_fresh_tasks(path) == []
+    # …and the panel's own feed does not: the list is the panel's from here on.
+    kept = proto.load_fresh_tasks(path, max_age_seconds=None)
+    assert len(kept) == 1 and kept[0].uuid == 1
+
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    fetch = src.split("def _fetch_scan")[1].split("\n    def ")[0]
+    assert "max_age_seconds=None" in fetch, "the tab still drops findings for being old"
+
+
+def test_an_old_row_says_its_age_instead_of_vanishing():
+    """The window is a WORD now, not a filter (#1251)."""
+    import time as _time
+
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    rows = {"1": dict(_row(1, 7, -5_000, 600_000),
+                      seen_at=_time.time() - 40 * 60)}
+    gr.refresh_timers(rows, i18n.t)
+    said = rows["1"]["timer"].get()
+    assert i18n.t("secrettasks.seen_ago", n=40) in said, said
+
+    # …and a row seen a moment ago says nothing about its age at all.
+    rows = {"2": dict(_row(2, 7, -5_000, 600_000), seen_at=_time.time() - 30)}
+    gr.refresh_timers(rows, i18n.t)
+    assert "мин назад" not in rows["2"]["timer"].get()
+
+
+def test_the_map_page_keeps_its_own_list_and_checkpoints_it():
+    """The map page is nobody's mirror: a lap that shows the south does not mean the
+    north is empty, so a read ADDS rather than replaces (#1251)."""
+    from panel.tabs.secret_tasks import ghost as gh
+
+    page = _ghost_grid(gh.GhostMapGrid)
+    saved = []
+    page.persist = lambda: saved.append(len(page._rows))
+
+    page.apply([_ghost_record(1), _ghost_record(2)])
+    assert set(page._rows) == {"1", "2"}
+    # A second lap, of a different patch of the world: the first two stay.
+    page.apply([_ghost_record(3)])
+    assert set(page._rows) == {"1", "2", "3"}
+    assert saved == [2, 3], saved
+
+    # …and so does the alliance page, for the same reason: its source was watched
+    # emptying mid-event (13 rows, then 1, then 0) as squads came home, and a blink
+    # must not take the table with it.
+    ally = _ghost_grid(gh.GhostAllianceGrid)
+    ally.apply([_ghost_record(1), _ghost_record(2)])
+    ally.apply([_ghost_record(3)])
+    assert set(ally._rows) == {"1", "2", "3"}
+
+    # The secret-task alliance page IS still a mirror: that read hands over the whole
+    # table every time (200 tasks live), so what it no longer lists has ended.
+    mirror = _alliance_grid()
+    mirror.apply([_member_task(1), _member_task(2)])
+    mirror.apply([_member_task(3)])
+    assert set(mirror._rows) == {"3"}
 
 
 if __name__ == "__main__":

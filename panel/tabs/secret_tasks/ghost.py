@@ -213,6 +213,37 @@ class _GhostGrid(grid.TaskGrid):
             })
         return items
 
+    def persist(self) -> None:
+        """Only the map page keeps a checkpoint of its own; the others are re-read."""
+
+    # -- OUR list, which a read only FILLS (#1251) ------------------------------------
+    def apply(self, records) -> None:
+        """MERGE a read into this page's own list — never replace it.
+
+        «Мониторинг только наполняет наши таблицы, дальше это наши данные.» Every
+        source here is partial: a lap of the map shows the patch it drove over, and even
+        the client's own lists were watched emptying mid-event (13 rows, then 1, then
+        0) as squads returned and the server re-sent less. Replacing the table with the
+        last answer made it blink; keeping it makes the panel's list the panel's.
+
+        A row leaves by THIS list's rules and no others: its own clock runs out
+        (`grid.refresh_timers` drops an expired one), or it is robbed. «Nobody has
+        re-read it lately» is not a reason — that is `seen_at`, which the row SAYS.
+        """
+        for record in records or ():
+            key = str(record["uuid"])
+            row = self._rows.get(key)
+            if row is None:
+                # Through the grid module, like the base class: one place makes a row's
+                # countdown variable, which is what lets a test stand in for it.
+                row = grid.new_row(record, grid.tk_stringvar(self.tab.rt.root))
+            else:
+                self.update_row(row, record)
+            self.decorate(row, record)
+            self._rows[key] = row
+        self.render()
+        self.persist()
+
     def web_rows(self) -> list:
         """The event itself, as the card's own two lines: is it open, and how many left.
 
@@ -273,6 +304,59 @@ class GhostMapGrid(_GhostGrid):
     def _state_key(self, record) -> str:          # noqa: D102 — see the base
         return ("secrettasks.ghost.state.map_ready" if record.get("ready")
                 else "secrettasks.ghost.state.map_running")
+
+    def decorate(self, row, record) -> None:
+        super().decorate(row, record)
+        # How old this row's information is. Kept on the row so the state cell can say
+        # it, and checkpointed with the rest.
+        row["seen_at"] = record.get("seen_at")
+
+    def update_row(self, row, record) -> None:
+        super().update_row(row, record)
+        row["x"], row["y"] = record.get("x"), record.get("y")
+        row["server"] = record.get("server")
+        row["completed_at"] = record.get("completed_at")
+        row["expires_at"] = record.get("expires_at")
+        row["loot_count"] = record.get("loot_count")
+
+
+    # -- surviving a restart ----------------------------------------------------------
+    def persist(self) -> None:            # noqa: D102 — overrides the no-op above
+        """Checkpoint this page's own list, whole — the same pattern the ★ list uses."""
+        from ...profile import _write_json
+        try:
+            _write_json(self.tab.rt.profiles.ghost_map_state_json(),
+                        [{k: row.get(k) for k in
+                          ("uuid", "server", "owner_server", "target_server", "x", "y",
+                           "cfg_id", "level", "starred", "colour", "loot_max",
+                           "loot_count", "completed_at", "expires_at", "owner_uid",
+                           "alliance_id", "members", "seen_at", "ready")}
+                         for row in self._rows.values()])
+        except Exception:                     # noqa: BLE001 — a checkpoint, never the tab
+            pass
+
+    def restore(self) -> None:
+        """Read the page's own list back — what the last session had gathered.
+
+        A row already past its own expiry is dropped here rather than drawn and then
+        dropped a second later, exactly as the ★ list does it.
+        """
+        import json
+
+        import game_clock
+        try:
+            with open(self.tab.rt.profiles.ghost_map_state_json(),
+                      encoding="utf-8") as fh:
+                records = json.load(fh)
+        except (OSError, ValueError):
+            return
+        if not isinstance(records, list):
+            return
+        now = game_clock.now_ms()
+        alive = [r for r in records if isinstance(r, dict) and r.get("uuid")
+                 and not (r.get("expires_at") and r["expires_at"] <= now)]
+        if alive:
+            self.apply(alive)
 
     # -- this page's own sniffer ------------------------------------------------------
     def extra_filters(self, bar) -> None:

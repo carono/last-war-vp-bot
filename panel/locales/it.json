@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "pronta (dalla mappa)",
   "secrettasks.ghost.state.map_running": "ancora fuori (dalla mappa)",
   "secrettasks.empty_hidden": "non è mostrato nulla: {n} sul proprio server, nascosti da «Nascondere il proprio server»",
+  "secrettasks.seen_ago": "visto {n} min fa",
   "tab.command_post": "Posto di Comando Segreto",
   "cmdpost.tab.ghost": "Operazioni Fantasma",
   "cmdpost.tab.shared": "Manovre furtive",

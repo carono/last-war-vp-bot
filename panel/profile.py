@@ -90,6 +90,10 @@ SECRET_SHARED = "secret_shared.jsonl"
 # because the record shapes differ — handing one scan's checkpoint to the other's
 # reader is exactly the mix-up the secret-task capture already guards against.
 GHOST_JSON = "ghost_recon_tiles.json"
+#: The «Призрак: карта» page's OWN list — what it has gathered from the tile capture and
+#: kept, as opposed to what the capture currently sees (#1251). The capture fills; the
+#: list is the panel's, survives a restart, and empties by its own rules.
+GHOST_MAP_STATE = "ghost_map_state.json"
 TREASURES_JSON = "world_treasures.json"
 # The profile's own timer catalogue and the record of when each of them last ran
 # (panel/timers.py). Both per profile: one account's schedule is not the other's,
@@ -524,6 +528,15 @@ class ProfileManager:
     def ghost_json(self, name: str | None = None) -> str:
         """Where the ghost-recon tile scan checkpoints the squads it can see."""
         return os.path.join(self.dir(name), GHOST_JSON)
+
+    def ghost_map_state_json(self, name: str | None = None) -> str:
+        """Where the «Призрак: карта» page checkpoints its OWN list (#1251).
+
+        Not the same file as `ghost_json`: that one is what the capture currently sees
+        and is rewritten every tick, while this is what the page has gathered and is
+        keeping — the distinction the whole «мониторинг только наполняет» rule is about.
+        """
+        return os.path.join(self.dir(name), GHOST_MAP_STATE)
 
     def treasures_json(self, name: str | None = None) -> str:
         """Where the treasure scan checkpoints the chests it can see."""

@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "bereit (von der Karte)",
   "secrettasks.ghost.state.map_running": "noch unterwegs (von der Karte)",
   "secrettasks.empty_hidden": "nichts zu sehen: {n} auf dem eigenen Server, ausgeblendet von «Eigenen Server ausblenden»",
+  "secrettasks.seen_ago": "vor {n} Min. gesehen",
   "tab.command_post": "Geheimer Kommandoposten",
   "cmdpost.tab.ghost": "Geistereinsatz",
   "cmdpost.tab.shared": "Geheime Mobile Einheit",

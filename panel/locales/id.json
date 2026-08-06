@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "siap (dari peta)",
   "secrettasks.ghost.state.map_running": "masih di luar (dari peta)",
   "secrettasks.empty_hidden": "tidak ada yang ditampilkan: {n} di server sendiri, disembunyikan oleh «Sembunyikan server sendiri»",
+  "secrettasks.seen_ago": "terlihat {n} mnt lalu",
   "tab.command_post": "Pos Komando Rahasia",
   "cmdpost.tab.ghost": "Operasi Hantu",
   "cmdpost.tab.shared": "Skuad Mobile Rahasia",

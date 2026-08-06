@@ -747,9 +747,17 @@ def filter_tasks(tasks, level=None, star_only=False, can_loot=False,
     return out
 
 
-def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
+def load_fresh_tasks(path, max_age_seconds: "float | None" = TASK_FRESH_SECONDS,
                      now: float | None = None) -> list:
     """Load a capture checkpoint, keeping only tiles re-seen this scan window.
+
+    ``max_age_seconds=None`` keeps EVERYTHING the checkpoint holds. That is what a
+    panel list wants (#1251): the capture is a SOURCE, and what it finds belongs to the
+    panel's own list from then on — kept, checkpointed, and removed when the panel's own
+    rules say so (the task expired, it was robbed, a live read no longer confirms it),
+    not because nobody has driven the map past it lately. A robbery decision is a
+    different question and still asks for the window: see `AUTOLOOT_FRESH_SECONDS`'s
+    callers.
 
     A raid decision must ignore any tile last observed outside the current
     window: its cached state is unverifiable and looks identical to a live one
@@ -786,7 +794,8 @@ def load_fresh_tasks(path, max_age_seconds: float = TASK_FRESH_SECONDS,
     fresh = []
     for record in records or ():
         seen = record.get("seen_at")
-        if seen is None or now - seen > max_age_seconds:
+        if max_age_seconds is not None and (seen is None
+                                            or now - seen > max_age_seconds):
             continue
         fresh.append(SecretTask.from_dict(record))
     return fresh
@@ -1065,6 +1074,11 @@ class GhostReconMission:
     team_start_time: int | None
     completion_time: int | None
     expire_time: int | None
+    #: When the capture last SAW this tile (epoch seconds on the capture host), or None
+    #: for a record that carries no stamp. Not a wire field — the checkpoint's own — and
+    #: kept because a reader should be able to say how old its information is instead of
+    #: hiding a row for being old (#1251).
+    seen_at: float | None = None
 
     @property
     def running(self) -> bool:
@@ -1380,7 +1394,7 @@ def filter_ghost_recon(missions, level=None, family=None, star_only=False,
     return out
 
 
-def load_fresh_ghost_recon(path, max_age_seconds: float = TASK_FRESH_SECONDS,
+def load_fresh_ghost_recon(path, max_age_seconds: "float | None" = TASK_FRESH_SECONDS,
                            now: float | None = None) -> list:
     """Load a ghost-recon scan checkpoint, keeping only tiles re-seen this window.
 
@@ -1388,6 +1402,12 @@ def load_fresh_ghost_recon(path, max_age_seconds: float = TASK_FRESH_SECONDS,
     stopped re-sending may have returned, been looted out or expired, and a stale
     record is indistinguishable from a live one. What survives comes back as
     `GhostReconMission` objects, so `can_loot` is recomputed against the clock.
+
+    ``max_age_seconds=None`` keeps everything, for the same reason as above (#1251):
+    the panel's list is the panel's, and the capture only fills it.
+
+    Each mission comes back with the `seen_at` it was checkpointed with, so a reader
+    can SAY how old a row's information is instead of hiding the row for being old.
     """
     now = time.time() if now is None else now
     with open(path, encoding="utf-8") as fh:
@@ -1396,9 +1416,17 @@ def load_fresh_ghost_recon(path, max_age_seconds: float = TASK_FRESH_SECONDS,
     fresh = []
     for record in records or ():
         seen = record.get("seen_at")
-        if seen is None or now - seen > max_age_seconds:
+        if max_age_seconds is not None and (seen is None
+                                            or now - seen > max_age_seconds):
             continue
-        fresh.append(GhostReconMission.from_dict(record))
+        mission = GhostReconMission.from_dict(record)
+        # Not a field of the wire record — the capture stamps it — so it rides on the
+        # object rather than in the dataclass, which mirrors the game's own message.
+        try:
+            mission.seen_at = seen
+        except AttributeError:               # slots: an older build without the field
+            pass
+        fresh.append(mission)
     return fresh
 
 

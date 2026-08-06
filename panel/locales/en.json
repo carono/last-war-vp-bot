@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "ready (from the map)",
   "secrettasks.ghost.state.map_running": "still out (from the map)",
   "secrettasks.empty_hidden": "nothing shown: {n} on your own server, hidden by «Hide my own server»",
+  "secrettasks.seen_ago": "seen {n} min ago",
   "tab.command_post": "Secret Command Post",
   "cmdpost.tab.ghost": "Ghost Ops",
   "cmdpost.tab.shared": "Secret Mobile Squad",

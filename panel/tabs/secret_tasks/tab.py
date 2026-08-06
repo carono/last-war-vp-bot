@@ -350,6 +350,9 @@ class SecretTasksTab(PanelTab):
         if self._restore_pending:
             self._render()
             self._update_status()
+        # …and the map page's own list, for the same reason: it is the panel's list, so
+        # it survives the panel closing (#1251).
+        self.ghost_map.restore()
         self._start_clock_sync()
         self._start_ticking()
         self._prime_own_server()
@@ -392,6 +395,8 @@ class SecretTasksTab(PanelTab):
         self.ghost.clear()
         self.ghost_allies.clear()
         self.ghost_map.clear()
+        if self.loaded:
+            self.ghost_map.restore()
         # …and so do the shares: «уже поделились» is about an alliance chat this account
         # is not in (#1245). Dropped rather than re-read, because the new profile's own
         # file is read by the next countdown pass anyway.
@@ -1530,15 +1535,26 @@ class SecretTasksTab(PanelTab):
         self._merge(tasks)
 
     def _fetch_scan(self) -> list:
-        """The live, starred secret tasks off the capture checkpoint — the wire feed.
+        """Everything the capture has checkpointed — the wire feed into OUR list.
 
-        `load_fresh_tasks` keeps only tiles the capture re-saw this scan window and
-        recomputes `can_loot` / `pending` against the clock, so a file written a while ago
-        cannot smuggle a stale tile in. A missing checkpoint (the capture never ran) or a
-        malformed one raises and is caught upstream as "no new tiles".
+        NO FRESHNESS WINDOW HERE ANY MORE (#1251). The capture is a SOURCE: its job is
+        to bring findings into the tab's own list and stop there. What happens to a row
+        afterwards is the list's own business — it is kept, checkpointed across a
+        restart, and removed when THIS tab's rules say so: the task expired, it was
+        robbed, or a live read stopped confirming it (`_merge`, `_tick`,
+        `_poll_apply`). Dropping a row because nobody has driven the map past it for
+        fifteen minutes made a lap of the map show nothing at all half an hour later,
+        which is exactly the wrong way round.
+
+        The window still governs a ROBBERY, which is a different question with a
+        different cost — that gate lives in the auto-loot watcher, not here.
+
+        A missing checkpoint (the capture never ran) or a malformed one raises and is
+        caught upstream as "no new tiles".
         """
         import lastwar_proto as proto
-        tasks = proto.load_fresh_tasks(self.rt.profiles.tasks_json())
+        tasks = proto.load_fresh_tasks(self.rt.profiles.tasks_json(),
+                                       max_age_seconds=None)
         return [t for t in tasks if t.starred]
 
     def _fetch_vm(self) -> list:

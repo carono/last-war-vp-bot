@@ -21,6 +21,7 @@ of them was tested that way.
 """
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -271,8 +272,29 @@ def refresh_timers(rows, t) -> tuple:
         # within the second without the table being rebuilt.
         if row.get("shared"):
             state = "%s · %s" % (state, t("secrettasks.shared_mark"))
+        # HOW OLD THIS ROW'S INFORMATION IS, when it is old (#1251). The capture only
+        # fills the list; a row nobody has driven the map past for a while is still a
+        # row, and the honest thing is to SAY that rather than to hide it. Judged on the
+        # machine's clock because `seen_at` is stamped there, not by the game.
+        stale = _stale_minutes(row.get("seen_at"))
+        if stale:
+            state = "%s · %s" % (state, t("secrettasks.seen_ago", n=stale))
         row["timer"].set(state)
     return expired, changed
+
+
+#: How old a row's information has to be before the state cell says so, in seconds.
+#: The same fifteen minutes the capture's own scan window used to DROP a row after —
+#: kept as the threshold for a WORD, which is all it should ever have been (#1251).
+STALE_AFTER = 15 * 60
+
+
+def _stale_minutes(seen_at) -> int:
+    """Whole minutes since the capture last saw this row, or 0 while that is recent."""
+    if not seen_at:
+        return 0
+    age = time.time() - float(seen_at)
+    return int(age // 60) if age > STALE_AFTER else 0
 
 
 def paint_timers(tree, rows) -> None:

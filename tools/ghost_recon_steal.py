@@ -309,14 +309,18 @@ def map_roster(path, config=None) -> list[dict]:
     GAME gives them rather than what its cfgId's digits spell. Without a config the
     arithmetic is the fallback, exactly as everywhere else here.
 
-    A stale checkpoint is no rows: the reader keeps only what the capture re-saw this
-    scan window, so a tile last seen an hour ago cannot pose as a live target.
+    EVERYTHING the checkpoint holds comes back, however long ago it was last seen
+    (#1251). The capture only FILLS a list; what is kept and what is dropped is the
+    list's own rule — a tile leaves it when its own clock says it is over, when it was
+    robbed, or when a live read stops confirming it, and never merely because the map
+    has not been driven past it lately. Each row carries `seen_at`, so a reader can say
+    how old its information is rather than hide it for being old.
     """
     import lastwar_proto as proto
 
     config = config or {}
     out = []
-    for m in proto.load_fresh_ghost_recon(path):
+    for m in proto.load_fresh_ghost_recon(path, max_age_seconds=None):
         if m.uuid is None or m.empty:
             continue
         cfg = config.get(m.cfg_id or 0, {})
@@ -342,6 +346,9 @@ def map_roster(path, config=None) -> list[dict]:
             # uid and no name anywhere. Left empty rather than filled with a number.
             "owner_name": "",
             "members": m.member_count,
+            # When the capture last saw this tile — the row says so when it is old,
+            # instead of vanishing (#1251).
+            "seen_at": getattr(m, "seen_at", None),
             "mine": False,
             # The game's per-tile gate only answers for squads in the client's own
             # list, so a tile off the map is judged by its clock — which is what

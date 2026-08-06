@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "pronto (do mapa)",
   "secrettasks.ghost.state.map_running": "ainda fora (do mapa)",
   "secrettasks.empty_hidden": "nada mostrado: {n} no teu próprio servidor, ocultos por «Ocultar o meu servidor»",
+  "secrettasks.seen_ago": "visto há {n} min",
   "tab.command_post": "Posto de Comando Secreto",
   "cmdpost.tab.ghost": "Operações Fantasmas",
   "cmdpost.tab.shared": "Equipe de Operações Secretas",

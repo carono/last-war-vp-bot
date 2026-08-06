@@ -767,6 +767,7 @@
   "secrettasks.ghost.state.map_ready": "prête (depuis la carte)",
   "secrettasks.ghost.state.map_running": "encore dehors (depuis la carte)",
   "secrettasks.empty_hidden": "rien d'affiché : {n} sur ton propre serveur, masqués par «Masquer mon serveur»",
+  "secrettasks.seen_ago": "vu il y a {n} min",
   "tab.command_post": "Poste de Commandement Secret",
   "cmdpost.tab.ghost": "Opérations Fantômes",
   "cmdpost.tab.shared": "Escouade Mobile Secrète",
