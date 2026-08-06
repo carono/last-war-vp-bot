@@ -49,7 +49,22 @@ def current_server() -> str:
             % current_server_expr())
 
 
-def jump_to_coord(x: int, y: int, server: "int | None" = None) -> str:
+#: The camera height the in-game coordinate jump uses — the client's own `InitZoom`.
+#: Every jump that is about ONE tile keeps it: it is the height at which a person can
+#: read the tile they landed on.
+JUMP_ZOOM = 105
+
+#: The highest camera height at which the server still sends SECRET-TASK tiles, and the
+#: number a map sweep wants (task #1265, docs/research/map-sweep-zoom.md). Tile loading
+#: is gated on the client's LOD, whose ladder is 150 / 250 / 400 / 600 / 1200 / … — so
+#: 600 is the top of LOD 4, and 601 is LOD 5, where `f2=17` tiles stop arriving
+#: altogether while bases, mines and strongholds keep coming. Measured live: one jump
+#: at 105 loaded 9 secret tasks, the same jump at 600 loaded 112.
+SWEEP_ZOOM_MAX = 600
+
+
+def jump_to_coord(x: int, y: int, server: "int | None" = None,
+                  zoom: "int | None" = None) -> str:
     """Jump to tile (x, y) on `server` — the game's OWN coordinate navigation.
 
     Reproduces exactly what the in-game "go to coordinate on server" flow does (open the
@@ -73,12 +88,24 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None) -> str:
     a link clicked in the log, a row in «Командный пункт» — and the panel used to answer
     it with a separate read before the jump: one more trip through the Lua VM, one more
     settle, and the game only started moving after both (#1230).
+
+    ``zoom`` is the second argument of that call — the camera's height, which decides how
+    much map the client asks the server for. It defaults to the game's own `JUMP_ZOOM`,
+    so a jump that is about one tile is unchanged. A sweep looking for tiles passes
+    `SWEEP_ZOOM_MAX` instead and covers roughly twelve times the ground per jump.
+
+    **Set it BEFORE the jump when it matters.** `GotoWorldPos` tweens position and zoom
+    together, so a jump that also zooms out spends its last frames over the target at a
+    lower height — and picks up tiles the height being asked for would never have loaded.
+    A sweep is unaffected because every waypoint uses the same number, but a measurement
+    that changes it per jump is measuring the tween (#1265).
     """
     sid = str(int(server)) if server is not None else current_server_expr()
+    height = int(JUMP_ZOOM if zoom is None else zoom)
     return ('local srv=%s pcall(function() GoToUtil.GotoWorldPos('
-            'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),105,nil,nil,srv) end) '
+            'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),%d,nil,nil,srv) end) '
             'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv="..tostring(srv))'
-            % (sid, x, y, x, y))
+            % (sid, x, y, height, x, y))
 
 
 def _pid(x: int, y: int) -> str:

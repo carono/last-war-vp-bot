@@ -528,7 +528,8 @@ class GameLink:
             self._log.say("server", "log.server.read_failed", error=exc)
         return DEFAULT_SERVER
 
-    def jump(self, x: int, y: int, server, quiet: bool = False) -> bool:
+    def jump(self, x: int, y: int, server, quiet: bool = False,
+             zoom: "int | None" = None) -> bool:
         """Jump the camera to a tile, on a worker thread. Serialised with every action.
 
         The claim is the ordinary one, so a coordinate clicked in the log and a timer
@@ -537,6 +538,11 @@ class GameLink:
         ``quiet`` is for the map sweep, which jumps dozens of times a pass: its own
         progress line is enough, and a «занят» every few seconds while an errand runs
         would be worse still.
+
+        ``zoom`` is the camera height, and it is `None` for every jump that is about a
+        tile — a coordinate clicked in the log lands where a person can read it. The map
+        sweep passes one, because how high the camera sits is how much map the client
+        asks the server for (`lua_actions.jump_to_coord`, task #1265).
 
         Returns whether the jump was STARTED — ``False`` means the claim was taken by
         something else. The sweep uses that to keep its place instead of losing the
@@ -562,8 +568,9 @@ class GameLink:
                 if not quiet:
                     self._log.say("coord", "log.coord.jumping",
                                   where=coords.fmt(x, y, target))
-                for line in self.client.run(lua_actions.jump_to_coord(x, y, target),
-                                            marker="ACT", settle=1.6, early=True):
+                for line in self.client.run(
+                        lua_actions.jump_to_coord(x, y, target, zoom),
+                        marker="ACT", settle=1.6, early=True):
                     self._log.put(f"[coord] {line}")
                 if not quiet:
                     self._log.say("coord", "log.done")

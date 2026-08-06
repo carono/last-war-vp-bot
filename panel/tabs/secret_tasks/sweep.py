@@ -68,7 +68,13 @@ class Sweep:
         return int(cx), int(cy)
 
     def box(self) -> tuple:
-        """``(radius, step, dwell, rest)`` — the Settings page's four knobs, bounded."""
+        """``(radius, step, dwell, rest, zoom)`` — the Settings page's five knobs, bounded.
+
+        The zoom is bounded at `mapsweepmod.MAX_ZOOM` and not by the camera's own limit:
+        the client stops asking the server for secret-task tiles above that height, so a
+        sweep allowed to go higher would walk the box faster and come back with nothing
+        (task #1265, docs/research/map-sweep-zoom.md).
+        """
         opt = self.rt.settings
         return (
             opt.opt_int("sweep_radius", low=mapsweepmod.MIN_RADIUS,
@@ -76,6 +82,8 @@ class Sweep:
             opt.opt_int("sweep_step", low=1, high=mapsweepmod.MAX_STEP),
             opt.opt_float("sweep_dwell", low=0.2, high=60.0),
             opt.opt_int("sweep_rest_min", low=0, high=1440) * 60.0,
+            opt.opt_int("sweep_zoom", low=mapsweepmod.MIN_ZOOM,
+                        high=mapsweepmod.MAX_ZOOM),
         )
 
     def rule_text(self) -> str:
@@ -83,7 +91,7 @@ class Sweep:
         centre = self.centre()
         if centre is None:
             return self.tab.t("sweep.no_centre")
-        radius, step, dwell, _rest = self.box()
+        radius, step, dwell, _rest, _zoom = self.box()
         jumps, seconds = mapsweepmod.describe(centre[0], centre[1], radius, step, dwell)
         return self.tab.t("sweep.rule", side=radius * 2 + 1, jumps=jumps,
                           mins=max(1, int(seconds // 60)))
@@ -108,7 +116,7 @@ class Sweep:
                 if centre is None:
                     self.tab.say("sweep", "sweep.no_centre")
                     return
-                radius, step, dwell, rest = self.box()
+                radius, step, dwell, rest, zoom = self.box()
                 points = mapsweepmod.waypoints(centre[0], centre[1], radius, step)
                 if self._at >= len(points):
                     # A pass is done. Rest before the next one: the map does not change
@@ -129,7 +137,7 @@ class Sweep:
                 # a button press holds the claim, and losing the waypoint would leave a
                 # hole in the pass — exactly the band of tiles the sweep exists to cover.
                 # It waits out the dwell and tries the same one again.
-                if self.rt.game.jump(x, y, None, quiet=True):
+                if self.rt.game.jump(x, y, None, quiet=True, zoom=zoom):
                     self._at += 1
                 last_err = ""
             except Exception as exc:      # noqa: BLE001 — one tick, not the loop

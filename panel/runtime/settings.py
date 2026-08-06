@@ -145,6 +145,9 @@ DEFAULTS: dict = {
     "sweep_step": mapsweepmod.DEFAULT_STEP,
     "sweep_dwell": mapsweepmod.DEFAULT_DWELL,
     "sweep_rest_min": 5,           # pause between two full passes, minutes
+    # How high the camera sits while the sweep walks. Capped at the height above which
+    # the client stops asking for secret-task tiles (panel/mapsweep.py, #1265).
+    "sweep_zoom": mapsweepmod.DEFAULT_ZOOM,
     # Where «Отправить диагностику» ships the zipped debug logs (panel/debug_sender.py).
     # Empty = do not send: the archive is still written, but nothing leaves the box.
     "debug_send_url": "",

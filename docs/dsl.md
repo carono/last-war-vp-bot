@@ -642,16 +642,25 @@ GAME WORLD
 The vision-based `go_to_world.md` clicks the on-screen toggle instead; use whichever
 fits — the Lua path is layout-proof, the vision path needs no daemon.
 
-### `JUMP x, y [, server]`
+### `JUMP x, y [, server] [ZOOM height]`
 
 Jump the camera to tile `(x, y)`. With no server it stays on the one the client is
 looking at — the chunk asks the game itself, so this costs no extra call — and with a
 third number it enters that server (cross-server jump). Wraps the game's own
 coordinate-jump, `GoToUtil.GotoWorldPos`.
 
+`ZOOM` is the camera's height, and it decides how much map the client asks the server
+for. Left out, it is the game's own jump height (105) — the height at which a person can
+read the tile they landed on, and what a jump about ONE tile wants. A scan passes a
+bigger number: **600 is the ceiling worth using**, because above it the client stops
+asking for secret-task tiles altogether while bases and mines keep arriving
+(docs/research/map-sweep-zoom.md). One jump at 600 loads roughly ±50 tiles against ±15
+at 105.
+
 ```
 JUMP 512, 640
 JUMP 512, 640, 300
+JUMP 512, 640 ZOOM 600
 ```
 
 ## Conditions

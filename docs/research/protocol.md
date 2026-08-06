@@ -641,6 +641,14 @@ finds no trucks, and that is why: they were never tiles.
 
 ### Zoom
 
+> **`viewLvl` is NOT the camera's height** — measured directly in #1265
+> (docs/research/map-sweep-zoom.md §5). Sweeping the same box at camera heights 105 and
+> 600 — five LOD levels apart, one loading nine secret tasks a jump and the other 112 —
+> every single request carried `viewLvl = 0` and `bigMap = 1`. What the height changes is
+> the SIZE of the region asked for: the `index[]` of block ids goes from 12–16 entries to
+> a flat 132. The table below records real observations, so something does move `viewLvl`;
+> it is not the ordinary map camera, and a reader must not infer the zoom from it.
+
 `viewLvl` is the zoom level, and `blockSize` moves with it. Two levels were
 observed:
 

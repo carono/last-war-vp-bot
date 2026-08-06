@@ -334,6 +334,8 @@
   "opt.sweep_rest_min.hint": "La carte ne change pas assez vite pour enchaîner les passages.",
   "opt.sweep_step": "Pas, cases",
   "opt.sweep_step.hint": "Plus court qu'un écran : un saut de plus coûte moins qu'une bande de cases que personne n'a demandée.",
+  "opt.sweep_zoom": "Hauteur de caméra (zoom)",
+  "opt.sweep_zoom.hint": "La quantité de carte chargée par saut. Au-delà de 600, le jeu n'envoie plus les cases de missions secrètes.",
   "opt.trace_filter": "Filtre du journal du traceur",
   "opt.trace_filter.hint": "Filtre d'affichage pour le journal du panneau UNIQUEMENT — l'enregistrement sur le disque garde toujours chaque appel. Un morceau du nom de la fonction Lua ; «SFS» couvre tout le réseau. L'élargir (p. ex. «Manager», «Util») ne montre que davantage de ce qui est déjà sur le disque, mais des dizaines de milliers de lignes par seconde peuvent geler le journal — garde-le étroit. Vide, il montre tout.",
   "opt.watchdog": "Relancer le jeu quand il tombe",

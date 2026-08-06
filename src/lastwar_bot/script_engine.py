@@ -193,7 +193,8 @@ _SCAN_OPT_RE = re.compile(
 # call sugar over the common recipes in tools/lib/lua_actions.py.
 _GAME_SCENE_RE = re.compile(r"^GAME\s+(WORLD|CITY)\s*$", re.IGNORECASE)
 _JUMP_RE = re.compile(
-    r"^JUMP\s+(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?\s*$", re.IGNORECASE,
+    r"^JUMP\s+(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?(?:\s+ZOOM\s+(\d+))?\s*$",
+    re.IGNORECASE,
 )
 # TAP presses a named "button" from the friendly catalogue (tools/lib/game_buttons.py),
 # optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
@@ -315,6 +316,9 @@ class JumpStmt(_Stmt):
     x: int
     y: int
     server: int | None = None
+    #: Camera height. `None` is the game's own jump height, which is what a jump about
+    #: ONE tile wants; a scan passes a bigger one to load more map per jump (#1265).
+    zoom: int | None = None
 
 
 @dataclass(slots=True)
@@ -607,9 +611,10 @@ def _parse_one(lines, i, indent):
     m = _JUMP_RE.match(text)
     if m:
         server = int(m.group(3)) if m.group(3) is not None else None
+        zoom = int(m.group(4)) if m.group(4) is not None else None
         return JumpStmt(
             text=text, line_no=ln,
-            x=int(m.group(1)), y=int(m.group(2)), server=server,
+            x=int(m.group(1)), y=int(m.group(2)), server=server, zoom=zoom,
         ), i + 1
 
     m = _TAP_RE.match(text)
@@ -1302,8 +1307,10 @@ class Interpreter:
         # chunk (lua_actions.jump_to_coord). It used to fall back to `HOME_SERVER`,
         # which is 0 unless the machine sets it — a jump to a server that does not
         # exist, where the live answer was one Lua expression away.
-        self._run_lua(lua_actions.jump_to_coord(stmt.x, stmt.y, stmt.server))
+        self._run_lua(lua_actions.jump_to_coord(stmt.x, stmt.y, stmt.server, stmt.zoom))
         where = f"{stmt.x},{stmt.y}" + (f" srv {stmt.server}" if stmt.server is not None else "")
+        if stmt.zoom is not None:
+            where += f" zoom {stmt.zoom}"
         self._log(f"JUMP -> {where}")
 
     def _do_tap(self, stmt: TapStmt) -> None:

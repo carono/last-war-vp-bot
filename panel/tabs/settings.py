@@ -449,6 +449,8 @@ class SettingsTab(PanelTab):
                 ("sweep_dwell", {"spin": (mapsweepmod.MIN_DWELL,
                                           mapsweepmod.MAX_DWELL), "width": 10}),
                 ("sweep_rest_min", {"spin": (0, 1440), "width": 10}),
+                ("sweep_zoom", {"spin": (mapsweepmod.MIN_ZOOM,
+                                         mapsweepmod.MAX_ZOOM), "width": 10}),
         )):
             self._opt_row(sweep, row, key, **kwargs)
         # The box in words, so the numbers above are not abstract.

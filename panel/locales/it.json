@@ -334,6 +334,8 @@
   "opt.sweep_rest_min.hint": "La mappa non cambia abbastanza in fretta da incatenare le passate.",
   "opt.sweep_step": "Passo, caselle",
   "opt.sweep_step.hint": "Più corto di uno schermo: un salto in più costa meno di una striscia di caselle che nessuno ha chiesto.",
+  "opt.sweep_zoom": "Altezza della telecamera (zoom)",
+  "opt.sweep_zoom.hint": "Quanta mappa carica un salto. Oltre 600 il gioco smette di inviare le caselle delle missioni segrete.",
   "opt.trace_filter": "Filtro del registro del tracciatore",
   "opt.trace_filter.hint": "Filtro di visualizzazione SOLO per il registro del pannello — la registrazione su disco tiene sempre ogni chiamata. Un pezzo del nome della funzione Lua; «SFS» copre tutta la rete. Allargarlo (per es. «Manager», «Util») mostra solo di più di quello che è già su disco, ma decine di migliaia di righe al secondo possono congelare il registro — tienilo stretto. Vuoto mostra tutto.",
   "opt.watchdog": "Riavviare il gioco quando cade",

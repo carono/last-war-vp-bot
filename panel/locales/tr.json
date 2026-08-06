@@ -334,6 +334,8 @@
   "opt.sweep_rest_min.hint": "Harita, turları arka arkaya eklemeye yetecek kadar hızlı değişmiyor.",
   "opt.sweep_step": "Adım, kare",
   "opt.sweep_step.hint": "Bir ekrandan kısa: fazladan bir sıçrama, kimsenin sormadığı bir kare şeridinden ucuza gelir.",
+  "opt.sweep_zoom": "Kamera yüksekliği (yakınlaştırma)",
+  "opt.sweep_zoom.hint": "Bir sıçramanın ne kadar harita yüklediği. 600'ün üzerinde oyun gizli görev karelerini göndermeyi bırakır.",
   "opt.trace_filter": "İzleyici günlüğü süzgeci",
   "opt.trace_filter.hint": "YALNIZ panelin günlüğü için görüntü süzgeci — diskteki kayıt her zaman her çağrıyı tutar. Lua işlev adının bir parçası; «SFS» bütün ağı kapsar. Genişletmek (örn. «Manager», «Util») yalnızca diskte zaten olanın daha çoğunu gösterir, ama saniyede on binlerce satır günlüğü yine de dondurabilir — dar tut. Boş her şeyi gösterir.",
   "opt.watchdog": "Oyun düştüğünde yeniden başlat",
