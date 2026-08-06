@@ -30,6 +30,7 @@ from .. import i18n as i18nmod
 from .. import timers as timersmod
 from .. import triggers as triggersmod
 from .paths import TOOLS, repo_rel
+from . import game_control
 from . import game_process
 
 #: How long a tick waits for the Tk thread to read the switches off the widgets
@@ -196,16 +197,48 @@ class Schedule:
         return name in self._handlers or name in _LISTENER_ONLY
 
     # -- the clock's gate ----------------------------------------------------
-    def gate(self) -> "str | None":
-        """Why no timer may fire right now — or ``None`` to let the tick through.
+    def gate(self, name: "str | None" = None) -> "str | None":
+        """Why this errand may not fire right now — or ``None`` to let it through.
 
         Only the game itself is a hard gate: a recipe fired at a closed client would
         fail, be recorded as a failure and sit out the retry hold for nothing. The
         daemon is not checked here — the runner starts it on demand, exactly as a
         button press does.
+
+        **EXCEPT THE ERRANDS THAT PUT THE CLIENT BACK.** `launch_game` and
+        `restart_game` are the answer to «the game is not running», so gating them on
+        it makes the schedule refuse the one thing that would fix the state it is
+        refusing for. It did exactly that: a client that died at eight in the evening
+        was still dead two hours later, with the six-hourly restart timer sitting in the
+        due list being dropped every tick (#1259). Same shape as the engine's link gate
+        one layer down, and the same cure — the recovery recipes are free BY
+        CONSTRUCTION, taken from the lifecycle table itself rather than from a list
+        here that would drift away from it.
+
+        ``name`` is the errand's, and ``None`` keeps the old blanket meaning for any
+        caller that has no particular errand in mind.
         """
+        if name is not None and self._is_recovery(name):
+            return None
         running, _text = game_process.profile_status(self.rt.settings)
         return None if running else "timers.log.skip_game"
+
+    #: The scenarios that END with a client running, out of the lifecycle table both
+    #: front-ends already read (`game_control.CONTROLS`) — so a press that grows there
+    #: cannot be forgotten here. Everything but the one that only closes: `restart_game`
+    #: belongs in this set even though its BUTTON wants a client (pressing «Перезапустить»
+    #: with nothing running is meaningless, which is a statement about the button), because
+    #: its recipe starts with a `QUIT_GAME` that is a no-op when there is nothing to close
+    #: and goes on to `CALL launch_game` regardless.
+    _RECOVERY = frozenset(c.scenario for c in game_control.CONTROLS
+                          if c.id != game_control.QUIT)
+
+    def _is_recovery(self, name: str) -> bool:
+        """Does errand ``name`` play a recipe that STARTS a client?"""
+        timer = self.timer_catalogue.by_name(name)
+        if timer is None:
+            return False
+        return getattr(timer, "scenario", None) in self._RECOVERY
 
     # -- running one errand --------------------------------------------------
     def run_errand(self, errand) -> bool:

@@ -1105,12 +1105,26 @@ class TimerScheduler:
         if not pending:
             return []
         if self._gate is not None:
-            reason = self._gate()
-            if reason:
-                if reason != self._gate_said:
-                    self._log(reason)
-                    self._gate_said = reason
+            # PER ERRAND, not per tick. The gate that matters is «the game is not
+            # running», and the errand that PUTS IT BACK is on this very list: a
+            # blanket refusal dropped `restart_game` for the one reason it exists,
+            # and a client that died at eight in the evening was still dead at ten
+            # with the schedule reporting «пропускаю: игра не запущена» all night
+            # (#1259). So each name is asked about separately, and the recovery ones
+            # are let through.
+            allowed, refused = [], None
+            for name in pending:
+                reason = self._gate(name)
+                if reason:
+                    refused = reason
+                else:
+                    allowed.append(name)
+            if refused and refused != self._gate_said:
+                self._log(refused)
+                self._gate_said = refused
+            if not allowed:
                 return []
+            pending = allowed
         self._gate_said = None
         return [name for name in pending if self._enqueue(name, scheduled=True)]
 
@@ -1133,7 +1147,7 @@ class TimerScheduler:
             self._release(name)
             return "skipped"
         if self._gate is not None:
-            reason = self._gate()
+            reason = self._gate(name)
             if reason:
                 # The game went away between queueing and running: drop it rather
                 # than fail it — the next tick queues it again, unchanged.

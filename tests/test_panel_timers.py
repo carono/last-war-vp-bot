@@ -684,7 +684,7 @@ def test_gate_holds_everything_and_says_so_once():
     """With the game closed nothing runs, and the log gets one line, not one a tick."""
     tmp = Path(tempfile.mkdtemp())
     closed = ["timers.log.skip_game"]
-    s = _Scheduler(tmp, _cfg(**{BASE: 3600}), gate=lambda: closed[0])
+    s = _Scheduler(tmp, _cfg(**{BASE: 3600}), gate=lambda _name: closed[0])
     for _ in range(5):
         assert s.sched.tick_once() == []
     assert s.ran == [], s.ran
@@ -693,6 +693,30 @@ def test_gate_holds_everything_and_says_so_once():
     # The game comes up: the timer that waited fires on the next tick.
     closed[0] = None
     assert s.sched.tick_once() == [BASE], s.ran
+
+
+def test_the_gate_is_asked_per_errand_so_recovery_is_not_held_by_its_own_reason():
+    """#1259: «the game is not running» must not hold the errand that RUNS it.
+
+    The gate used to be asked once per tick and its answer applied to the whole due
+    list, which dropped `restart_game` for exactly the reason it exists. A client that
+    died at eight in the evening was still dead two hours later, with the schedule
+    logging «пропускаю: игра не запущена» over a due restart every tick.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    asked = []
+
+    def gate(name):
+        asked.append(name)
+        return None if name == BASE else "timers.log.skip_game"
+
+    s = _Scheduler(tmp, _cfg(**{BASE: 3600, ALLY: 3600}), gate=gate)
+    due = s.sched.tick_once()
+    assert BASE in due, f"the exempt errand was held: {due}"
+    assert ALLY not in due, f"the gated errand ran anyway: {due}"
+    assert set(asked) == {BASE, ALLY}, asked
+    # …and the refusal is still said once for the ones that ARE held.
+    assert s.logs.count("timers.log.skip_game") == 1, s.logs
 
 
 def test_settings_are_re_derived_not_trusted():
