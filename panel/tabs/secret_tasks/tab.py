@@ -272,6 +272,15 @@ class SecretTasksTab(PanelTab):
         self._jump_hist: list = []
         self._jump_hist_var = tk_stringvar(master)
         self._jump_hist_combo = None
+        # How far back the camera sits when this tab moves it (#1265). An id from
+        # `lua_actions.ZOOM_LEVELS` — «tile» is the game's own jump height, which is
+        # what every jump did before this and so is what it still does by default.
+        # Imported here and not at the top for the reason `web_view` gives: tools/lib
+        # is only on the path once `panel.runtime.paths` has run.
+        import lua_actions
+        self._zoom_level = lua_actions.DEFAULT_ZOOM_LEVEL
+        self._zoom_label_var = tk_stringvar(master)
+        self._zoom_combo = None
 
         self.alliance = AllianceGrid(self)
         # The third and fourth pages (#1251): the weekly event's squads — mine, and my
@@ -524,6 +533,7 @@ class SecretTasksTab(PanelTab):
             "coord_y": self.coord_y_var.get(),
             "coord_server": self.coord_srv_var.get(),
             "coord_history": list(self._jump_hist),
+            "coord_zoom": self._zoom_level,
         }
 
     def apply_config(self, raw) -> None:
@@ -583,6 +593,8 @@ class SecretTasksTab(PanelTab):
         self.coord_y_var.set(str(raw.get("coord_y", "")))
         self.coord_srv_var.set(str(raw.get("coord_server", "")))
         self._set_jump_history(raw.get("coord_history"))
+        self._zoom_level = str(raw.get("coord_zoom") or self._zoom_level)
+        self._sync_zoom_combo()
         self._refresh_rule_hints()
         self._sync_autoloot_controls()
 
@@ -650,12 +662,25 @@ class SecretTasksTab(PanelTab):
                 "coord.jump").pack(side="left", padx=4, ipady=2)
         self.tr(ttk.Button(box, command=self._load_current_server),
                 "coord.reload_server").pack(side="left", padx=4)
+        # HOW FAR BACK THE CAMERA SITS, on the bar that moves it (#1265). It governs
+        # every jump this tab makes and the lap beside it, and the three choices are
+        # named by what they are FOR: one tile to read, the height secret tasks still
+        # arrive at, and the height that collects bases and nothing else.
+        self.tr(ttk.Label(box), "coord.zoom").pack(side="left", padx=(12, 2))
+        self._zoom_combo = ttk.Combobox(box, textvariable=self._zoom_label_var,
+                                        state="readonly", width=16,
+                                        values=self._zoom_choices())
+        self._zoom_combo.pack(side="left")
+        self._zoom_combo.bind("<<ComboboxSelected>>", self._on_zoom_choice)
+        self.tr(ttk.Button(box, command=self._sweep_once),
+                "coord.sweep_now").pack(side="left", padx=(8, 0), ipady=2)
         self._jump_hist_combo = ttk.Combobox(box, textvariable=self._jump_hist_var,
                                              state="readonly", width=18, values=[])
         self._jump_hist_combo.pack(side="right", padx=(4, 0))
         self._jump_hist_combo.bind("<<ComboboxSelected>>", self._on_jump_history)
         self.tr(ttk.Label(box), "coord.history").pack(side="right", padx=(8, 2))
         self._set_jump_history(self._jump_hist)
+        self._sync_zoom_combo()
 
     def _build_monitor_bar(self) -> None:
         """The ★ sniffer's switch where the eye goes for it, and the map sweep.
@@ -1191,13 +1216,76 @@ class SecretTasksTab(PanelTab):
         self.autoloot.range_changed()
 
     # -- jumping ---------------------------------------------------------------
+    # -- how far back the camera sits (#1265) ----------------------------------
+    def _zoom_choices(self) -> list:
+        """The zoom levels as words, in the order the camera pulls back."""
+        import lua_actions
+        return [self.t(f"coord.zoom.{name}") for name in lua_actions.ZOOM_LEVELS]
+
+    def _zoom_names(self) -> list:
+        import lua_actions
+        return list(lua_actions.ZOOM_LEVELS)
+
+    def _sync_zoom_combo(self) -> None:
+        """Put the current level's word in the box — after a load, or a language change."""
+        names = self._zoom_names()
+        if self._zoom_level not in names:
+            self._zoom_level = names[0]
+        self._zoom_label_var.set(self.t(f"coord.zoom.{self._zoom_level}"))
+        if self._zoom_combo is not None:
+            try:
+                self._zoom_combo.configure(values=self._zoom_choices())
+            except tk.TclError:                     # the page is going away
+                pass
+
+    def _on_zoom_choice(self, _event=None) -> None:
+        """A level was picked: remember it, and say what it means in one line."""
+        import lua_actions
+        chosen = self._zoom_label_var.get()
+        for name in self._zoom_names():
+            if self.t(f"coord.zoom.{name}") == chosen:
+                self._zoom_level = name
+                break
+        height, step = lua_actions.zoom_level(self._zoom_level)
+        self.rt.settings.changed()
+        self.say("coord", "log.coord.zoom", level=self.t(f"coord.zoom.{self._zoom_level}"),
+                 height=height, step=step)
+
+    def _sweep_once(self) -> None:
+        """«Обойти карту»: one lap of the whole server at the chosen height.
+
+        The ability is `actions/scan_map.md` and the panel only plays it — the waypoints,
+        the timer that walks them and the height they are walked at all live in the
+        scenario and its primitive (`CLAUDE.md`). What the tab decides is WHEN, and with
+        which of the three levels the bar is set to.
+
+        The lap only produces traffic; something has to be listening to it, which is the
+        ★ monitor. Saying so is the difference between «nothing was found» and «nothing
+        was written down».
+        """
+        import lua_actions
+        height, step = lua_actions.zoom_level(self._zoom_level)
+        if not (self.capture.running or self.ghost_capture.running):
+            self.say("coord", "log.coord.sweep_unwatched")
+        seconds = lua_actions.fast_sweep_seconds(step) + 2
+        self.say("coord", "log.coord.sweeping",
+                 level=self.t(f"coord.zoom.{self._zoom_level}"), secs=int(seconds))
+        self.rt.play_async("scan_map", {"zoom": height, "step": step}, tag="coord")
+
     def _jump(self, x: int, y: int, server) -> None:
         """The one way this tab walks the camera anywhere. Remembers where it went.
 
         ``server`` may be None — the runtime then jumps on whatever server the client is
         currently looking at, which is what an empty «Сервер» box means.
+
+        The height is the bar's own choice and applies to EVERY jump this tab makes,
+        including a coordinate clicked in the table: two ways to reach the same tile that
+        arrived at different zooms would be the sort of difference nobody can explain
+        afterwards. «Тайл» is the default and is what the jump always did (#1265).
         """
-        if self.rt.game.jump(x, y, server):
+        import lua_actions
+        height, _step = lua_actions.zoom_level(self._zoom_level)
+        if self.rt.game.jump(x, y, server, zoom=height):
             self._remember_jump(x, y, server)
 
     def _goto_coord(self) -> None:
@@ -1916,7 +2004,19 @@ class SecretTasksTab(PanelTab):
                            "actions": [self._ghost_monitor_action()]}],
                 "now": now,
                 # What is left at the bottom is what belongs to the WHOLE tab.
-                "actions": [{"id": "refresh", "label": "tabx.refresh"}]}
+                #
+                # «Зум» and «Обойти карту» are here because the window put them on the
+                # coordinate bar, which belongs to the whole tab too (#1265). The lap is
+                # a scenario (`actions/scan_map.md`) and nothing else, so it is a press
+                # the phone may make — unlike «Ограбить» above, which parks its targets
+                # with a spawned tool first. The level cycles rather than offering three
+                # buttons: it is one setting with three values, and a screen that shows
+                # which one is on and moves to the next is how the other switches on this
+                # tab already read.
+                "actions": [{"id": "refresh", "label": "tabx.refresh"},
+                            {"id": "zoom",
+                             "label": f"coord.zoom.{self._zoom_level}"},
+                            {"id": "sweep_now", "label": "coord.sweep_now"}]}
 
     def _ghost_monitor_action(self) -> dict:
         """The ghost sniffer's button, built once and drawn on both ghost cards (#1264).
@@ -1963,7 +2063,26 @@ class SecretTasksTab(PanelTab):
         if action == "clear":
             self.post(self._clear)
             return {"ok": True}
+        if action == "zoom":
+            # The window's own field, moved on by one — so the two front-ends cannot
+            # disagree about how far back the camera is going to sit.
+            self.post(self._cycle_zoom)
+            return {"ok": True}
+        if action == "sweep_now":
+            self.post(self._sweep_once)
+            return {"ok": True}
         return {"error": "unknown"}
+
+    def _cycle_zoom(self) -> None:
+        """Next zoom level, on the Tk thread — the phone's version of the window's box."""
+        names = self._zoom_names()
+        try:
+            nxt = names[(names.index(self._zoom_level) + 1) % len(names)]
+        except ValueError:                        # a level that no longer exists
+            nxt = names[0]
+        self._zoom_level = nxt
+        self._sync_zoom_combo()
+        self._on_zoom_choice()
 
     def _toggle_show_spent(self) -> None:
         """Flip «Показывать исчерпанные» from the phone, on the Tk thread.

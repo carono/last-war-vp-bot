@@ -175,6 +175,9 @@ def _make_tab(rows, lo="", hi="", autoloot=False, rob_min=None):
     # carries one whatever the fixture is testing. It is empty unless a test marks
     # something, and it reads its own throwaway file like the checkpoint above.
     tab.shared = _shared_marks(tab)
+    # How far back the camera sits when this tab moves it (#1265) — the close view a
+    # fresh profile has, which is what every jump did before the setting existed.
+    tab._zoom_level = "tile"
     return tab
 
 
@@ -1178,6 +1181,7 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.monitor_var = _Var(False)       # the ★ page's own sniffer switch (#1251)
     tab._own_server = 0                 # unread here, so the rule holds nothing back
     tab._visible_rows = lambda: []
+    tab._zoom_level = "tile"            # the camera height the bar is set to (#1265)
     # The card carries the RULE beside the state now (#1256), so the stand-in
     # answers both questions the phone asks of the standing order.
     tab.autoloot = types.SimpleNamespace(
@@ -1227,8 +1231,11 @@ def test_the_phone_is_shown_every_page_the_window_has():
     for title in ("secrettasks.ghost", "secrettasks.ghost.map"):
         actions = {a["id"]: a["label"] for a in cards[title]["actions"]}
         assert actions == {"ghost_monitor": "secret.monitoring.ghost.on"}, (title, actions)
-    # What is left at the bottom belongs to the whole tab.
-    assert [a["id"] for a in view["actions"]] == ["refresh"]
+    # What is left at the bottom belongs to the whole tab — «Обновить», and the camera
+    # bar the window put on this tab too (#1265): which height it is set to, and the lap
+    # that spends it.
+    assert [a["id"] for a in view["actions"]] == ["refresh", "zoom", "sweep_now"]
+    assert view["actions"][1]["label"] == "coord.zoom.tile"
 
 
 def test_the_phone_reads_the_alliance_rows_the_same_way_as_the_window():
@@ -1629,6 +1636,7 @@ def _config_stub():
     stub.sweep_cx_var = stub.sweep_cy_var = _Var("")
     stub.coord_x_var = stub.coord_y_var = stub.coord_srv_var = _Var("")
     stub._jump_hist = []
+    stub._zoom_level = "tile"
     # Every page keeps its own settings block now (#1251), so `config()` asks each of
     # them for one. A stand-in that answers is all this fixture needs.
     types = __import__("types")
@@ -2222,6 +2230,72 @@ def test_the_phone_can_flip_the_same_three_boxes_the_window_has():
     assert tab.hide_own_var.get() is False
     assert tab.alliance.ur_var.get() is True
     assert tab.alliance.star_var.get() is True
+
+
+def test_the_camera_height_is_one_setting_both_front_ends_move(monkeypatch=None):
+    """«Зум кнопкой там же, где переход по координатам» (#1265).
+
+    Three levels, named by what each is for, and the phone's press walks the SAME field
+    the window's box writes — so the two cannot disagree about how far back the camera
+    is about to sit. The lap and every jump this tab makes read that one field.
+    """
+    import types
+    import lua_actions
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = i18n.t
+    tab._zoom_level = lua_actions.DEFAULT_ZOOM_LEVEL
+    tab._zoom_combo = None
+    tab._zoom_label_var = _Var("")
+    said = []
+    tab.say = lambda tag, key, **fmt: said.append(key)
+    tab.rt = types.SimpleNamespace(settings=types.SimpleNamespace(changed=lambda: None))
+    posted = []
+    tab.post = lambda fn: posted.append(fn)
+
+    # The close view is the default, and it is the height the jump always used.
+    assert lua_actions.zoom_level(tab._zoom_level)[0] == lua_actions.JUMP_ZOOM
+    # …and the phone cycles through all three and back, writing the window's own field.
+    assert tab.web_press("zoom", {}) == {"ok": True}
+    for fn in posted:
+        fn()
+    assert tab._zoom_level == "tasks"
+    assert lua_actions.zoom_level("tasks")[0] == lua_actions.SWEEP_ZOOM_MAX
+    assert lua_actions.zoom_level("bases")[0] == lua_actions.BASE_ZOOM_MAX
+    # A level nobody has heard of (an old profile) answers with the close view rather
+    # than refusing to draw the tab.
+    assert lua_actions.zoom_level("from-an-older-panel") == \
+        lua_actions.ZOOM_LEVELS[lua_actions.DEFAULT_ZOOM_LEVEL]
+    # Every level has a step that belongs to it: a step is meaningless without its height.
+    assert all(step > 0 for _height, step in lua_actions.ZOOM_LEVELS.values())
+
+
+def test_the_lap_is_a_scenario_and_the_panel_only_plays_it():
+    """CLAUDE.md: the ability is `actions/scan_map.md`, the tab decides only WHEN."""
+    import types
+    import lua_actions
+    i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
+    tab = object.__new__(st.SecretTasksTab)
+    tab.t = i18n.t
+    tab._zoom_level = "tasks"
+    said, played = [], []
+    tab.say = lambda tag, key, **fmt: said.append(key)
+    tab.capture = types.SimpleNamespace(running=True)
+    tab.ghost_capture = types.SimpleNamespace(running=False)
+    tab.rt = types.SimpleNamespace(
+        play_async=lambda name, args=None, **kw: played.append((name, args)) or True)
+
+    tab._sweep_once()
+    assert played == [("scan_map", {"zoom": lua_actions.SWEEP_ZOOM_MAX,
+                                    "step": lua_actions.FAST_STEP})]
+    # Nothing was said about an unwatched lap: the ★ monitor is on.
+    assert "log.coord.sweep_unwatched" not in said
+
+    # …and with both sniffers off it says so, because a lap nobody reads finds nothing.
+    played.clear()
+    tab.capture = types.SimpleNamespace(running=False)
+    tab._sweep_once()
+    assert "log.coord.sweep_unwatched" in said
 
 
 def test_the_two_sniffers_have_two_independent_switches():

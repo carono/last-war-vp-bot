@@ -6,7 +6,11 @@ four or five jumps — slow, and slow for no reason anybody had measured. Task #
 the obvious question: pull the camera back, cover more ground per jump, and find the
 height at which the client stops asking for the tiles the sweep exists to find.
 
-There is such a height, it is sharp, and it is **600**.
+There is such a height, it is sharp, and it is **600**. There is a second one worth
+having — **1199**, the last height at which the map arrives at all, which collects bases
+and mines and no tasks. And the lap itself turned out not to be slow at all once it stops
+being driven from outside the game: **the whole 1000 × 1000 server, in 2.6 seconds**
+(§9).
 
 ## 1. What the zoom actually is
 
@@ -165,21 +169,98 @@ the ground per request. Whatever makes `viewLvl` 1 or 2, it is not the ordinary 
   force a fetch.** All four exist and all four return without error; none produced a
   single byte on the wire while the client was in the stranded state below. They are not
   a repair.
+* **Measuring above LOD 5 with the point manager.** One view up there covers the whole
+  server, so "bounce away to unload" unloads nothing: rungs at 1200 and 2200 returned
+  byte-identical counts, which reads as a stable measurement and is the previous rung
+  twice. Above LOD 5, count what ARRIVES (the pcap), not what is resident.
+* **Asking for exactly 1200.** The height is a float and comes back a hair larger
+  (`1200.0001`) while the LOD ladder compares on `>=` — so the round number lands one LOD
+  too high and fetches nothing at all. The same epsilon is why 600 is written as 600 and
+  read back as `600.0`: that one was checked, repeatedly.
+* **Believing #1053's «only a drag gesture produces map traffic».** It cost this task its
+  first hour, planning how to imitate a swipe. It was true of the removed `GotoPos`
+  crutch and false of `GotoWorldPos`: 121 scheduled jumps, 121 requests, no input at all
+  (§9). A note about a call that no longer exists needs its subject named, or it outlives
+  the thing it was about.
 * **Trusting `game_link.probe()` alone.** It reported `online` throughout, because one
   socket was ESTABLISHED — while every game connection on port 10012 sat in `CLOSE_WAIT`
   and nothing had arrived for an hour. The world rendered, the camera moved, the Lua VM
   answered everything, and the map was empty. `hasReceiveViewPointsReply == false` right
   after entering the world is the honest tell; `restart_game` is the cure.
 
-## 7. Ghost recon (`PointType 29`)
+## 7. Ghost recon (`PointType 29`) — same gate, now measured
 
-Not confirmed either way: no ghost-recon tiles existed on the map during this work, so
-there was nothing to lose at LOD 5. The gate is a property of the tile kind in the
-server's view reply, so the expectation is that 29 behaves like 17 — **but it is an
-expectation, not a measurement.** Re-run `tools/scratch/_zladder.py` over a tile known to
-carry a `29` during an open Ghost Operation day and record the answer here.
+The first pass of this work could not answer it: no ghost tiles were in view. A whole-map
+lap (§9) finds them in one go — **189 distinct `f2=29` tiles at height 600** — and the
+same lap at 1199, the top of LOD 5, finds **none at all**, alongside none of the tasks.
 
-## 8. What shipped
+So ghost recon rides exactly the same gate as the secret tasks: **both kinds arrive up to
+LOD 4 and neither survives LOD 5.** The one height worth sweeping for either of them is
+600.
+
+## 8. Two heights, not one — the second is 1199
+
+600 is the last height at which the interesting tiles arrive. It is NOT the last height at
+which anything arrives, and the difference is worth a second setting: bases and mines keep
+coming for another whole LOD, over four times the ground per jump. Measured on the wire,
+a full-map lap at each:
+
+| height | LOD | waypoints a lap needs | tiles delivered | tasks | ghost | **bases** | mines |
+|---|---|---|---|---|---|---|---|
+| 600 | 4 | 121 | 20 742 | **597** | **189** | 4 236 | 8 049 |
+| **1199** | **5** | **49** | 28 342 | 0 | 0 | **4 762** | 8 886 |
+| 1200 | 6 | — | **0** | 0 | 0 | **0** | 0 |
+
+**1199 and not 1200, and that is not fussiness.** The client keeps the height as a float
+and hands back a hair more than it was given — ask for 1200 and it reads back as
+`1200.0001` — while the LOD ladder compares on `>=`. So exactly 1200 lands in LOD 6, where
+`world.get.block` answers with **no tiles whatever**: 22 responses, 0 tiles, and requests
+asking for 1–4 blocks instead of 132. The big map is drawn from a different message
+(`GetViewLevelWorldInfoMessage`), which this work did not decode.
+
+That also traps the point manager: above LOD 5 one view covers the server, so "bounce away
+to unload" unloads nothing and every rung reads the one before it. Two rungs at 1200 and
+2200 returned byte-identical counts before that was noticed. **Above LOD 5, measure on the
+wire.**
+
+## 9. The fast swipe — the whole map in under three seconds
+
+A lap driven from Python is a lap of round trips: ~150 ms each, so 121 waypoints is twenty
+seconds of socket and almost no game. `lua_actions.fast_map_sweep` hands the whole
+waypoint list to the game's own `TimerManager:DelayInvoke` in **one** call; the game walks
+it, and because the client does not debounce map requests, a `world.get.block` goes out
+for every waypoint.
+
+| interval | schedule spans | **wire span** | requests | responses | tiles | tasks |
+|---|---|---|---|---|---|---|
+| 0.10 s | 9.9 s | 10.1 s | 100 | 100 | 17 561 | 540 |
+| 0.05 s | 5.0 s | 5.1 s | 100 | 100 | 17 580 | 550 |
+| **0.02 s** | **2.4 s** | **2.6 s** | **121** | **121** | **20 742** | **597** |
+| 0.01 s | 1.2 s | 2.9 s | 121 | 121 | 20 743 | 598 |
+
+Not one request was lost at any rate. Below ~0.02 s the schedule outruns the wire and
+buys nothing — 0.01 s scheduled the lap in 1.2 s and the traffic still took 2.9 s to
+drain, for one extra task. **The floor is the wire, not the camera.**
+
+Against what the panel did before, over the same ground:
+
+| | ground covered | time | secret tasks |
+|---|---|---|---|
+| zoom 105, step 8 (the old sweep) | a 241 × 241 box, 5% of one lap | 244 s | 103 |
+| zoom 600, step 80 (the #1265 sweep) | that box, one full lap | 78 s | 538 |
+| **zoom 600, step 90, scheduled in-game** | **the WHOLE 1000 × 1000 server** | **2.6 s** | **597** |
+
+### And the gesture was never needed
+
+The note under #1053 said a scripted camera move emits no `world.get.block` and only an
+interactive drag does, so a sweep had to be somebody's wrist. **That is not true of
+`GotoWorldPos`** — it is true only of the removed `GotoPos` camera crutch that note was
+written about. 121 scheduled jumps produced 121 requests and 121 responses with no
+gesture, no input, no window focus and no pixels: the Windows session was disconnected
+throughout (`mss` cannot even take a screenshot in that state). Nothing about a drag needs
+imitating — not the gesture, not the velocity, not the inertia.
+
+## 10. What shipped
 
 * `tools/lib/lua_actions.py` — `jump_to_coord(..., zoom=None)`, plus `JUMP_ZOOM = 105`
   (the game's own) and `SWEEP_ZOOM_MAX = 600` (the ceiling above). A jump about one tile
@@ -187,7 +268,17 @@ carry a `29` during an open Ghost Operation day and record the answer here.
 * `panel/mapsweep.py` — `DEFAULT_ZOOM = 600`, `MIN_ZOOM/MAX_ZOOM = 105/600`, and the step
   and radius that go with it: **step 80** (16 tiles of overlap on the shortest direction)
   and **radius 120**. A pass is 16 jumps over 241×241 tiles where it used to be 49 jumps
-  over 49×49.
+  over 49×49. (The box sweep is still there for a neighbourhood on a period; the whole-map
+  lap below is the one to reach for.)
+* `lua_actions.fast_map_sweep` / `fast_sweep_seconds` — the lap, scheduled in-game, and
+  how long it takes; `BASE_ZOOM_MAX = 1199` and `ZOOM_LEVELS` (three heights named by what
+  each is FOR, each with the step that belongs to it).
+* `SWEEP_MAP [ZOOM h] [STEP n] [EVERY s]` in the DSL, and `actions/scan_map.md` — the
+  ability, one file, which is what the panel plays.
+* «Секретки» → the coordinate bar: **«Зум»** with the three levels and **«Обойти карту»**
+  beside it. The height governs every jump the tab makes, so a coordinate clicked in the
+  table and one typed into the boxes arrive the same way. Mirrored on the phone as a
+  cycling button and a press.
 * `panel/runtime/daemon.py`, `panel/tabs/secret_tasks/sweep.py` — the sweep passes the
   height; every other jump still does not.
 * Settings → «Автообъезд карты» → «Высота камеры», bounded at 600 so the knob cannot be

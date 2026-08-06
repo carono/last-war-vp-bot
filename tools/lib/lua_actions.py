@@ -62,6 +62,57 @@ JUMP_ZOOM = 105
 #: at 105 loaded 9 secret tasks, the same jump at 600 loaded 112.
 SWEEP_ZOOM_MAX = 600
 
+#: The highest camera height at which the map still arrives AT ALL — the top of LOD 5.
+#: Secret-task and ghost-recon tiles are already gone here (that is what
+#: `SWEEP_ZOOM_MAX` is for), but bases, mines, alliance cities and strongholds still
+#: come, and they come over four times the ground per jump. One step higher — 1200, LOD
+#: 6 — and `world.get.block` answers with no tiles at all: the client has switched to the
+#: coarse big-map layer, which is a different message. So this is literally the last
+#: height at which player bases can be collected (#1265).
+#:
+#: 1199 and not 1200 on purpose. The client stores the height as a float and hands back
+#: a hair MORE than it was given (1200 reads as 1200.0001), and the LOD ladder compares
+#: on `>=` — so asking for exactly 1200 lands in LOD 6 and fetches nothing.
+BASE_ZOOM_MAX = 1199
+
+#: How far apart two waypoints of a FAST lap are. One jump at `SWEEP_ZOOM_MAX` loads
+#: ±48 tiles in its shortest direction, so 90 overlaps by a few tiles at every seam and
+#: a 1000-tile server is an 11 × 11 grid.
+FAST_STEP = 90
+
+#: The three heights the panel offers, `id -> (camera height, sweep step)`, named by what
+#: each is FOR rather than by its number: a person choosing between them is choosing what
+#: they want to see, not a camera setting.
+#:
+#: The step of each is its measured shortest half-width, doubled and trimmed — ±15 tiles
+#: at `tile`, ±48 at `tasks`, and `bases` was swept live at 150 and found MORE bases than
+#: the narrower level did. A step belongs to its height and is meaningless without it.
+ZOOM_LEVELS: dict = {
+    "tile": (JUMP_ZOOM, 24),
+    "tasks": (SWEEP_ZOOM_MAX, FAST_STEP),
+    "bases": (BASE_ZOOM_MAX, 150),
+}
+
+#: What a jump with no height asked for uses — the game's own, so that a coordinate
+#: clicked in the log still lands where a person can read the tile.
+DEFAULT_ZOOM_LEVEL = "tile"
+
+
+def zoom_level(name: "str | None") -> tuple:
+    """``(height, step)`` of a named level, falling back to the tile view.
+
+    An unknown name is answered rather than raised on: the name comes out of a saved
+    profile, and a panel that will not draw because a settings file has an old word in
+    it is worse than one that opens at the close view.
+    """
+    return ZOOM_LEVELS.get(name or "", ZOOM_LEVELS[DEFAULT_ZOOM_LEVEL])
+
+#: Seconds between two waypoints of a fast lap. The client fires one `world.get.block`
+#: per view change with no debounce, so the floor is not the camera — it is the wire.
+#: Measured: 0.05 delivered 100/100 responses, and asking for 0.01 still delivered
+#: 121/121 while the traffic took 2.9 s to drain, so anything below ~0.02 buys nothing.
+FAST_INTERVAL = 0.05
+
 
 def jump_to_coord(x: int, y: int, server: "int | None" = None,
                   zoom: "int | None" = None) -> str:
@@ -106,6 +157,91 @@ def jump_to_coord(x: int, y: int, server: "int | None" = None,
             'CS.UnityEngine.Vector3(%d*2+1,0,%d*2+1),%d,nil,nil,srv) end) '
             'CS.UnityEngine.Debug.LogError("ACT jump=%d,%d srv="..tostring(srv))'
             % (sid, x, y, height, x, y))
+
+
+#: Lua that finds the live `WorldScene` MonoBehaviour and caches it in `_G.WS`. The
+#: scene is not a Lua global — it is a C# component on the `World` GameObject — and it
+#: is replaced whenever the world is re-entered, so the cache is validated rather than
+#: trusted.
+FIND_WORLD_SCENE = (
+    'local WS=_G.WS if not WS or not pcall(function() return WS.CurTilePos end) then '
+    'local arr=CS.UnityEngine.Object.FindObjectsOfType(typeof(CS.UnityEngine.MonoBehaviour)) '
+    'for i=0,arr.Length-1 do if arr[i] and arr[i]:GetType().Name=="WorldScene" then '
+    'WS=arr[i] break end end _G.WS=WS end ')
+
+
+def fast_map_sweep(zoom: "int | None" = None, step: "int | None" = None,
+                   interval: "float | None" = None) -> str:
+    """One lap of the WHOLE server map, scheduled inside the game — the fast swipe.
+
+    A lap driven from Python is a lap of round trips: ~150 ms each way, so 121 waypoints
+    is twenty seconds of socket and almost no game. This hands the entire waypoint list
+    to the game's own `TimerManager:DelayInvoke` in ONE call. The game then walks it at
+    `interval`, the view rect moves every time, and — because the client does not
+    debounce map requests — a `world.get.block` goes out for each. The answers land in
+    the ordinary passive capture the panel already runs.
+
+    **This is the thing that was thought impossible.** The note under task #1053 said a
+    scripted camera move emits no map traffic and only a human drag gesture does, so the
+    sweep had to be somebody's wrist. That was true of the REMOVED `GotoPos` crutch and
+    is not true of `GotoWorldPos`, which is the game's own coordinate jump: measured
+    live, 121 scheduled jumps produced 121 requests and 121 responses, with no gesture,
+    no focus and no pixels (#1265). Nothing needs to be imitated.
+
+    The grid is built from the scene's OWN `TileCount`, so it is a lap of whatever server
+    is being looked at rather than of a number written down here. Waypoints run
+    serpentine — the camera never travels the long way between two neighbours.
+
+    `zoom` picks WHAT the lap collects, and there are only two heights worth passing:
+    `SWEEP_ZOOM_MAX` (secret tasks, ghost recon and everything else) or `BASE_ZOOM_MAX`
+    (four times the ground, bases and mines, no tasks). Above the second one the client
+    fetches nothing at all.
+
+    Measured live on a 1000 × 1000 server, one lap at `SWEEP_ZOOM_MAX`: **2.6 s**, 121
+    requests, 20 742 tiles, 597 distinct secret tasks and 189 ghost-recon tiles. The same
+    lap at `BASE_ZOOM_MAX` needs 49 waypoints and finds 4 762 bases in 2.6 s.
+    """
+    height = int(SWEEP_ZOOM_MAX if zoom is None else zoom)
+    stride = max(1, int(FAST_STEP if step is None else step))
+    gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
+    return (FIND_WORLD_SCENE + '''
+local srv=%s
+local size = 1000
+pcall(function() size = WS.TileCount.x end)
+local step, half = %d, math.floor(%d / 2)
+local axis = {}
+local v = half
+while v < size do axis[#axis+1] = v v = v + step end
+local V3, tm = CS.UnityEngine.Vector3, TimerManager:GetInstance()
+local n = 0
+for row = 1, #axis do
+  local y = axis[row]
+  for col = 1, #axis do
+    -- Serpentine: every other row is walked backwards, so consecutive waypoints are
+    -- neighbours and the camera never crosses the map between two of them.
+    local x = axis[(row %% 2 == 1) and col or (#axis - col + 1)]
+    n = n + 1
+    tm:DelayInvoke(function()
+      pcall(function() GoToUtil.GotoWorldPos(V3(x*2+1, 0, y*2+1), %d, 0, nil, srv) end)
+    end, (n - 1) * %f)
+  end
+end
+CS.UnityEngine.Debug.LogError("ACT sweep n="..n.." zoom=%d step=%d span="
+  ..string.format("%%.1f", (n - 1) * %f).." size="..tostring(size))
+''' % (current_server_expr(), stride, stride, height, gap, height, stride, gap))
+
+
+def fast_sweep_seconds(step: "int | None" = None, interval: "float | None" = None,
+                       size: int = 1000) -> float:
+    """How long one `fast_map_sweep` lap takes, so a caller can wait it out.
+
+    The waypoint count is the same arithmetic the Lua does; `size` is the server's tile
+    count, which only matters for the estimate — the lap itself asks the scene.
+    """
+    stride = max(1, int(FAST_STEP if step is None else step))
+    gap = max(0.0, float(FAST_INTERVAL if interval is None else interval))
+    per_axis = len(range(stride // 2, size, stride))
+    return (per_axis * per_axis - 1) * gap
 
 
 def _pid(x: int, y: int) -> str:

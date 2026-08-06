@@ -196,6 +196,14 @@ _JUMP_RE = re.compile(
     r"^JUMP\s+(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?(?:\s+ZOOM\s+(\d+))?\s*$",
     re.IGNORECASE,
 )
+# One lap of the whole map, scheduled inside the game. Every modifier is optional and
+# order-independent; an unknown one is a parse error rather than a shrug, for the reason
+# SCAN_SECRET_MISSIONS gives — a silently dropped ZOOM sweeps at the wrong height and
+# comes back with the wrong half of the map.
+_SWEEP_RE = re.compile(r"^SWEEP_MAP\b(.*)$", re.IGNORECASE)
+_SWEEP_OPT_RE = re.compile(
+    r"(ZOOM|STEP|EVERY)\s+(\d+(?:\.\d+)?)", re.IGNORECASE,
+)
 # TAP presses a named "button" from the friendly catalogue (tools/lib/game_buttons.py),
 # optionally N times (`TAP donate_1000 x30`) or `xall` — press as many times as the
 # button reports it still can (its count_lua), re-reading until that reaches zero.
@@ -319,6 +327,14 @@ class JumpStmt(_Stmt):
     #: Camera height. `None` is the game's own jump height, which is what a jump about
     #: ONE tile wants; a scan passes a bigger one to load more map per jump (#1265).
     zoom: int | None = None
+
+
+@dataclass(slots=True)
+class SweepMapStmt(_Stmt):
+    """One lap of the whole server map, so a passive scan has something to read."""
+    zoom: int | None = None
+    step: int | None = None
+    every: float | None = None
 
 
 @dataclass(slots=True)
@@ -617,6 +633,10 @@ def _parse_one(lines, i, indent):
             x=int(m.group(1)), y=int(m.group(2)), server=server, zoom=zoom,
         ), i + 1
 
+    m = _SWEEP_RE.match(text)
+    if m:
+        return _parse_sweep_map(m.group(1), text, ln), i + 1
+
     m = _TAP_RE.match(text)
     if m:
         raw = m.group(2)
@@ -719,6 +739,35 @@ def _parse_scan_missions(rest: str, text: str, ln: int) -> ScanMissionsStmt:
         raise ScriptParseError(
             f"line {ln}: unrecognised SCAN_SECRET_MISSIONS option: "
             f"{leftover.strip()!r}"
+        )
+    return stmt
+
+
+def _parse_sweep_map(rest: str, text: str, ln: int) -> SweepMapStmt:
+    """Parse the modifier tail of SWEEP_MAP — same rules as the scan's.
+
+    A dropped modifier here is the same class of mistake: `ZOOM` decides whether the lap
+    collects secret tasks or only bases, so ignoring a misspelt one would come back with
+    the wrong half of the map and no complaint.
+    """
+    stmt = SweepMapStmt(text=text, line_no=ln)
+    consumed = []
+    for m in _SWEEP_OPT_RE.finditer(rest):
+        consumed.append(m.span())
+        keyword, value = m.group(1).upper(), m.group(2)
+        if keyword == "ZOOM":
+            stmt.zoom = int(float(value))
+        elif keyword == "STEP":
+            stmt.step = int(float(value))
+        else:
+            stmt.every = float(value)
+
+    leftover = rest
+    for start, end in reversed(consumed):
+        leftover = leftover[:start] + leftover[end:]
+    if leftover.strip():
+        raise ScriptParseError(
+            f"line {ln}: unrecognised SWEEP_MAP option: {leftover.strip()!r}"
         )
     return stmt
 
@@ -929,6 +978,9 @@ class Interpreter:
             case JumpStmt():
                 self._require_link(stmt)
                 self._do_jump(stmt)
+            case SweepMapStmt():
+                self._require_link(stmt)
+                self._do_sweep_map(stmt)
             case TapStmt():
                 self._require_link(stmt)
                 self._do_tap(stmt)
@@ -1312,6 +1364,25 @@ class Interpreter:
         if stmt.zoom is not None:
             where += f" zoom {stmt.zoom}"
         self._log(f"JUMP -> {where}")
+
+    def _do_sweep_map(self, stmt: SweepMapStmt) -> None:
+        """One lap of the whole map, and then WAIT it out.
+
+        The lap runs inside the game — `lua_actions.fast_map_sweep` hands the waypoint
+        list to the game's own timer — so the call returns in milliseconds while the
+        camera is still walking. Returning there would let the next statement run over a
+        sweep in flight, so the step sits out the span it just scheduled; a lap is a few
+        seconds, which is the whole point of it.
+        """
+        self._tools_lib_on_path()
+        import lua_actions
+        self._run_lua(lua_actions.fast_map_sweep(stmt.zoom, stmt.step, stmt.every))
+        span = lua_actions.fast_sweep_seconds(stmt.step, stmt.every)
+        zoom = stmt.zoom if stmt.zoom is not None else lua_actions.SWEEP_ZOOM_MAX
+        self._log(f"SWEEP_MAP -> zoom {zoom}, one lap, ~{span + 2:.0f}s")
+        # …plus a breath for the last waypoint's answer to arrive: the map data lands a
+        # beat after the camera stops, and a scan reading it must not be cut off mid-reply.
+        time.sleep(span + 2.0)
 
     def _do_tap(self, stmt: TapStmt) -> None:
         """Press a named button from the catalogue: a fixed count, or `xall`.
