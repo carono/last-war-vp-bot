@@ -98,7 +98,7 @@ from . import grid
 from .alliance import AllianceGrid
 from .autoloot import AutoLoot
 from .capture import Capture
-from .ghost import GhostAllianceGrid, GhostGrid
+from .ghost import GhostAllianceGrid, GhostGrid, GhostMapGrid
 from .shared import SharedMarks
 from .sweep import Sweep
 
@@ -183,6 +183,8 @@ class SecretTasksTab(PanelTab):
         # …and the ghost-recon page's own read (#1251), which is a fourth source with
         # a fourth failure mode: a weekly event that is shut six days out of seven.
         self._ghost_busy = False
+        # The event's config table, read once per session (see `_ghost_work`).
+        self._ghost_config = None
         self._ticking = False
         # uuid (str) -> row record. The record carries the task data, its countdown
         # StringVar and the row's frame, so a tick can update the timer in place and a
@@ -276,6 +278,9 @@ class SecretTasksTab(PanelTab):
         # asking twice.
         self.ghost = GhostGrid(self)
         self.ghost_allies = GhostAllianceGrid(self)
+        # …and the OTHER sniffer (#1251): what a lap of the map found, which is the
+        # only one of the three that sees other alliances at all.
+        self.ghost_map = GhostMapGrid(self)
         # Which tiles the alliance has already been shown (#1245). The tables read it,
         # the panel's own «Поделиться» writes it, and so do the two capture children —
         # which is what makes a share pressed in the GAME show up here.
@@ -373,6 +378,7 @@ class SecretTasksTab(PanelTab):
         # squads out and, quite possibly, another alliance running them (#1251).
         self.ghost.clear()
         self.ghost_allies.clear()
+        self.ghost_map.clear()
         # …and so do the shares: «уже поделились» is about an alliance chat this account
         # is not in (#1245). Dropped rather than re-read, because the new profile's own
         # file is read by the next countdown pass anyway.
@@ -401,7 +407,8 @@ class SecretTasksTab(PanelTab):
         # The rows themselves carry words too («⭐×7», «готово через …»), and a heading
         # is only half the table. Every table, for the same reason.
         self._render()
-        for page in (self.alliance, self.ghost, self.ghost_allies):
+        for page in (self.alliance, self.ghost, self.ghost_allies,
+                     self.ghost_map):
             page.retranslate()
             page.render()
 
@@ -713,6 +720,7 @@ class SecretTasksTab(PanelTab):
         self._add_page(self.alliance.build(book), "secrettasks.page.alliance")
         self._add_page(self.ghost.build(book), "secrettasks.page.ghost")
         self._add_page(self.ghost_allies.build(book), "secrettasks.page.ghost_allies")
+        self._add_page(self.ghost_map.build(book), "secrettasks.page.ghost_map")
         # Switching pages re-aims the strip below at whatever the new page has selected.
         book.bind("<<NotebookTabChanged>>", lambda _e: self.sync_actions())
 
@@ -778,8 +786,8 @@ class SecretTasksTab(PanelTab):
             index = book.index(book.select())
         except (tk.TclError, ValueError):
             return None
-        return {1: self.alliance, 2: self.ghost,
-                3: self.ghost_allies}.get(index)
+        return {1: self.alliance, 2: self.ghost, 3: self.ghost_allies,
+                4: self.ghost_map}.get(index)
 
     def sync_actions(self) -> None:
         """Public name for the strip's re-aim — the pages call it when they redraw."""
@@ -873,11 +881,24 @@ class SecretTasksTab(PanelTab):
                 self.t("secrettasks.collect") if can_take else "")
 
     def _show_empty(self, empty: bool) -> None:
-        """Say «нет звёздных секреток» above the table, or take the line away."""
+        """Say «нет звёздных секреток» above the table, or take the line away.
+
+        And when the table is empty because the home-server rule EMPTIED it, say that
+        instead (#1251). One live account had every star it could see on its own
+        server: the list went blank on open, the count said «скрыто: 34» in grey off to
+        the side, and the whole thing read as a tab that had failed to read anything.
+        The sentence in the middle of the empty table is the one that gets read.
+        """
         if self._empty is None:
             return
+        hidden = self._hidden_at_home() if empty else 0
         try:
             if empty:
+                # `tr` re-registers the label under the key it is showing NOW, so a
+                # language switch redraws whichever of the two sentences is up.
+                self.tr(self._empty,
+                        "secrettasks.empty_hidden" if hidden else "secrettasks.empty",
+                        n=hidden)
                 self._empty.pack(before=self._body, anchor="w", pady=(0, 4))
             else:
                 self._empty.pack_forget()
@@ -985,7 +1006,8 @@ class SecretTasksTab(PanelTab):
         row = self._selected()
         can_take = bool(row) and (page.collectable(row) if page is not None
                                   else self._collectable(row))
-        can_share = bool(row) and page not in (self.ghost, self.ghost_allies)
+        can_share = bool(row) and page not in (self.ghost, self.ghost_allies,
+                                              self.ghost_map)
         for widget, live in ((self._goto_btn, row is not None),
                              (self._share_btn, can_share),
                              (self._collect_btn, can_take)):
@@ -1326,12 +1348,20 @@ class SecretTasksTab(PanelTab):
             # whose event window has not been opened this session was never sent the
             # alliance list at all, and «never asked» would show as «nothing out».
             allies = ghost_tool.alliance_roster(evaluator, seed_if_empty=True)
+            # THE OTHER SNIFFER (#1251): what a lap of the map found. A file the
+            # capture child writes, plus the event's config table so a tile says the
+            # level and the star the game gives rather than its cfgId's digits. The
+            # config is read once and kept — it cannot change under a running client.
+            if self._ghost_config is None:
+                self._ghost_config = ghost_tool.templates(evaluator)
+            found = ghost_tool.map_roster(self.rt.profiles.ghost_json(),
+                                          self._ghost_config)
             ok = True
         except Exception:                     # noqa: BLE001 — no daemon, no game, no event
-            status, mine, allies, ok = {}, [], [], False
-        self.after(lambda: self._ghost_landed(status, mine, allies, ok))
+            status, mine, allies, found, ok = {}, [], [], [], False
+        self.after(lambda: self._ghost_landed(status, mine, allies, found, ok))
 
-    def _ghost_landed(self, status, mine, allies, ok: bool) -> None:
+    def _ghost_landed(self, status, mine, allies, found, ok: bool) -> None:
         """Hand each ghost page its own list — a read that WORKED, at least.
 
         A failed one says nothing about the event, exactly as a failed roster read says
@@ -1349,6 +1379,28 @@ class SecretTasksTab(PanelTab):
             return
         self.ghost.landed(status, [r for r in mine if r.get("mine")])
         self.ghost_allies.landed(status, [r for r in allies if not r.get("mine")])
+        self.ghost_map.landed(status, found)
+
+    def refresh_ghost_map(self) -> None:
+        """Re-merge the tile capture's checkpoint. A file read, no game, no server.
+
+        The capture rewrites it every tick while the map moves, so this is what turns a
+        lap of the map into rows — and it is cheap enough to run whenever the tab is
+        refreshed (#1251).
+        """
+        if not self.loaded:
+            return
+
+        def work() -> None:
+            try:
+                import ghost_recon_steal as ghost_tool
+                rows = ghost_tool.map_roster(self.rt.profiles.ghost_json(),
+                                             self._ghost_config or {})
+            except Exception:                 # noqa: BLE001 — no file yet, or a broken one
+                return
+            self.after(lambda: self.ghost_map.landed(self.ghost_map.status, rows))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def refresh_ghost_allies(self) -> None:
         """A push moved the alliance's ghost list: re-read it, locally, and redraw.
@@ -1425,6 +1477,10 @@ class SecretTasksTab(PanelTab):
         all land here. Cheap — a file read, no game round trip — and it only ADDS, so a
         burst of nudges coalesces to nothing worse than a re-merge of the same tiles.
         """
+        # The tile capture's own findings ride the same nudge (#1251): whichever
+        # capture is selected, re-merging its checkpoint is a file read, and this is
+        # what turns a lap of the map into rows on the ghost-map page.
+        self.refresh_ghost_map()
         if self._busy:
             return
         self._busy = True
@@ -1708,7 +1764,13 @@ class SecretTasksTab(PanelTab):
                           # what» are two questions, and one list answers neither.
                           {"title": "secrettasks.ghost.allies",
                            "items": self.ghost_allies.web_items(),
-                           "empty": "secrettasks.ghost.allies.empty"}],
+                           "empty": "secrettasks.ghost.allies.empty"},
+                          # …and the other sniffer's own card (#1251): what a lap of
+                          # the map found, which is the only list here that sees other
+                          # alliances at all.
+                          {"title": "secrettasks.ghost.map",
+                           "items": self.ghost_map.web_items(),
+                           "empty": "secrettasks.ghost.map.empty"}],
                 "now": now,
                 # Each button names what pressing it will DO, because a phone has no
                 # checkbox to carry the state in: «Показать исчерпанные» while they are
@@ -2009,6 +2071,7 @@ class SecretTasksTab(PanelTab):
             self.alliance.tick()
             self.ghost.tick()
             self.ghost_allies.tick()
+            self.ghost_map.tick()
         finally:
             # Named, so the countdown is one chain however often `_start_ticking` is
             # reached.

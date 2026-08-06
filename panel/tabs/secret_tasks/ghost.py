@@ -113,8 +113,7 @@ class _GhostGrid(grid.TaskGrid):
         # helper cannot know about.
         row["loot_count"] = record.get("loot_count")
 
-    @staticmethod
-    def _state_key(record) -> str:
+    def _state_key(self, record) -> str:
         """The locale key for a row's state cell.
 
         The game's own `GhostreconPointStealType` for a squad somebody else is running:
@@ -227,6 +226,37 @@ class GhostGrid(_GhostGrid):
     TITLE_KEY = "secrettasks.ghost"
     HINT_KEY = "secrettasks.ghost.hint"
     EMPTY_KEY = "secrettasks.ghost.empty"
+
+
+class GhostMapGrid(_GhostGrid):
+    """WHAT A LAP OF THE MAP FOUND — the other sniffer, and the only one that sees
+    other alliances (#1251).
+
+    «Это два разных снифа, чужие снифаем по карте, свои из списка.» The two pages
+    before this one are read out of the client and hold my own squads and my own
+    alliance's; nobody else's is in either, because the client is never told about
+    them. A tile scan is what finds those — and they are the ones a robbery is aimed
+    at.
+
+    Filled from the capture's own checkpoint (`profiles.ghost_json`), not from the
+    game: the child process writes what it decodes off the wire as the map moves, and
+    this page merges the file. It was never reaching a table at all until #1251 — the
+    capture was launched without a checkpoint to write to, so a full lap of the map
+    produced hundreds of decoded tiles, a busy log and no rows anywhere.
+
+    A tile carries no nickname (the wire has the owner's uid and no name), and no
+    verdict from the game's own steal gate — that only answers for squads in the
+    client's list. Its readiness is its clock, and its level, rarity and star come
+    from the event's config table, read once.
+    """
+
+    TITLE_KEY = "secrettasks.ghost.map"
+    HINT_KEY = "secrettasks.ghost.map.hint"
+    EMPTY_KEY = "secrettasks.ghost.map.empty"
+
+    def _state_key(self, record) -> str:          # noqa: D102 — see the base
+        return ("secrettasks.ghost.state.map_ready" if record.get("ready")
+                else "secrettasks.ghost.state.map_running")
 
 
 class GhostAllianceGrid(_GhostGrid):

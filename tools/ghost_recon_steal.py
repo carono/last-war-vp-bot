@@ -163,10 +163,11 @@ def roster(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
     twice. `state` is the game's own `GhostreconPointStealType`, kept as it came so the
     caller can say it in words; `ready` is that verdict reaching «can steal».
 
-    **The tile is on the TARGET server, not the owner's.** A squad is sent abroad: its
-    coordinate belongs to `targetServer`, which is where a camera has to go, while the
-    robbery is addressed to `ownerServer`. Both travel — `server` and `owner_server` —
-    because using one for the other walks the camera to a stranger's map.
+    **The tile is on the OWNER's map.** A squad is sent abroad — `targetServer` says
+    where — but the tile itself stands at home, which is where a camera has to go and
+    where the robbery is addressed. Measured with the tile capture running: a lap of
+    one server found 38 ghost tiles, all of them `owner_server` = that server, their
+    `targetServer` scattered across a dozen others.
 
     **An empty dispatch slot is not a squad.** `taskList` holds my own three slots
     whether or not anything is out in them, and a slot with `state == 0` has no tile,
@@ -270,6 +271,88 @@ def alliance_roster(ev, seed_if_empty: bool = False) -> list[dict]:
     return out
 
 
+def templates(ev) -> dict:
+    """`{cfg_id: {level, colour, starred, loot_max, duration}}` — the event's config.
+
+    One read of the client's own template table, which is what a tile found on the MAP
+    has to be judged by: such a tile carries a cfgId and nothing else, and the digits
+    of an id are exactly what must not be turned into a level (#1244, #1251).
+    """
+    out = {}
+    for ln in ev.run(lua_actions.ghost_recon_templates_dump(), MARKER, 2.0):
+        if " TPL cfg=" not in ln:
+            continue
+        rec = {}
+        for token in ln.split(" TPL ", 1)[1].split(" "):
+            key, sep, value = token.partition("=")
+            if sep:
+                rec[key] = _int(value)
+        if rec.get("cfg"):
+            out[rec["cfg"]] = {"level": rec.get("lvl", 0),
+                               "colour": rec.get("colour", 0),
+                               "starred": bool(rec.get("spec")),
+                               "loot_max": rec.get("slots", 0),
+                               "duration": rec.get("dur", 0)}
+    return out
+
+
+def map_roster(path, config=None) -> list[dict]:
+    """The ghost-recon tiles a MAP SCAN found, in the shape a panel list draws from.
+
+    THE OTHER SNIFFER, and not a substitute for either list read out of the client:
+    those two hold my own squads and my own alliance's, while a lap of the map finds
+    everybody's — which is the whole point, because a robbery is aimed at somebody
+    else's alliance. «Это два разных снифа, чужие снифаем по карте, свои из списка.»
+
+    ``path`` is the capture's checkpoint (`profiles.ghost_json`); ``config`` is
+    :func:`templates`'s answer, so a tile says the level, the rarity and the star the
+    GAME gives them rather than what its cfgId's digits spell. Without a config the
+    arithmetic is the fallback, exactly as everywhere else here.
+
+    A stale checkpoint is no rows: the reader keeps only what the capture re-saw this
+    scan window, so a tile last seen an hour ago cannot pose as a live target.
+    """
+    import lastwar_proto as proto
+
+    config = config or {}
+    out = []
+    for m in proto.load_fresh_ghost_recon(path):
+        if m.uuid is None or m.empty:
+            continue
+        cfg = config.get(m.cfg_id or 0, {})
+        family, level = proto.ghost_recon_level(m.cfg_id)
+        out.append({
+            "uuid": str(m.uuid),
+            # The tile stands on its owner's map — measured, see `_as_record`.
+            "server": m.owner_server or 0,
+            "owner_server": m.owner_server or 0,
+            "target_server": m.target_server or 0,
+            "x": m.x or 0, "y": m.y or 0,
+            "cfg_id": m.cfg_id or 0,
+            "level": cfg.get("level") or level or 0,
+            "starred": cfg.get("starred", family == proto.GHOST_STAR_FAMILY),
+            "colour": cfg.get("colour", 0),
+            "loot_max": cfg.get("loot_max", 0),
+            "loot_count": m.steal_count,
+            "completed_at": m.completion_time or None,
+            "expires_at": m.expire_time or None,
+            "owner_uid": str(m.owner_id or ""),
+            "alliance_id": str(m.alliance_id or ""),
+            # A tile off the map carries no nickname at all: the wire has the owner's
+            # uid and no name anywhere. Left empty rather than filled with a number.
+            "owner_name": "",
+            "members": m.member_count,
+            "mine": False,
+            # The game's per-tile gate only answers for squads in the client's own
+            # list, so a tile off the map is judged by its clock — which is what
+            # `GhostReconMission.can_loot` already worked out.
+            "state": None,
+            "task_state": None,
+            "ready": bool(m.can_loot),
+        })
+    return out
+
+
 def _alliance_lines(ev) -> list:
     """The dump's own `ACT A …` lines, unparsed."""
     return [ln for ln in ev.run(lua_actions.ghost_recon_alliance_dump(), MARKER, 2.5)
@@ -299,10 +382,18 @@ def _as_record(target: dict, proto) -> dict:
                else family == proto.GHOST_STAR_FAMILY)
     return {
         "uuid": str(target.get("uuid")),
-        # Where the TILE is: the squad was sent there, and that is where a camera goes.
-        "server": _int(target.get("tsrv")) or _int(target.get("srv")),
-        # …and where the ROBBERY is addressed — `ghost.recon.steal {uuid, ownerServer}`.
+        # WHERE THE TILE IS — the owner's own map, which is also where the robbery is
+        # addressed (`ghost.recon.steal {uuid, ownerServer}`). Measured rather than
+        # reasoned: a lap of server 935 with the tile capture running found 38 ghost
+        # tiles and every one of them carried `owner_server` 935, while their
+        # `target_server` was scattered across a dozen other worlds. An earlier guess
+        # that the coordinate belonged to `targetServer` would have walked the camera
+        # onto a stranger's map (#1251).
+        "server": _int(target.get("srv")),
         "owner_server": _int(target.get("srv")),
+        # Where the squad was SENT. Carried because it is what the game's own window
+        # prints beside the coordinate, and not because a camera should go there.
+        "target_server": _int(target.get("tsrv")),
         "x": _int(target.get("x")), "y": _int(target.get("y")),
         "cfg_id": _int(target.get("cfg")),
         "level": cfg_level or level or 0,

@@ -799,6 +799,7 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab._prime_own_server = lambda: None
     tab.alliance, tab.ghost = _FakeAllianceGrid(), _FakeAllianceGrid()
     tab.ghost_allies = _FakeAllianceGrid()
+    tab.ghost_map = _FakeAllianceGrid()
 
     tab.on_profile_switch()
 
@@ -808,6 +809,7 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     # (#1251) — it goes with the rest.
     assert tab.ghost.cleared == 1, "the ghost grid kept the old account's squads"
     assert tab.ghost_allies.cleared == 1, "the allies' ghost grid kept the old alliance"
+    assert tab.ghost_map.cleared == 1, "the map page kept the old profile's tiles"
     assert tab._collected == set() and tab._auto_attempted == set()
     assert tab._ids is None and tab._own_server == 0
     assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
@@ -1045,7 +1047,9 @@ def test_each_read_clears_only_its_own_flag():
     assert (tab._busy, tab._vm_busy, tab._roster_busy) == (True, True, False)
 
     tab._roster_busy = True
-    tab._ghost_landed({}, [], [], True)
+    tab.ghost_map = _FakeAllianceGrid()
+    tab.ghost_map.landed = lambda status, rows: None
+    tab._ghost_landed({}, [], [], [], True)
     assert (tab._busy, tab._vm_busy, tab._roster_busy, tab._ghost_busy) == (
         True, True, True, False)
 
@@ -1138,6 +1142,9 @@ def test_the_phone_is_shown_every_page_the_window_has():
     tab.ghost_allies = types.SimpleNamespace(
         web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
                             "pill": None}])
+    tab.ghost_map = types.SimpleNamespace(
+        web_items=lambda: [{"text": "#9 X:1 Y:1", "facts": [], "until": None,
+                            "pill": None}])
 
     view = tab.web_view()
     cards = {c.get("title"): c for c in view["cards"]}
@@ -1151,6 +1158,8 @@ def test_the_phone_is_shown_every_page_the_window_has():
     # …and the alliancemates' squads are a card of their own, not folded into mine.
     assert "secrettasks.ghost.allies" in cards, cards
     assert cards["secrettasks.ghost.allies"]["items"][0]["text"] == "#6 X:7 Y:8"
+    assert "secrettasks.ghost.map" in cards, cards
+    assert cards["secrettasks.ghost.map"]["items"][0]["text"] == "#9 X:1 Y:1"
     # Every box the window has is a button here, named by what pressing it will do.
     ids = [a["id"] for a in view["actions"]]
     assert {"hide_own", "ur_only", "star_only"} <= set(ids), ids
@@ -1266,6 +1275,7 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
                                          star_var=_Var(False))
     tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
     tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_map = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
     assert item["text"].startswith(gr.SHARED_GLYPH), item
     assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
@@ -1734,13 +1744,20 @@ def test_the_two_ghost_pages_are_two_lists_from_two_managers():
     tab.ghost_allies = types.SimpleNamespace(
         landed=lambda status, rows: allies_page.extend(rows))
 
+    map_page = []
+    tab.ghost_map = types.SimpleNamespace(
+        landed=lambda status, rows: map_page.extend(rows))
     tab._ghost_landed({"open": True, "left": 5},
                       [_ghost_record(1, mine=True), _ghost_record(9, mine=False)],
                       [_ghost_record(2, mine=False), _ghost_record(3, mine=False),
-                       _ghost_record(1, mine=True)], True)
+                       _ghost_record(1, mine=True)],
+                      [_ghost_record(7, mine=False)], True)
 
     assert [r["uuid"] for r in mine_page] == ["1"]
     assert [r["uuid"] for r in allies_page] == ["2", "3"]
+    # …and the map's own findings go to the third ghost page, untouched: that is the
+    # OTHER sniffer, and the only one that sees other alliances (#1251).
+    assert [r["uuid"] for r in map_page] == ["7"]
     assert tab._ghost_busy is False
     # The two pages are two classes, so neither can quietly become the other.
     assert issubclass(gh.GhostAllianceGrid, gr.TaskGrid)
@@ -1864,6 +1881,69 @@ def test_an_empty_alliance_list_is_seeded_once_and_never_on_a_push():
     assert asked == [] and len(rows) == 1, (asked, rows)
 
 
+def test_a_map_tile_is_read_with_the_games_config_not_with_its_cfg_id():
+    """A tile off the wire carries a cfgId and nothing else — and turning digits into a
+    level is the mistake that invented «level 99» on the other robbery (#1244/#1251)."""
+    import json as _json
+    import tempfile
+    import time as _time
+    import ghost_recon_steal as tool
+
+    # A checkpoint in the capture's own shape, seen just now so it is «fresh».
+    record = {"uuid": 1000000000000001, "cfg_id": 60301, "level": 3, "family": "6",
+              "state": 3, "target_server": 950, "owner_server": 935,
+              "owner_id": "1000000000000002", "alliance_id": "000000000000000a",
+              "alliance_show": True, "point_id": 300941, "x": 941, "y": 300,
+              "completion_time": 1, "expire_time": 0, "team_start_time": 1,
+              "steal_count": 1, "member_count": 5, "seen_at": _time.time()}
+    path = tempfile.mktemp(suffix=".json")
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump([record], fh)
+
+    # The config's own answers win…
+    rows = tool.map_roster(path, {60301: {"level": 5, "colour": 6, "starred": True,
+                                          "loot_max": 3, "duration": 2100000}})
+    assert len(rows) == 1, rows
+    row = rows[0]
+    assert row["level"] == 5 and row["colour"] == 6 and row["starred"] is True
+    assert row["loot_max"] == 3 and row["loot_count"] == 1
+    # The tile stands on its owner's map; where the squad was SENT is separate.
+    assert row["server"] == 935 and row["target_server"] == 950
+    # A tile off the wire has no nickname and no verdict from the game's own gate.
+    assert row["owner_name"] == "" and row["state"] is None
+
+    # …and with no config at all, the cfgId is the fallback and nothing more.
+    bare = tool.map_roster(path)[0]
+    assert bare["level"] == 5           # 60301 -> `03` + 2, task #1137
+    assert bare["loot_max"] == 0        # never invented
+
+
+def test_an_empty_star_table_says_why_it_is_empty():
+    """A list emptied by the home-server rule must SAY so where the eye is (#1251).
+
+    One live account had every star it could see at home: the table went blank, the
+    count said «скрыто: 34» in grey off to the side, and the whole thing read as a tab
+    that had failed to read anything.
+    """
+    said = []
+    tab = _make_tab({"1": dict(_row(1, 7, -5_000, 600_000), server=100)})
+    tab.hide_own_var = _Var(True)
+    tab._own_server = 100
+    import types as _t
+    tab._empty = _t.SimpleNamespace(pack=lambda **_k: None,
+                                    pack_forget=lambda: None)
+    tab._body = object()
+    tab.tr = lambda widget, key, **fmt: said.append((key, fmt))
+    st.SecretTasksTab._show_empty(tab, True)
+    assert said and said[-1][0] == "secrettasks.empty_hidden", said
+    assert said[-1][1] == {"n": 1}, said
+
+    # …and with nothing hidden it is the plain sentence again.
+    tab.hide_own_var = _Var(False)
+    st.SecretTasksTab._show_empty(tab, True)
+    assert said[-1][0] == "secrettasks.empty", said
+
+
 def test_an_unread_loot_count_draws_an_empty_cell_not_a_zero():
     """A «0/3» on a row nobody counted reads as «nobody has robbed it» — which is a
     claim the game never made (#1251)."""
@@ -1896,12 +1976,45 @@ def test_the_allies_page_names_who_sent_the_squad():
     assert item["facts"][0] == {"label": "secrettasks.col.owner", "value": "Player2"}
 
 
-def test_the_pages_hold_the_clients_own_list_and_not_the_map_scan():
-    """A map scan finds OTHER alliances' tiles, which is what a robbery is aimed at —
-    and robbing lives on «Командный пункт», so the scan stays there too (#1251)."""
+def test_the_two_sniffers_are_two_pages_and_neither_replaces_the_other():
+    """«Это два разных снифа, чужие снифаем по карте, свои из списка» (#1251).
+
+    The client's own lists never carry another alliance's squads — nobody tells the
+    client about them — so a map sweep is the only way to see the tiles a robbery is
+    actually aimed at. It gets a page of its own rather than being folded into either
+    list, and the three pages are three classes.
+    """
+    from panel.tabs.secret_tasks import ghost as gh
+
+    for cls in (gh.GhostGrid, gh.GhostAllianceGrid, gh.GhostMapGrid):
+        assert issubclass(cls, gr.TaskGrid)
+    titles = {gh.GhostGrid.TITLE_KEY, gh.GhostAllianceGrid.TITLE_KEY,
+              gh.GhostMapGrid.TITLE_KEY}
+    assert len(titles) == 3, titles
+
+    # The map page is fed by the capture's checkpoint, and the client-read pages are
+    # not: mixing them is what made «свои» and «чужие» one indistinguishable list.
     src = (Path(__file__).resolve().parents[1] /
-           "panel" / "tabs" / "secret_tasks" / "ghost.py").read_text(encoding="utf-8")
-    assert "ghost_json" not in src and "load_fresh_ghost_recon" not in src
+           "panel" / "tabs" / "secret_tasks" / "tab.py").read_text(encoding="utf-8")
+    assert "map_roster" in src and "ghost_json" in src
+
+
+def test_the_ghost_capture_is_given_a_checkpoint_to_write():
+    """The regression that made a whole lap of the map produce nothing (#1251).
+
+    The tile capture was launched WITHOUT `--json`, so everything it decoded went to
+    the log and no further — hundreds of tiles, a busy progress line, and not one row
+    on any table. Each capture writes to a file of its own: the ghost records are a
+    different shape and the secret-task reader must never be handed them.
+    """
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "capture.py").read_text(encoding="utf-8")
+    start = src.split("def start")[1].split("def _launch")[0]
+    assert "tasks_json()" in start and "ghost_json()" in start
+    # …and they are not the same file, whichever branch is taken: the ghost records
+    # are a different shape, and auto-loot reads only the secret-task one.
+    assert 'cmd += ["--json", self.rt.profiles.tasks_json()]' in start
+    assert 'cmd += ["--json", self.rt.profiles.ghost_json()]' in start
 
 
 def test_the_ghost_read_is_one_round_trip_and_carries_the_event_with_it():
@@ -1935,9 +2048,12 @@ def test_the_ghost_read_is_one_round_trip_and_carries_the_event_with_it():
     assert status == {"open": True, "left": 4, "known": 2}
     assert [r["uuid"] for r in records] == ["1000000000000001", "1000000000000003"]
     first = records[0]
-    # The TILE is on the target server; the robbery is addressed to the owner's.
+    # The TILE stands on the OWNER's map — measured with the tile capture running, a
+    # lap of one server found 38 ghost tiles and every one of them was that server's
+    # (#1251). `targetServer` is where the squad was sent, and is carried separately.
     assert (first["x"], first["y"]) == (11, 22)
-    assert first["server"] == 901 and first["owner_server"] == 900
+    assert first["server"] == 900 and first["owner_server"] == 900
+    assert first["target_server"] == 901
     # The level, the rarity, the star and the loot capacity are the CONFIG's answers.
     assert first["level"] == 5 and first["starred"] is True
     assert first["colour"] == 6 and first["loot_max"] == 3

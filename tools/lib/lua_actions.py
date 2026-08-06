@@ -1532,6 +1532,29 @@ def ghost_recon_targets_dump() -> str:
     )
 
 
+def ghost_recon_templates_dump() -> str:
+    """Reader chunk: one `ACT TPL …` line per ghost-recon template the client holds.
+
+    The event's own config table, keyed by cfgId: `lvl` the level the game shows,
+    `colour` the rarity it paints, `spec` whether it draws a star, `slots` how many
+    robberies a tile allows and `dur` how long a squad stays out. Seventeen rows live.
+
+    This is what lets a tile read off the MAP say the same things as one read out of
+    the client's own list (#1251): the tile carries a cfgId and nothing else, and
+    splitting that id into a level is the arithmetic that invented «level 99» on the
+    other robbery. One read, cached by the caller for as long as the client runs — a
+    config table does not change under a running client.
+    """
+    return (
+        "local M=DataCenter.ActGhostreconManager "
+        "for id,c in pairs(M.templates or {}) do "
+        'CS.UnityEngine.Debug.LogError("ACT TPL cfg="..tostring(id)'
+        '.." lvl="..tostring(c.level).." colour="..tostring(c.color)'
+        '.." spec="..tostring(c.special and 1 or 0)'
+        '.." slots="..tostring(c.stealMaxtimes).." dur="..tostring(c.time)) end'
+    )
+
+
 def ghost_recon_alliance_request() -> str:
     """Ask the server for the alliance's ghost-recon list — ONCE, to seed an empty one.
 

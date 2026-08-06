@@ -108,6 +108,14 @@ class Capture:
         # shape, and auto-loot must never be handed that by mistake.
         if script == capturemod.SECRET_TASK_CAPTURE:
             cmd += ["--json", self.rt.profiles.tasks_json()]
+        else:
+            # THE GHOST CAPTURE NEEDS A CHECKPOINT TOO (#1251). It was launched without
+            # one — «--json only for the secret-task capture» — so everything it found
+            # went to the log and nowhere else: a full lap of the map, hundreds of tiles
+            # decoded, and not one row on any table. Its records are a different shape,
+            # which is why they go to a file of their own that the secret-task reader
+            # never opens.
+            cmd += ["--json", self.rt.profiles.ghost_json()]
             # …and, from the same decoded stream, «who has already been shown this
             # tile» (#1245). The game announces every share an alliancemate presses in
             # the client, and hands over the standing list on login, so the capture
