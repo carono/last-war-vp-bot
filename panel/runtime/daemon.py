@@ -129,6 +129,9 @@ class GameLink:
         #: The process-wide claim this link is holding (`panel/runtime/claims.py`), or
         #: ``None``. Remembered rather than re-derived — see :meth:`_claim_client`.
         self._claimed = None
+        #: Who this link last SAID was holding the game, or ``None`` — see
+        #: :meth:`_say_busy`. Not a fact about the claim: a fact about the log.
+        self._said_busy = None
         # `token=""` — explicitly unleased, rather than "whatever this process
         # inherited". A panel process may hold two profiles' leases at once, so a
         # client that picked one up out of the environment would be carrying the
@@ -375,7 +378,32 @@ class GameLink:
             with self._busy_lock:
                 self._busy = False
             return False
+        # The game was taken, so the next time it is not, that is news again.
+        self._said_busy = None
         return True
+
+    def _say_busy(self, owner: str, sec: int) -> None:
+        """«игра занята» — ONCE per episode of contention, not once per attempt.
+
+        A caller that WAITS for the game polls :meth:`claim`, and every refusal used to
+        be a line: `panel/tabs/rally/tab.py::_join` asks every 0.15 s, so a profile
+        waiting a minute for another wrote four hundred identical lines into its own
+        log — and every one of them named the OTHER profile. That is what made a shared
+        client read as a leak between profiles' logs (#1250): the reader saw a thousand
+        records about a profile they were not looking at, in a file that is supposed to
+        be about this one.
+
+        The interesting facts are WHO is holding the game and that it has changed;
+        neither is said again by the four hundredth copy. So the holder is remembered
+        and a repeat of the same holder is dropped, until :meth:`claim` succeeds or
+        :meth:`release` runs — after which the game being taken from under this profile
+        is news once more.
+        """
+        who = str(owner or "?")
+        if self._said_busy == who:
+            return
+        self._said_busy = who
+        self._log.say("panel", "busy.elsewhere", owner=who, sec=int(sec))
 
     def _owned(self, owner: str) -> str:
         """``timer`` → ``<profile>/timer`` — the profile in front of what it is doing.
@@ -391,8 +419,14 @@ class GameLink:
         name = str(owner or "panel")
         return f"{profile}/{name}" if profile else name
 
-    def _endpoint(self) -> tuple:
-        """Which CLIENT this link drives, as the registry keys it: ``(host, port)``."""
+    def endpoint(self) -> tuple:
+        """Which CLIENT this link drives, as the registry keys it: ``(host, port)``.
+
+        PUBLIC because it is the answer to «are these two profiles the same game»,
+        which the workspace asks of every session it opens (#1250) — two of them on one
+        endpoint is the copy-a-profile-and-forget-the-port accident, and the panel says
+        so once instead of leaving it to be deduced from a stream of «занято».
+        """
         return (lua_client.HOST, self.port())
 
     def _claim_client(self, owner: str) -> bool:
@@ -407,10 +441,10 @@ class GameLink:
         link. Keyed by the client rather than by the profile, so two links on one port
         take turns and two links on two ports do not wait for each other at all.
         """
-        key = self._endpoint()
+        key = self.endpoint()
         held = claims.acquire(key, owner)
         if held is not None:
-            self._log.say("panel", "busy.elsewhere", owner=held, sec=0)
+            self._say_busy(held, 0)
             return False
         # WHICH key, remembered — never re-derived at release time. `release()` is
         # called by callers that never claimed (a runtime shutting down always lets go),
@@ -453,8 +487,7 @@ class GameLink:
             held = client.lease_state()
         except OSError:                               # noqa: BLE001 — a diagnostic
             held = {}
-        self._log.say("panel", "busy.elsewhere",
-                      owner=held.get("owner", "?"), sec=int(held.get("held_sec", 0)))
+        self._say_busy(held.get("owner", "?"), held.get("held_sec", 0) or 0)
         return False
 
     def release(self) -> None:
@@ -472,6 +505,8 @@ class GameLink:
         self._drop_client()
         with self._busy_lock:
             self._busy = False
+        # …and the next refusal is a new episode, so it gets its line (`_say_busy`).
+        self._said_busy = None
 
     @property
     def busy(self) -> bool:

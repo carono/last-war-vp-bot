@@ -28,6 +28,9 @@ What has to hold, and what each group below pins:
   * two profiles pointed at ONE client take turns even with no daemon to arbitrate, two
     profiles on two clients never wait for each other, and a refusal names the profile
     that is holding it;
+  * a profile WAITING for the client says so once per episode rather than once per
+    poll, and the panel says outright that two profiles are on one client instead of
+    leaving it to be deduced from the stream of refusals (#1250);
   * the desktop's one foreground is taken only by a scenario that clicks or looks, and
     an RDP profile — which has a desktop of its own — neither takes it nor waits;
   * and nothing a profile does BLOCKS the Tk thread: not the check that its daemon is
@@ -390,6 +393,7 @@ class _Link:
         self.link._client = None
         self.link._client_port = port
         self.link._up_seen = (0.0, None, False)
+        self.link._said_busy = None
 
     def __getattr__(self, name):
         return getattr(self.link, name)
@@ -475,6 +479,135 @@ def test_nothing_is_left_held_when_a_claim_is_refused() -> None:
         assert claims.held() == {}, claims.held()
     finally:
         claims.clear()
+
+
+def _busy_lines(link) -> list:
+    return [fmt for key, fmt in link.link._log.lines if key == "busy.elsewhere"]
+
+
+def test_a_profile_waiting_for_the_client_says_so_ONCE() -> None:
+    """The flood (#1250): every polled refusal used to be a line naming the OTHER one.
+
+    `panel/tabs/rally/tab.py::_join` asks for the claim every 0.15 s until it gets it,
+    so one profile waiting a minute on another wrote four hundred identical records
+    into its own log — which is how a shared client came to read as two profiles' logs
+    being crossed.
+    """
+    claims.clear()
+    first, second = _Link("main", 47654), _Link("alt", 47654)
+    try:
+        first.claim("timer")
+        for _ in range(50):                            # the waiter, polling
+            assert second.claim("rally") is False
+        said = _busy_lines(second)
+        assert len(said) == 1, f"{len(said)} lines for one wait"
+        assert said[0]["owner"] == "main/timer", said
+    finally:
+        first.release()
+        claims.clear()
+
+
+def test_the_client_changing_hands_is_said_again() -> None:
+    """Deduped on the HOLDER, not silenced: a new holder is a new fact."""
+    claims.clear()
+    first, third = _Link("main", 47654), _Link("third", 47654)
+    second = _Link("alt", 47654)
+    try:
+        first.claim("timer")
+        second.claim("rally")
+        second.claim("rally")
+        first.release()
+        third.claim("timer")                           # the client moves to `third`
+        second.claim("rally")
+        owners = [fmt["owner"] for fmt in _busy_lines(second)]
+        assert owners == ["main/timer", "third/timer"], owners
+    finally:
+        third.release()
+        claims.clear()
+
+
+def test_getting_the_client_re_arms_the_line() -> None:
+    """Once this profile has HAD the game, losing it again is news once more."""
+    claims.clear()
+    first, second = _Link("main", 47654), _Link("alt", 47654)
+    try:
+        first.claim("timer")
+        second.claim("rally")
+        first.release()
+        assert second.claim("rally") is True
+        second.release()
+        first.claim("timer")
+        second.claim("rally")
+        assert len(_busy_lines(second)) == 2, _busy_lines(second)
+    finally:
+        first.release()
+        claims.clear()
+
+
+# ---------------------------------------------------------------------------
+# 4b. …and the panel says WHY, instead of leaving it to be deduced (#1250)
+# ---------------------------------------------------------------------------
+class _WarnSession:
+    """A session double with just enough of one to answer «which client is this»."""
+
+    def __init__(self, name: str, port: "int | None") -> None:
+        self.name = name
+        self.said: list = []
+        self.rt = type("_Rt", (), {})()
+        self.rt.say = lambda tag, key, **fmt: self.said.append((key, fmt))
+        self.rt.game = None if port is None else _Link(name, port)
+
+    start = staticmethod(lambda: None)
+
+
+def _workspace_of(*sessions):
+    from panel.runtime import workspace as wsmod
+
+    space = wsmod.Workspace.__new__(wsmod.Workspace)
+    space._sessions = list(sessions)
+    return space
+
+
+def test_two_profiles_on_one_client_are_named_to_each_other() -> None:
+    space = _workspace_of(_WarnSession("main", 47654), _WarnSession("alt", 47654))
+    first, second = space.sessions
+    assert [s.name for s in space.sharing(first)] == ["alt"]
+    assert [s.name for s in space.sharing(second)] == ["main"]
+
+
+def test_two_profiles_on_two_clients_share_nothing() -> None:
+    space = _workspace_of(_WarnSession("main", 47654), _WarnSession("alt", 47655))
+    assert space.sharing(space._sessions[0]) == []
+
+
+def test_a_session_that_cannot_say_which_client_it_is_shares_nothing() -> None:
+    """A test's session is a name and nothing else — and «no opinion» is never a match."""
+    space = _workspace_of(_WarnSession("main", None), _WarnSession("alt", None))
+    assert space.sharing(space._sessions[0]) == []
+
+
+def test_the_warning_lands_in_BOTH_profiles_logs_when_the_second_one_opens() -> None:
+    """Both, because there is no telling which of the two the person is reading."""
+    space = _workspace_of()
+    sessions = [_WarnSession("main", 47654), _WarnSession("alt", 47654)]
+    for session in sessions:                           # …as `Workspace.open` does
+        space._sessions.append(session)
+        space._warn_client_shared(session)
+    said = [(s.name, key, fmt) for s in sessions for key, fmt in s.said]
+    assert [(n, k) for n, k, _ in said] == [
+        ("main", "profile.client_shared"), ("alt", "profile.client_shared")], said
+    # Each is told the name of the OTHER, and both are told which port they collided on.
+    assert [f["others"] for _n, _k, f in said] == ["alt", "main"], said
+    assert all(f["port"] == 47654 for _n, _k, f in said), said
+
+
+def test_the_first_profile_opened_is_told_nothing() -> None:
+    """One profile on its own has nobody to collide with, and says nothing about it."""
+    space = _workspace_of()
+    alone = _WarnSession("main", 47654)
+    space._sessions.append(alone)
+    space._warn_client_shared(alone)
+    assert alone.said == [], alone.said
 
 
 # ---------------------------------------------------------------------------

@@ -127,6 +127,7 @@ class Workspace:
         self._sessions.append(session)
         if make_current or self._current is None:
             self._current = session
+        self._warn_client_shared(session)
         self._remember()
         return session
 
@@ -161,6 +162,60 @@ class Workspace:
         self._current = session
         self._remember()
         return session
+
+    # -- are two of them the same game? --------------------------------------
+    def sharing(self, session) -> list:
+        """The other OPEN sessions pointed at the SAME client as ``session``.
+
+        A profile IS an account, and an account is a client of its own — its own daemon
+        on its own port, in its own Windows session when it has one. Two profiles naming
+        one port are two views of one client, which is the accident a person makes by
+        adding a profile and never opening its Settings page: `daemon_port` is absent
+        from the new profile's `config.json`, so it falls back to the default port and
+        drives the FIRST profile's game (#1250).
+
+        Nothing about that is visible. The claim registry does its job — the two take
+        turns rather than press into each other — and all the person sees is one
+        profile's log filling with «игра занята — <the other profile>», which reads
+        like the logs have been crossed rather than like the two profiles have. So the
+        panel asks this question when it opens a session and says the answer once.
+
+        Reaches into a session with `getattr` on purpose: this class deliberately does
+        not care what a session is made of, and `tests/test_panel_workspace.py` opens
+        ones that are a name and nothing else.
+        """
+        mine = _endpoint(session)
+        if mine is None:
+            return []
+        return [other for other in self._sessions
+                if other is not session and _endpoint(other) == mine]
+
+    def _warn_client_shared(self, session) -> None:
+        """Say it, once, in BOTH profiles' logs — see :meth:`sharing` for what and why.
+
+        Both, because there is no telling which of the two the person is reading and the
+        fact is equally true of either. Said from `open` rather than from
+        `ProfileSession.start`, which the shell does not call: it starts the schedule
+        itself, so a hook there would have been correct, tested and never once reached
+        by the running panel.
+
+        Once per session opened, so a window that comes up with three profiles on one
+        port says it twice — for the second against the first, then for the third
+        against both — and never again while it is open.
+        """
+        peers = self.sharing(session)
+        if not peers:
+            return
+        port = _endpoint(session)[1]
+        for who, others in ((session, peers), *((p, [session]) for p in peers)):
+            rt = getattr(who, "rt", None)
+            if rt is None or not hasattr(rt, "say"):
+                continue
+            try:
+                rt.say("panel", "profile.client_shared", port=port,
+                       others=", ".join(o.name for o in others))
+            except Exception:                # noqa: BLE001 — one log, never the window
+                pass
 
     # -- everything at once --------------------------------------------------
     def each(self, func) -> list:
@@ -279,3 +334,19 @@ class Workspace:
             self._log(session, f"{type(exc).__name__}: {exc}")
         except Exception:                    # noqa: BLE001 — a complaint, not the panel
             pass
+
+
+def _endpoint(session):
+    """Which client a session drives — ``(host, port)`` — or ``None`` if it cannot say.
+
+    A session built by a test out of a name has no runtime and no game link, and a
+    runtime whose settings will not answer is a half-typed port rather than a broken
+    window: both mean «no opinion», which is never equal to another session's.
+    """
+    game = getattr(getattr(session, "rt", None), "game", None)
+    if game is None or not hasattr(game, "endpoint"):
+        return None
+    try:
+        return game.endpoint()
+    except Exception:                        # noqa: BLE001 — a question, not the panel
+        return None

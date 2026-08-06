@@ -124,7 +124,33 @@ def get_logger(component: str = "panel", scope: "str | None" = None) -> logging.
     this is the shared tree it has always been.
     """
     component = _clean(component) or "panel"
-    return logging.getLogger(f"{_scope_name(scope)}.{component}")
+    name = _scope_name(scope)
+    if name != ROOT_NAME:
+        _seal(name)
+    return logging.getLogger(f"{name}.{component}")
+
+
+def _seal(name: str) -> None:
+    """Cut one scope off the shared tree, the moment it exists rather than at `configure`.
+
+    A scoped logger is a CHILD of the shared one, and the shared one is not a neutral
+    parent: the first open session has no scope and writes its own `debug.log` through
+    it (see the module docstring). So until propagation is turned off, everything a
+    SECOND session says travels on up into the FIRST profile's file — real lines about
+    the wrong account, in the one place a person looks to find out what theirs did
+    (#1250). `configure` does turn it off, but it runs after the session is built, and
+    a runtime says plenty while it is coming up.
+
+    The null handler is what keeps the promise the docstring makes about the same gap:
+    records before `configure` are *dropped*. Without it a sealed scope with no handler
+    yet reaches `logging.lastResort`, which prints to stderr — the same lines, moved
+    from the wrong file to the wrong console. `configure` only ever removes handlers it
+    marked itself, so this one survives beside the real one.
+    """
+    root = logging.getLogger(name)
+    if root.propagate:
+        root.propagate = False
+        root.addHandler(logging.NullHandler())
 
 
 def configure(path: str | None = None, *, max_bytes: int = DEFAULT_MAX_BYTES,

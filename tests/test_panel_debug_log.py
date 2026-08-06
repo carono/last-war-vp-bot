@@ -91,6 +91,27 @@ def test_configure_is_idempotent_and_creates_the_dir() -> None:
         assert os.path.isdir(os.path.dirname(path)), "configure must create the dir"
 
 
+def test_a_second_profiles_lines_never_reach_the_first_ones_file() -> None:
+    """The gap between a scoped logger existing and `configure` sealing it (#1250).
+
+    The first open session has NO scope — it writes the shared file, exactly as every
+    one-profile panel always has — so the shared tree is one profile's `debug.log`, not
+    a neutral parent. A scoped logger is a child of it, and everything a second session
+    says while it is coming up (before its own `configure`) propagated straight into the
+    first profile's file: real lines, about the wrong account, in the one place a person
+    looks to find out what theirs did.
+    """
+    _reset()
+    with _scratch() as tmp:
+        first = os.path.join(tmp, "default", "debug.log")
+        dbg.configure(first, level="DEBUG")             # the first session: unscoped
+        dbg.get_logger("timers", scope="alt").warning("the other profile came up")
+        for h in logging.getLogger(dbg.ROOT_NAME).handlers:
+            h.flush()
+        text = Path(first).read_text(encoding="utf-8")
+        assert "the other profile came up" not in text, text
+
+
 def test_component_and_format() -> None:
     _reset()
     with _scratch() as tmp:

@@ -204,16 +204,33 @@ They already do, and correctly, because the lease is the *daemon's*:
   `run_errand` already does for a refused claim.
 
 `tests/test_panel_multi_profile.py::test_two_links_on_ONE_daemon_still_take_turns` pins
-it. What is *missing* is not the mechanism but the telling:
+it. What was *missing* was never the mechanism but the telling:
 
-1. **The page says so.** When another open session names the same port, the status strip
-   says «этот клиент уже ведёт профиль X» rather than letting the second profile look
-   independent.
-2. **A new profile gets a free port by default.** `Workspace.open` offers the lowest port
-   not claimed by an open session, so the accident is harder to have.
-3. **The lease owner is named per profile.** `claim(owner)` currently passes `"panel"` /
-   `"timer"`; it should pass `"<profile>/timer"`, so a refusal in the log says *which*
-   profile is holding the game, not just that something is.
+1. **The panel says so, once, when the second one opens** (#1250). `Workspace.sharing`
+   answers «which other open sessions drive this client», off `GameLink.endpoint()`, and
+   `Workspace.open` says `profile.client_shared` into **both** profiles' logs — both,
+   because there is no telling which of the two the person is reading, and the fact is
+   equally true of either. It names the port and points at «Настройки». From `open`
+   rather than from `ProfileSession.start`, which reads like the obvious home and is
+   never called: the shell starts each session's schedule itself.
+2. **A refusal is said once per episode, not once per attempt** (#1250). A caller that
+   *waits* for the game polls `claim` — `panel/tabs/rally/tab.py::_join` every 0.15 s —
+   and every refusal used to be a `busy.elsewhere` line. Live, that was 5 715 records in
+   one profile's `panel.log` in a fortnight, every one of them naming a **different**
+   profile, which is why the operator read a shared client as the two profiles' logs
+   having been crossed. `GameLink._say_busy` remembers the holder and drops the repeat
+   until the claim is taken or let go.
+3. **The lease owner is named per profile** (#1226, done). `claim(owner)` passes
+   `"<profile>/timer"`, so a refusal in the log says *which* profile is holding the game.
+
+**A new profile is deliberately NOT given a free port.** It was item 2 of this list once,
+and it is wrong: a port is only half of «its own client» — the other half is the Windows
+session the client lives in (§4.5). A second daemon started on this desktop finds *this*
+desktop's game, so a fresh profile handed 47656 would get a second daemon, a second
+lease and no second client — two independent leases over one game, which is strictly
+worse than taking turns over one. The port follows the client, and the client is
+`rdp_session` / `rdp_user`; until a profile says where its client lives, the honest
+default is the one it already has, said out loud.
 
 ### 4.4 The in-process half of the claim
 
@@ -329,7 +346,12 @@ all in the telling and none in the mechanism:
 * the log line carries the profile — `[timer] main: collect_base_resources` — by giving
   `Schedule` the session's name for its tag, which is one argument;
 * the technical log is already separated: each session past the first has its own
-  debug-log scope, so `profiles/<name>/debug.log` is that profile's alone (wave 1);
+  debug-log scope, so `profiles/<name>/debug.log` is that profile's alone (wave 1) —
+  with one gap closed later (#1250). A scope is a CHILD of the shared tree and the
+  shared tree is the first profile's file, not a neutral parent, so a scoped logger
+  propagated into that file until `configure` turned propagation off — and `configure`
+  runs after the session is built, which is after a runtime has said plenty. Sealed in
+  `debug_log.get_logger` now, the moment the scope first exists;
 * a page's log pane only ever shows its own session's lines, because the `LogBus` is the
   runtime's. Nothing is owed there — it falls out.
 
@@ -583,7 +605,8 @@ under `panel/`.
 ### Wave 4 — the UI and what is remembered.
 
 «Открыть ещё профиль» / «Закрыть профиль» in the profile dialog and on the notebook's
-context menu; a free daemon port offered to a newly opened profile (§4.3); the autostart's
+context menu; ~~a free daemon port offered to a newly opened profile~~ — dropped, and
+replaced by saying the collision out loud (§4.3, #1250); the autostart's
 lock, heartbeat and scheduled task per open session (§7.2); geometry moved to
 `panel/settings.json`; every new string in all eleven locale files in the same commit.
 
