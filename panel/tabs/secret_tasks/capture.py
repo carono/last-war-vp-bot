@@ -168,20 +168,6 @@ class Capture:
             return False
         if hi.isdigit() and lvl > int(hi):
             return False
-        if self.tab.star_var.get() and not re.match(r"\s*\*", line):
-            return False
-        # PENDING and LOOTABLE are two values of one dimension — raid readiness — and the
-        # capture tags a line with exactly one of them (a tile walks PENDING -> LOOTABLE,
-        # never both at once). So enabling both boxes reads as "either", matching
-        # `filter_tasks` in lastwar_proto: ANDing the two substrings could never match and
-        # the panel simply went blank.
-        want_pending, want_loot = self.tab.pending_var.get(), self.tab.can_loot_var.get()
-        if want_pending or want_loot:
-            tags = ("PENDING",) if want_pending and not want_loot else \
-                   ("LOOTABLE",) if want_loot and not want_pending else \
-                   ("PENDING", "LOOTABLE")
-            if not any(t in line for t in tags):
-                return False
         return True
 
     def on_line(self, line: str) -> bool:

@@ -147,7 +147,7 @@ def _row(uuid, level, done_off, exp_off):
     return {"uuid": uuid, "server": 1, "x": 1, "y": 2, "level": level,
             "cfg_id": 16003, "loot_count": 0,
             "completed_at": now + done_off, "expires_at": now + exp_off,
-            "timer": _Var(), "frame": None, "ready": False}
+            "timer": _Var(), "frame": None, "ready": False, "soon": False}
 
 
 def test_countdown_targets_completion_and_flips_ready():
@@ -484,6 +484,10 @@ def test_the_countdown_runs_on_the_games_clock_not_this_machines():
     import game_clock
 
     rows = {"1": _row(1, 7, 40_000, 600_000)}
+    # Forty seconds off is inside the ten-minute «soon» window on its own (#1241) — set
+    # to match what the first pass will compute, so this call's `changed` is about the
+    # ready flag the test is actually pinning, not a soon-flag settling on a cold row.
+    rows["1"]["soon"] = True
     tab = _make_tab(rows)
     game_clock.reset()
     _expired, changed = tab._refresh_timers()

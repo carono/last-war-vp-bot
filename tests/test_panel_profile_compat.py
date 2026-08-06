@@ -117,7 +117,6 @@ def test_every_key_this_profile_carries_is_one_the_panel_knows():
     known = set(pm.SETTINGS_DEFAULTS) | {
         "language", "window_geometry", "log_sash", "log_filter",
         "monitor_kind", "monitor_interval", "secret_monitor",
-        "filter_star", "filter_pending", "filter_can_loot",
         "filter_level_from", "filter_level_to",
         "autoloot", "autoloot_level_from", "autoloot_level_to",
         "rally_monitor", "rally_autojoin", "rally_alert",

@@ -8,9 +8,6 @@
   "monitor_interval": "2",
   "secret_monitor": true,
 
-  "filter_star": true,
-  "filter_pending": false,
-  "filter_can_loot": true,
   "filter_level_from": "5",
   "filter_level_to": "7",
 

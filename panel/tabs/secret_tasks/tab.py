@@ -71,6 +71,12 @@ READY_GLYPH = "✅"
 TIMER_COLOR = "#e0a84f"
 READY_COLOR = "#4fe08a"
 
+# A row under ten minutes from the moment it needs attention — either about to become
+# raidable, or about to expire while still raidable — turns this yellow instead, so it
+# stands out from the rest of a list that is otherwise always shown in full (#1241).
+SOON_COLOR = "#e0d84f"
+SOON_MS = 10 * 60_000
+
 # The table's columns: (id, locale key of the heading, width in px, anchor, stretch).
 # The state column is the one that takes the slack — it carries the longest sentence
 # («готово к сбору · истекает через 1:02:03») and the one that varies most by language.
@@ -135,7 +141,6 @@ class SecretTasksTab(PanelTab):
     # it, so the block spells every one of them exactly as the flat profile did.
     LEGACY_KEYS = {k: k for k in (
         "monitor_kind", "monitor_interval", "secret_monitor",
-        "filter_star", "filter_pending", "filter_can_loot",
         "filter_level_from", "filter_level_to",
         "autoloot", "autoloot_level_from", "autoloot_level_to",
         "map_sweep", "sweep_centre_x", "sweep_centre_y")}
@@ -178,9 +183,6 @@ class SecretTasksTab(PanelTab):
         # -- the controls the three orders read ------------------------------
         self.monitor_var = tk.BooleanVar(master=master, value=False)
         self.interval_var = tk.StringVar(master=master, value="15")
-        self.star_var = tk.BooleanVar(master=master, value=False)
-        self.pending_var = tk.BooleanVar(master=master, value=False)
-        self.can_loot_var = tk.BooleanVar(master=master, value=False)
         self.filter_from_var = tk.StringVar(master=master)
         self.filter_to_var = tk.StringVar(master=master)
         self.autoloot_var = tk.BooleanVar(master=master, value=False)
@@ -317,9 +319,6 @@ class SecretTasksTab(PanelTab):
             "monitor_kind": self.kind_index(),
             "monitor_interval": self.interval_var.get(),
             "secret_monitor": bool(self.monitor_var.get()),
-            "filter_star": bool(self.star_var.get()),
-            "filter_pending": bool(self.pending_var.get()),
-            "filter_can_loot": bool(self.can_loot_var.get()),
             "show_spent": bool(self.show_spent_var.get()),
             "filter_level_from": self.filter_from_var.get(),
             "filter_level_to": self.filter_to_var.get(),
@@ -344,9 +343,6 @@ class SecretTasksTab(PanelTab):
             self._combo.current(idx)
         self.interval_var.set(str(raw.get("monitor_interval", "15")))
         self.monitor_var.set(bool(raw.get("secret_monitor", False)))
-        self.star_var.set(bool(raw.get("filter_star", False)))
-        self.pending_var.set(bool(raw.get("filter_pending", False)))
-        self.can_loot_var.set(bool(raw.get("filter_can_loot", False)))
         self.show_spent_var.set(bool(raw.get("show_spent", False)))
         self.filter_from_var.set(raw.get("filter_level_from", ""))
         self.filter_to_var.set(raw.get("filter_level_to", ""))
@@ -374,8 +370,7 @@ class SecretTasksTab(PanelTab):
         self._sync_autoloot_controls()
 
     def persist_vars(self) -> list:
-        return [self.monitor_var, self.interval_var, self.star_var, self.pending_var,
-                self.can_loot_var, self.show_spent_var,
+        return [self.monitor_var, self.interval_var, self.show_spent_var,
                 self.filter_from_var, self.filter_to_var,
                 self.autoloot_var, self.level_from_var, self.level_to_var,
                 self.skip_own_var, self.sweep_var, self.sweep_cx_var, self.sweep_cy_var,
@@ -464,14 +459,8 @@ class SecretTasksTab(PanelTab):
         row2 = ttk.Frame(sec)
         row2.pack(fill="x", pady=(6, 0))
         self.tr(ttk.Label(row2), "secret.filters").pack(side="left")
-        self.tr(ttk.Checkbutton(row2, variable=self.star_var),
-                "secret.stars_only").pack(side="left", padx=(6, 0))
-        self.tr(ttk.Checkbutton(row2, variable=self.pending_var),
-                "secret.pending_only").pack(side="left", padx=(6, 0))
-        self.tr(ttk.Checkbutton(row2, variable=self.can_loot_var),
-                "secret.can_loot_only").pack(side="left", padx=(6, 0))
         self.tr(ttk.Label(row2), "secret.filter_level_from").pack(
-            side="left", padx=(12, 2))
+            side="left", padx=(0, 2))
         NumericEntry(row2, textvariable=self.filter_from_var, width=4).pack(side="left")
         self.tr(ttk.Label(row2), "secret.level_to").pack(side="left", padx=(6, 2))
         NumericEntry(row2, textvariable=self.filter_to_var, width=4).pack(side="left")
@@ -569,6 +558,7 @@ class SecretTasksTab(PanelTab):
         # were — the colour is the fastest read on the tab.
         tree.tag_configure("ready", foreground=READY_COLOR)
         tree.tag_configure("waiting", foreground=TIMER_COLOR)
+        tree.tag_configure("soon", foreground=SOON_COLOR)
         tree.bind("<Button-1>", self._on_click)
         tree.bind("<Double-Button-1>", self._on_double_click)
         tree.bind("<Button-3>", self._on_right_click)
@@ -1094,7 +1084,7 @@ class SecretTasksTab(PanelTab):
                 # straight into the cell: it is what `_refresh_timers` decides, and the
                 # table then paints it. A tile off screen (out of the level range) keeps
                 # counting all the same.
-                "timer": tk_stringvar(self.rt.root), "ready": False,
+                "timer": tk_stringvar(self.rt.root), "ready": False, "soon": False,
             }
         self._render()
         # An empty list after a clean read is "no starred tile right now", not "no game" —
@@ -1224,8 +1214,9 @@ class SecretTasksTab(PanelTab):
             tree.delete(iid)
         rows = self._sorted_rows(self._visible_rows())
         for row in rows:
+            tag = "soon" if row.get("soon") else "ready" if row.get("ready") else "waiting"
             tree.insert("", "end", iid=str(row["uuid"]), values=self._row_values(row),
-                        tags=("ready",) if row.get("ready") else ("waiting",))
+                        tags=(tag,))
         back = [iid for iid in chosen if tree.exists(iid)]
         if back:
             tree.selection_set(back)
@@ -1368,7 +1359,7 @@ class SecretTasksTab(PanelTab):
             self.rt.tick.arm("secret_tick", 1000, self._tick)
 
     def _refresh_timers(self) -> tuple:
-        """Rewrite every row's timer; return (expired keys, did any ready-state change).
+        """Rewrite every row's timer; return (expired keys, did ready/soon change on any row).
 
         The countdown runs to `completed_at` — the moment the tile becomes raidable — not
         to expiry: «готово через …» while it is ahead, then «готово к сбору» (with how
@@ -1392,6 +1383,15 @@ class SecretTasksTab(PanelTab):
             ready = done is not None and done <= now
             if ready != row.get("ready"):
                 row["ready"] = ready
+                changed = True
+            # «Soon»: under ten minutes from whatever this row is waiting on next — being
+            # raidable while it still counts down, losing its loot once it is raidable.
+            # Recomputed every second like the ready flag, and a flip repaints the row the
+            # same way a flip of `ready` does — the colour is the whole point (#1241).
+            soon = (not ready and done is not None and done - now < SOON_MS) or \
+                   (ready and exp is not None and exp - now < SOON_MS)
+            if soon != row.get("soon"):
+                row["soon"] = soon
                 changed = True
             if done is None:
                 row["timer"].set(self.t("secrettasks.until_ready", t="—"))
