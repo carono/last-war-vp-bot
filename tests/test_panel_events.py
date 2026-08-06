@@ -70,11 +70,15 @@ def test_a_reading_that_never_arrived_is_unknown_and_never_closed():
         state = modelmod.codename_state(blind)
         assert state.state == modelmod.UNKNOWN
         assert not state.open
-        assert not state.can_attack, "unknown opened the press"
         assert not state.done, "unknown was counted as finished"
+        # …and it does NOT shut the press. «Nobody knows» is not «you may not»: the
+        # scenario holds that gate and refuses in one line, and «Чеклист» draws its
+        # nine buttons by the same rule, so the two boards agree.
+        assert state.can_attack, "unknown was treated as «the event is shut»"
 
 
 def test_an_event_that_is_not_running_is_closed_and_its_press_is_shut():
+    """CLOSED is the ONE thing that greys the button: the game said there is no boss."""
     state = modelmod.codename_state(modelmod.parse(SHUT))
     assert state.state == modelmod.CLOSED
     assert not state.can_attack
@@ -286,6 +290,25 @@ def test_a_closed_event_still_has_its_card_on_the_phone():
     for raw in (SHUT, None):
         titles = [c.get("title") for c in _tab(raw).web_view()["cards"]]
         assert "events.group.codename" in titles, titles
+
+
+def test_both_boards_grey_the_press_on_exactly_the_same_terms():
+    """One button, two tabs, one rule — CLOSED and nothing else.
+
+    They are separate models on purpose (one draws events, the other a day), so the rule
+    they share is the thing worth pinning: an event the game has SAID is shut kills the
+    press on both, and a reading nobody could take kills it on neither.
+    """
+    from panel.tabs.checklist import model as checklist
+
+    for raw, pressable in ((OPEN, True), (SHUT, False), (None, True)):
+        here = modelmod.codename_state(
+            modelmod.parse(raw) if raw is not None else None).can_attack
+        row = checklist.state_of(
+            checklist.BY_KEY["codename"],
+            checklist.parse(raw) if raw is not None else None)
+        there = row.state != checklist.CLOSED
+        assert here is there is pressable, (raw, here, there)
 
 
 def test_the_press_is_not_started_twice_over():

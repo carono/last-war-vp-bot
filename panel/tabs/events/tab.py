@@ -27,10 +27,13 @@ open, and whenever the person presses «Обновить».
 
 **The one press here plays a scenario and nothing else.** «Атаковать сейчас» runs
 `actions/attack_codename_boss.md`, which finds the boss, finds a squad standing in the
-base and sends it. Whether the attack COUNTED is then re-read from the game a moment
-later, never inferred from the press returning cleanly — which is the same rule the
-checklist works by, stated the other way round: a press may start work, but only a
-reading may say it is done.
+base and sends it. Whether the attack COUNTED is then re-read from the game, never
+inferred from the press returning cleanly.
+
+That is the rule both boards share: **the state is read, the doing is offered.** A press
+may start work; only a reading may say it is done. «Чеклист» draws the same press on its
+own «Кодовое имя» row, plays the same scenario, and greys it on the same terms — the
+event being CLOSED, and nothing else.
 """
 from __future__ import annotations
 
@@ -280,7 +283,7 @@ class EventsTab(PanelTab):
                                                      padx=(8, 8))
 
     def _paint_attack_button(self) -> None:
-        """Alive only while the event is running and no attack is already on its way."""
+        """Dead while an attack is on its way, and while the event is known to be shut."""
         if self._attack_button is None:
             return
         try:

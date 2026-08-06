@@ -62,6 +62,24 @@ script_engine.run_action("heal_units", hwnd=0, on_event=self._log_put)
 Values typed in the UI travel the same way and no further: the scenario declares
 `ARGS level = 30`, the button passes `variables={"level": self._level.get()}`.
 
+### A button that STARTS something is not the thing being forbidden
+
+**«Состояние считается из игры, но выполнение можно вызывать.»** The rule above is about
+where an ability LIVES, not about whether a panel may offer to run it. A tab that draws
+readings may put a button beside them, and pressing it plays the scenario and then
+re-reads — that is ordinary and wanted.
+
+What may never happen is a press that MARKS: a tick, a «done», a count the panel keeps
+for itself. Anything a person could do to the panel instead of to the game is a second
+version of the truth, and the first time the two disagree the panel's is the wrong one.
+So the row moves when the READING moves, and a row that stays red after a press is
+telling the truth about the game.
+
+The two got confused once: «Чеклист» lost its nine «Выполнить» because a button that
+starts something looked like a button somebody expects to have marked the line (#1239),
+and a board of readings you could not act on is exactly half a tool. #1257 put them back.
+**When in doubt: object to marking, never to pressing.**
+
 ### The code that predates this rule
 
 Less of it than there was: the panel's tabs are plugins now

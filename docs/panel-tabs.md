@@ -177,6 +177,38 @@ and standalone, which is what makes a tab launchable at all.
 
 ---
 
+## What is NOT forbidden: a button that STARTS something
+
+**«Состояние считается из игры, но выполнение можно вызывать.»** A tab that draws
+readings may also offer to run the ability behind them, and that is ordinary rather than
+a compromise. The line to hold is between the two verbs:
+
+* **the state is READ.** Nothing a person does to the panel may change what a reading
+  says. No box to tick, no «mark done», no counter the panel keeps for itself — the
+  moment it kept one, the same errand done in the game, on a phone or by a second client
+  would stop being counted, and the board would be confidently wrong instead of merely
+  late;
+* **the doing is OFFERED.** A press plays a scenario and then re-reads. Whatever the
+  reading says next is what the row says next — including «still to do», when the game
+  refused. A row that stays red after a press is information, not a bug.
+
+They only look like the same rule. «Чеклист» lost its nine «Выполнить» to that confusion
+(#1239 — «a button that starts something is a button somebody expects to have marked the
+line»), and the board became something you could read but not use; #1257 put them back.
+So when the temptation comes round again: **the objection is to MARKING, never to
+pressing.** The way to keep them apart in code is to have exactly one path — the
+checklist's `Errand.scenario` + `run(key)` — where a press plays the ability and calls
+the refresh, and no path at all where anything writes a state.
+
+Which lines get a button is a decision to be written down: nine of the checklist's
+thirteen read errands have one. Two of the rest have no ability at all yet, and the
+other two have one that only spends a queue their own tool fills (#1188), so a press
+would succeed and rob nothing. That is in `.model`'s comments
+beside the catalogue, and pinned by a test — because «no button here» has to be a reason
+and not an oversight.
+
+---
+
 ## Coming back from a background thread
 
 A tab reads the game off the Tk thread and then has to paint what it found. **That
@@ -458,13 +490,13 @@ def web_press(self, action: str, args: dict) -> dict:
     return {"ok": True} if action == "refresh" else {"error": "unknown"}
 ```
 
-**A press can belong to a card rather than to the screen.** `actions` at the top level is
-the screen's own row of buttons; the same list ON A CARD is drawn as that card's footer,
-which is what a block wants when the press belongs to one thing on the page and not to
-the page. «Кодовое имя» on «События» and on «Чеклист» is the first to use it (#1257): the
-board-wide button is «Обновить», and «Атаковать сейчас» sits under the one event it
-attacks. Both kinds reach the same `web_press`, so an id has to be answered wherever it
-was offered.
+**A press can belong to a card or to an item, not only to the screen.** `actions` at the
+top level is the screen's own row of buttons; the same list ON A CARD is drawn as that
+card's footer, and on an ITEM beside that row. Pick by what the press belongs to:
+«События» puts «Атаковать сейчас» on the event's card (#1257), «Чеклист» puts one on each
+errand row that is a scenario. All three reach the same `web_press`, so an id has to be
+answered wherever it was offered — and an item's action carries `args`, which is how a
+row says WHICH errand it is.
 
 **Which fields are words and which are data is fixed.** `title`, `label`, `empty`,
 `pill` are **locale keys** and are said by the browser out of the panel's own table;

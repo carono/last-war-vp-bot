@@ -166,13 +166,19 @@ class CodenameState:
     def can_attack(self) -> bool:
         """May «Атаковать сейчас» be pressed?
 
-        Only while the event is RUNNING. Not «while the three are still owed»: a fourth
-        attack is allowed and worth making — attempts are not rationed and only the
-        biggest single hit counts for the ranking — so the button stays alive after the
-        third. What kills it is the boss not being on the map, and then there is nothing
-        for a press to reach.
+        Not «while the three are still owed»: a fourth attack is allowed and worth
+        making — attempts are not rationed and only the biggest single hit counts for
+        the ranking — so the button stays alive after the third.
+
+        What kills it is the game having SAID there is no boss on the map: `CLOSED`, and
+        only that. **UNKNOWN leaves it alive**, the same rule «Чеклист» draws its nine
+        buttons by: «nobody knows» is not «you may not», and the ability holds its own
+        gates (`CLAUDE.md`) — the scenario is the thing that knows whether it can run,
+        and it refuses in one line if it cannot. A panel refusing on its own behalf
+        would be a second, worse copy of that gate, and the two front-ends would end up
+        with different ideas of when a press is allowed.
         """
-        return self.state == OPEN
+        return self.state != CLOSED
 
     def __repr__(self) -> str:
         return f"<codename {self.state} {self.attacks}/{self.need} dmg={self.damage}>"

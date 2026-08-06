@@ -1,12 +1,23 @@
 r"""The «Чеклист» tab: a board that is READ, and the one lie it must never tell.
 
-The rule this file exists to hold is that a line is done because the GAME says there is
-nothing left of it — never because somebody ticked a box, and never because a scenario
-was started. So the tests are mostly about the third state: a reading that did not
-arrive, a field the client would not answer, an event that is not on today. Each of
-those has to come out as «unknown» or «not on today» and NOT as done, because a
-checklist that quietly reports a dark client as a finished day is worse than no
-checklist at all.
+The rule this file exists to hold is **«состояние считается из игры, но выполнение можно
+вызывать»**, and it has two halves that are easy to collapse into one another:
+
+* a line is done because the GAME says there is nothing left of it — never because
+  somebody ticked a box, and never because a scenario was started;
+* but a line that IS an ability the bot has carries a button, and pressing it is
+  perfectly ordinary. The press starts work; the reading that follows moves the row.
+
+Collapsing the second into the first is what happened once already: «a button that
+starts something is a button somebody expects to have MARKED the line» sounded right,
+the nine «Выполнить» went (#1239), and the board became a thing you could only look at.
+The tests below therefore pin BOTH halves — that nothing marks, and that the presses
+are there and reach the scenarios.
+
+So most of them are about the third state: a reading that did not arrive, a field the
+client would not answer, an event that is not on. Each has to come out as «unknown» or
+«not running» and NOT as done, because a checklist that quietly reports a dark client as
+a finished day is worse than no checklist at all.
 
 The other half pins the reading itself to the presses it describes: every count in
 `actions/read_daily_checklist.md` is the same expression `tools/lib/lua_actions.py`
@@ -207,18 +218,50 @@ def test_the_scenario_is_a_read_and_presses_nothing():
         assert forbidden not in body[0], f"the reading contains «{forbidden}»"
 
 
-def test_no_errand_carries_a_press_of_any_kind():
-    """An errand is a READING. There is nothing on it for a button to hang off.
+def test_the_state_is_read_and_the_doing_is_offered():
+    """The rule, in the shape the catalogue has to hold it.
 
-    The catalogue used to carry a scenario per line and the rows a «Выполнить» — and a
-    button that starts something is a button somebody expects to have ticked the line.
-    The abilities live on their own tabs; this one only says whether they still need to
-    run.
+    Nothing here is ticked by hand — there is no `done` field, no setter, no way for the
+    panel to record an opinion of its own. But an errand the bot HAS an ability for
+    carries the scenario that plays it, and the two are not in tension: pressing starts
+    work, the board is re-read, and the row follows the game.
     """
     for errand in modelmod.ERRANDS:
-        assert not hasattr(errand, "scenario"), \
-            f"«{errand.key}» carries a scenario — the board is a reading, not a remote"
-    assert "scenario" not in modelmod.Errand.__slots__
+        for marking in ("done", "ticked", "mark", "set_done", "complete"):
+            assert not hasattr(errand, marking), \
+                f"«{errand.key}» carries «{marking}» — a line is read, never recorded"
+        assert isinstance(errand.scenario, str)
+        assert errand.runnable == bool(errand.scenario)
+        if errand.runnable:
+            assert (_REPO / "src" / "lastwar_bot" / "actions"
+                    / (errand.scenario + ".md")).exists(), \
+                f"«{errand.key}» names a scenario that does not exist"
+            assert errand.run_key.startswith("checklist."), errand.run_key
+
+
+def test_the_nine_errands_with_an_ability_offer_it_and_the_four_without_do_not():
+    """Which lines have a button is a decision, not an accident — so it is pinned.
+
+    The four without: `trucks` and `queues_help` have no ability at all yet, and the two
+    robberies have one that only spends a queue their own tool fills (#1188) — a press
+    from this board would succeed and rob nothing.
+    """
+    runnable = [e.key for e in modelmod.READ_ERRANDS if e.runnable]
+    assert runnable == ["base_resources", "hospital_collect", "hospital_heal",
+                        "alliance_help", "alliance_donate", "visitors_recruit",
+                        "visitors_gifts", "skills", "decorations"], runnable
+    silent = [e.key for e in modelmod.READ_ERRANDS if not e.runnable]
+    assert silent == ["trucks", "queues_help", "secret_steals", "ghost_steals"], silent
+
+    # …and «Кодовое имя» is one of them and not a special case: a scenario and a
+    # run_key, the same two fields, differing only in the verb on the button.
+    codename = modelmod.BY_KEY["codename"]
+    assert codename.scenario == modelmod.CODENAME_ATTACK
+    assert codename.run_key == "checklist.codename.attack"
+
+    # Nothing in the blind group can be run — there is no ability to hang off a line
+    # nothing can even read.
+    assert not [e.key for e in modelmod.BLIND_ERRANDS if e.runnable]
 
 
 def test_a_line_nothing_can_read_says_so_and_never_anything_else():
@@ -442,12 +485,11 @@ def _tab(raw=FULL, plays=True, codename=CODENAME_SHUT):
     tab.rt = _Runtime(plays)
     tab._reading = modelmod.parse(raw, at=1.0) if raw is not None else None
     tab._codename = modelmod.parse(codename, at=1.0) if codename is not None else None
+    tab._running = set()
     tab._busy = False
-    tab._attacking = False
     tab._body = None
     tab._status = None
     tab._refresh_button = None
-    tab._codename_button = None
     tab._wire_off = []
     tab._truck_mode = _Var(modelmod.TRUCK_MODE_DEFAULT)
     return tab
@@ -481,6 +523,7 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
             assert "text" not in item, \
                 "a title of the panel's own must be a key, not data"
             keys += [item["label"], item["pill"]]
+            keys += [a["label"] for a in item.get("actions") or ()]
         keys += [a["label"] for a in card.get("actions") or ()]
     keys += [a["label"] for a in view["actions"]]
     for key in keys:
@@ -490,19 +533,13 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
     offered = {a["id"] for a in view["actions"]}
     for card in view["cards"]:
         offered |= {a["id"] for a in card.get("actions") or ()}
+        for item in card.get("items") or ():
+            offered |= {a["id"] for a in item.get("actions") or ()}
+    assert offered == {"refresh", "run"}, offered
     for action in offered:
         assert _tab().web_press(action, {}).get("error") != "unknown", \
             f"«{action}» is a dead button"
     assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
-
-    # …and the same again with «Кодовое имя» running, because that is when its card
-    # grows the one button on this board.
-    live = _tab(codename=CODENAME_OPEN)
-    ids = {a["id"] for c in live.web_view()["cards"] for a in c.get("actions") or ()}
-    assert ids == {"attack_codename"}, ids
-    for action in ids:
-        assert _tab(codename=CODENAME_OPEN).web_press(action, {}).get("error") is None, \
-            f"«{action}» is a dead button"
 
 
 def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
@@ -516,20 +553,67 @@ def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
     assert items["checklist.item.arena"]["pill"] == "checklist.state.unknown"
 
     before = [s.state for s in tab.states()]
-    for marking in ("toggle", "tick", "done", "mark", "reset", "add", "delete", "run"):
+    # Nothing on this screen MARKS. `run` is not in this list: it plays an ability and
+    # then re-reads, which is the opposite of recording an opinion (its own test above).
+    for marking in ("toggle", "tick", "done", "mark", "reset", "add", "delete"):
         assert tab.web_press(marking, {"key": "base_resources"}) == {"error": "unknown"}
     assert [s.state for s in tab.states()] == before
     assert tab.rt.played == [], "a press reached the game"
 
 
-def test_no_row_offers_a_press_on_either_front_end():
-    """A ROW is a reading and carries nothing to press. A group may (below)."""
+def test_the_phone_is_offered_exactly_the_presses_the_window_draws():
+    """One mechanism, two front-ends, the same gate — never one ahead of the other."""
     for codename in (CODENAME_SHUT, CODENAME_OPEN):
         tab = _tab(codename=codename)
-        for card in tab.web_view()["cards"]:
-            for item in card.get("items") or ():
-                assert not item.get("actions"), \
-                    f"«{item['label']}» offers a button — a row is a reading"
+        offered = {i["label"]: i["actions"][0] for c in tab.web_view()["cards"]
+                   for i in c.get("items") or () if i.get("actions")}
+        drawn = {s.errand.title_key: s for s in tab.states()
+                 if s.errand.runnable and tab._may_run(s)}
+        assert set(offered) == set(drawn), (
+            "the phone and the window disagree about which rows can be pressed: "
+            f"{sorted(set(offered) ^ set(drawn))}")
+        for key, action in offered.items():
+            assert action["id"] == "run"
+            assert action["label"] == drawn[key].errand.run_key
+            assert action["args"]["key"] == drawn[key].key
+
+
+def test_pressing_plays_the_scenario_and_re_reads_and_marks_nothing():
+    """The whole rule in one path: a press starts an ability; a READING moves the row."""
+    tab = _tab()
+    before = [s.state for s in tab.states()]
+    assert tab.run("base_resources") is True
+    # …the ability, then both readings again — and nothing else.
+    assert tab.rt.played == ["collect_base_resources",
+                             modelmod.ACTION, modelmod.CODENAME_ACTION]
+    # The row did not move: the stub answers no reading, so the board is what it was.
+    assert [s.state for s in tab.states()] == before
+
+    # A line with no ability cannot be pressed, from either front-end.
+    for silent in ("trucks", "queues_help", "secret_steals", "ghost_steals", "arena"):
+        blank = _tab()
+        assert blank.run(silent) is False
+        assert blank.rt.played == [], f"«{silent}» reached the game"
+    assert _tab().run("no-such-errand") is False
+
+
+def test_a_scenario_in_flight_cannot_be_started_twice():
+    """Two presses on one row is one run — and the button says so by going dead."""
+    class _Slow(_Runtime):
+        def play_async(self, name, args=None, **kw):
+            self.played.append(name)
+            return True                     # never finishes: on_done is not called
+
+    tab = _tab()
+    tab.rt = _Slow(True)
+    assert tab.run("skills") is True
+    assert tab.run("skills") is False, "a second press started the same run again"
+    assert tab.rt.played == ["occupation_skills"]
+    state = {s.key: s for s in tab.states()}["skills"]
+    assert not tab._may_run(state), "the row stayed pressable while its run was going"
+    assert not [i for c in tab.web_view()["cards"] for i in c.get("items") or ()
+                if i["label"] == "checklist.item.skills" and i.get("actions")], \
+        "the phone still offered a run that is already going"
 
 
 def test_the_board_wide_press_is_read_it_again_and_nothing_else():
@@ -540,63 +624,30 @@ def test_the_board_wide_press_is_read_it_again_and_nothing_else():
 
 
 def test_the_codename_press_is_offered_only_while_the_event_is_running():
-    """The one button on the board, on both front-ends, and greyed the same way.
-
-    It exists because it was asked for, and it does not tick anything: the row above it
-    is still the game's own count, re-read after the attack. What kills it is the event
-    being shut — then there is no boss on the map for a press to reach.
-    """
+    """Greyed when the game has SAID there is no boss — and on both front-ends alike."""
     shut = _tab(codename=CODENAME_SHUT)
-    assert not [a for c in shut.web_view()["cards"] for a in c.get("actions") or ()]
-    assert shut.web_press("attack_codename", {}) == {"error": "closed"}
-    assert shut.rt.played == [], "a press reached the game with the event shut"
+    state = {s.key: s for s in shut.states()}["codename"]
+    assert state.state == modelmod.CLOSED
+    assert not shut._may_run(state)
+    assert shut.run("codename") is True, \
+        "run() is the mechanism, not the gate — the widget is what greys"
+    # …and the phone is not offered it, which is the gate that matters from outside.
+    assert not [i for c in _tab(codename=CODENAME_SHUT).web_view()["cards"]
+                for i in c.get("items") or ()
+                if i["label"] == "checklist.item.codename" and i.get("actions")]
 
     live = _tab(codename=CODENAME_OPEN)
-    assert live.web_press("attack_codename", {}) == {"ok": True}
-    assert live.rt.played == [modelmod.CODENAME_ATTACK]
+    assert live.web_press("run", {"key": "codename"}) == {"ok": True}
+    assert live.rt.played[0] == modelmod.CODENAME_ATTACK
 
-    # A reading that never arrived is not «running»: unknown must never open a press.
+    # A reading that never arrived is not «running», but it is not «shut» either: the
+    # row is UNKNOWN, the press stays available, and the SCENARIO refuses if it must.
     for blind in (None, modelmod.Reading(error="no daemon")):
         tab = _tab()
         tab._codename = blind
-        assert tab.web_press("attack_codename", {}) == {"error": "closed"}
-        assert tab.rt.played == []
-
-
-def test_a_shut_gate_is_worded_by_the_errand_and_the_same_on_both_front_ends():
-    """«Сегодня не проводится» is true of Ghost Ops and false of a four-a-day boss.
-
-    So the wording is the errand's, and both registers are built from the one token —
-    the window says `checklist.detail.<closed>` and the phone `checklist.state.<closed>`,
-    which is what stops the two drifting into saying different things about one row.
-    """
-    english = json.loads(
-        (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
-    tokens = {e.closed for e in modelmod.ERRANDS}
-    assert tokens == {"closed", "not_running"}, tokens
-    for token in tokens:
-        for family in ("checklist.detail.", "checklist.state."):
-            assert family + token in english, f"«{family}{token}» is in no locale"
-
-    assert modelmod.BY_KEY["ghost_steals"].closed == "closed"
-    assert modelmod.BY_KEY["codename"].closed == "not_running"
-
-    tab = _tab("ghost_open=0", codename=CODENAME_SHUT)
-    pills = {i["label"]: i["pill"] for c in tab.web_view()["cards"]
-             for i in c.get("items") or ()}
-    assert pills["checklist.item.ghost_steals"] == "checklist.state.closed"
-    assert pills["checklist.item.codename"] == "checklist.state.not_running"
-
-
-def test_the_codename_counter_survives_the_event_being_shut():
-    """«0 / 3» greyed, not «—»: the numbers are the last that were true.
-
-    The row is CLOSED and rightly so, but dashing the count while printing the damage
-    beside it would say the panel had lost track of one and not the other.
-    """
-    shut = modelmod.parse(CODENAME_SHUT)
-    assert modelmod.state_of(modelmod.BY_KEY["codename"], shut).state == modelmod.CLOSED
-    assert modelmod.codename_counter(shut) == (0, 3, 12607399171)
+        state = {s.key: s for s in tab.states()}["codename"]
+        assert state.state == modelmod.UNKNOWN
+        assert tab._may_run(state), "unknown was treated as «you may not»"
 
 
 def test_the_codename_block_is_the_events_own_numbers_and_stays_when_it_is_shut():
@@ -673,7 +724,8 @@ def test_one_reading_failing_says_nothing_about_the_other():
     states = {s.key: s.state for s in tab.states()}
     assert states["base_resources"] == modelmod.TODO
     assert states["codename"] == modelmod.UNKNOWN
-    assert not tab._codename_open(), "a dark event reading opened the press"
+    codename = {s.key: s for s in tab.states()}["codename"]
+    assert codename.state == modelmod.UNKNOWN
 
 
 def test_the_tab_is_registered_and_says_who_it_is():

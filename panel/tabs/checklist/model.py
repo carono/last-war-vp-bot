@@ -1,11 +1,16 @@
 """What the day still owes, read off the game — the catalogue and the parser. **No Tk.**
 
-**Nothing here is ticked by a person.** An errand's state is the game's own answer to
-«is there any of this left», and the panel only draws it. A hand-ticked box records what
-somebody REMEMBERS doing, which is precisely the thing a checklist exists so that nobody
-has to; and the first time the two disagree — a collect that was pressed and refused, a
-second client that spent the quota — the box is the one that is wrong, with nothing on
-screen to say so.
+**The state is READ; the doing is OFFERED.** An errand's state is the game's own answer
+to «is there any of this left», and the panel only draws it — there is no box anybody can
+tick. But an errand the bot has an ability for carries a BUTTON, and pressing it plays
+that ability and then re-reads the board: the two halves are not in tension, because what
+moves a line is always the reading and never the press (:attr:`Errand.scenario`).
+
+A hand-ticked box would record what somebody REMEMBERS doing, which is precisely the
+thing a checklist exists so that nobody has to; and the first time the two disagree — a
+collect that was pressed and refused, a second client that spent the quota — the box is
+the one that is wrong, with nothing on screen to say so. A press changes none of that: it
+starts work, the game answers, and the row follows the answer.
 
 So there are three states and they are not negotiable:
 
@@ -67,7 +72,7 @@ QUOTA = "quota"
 
 
 class Errand:
-    """One line of the checklist: what it is, and which field of the reading answers it.
+    """One line of the checklist: what it is, which field answers it, what plays it.
 
     ``field`` names a key of the reading; ``cap`` the field holding the day's allowance
     for a quota; ``gate`` a field that must be 1 for the errand to be on at all (Ghost
@@ -79,6 +84,17 @@ class Errand:
     would make the checklist look complete while a third of the day is missing from it,
     and putting a tickable box there would be the hand-marking this tab exists without.
 
+    ``scenario`` is an `actions/*.md` the panel may PLAY for this errand, or ``""``.
+    **The state is read and the doing is offered** — the two halves of the rule, and
+    they are not in tension: pressing plays the ability and then the board is re-read, so
+    the line follows the GAME and never the press. A row that stays red after a press is
+    information, not a bug. An errand with no scenario is a perfectly good line: the
+    reading is worth having whether or not the bot can act on it yet.
+
+    ``run_key`` is the button's own wording. Most say «Выполнить»; «Кодовое имя» says
+    «Атаковать сейчас», because that is what its scenario does — the same mechanism, a
+    different verb.
+
     ``closed`` is HOW a shut gate is worded — the tail of `checklist.detail.<closed>` in
     the window and of `checklist.state.<closed>` on the phone, so the two front-ends say
     the same thing in their own two registers. The default «сегодня не проводится» is
@@ -86,10 +102,12 @@ class Errand:
     several times a day, so an errand may name its own.
     """
 
-    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate", "closed")
+    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate", "closed",
+                 "scenario", "run_key")
 
     def __init__(self, key: str, field: str = "", kind: str = QUEUE, cap: str = "",
-                 gate: str = "", closed: str = "closed") -> None:
+                 gate: str = "", closed: str = "closed", scenario: str = "",
+                 run_key: str = "checklist.run") -> None:
         self.key = key
         self.title_key = "checklist.item." + key
         self.field = field
@@ -97,11 +115,18 @@ class Errand:
         self.cap = cap
         self.gate = gate
         self.closed = closed
+        self.scenario = scenario
+        self.run_key = run_key
 
     @property
     def readable(self) -> bool:
         """Whether the game has anything to say about this one."""
         return bool(self.field)
+
+    @property
+    def runnable(self) -> bool:
+        """Whether there is an ability the panel can play for this one."""
+        return bool(self.scenario)
 
 
 #: «Отправка грузовиков» — the trade station's fleet, and the first group of the board
@@ -150,18 +175,29 @@ def truck_mode(raw) -> str:
 #: The errands the game ANSWERS, in the order a day is played: the base first, then the
 #: alliance, then what the person has banked, then the two robberies. Every one of these
 #: is a live reading and the same expression the matching press is gated on.
+#:
+#: Nine of the thirteen carry a scenario and therefore a button. The four that do not,
+#: and why — because «no button» has to be a reason and not an oversight:
+#:
+#: * `trucks` and `queues_help` — no ability exists for either yet. The reading is
+#:   still worth having, which is the whole point of `scenario` being optional.
+#: * `secret_steals` and `ghost_steals` — the scenarios exist, and they are deliberately
+#:   NOT offered here. Each only spends a queue that its own tool has to fill first
+#:   (#1188, `CLAUDE.md`), so a press from this board with an empty queue would run,
+#:   succeed and rob nothing — a button that reports success for doing nothing is worse
+#:   than no button. They belong to «Командный пункт», where the queue is filled.
 READ_ERRANDS: tuple = (
-    Errand("base_resources", "base_ready"),
+    Errand("base_resources", "base_ready", scenario="collect_base_resources"),
     Errand("trucks", "trucks_ready"),
-    Errand("hospital_collect", "healed_ready"),
-    Errand("hospital_heal", "wounded"),
+    Errand("hospital_collect", "healed_ready", scenario="heal_units"),
+    Errand("hospital_heal", "wounded", scenario="heal_units"),
     Errand("queues_help", "queues_help"),
-    Errand("alliance_help", "help_waiting"),
-    Errand("alliance_donate", "donate_left", QUOTA),
-    Errand("visitors_recruit", "recruit_pending"),
-    Errand("visitors_gifts", "gifts_pending"),
-    Errand("skills", "skills_ready"),
-    Errand("decorations", "decorations"),
+    Errand("alliance_help", "help_waiting", scenario="help_ally"),
+    Errand("alliance_donate", "donate_left", QUOTA, scenario="donate_alliance_tech"),
+    Errand("visitors_recruit", "recruit_pending", scenario="recruit_survivors"),
+    Errand("visitors_gifts", "gifts_pending", scenario="collect_visitor_gifts"),
+    Errand("skills", "skills_ready", scenario="occupation_skills"),
+    Errand("decorations", "decorations", scenario="upgrade_decorations"),
     Errand("secret_steals", "steal_left", QUOTA, cap="steal_cap"),
     Errand("ghost_steals", "ghost_left", QUOTA, cap="ghost_cap", gate="ghost_open"),
 )
@@ -223,12 +259,18 @@ CODENAME_ACTION = "read_codename_event"
 CODENAME_VARIABLE = "codename"
 CODENAME_ATTACK = "attack_codename_boss"
 
+#: «Атаковать сейчас» is an ORDINARY errand button — a `scenario` and a `run_key`, the
+#: same two fields the other nine use. It was a special case for about an hour and that
+#: was the wrong shape: an event with a press is not a different KIND of line, it is a
+#: line whose ability happens to be an attack, and the day a second event has one it
+#: should cost a tuple entry rather than another block of widgets.
 CODENAME_ERRANDS: tuple = (
     Errand("codename", "left", QUOTA, cap="need", gate="open",
            # «сегодня не проводится» is Ghost Ops's wording and it is wrong here: this
            # boss stands FOUR times a day, so «not on today» would be a false statement
            # about the next window, which may be two hours away.
-           closed="not_running"),
+           closed="not_running",
+           scenario=CODENAME_ATTACK, run_key="checklist.codename.attack"),
 )
 
 #: The two fields beside the quota. `attacks` is the quota's own spent half, named again
