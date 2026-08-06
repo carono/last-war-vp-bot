@@ -150,6 +150,24 @@ class TkPost:
             self._running, self._job = False, None
 
 
+def stop(widget) -> None:
+    """Stop the window's shared pump — call ONLY when the WHOLE window is closing.
+
+    `poster(widget)` hands out the same :class:`TkPost` to every session built on
+    ``widget`` (see its docstring), so this must never be reached from one session's
+    own teardown — that would kill the drain out from under every OTHER open profile,
+    which is invisible until one of them tries to repaint. It belongs at the one place
+    that already knows every session is gone: `Workspace.shutdown` for the shell,
+    `run_tab`'s close handler for a standalone tab. Calling it on a widget that never
+    got a pump — ``None``, or a bare harness — is a no-op.
+    """
+    if widget is None:
+        return
+    found = getattr(widget, _POSTER_ATTR, None)
+    if found is not None:
+        found.stop()
+
+
 def poster(widget) -> "TkPost | None":
     """The window's shared hand-over queue, made on first ask. ``None`` without a widget.
 

@@ -204,6 +204,24 @@ def test_on_tk_from_the_tk_thread_runs_straight_away() -> None:
     assert ran == ["done"], ran
 
 
+def test_stop_ends_the_shared_pump_for_the_whole_window() -> None:
+    """`tick.stop(widget)` — called once, when the WHOLE window is closing — ends the
+    drain for good: the already-scheduled callback firing one last time must not
+    re-arm another `after` behind it (#1236 — nothing called this, ever, so a process
+    that opens and closes several windows kept every one of their pumps ticking)."""
+    w = FakeWidget()
+    tickmod.Ticker(w)                      # arms the shared pump, as a runtime would
+    calls_before = w.calls
+    tickmod.stop(w)
+    w.pump()                               # the job already queued fires one more time
+    assert w.calls == calls_before, "the pump re-armed itself after being stopped"
+
+
+def test_stop_with_no_widget_or_no_pump_is_a_no_op() -> None:
+    tickmod.stop(None)                     # nothing to stop — must not raise
+    tickmod.stop(FakeWidget())             # a widget that never got a Ticker
+
+
 # ---------------------------------------------------------------------------
 # 2. reading a setting off a background thread
 # ---------------------------------------------------------------------------

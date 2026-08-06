@@ -187,6 +187,10 @@ class Workspace:
         self._remember()
         self.each(lambda s: s.shutdown())
         self._sessions, self._current = [], None
+        # Every session's Ticker shares ONE pump on `self._root` (panel/runtime/tick.py)
+        # — safe to stop only here, now that every session that pump served is gone.
+        from .tick import stop as stop_pump
+        stop_pump(self._root)
 
     # -- coming back the way it was left -------------------------------------
     def restore(self, first: str | None = None) -> list:

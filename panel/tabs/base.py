@@ -294,10 +294,16 @@ def run_tab(cls, argv=None) -> int:
         var.trace_add("write", lambda *_a: rt.settings.changed())
 
     def _close() -> None:
+        from ..runtime import tick as tickmod
+
         try:
             tab.shutdown()
         finally:
             rt.shutdown()
+            # This window holds exactly one runtime, so it is also the only one
+            # standing on the shared pump `rt.tick` armed — safe to stop it here
+            # (see panel/runtime/tick.py::stop).
+            tickmod.stop(root)
             root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _close)

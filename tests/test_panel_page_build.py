@@ -113,6 +113,7 @@ class _Harness:
 
     def close(self) -> None:
         from panel import profile as profilemod
+        from panel.runtime import tick as tickmod
 
         try:
             self.app._disarm_all()
@@ -122,6 +123,12 @@ class _Harness:
             self.session.shutdown()                    # tabs, errands, files
         except Exception:                              # noqa: BLE001
             pass
+        # `Workspace.shutdown` is skipped on purpose above (this harness closes ONE
+        # session by hand, not the workspace) — but that also means it never stops the
+        # shared pump `Workspace.shutdown` would have. Do it here instead, or the next
+        # harness's `tk.Tk()` in the same process inherits a still-armed `after` chain
+        # aimed at a destroyed widget (#1236 — "invalid command name … _pump").
+        tickmod.stop(self.app)
         try:
             self.app.destroy()
         except Exception:                              # noqa: BLE001
