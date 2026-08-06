@@ -267,6 +267,38 @@ was found.
 not something the game states on the wire — see §7 of `protocol.md`. That is the
 one soft spot in this rule.
 
+**And the soft spot is still open on the TOOL's own route (measured 2026-08-06).**
+#1244 replaced the cfgId arithmetic with the game's own config row — `level` and
+`is_special` out of `lw_dispatch_tasks` — but only where the PANEL reads. Both
+readings taken from the same live client, one round trip apart:
+
+| source | what it reads a `cfgId=60009903` tile as |
+|---|---|
+| `dispatch_tasks.alliance_roster` (what the tab lists) | **level 7**, `starred=False` |
+| `steal_secret_task._vm_raidable_tasks` (what `--from-vm` selects on) | **level 99** |
+
+Four of the fifty-two raidable rows on the account disagreed that way. The cause is
+the read, not the parser: `secret_task_raidable_alliance()` emits `ACT VT …` lines
+carrying `cfg` and no config columns, so `_parse_vt_lines` has nothing to go on but
+`split_cfg_id` — the arithmetic #1244 exists to stop trusting.
+
+**It does not reach the panel**, and that is worth being precise about rather than
+relieved by: since #1256 the panel chooses out of its own list and names the targets
+(`--targets uuid:server,…`), and `parse_targets` re-derives nothing — so the level a
+threshold is judged against is the config's. What is still wrong is the route a
+PERSON uses from a shell: `--from-vm --star-max --level-min 7` sorts a mislabelled
+tile to the top, and with no `--level-max` the star rule takes `top = max(level) =
+99` and robs only those, leaving the real level-7 stars alone. A rule that silently
+prefers the tiles it has misread is the #1099 failure exactly — it does not raise,
+it spends a raid in the wrong place.
+
+The fix is the same one #1244 made on the other side: teach
+`secret_task_raidable_alliance()` / `secret_task_all_alliance()` to emit `lvl` and
+`spec` off `v.cfg` the way `dispatch_tasks` already does, and read them in
+`_parse_vt_lines` with the cfgId kept only as the fallback for a template the client
+has not loaded. Filed separately; not folded into #1188, whose panel path is
+unaffected.
+
 The gate is judged on the GAME's clock, which is not this computer's — the two were
 eleven seconds apart when measured, with the PC the slow one (`game-clock.md`,
 task #1227). Against `time.time()` the same `completionTime` reads as "not yet" for
