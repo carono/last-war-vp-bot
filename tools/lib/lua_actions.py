@@ -1466,16 +1466,30 @@ def ghost_recon_refresh() -> str:
 def ghost_recon_targets_dump() -> str:
     """Reader chunk: one `ACT G …` line per ghost-recon squad the client knows.
 
-    Fields: `uuid`, `cfg` template id, `owner` uid, `srv` the owner's server, `x`/`y`
-    (from `pointId`), `done` completion epoch-ms, `ends` the tile's expiry, `looted`
-    how many of the template's slots are spent, `state` the game's
-    `GhostreconPointStealType`, `raw` the task's OWN state (0 empty slot / 2 running /
-    3 done — `GHOST_STATE_*`), and `mine` when the squad is my own.
+    Fields: `uuid`, `cfg` template id, `owner` uid, `srv` the owner's server, `tsrv`
+    the server the squad is sent to, `x`/`y` (from `pointId`), `done` completion
+    epoch-ms, `ends` the EVENT's own end, `exp` the task's expiry (the end of the event
+    day, and the only one of the two anybody can count down to), `looted` how many of
+    the template's slots are spent, `state` the game's `GhostreconPointStealType`, `raw` the task's OWN state
+    (0 empty slot / 2 running / 3 done — `GHOST_STATE_*`), `mine` when the squad is my
+    own, `al` the owning alliance's id, and `name` — the owner's nickname, hex-encoded
+    because a nickname may hold spaces and any script at all.
+
+    **The level, the rarity and the star come from the event's OWN config row**, not
+    from the cfgId's digits: `lvl` / `colour` / `spec` are `GetTaskTemplate(cfgId)`'s
+    `level` / `color` / `special`, and `slots` is its `stealMaxtimes`. The digits are
+    only a fallback on the Python side, for a template the client has not loaded. That
+    is the lesson #1244 cost on the other robbery, where home-made arithmetic invented
+    both a star and a «level 99» (task #1251).
 
     `raw` and `state` are different questions and both are wanted: an EMPTY dispatch
     slot of mine has no squad, no tile and no coordinate, yet `GetPointStealType` still
     answers 2 for it. A reader that shows one as a target shows «✅ готово» on a slot
     nobody has filled (#1251).
+
+    The owner's NAME is not on the task either — it is in the squad's own member list,
+    against the member whose uid is the owner's. That is the only place the client
+    keeps it, and it is what a list of «who of my alliance is running what» is for.
 
     A robbery needs `uuid` + `ownerServer`, both of which are printed, so this is the
     list a queue is built from.
@@ -1483,6 +1497,8 @@ def ghost_recon_targets_dump() -> str:
     return (
         "local M=DataCenter.ActGhostreconManager "
         "local me=tostring(LuaEntry.Player.uid) "
+        "local function hex(s) return (tostring(s):gsub('.',function(c) "
+        "return string.format('%%02x',c:byte()) end)) end "
         'CS.UnityEngine.Debug.LogError("ACT ghost open="..tostring(M:IsOpenDay())'
         '.." left="..tostring(%s).." known="..tostring(#(M.taskList or {}))) '
         "for _,t in ipairs(M.taskList or {}) do "
@@ -1491,13 +1507,26 @@ def ghost_recon_targets_dump() -> str:
         "local n=0 for _,s in ipairs(t.stealList or {}) do n=n+1 end "
         "local ok,st=pcall(function() "
         "return M:GetPointStealType(t.cfgId, t.completionTime, {}) end) "
+        "local lvl,colour,spec,slots=0,0,0,0 "
+        "pcall(function() local c=M:GetTaskTemplate(t.cfgId) "
+        "lvl=tonumber(c.level) or 0 colour=tonumber(c.color) or 0 "
+        "spec=c.special and 1 or 0 slots=tonumber(c.stealMaxtimes) or 0 end) "
+        "local who='' pcall(function() for _,mem in ipairs(t.memberList or {}) do "
+        "local mi=mem.memberInfo or mem "
+        "if tostring(mi.uid)==tostring(t.ownerId) then who=tostring(mi.name or '') end "
+        "end end) "
         'CS.UnityEngine.Debug.LogError("ACT G uuid="..tostring(t.uuid)'
         '.." cfg="..tostring(t.cfgId).." owner="..tostring(t.ownerId)'
         '.." srv="..tostring(t.ownerServer or t.targetServer)'
+        '.." tsrv="..tostring(t.targetServer)'
         '.." x="..tostring(x).." y="..tostring(y)'
         '.." done="..tostring(t.completionTime).." ends="..tostring(t.actEndTime)'
+        '.." exp="..tostring(t.taskExpireTime)'
         '.." looted="..tostring(n).." state="..tostring(ok and st or 0)'
         '.." raw="..tostring(t.state)'
+        '.." lvl="..tostring(lvl).." colour="..tostring(colour)'
+        '.." spec="..tostring(spec).." slots="..tostring(slots)'
+        '.." al="..tostring(t.allianceId).." name="..hex(who)'
         '.." mine="..tostring(tostring(t.ownerId)==me)) end'
         % ghost_recon_steals_left()
     )

@@ -112,13 +112,30 @@ def read_list(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
             if sep:
                 rec[key] = value
         rec["mine"] = rec.get("mine") == "true"
-        for key in ("cfg", "srv", "x", "y", "done", "ends", "looted", "state"):
+        for key in ("cfg", "srv", "tsrv", "x", "y", "done", "ends", "exp", "looted",
+                    "state"):
             rec[key] = _int(rec.get(key))
+        # The config's own answers — and `None` when the line does not carry them at
+        # all (an OLDER dump). Zero is a meaningful value for every one of these, so
+        # «absent» and «the config says 0» must not be the same thing: it is what
+        # decides whether the cfgId's digits get a say (#1251).
+        for key in ("lvl", "colour", "spec", "slots"):
+            rec[key] = _int(rec[key]) if key in rec else None
+        # The owner's nickname travels hex-encoded — it may hold spaces, and the dump
+        # is space-separated.
+        rec["name"] = _hexdec(rec.get("name"))
         # `raw` stays None when the line does not carry it — an OLDER dump, whose
         # squads must not all be read as empty slots (0 is a meaningful value here).
         rec["raw"] = _int(rec["raw"]) if "raw" in rec else None
         out.append(rec)
     return status, out
+
+
+def _hexdec(value) -> str:
+    try:
+        return bytes.fromhex(str(value or "")).decode("utf-8", "replace")
+    except ValueError:
+        return ""
 
 
 # `actEndTime` on a ghost-recon squad is the EVENT's end, and while the event has no
@@ -128,7 +145,7 @@ def read_list(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
 NEVER_MS = 2147483647 * 1000
 
 
-def roster(ev, refresh: bool = True, scanned=None) -> tuple[dict, list[dict]]:
+def roster(ev, refresh: bool = True) -> tuple[dict, list[dict]]:
     """`(status, records)` — the squads in the shape a panel list draws from.
 
     The same normalisation `dispatch_tasks.alliance_roster` does for the other
@@ -136,68 +153,96 @@ def roster(ev, refresh: bool = True, scanned=None) -> tuple[dict, list[dict]]:
     have to know how a dump line is spelled, what the game's verdict enum means or
     where the level hides in a cfgId.
 
-    **The level and the star come from the cfgId** — unlike a secret task, whose
-    config row the client carries, a ghost squad has only its template id, and
-    `ghost_recon_level` is what reads it (`MM + 2`, task #1137). `state` is the
-    game's own `GhostreconPointStealType`, kept as it came so the caller can say it
-    in words; `ready` is that verdict reaching «can steal» and nothing else.
+    **The level, the rarity and the star come from the event's OWN config row.** The
+    client carries one per template (`GetTaskTemplate`) and it answers all three —
+    `level`, `color`, `special` — plus how many robberies a tile allows at all
+    (`stealMaxtimes`). The cfgId arithmetic (`ghost_recon_level`, `MM + 2`, task
+    #1137) is kept as the FALLBACK for a template the client has not loaded, and
+    nothing more: home-made arithmetic over an id is what invented a star and a «level
+    99» on the other robbery (#1244), and this is the same mistake waiting to be made
+    twice. `state` is the game's own `GhostreconPointStealType`, kept as it came so the
+    caller can say it in words; `ready` is that verdict reaching «can steal».
+
+    **The tile is on the TARGET server, not the owner's.** A squad is sent abroad: its
+    coordinate belongs to `targetServer`, which is where a camera has to go, while the
+    robbery is addressed to `ownerServer`. Both travel — `server` and `owner_server` —
+    because using one for the other walks the camera to a stranger's map.
 
     **An empty dispatch slot is not a squad.** `taskList` holds my own three slots
     whether or not anything is out in them, and a slot with `state == 0` has no tile,
     no coordinate and no clock — while `GetPointStealType` still answers «robbable»
     for it. They are dropped here rather than drawn as targets at @[0,0] (#1251).
 
-    ``scanned`` are extra squads read off a map-scan checkpoint (the client's own
-    list only knows this alliance's). They carry no verdict — the gate only answers
-    for a squad in `taskList` — so their readiness is their clock, which is what
-    `GhostReconMission.can_loot` already decided.
+    **My own squads and my alliancemates' come out of the SAME read** and are told
+    apart by `mine` — the client keeps both in one list once both lists have been
+    asked for. The panel draws them as two tables (#1251) off this one answer rather
+    than paying for a read each.
+
+    A tile off a MAP SCAN is deliberately not in here. The client's list is my own
+    alliance's — mine and my mates' — and that is what these two tables are about;
+    somebody else's alliance's tiles are what a robbery is aimed at, and they are on
+    the «Командный пункт» tab where the robbing happens (`GhostReconPane`).
     """
     import lastwar_proto as proto
 
     status, targets = read_list(ev, refresh)
-    seen = {str(t.get("uuid")) for t in targets}
-    records = [_as_record(t, proto) for t in targets
-               if t.get("raw") != proto.GHOST_STATE_EMPTY]
-    for extra in scanned or ():
-        if str(extra.get("uuid")) not in seen:
-            records.append(_as_record(extra, proto))
-    return status, records
+    return status, [_as_record(t, proto) for t in targets
+                    if t.get("raw") != proto.GHOST_STATE_EMPTY]
 
 
 def _as_record(target: dict, proto) -> dict:
-    """One dump line (or one scanned tile) as a panel row record."""
+    """One dump line as a panel row record.
+
+    The config's answers win wherever the client gave them; the cfgId is read only for
+    what is left over — which, for a squad off a map scan, is everything.
+    """
     family, level = proto.ghost_recon_level(target.get("cfg"))
-    ends = _int(target.get("ends"))
+    # A squad's tile really does expire — at the end of the event day — and that is
+    # `taskExpireTime`. `actEndTime` is the EVENT's own end, which while none is
+    # announced reads as the int32 ceiling; taking that for a deadline drew a countdown
+    # of sixty-eight years, so the task's own answer is preferred and the ceiling only
+    # fills in when there is nothing else (#1251).
+    ends = _int(target.get("exp")) or _int(target.get("ends"))
     done = _int(target.get("done"))
-    scanned = bool(target.get("scanned"))
+    # The config row, when the client has it: level, rarity, star and how many
+    # robberies the tile allows. Zero means «not answered», never «level zero».
+    cfg_level = _int(target.get("lvl")) if target.get("lvl") is not None else 0
+    colour = _int(target.get("colour")) if target.get("colour") is not None else 0
+    slots = _int(target.get("slots")) if target.get("slots") is not None else 0
+    starred = (bool(_int(target.get("spec"))) if target.get("spec") is not None
+               else family == proto.GHOST_STAR_FAMILY)
     return {
         "uuid": str(target.get("uuid")),
-        "server": _int(target.get("srv")),
+        # Where the TILE is: the squad was sent there, and that is where a camera goes.
+        "server": _int(target.get("tsrv")) or _int(target.get("srv")),
+        # …and where the ROBBERY is addressed — `ghost.recon.steal {uuid, ownerServer}`.
+        "owner_server": _int(target.get("srv")),
         "x": _int(target.get("x")), "y": _int(target.get("y")),
         "cfg_id": _int(target.get("cfg")),
-        "level": level or 0,
-        "starred": family == proto.GHOST_STAR_FAMILY,
+        "level": cfg_level or level or 0,
+        "starred": starred,
+        "colour": colour,
+        # How many robberies the template allows — 3 live, but read rather than assumed.
+        "loot_max": slots,
         "loot_count": _int(target.get("looted")),
         "completed_at": done or None,
         "expires_at": ends if 0 < ends < NEVER_MS else None,
         "owner_uid": str(target.get("owner") or ""),
-        # A ghost squad carries no avatar at all — the client has the owner's uid and
-        # nothing else — so the owner column stays empty rather than showing a number
-        # nobody can read as a name.
-        "owner_name": "",
+        "alliance_id": str(target.get("al") or ""),
+        # The owner's nickname, off the squad's own member list — the only place the
+        # client keeps it. Empty when the squad carries no member list at all.
+        "owner_name": str(target.get("name") or ""),
         "mine": bool(target.get("mine")),
-        "scanned": scanned,
-        "state": None if scanned else _int(target.get("state")),
+        "state": _int(target.get("state")),
         # The task's OWN state — running or done (`GHOST_STATE_*`). What a reader says
         # about MY squad, which has a verdict about robbing it that means nothing.
-        "task_state": None if scanned else target.get("raw"),
+        "task_state": target.get("raw"),
         # MY OWN squad is never «robbable», whatever the verdict says: the gate answers
         # about the tile, and `--all` skips my own separately (`robbable`). A row that
         # said «готово к сбору» on my own squad would be offering a press the server
         # refuses (#1251).
-        "ready": (bool(target.get("can")) if scanned
-                  else (not target.get("mine")
-                        and _int(target.get("state")) == lua_actions.GHOST_STEAL_CAN)),
+        "ready": (not target.get("mine")
+                  and _int(target.get("state")) == lua_actions.GHOST_STEAL_CAN),
     }
 
 

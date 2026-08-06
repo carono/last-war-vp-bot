@@ -798,6 +798,7 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     tab._snapshot = tab._roster = tab._ghost = lambda: None
     tab._prime_own_server = lambda: None
     tab.alliance, tab.ghost = _FakeAllianceGrid(), _FakeAllianceGrid()
+    tab.ghost_allies = _FakeAllianceGrid()
 
     tab.on_profile_switch()
 
@@ -806,6 +807,7 @@ def test_on_profile_switch_drops_the_old_profiles_rows():
     # The ghost page is another account's event budget and another account's squads
     # (#1251) — it goes with the rest.
     assert tab.ghost.cleared == 1, "the ghost grid kept the old account's squads"
+    assert tab.ghost_allies.cleared == 1, "the allies' ghost grid kept the old alliance"
     assert tab._collected == set() and tab._auto_attempted == set()
     assert tab._ids is None and tab._own_server == 0
     assert tab.capture.stopped == 1 and tab.autoloot.stopped == 1 and tab.sweep.stopped == 1
@@ -1028,6 +1030,8 @@ def test_each_read_clears_only_its_own_flag():
 
     tab.ghost = _FakeAllianceGrid()
     tab.ghost.landed = lambda status, rows: None
+    tab.ghost_allies = _FakeAllianceGrid()
+    tab.ghost_allies.landed = lambda status, rows: None
     tab._busy = tab._vm_busy = tab._roster_busy = tab._ghost_busy = True
     tab._wire_landed([])
     assert (tab._busy, tab._vm_busy, tab._roster_busy) == (False, True, True)
@@ -1131,6 +1135,9 @@ def test_the_phone_is_shown_every_page_the_window_has():
         web_rows=lambda: [{"label": "secrettasks.ghost.state_line", "value": "идёт"}],
         web_items=lambda: [{"text": "#3 X:4 Y:5", "facts": [], "until": None,
                             "pill": None}])
+    tab.ghost_allies = types.SimpleNamespace(
+        web_items=lambda: [{"text": "#6 X:7 Y:8", "facts": [], "until": None,
+                            "pill": None}])
 
     view = tab.web_view()
     cards = {c.get("title"): c for c in view["cards"]}
@@ -1141,6 +1148,9 @@ def test_the_phone_is_shown_every_page_the_window_has():
     assert cards["secrettasks.ghost"]["items"][0]["text"] == "#3 X:4 Y:5"
     assert cards["secrettasks.ghost"]["rows"][0]["value"] == "идёт"
     assert cards["secrettasks.ghost"]["empty"] == "secrettasks.ghost.empty"
+    # …and the alliancemates' squads are a card of their own, not folded into mine.
+    assert "secrettasks.ghost.allies" in cards, cards
+    assert cards["secrettasks.ghost.allies"]["items"][0]["text"] == "#6 X:7 Y:8"
     # Every box the window has is a button here, named by what pressing it will do.
     ids = [a["id"] for a in view["actions"]]
     assert {"hide_own", "ur_only", "star_only"} <= set(ids), ids
@@ -1255,6 +1265,7 @@ def test_the_shared_tile_is_marked_in_both_tables_and_on_the_phone():
     tab.alliance = types.SimpleNamespace(web_items=lambda: [], ur_var=_Var(False),
                                          star_var=_Var(False))
     tab.ghost = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
+    tab.ghost_allies = types.SimpleNamespace(web_items=lambda: [], web_rows=lambda: [])
     item = [c for c in tab.web_view()["cards"] if c.get("items")][0]["items"][0]
     assert item["text"].startswith(gr.SHARED_GLYPH), item
     assert {"label": "secrettasks.shared_mark", "value": ""} in item["facts"], item
@@ -1577,10 +1588,12 @@ def test_ur_falls_back_to_the_cfg_id_when_the_config_is_not_loaded():
     assert gr.is_ur({}) is False
 
 
-def _ghost_grid():
-    """A `GhostGrid` with no Tk behind it — the rows and the arithmetic only."""
+def _ghost_grid(cls=None):
+    """A ghost page with no Tk behind it — the rows and the arithmetic only."""
     import types
     from panel.tabs.secret_tasks import ghost as gh
+
+    cls = cls or gh.GhostGrid
 
     i18n = __import__("panel.i18n", fromlist=["I18n"]).I18n("ru")
 
@@ -1594,7 +1607,7 @@ def _ghost_grid():
                                 _collectable=lambda row: bool(row.get("ready")),
                                 _row_values=lambda row: ())
     tab.shared = _shared_marks(tab)
-    g = object.__new__(gh.GhostGrid)
+    g = object.__new__(cls)
     g.tab = tab
     g._rows, g._tree, g._sort = {}, None, None
     g._body = g._empty = None
@@ -1604,22 +1617,28 @@ def _ghost_grid():
     return g
 
 
-def _ghost_record(uuid=1, cfg=60301, state=2, looted=0, mine=False, scanned=False,
-                  ready=None, done=0, ends=None):
+def _ghost_record(uuid=1, cfg=60301, state=2, looted=0, mine=False, ready=None,
+                  done=0, ends=None, owner="Player1", task_state=2, level=5,
+                  colour=6, starred=None, loot_max=3):
     """One record in the shape `ghost_recon_steal.roster` hands the page.
 
-    Invented throughout (CLAUDE.md): a made-up uuid, a template id of the real shape
-    and a server number that is nobody's.
+    Invented throughout (CLAUDE.md): a made-up uuid, a template id of the real shape,
+    a name that looks made up and server numbers that are nobody's. The level, the
+    colour and the star are the CONFIG's answers, which is where the tool takes them
+    from (#1251).
     """
-    return {"uuid": str(uuid), "server": 900, "x": 3, "y": 4, "cfg_id": cfg,
-            "level": 5, "starred": str(cfg).startswith("6"),
-            "loot_count": looted, "completed_at": done or None,
+    return {"uuid": str(uuid), "server": 900, "owner_server": 935,
+            "x": 3, "y": 4, "cfg_id": cfg,
+            "level": level, "colour": colour,
+            "starred": str(cfg).startswith("6") if starred is None else starred,
+            "loot_count": looted, "loot_max": loot_max, "completed_at": done or None,
             # None is «no deadline», which is what the tool makes of an event ceiling
             # (`NEVER_MS`) — the record the page gets is already normalised.
             "expires_at": ends,
-            "owner_uid": "1000000000000001", "owner_name": "", "mine": mine,
-            "scanned": scanned, "state": None if scanned else state,
-            "ready": (state == 2) if ready is None else ready}
+            "owner_uid": "1000000000000001", "owner_name": owner,
+            "alliance_id": "0000000000000000000000000000000a", "mine": mine,
+            "state": state, "task_state": task_state,
+            "ready": (state == 2 and not mine) if ready is None else ready}
 
 
 def test_the_ghost_page_believes_the_games_verdict_not_a_clock():
@@ -1634,6 +1653,19 @@ def test_the_ghost_page_believes_the_games_verdict_not_a_clock():
     assert g._rows["2"]["state_key"] == "secrettasks.ghost.state.not_shown"
     # …and the cell says the verdict rather than drawing «готово через —».
     assert g._rows["2"]["timer"].get() == g.tab.t("secrettasks.ghost.state.not_shown")
+
+
+def test_only_the_event_ceiling_means_no_deadline_at_all():
+    """`actEndTime` alone is the int32 ceiling — 68 years is not a countdown (#1251)."""
+    import ghost_recon_steal as tool
+
+    lines = ["ACT ghost open=true left=5 known=1",
+             "ACT G uuid=1000000000000009 cfg=50301 owner=1000000000000002 srv=900 "
+             "tsrv=901 x=1 y=2 done=0 ends=2147483647000 exp=0 looted=0 state=4 raw=2 "
+             "lvl=5 colour=5 spec=0 slots=3 al=000000000000000a name= mine=false"]
+    ev = __import__("types").SimpleNamespace(run=lambda *_a, **_k: lines)
+    _status, records = tool.roster(ev, refresh=False)
+    assert records[0]["expires_at"] is None
 
 
 def test_a_squad_that_never_expires_is_not_dropped_by_the_countdown():
@@ -1660,23 +1692,78 @@ def test_the_ghost_page_never_offers_the_robbery():
 
 
 def test_the_ghost_row_says_whose_squad_it_is_and_how_often_it_was_robbed():
-    """The same table, in the two places a ghost squad is not a secret task."""
+    """The same table, in the two places a ghost squad is not a secret task.
+
+    The loot cell counts against the TEMPLATE's own capacity — three live, but read
+    rather than assumed — and the action cell stays empty because these pages do not
+    rob (#1188).
+    """
     g = _ghost_grid()
-    g.apply([_ghost_record(1, mine=True, looted=2)])
+    g.apply([_ghost_record(1, mine=True, looted=2, owner="Player1", loot_max=3)])
     g._refresh_timers()
     cells = dict(zip([c[0] for c in gr.COLUMNS], g.row_values(g._rows["1"])))
-    assert cells["owner"] == g.tab.t("secrettasks.ghost.own")
-    assert cells["slots"] == g.tab.t("secrettasks.ghost.looted", n=2)
+    assert cells["owner"] == "Player1", cells
+    assert cells["slots"] == g.tab.t("secrettasks.ghost.slots", n=2, max=3)
     assert cells["action"] == "", "the ghost page must not draw a «Собрать» cell"
 
+    # A template the client has not loaded has no capacity to count against — the cell
+    # says how many, and does not invent a denominator.
+    g2 = _ghost_grid()
+    g2.apply([_ghost_record(2, looted=1, loot_max=0)])
+    g2._refresh_timers()
+    cells = dict(zip([c[0] for c in gr.COLUMNS], g2.row_values(g2._rows["2"])))
+    assert cells["slots"] == g2.tab.t("secrettasks.ghost.looted", n=1)
 
-def test_a_scanned_squad_is_labelled_off_the_map_not_off_a_verdict():
-    """The game's gate only answers for squads in its own list — a tile read off the
-    map says so instead of borrowing a word the game did not say."""
-    g = _ghost_grid()
-    g.apply([_ghost_record(9, scanned=True, ready=True)])
-    assert g._rows["9"]["state_key"] == "secrettasks.ghost.state.map_ready"
-    assert g._rows["9"]["ready_forced"] is True
+
+def test_the_two_ghost_pages_split_one_read_by_whose_squad_it_is():
+    """«не не, это разные гриды» — mine on one page, the alliance's on the other, and
+    one round trip behind both (#1251)."""
+    import types
+    from panel.tabs.secret_tasks import ghost as gh
+
+    tab = object.__new__(st.SecretTasksTab)
+    tab._ghost_busy = True
+    mine_page, allies_page = [], []
+    tab.ghost = types.SimpleNamespace(
+        landed=lambda status, rows: mine_page.extend(rows))
+    tab.ghost_allies = types.SimpleNamespace(
+        landed=lambda status, rows: allies_page.extend(rows))
+
+    tab._ghost_landed({"open": True, "left": 5},
+                      [_ghost_record(1, mine=True), _ghost_record(2, mine=False),
+                       _ghost_record(3, mine=False)], True)
+
+    assert [r["uuid"] for r in mine_page] == ["1"]
+    assert [r["uuid"] for r in allies_page] == ["2", "3"]
+    assert tab._ghost_busy is False
+    # The two pages are two classes, so neither can quietly become the other.
+    assert issubclass(gh.GhostAllianceGrid, gr.TaskGrid)
+    assert gh.GhostAllianceGrid.TITLE_KEY != gh.GhostGrid.TITLE_KEY
+
+
+def test_the_allies_page_names_who_sent_the_squad():
+    """That column is the whole point of the page, exactly as on the alliance
+    secret-task one — and a ghost squad's own member list is where the name lives."""
+    g = _ghost_grid(__import__("panel.tabs.secret_tasks.ghost",
+                               fromlist=["GhostAllianceGrid"]).GhostAllianceGrid)
+    g.apply([_ghost_record(5, mine=False, owner="Player2", state=2)])
+    g._refresh_timers()
+    cells = dict(zip([c[0] for c in gr.COLUMNS], g.row_values(g._rows["5"])))
+    assert cells["owner"] == "Player2"
+    # A mate's squad the game calls robbable is «ready» — and says so in words.
+    assert g._rows["5"]["ready"] is True
+    assert g._rows["5"]["state_key"] == "secrettasks.ghost.state.can"
+    # …and the phone's copy of the same row carries the name first.
+    item = g.web_items()[0]
+    assert item["facts"][0] == {"label": "secrettasks.col.owner", "value": "Player2"}
+
+
+def test_the_pages_hold_the_clients_own_list_and_not_the_map_scan():
+    """A map scan finds OTHER alliances' tiles, which is what a robbery is aimed at —
+    and robbing lives on «Командный пункт», so the scan stays there too (#1251)."""
+    src = (Path(__file__).resolve().parents[1] /
+           "panel" / "tabs" / "secret_tasks" / "ghost.py").read_text(encoding="utf-8")
+    assert "ghost_json" not in src and "load_fresh_ghost_recon" not in src
 
 
 def test_the_ghost_read_is_one_round_trip_and_carries_the_event_with_it():
@@ -1687,15 +1774,22 @@ def test_the_ghost_read_is_one_round_trip_and_carries_the_event_with_it():
     lines = [
         "ACT ghost open=true left=4 known=2",
         # Invented ids of the real shape — never a live one (CLAUDE.md).
+        # `lvl`/`colour`/`spec`/`slots` are the event's OWN config row, and `name` is
+        # the owner's nickname hex-encoded. `srv` is where the robbery is addressed,
+        # `tsrv` is where the TILE is.
         "ACT G uuid=1000000000000001 cfg=60301 owner=1000000000000002 srv=900 "
-        "x=11 y=22 done=1700000000000 ends=2147483647000 looted=1 state=2 raw=3 "
-        "mine=false",
+        "tsrv=901 x=11 y=22 done=1700000000000 ends=2147483647000 exp=1700003600000 "
+        "looted=1 state=2 "
+        "raw=3 lvl=5 colour=6 spec=1 slots=3 al=000000000000000a "
+        "name=506c6179657231 mine=false",
         "ACT G uuid=1000000000000003 cfg=40302 owner=1000000000000002 srv=900 "
-        "x=0 y=0 done=0 ends=0 looted=0 state=4 raw=2 mine=true",
+        "tsrv=902 x=0 y=0 done=0 ends=0 looted=0 state=4 raw=2 lvl=4 colour=4 spec=0 "
+        "slots=3 al=000000000000000a name=506c6179657232 mine=true",
         # My own EMPTY dispatch slot: no tile, no clock — and the game's steal gate
         # answers «robbable» for it all the same. Never a row (#1251).
         "ACT G uuid=1000000000000004 cfg=50301 owner=1000000000000002 srv=900 "
-        "x=0 y=0 done=0 ends=0 looted=0 state=2 raw=0 mine=true",
+        "tsrv=903 x=0 y=0 done=0 ends=0 looted=0 state=2 raw=0 lvl=5 colour=5 spec=0 "
+        "slots=3 al=000000000000000a name=506c6179657232 mine=true",
     ]
     ev = __import__("types").SimpleNamespace(run=lambda *_a, **_k: lines)
     status, records = tool.roster(ev, refresh=False)
@@ -1703,13 +1797,50 @@ def test_the_ghost_read_is_one_round_trip_and_carries_the_event_with_it():
     assert status == {"open": True, "left": 4, "known": 2}
     assert [r["uuid"] for r in records] == ["1000000000000001", "1000000000000003"]
     first = records[0]
-    assert (first["x"], first["y"], first["server"]) == (11, 22, 900)
-    # The level is the cfgId's middle pair plus two (#1137), and family 6 is the star.
+    # The TILE is on the target server; the robbery is addressed to the owner's.
+    assert (first["x"], first["y"]) == (11, 22)
+    assert first["server"] == 901 and first["owner_server"] == 900
+    # The level, the rarity, the star and the loot capacity are the CONFIG's answers.
     assert first["level"] == 5 and first["starred"] is True
+    assert first["colour"] == 6 and first["loot_max"] == 3
+    assert first["owner_name"] == "Player1"
     assert first["ready"] is True and first["loot_count"] == 1
-    assert first["expires_at"] is None, "the event ceiling must not become a deadline"
+    # The TASK's own expiry is the deadline; the event ceiling (`ends`) is not one.
+    assert first["expires_at"] == 1700003600000, first["expires_at"]
     assert records[1]["mine"] is True and records[1]["ready"] is False
-    assert records[1]["starred"] is False
+    assert records[1]["starred"] is False and records[1]["level"] == 4
+
+
+def test_the_config_answers_the_level_and_the_star_and_the_digits_only_fill_gaps():
+    """#1244's lesson, applied before it is paid for again (#1251).
+
+    A template the client HAS answers for itself — even when its numbers disagree with
+    the cfgId's digits. A line with no config on it at all falls back to the
+    arithmetic, which is the only thing left to fall back to.
+    """
+    import ghost_recon_steal as tool
+
+    ev = lambda lines: __import__("types").SimpleNamespace(run=lambda *_a, **_k: lines)
+
+    # The config says level 4 on a cfgId whose digits read 5 — the config wins, the
+    # way `lw_dispatch_tasks` won over «level 99» on the other robbery.
+    said = ["ACT ghost open=true left=5 known=1",
+            "ACT G uuid=1000000000000001 cfg=50301 owner=1000000000000002 srv=900 "
+            "tsrv=901 x=1 y=2 done=0 ends=0 looted=0 state=4 raw=2 lvl=4 colour=6 "
+            "spec=1 slots=2 al=000000000000000a name= mine=false"]
+    _status, records = tool.roster(ev(said), refresh=False)
+    assert records[0]["level"] == 4, "the cfgId's digits overruled the config"
+    assert records[0]["starred"] is True, "the config's own star was ignored"
+    assert records[0]["loot_max"] == 2
+
+    # …and with nothing from the config, the digits are all there is: `50301` is
+    # family 5 (no star) and `03` + 2 = level 5 (#1137).
+    silent = ["ACT ghost open=true left=5 known=1",
+              "ACT G uuid=1000000000000001 cfg=50301 owner=1000000000000002 srv=900 "
+              "tsrv=901 x=1 y=2 done=0 ends=0 looted=0 state=4 raw=2 mine=false"]
+    _status, records = tool.roster(ev(silent), refresh=False)
+    assert records[0]["level"] == 5 and records[0]["starred"] is False
+    assert records[0]["loot_max"] == 0, "an unread capacity must not be invented"
 
 
 def test_my_own_squad_is_never_offered_as_a_target():
