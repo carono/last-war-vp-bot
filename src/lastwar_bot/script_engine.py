@@ -829,6 +829,11 @@ class Interpreter:
         if path is None:
             self.ctx.on_event(f"!! action not found: {name} (looked in {ACTIONS_DIR} and dev/)")
             return False
+        lost = self._link_lost()
+        if lost:
+            self._log(f"> action: {name}")
+            self._log(f"< action: {name} FAILED — {lost}")
+            return False
         self._log(f"> action: {name}")
         self._depth += 1
         try:
@@ -1475,6 +1480,44 @@ class Interpreter:
             return None
         c = _coerce(raw)
         return float(c) if isinstance(c, (int, float)) else None
+
+    def _link_lost(self) -> "str | None":
+        """A sentence when this client has demonstrably lost the server, else ``None``.
+
+        THE ONE THING NO READING INSIDE THE CLIENT CAN ANSWER. A stranded client draws
+        its window, answers every Lua getter with the numbers it last received, and
+        returns `true` from every send while nothing arrives — it is holding a socket
+        the far end closed and does not know it
+        (docs/research/server-link-status.md). So a recipe run against one presses all
+        the way to the end and then fails on whatever it proves itself by, which reads
+        as «the game refused» and is nothing of the kind: #1259 spent a day writing up a
+        server refusal that never happened, against a client the panel had already
+        declared dead in its own log two hours earlier.
+
+        Refused ONLY on `lost` — an established socket is absent for perfectly innocent
+        reasons (a client 45 seconds into starting up, a machine that will not attribute
+        a foreign process's sockets), and `unknown` blocking a run would strand a
+        healthy account behind a guess. A missing psutil, an unreadable socket table and
+        an unresolvable session all land in `unknown` by construction, so the gate fails
+        OPEN: it can only ever stop a run it has positive evidence against.
+        """
+        try:
+            self._tools_lib_on_path()
+            import game_client
+            import game_link
+
+            pid = game_client.target_pid(port=self._game_port(),
+                                         user=(self.ctx.game_user or "").strip() or None,
+                                         log=lambda _msg: None)
+            if pid is None:                  # no client to judge — the run will say so
+                return None
+            if game_link.state_of([pid]) != game_link.LOST:
+                return None
+        except Exception:                    # noqa: BLE001 — a gate must never be the fault
+            return None
+        return ("the client is no longer talking to the game server (its sockets are "
+                "half-closed) — nothing sent from here would reach it. Restart the "
+                "client; see docs/research/server-link-status.md")
 
     def _current_scene(self) -> str:
         """Read the game scene from the Lua VM (state, not pixels): 'city' / 'world' / 'unknown'.

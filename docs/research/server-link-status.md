@@ -207,3 +207,30 @@ socket table is a machine-wide reading that the panel does not always get to see
 ports ignored, `TIME_WAIT` not counted as a loss, an established socket winning over a
 stale one beside it, `running` staying true through a loss, and every sentence the four
 can produce present in all eleven locales.
+
+## 4.2 The gate, as built (#1259)
+
+The rule moved to [`tools/lib/game_link.py`](../../tools/lib/game_link.py) — the socket
+predicates and the four states, no `psutil` walk of its own to speak of and no
+`panel.i18n`. `panel/runtime/game_process.py` imports it and keeps what is genuinely
+the panel's: the cached machine-wide walks, the session attribution, and the words.
+That answers the layering question §4.1 left open without inverting anything: the
+module that DRAWS the answer and the module that SENDS both ask the same rule, and the
+rule belongs to neither.
+
+`script_engine.Interpreter.run_action` reads it once per run and refuses on `lost`,
+naming the state and pointing here. Three properties it was built to have, all pinned by
+`tests/test_engine_link_gate.py`:
+
+* **only `lost` blocks.** `unknown` is a client 45 seconds into starting up, or a
+  machine that will not attribute a foreign process's sockets; blocking on it would
+  strand a healthy account behind a guess.
+* **it fails OPEN.** No psutil, no socket table, no client found, an exception anywhere
+  inside — all read as «cannot tell» and the run proceeds. A gate that becomes the fault
+  is worse than no gate.
+* **«no client at all» is not its business.** That is the run's own error, in the run's
+  own words.
+
+What it does NOT do, and is still #1261: stop a scheduled errand before it starts, mark
+a board's numbers stale while the link is down, or decide whether a lost link should
+relaunch the client.

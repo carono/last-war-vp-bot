@@ -39,6 +39,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+import game_link
 import game_paths
 
 from ..i18n import Message
@@ -97,7 +98,10 @@ class _Shared:
 #: literal, so the four modules that used to spell it out cannot drift apart again.
 GAME_EXE = game_paths.game_exe()
 
-_NON_GAME_PORTS = frozenset({80, 443})
+#: The rule for reading the socket table lives in `tools/lib/game_link.py` so that
+#: everything which SENDS can ask it too, not only this module which DRAWS it
+#: (#1259). What stays here is the walking, the caching and the words.
+_NON_GAME_PORTS = game_link.NON_GAME_PORTS
 
 #: The four things this module can honestly say about a client. They are ids, not
 #: words — the words are locale keys, and the colour each is painted in belongs to
@@ -110,10 +114,10 @@ _NON_GAME_PORTS = frozenset({80, 443})
 #:   starting up, or a machine that will not attribute a foreign process's sockets at
 #:   all. NOT a fault, and never to be painted as one.
 #: * ``OFFLINE`` — no client process at all, whatever the reason.
-ONLINE = "online"
-LOST = "lost"
-UNKNOWN = "unknown"
-OFFLINE = "offline"
+ONLINE = game_link.ONLINE
+LOST = game_link.LOST
+UNKNOWN = game_link.UNKNOWN
+OFFLINE = game_link.OFFLINE
 
 #: The TCP states a socket sits in once the far end has closed and this one has not.
 #: `CLOSE_WAIT` is the one a stranded client is found in — the server said goodbye, the
@@ -122,8 +126,7 @@ OFFLINE = "offline"
 #: NOT here: it is what an ordinary, cleanly closed connection leaves behind, and a
 #: client that reconnects every few hours would otherwise look broken for a minute
 #: after every healthy reconnect.
-_HALF_CLOSED = frozenset({"CLOSE_WAIT", "CLOSING", "LAST_ACK",
-                          "FIN_WAIT1", "FIN_WAIT2"})
+_HALF_CLOSED = game_link.HALF_CLOSED
 
 #: The two session states worth a word of their own. A *disconnected* session is a fully
 #: working one — that is how the second client is meant to be left (docs/research/
@@ -314,26 +317,8 @@ def pids(game_exe: str = GAME_EXE, user: str | None = None) -> list[int]:
 
 
 def _is_game_socket(c) -> bool:
-    """Could this row of the socket table be the connection to the game server?
-
-    Two things are excluded, and the SECOND one is the whole reason this is a function
-    rather than the one-line condition it used to be:
-
-    * the web ports. The client talks HTTP to a CDN all day, and the game port is not
-      stable across builds (:17935 historically, :10012 on the current client), so
-      "anything that is not 80 or 443" is the only port rule that survives an update.
-    * **the loopback.** A live client keeps a pair of ESTABLISHED sockets to ITSELF —
-      `127.0.0.1:63203 ↔ 127.0.0.1:63204`, both ends owned by the game — and those
-      survive the server hanging up, because nothing about them involves the server.
-      Counting one as proof of a live account is precisely the lie this module exists
-      to stop: the first live reading taken after it was written returned
-      `online -> 127.0.0.1:63203` over a client whose six sockets to the real server
-      were half of them CLOSE_WAIT.
-    """
-    if not c.raddr or c.raddr.port in _NON_GAME_PORTS:
-        return False
-    ip = c.raddr.ip or ""
-    return not (ip.startswith("127.") or ip in ("::1", "0.0.0.0", "::"))
+    """The shared rule (`tools/lib/game_link.py`), kept under its old name here."""
+    return game_link.is_game_socket(c)
 
 
 def _client_sockets(found) -> list:
@@ -404,10 +389,7 @@ def _endpoint(found) -> str | None:
 
 def _live_endpoint(mine) -> str | None:
     """The established game connection among sockets already read, if there is one."""
-    for c in mine:
-        if c.status == "ESTABLISHED" and _is_game_socket(c):
-            return f"{c.raddr.ip}:{c.raddr.port}"
-    return None
+    return game_link.live_endpoint(mine)
 
 
 def link_of(found) -> tuple:
@@ -434,12 +416,7 @@ def link_of(found) -> tuple:
 
     So the fourth state is the one that says «I cannot tell», and it is amber.
     """
-    mine = _client_sockets(found)
-    conn = _live_endpoint(mine)
-    if conn:
-        return ONLINE, conn, 0
-    dead = sum(1 for c in mine if c.status in _HALF_CLOSED and _is_game_socket(c))
-    return (LOST if dead else UNKNOWN), None, dead
+    return game_link.classify(_client_sockets(found))
 
 
 def server_connection(game_exe: str = GAME_EXE, user: str | None = None) -> str | None:
