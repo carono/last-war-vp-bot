@@ -111,6 +111,12 @@ distinction that costs a game read per start-up when it is got wrong, and the fi
 things that are forbidden — chief among them importing `panel/__main__.py`, which
 re-executes the whole panel as a second module.
 
+**And `build()` runs when somebody first LOOKS at the tab, not when the page is made**
+(`LAZY`, #1215 — a page drew fifteen tabs so that one could be read). So `__init__`
+makes the state and `build()` only draws it: the saved block, a trigger the tab
+declared and the phone's screen all reach a tab nobody has opened, and the contract
+says how each of them answers.
+
 Nothing new goes into `panel/__main__.py`. It is the shell: window, notebook, log,
 menu, «Главная». If a change needs something from it, move that something into
 `panel/runtime/` first and use it from there.
