@@ -3365,7 +3365,11 @@ class Panel(runtime.SessionScoped, tk.Tk):
         if not self._opt_bool("watchdog"):
             return
         self._say("game", key, **fmt)
-        if key == runtime.recovery.ACT:
+        # ASK THE SET, never one constant (`recovery.RESTARTS`). Both acts mean the same
+        # press and only one of them used to be wired, so a kicked client was told it was
+        # being restarted and was not — with the cooldown armed for a restart that never
+        # happened, which is «жду 10 мин» over a client nothing is going to touch.
+        if key in runtime.recovery.RESTARTS:
             self._rt.play_async("restart_game")
 
     def _read_kicked(self) -> bool:

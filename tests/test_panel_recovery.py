@@ -199,7 +199,10 @@ def test_the_kick_flag_reads_a_window_and_fails_closed():
     import lua_actions
 
     expr = lua_actions.kicked_out()
-    assert "UIDisconnect" in expr and "UICrossDisconnect" in expr, expr
+    # The window it asks for, by name — watched live, neither of the two disconnect
+    # windows this once named ever opens, and the stack cannot see the one that does
+    # (`DontPushWindowStack`). Only `IsWindowOpen` on the generic tip finds it.
+    assert "UICommonMessageTip" in expr and "IsWindowOpen" in expr, expr
     assert "pcall" in expr and "return 0" in expr, "it must not raise into the caller"
 
 
@@ -268,14 +271,26 @@ def test_the_restart_it_asks_for_is_the_lifecycle_recipe():
     at = shell.index("def _recovery_check")
     body = shell[at:shell.index("\n    def ", at + 10)]
     assert 'play_async("restart_game")' in body, body[-400:]
-    # …and only when the decision said ACT, never on the «too soon» answer.
-    assert "recovery.ACT" in body
+    # …and on EVERY act that means it, never on the «too soon» answer. The set, not one
+    # constant: `key == recovery.ACT` is what left a kicked client announced and never
+    # restarted, and this assertion used to pass over that bug because `recovery.ACT`
+    # is a substring of the very line that was missing it.
+    assert "recovery.RESTARTS" in body, body[-400:]
+    assert "== runtime.recovery.ACT" not in body, "one act is wired, the others are not"
+
+
+def test_every_act_that_means_a_restart_is_in_the_set():
+    """A new `ACT_*` is a new press. The set is how a caller finds out about it."""
+    acts = {name for name in vars(rec)
+            if name == "ACT" or name.startswith("ACT_")}
+    missing = sorted(n for n in acts if getattr(rec, n) not in rec.RESTARTS)
+    assert not missing, f"not in recovery.RESTARTS: {missing}"
 
 
 def test_both_its_sentences_are_in_every_shipped_locale():
     import json
 
-    keys = (rec.ACT, rec.HOLD)
+    keys = (rec.ACT, rec.HOLD, rec.BUSY, rec.ACT_KICK)
     for path in sorted((ROOT / "panel" / "locales").glob("*.json")):
         locale = json.loads(path.read_text(encoding="utf-8"))
         missing = [k for k in keys if k not in locale]

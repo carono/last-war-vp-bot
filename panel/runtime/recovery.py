@@ -207,3 +207,12 @@ BUSY = "log.game.deaf_busy"
 #: (`lua_actions.kicked_out()`, the game's key `E100083`). Worth its own sentence,
 #: because «связь пропала» and «у вас забрали аккаунт» want different things done.
 ACT_KICK = "log.game.kick_restart"
+
+#: EVERY answer that means «restart the client now». A caller asks this set, never one
+#: constant: :data:`ACT_KICK` was added beside :data:`ACT` and the panel went on testing
+#: `key == ACT`, so from 2026-08-06 a kicked client was TOLD to restart and never was —
+#: the sentence went into the log, `note` booked the restart (the counter went up and
+#: the ten-minute cooldown started), and nothing touched the client. Live that left it
+#: deaf from 22:48 to 23:07, when it finally died on its own and the process watchdog —
+#: the other half — picked it up. A third act is one line here and works everywhere.
+RESTARTS = frozenset({ACT, ACT_KICK})
