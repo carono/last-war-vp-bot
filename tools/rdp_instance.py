@@ -138,6 +138,51 @@ DEFAULT_SERVER = (os.environ.get("LW_RDP_HOST") or "").strip() or "127.0.0.2"
 CRED_PREFIX = "LastWarVpBot"          # shared with tools/launch_as_user.py
 RDP_CRED_TARGET = "TERMSRV/{server}"  # where mstsc looks for saved credentials
 
+#: **One address is one credential slot, so one address is one account** (#1263).
+#: Windows keys a saved RDP password by `TERMSRV/<address>` and by nothing else — not by
+#: the login in the .rdp file, which it happily ignores in favour of what it has stored.
+#: Two accounts brought up over the same address therefore cannot both have a password
+#: saved: the second one to save overwrites the first, and every connection after that
+#: signs in as whoever won.
+#:
+#: That is exactly what happened here. `TERMSRV/127.0.0.2` held one account's password,
+#: and bringing up ANY profile spent it — mstsc signed in as that account, no session
+#: ever appeared for the profile that was asked for, and three minutes later the panel
+#: reported the ordinary «nobody is logged on as …». From the outside it looked like a
+#: hard-coded login; nothing was hard-coded, the slot was simply shared.
+#:
+#: So a profile's address is derived from the daemon port the panel already gives it —
+#: unique per profile by construction (`panel/runtime/provision.py`), stable across
+#: restarts, and nothing new to store or type. The whole loopback range answers on 3389,
+#: so any of them connects.
+LOOPBACK_LAST = 254
+
+
+def host_for(port: int | None = None, base: str = "") -> str:
+    """The RDP address of the profile whose daemon is on ``port``.
+
+    ``base`` is the first session profile's address — :data:`DEFAULT_SERVER`, which
+    `LW_RDP_HOST` moves. Every port above the console's steps one address up from it, so
+    profile ports 47655, 47656, 47657 get .2, .3, .4 and each keeps a credential slot of
+    its own.
+
+    Anything unparseable, out of range, or not a dotted-quad base falls back to ``base``
+    itself: an address that is merely shared is the state this machine was already in,
+    while an invented one would not connect at all.
+    """
+    base = (base or DEFAULT_SERVER).strip()
+    parts = base.split(".")
+    if port is None or len(parts) != 4 or not all(p.isdigit() for p in parts):
+        return base
+    try:
+        step = int(port) - (lua_client.DEFAULT_PORT + 1)
+    except (TypeError, ValueError):
+        return base
+    last = int(parts[3]) + step
+    if step < 0 or not 1 <= last <= LOOPBACK_LAST:
+        return base
+    return ".".join(parts[:3] + [str(last)])
+
 WIN = os.environ.get("SystemRoot", r"C:\Windows")
 CMD = os.path.join(WIN, "System32", "cmd.exe")
 POWERSHELL = os.path.join(WIN, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
@@ -397,6 +442,17 @@ def _cred_read(target: str, kind: int):
         return None
 
 
+def _cred_owner(target: str, kind: int) -> str:
+    """Whose password is in that slot, ``""`` when the slot is empty.
+
+    The question the whole of #1263 turned on. Windows keys an RDP password by the
+    ADDRESS, so «is there one» and «is it mine» are different questions, and answering
+    the first while meaning the second is how every profile signed in as one account.
+    """
+    cred = _cred_read(target, kind)
+    return str((cred or {}).get("UserName") or "")
+
+
 def credential_state(user: str, server: str = DEFAULT_SERVER) -> dict:
     """What Windows holds for logging ``user`` into ``server``, and in what shape.
 
@@ -408,20 +464,36 @@ def credential_state(user: str, server: str = DEFAULT_SERVER) -> dict:
                   ``TERMSRV/<server>``), which hand their plaintext to any process that
                   runs as this account. They are what #1231 is here to retire.
     ``none``      neither, so the session can only be brought up by asking a person.
+
+    **EVERY ONE OF THEM IS ASKED ABOUT AN OWNER** (#1263). A password saved for the
+    address is not a password for this account: the sealed half always checked that and
+    the readable half never did, so a slot holding somebody else's password read as
+    «stored», mstsc was started with nothing to ask, and it signed in as whoever owned
+    the slot. Sessions were then brought up as one account no matter which profile asked
+    — which looked exactly like a hard-coded login and was not one.
+
+    ``owner`` is who really holds the slot and ``foreign`` is «somebody, and not you»:
+    the state a caller must never spend, and the one a person needs told in words.
     """
     import win32cred
     _LAU, dom, name = _account(user)
     qualified = f"{dom}\\{name}"
     target = RDP_CRED_TARGET.format(server=server)
-    sealed = _cred_read(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD)
+    mine = (lambda who: bool(who) and who.lower() == qualified.lower())
+    sealed_by = _cred_owner(target, win32cred.CRED_TYPE_DOMAIN_PASSWORD)
+    generic_by = _cred_owner(target, win32cred.CRED_TYPE_GENERIC)
     state = {
         "user": qualified, "server": server, "target": target,
         # A sealed credential for somebody else is not this account's credential.
-        "sealed": bool(sealed) and (sealed.get("UserName") or "").lower() == qualified.lower(),
-        "readable_rdp": _cred_read(target, win32cred.CRED_TYPE_GENERIC) is not None,
+        "sealed": mine(sealed_by),
+        # …and neither is a readable one. This is the line #1263 turned on: it used to
+        # be `is not None`, which is true of a slot holding anybody at all.
+        "readable_rdp": mine(generic_by),
         "readable_store": _cred_read(f"{CRED_PREFIX}/{qualified}",
                                      win32cred.CRED_TYPE_GENERIC) is not None,
+        "owner": sealed_by or generic_by,
     }
+    state["foreign"] = bool(state["owner"]) and not mine(state["owner"])
     # "will this bring-up have to ask a person?" — the one question every caller
     # actually has, answered here rather than by each of them re-deriving it from three
     # booleans and getting the `LastWarVpBot` copy wrong (it counts: it is copied into
@@ -606,8 +678,19 @@ def rdp_credential(user: str, server: str, seal: bool = False) -> tuple[str, boo
     ``seal`` opts into the unreadable form. It is off by default because it was measured
     not to be spent here (:func:`seal_credential`); a readable copy is only ever copied
     into it on that explicit request.
+
+    **A slot somebody else owns is not a third route** (#1263). It used to be taken as
+    «stored», and mstsc spent it — signing in as its owner, whichever profile had asked.
+    It is now said out loud and treated as nothing stored, so Windows asks and the
+    session that comes up is the one that was requested.
     """
     state = credential_state(user, server)
+    if state["foreign"]:
+        log(f"credential {state['target']} belongs to {state['owner']}, not to "
+            f"{state['user']} — not spending it, or the session would come up as "
+            f"{state['owner']}. Windows will ask; --save-credential makes this address "
+            f"{state['user']}'s own.")
+        return state["user"], True
     if state["sealed"]:
         log(f"credential {state['target']} is sealed for {state['user']}")
         return state["user"], False
@@ -917,14 +1000,19 @@ def start_daemon(session: int, port: int, timeout: float = 120.0,
     return bool(st.get("warm"))
 
 
-def bring_up(user: str, port: int, server: str = DEFAULT_SERVER, width: int = 1600,
+def bring_up(user: str, port: int, server: str = "", width: int = 1600,
              height: int = 900, use_rdp: bool = True, restore: bool = True,
              ask: bool | None = None, seal: bool = False, say=None) -> int:
     """Session -> client -> daemon -> console back. ``0`` when the second instance answers.
 
     ``say`` is where the running commentary goes (the panel hands in its log; a command
     line leaves it alone and gets stdout). ``ask`` and ``seal`` are :func:`rdp_connect`'s.
+
+    ``server`` empty means «this profile's own address» — :func:`host_for` off the daemon
+    port, so two accounts never share a credential slot (#1263). Passing one overrides
+    that, which is what `--server` is for.
     """
+    server = server or host_for(port)
     with spoken_to(say) if say else contextlib.nullcontext():
         return _bring_up(user, port, server, width, height, use_rdp, restore, ask, seal)
 
@@ -1001,9 +1089,11 @@ def main() -> int:
     ap.add_argument("--user", default=DEFAULT_USER,
                     help="the second client's Windows user (or set LW_SECOND_USER)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="its Lua daemon port")
-    ap.add_argument("--server", default=DEFAULT_SERVER,
-                    help=f"RDP target — this machine by another loopback address "
-                         f"(default {DEFAULT_SERVER}; see the note above)")
+    ap.add_argument("--server", default="",
+                    help=f"RDP target — this machine by another loopback address. "
+                         f"Empty means the address of --port's own profile, so two "
+                         f"accounts never share a password slot ({DEFAULT_SERVER} for "
+                         f"the first; see the note above)")
     ap.add_argument("--width", type=int, default=1600)
     ap.add_argument("--height", type=int, default=900)
     ap.add_argument("--status", action="store_true", help="sessions, clients, daemon")
@@ -1052,8 +1142,12 @@ def main() -> int:
 
     if a.restore_console:
         return 0 if restore_console() else 1
+    # `--server` empty means «the address of this profile», worked out from the port
+    # exactly as the bring-up does — so saving a password and spending it can never
+    # land on two different slots (#1263).
+    address = a.server or host_for(a.port)
     if a.credentials:
-        st = credential_state(user_or_ask(), a.server)
+        st = credential_state(user_or_ask(), address)
         log(f"account {st['user']} -> {st['target']}")
         log(f"  sealed (usable, unreadable): {'yes' if st['sealed'] else 'no'}")
         log(f"  readable copy in {st['target']}: {'yes' if st['readable_rdp'] else 'no'}")
@@ -1075,12 +1169,12 @@ def main() -> int:
             pw = getpass.getpass(f"Password for {dom}\\{name}: ")
             if not pw:
                 raise SystemExit("nothing typed — nothing stored")
-            seal_credential(user, pw, a.server)
+            seal_credential(user, pw, address)
             del pw
             return 0
-        return 0 if save_credential(user, a.server) else 1
+        return 0 if save_credential(user, address) else 1
     if a.forget_credential:
-        forget_credential(user_or_ask(), a.server)
+        forget_credential(user_or_ask(), address)
         return 0
     if a.stop or a.logoff:
         return stop(user_or_ask(), a.port, logoff=a.logoff)

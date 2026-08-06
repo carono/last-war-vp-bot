@@ -92,6 +92,28 @@ Panel (tk.Tk)                     menu · geometry · splash · updates · about
     └── «alt»  → ProfileSession   runtime · daemon :47655 · schedule · tabs · log · status
 ```
 
+### 3.1a Where a profile is on disk — and the other `profiles/` (#1263)
+
+**`panel/profiles/<name>/config.json`.** One directory per profile, created the moment
+the profile is, holding its `config.json` plus everything else that belongs to that
+account alone: `panel.log`, `debug.log`, `timers.json`, the capture checkpoints, the
+lock. `panel/profile.py::PROFILES_DIR`, anchored to the package rather than to the
+working directory, so it is the same path whatever the panel was started from.
+
+**There is a second directory called `profiles/` and it is not this one.** In the
+repository root, `src/lastwar_bot/profile.py::DEFAULT_PROFILES_DIR` — the DSL bot's own
+`python -m lastwar_bot --profile <id>`, one flat `<id>.json` per operator, a path
+RELATIVE to the working directory. Nothing of the panel is in it, and the panel writes
+nothing to it.
+
+That is a genuine trap and it caught the person this repository is written for: «я
+продолжаю видеть пустую папку profiles, а я думал, там должны храниться конфиги
+профилей». Both are in `.gitignore` (as `profiles/`, unanchored, which matches both), so
+neither is in git, and looking into the wrong one shows an empty directory with nothing
+to say why. The «Профиль» window therefore has **«Папка профиля»**, which opens the
+selected profile's own directory in the file manager — the question answered by showing
+the answer rather than by documenting it somewhere the person is not reading.
+
 ### 3.2 Where the boundary runs
 
 **The whole runtime is per profile.** Not "a shared frame plus several sessions" — there

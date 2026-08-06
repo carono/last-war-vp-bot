@@ -51,6 +51,49 @@ Short version, for somebody who has just installed this and wants the second ins
   **Remote Desktop Users** — that is what permits the logon — and nothing else.
   Administrator is not required for any part of this.
 
+## 0b. One address is one password, so one address is one account (#1263)
+
+The live symptom was «не работает запуск сессии, точнее запускается, но упорно
+пользователь X»: whichever profile asked, the session came up as one and the same
+account. It reads exactly like a hard-coded login and there was none — the panel passed
+each profile's own login and the log said so: `mstsc 127.0.0.2 as <MACHINE>\<profile's
+own login>`.
+
+**Windows keys a saved RDP password by `TERMSRV/<address>` and by nothing else.** Not by
+the login in the .rdp file, which it is happy to ignore in favour of what it has stored.
+Every profile connected to the same loopback address, one account's password sat in that
+one slot, and mstsc spent it — signing in as its owner, every time. No session ever
+appeared for the account that was asked for, so three minutes later the bring-up gave up
+and the panel reported the ordinary «nobody is logged on as …», which is the truth and
+says nothing about the cause.
+
+Two things were wrong, and both are fixed:
+
+* **`credential_state` asked «is there a password here» where it meant «is it mine».**
+  The sealed half had always compared the owner; the readable half was a bare
+  `CredRead(...) is not None`, true of a slot holding anybody at all. So `stored` came
+  back true for every profile, the bring-up went the unattended route, and there was
+  nothing left to ask. It now compares the owner on both halves and reports `owner` and
+  `foreign` beside them — a slot somebody else holds counts as nothing stored, is said
+  out loud, and is never spent.
+* **One address was shared by every profile.** A profile's address is now derived from
+  the daemon port the panel already gives it (`rdp_instance.host_for`) — unique per
+  profile by construction, stable across restarts, nothing new to store or type. The
+  first session profile keeps `LW_RDP_HOST` (`127.0.0.2`), the next steps to `.3`, and
+  so on; the whole loopback range answers on 3389, verified by connecting to four of
+  them.
+
+**Consequence for saving a password: the port is part of the command.** A password saved
+without `--port` lands on the first profile's address, and any other profile then looks
+in a slot that was never written. The panel's own hint carries the port for this reason,
+and `--credentials`, `--save-credential` and `--forget-credential` all resolve the
+address the same way the bring-up does.
+
+*Wrong turn worth recording:* the first read of the log blamed `DEFAULT_USER` /
+`LW_SECOND_USER`, since a global default login would produce exactly this. It was empty,
+and the log had already ruled it out by printing the correct per-profile login three
+minutes before the failure. The lie was not in what was passed but in what was stored.
+
 ## 0. The mechanism is already Windows' own — that part was never in doubt
 
 Worth saying first, because it is easy to read the rest as though the bot invented a

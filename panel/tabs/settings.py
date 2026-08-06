@@ -540,6 +540,14 @@ class SettingsTab(PanelTab):
         self._session_clash = ttk.Label(frame, foreground="#e0a84f", wraplength=520,
                                         justify="left")
         self._session_clash.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        # WHOSE PASSWORD IS ON THIS PROFILE'S ADDRESS (#1263). Windows keys a saved RDP
+        # password by the address and by nothing else, so a slot holding another
+        # account's password is the whole reason every «Поднять сессию» used to come up
+        # as that account. Filled by «Проверить», which is already the button that asks
+        # live Windows — reading credentials on every keystroke would not be free.
+        self._session_cred = ttk.Label(frame, foreground="#888", wraplength=520,
+                                       justify="left")
+        self._session_cred.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         # The login is meaningless while the tick is off, and a box that still takes
         # typing says otherwise. Follow the checkbox — and the port — on every change.
@@ -710,7 +718,39 @@ class SettingsTab(PanelTab):
                 foreground=self._VERDICT_COLOURS.get(kind, "#c33"))
         except tk.TclError:
             pass
+        self._paint_credential()
         self._refresh_session_user_state()
+
+    def _paint_credential(self) -> None:
+        """Whose password sits on this profile's RDP address — the #1263 reading.
+
+        Three states worth different words: the slot is this account's (the bring-up
+        runs unattended), the slot is empty (Windows will ask, once per reboot), or the
+        slot belongs to somebody else — which is the one that used to be invisible and
+        used to bring the session up as its owner.
+        """
+        label = getattr(self, "_session_cred", None)
+        if label is None:
+            return
+        state = runtime.game_process.credential_state(self.rt.settings)
+        if state is None:
+            text, colour = "", "#888"
+        elif state.get("foreign"):
+            text = self.t("session.cred.foreign", server=state.get("server"),
+                          owner=state.get("owner"), user=state.get("user"))
+            colour = "#e0a84f"
+        elif state.get("stored"):
+            text = self.t("session.cred.stored", server=state.get("server"),
+                          user=state.get("user"))
+            colour = "#888"
+        else:
+            text = self.t("session.cred.none", server=state.get("server"),
+                          user=state.get("user"))
+            colour = "#888"
+        try:
+            label.configure(text=text, foreground=colour)
+        except tk.TclError:
+            pass
 
     def _bring_up_session(self) -> None:
         """Create this profile's Windows session, and start its client and daemon in it.
@@ -735,10 +775,20 @@ class SettingsTab(PanelTab):
         # will do that again after every reboot. Both halves are said before the dialog
         # appears rather than after it has confused somebody (#1231).
         state = runtime.game_process.credential_state(self.rt.settings)
+        if state is not None and state.get("foreign"):
+            # The one that used to bring the session up as somebody else (#1263).
+            # Said BEFORE the wait, because otherwise the person watches three minutes
+            # of nothing and is told «nobody is logged on as …» at the end of it.
+            self.say("session", "log.session.cred_foreign", server=state.get("server"),
+                     owner=state.get("owner"), user=state.get("user"))
         if state is not None and not state.get("stored"):
             self.say("session", "log.session.will_ask")
+            # …with the PORT in the command, because the port is what decides which
+            # address the password is saved against (#1263). Without it the person
+            # saves a password on one address and the bring-up looks on another.
             self.say("session", "log.session.save_hint",
-                     user=runtime.game_process.profile_user(self.rt.settings))
+                     user=runtime.game_process.profile_user(self.rt.settings),
+                     port=self.rt.settings.opt_int("daemon_port", low=1, high=65535))
         self.say("session", "log.session.bringing_up",
                  user=runtime.game_process.profile_user(self.rt.settings))
 

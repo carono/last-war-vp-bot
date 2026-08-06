@@ -1514,6 +1514,8 @@ class Panel(runtime.SessionScoped, tk.Tk):
                  "profile.rename").pack(side="left", padx=6)
         self._tr(ttk.Button(btns, command=self._delete_profile),
                  "profile.delete").pack(side="left")
+        self._tr(ttk.Button(btns, command=self._reveal_profile_dir),
+                 "profile.folder").pack(side="left", padx=6)
         self._tr(ttk.Button(btns, command=win.destroy),
                  "profile.close").pack(side="right")
         # NOTHING ELSE GOES HERE (#1263). There used to be a «Развести клиенты…» below
@@ -1540,6 +1542,23 @@ class Panel(runtime.SessionScoped, tk.Tk):
             self._profile_combo = None
             self._profile_client_lbl = None
             self._profile_win = None
+
+    def _reveal_profile_dir(self) -> None:
+        """Open the selected profile's own directory — where its `config.json` lives.
+
+        «Я продолжаю видеть пустую папку profiles» (#1263), and the person was right to
+        be confused: there are TWO directories of that name in this repository. The
+        panel's profiles are `panel/profiles/<name>/`, one directory per account with a
+        `config.json` in it; the `profiles/` in the repository root belongs to the DSL
+        bot's own `--profile` (src/lastwar_bot/profile.py), holds one flat json per id,
+        and has nothing to do with the panel. Looking into the wrong one shows an empty
+        directory and no way to tell why. So the panel opens the right one.
+        """
+        name = self._profile_var.get() or self._profiles.active
+        try:
+            self._reveal_in_explorer(self._profiles.dir(name))
+        except Exception as exc:          # noqa: BLE001 — a line, not the dialog
+            self._say("profile", "log.profile.folder_failed", error=exc)
 
     def _paint_profile_client(self) -> None:
         """Say which client the profile in the combo drives — and if it is not alone.

@@ -349,7 +349,13 @@ def credential_state(settings) -> dict | None:
         return None
     try:
         import rdp_instance                # noqa: PLC0415 — Windows-only, pywin32
-        return rdp_instance.credential_state(user)
+        # ASKED ABOUT THIS PROFILE'S OWN ADDRESS (#1263). Windows keys a saved RDP
+        # password by the address, so asking about the default one would answer for
+        # whichever profile happens to sit there — which is the whole fault this is on
+        # the other side of. The address comes off the port, exactly as the bring-up
+        # works it out, so the reading and the connection can never disagree.
+        port = settings.opt_int("daemon_port", low=1, high=65535)
+        return rdp_instance.credential_state(user, rdp_instance.host_for(port))
     except Exception:                      # noqa: BLE001 — a reading, not the page
         return None
 

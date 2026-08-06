@@ -503,6 +503,113 @@ def test_the_verdict_that_names_the_button_spells_it_from_the_button_s_own_key()
         assert "{up}" in loc["session.check.no_session"], path.name
 
 
+# -- one address is one credential slot (#1263) ------------------------------
+#
+# The live fault: bringing ANY profile's session up signed in as one and the same
+# account. Nothing was hard-coded — the panel passed each profile's own login and the
+# log said so. Windows keys a saved RDP password by `TERMSRV/<address>` and by nothing
+# else, one address was shared by every profile, and `credential_state` asked «is there
+# a password here» where it meant «is it mine». So mstsc was started with a password
+# that belonged to somebody else, spent it, and signed in as its owner.
+
+def _rdp():
+    """`tools/rdp_instance.py` without pywin32 — the two halves under test need none."""
+    sys.path.insert(0, str(_ROOT / "tools"))
+    try:
+        import rdp_instance
+        return rdp_instance
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no rdp_instance: {exc}")
+        return None
+
+
+def test_each_profile_gets_a_credential_slot_of_its_own():
+    """The address follows the daemon port the panel already made unique.
+
+    Nothing new to store and nothing to type: the port is one per profile by
+    construction (`panel/runtime/provision.py`), so the addresses are too, and two
+    accounts can each keep a saved password without overwriting the other's.
+    """
+    R = _rdp()
+    if R is None:
+        return
+    base = R.DEFAULT_SERVER
+    first, second, third = (R.host_for(p) for p in (47655, 47656, 47657))
+    assert first == base, (first, base)
+    assert len({first, second, third}) == 3, (first, second, third)
+    # The console profile has no session to bring up, so its port answers with the base
+    # rather than with an address below it.
+    assert R.host_for(47654) == base
+    # Anything unusable falls back to the base instead of inventing an address that
+    # would not connect at all.
+    for odd in (None, 0, -5, 999999, "nonsense"):
+        assert R.host_for(odd) == base, odd
+
+
+def test_a_password_belonging_to_somebody_else_is_never_spent():
+    """`credential_state` asks WHOSE, not whether — for the readable slot too.
+
+    The readable half is the one that was `is not None`, and that single line is why
+    every «Поднять сессию» came up as one account (#1263). Both halves are stubbed at
+    the credential read, so this needs no Windows and no saved passwords.
+    """
+    R = _rdp()
+    if R is None:
+        return
+    try:
+        import win32cred                    # noqa: F401 — only the constants are used
+    except Exception as exc:                # noqa: BLE001
+        print(f"  SKIP no pywin32: {exc}")
+        return
+    saved_read, saved_account = R._cred_read, R._account
+    R._account = lambda user: (None, "MACHINE", user)
+    try:
+        # A generic password saved for a DIFFERENT account on this address.
+        R._cred_read = lambda target, kind: (
+            {"UserName": r"MACHINE\other"} if kind == win32cred.CRED_TYPE_GENERIC
+            and target.startswith("TERMSRV/") else None)
+        state = R.credential_state("player2", "127.0.0.9")
+        assert state["readable_rdp"] is False, state
+        assert state["stored"] is False, state
+        assert state["foreign"] is True, state
+        assert state["owner"] == r"MACHINE\other", state
+
+        # …and the same slot, this time holding this account's own password.
+        R._cred_read = lambda target, kind: (
+            {"UserName": r"MACHINE\player2"} if kind == win32cred.CRED_TYPE_GENERIC
+            and target.startswith("TERMSRV/") else None)
+        state = R.credential_state("player2", "127.0.0.9")
+        assert state["readable_rdp"] is True and state["stored"] is True, state
+        assert state["foreign"] is False, state
+
+        # An empty slot is neither mine nor anybody's — Windows asks, nothing is stored.
+        R._cred_read = lambda target, kind: None
+        state = R.credential_state("player2", "127.0.0.9")
+        assert state["stored"] is False and state["foreign"] is False, state
+        assert state["owner"] == "", state
+    finally:
+        R._cred_read, R._account = saved_read, saved_account
+
+
+def test_the_words_for_a_slot_somebody_else_owns_exist_everywhere():
+    """The reading a person needs to understand «упорно один и тот же пользователь».
+
+    It names three things and all three are data — the address, the owner, and who was
+    asked for — so a locale that drops one leaves a sentence that cannot be acted on.
+    """
+    import json
+    root = Path(__file__).resolve().parents[1] / "panel" / "locales"
+    for path in sorted(root.glob("*.json")):
+        loc = json.loads(path.read_text(encoding="utf-8"))
+        for key in ("session.cred.foreign", "log.session.cred_foreign"):
+            assert key in loc, (path.name, key)
+            for slot in ("{server}", "{owner}", "{user}"):
+                assert slot in loc[key], (path.name, key, slot)
+        # …and the command that fixes it carries the port, because the port is what
+        # decides which address the password lands on.
+        assert "{port}" in loc["log.session.save_hint"], path.name
+
+
 def _main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
