@@ -20,17 +20,22 @@ open, when a push that changes one of these facts crosses the wire, and whenever
 person presses «Обновить». Every count in it is the SAME expression the matching press is
 gated on, so the checklist and the button can never disagree about how much work there is.
 
-**«Выполнить» does not tick anything.** Where an errand is a scenario the bot already
-has, the row offers to play it — and then the tab re-reads, and the tick follows the
-game. Pressing it and having the line stay red is information, not a bug.
+**There is no press on this tab except «Обновить»,** and that one only reads again. No
+box to tick, no «Выполнить»: an errand is done because the game says so, and a button
+that started something would be a button somebody expects to have ticked a line. The
+abilities themselves live where they always did — on their own tabs and in «Таймеры» —
+and this is the board that says whether they still need to run.
 
-**What is NOT here, and why.** Only errands whose state the game will actually answer
-are on the list: a row that could only ever say «unknown» teaches people to ignore the
-column. Alliance gifts, the resource truck's own accumulator, the treasures, radar
-tasks, the arena, the VIP and battle-pass dailies, the arms race and everything tied to
-a weekday have no reading in this repository yet — they belong here the day one exists,
-and not before. The rally joins are counted by the PANEL rather than by the game
-(`panel/tabs/rally/limits.py`), which is a different kind of fact and is left where it is.
+**The list is fixed in code and the person does not edit it**, in the window or on the
+phone. It is the day, not somebody's notes about the day.
+
+**The second half of the list is the part nothing can read yet** — sending the trucks
+out, the radar, the arena, the alliance gifts, the treasures, the shop. Those lines say
+«состояние неизвестно» and will keep saying it until a reading exists for them: they are
+on the board rather than left off it because a checklist that quietly drops a third of
+the day looks finished when it is not, and because each of them is a candidate for the
+next reading (`docs/farming.md` is where the routine they come from is written down).
+Moving a line up into the read group is how this tab grows — never by giving it a box.
 """
 from __future__ import annotations
 
@@ -38,7 +43,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from ...widgets import ScrollableFrame, tk_stringvar
+from ...widgets import ScrollableFrame, font as ui_font, tk_stringvar
 from ..base import PanelTab
 from . import model as modelmod
 
@@ -62,14 +67,14 @@ WIRE_PATTERNS = ("al.help", "visitor", "hospital")
 
 
 class ChecklistTab(PanelTab):
-    """Thirteen readings, a countdown to the reset, and one press per errand."""
+    """The day's errands, the game's answer to each, and a countdown to the reset."""
 
     ID = "checklist"
     TITLE_KEY = "tab.checklist"
     ORDER = 20
     PREFERRED_SIZE = "760x620"
     LOCALE_NS = ("checklist",)
-    #: The client, to read; the scenarios, to read with and to play; the capture, to
+    #: The client, to read; the scenarios, to read WITH; the capture, to
     #: hear a push. All three are what a board that is true rather than remembered costs.
     NEEDS = frozenset({"daemon", "actions", "children"})
     WEB_SCREEN = True
@@ -93,8 +98,6 @@ class ChecklistTab(PanelTab):
         self._status = None
         self._refresh_button = None
         self._wire_off: list = []
-        #: Errands with a scenario in flight, so a second press cannot start it twice.
-        self._running: set = set()
 
     # -- the tab ------------------------------------------------------------
     def build(self) -> None:
@@ -259,11 +262,14 @@ class ChecklistTab(PanelTab):
             return
         for child in list(self._body.winfo_children()):
             child.destroy()
-        for row, state in enumerate(self.states()):
-            self._render_row(row, state)
+        for heading, states in modelmod.grouped(self._reading):
+            self.tr(ttk.Label(self._body, font=ui_font(weight="bold")),
+                    heading).pack(anchor="w", padx=6, pady=(10, 2))
+            for state in states:
+                self._render_row(state)
         self._refresh_status()
 
-    def _render_row(self, row: int, state) -> None:
+    def _render_row(self, state) -> None:
         frame = ttk.Frame(self._body)
         frame.pack(fill="x", padx=4, pady=1)
         frame.columnconfigure(1, weight=1)
@@ -275,14 +281,6 @@ class ChecklistTab(PanelTab):
             row=0, column=1, sticky="w", padx=(4, 8))
         ttk.Label(frame, text=self._detail(state), foreground="#888").grid(
             row=0, column=2, sticky="e", padx=(0, 8))
-
-        if state.errand.scenario:
-            button = self.tr(ttk.Button(
-                frame, width=12,
-                command=lambda key=state.key: self.run(key)), "checklist.run")
-            button.grid(row=0, column=3, sticky="e")
-            if state.key in self._running or state.state == modelmod.CLOSED:
-                button.state(["disabled"])
 
     def _detail(self, state) -> str:
         """The words beside a row: what is left, in the panel's language."""
@@ -319,68 +317,42 @@ class ChecklistTab(PanelTab):
         return self.t("checklist.status.read", done=done, total=total,
                       ago=modelmod.ago(self._age()), left=left)
 
-    # -- doing the errand ---------------------------------------------------
-    def run(self, key: str) -> bool:
-        """Play the scenario this errand is, then re-read. The tick follows the GAME.
-
-        `False` when the errand has no scenario, is already running, or the game is
-        busy — `play_async` holds the claim and says «busy» in the log for itself.
-        """
-        errand = modelmod.BY_KEY.get(key)
-        if errand is None or not errand.scenario or key in self._running:
-            return False
-        self._running.add(key)
-        self._render()
-        self.say("checklist", "checklist.log.run", title=self.t(errand.title_key))
-        started = self.rt.play_async(
-            errand.scenario, tag="checklist",
-            on_done=lambda key=key: self._ran(key))
-        if not started:
-            self._ran(key)
-        return started
-
-    def _ran(self, key: str) -> None:
-        """The scenario is over: forget it and ask the game what changed."""
-        self._running.discard(key)
-        self._render()
-        self.refresh()
-
     # -- the phone's copy ---------------------------------------------------
     def web_view(self) -> "dict | None":
-        """The same board, the same presses. Cheap: it draws the reading already held.
+        """The same board, drawn from the same reading — one card per group.
 
         The numbers are DATA (a count, «2/5»); the state is a `pill` and every word is a
-        key, so the phone says them in whatever language the panel is set to.
+        key, so the phone says them in whatever language the panel is set to. The only
+        press on either front-end is «Обновить», because the only press there IS is
+        «read it again».
         """
-        items = []
-        for state in self.states():
-            item = {"label": state.errand.title_key,
-                    "pill": "checklist.state." + state.state}
-            if state.state == modelmod.DONE or state.state == modelmod.TODO:
-                item["detail"] = (
-                    "%d/%d" % (state.used, state.cap)
-                    if state.errand.kind == modelmod.QUOTA and state.used is not None
-                    else str(state.left))
-            if state.errand.scenario and state.state != modelmod.CLOSED:
-                item["actions"] = [{"id": "run", "label": "checklist.run",
-                                    "args": {"key": state.key}}]
-            items.append(item)
         done, total = modelmod.progress(self.states())
-        rows = [{"label": "checklist.web.progress", "value": "%d/%d" % (done, total)},
-                {"label": "checklist.web.until_reset",
-                 "value": modelmod.hhmm(modelmod.seconds_to_reset())},
-                {"label": "checklist.web.read",
-                 "value": (modelmod.ago(self._age()) if self._reading is not None
-                           and not self._reading.error else "—")}]
-        return {"cards": [{"title": "tab.checklist", "rows": rows, "items": items,
-                           "empty": "checklist.empty"}],
-                "now": time.time(),
+        cards = [{"title": None, "rows": [
+            {"label": "checklist.web.progress", "value": "%d/%d" % (done, total)},
+            {"label": "checklist.web.until_reset",
+             "value": modelmod.hhmm(modelmod.seconds_to_reset())},
+            {"label": "checklist.web.read",
+             "value": (modelmod.ago(self._age()) if self._reading is not None
+                       and not self._reading.error else "—")},
+        ]}]
+        for heading, states in modelmod.grouped(self._reading):
+            cards.append({"title": heading, "empty": "checklist.empty",
+                          "items": [self._web_item(s) for s in states]})
+        return {"cards": cards, "now": time.time(),
                 "actions": [{"id": "refresh", "label": "checklist.refresh"}]}
 
+    def _web_item(self, state) -> dict:
+        item = {"label": state.errand.title_key,
+                "pill": "checklist.state." + state.state}
+        if state.state in (modelmod.DONE, modelmod.TODO):
+            item["detail"] = (
+                "%d/%d" % (state.used, state.cap)
+                if state.errand.kind == modelmod.QUOTA and state.used is not None
+                else str(state.left))
+        return item
+
     def web_press(self, action: str, args: dict) -> dict:
-        """«Обновить», and playing one errand. Nothing here marks anything."""
+        """«Обновить», and nothing else. There is nothing here to mark or to spend."""
         if action == "refresh":
             return {"ok": self.refresh()}
-        if action == "run":
-            return {"ok": self.run(str((args or {}).get("key") or ""))}
         return {"error": "unknown"}

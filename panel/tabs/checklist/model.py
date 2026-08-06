@@ -59,56 +59,93 @@ QUOTA = "quota"
 
 
 class Errand:
-    """One line of the checklist: what it is, which field answers it, what plays it.
+    """One line of the checklist: what it is, and which field of the reading answers it.
 
     ``field`` names a key of the reading; ``cap`` the field holding the day's allowance
-    for a quota. ``gate`` is a field that must be 1 for the errand to be on at all
-    (Ghost Ops and its one day a week). ``scenario`` is an `actions/*.md` the panel may
-    play for it, or ``""`` — and an errand with no scenario is a perfectly good line: the
-    reading is worth having whether or not the bot can do anything about it yet.
+    for a quota; ``gate`` a field that must be 1 for the errand to be on at all (Ghost
+    Ops and its one day a week).
+
+    **An empty ``field`` is a line nothing can answer yet** — a real errand of the day
+    that this repository has no reading for. It is on the list on purpose and it says
+    «состояние неизвестно» for ever, which is the honest thing to show: leaving it out
+    would make the checklist look complete while a third of the day is missing from it,
+    and putting a tickable box there would be the hand-marking this tab exists without.
     """
 
-    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate", "scenario")
+    __slots__ = ("key", "title_key", "field", "kind", "cap", "gate")
 
-    def __init__(self, key: str, field: str, kind: str = QUEUE, cap: str = "",
-                 gate: str = "", scenario: str = "") -> None:
+    def __init__(self, key: str, field: str = "", kind: str = QUEUE, cap: str = "",
+                 gate: str = "") -> None:
         self.key = key
         self.title_key = "checklist.item." + key
         self.field = field
         self.kind = kind
         self.cap = cap
         self.gate = gate
-        self.scenario = scenario
+
+    @property
+    def readable(self) -> bool:
+        """Whether the game has anything to say about this one."""
+        return bool(self.field)
 
 
-#: The errands, in the order a day is actually played: the base first, then the
-#: alliance, then what the person themselves has banked, then the two robberies.
-#:
-#: EVERY ONE OF THESE IS READ, and that is the whole entry condition. An errand whose
-#: state the game will not tell us is NOT on this list — a row that could only ever say
-#: «unknown» is a row that teaches people to ignore the column. The ones that are missing
-#: for that reason are written up in the task and in the tab's docstring, so the list
-#: grows the day a reading for one of them exists rather than the day somebody feels like
-#: adding a box.
-ERRANDS: tuple = (
-    Errand("base_resources", "base_ready", QUEUE,
-           scenario="collect_base_resources"),
-    Errand("trucks", "trucks_ready", QUEUE),
-    Errand("hospital_collect", "healed_ready", QUEUE, scenario="heal_units"),
-    Errand("hospital_heal", "wounded", QUEUE, scenario="heal_units"),
-    Errand("queues_help", "queues_help", QUEUE),
-    Errand("alliance_help", "help_waiting", QUEUE, scenario="help_ally"),
-    Errand("alliance_donate", "donate_left", QUOTA,
-           scenario="donate_alliance_tech"),
-    Errand("visitors_recruit", "recruit_pending", QUEUE,
-           scenario="recruit_survivors"),
-    Errand("visitors_gifts", "gifts_pending", QUEUE,
-           scenario="collect_visitor_gifts"),
-    Errand("skills", "skills_ready", QUEUE, scenario="occupation_skills"),
-    Errand("decorations", "decorations", QUEUE, scenario="upgrade_decorations"),
+#: The errands the game ANSWERS, in the order a day is played: the base first, then the
+#: alliance, then what the person has banked, then the two robberies. Every one of these
+#: is a live reading and the same expression the matching press is gated on.
+READ_ERRANDS: tuple = (
+    Errand("base_resources", "base_ready"),
+    Errand("trucks", "trucks_ready"),
+    Errand("hospital_collect", "healed_ready"),
+    Errand("hospital_heal", "wounded"),
+    Errand("queues_help", "queues_help"),
+    Errand("alliance_help", "help_waiting"),
+    Errand("alliance_donate", "donate_left", QUOTA),
+    Errand("visitors_recruit", "recruit_pending"),
+    Errand("visitors_gifts", "gifts_pending"),
+    Errand("skills", "skills_ready"),
+    Errand("decorations", "decorations"),
     Errand("secret_steals", "steal_left", QUOTA, cap="steal_cap"),
     Errand("ghost_steals", "ghost_left", QUOTA, cap="ghost_cap", gate="ghost_open"),
 )
+
+#: …and the rest of the day, which nothing here can read yet.
+#:
+#: Taken from the routine as it is actually played (`docs/farming.md`, «The daily
+#: routine, point by point») rather than invented, so the two lists stay comparable: what
+#: is below is exactly the part of a real day the bot is still blind to. Each one is a
+#: candidate for a reading, and moving a line UP from here is the whole way this tab
+#: grows — never by giving it a box somebody can tick.
+BLIND_ERRANDS: tuple = (
+    Errand("send_trucks"),
+    Errand("truck_reward"),
+    Errand("gather"),
+    Errand("secret_missions"),
+    Errand("secret_tasks_help"),
+    Errand("radar"),
+    Errand("rally_joins"),
+    Errand("attack_marked"),
+    Errand("treasures"),
+    Errand("treasure_maps"),
+    Errand("alliance_gifts"),
+    Errand("chat_gifts"),
+    Errand("arms_race"),
+    Errand("arena"),
+    Errand("tavern"),
+    Errand("supplies"),
+    Errand("shop"),
+    Errand("fireworks"),
+    Errand("vip_daily"),
+    Errand("battle_pass"),
+    Errand("ministry"),
+)
+
+#: The two groups, in the order they are drawn, with the heading each is drawn under.
+GROUPS: tuple = (
+    ("checklist.group.read", READ_ERRANDS),
+    ("checklist.group.blind", BLIND_ERRANDS),
+)
+
+ERRANDS: tuple = READ_ERRANDS + BLIND_ERRANDS
 
 BY_KEY = {errand.key: errand for errand in ERRANDS}
 
@@ -231,6 +268,8 @@ class ErrandState:
 
 def state_of(errand, reading) -> "ErrandState":
     """One errand against one reading. Never guesses: no answer is `unknown`."""
+    if not errand.readable:
+        return ErrandState(errand, UNKNOWN)
     if reading is None or reading.error:
         return ErrandState(errand, UNKNOWN)
     if errand.gate:
@@ -249,6 +288,12 @@ def state_of(errand, reading) -> "ErrandState":
 def states(reading) -> list:
     """Every errand against one reading, in the catalogue's order."""
     return [state_of(errand, reading) for errand in ERRANDS]
+
+
+def grouped(reading) -> list:
+    """``[(heading key, [state, …]), …]`` — the board as both front-ends draw it."""
+    return [(heading, [state_of(errand, reading) for errand in errands])
+            for heading, errands in GROUPS]
 
 
 def progress(states_) -> tuple:

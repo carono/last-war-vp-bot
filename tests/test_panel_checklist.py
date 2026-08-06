@@ -185,13 +185,37 @@ def test_the_scenario_is_a_read_and_presses_nothing():
         assert forbidden not in body[0], f"the reading contains «{forbidden}»"
 
 
-def test_every_errand_that_offers_a_press_names_a_scenario_that_exists():
-    actions = _REPO / "src" / "lastwar_bot" / "actions"
+def test_no_errand_carries_a_press_of_any_kind():
+    """An errand is a READING. There is nothing on it for a button to hang off.
+
+    The catalogue used to carry a scenario per line and the rows a «Выполнить» — and a
+    button that starts something is a button somebody expects to have ticked the line.
+    The abilities live on their own tabs; this one only says whether they still need to
+    run.
+    """
     for errand in modelmod.ERRANDS:
-        if not errand.scenario:
-            continue
-        assert (actions / (errand.scenario + ".md")).exists(), \
-            f"«{errand.key}» offers {errand.scenario}, which is not a scenario"
+        assert not hasattr(errand, "scenario"), \
+            f"«{errand.key}» carries a scenario — the board is a reading, not a remote"
+    assert "scenario" not in modelmod.Errand.__slots__
+
+
+def test_a_line_nothing_can_read_says_so_and_never_anything_else():
+    """The blind half of the day is on the board, honestly labelled.
+
+    Left off, the checklist would look finished with a third of the routine missing from
+    it; given a box, it would be the hand-marking this tab exists without. So it is a row
+    that says «unknown» whatever the reading says, and is counted in neither half.
+    """
+    assert modelmod.BLIND_ERRANDS, "the blind half of the day vanished"
+    for errand in modelmod.BLIND_ERRANDS:
+        assert not errand.readable and not errand.field
+        for reading in (None, modelmod.parse(FULL), modelmod.Reading(error="x")):
+            assert modelmod.state_of(errand, reading).state == modelmod.UNKNOWN
+    # A full reading answers every readable line and none of the blind ones, so the
+    # counted total is exactly the read half — however long the blind half grows.
+    done, total = modelmod.progress(modelmod.states(modelmod.parse(FULL)))
+    assert total == len(modelmod.READ_ERRANDS), \
+        f"{len(modelmod.ERRANDS) - total} lines counted that nobody can read"
 
 
 def test_every_word_the_board_can_say_is_in_every_locale():
@@ -199,6 +223,7 @@ def test_every_word_the_board_can_say_is_in_every_locale():
     shipped = {p.stem: json.loads(p.read_text(encoding="utf-8"))
                for p in Path(i18nmod.LOCALES_DIR).glob("*.json")}
     wanted = [e.title_key for e in modelmod.ERRANDS]
+    wanted += [heading for heading, _errands in modelmod.GROUPS]
     wanted += ["checklist.state." + s for s in
                (modelmod.DONE, modelmod.TODO, modelmod.UNKNOWN, modelmod.CLOSED)]
     for lang, table in sorted(shipped.items()):
@@ -263,8 +288,16 @@ def _tab(raw=FULL, plays=True):
     tab._status = None
     tab._refresh_button = None
     tab._wire_off = []
-    tab._running = set()
     return tab
+
+
+def _items(view) -> dict:
+    """Every line of a screen, by its title key."""
+    out = {}
+    for card in view["cards"]:
+        for item in card.get("items") or ():
+            out[item["label"]] = item
+    return out
 
 
 def test_the_screen_is_keys_and_data_and_every_button_is_answered():
@@ -273,66 +306,57 @@ def test_the_screen_is_keys_and_data_and_every_button_is_answered():
         (Path(i18nmod.LOCALES_DIR) / "en.json").read_text(encoding="utf-8"))
     tab = _tab()
     view = tab.web_view()
-    card = view["cards"][0]
 
-    keys = [card["title"], card["empty"]] + [r["label"] for r in card["rows"]]
-    for item in card["items"]:
-        keys += [item["label"], item["pill"]]
-        keys += [a["label"] for a in item.get("actions") or ()]
+    keys = []
+    for card in view["cards"]:
+        assert set(card) <= {"title", "head", "rows", "items", "empty", "search"}
+        keys += [k for k in (card.get("title"), card.get("empty")) if k]
+        keys += [r["label"] for r in card.get("rows") or ()]
+        for item in card.get("items") or ():
+            assert set(item) <= {"text", "label", "detail", "note", "pill", "actions",
+                                 "facts", "until"}
+            assert "text" not in item, \
+                "a title of the panel's own must be a key, not data"
+            keys += [item["label"], item["pill"]]
     keys += [a["label"] for a in view["actions"]]
     for key in keys:
         assert keyish.match(key), f"«{key}» is a sentence, not a locale key"
         assert key in english, f"«{key}» is in no locale"
 
-    assert set(card) <= {"title", "head", "rows", "items", "empty", "search"}
-    for item in card["items"]:
-        assert set(item) <= {"text", "label", "detail", "note", "pill", "actions",
-                             "facts", "until"}
-        assert "text" not in item, "a title of the panel's own must be a key, not data"
-
-    offered = {a["id"] for a in view["actions"]}
-    for item in card["items"]:
-        offered |= {a["id"] for a in item.get("actions") or ()}
-    for action in offered:
-        answer = _tab().web_press(action, {"key": "base_resources"})
-        assert answer.get("error") != "unknown", f"«{action}» is a dead button"
+    for action in {a["id"] for a in view["actions"]}:
+        assert _tab().web_press(action, {}).get("error") != "unknown", \
+            f"«{action}» is a dead button"
     assert tab.web_press("no-such-action-ever", {}).get("error") == "unknown"
 
 
 def test_the_phone_sees_the_same_states_as_the_window_and_no_way_to_tick_one():
     """There is no marking anywhere — not in the window, and not from a bus."""
     tab = _tab("base_ready=0 wounded=2 ghost_open=0 donate_left=-")
-    pills = {i["label"]: i["pill"] for i in tab.web_view()["cards"][0]["items"]}
-    assert pills["checklist.item.base_resources"] == "checklist.state.done"
-    assert pills["checklist.item.hospital_heal"] == "checklist.state.todo"
-    assert pills["checklist.item.ghost_steals"] == "checklist.state.closed"
-    assert pills["checklist.item.alliance_donate"] == "checklist.state.unknown"
+    items = _items(tab.web_view())
+    assert items["checklist.item.base_resources"]["pill"] == "checklist.state.done"
+    assert items["checklist.item.hospital_heal"]["pill"] == "checklist.state.todo"
+    assert items["checklist.item.ghost_steals"]["pill"] == "checklist.state.closed"
+    assert items["checklist.item.alliance_donate"]["pill"] == "checklist.state.unknown"
+    assert items["checklist.item.arena"]["pill"] == "checklist.state.unknown"
 
     before = [s.state for s in tab.states()]
-    for marking in ("toggle", "tick", "done", "mark", "reset", "add", "delete"):
+    for marking in ("toggle", "tick", "done", "mark", "reset", "add", "delete", "run"):
         assert tab.web_press(marking, {"key": "base_resources"}) == {"error": "unknown"}
     assert [s.state for s in tab.states()] == before
+    assert tab.rt.played == [], "a press reached the game"
 
 
-def test_running_an_errand_plays_its_scenario_and_marks_nothing():
-    tab = _tab("wounded=2")
-    before = [s.state for s in tab.states()]
-    assert tab.web_press("run", {"key": "hospital_heal"}) == {"ok": True}
-    assert tab.rt.played == ["heal_units"]
-    assert [s.state for s in tab.states()] == before, \
-        "a press changed the board — the board is the GAME's answer"
-
-    # An errand with no scenario of its own has nothing to press.
-    assert tab.web_press("run", {"key": "trucks"}) == {"ok": False}
-    assert tab.web_press("run", {"key": "nobody"}) == {"ok": False}
-    assert tab.rt.played == ["heal_units"]
-
-
-def test_a_closed_event_offers_no_press_at_all():
-    tab = _tab("ghost_open=0 ghost_left=5 ghost_cap=5 wounded=1")
-    for item in tab.web_view()["cards"][0]["items"]:
-        if item["pill"] == "checklist.state.closed":
-            assert not item.get("actions"), "a dark event offered a button"
+def test_the_only_press_on_either_front_end_is_read_it_again():
+    """One action on the screen, and the one scenario it runs is the READ."""
+    tab = _tab()
+    view = tab.web_view()
+    assert [a["id"] for a in view["actions"]] == ["refresh"]
+    for card in view["cards"]:
+        for item in card.get("items") or ():
+            assert not item.get("actions"), \
+                f"«{item['label']}» offers a button — the board is a reading"
+    assert tab.web_press("refresh", {}) == {"ok": True}
+    assert tab.rt.played == [modelmod.ACTION]
 
 
 def test_the_board_refreshes_itself_and_says_so_when_it_cannot():
