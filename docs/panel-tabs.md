@@ -79,6 +79,18 @@ All of these are class attributes with defaults, so declare only what is true.
 | `EAGER` | Load at boot instead of on first show. | Only if `ensure_loaded` brings up something that must be RUNNING. |
 | `WEB_SCREEN` | Does this tab hand the phone a screen (`web_view` / `web_press`)? | Always — and `True` unless it is one of the three that must not (below). |
 
+`DEFAULT_ENABLED` is what a profile that has NEVER opened «Настройки → Вкладки»
+behaves by — the code's own constant. A profile that HAS opened that page keeps
+its own tick list from then on (`tabs.enabled` in its `config.json`) — except that
+"its own" is not "written by itself": every profile but the `default` one stores
+only what it overrides, and reads back `tabs.enabled`/`tabs.known` from the
+`default` profile's own `config.json` for everything it never touched itself
+(`panel/profile.py`, `_deep_merge`/`_deep_diff`, #1246). So the one place that
+controls which tabs are on for every profile at once is the `default` profile's
+own Settings page — tick a tab there and every profile that never ticked it for
+itself picks it up on its next start. A profile that DOES want to differ (its own
+tick list) keeps overriding the default exactly as before.
+
 ---
 
 ## `ensure_loaded` vs `on_show` — the one that bites

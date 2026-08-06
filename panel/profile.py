@@ -3,7 +3,7 @@
 A *profile* is a named set of panel settings plus its own logs, stored under
 ``panel/profiles/<name>/``::
 
-    config.json             all panel settings (language, checkboxes, filters, coords…)
+    config.json             this profile's settings — see "the default is the base" below
     rally_log.jsonl         rally-monitor output for this profile
     secret_tasks_log.jsonl  secret-task findings for this profile
     timers.json             this profile's timers (what runs, how often, args)
@@ -14,6 +14,29 @@ The active profile name lives in ``panel/settings.json`` (global, profile-
 independent), so the last-used profile is restored on the next launch. Switching
 a profile just means reading a different ``config.json``; the panel re-applies
 every setting from it.
+
+THE DEFAULT PROFILE IS THE BASE, EVERY OTHER ONE IS ITS OVERRIDES (#1246). A
+profile named anything but :data:`DEFAULT_PROFILE` stores on disk only the
+settings that differ from the default profile's own ``config.json`` — :meth:`load`
+layers those overrides onto the default's config, and :meth:`save` throws away
+whatever a profile would have written unchanged from it. The default profile's
+file has no parent and is read and written whole, exactly as before.
+
+This is what makes a knob "central": switching a tab on or off, or changing any
+other setting, in the DEFAULT profile's own Settings page reaches every profile
+that never touched that setting itself the next time it starts — instead of every
+profile carrying its own full copy of the same fifteen tab ids and silently
+drifting apart, which is how profile "casper" ended up rebuilding NO tabs at all
+(its own ``tabs.enabled`` had gone empty, and there was no shared base underneath
+it to fall back to). A profile that DOES set its own value for a setting keeps
+overriding the default with it, same as it always could.
+
+A brand-new profile's ``config.json`` is written the moment its directory is —
+empty (``{}``, "nothing overridden yet") rather than left to appear only after
+the first Settings save. A profile directory that existed before this rule with
+no file of its own is backfilled the same empty way the next time anything asks
+for its directory, so ``panel/profiles/`` never again shows a profile with no
+config file to point at (part of #1246 too — several already had none).
 
 This module is intentionally UI-agnostic: it only reads/writes JSON and manages
 the on-disk layout. The panel binds its Tk variables to config keys and calls
@@ -120,6 +143,67 @@ def _sanitize_uid(uid: str) -> str:
     return _UID_SAFE.sub("", str(uid or "")) or "unknown"
 
 
+#: Marks a diff entry as a WHOLE value rather than a partial patch — see
+#: :func:`_deep_diff`'s docstring for why a partial patch is not always possible.
+#: Distinctive on purpose: a real setting named this would be a stranger coincidence
+#: than the bug this guards against.
+_WHOLE_KEY = "__lw_profile_whole_value__"
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Layer ``override`` onto ``base``: a nested dict merges key by key, anything
+    else — a list, a string, a number, ``None`` — in ``override`` replaces the base
+    value outright rather than combining with it (a tab list is a whole choice, not
+    something to concatenate). ``base`` and ``override`` are left untouched.
+
+    A dict wrapped in :data:`_WHOLE_KEY` by :func:`_deep_diff` is unwrapped and used
+    whole, not merged — it is there precisely because merging it WOULD be wrong.
+    """
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and _WHOLE_KEY in value:
+            out[key] = value[_WHOLE_KEY]
+            continue
+        base_value = out.get(key)
+        if isinstance(value, dict) and isinstance(base_value, dict):
+            out[key] = _deep_merge(base_value, value)
+        else:
+            out[key] = value
+    return out
+
+
+def _deep_diff(full: dict, base: dict) -> dict:
+    """The inverse of :func:`_deep_merge`: what of ``full`` is not already implied by
+    ``base``. A key equal to the base's own value — recursively, for a nested dict —
+    is dropped, so saving a profile that never touched a setting does not start
+    carrying the default's value for it forever.
+
+    Recursing into a nested dict as a PARTIAL patch is only correct when ``full``'s
+    side carries every key ``base``'s side does — then whatever gets dropped is
+    provably a key equal to the base's own, and merging the two back together
+    reconstructs ``full`` exactly. A ``full`` whose dict is missing a key the base's
+    has (an old profile saved before the base gained a field, or a block a newer
+    default widened) cannot be diffed partially: :func:`_deep_merge` cannot tell "the
+    profile never had this key" from "the profile did not change it", so a plain
+    partial dict here would have the base's extra key silently reappear on load. That
+    subtree is wrapped as a WHOLE value instead (:data:`_WHOLE_KEY`) — bigger on disk
+    for that one profile than a clean partial diff would be, but exact.
+    """
+    out = {}
+    for key, value in full.items():
+        base_value = base.get(key)
+        if isinstance(value, dict) and isinstance(base_value, dict):
+            if set(base_value) <= set(value):
+                sub = _deep_diff(value, base_value)
+                if sub:
+                    out[key] = sub
+            elif value != base_value:
+                out[key] = {_WHOLE_KEY: value}
+        elif key not in base or value != base_value:
+            out[key] = value
+    return out
+
+
 class ProfileManager:
     """On-disk store of named profiles and the active-profile pointer.
 
@@ -139,6 +223,13 @@ class ProfileManager:
         # has something to select.
         if not self.list():
             self._ensure_dir(DEFAULT_PROFILE)
+        else:
+            # Backfill config.json for any profile that predates this rule — so
+            # `panel/profiles/` never shows a profile with no config file of its own,
+            # right from the next time anything so much as opens the panel (#1246),
+            # rather than only once that particular profile is next touched.
+            for existing in self.list():
+                self._ensure_dir(existing)
         self.pinned = bool(sanitize(pin or ""))
         self._active = self._ensure_dir(pin) if self.pinned else self._read_active()
 
@@ -297,9 +388,8 @@ class ProfileManager:
         return self._active
 
     # -- config read / write ------------------------------------------------
-    def load(self, name: str | None = None) -> dict:
-        """Return a profile's settings dict (``{}`` if it has none yet)."""
-        name = sanitize(name) if name else self._active
+    def _load_own(self, name: str) -> dict:
+        """This profile's OWN file, unmerged — ``{}`` if it has none yet."""
         try:
             with open(os.path.join(PROFILES_DIR, name, CONFIG_FILE), encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -307,11 +397,34 @@ class ProfileManager:
         except (OSError, ValueError):
             return {}
 
+    def _default_base(self, name: str) -> dict:
+        """The default profile's own config, unless ``name`` already IS the default —
+        which has no base underneath it (module docstring)."""
+        if name == DEFAULT_PROFILE or not self.exists(DEFAULT_PROFILE):
+            return {}
+        return self._load_own(DEFAULT_PROFILE)
+
+    def load(self, name: str | None = None) -> dict:
+        """A profile's EFFECTIVE settings: its own overrides layered on the default
+        profile's config (``{}`` for the default itself, or if there is no default
+        profile at all — a profile has no base to fall back to then, not a crash)."""
+        name = sanitize(name) if name else self._active
+        own = self._load_own(name)
+        base = self._default_base(name)
+        return _deep_merge(base, own) if base else own
+
     def save(self, config: dict, name: str | None = None) -> None:
-        """Persist a profile's full settings dict."""
+        """Persist a profile's settings.
+
+        The default profile stores ``config`` whole — it IS the base. Any other
+        profile stores only what of ``config`` differs from the default profile's own
+        file, so a knob left untouched here starts following the default from now on
+        instead of freezing at whatever it happened to equal at the last save.
+        """
         name = sanitize(name) if name else self._active
         self._ensure_dir(name)
-        _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), config)
+        own = config if name == DEFAULT_PROFILE else _deep_diff(config, self._default_base(name))
+        _write_json(os.path.join(PROFILES_DIR, name, CONFIG_FILE), own)
 
     # -- per-profile log paths ---------------------------------------------
     def dir(self, name: str | None = None) -> str:
@@ -417,9 +530,20 @@ class ProfileManager:
 
         Callers (``set_active``/``create``/``_read_active``) rely on getting the
         name back, so keep returning the name — :meth:`dir` builds the full path.
+
+        Also backfills ``config.json`` with an empty ``{}`` when the profile has none
+        yet — a brand-new profile as much as one from before this rule existed — so a
+        profile in ``panel/profiles/`` always has a config file to point at rather
+        than one that only appears after its first Settings save (#1246). Empty means
+        "nothing overridden": read through :meth:`load` it is exactly the default
+        profile's own config, or the code's constants for the default profile itself.
         """
         name = sanitize(name) or DEFAULT_PROFILE
-        os.makedirs(os.path.join(PROFILES_DIR, name), exist_ok=True)
+        path = os.path.join(PROFILES_DIR, name)
+        os.makedirs(path, exist_ok=True)
+        config_path = os.path.join(path, CONFIG_FILE)
+        if not os.path.exists(config_path):
+            _write_json(config_path, {})
         return name
 
 

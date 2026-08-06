@@ -465,7 +465,7 @@
   "settings.tab.game": "Spiel",
   "settings.tab.general": "Allgemein",
   "settings.tab.tabs": "Reiter",
-  "settings.tabs.hint": "Welche Reiter dieses Profil zeigt. Ein ausgeschalteter Reiter wird gar nicht gebaut: keine Bedienelemente, keine eigene Einstellungsseite, keine angebotenen Auslöser und keine seiner Aufzeichnungen oder Wächter gestartet — «Geheime Missionen» aus heißt eine Aufzeichnung und zwei Wächter-Fäden, die nie laufen. Die Spalte daneben sagt, was jeder Reiter hochfährt, wenn er an ist.",
+  "settings.tabs.hint": "Welche Reiter dieses Profil zeigt. Ein ausgeschalteter Reiter wird gar nicht gebaut: keine Bedienelemente, keine eigene Einstellungsseite, keine angebotenen Auslöser und keine seiner Aufzeichnungen oder Wächter gestartet — «Geheime Missionen» aus heißt eine Aufzeichnung und zwei Wächter-Fäden, die nie laufen. Unangetastet hier folgt ein Reiter der eigenen Wahl des STANDARD-Profils — schalte ihn dort um, um jedes Profil zu erreichen, das ihn selbst nie gesetzt hat. Die Spalte daneben sagt, was jeder Reiter hochfährt, wenn er an ist.",
   "settings.tabs.restart": "Gespeichert. Die Liste greift beim nächsten Start des Pults — ein Reiter fährt seine stehenden Aufträge hoch, wenn er gebaut wird, und ihn im Flug abzuräumen ist nicht dasselbe.",
   "standalone.started": "{tab} — eigenes Fenster, Profil «{profile}»",
   "splash.daemon": "Verbinde mich mit dem Daemon…",
